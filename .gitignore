@@ -5,6 +5,4 @@ __pycache__/
 .venv/
 data/episodes/
 logs/
-run/*.pid
-run/*.json
-
+run/

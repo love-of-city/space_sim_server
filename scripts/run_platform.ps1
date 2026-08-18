@@ -6,10 +6,13 @@ param(
     [int]$ControlPort = 8766,
     [int]$CapturePort = 8767,
     [int]$RenderPort = 5558,
+    [int]$PixelStreamerPort = 8888,
+    [int]$PixelPlayerPort = 8080,
+    [string]$PixelStreamingId = 'BskRenderer',
     [double]$Duration = 300.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
-    [double]$PreviewRate = 30.0,
+    [double]$PreviewRate = 60.0,
     [switch]$Rebuild,
     [switch]$ReimportAssets,
     [switch]$NoBrowser
@@ -34,6 +37,10 @@ foreach ($path in @($AdapterRoot, $ModelRoot, $UnrealRoot, $ueScripts)) {
 # Stop only PIDs previously recorded by this project before binding fixed ports.
 & (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet
 
+Write-Output 'Starting the local Pixel Streaming 2 signalling server ...'
+& (Join-Path $PSScriptRoot 'start_pixel_streaming.ps1') -UnrealRoot $UnrealRoot `
+    -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort
+
 Write-Output 'Checking the existing UE assets and runtime plugin ...'
 $catalog = Join-Path $ueProject 'Saved\AssetImport\cubesat_so101.catalog.json'
 if ($ReimportAssets -or !(Test-Path -LiteralPath $catalog -PathType Leaf)) {
@@ -53,7 +60,8 @@ if ($Rebuild -or !(Test-Path -LiteralPath $pluginBinary)) {
 $powershellExe = (Get-Command powershell.exe).Source
 $backendArgs = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_backend.ps1'),
-    '-ApiPort', $ApiPort, '-ControlPort', $ControlPort, '-CapturePort', $CapturePort
+    '-ApiPort', $ApiPort, '-ControlPort', $ControlPort, '-CapturePort', $CapturePort,
+    '-PixelStreamingPlayerPort', $PixelPlayerPort, '-PixelStreamingId', $PixelStreamingId
 )
 $backend = Start-Process -FilePath $powershellExe -ArgumentList $backendArgs -PassThru -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logDirectory 'backend.out.log') `
@@ -73,7 +81,9 @@ try {
 
     & (Join-Path $ueScripts 'start_renderer.ps1') -UnrealRoot $UnrealRoot -Port $RenderPort `
         -CaptureProducts @('rgb','depth','segmentation') -CaptureRate $CaptureRate `
-        -PreviewRate $PreviewRate -CaptureNetworkHost '127.0.0.1' -CaptureNetworkPort $CapturePort
+        -CaptureNetworkHost '127.0.0.1' -CaptureNetworkPort $CapturePort `
+        -PixelStreamingURL "ws://127.0.0.1:$PixelStreamerPort" -PixelStreamingId $PixelStreamingId `
+        -PixelStreamingFps ([int][Math]::Round($PreviewRate))
     $rendererPid = [int](Get-Content -Raw -LiteralPath (Join-Path $ueProject 'Saved\BskRenderer.pid'))
 
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
@@ -110,16 +120,19 @@ try {
         simulation_pid = $simulation.Id
         simulation_start = $simulation.StartTime.ToUniversalTime().Ticks
         renderer_pid = $rendererPid
+        pixel_streamer_port = $PixelStreamerPort
+        pixel_player_port = $PixelPlayerPort
         api_url = "http://127.0.0.1:$ApiPort"
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runDirectory 'platform.json') -Encoding utf8
 
     if (!$NoBrowser) { Start-Process "http://127.0.0.1:$ApiPort" }
     Write-Output "Space Arm Data Platform is running: http://127.0.0.1:$ApiPort"
-    Write-Output "Preview: $PreviewRate Hz latest-frame stream; dataset: $CaptureRate Hz authoritative RGB/depth/segmentation."
+    Write-Output "Preview: $PreviewRate FPS Pixel Streaming 2/WebRTC; dataset: $CaptureRate Hz authoritative RGB/depth/segmentation."
     Write-Output 'Use W/S, A/D, Q/E directly for XYZ; hold Shift for rotation; use F/R for the gripper; Esc latches emergency stop.'
     Write-Output 'Run .\scripts\stop_platform.ps1 when finished.'
 } catch {
     if (!$backend.HasExited) { Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue }
     & (Join-Path $ueScripts 'stop_renderer.ps1') -ErrorAction SilentlyContinue
+    & (Join-Path $PSScriptRoot 'stop_pixel_streaming.ps1') -Quiet -ErrorAction SilentlyContinue
     throw
 }

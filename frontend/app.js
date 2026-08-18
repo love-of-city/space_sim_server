@@ -7,7 +7,6 @@ const state = {
   pressed: new Set(),
   estopped: false,
   lastAckAt: 0,
-  camera: "",
   linearSpeed: 0.05,
 };
 
@@ -64,6 +63,32 @@ function connect() {
       setMessage(`动作被拒绝：${message.reason}`);
     }
   };
+}
+
+async function connectPixelStreaming() {
+  try {
+    const response = await fetch("/api/client-config", { cache: "no-store" });
+    if (!response.ok) throw new Error(`config ${response.status}`);
+    const config = await response.json();
+    const protocol = location.protocol === "https:" ? "https:" : "http:";
+    const playerUrl = new URL(`${protocol}//${location.hostname}:${config.pixel_streaming_player_port}/player.html`);
+    playerUrl.searchParams.set("StreamerId", config.pixel_streaming_streamer_id);
+    playerUrl.searchParams.set("AutoConnect", "true");
+    playerUrl.searchParams.set("AutoPlayVideo", "true");
+    playerUrl.searchParams.set("HoveringMouse", "false");
+    const stream = $("pixelStream");
+    stream.src = playerUrl.toString();
+    stream.onload = () => {
+      stream.style.display = "block";
+      $("previewEmpty").style.display = "none";
+      // iframe 加载只表示官方播放器就绪；实际 WebRTC 连接状态由播放器自行维护。
+      $("frameState").textContent = "WEBRTC PLAYER";
+      $("frameState").style.color = "var(--accent)";
+    };
+  } catch (_) {
+    $("frameState").textContent = "WEBRTC OFFLINE";
+    setTimeout(connectPixelStreaming, 1500);
+  }
 }
 
 function applyControlLimits(limits = {}) {
@@ -167,7 +192,6 @@ async function refreshState() {
     state.activeEpisode = data.active_episode;
     $("episodePath").textContent = data.episode_directory || "—";
     updateEpisodeUI();
-    updateCameras(data.cameras || []);
   } catch (_) {
     setOnline("backendDot", false);
   }
@@ -180,27 +204,6 @@ function updateEpisodeUI() {
   $("startEpisode").disabled = active;
   $("successEpisode").disabled = !active;
   $("failureEpisode").disabled = !active;
-}
-
-function updateCameras(cameras) {
-  const select = $("cameraSelect");
-  const known = new Set([...select.options].map((option) => option.value));
-  for (const camera of cameras) {
-    if (!known.has(camera)) select.add(new Option(camera.split("/").at(-1), camera));
-  }
-  if (cameras.length && !$("preview").getAttribute("src")) setPreview("");
-}
-
-function setPreview(camera) {
-  state.camera = camera;
-  const preview = $("preview");
-  preview.src = `/api/preview-stream?camera=${encodeURIComponent(camera)}&t=${Date.now()}`;
-  preview.onload = () => {
-    preview.style.display = "block";
-    $("previewEmpty").style.display = "none";
-    $("frameState").textContent = "LIVE RGB";
-    $("frameState").style.color = "var(--accent)";
-  };
 }
 
 async function startEpisode() {
@@ -254,12 +257,12 @@ $("linearSpeed").addEventListener("input", (event) => {
   state.linearSpeed = Number(event.target.value);
   $("linearSpeedValue").textContent = `${state.linearSpeed.toFixed(2)} m/s`;
 });
-$("cameraSelect").addEventListener("change", (event) => setPreview(event.target.value));
 $("startEpisode").addEventListener("click", startEpisode);
 $("successEpisode").addEventListener("click", () => stopEpisode("success"));
 $("failureEpisode").addEventListener("click", () => stopEpisode("failure"));
 
 connect();
+connectPixelStreaming();
 refreshState();
 setInterval(sendAction, 33);
 setInterval(refreshState, 1500);

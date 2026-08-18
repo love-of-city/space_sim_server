@@ -18,6 +18,8 @@ def main() -> None:
     parser.add_argument("--simulation-port", type=int, default=8766)
     parser.add_argument("--capture-host", default="127.0.0.1")
     parser.add_argument("--capture-port", type=int, default=8767)
+    parser.add_argument("--pixel-streaming-player-port", type=int, default=8080)
+    parser.add_argument("--pixel-streaming-streamer-id", default="BskRenderer")
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args()
@@ -30,6 +32,8 @@ def main() -> None:
             simulation_port=args.simulation_port,
             capture_host=args.capture_host,
             capture_port=args.capture_port,
+            pixel_streaming_player_port=args.pixel_streaming_player_port,
+            pixel_streaming_streamer_id=args.pixel_streaming_streamer_id,
         )
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)

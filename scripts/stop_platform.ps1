@@ -27,5 +27,5 @@ if (Test-Path -LiteralPath $statePath) {
 
 $stopRenderer = Join-Path $adapterRoot 'Unreal\BskUnrealRenderer\scripts\stop_renderer.ps1'
 if (Test-Path -LiteralPath $stopRenderer) { & $stopRenderer }
+& (Join-Path $PSScriptRoot 'stop_pixel_streaming.ps1') -Quiet
 if (!$Quiet) { Write-Output 'Space Arm Data Platform processes have been stopped.' }
-

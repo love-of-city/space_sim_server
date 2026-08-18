@@ -38,7 +38,7 @@ button, input, select { font: inherit; }
 
 .workspace { height: calc(100vh - 108px); display: grid; grid-template-columns: minmax(0, 1fr) 410px; }
 .viewport { position: relative; overflow: hidden; background: #020305; }
-#preview { width: 100%; height: 100%; object-fit: contain; display: none; }
+#pixelStream { width: 100%; height: 100%; border: 0; display: none; background: #020305; pointer-events: none; }
 .preview-empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 8px; color: #b7c4ca; background: radial-gradient(circle at 50% 45%, #14222b 0, #080c10 42%, #030506 78%); }
 .preview-empty::before { content: ""; width: 110px; height: 110px; margin: 0 auto 20px; border: 1px solid #3b4b54; border-radius: 50%; box-shadow: inset 0 0 0 28px #0c151b; }
 .preview-empty small { color: var(--muted); }

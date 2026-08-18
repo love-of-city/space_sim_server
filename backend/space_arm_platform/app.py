@@ -33,6 +33,8 @@ class PlatformConfig:
     capture_host: str = "127.0.0.1"
     capture_port: int = 8767
     deadman_timeout_s: float = 0.25
+    pixel_streaming_player_port: int = 8080
+    pixel_streaming_streamer_id: str = "BskRenderer"
 
 
 class OperatorSessions:
@@ -141,6 +143,14 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             "capture_channels": captures.status(),
             "capture_sync": recorder.sync_status(),
             "active_operator": sessions.active_operator,
+        }
+
+    @app.get("/api/client-config")
+    async def client_config() -> dict[str, Any]:
+        return {
+            "preview_transport": "pixel_streaming_2",
+            "pixel_streaming_player_port": config.pixel_streaming_player_port,
+            "pixel_streaming_streamer_id": config.pixel_streaming_streamer_id,
         }
 
     @app.get("/api/state")

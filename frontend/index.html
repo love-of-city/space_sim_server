@@ -23,17 +23,14 @@
   </header>
 
   <main class="workspace">
-    <section class="viewport" aria-label="UE相机画面">
-      <img id="preview" alt="UE实时RGB画面">
+    <section class="viewport" aria-label="UE Pixel Streaming 实时画面">
+      <iframe id="pixelStream" title="UE Pixel Streaming 实时画面" tabindex="-1" allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe>
       <div id="previewEmpty" class="preview-empty">
-        <span>等待 UE RGB 数据</span>
-        <small>启动后端、UE和BSK/MJScene后，画面将在此显示</small>
+        <span>等待 UE Pixel Streaming</span>
+        <small>启动信令服务、UE和BSK/MJScene后，WebRTC画面将在此显示</small>
       </div>
       <div class="viewport-toolbar">
-        <span title="该画面经过短缓冲和有限外推，仅供操作预览，不写入训练集">流畅预览（非训练数据）</span>
-        <select id="cameraSelect" aria-label="选择相机">
-          <option value="">自动选择相机</option>
-        </select>
+        <span title="UE BackBuffer 经 NVENC/WebRTC 传输，只供操作预览，不写入训练集">PIXEL STREAMING 2（非训练数据）</span>
         <span id="frameState">NO SIGNAL</span>
       </div>
       <div class="crosshair" aria-hidden="true"></div>

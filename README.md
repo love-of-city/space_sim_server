@@ -10,31 +10,31 @@
 BSK + MJScene（500 Hz权威动力学、逆运动学与接触）
       ↓ bsk-render/2
 space_sim_UE_adapter / UE5（渲染与相机采集）
-      ↓ bsk-capture/1
-本项目后端 → 浏览器预览 + episode数据目录
+      ├─ Pixel Streaming 2 / WebRTC → 浏览器操作预览
+      └─ bsk-capture/1 → 本项目后端 → episode数据目录
 ```
 
 UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJScene计算后的真实状态。
 
 ## 双画面通道
 
-- **操作预览**：默认 30 Hz，只保留最新 RGB 帧；使用 15 ms 插值缓冲和最多 50 ms 的短时视觉外推，让网页遥操作更流畅。该通道不会写入训练集。
+- **操作预览**：UE 主视口由 Pixel Streaming 2 以 H.264/WebRTC 直接传给网页，默认目标 60 FPS。浏览器不再轮询 JPEG；该画面只供遥操作，不写入训练集。
 - **权威采集**：默认 10 Hz，在 UE 中临时应用精确的 BSK/MJScene 帧并同步采集 RGB、深度和分割；不使用插值或外推。后端按 `source_frame_id -> render_frame_id -> step_id` 严格配对后才保存。
 
-两条通道共享相机定义，但具有独立的调度和队列；预览拥塞时覆盖旧帧，权威采集采用有界可靠队列并明确报告溢出。
+两条通道相互独立：Pixel Streaming 发送 UE 当前主视口，权威采集仍通过 `bsk-capture/1` 传送相机数据。WebRTC 丢帧或网络波动不会改变 BSK/MJScene 状态，也不会污染训练数据。
 
 ## 当前已实现
 
 - 默认动作空间为末端平移3维、末端旋转3维和夹爪开合。
 - 从MJCF自动解析安装位姿、关节轴和工具坐标，使用阻尼最小二乘雅可比逆解。
 - SO-101只有5个机械臂自由度，因此六维命令会投影到物理可实现的5维运动，并记录命令残差和雅可比秩。
-- Web操作台支持键盘、浏览器Gamepad API、末端状态和相机选择。
+- Web操作台支持键盘、浏览器Gamepad API和末端状态；主画面使用 UE Pixel Streaming 2。
 - 单操作员控制权；其他连接自动成为只读观察者。
 - 仿真模式按键和手柄输入直接生效；松键、窗口失焦、断线或250 ms超时立即停止。
 - `Esc`和页面急停按钮会锁存停止状态，必须点击“恢复控制”才能解除。
 - 末端线速度、角速度、关节速度、关节位置和夹爪速度均有限制。
-- BSK/MJScene以500 Hz运行，前端约30 Hz发动作，UE约30 Hz显示。
-- UE RGB通过 `bsk-capture/1` 回传网页；RGB、深度和分割原始产品写入episode。
+- BSK/MJScene以500 Hz运行，前端约30 Hz发动作，UE通过 WebRTC 以最高60 FPS预览。
+- UE主视口经 Pixel Streaming 2 回传网页；RGB、深度和分割权威产品仍通过 `bsk-capture/1` 写入episode。
 - 记录用户请求、过滤后动作、关节状态、末端位姿/速度、IK残差、时间戳和相机数据。
 
 这仍是人工遥操作，不是视觉闭环或自主抓取策略。
@@ -58,12 +58,12 @@ Set-Location E:\mujoco_demo\space_arm_data_platform
 .\scripts\run_platform.ps1
 ```
 
-首次加载Basilisk/MJScene和模型可能需要30～60秒。网页地址为 `http://127.0.0.1:8000`。
+首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖）；不会安装另一套 UE。随后加载Basilisk/MJScene和模型可能需要30～60秒。网页地址为 `http://127.0.0.1:8000`。
 
 自定义任务时长和采集率：
 
 ```powershell
-.\scripts\run_platform.ps1 -Duration 600 -PreviewRate 30 -CaptureRate 10 -SimulationRate 1
+.\scripts\run_platform.ps1 -Duration 600 -PreviewRate 60 -CaptureRate 10 -SimulationRate 1
 ```
 
 已有17个机械臂网格会直接复用。只有源STL或材质变化时才重新导入：
@@ -77,6 +77,8 @@ Set-Location E:\mujoco_demo\space_arm_data_platform
 ```powershell
 .\scripts\stop_platform.ps1
 ```
+
+本机默认端口：操作台 `8000`、Pixel Streaming 播放器 `8080`、UE 信令 `8888`。当前脚本面向本机 HTTP 使用；跨机器或公网部署时必须另外配置可访问的公网地址、HTTPS 以及 STUN/TURN。
 
 ## 键盘操作
 
@@ -117,7 +119,7 @@ data/episodes/episode-日期时间-随机ID/
 └── cameras/            # RGB、深度、分割
 ```
 
-网页 RGB 只用于操作预览；训练数据直接保存 UE 权威帧的原始产品，不从网页截图反推。`steps.jsonl` 中记录 `step_id` 和 `render_frame_id`；`captures.jsonl` 记录匹配的 `source_frame_id`、`sim_time_ns` 及 `authoritative_state=true`。停止 episode 时，`metadata.json` 会给出匹配、待匹配和拒绝数量。
+网页 WebRTC 视频只用于操作预览；训练数据直接保存 UE 权威帧的原始产品，不从网页视频或截图反推。`steps.jsonl` 中记录 `step_id` 和 `render_frame_id`；`captures.jsonl` 记录匹配的 `source_frame_id`、`sim_time_ns` 及 `authoritative_state=true`。停止 episode 时，`metadata.json` 会给出匹配、待匹配和拒绝数量。
 
 ## 单独调试与验证
 
@@ -130,6 +132,9 @@ data/episodes/episode-日期时间-随机ID/
 
 # 自动化测试
 python -m pytest
+
+# 平台已启动时，自动验证浏览器确实解码到了 UE WebRTC 视频帧
+node .\tools\verify_pixel_streaming.mjs
 
 # 用原生MuJoCo校验MJCF正运动学
 conda run --no-capture-output -n mujoco-dev python .\tools\validate_mujoco_fk.py

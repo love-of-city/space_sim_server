@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Space Arm / 遥操作采集台</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="identity">
+      <span class="mark" aria-hidden="true"></span>
+      <div>
+        <strong>SPACE ARM</strong>
+        <small>遥操作与数据采集台</small>
+      </div>
+    </div>
+    <div class="system-status" aria-live="polite">
+      <span id="backendDot" class="status-dot"></span><span id="backendState">后端连接中</span>
+      <span id="simDot" class="status-dot"></span><span id="simState">仿真未连接</span>
+      <span id="episodeBadge" class="episode-badge">未采集</span>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="viewport" aria-label="UE相机画面">
+      <img id="preview" alt="UE实时RGB画面">
+      <div id="previewEmpty" class="preview-empty">
+        <span>等待 UE RGB 数据</span>
+        <small>启动后端、UE和BSK/MJScene后，画面将在此显示</small>
+      </div>
+      <div class="viewport-toolbar">
+        <span title="该画面经过短缓冲和有限外推，仅供操作预览，不写入训练集">流畅预览（非训练数据）</span>
+        <select id="cameraSelect" aria-label="选择相机">
+          <option value="">自动选择相机</option>
+        </select>
+        <span id="frameState">NO SIGNAL</span>
+      </div>
+      <div class="crosshair" aria-hidden="true"></div>
+    </section>
+
+    <aside class="control-rail">
+      <section class="control-section control-intro">
+        <p class="eyebrow">MANUAL CONTROL</p>
+        <h1>末端六维遥操作</h1>
+        <p>按键直接控制末端；按住Shift切换姿态。松键、页面失焦或链路超时会自动停止。</p>
+      </section>
+
+      <section class="control-section">
+        <div class="section-heading">
+          <h2>实时指令</h2>
+          <span id="controlAuthority">只读</span>
+        </div>
+        <div class="mode-line"><span>当前键盘模式</span><strong id="motionMode">平移 XYZ</strong></div>
+        <div class="speed-control">
+          <label for="linearSpeed">末端平移速度</label>
+          <div>
+            <input id="linearSpeed" type="range" min="0.01" max="0.20" step="0.01" value="0.05">
+            <output id="linearSpeedValue" for="linearSpeed">0.05 m/s</output>
+          </div>
+        </div>
+        <div class="joint-list">
+          <div><span>X 前后</span><kbd>S</kbd><output id="vx">0.000</output><kbd>W</kbd></div>
+          <div><span>Y 左右</span><kbd>A</kbd><output id="vy">0.000</output><kbd>D</kbd></div>
+          <div><span>Z 上下</span><kbd>E</kbd><output id="vz">0.000</output><kbd>Q</kbd></div>
+          <div><span>Roll</span><kbd>⇧E</kbd><output id="wx">0.000</output><kbd>⇧Q</kbd></div>
+          <div><span>Pitch</span><kbd>⇧S</kbd><output id="wy">0.000</output><kbd>⇧W</kbd></div>
+          <div><span>Yaw</span><kbd>⇧A</kbd><output id="wz">0.000</output><kbd>⇧D</kbd></div>
+          <div><span>夹爪</span><kbd>F</kbd><output id="grip">0.000</output><kbd>R</kbd></div>
+        </div>
+        <p class="projection-note">SO-101为5轴机械臂，六维命令由阻尼逆解投影到可实现运动。</p>
+        <div id="directControl" class="deadman direct-status">直接控制：等待输入</div>
+        <button id="estop" class="estop" type="button">立即停止输出（Esc）</button>
+      </section>
+
+      <section class="control-section telemetry">
+        <div class="section-heading">
+          <h2>仿真状态</h2>
+          <span id="latency">—</span>
+        </div>
+        <dl>
+          <div><dt>仿真时间</dt><dd id="simTime">—</dd></div>
+          <div><dt>动作序号</dt><dd id="actionSequence">—</dd></div>
+          <div><dt>末端位置</dt><dd id="toolPosition">—</dd></div>
+          <div><dt>雅可比秩</dt><dd id="jacobianRank">—</dd></div>
+          <div><dt>输入设备</dt><dd id="inputSource">键盘</dd></div>
+          <div><dt>数据目录</dt><dd id="episodePath">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="control-section episode-controls">
+        <div class="section-heading"><h2>任务采集</h2></div>
+        <label>任务说明<input id="instruction" value="控制太空机械臂接近并抓取目标"></label>
+        <div class="button-row">
+          <button id="startEpisode" class="primary" type="button">开始采集</button>
+          <button id="successEpisode" type="button" disabled>成功结束</button>
+          <button id="failureEpisode" type="button" disabled>失败结束</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span>动作 → BSK/MJScene 权威仿真 → UE渲染</span>
+    <span id="message">正在建立操作链路…</span>
+  </footer>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

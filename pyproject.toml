@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "space-arm-data-platform"
+version = "0.1.0"
+description = "Space manipulator teleoperation and synchronized dataset collection platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "pydantic>=2.8",
+  "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+test = ["httpx>=0.27", "pytest>=8.0"]
+
+[project.scripts]
+space-arm-platform = "space_arm_platform.main:main"
+
+[tool.setuptools]
+packages = ["space_arm_platform"]
+package-dir = {space_arm_platform = "backend/space_arm_platform"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend"]
+

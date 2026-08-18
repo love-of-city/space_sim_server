@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "space-arm-control-v1.schema.json",
+  "title": "space-arm-control/1",
+  "description": "Length-prefixed JSON contract between the data platform and the authoritative BSK/MJScene process.",
+  "oneOf": [
+    {"$ref": "#/$defs/simHello"},
+    {"$ref": "#/$defs/action"},
+    {"$ref": "#/$defs/observation"}
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["protocol", "type"],
+      "properties": {
+        "protocol": {"const": "space-arm-control/1"},
+        "type": {"type": "string"}
+      }
+    },
+    "simHello": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "type": "object",
+          "required": ["type", "simulation_id", "capabilities"],
+          "properties": {
+            "type": {"const": "sim_hello"},
+            "simulation_id": {"type": "string", "minLength": 1},
+            "capabilities": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      ]
+    },
+    "action": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "type": "object",
+          "required": ["type", "server_sequence", "deadman", "end_effector_linear_velocity_body_m_s", "end_effector_angular_velocity_body_rad_s", "gripper_velocity_rad_s"],
+          "properties": {
+            "type": {"const": "action"},
+            "episode_id": {"type": ["string", "null"]},
+            "server_sequence": {"type": "string", "pattern": "^[0-9]+$"},
+            "server_time_ns": {"type": "string", "pattern": "^[0-9]+$"},
+            "deadman": {"type": "boolean"},
+            "control_frame": {"const": "spacecraft_body"},
+            "requested_end_effector_linear_speed_m_s": {"type": "number", "exclusiveMinimum": 0},
+            "applied_end_effector_linear_speed_m_s": {"type": "number", "exclusiveMinimum": 0},
+            "end_effector_linear_velocity_body_m_s": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {"type": "number"}
+            },
+            "end_effector_angular_velocity_body_rad_s": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {"type": "number"}
+            },
+            "gripper_velocity_rad_s": {"type": "number"}
+          }
+        }
+      ]
+    },
+    "observation": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "type": "object",
+          "required": ["type", "step_id", "render_frame_id", "sim_time_ns", "applied_action_sequence", "joint_position_rad", "joint_velocity_rad_s", "end_effector_position_body_m", "end_effector_orientation_body_wxyz", "end_effector_twist_body", "cartesian_command_residual", "jacobian_rank"],
+          "properties": {
+            "type": {"const": "observation"},
+            "step_id": {"type": "string", "pattern": "^[0-9]+$"},
+            "render_frame_id": {"type": "string", "pattern": "^[0-9]+$"},
+            "sim_time_ns": {"type": "string", "pattern": "^[0-9]+$"},
+            "applied_action_sequence": {"type": "string", "pattern": "^[0-9]+$"},
+            "joint_position_rad": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
+            "joint_velocity_rad_s": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
+            "end_effector_position_body_m": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+            "end_effector_orientation_body_wxyz": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+            "end_effector_twist_body": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
+            "cartesian_command_residual": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
+            "jacobian_rank": {"type": "integer", "minimum": 0, "maximum": 5}
+          }
+        }
+      ]
+    }
+  }
+}

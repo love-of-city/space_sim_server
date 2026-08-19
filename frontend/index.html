@@ -3,20 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Space Arm / 遥操作采集台</title>
+  <meta name="theme-color" content="#f4f7fa">
+  <title>Space Arm · 遥操作采集台</title>
 </head>
 <body>
   <header class="topbar">
     <div class="identity">
-      <span class="mark" aria-hidden="true"></span>
+      <span class="mark" aria-hidden="true"><i></i></span>
       <div>
-        <strong>SPACE ARM</strong>
-        <small>遥操作与数据采集台</small>
+        <strong>Space Arm</strong>
+        <small>遥操作与数据采集</small>
       </div>
     </div>
     <div class="system-status" aria-live="polite">
-      <span id="backendDot" class="status-dot"></span><span id="backendState">后端连接中</span>
-      <span id="simDot" class="status-dot"></span><span id="simState">仿真未连接</span>
+      <span class="status-item"><i id="backendDot" class="status-dot"></i><span id="backendState">后端连接中</span></span>
+      <span class="status-item"><i id="simDot" class="status-dot"></i><span id="simState">仿真未连接</span></span>
       <span id="episodeBadge" class="episode-badge">未采集</span>
     </div>
   </header>
@@ -25,50 +26,54 @@
     <section class="viewport" aria-label="UE Pixel Streaming 实时画面">
       <div id="pixelStream" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
       <div id="previewEmpty" class="preview-empty">
-        <span>等待 UE Pixel Streaming</span>
-        <small>启动信令服务、UE和BSK/MJScene后，WebRTC画面将在此显示</small>
+        <span class="signal-mark" aria-hidden="true"></span>
+        <strong>等待实时画面</strong>
+        <small>UE 与 BSK/MJScene 就绪后，WebRTC 视频将在此显示</small>
       </div>
       <div class="viewport-toolbar">
         <div class="stream-controls">
+          <label class="sr-only" for="streamSelector">选择相机</label>
           <select id="streamSelector" aria-label="选择 Pixel Streaming 相机">
             <option value="BskRenderer">主视口</option>
           </select>
-          <button id="reconnectStream" type="button">重连</button>
+          <button id="reconnectStream" class="quiet-button" type="button">重新连接</button>
         </div>
-        <span id="frameState">NO SIGNAL</span>
+        <span id="frameState" class="frame-state">NO SIGNAL</span>
       </div>
       <div id="webrtcStats" class="webrtc-stats" aria-live="polite">
-        <span>RTT <strong id="webrtcRtt">—</strong></span>
-        <span>码率 <strong id="webrtcBitrate">—</strong></span>
-        <span>丢包 <strong id="webrtcLoss">—</strong></span>
-        <span>帧率 <strong id="webrtcFps">—</strong></span>
-        <span>分辨率 <strong id="webrtcResolution">—</strong></span>
+        <span><small>RTT</small><strong id="webrtcRtt">—</strong></span>
+        <span><small>码率</small><strong id="webrtcBitrate">—</strong></span>
+        <span><small>丢包</small><strong id="webrtcLoss">—</strong></span>
+        <span><small>帧率</small><strong id="webrtcFps">—</strong></span>
+        <span><small>分辨率</small><strong id="webrtcResolution">—</strong></span>
       </div>
-      <button id="playStream" class="play-stream" type="button" hidden>点击播放实时画面</button>
+      <button id="playStream" class="play-stream" type="button" hidden>播放实时画面</button>
       <div class="crosshair" aria-hidden="true"></div>
     </section>
 
-    <aside class="control-rail">
+    <aside class="control-rail" aria-label="操作与采集控制">
       <section class="control-section control-intro">
-        <p class="eyebrow">MANUAL CONTROL</p>
-        <h1>末端六维遥操作</h1>
-        <p>按键直接控制末端；按住Shift切换姿态。松键、页面失焦或链路超时会自动停止。</p>
+        <div>
+          <p class="eyebrow">OPERATOR CONTROL</p>
+          <h1>末端六维遥操作</h1>
+        </div>
+        <p>直接按键控制末端，按住 Shift 切换姿态。松键或链路超时会自动停止。</p>
       </section>
 
-      <section class="control-section">
+      <section class="control-section command-section">
         <div class="section-heading">
           <h2>实时指令</h2>
-          <span id="controlAuthority">只读</span>
+          <span id="controlAuthority" class="section-status">只读</span>
         </div>
-        <div class="mode-line"><span>当前键盘模式</span><strong id="motionMode">平移 XYZ</strong></div>
+        <div class="mode-line"><span>键盘模式</span><strong id="motionMode">平移 XYZ</strong></div>
         <div class="speed-control">
-          <label for="linearSpeed">末端平移速度</label>
-          <div>
-            <input id="linearSpeed" type="range" min="0.01" max="0.20" step="0.01" value="0.05">
+          <div class="speed-label">
+            <label for="linearSpeed">末端平移速度</label>
             <output id="linearSpeedValue" for="linearSpeed">0.05 m/s</output>
           </div>
+          <input id="linearSpeed" type="range" min="0.01" max="0.20" step="0.01" value="0.05">
         </div>
-        <div class="joint-list">
+        <div class="joint-list" aria-label="键盘映射">
           <div><span>X 前后</span><kbd>S</kbd><output id="vx">0.000</output><kbd>W</kbd></div>
           <div><span>Y 左右</span><kbd>A</kbd><output id="vy">0.000</output><kbd>D</kbd></div>
           <div><span>Z 上下</span><kbd>E</kbd><output id="vz">0.000</output><kbd>Q</kbd></div>
@@ -77,15 +82,15 @@
           <div><span>Yaw</span><kbd>⇧A</kbd><output id="wz">0.000</output><kbd>⇧D</kbd></div>
           <div><span>夹爪</span><kbd>F</kbd><output id="grip">0.000</output><kbd>R</kbd></div>
         </div>
-        <p class="projection-note">SO-101为5轴机械臂，六维命令由阻尼逆解投影到可实现运动。</p>
-        <div id="directControl" class="deadman direct-status">直接控制：等待输入</div>
-        <button id="estop" class="estop" type="button">立即停止输出（Esc）</button>
+        <p class="projection-note">SO-101 为 5 轴机械臂，六维命令会投影到可实现运动。</p>
+        <div id="directControl" class="direct-status">等待操作输入</div>
+        <button id="estop" class="estop" type="button">立即停止输出 <span>Esc</span></button>
       </section>
 
       <section class="control-section telemetry">
         <div class="section-heading">
           <h2>仿真状态</h2>
-          <span id="latency">—</span>
+          <span id="latency" class="section-status">—</span>
         </div>
         <dl>
           <div><dt>仿真时间</dt><dd id="simTime">—</dd></div>
@@ -98,8 +103,9 @@
       </section>
 
       <section class="control-section episode-controls">
-        <div class="section-heading"><h2>任务采集</h2></div>
-        <label>任务说明<input id="instruction" value="控制太空机械臂接近并抓取目标"></label>
+        <div class="section-heading"><h2>任务采集</h2><span class="section-note">权威帧</span></div>
+        <label for="instruction">任务说明</label>
+        <input id="instruction" value="控制太空机械臂接近并抓取目标">
         <div class="button-row">
           <button id="startEpisode" class="primary" type="button">开始采集</button>
           <button id="successEpisode" type="button" disabled>成功结束</button>
@@ -110,7 +116,7 @@
   </main>
 
   <footer class="footer">
-    <span>动作 → BSK/MJScene 权威仿真 → UE渲染</span>
+    <span class="pipeline">动作 <i></i> BSK/MJScene <i></i> UE 渲染</span>
     <span id="message">正在建立操作链路…</span>
   </footer>
   <script type="module" src="/app.js"></script>

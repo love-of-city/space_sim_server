@@ -20,9 +20,26 @@ def main() -> None:
     parser.add_argument("--capture-port", type=int, default=8767)
     parser.add_argument("--pixel-streaming-player-port", type=int, default=8080)
     parser.add_argument("--pixel-streaming-streamer-id", default="BskRenderer")
+    parser.add_argument("--pixel-streaming-signalling-url", default="")
+    parser.add_argument("--stream-access-jwt-secret", default="")
+    parser.add_argument("--stream-access-key", default="")
+    parser.add_argument("--stream-access-token-ttl-seconds", type=int, default=900)
+    parser.add_argument(
+        "--pixel-streaming-camera-streamer",
+        action="append",
+        default=[],
+        metavar="ID=LABEL",
+        help="Additional UE RenderTarget streamer exposed by the browser camera selector.",
+    )
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args()
+    camera_streamers: list[tuple[str, str]] = []
+    for value in args.pixel_streaming_camera_streamer:
+        streamer_id, separator, label = value.partition("=")
+        if not streamer_id.strip():
+            parser.error("--pixel-streaming-camera-streamer requires a non-empty ID")
+        camera_streamers.append((streamer_id.strip(), label.strip() if separator else streamer_id.strip()))
     project_root = Path(__file__).resolve().parents[2]
     app = create_app(
         PlatformConfig(
@@ -34,6 +51,11 @@ def main() -> None:
             capture_port=args.capture_port,
             pixel_streaming_player_port=args.pixel_streaming_player_port,
             pixel_streaming_streamer_id=args.pixel_streaming_streamer_id,
+            pixel_streaming_signalling_url=args.pixel_streaming_signalling_url,
+            pixel_streaming_camera_streamers=tuple(camera_streamers),
+            stream_access_jwt_secret=args.stream_access_jwt_secret,
+            stream_access_key=args.stream_access_key,
+            stream_access_token_ttl_seconds=args.stream_access_token_ttl_seconds,
         )
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)

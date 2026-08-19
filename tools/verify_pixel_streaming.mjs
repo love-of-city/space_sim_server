@@ -3,9 +3,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const appUrl = process.argv[2] ?? "http://127.0.0.1:8000/";
+const requestedStreamerId = process.argv[3] ?? "";
 const chromePath = process.env.CHROME_PATH
   ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const debugPort = Number(process.env.CHROME_DEBUG_PORT ?? 9333);
+const warmupMs = Number(process.env.PIXEL_STREAMING_WARMUP_MS ?? 15000);
 const runDir = path.resolve("run", `pixel-streaming-smoke-${Date.now()}`);
 await mkdir(runDir, { recursive: true });
 
@@ -66,7 +68,29 @@ let failure;
 try {
   await getJson(`http://127.0.0.1:${debugPort}/json/version`);
   // Use real elapsed time: virtual-time acceleration can terminate WebRTC before ICE settles.
-  await delay(15000);
+  await delay(warmupMs);
+  if (requestedStreamerId) {
+    const switchTargets = await getJson(`http://127.0.0.1:${debugPort}/json/list`);
+    const page = switchTargets.find((item) => item.type === "page" && item.url === appUrl);
+    if (!page?.webSocketDebuggerUrl) throw new Error("Operator page is unavailable for camera switching.");
+    const cdp = await connectCdp(page.webSocketDebuggerUrl);
+    try {
+      const switched = await cdp.send("Runtime.evaluate", {
+        expression: `(() => {
+          const selector = document.getElementById("streamSelector");
+          if (!selector || ![...selector.options].some(option => option.value === ${JSON.stringify(requestedStreamerId)})) return false;
+          selector.value = ${JSON.stringify(requestedStreamerId)};
+          selector.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        })()`,
+        returnByValue: true,
+      });
+      if (!switched.result.value) throw new Error(`Streamer is not present in selector: ${requestedStreamerId}`);
+    } finally {
+      cdp.socket.close();
+    }
+    await delay(12000);
+  }
   const targets = await getJson(`http://127.0.0.1:${debugPort}/json/list`);
   const inspected = [];
   let screenshotWritten = false;
@@ -92,6 +116,24 @@ try {
             contextId: world.executionContextId,
             expression: `(() => {
           const video = document.querySelector("video");
+          let frame = null;
+          if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+            const canvas = document.createElement("canvas");
+            canvas.width = 64;
+            canvas.height = 36;
+            const context = canvas.getContext("2d", { willReadFrequently: true });
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            let sum = 0;
+            let maximum = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+              const luminance = 0.2126 * pixels[index] + 0.7152 * pixels[index + 1] + 0.0722 * pixels[index + 2];
+              sum += luminance;
+              maximum = Math.max(maximum, luminance);
+            }
+            frame = { meanLuminance: sum / (pixels.length / 4), maxLuminance: maximum };
+          }
+          const rect = video?.getBoundingClientRect();
           return {
             url: location.href,
             video: video ? {
@@ -99,7 +141,12 @@ try {
               videoWidth: video.videoWidth,
               videoHeight: video.videoHeight,
               currentTime: video.currentTime,
-              paused: video.paused
+              paused: video.paused,
+              display: getComputedStyle(video).display,
+              visibility: getComputedStyle(video).visibility,
+              opacity: getComputedStyle(video).opacity,
+              rect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
+              frame
             } : null,
             frameState: document.getElementById("frameState")?.textContent ?? null
           };
@@ -125,7 +172,7 @@ try {
     && item.video.videoWidth > 0
     && item.video.videoHeight > 0
     && item.video.currentTime > 0);
-  console.log(JSON.stringify({ ok: Boolean(liveVideo), runDir, inspected }, null, 2));
+  console.log(JSON.stringify({ ok: Boolean(liveVideo), requestedStreamerId, runDir, inspected }, null, 2));
   if (!liveVideo) throw new Error("Pixel Streaming player connected but no decoded video frame was observed.");
 } catch (error) {
   failure = error;

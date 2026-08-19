@@ -101,6 +101,7 @@ class SimulationObservation(BaseModel):
 
 
 class EpisodeStart(BaseModel):
+    task_id: str | None = None
     task: str = "spacecraft arm teleoperation"
     instruction: str = "控制太空机械臂接近并抓取目标"
     operator: str = "operator"
@@ -110,4 +111,16 @@ class EpisodeStart(BaseModel):
 
 class EpisodeStop(BaseModel):
     outcome: Literal["success", "failure", "aborted", "unknown"] = "unknown"
+    note: str = ""
+
+
+class TaskCreate(BaseModel):
+    instruction: str
+    scene_id: str = "orbital-grasp"
+    seed: int | None = None
+    tags: list[str] = []
+
+
+class TaskComplete(BaseModel):
+    outcome: Literal["success", "failure", "aborted"]
     note: str = ""

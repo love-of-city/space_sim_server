@@ -1,0 +1,16 @@
+{
+  "name": "space-arm-operator-console",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@epicgames-ps/lib-pixelstreamingfrontend-ue5.6": "0.2.5"
+  },
+  "devDependencies": {
+    "vite": "5.4.21"
+  }
+}

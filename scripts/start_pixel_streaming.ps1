@@ -56,4 +56,3 @@ do {
 } while ([DateTime]::UtcNow -lt $deadline)
 if ([DateTime]::UtcNow -ge $deadline) { throw "Pixel Streaming player did not become ready on port $PlayerPort." }
 Write-Output "Pixel Streaming player ready: http://127.0.0.1:$PlayerPort/player.html"
-

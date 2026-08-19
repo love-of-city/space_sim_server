@@ -6,3 +6,6 @@ __pycache__/
 data/episodes/
 logs/
 run/
+frontend/node_modules/
+frontend/dist/
+signalling/node_modules/

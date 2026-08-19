@@ -38,13 +38,33 @@ button, input, select { font: inherit; }
 
 .workspace { height: calc(100vh - 108px); display: grid; grid-template-columns: minmax(0, 1fr) 410px; }
 .viewport { position: relative; overflow: hidden; background: #020305; }
-#pixelStream { width: 100%; height: 100%; border: 0; display: none; background: #020305; pointer-events: none; }
+.pixel-stream {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: #020305;
+}
+.pixel-stream video { width: 100%; height: 100%; object-fit: contain; background: #020305; }
 .preview-empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 8px; color: #b7c4ca; background: radial-gradient(circle at 50% 45%, #14222b 0, #080c10 42%, #030506 78%); }
 .preview-empty::before { content: ""; width: 110px; height: 110px; margin: 0 auto 20px; border: 1px solid #3b4b54; border-radius: 50%; box-shadow: inset 0 0 0 28px #0c151b; }
 .preview-empty small { color: var(--muted); }
 .viewport-toolbar { position: absolute; left: 24px; right: 24px; top: 20px; display: flex; justify-content: space-between; align-items: center; }
 .viewport-toolbar select { color: var(--text); background: #071016cc; border: 1px solid #31434c; padding: 8px 10px; }
 .viewport-toolbar span { font: 11px ui-monospace, Consolas, monospace; color: var(--danger); letter-spacing: .1em; }
+.stream-controls { display: flex; gap: 8px; align-items: center; pointer-events: auto; }
+.stream-controls button, .stream-controls select {
+  color: var(--text); background: #071016dd; border: 1px solid #31434c; padding: 7px 10px;
+}
+.webrtc-stats {
+  position: absolute; left: 24px; bottom: 20px; display: flex; flex-wrap: wrap; gap: 7px 14px;
+  padding: 8px 11px; color: var(--muted); background: #061016cc; border: 1px solid #243842;
+  font: 10px ui-monospace, Consolas, monospace; pointer-events: none;
+}
+.webrtc-stats strong { color: var(--text); font-weight: 500; }
+.play-stream {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5;
+  padding: 14px 20px; color: #041014; background: var(--accent); border: 0; cursor: pointer;
+}
 .crosshair { position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; transform: translate(-50%, -50%); opacity: .4; pointer-events: none; }
 .crosshair::before, .crosshair::after { content: ""; position: absolute; background: var(--accent); }
 .crosshair::before { width: 34px; height: 1px; top: 16px; }

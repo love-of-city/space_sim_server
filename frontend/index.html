@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Space Arm / 遥操作采集台</title>
-  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <header class="topbar">
@@ -24,15 +23,28 @@
 
   <main class="workspace">
     <section class="viewport" aria-label="UE Pixel Streaming 实时画面">
-      <iframe id="pixelStream" title="UE Pixel Streaming 实时画面" tabindex="-1" allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe>
+      <div id="pixelStream" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
       <div id="previewEmpty" class="preview-empty">
         <span>等待 UE Pixel Streaming</span>
         <small>启动信令服务、UE和BSK/MJScene后，WebRTC画面将在此显示</small>
       </div>
       <div class="viewport-toolbar">
-        <span title="UE BackBuffer 经 NVENC/WebRTC 传输，只供操作预览，不写入训练集">PIXEL STREAMING 2（非训练数据）</span>
+        <div class="stream-controls">
+          <select id="streamSelector" aria-label="选择 Pixel Streaming 相机">
+            <option value="BskRenderer">主视口</option>
+          </select>
+          <button id="reconnectStream" type="button">重连</button>
+        </div>
         <span id="frameState">NO SIGNAL</span>
       </div>
+      <div id="webrtcStats" class="webrtc-stats" aria-live="polite">
+        <span>RTT <strong id="webrtcRtt">—</strong></span>
+        <span>码率 <strong id="webrtcBitrate">—</strong></span>
+        <span>丢包 <strong id="webrtcLoss">—</strong></span>
+        <span>帧率 <strong id="webrtcFps">—</strong></span>
+        <span>分辨率 <strong id="webrtcResolution">—</strong></span>
+      </div>
+      <button id="playStream" class="play-stream" type="button" hidden>点击播放实时画面</button>
       <div class="crosshair" aria-hidden="true"></div>
     </section>
 
@@ -101,6 +113,6 @@
     <span>动作 → BSK/MJScene 权威仿真 → UE渲染</span>
     <span id="message">正在建立操作链路…</span>
   </footer>
-  <script src="/static/app.js" defer></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -18,7 +18,7 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 
 ## 双画面通道
 
-- **操作预览**：UE 主视口由 Pixel Streaming 2 以 H.264/WebRTC 直接传给网页，默认目标 60 FPS。浏览器不再轮询 JPEG；该画面只供遥操作，不写入训练集。
+- **操作预览**：网页直接集成 Epic UE 5.6 Pixel Streaming SDK，不使用 iframe。默认可选择 UE 主视口、卫星总览 RenderTarget 和腕部 RenderTarget；该画面只供遥操作，不写入训练集。
 - **权威采集**：默认 10 Hz，在 UE 中临时应用精确的 BSK/MJScene 帧并同步采集 RGB、深度和分割；不使用插值或外推。后端按 `source_frame_id -> render_frame_id -> step_id` 严格配对后才保存。
 
 两条通道相互独立：Pixel Streaming 发送 UE 当前主视口，权威采集仍通过 `bsk-capture/1` 传送相机数据。WebRTC 丢帧或网络波动不会改变 BSK/MJScene 状态，也不会污染训练数据。
@@ -28,7 +28,9 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 - 默认动作空间为末端平移3维、末端旋转3维和夹爪开合。
 - 从MJCF自动解析安装位姿、关节轴和工具坐标，使用阻尼最小二乘雅可比逆解。
 - SO-101只有5个机械臂自由度，因此六维命令会投影到物理可实现的5维运动，并记录命令残差和雅可比秩。
-- Web操作台支持键盘、浏览器Gamepad API和末端状态；主画面使用 UE Pixel Streaming 2。
+- Web操作台支持键盘、浏览器Gamepad API和末端状态；显示 WebRTC RTT、码率、丢包、解码帧率和分辨率。
+- Pixel Streaming SDK 的键盘控制被关闭，机械臂动作仍只通过 `/ws/operator` 进入后端和权威仿真。
+- UE 为 manifest 相机动态创建独立 `SceneCapture2D + RenderTarget + Streamer`，浏览器切换相机不会改变仿真状态。
 - 单操作员控制权；其他连接自动成为只读观察者。
 - 仿真模式按键和手柄输入直接生效；松键、窗口失焦、断线或250 ms超时立即停止。
 - `Esc`和页面急停按钮会锁存停止状态，必须点击“恢复控制”才能解除。
@@ -80,6 +82,29 @@ Set-Location E:\mujoco_demo\space_arm_data_platform
 
 本机默认端口：操作台 `8000`、Pixel Streaming 播放器 `8080`、UE 信令 `8888`。当前脚本面向本机 HTTP 使用；跨机器或公网部署时必须另外配置可访问的公网地址、HTTPS 以及 STUN/TURN。
 
+## 跨机器安全模式
+
+局域网或公网部署时显式启用 JWT 信令；本机模式默认不增加鉴权复杂度：
+
+```powershell
+.\scripts\run_platform.ps1 -RemoteAccess -PublicHost 192.168.1.50
+```
+
+脚本会生成本次运行的访问密钥和 JWT 密钥，并输出带 `access_key` 的操作台地址。安全信令在 WebSocket 握手时验证短期 JWT，token 只允许访问声明的 Streamer ID，订阅时会再次校验。
+默认只有播放器端口监听外部网卡；UE Streamer 端口只绑定 `127.0.0.1`，避免外部进程冒充同名 UE Streamer。
+
+跨 NAT 时可以注入 STUN/TURN：
+
+```powershell
+.\scripts\run_platform.ps1 -RemoteAccess -PublicHost simulator.example.com `
+  -PixelPlayerPublicUrl wss://simulator.example.com/stream `
+  -IceServersJson '[{"urls":"stun:stun.example.com:3478"}]' `
+  -TurnUrlsJson '["turn:turn.example.com:3478?transport=udp"]' `
+  -TurnAuthSecret 'replace-with-turn-rest-secret'
+```
+
+公网环境还需要在平台前方部署 HTTPS/WSS 反向代理；仓库不会自行签发证书。TURN 凭据由安全信令按 HMAC 临时生成，不会把 TURN 长期密码发给浏览器。
+
 ## 键盘操作
 
 当前为纯仿真直接控制模式，不需要按住空格。
@@ -117,9 +142,16 @@ data/episodes/episode-日期时间-随机ID/
 ├── steps.jsonl
 ├── captures.jsonl
 └── cameras/            # RGB、深度、分割
+
+data/
+├── archives/           # 完成 episode 的不可变 tar.gz 与 SHA-256
+├── jobs/               # 可恢复的归档任务状态
+└── tasks/              # 与 UE/WebRTC 会话解耦的任务状态
 ```
 
 网页 WebRTC 视频只用于操作预览；训练数据直接保存 UE 权威帧的原始产品，不从网页视频或截图反推。`steps.jsonl` 中记录 `step_id` 和 `render_frame_id`；`captures.jsonl` 记录匹配的 `source_frame_id`、`sim_time_ns` 及 `authoritative_state=true`。停止 episode 时，`metadata.json` 会给出匹配、待匹配和拒绝数量。
+
+停止 episode 后，后端自动提交有幂等键的归档任务：先生成逐文件 SHA-256 清单，再以临时文件写入并原子发布 `.tar.gz`。`/api/jobs` 可查询归档状态；`/api/tasks`、`/api/tasks/{id}/start` 和 `/api/tasks/{id}/complete` 提供持久化任务调度接口。
 
 ## 单独调试与验证
 
@@ -144,8 +176,6 @@ conda run --no-capture-output -n mujoco-dev python .\tools\validate_mujoco_fk.py
 
 ## 下一步
 
-1. 增加末端工作空间、自碰撞和抓取接触约束。
-2. 将轨道姿态保持与机械臂遥操作组合进同一任务。
-3. 对长时间/高吞吐采集增加分片文件格式与离线完整性校验。
-4. 增加末端力/力矩反馈、任务重置和场景随机化。
-5. 让学习策略和人类操作复用同一个末端动作接口。
+1. 增加末端工作空间、自碰撞、抓取接触约束和力/力矩反馈。
+2. 对长时间高吞吐采集增加分片数据格式和对象存储同步。
+3. 增加任务重置、场景随机化，并让学习策略复用同一动作接口。

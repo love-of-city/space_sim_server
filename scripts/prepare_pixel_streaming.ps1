@@ -38,5 +38,20 @@ foreach ($path in @($node, $dist, $player)) {
     if (!(Test-Path -LiteralPath $path)) { throw "Pixel Streaming prerequisite is missing: $path" }
 }
 
-Write-Output "Pixel Streaming 2 infrastructure is ready: $server"
+$frontend = Join-Path (Split-Path -Parent $PSScriptRoot) 'frontend'
+$frontendPackage = Join-Path $frontend 'package.json'
+if (Test-Path -LiteralPath $frontendPackage) {
+    Push-Location $frontend
+    try {
+        if (!(Test-Path -LiteralPath (Join-Path $frontend 'node_modules'))) {
+            npm.cmd install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { throw 'Operator console npm dependency installation failed.' }
+        }
+        npm.cmd run build
+        if ($LASTEXITCODE -ne 0) { throw 'Operator console Pixel Streaming SDK build failed.' }
+    } finally {
+        Pop-Location
+    }
+}
 
+Write-Output "Pixel Streaming 2 infrastructure is ready: $server"

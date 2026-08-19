@@ -53,6 +53,7 @@ class EpisodeRecorder:
                 "status": "recording",
                 "created_wall_time_ns": str(now),
                 "task": request.task,
+                "task_id": request.task_id,
                 "instruction": request.instruction,
                 "operator": request.operator,
                 "seed": request.seed,

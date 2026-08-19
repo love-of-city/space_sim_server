@@ -1,3 +1,12 @@
+import {
+  Config,
+  Flags,
+  OptionParameters,
+  PixelStreaming,
+  TextParameters,
+} from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.6";
+import "./styles.css";
+
 const state = {
   ws: null,
   connected: false,
@@ -8,6 +17,12 @@ const state = {
   estopped: false,
   lastAckAt: 0,
   linearSpeed: 0.05,
+  pixelStreaming: null,
+  pixelConfig: null,
+  streamConfig: null,
+  selectedStreamerId: "BskRenderer",
+  lastFramesReceived: null,
+  lastStatsTimestamp: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -18,7 +33,10 @@ function setOnline(id, online) { $(id).classList.toggle("online", online); }
 
 function connect() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  state.ws = new WebSocket(`${scheme}://${location.host}/ws/operator`);
+  const accessKey = new URLSearchParams(location.search).get("access_key");
+  const operatorUrl = new URL(`${scheme}://${location.host}/ws/operator`);
+  if (accessKey) operatorUrl.searchParams.set("access_key", accessKey);
+  state.ws = new WebSocket(operatorUrl);
   state.ws.onopen = () => {
     state.connected = true;
     setOnline("backendDot", true);
@@ -67,28 +85,158 @@ function connect() {
 
 async function connectPixelStreaming() {
   try {
-    const response = await fetch("/api/client-config", { cache: "no-store" });
+    const accessKey = new URLSearchParams(location.search).get("access_key");
+    const response = await fetch("/api/client-config", {
+      cache: "no-store",
+      headers: accessKey ? { "X-Space-Arm-Access-Key": accessKey } : {},
+    });
     if (!response.ok) throw new Error(`config ${response.status}`);
     const config = await response.json();
-    const protocol = location.protocol === "https:" ? "https:" : "http:";
-    const playerUrl = new URL(`${protocol}//${location.hostname}:${config.pixel_streaming_player_port}/player.html`);
-    playerUrl.searchParams.set("StreamerId", config.pixel_streaming_streamer_id);
-    playerUrl.searchParams.set("AutoConnect", "true");
-    playerUrl.searchParams.set("AutoPlayVideo", "true");
-    playerUrl.searchParams.set("HoveringMouse", "false");
-    const stream = $("pixelStream");
-    stream.src = playerUrl.toString();
-    stream.onload = () => {
-      stream.style.display = "block";
-      $("previewEmpty").style.display = "none";
-      // iframe 加载只表示官方播放器就绪；实际 WebRTC 连接状态由播放器自行维护。
-      $("frameState").textContent = "WEBRTC PLAYER";
-      $("frameState").style.color = "var(--accent)";
-    };
-  } catch (_) {
+    state.streamConfig = config;
+    const selector = $("streamSelector");
+    const previousStreamerId = state.selectedStreamerId;
+    selector.replaceChildren();
+    for (const item of config.pixel_streaming_streamers || [
+      { id: config.pixel_streaming_streamer_id, label: "主视口" },
+    ]) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      const labels = { WristCamera: "机械臂腕部相机", SpacecraftOverview: "卫星总览相机" };
+      option.textContent = labels[item.label] || item.label || item.id;
+      selector.append(option);
+    }
+    if ([...selector.options].some((option) => option.value === previousStreamerId)) {
+      selector.value = previousStreamerId;
+    }
+    state.selectedStreamerId = selector.value || config.pixel_streaming_streamer_id;
+    createPixelStream();
+  } catch (error) {
+    console.warn("Pixel Streaming configuration is unavailable", error);
     $("frameState").textContent = "WEBRTC OFFLINE";
     setTimeout(connectPixelStreaming, 1500);
   }
+}
+
+function signallingUrl() {
+  if (state.streamConfig.pixel_streaming_signalling_url) {
+    const url = new URL(state.streamConfig.pixel_streaming_signalling_url, location.href);
+    if (state.streamConfig.pixel_streaming_access_token) {
+      url.searchParams.set("token", state.streamConfig.pixel_streaming_access_token);
+    }
+    return url.toString();
+  }
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${scheme}//${location.hostname}:${state.streamConfig.pixel_streaming_player_port}`;
+}
+
+function resetWebRtcStats() {
+  state.lastFramesReceived = null;
+  state.lastStatsTimestamp = null;
+  $("webrtcRtt").textContent = "—";
+  $("webrtcBitrate").textContent = "—";
+  $("webrtcLoss").textContent = "—";
+  $("webrtcFps").textContent = "—";
+  $("webrtcResolution").textContent = "—";
+}
+
+function updateWebRtcStats(aggregatedStats) {
+  const pair = aggregatedStats?.getActiveCandidatePair?.();
+  const video = aggregatedStats?.inboundVideoStats;
+  if (!video) return;
+  const packetsReceived = Number(video.packetsReceived || 0);
+  const packetsLost = Number(video.packetsLost || 0);
+  const totalPackets = packetsReceived + packetsLost;
+  const timestamp = Number(video.timestamp || 0);
+  const framesReceived = Number(video.framesReceived || 0);
+  let fps = Number.isFinite(Number(video.framesPerSecond)) ? Number(video.framesPerSecond) : null;
+  if (fps == null && state.lastStatsTimestamp != null && timestamp > state.lastStatsTimestamp
+      && framesReceived >= state.lastFramesReceived) {
+    fps = (framesReceived - state.lastFramesReceived) * 1000 / (timestamp - state.lastStatsTimestamp);
+  }
+  state.lastStatsTimestamp = timestamp;
+  state.lastFramesReceived = framesReceived;
+  $("webrtcRtt").textContent = pair?.currentRoundTripTime != null
+    ? `${(pair.currentRoundTripTime * 1000).toFixed(0)} ms` : "—";
+  $("webrtcBitrate").textContent = video.bitrate != null
+    ? `${(video.bitrate / 1000).toFixed(0)} kbps` : "—";
+  $("webrtcLoss").textContent = totalPackets > 0
+    ? `${(packetsLost * 100 / totalPackets).toFixed(1)}%` : "—";
+  $("webrtcFps").textContent = fps == null ? "—" : fps.toFixed(0);
+  $("webrtcResolution").textContent = video.frameWidth && video.frameHeight
+    ? `${video.frameWidth}×${video.frameHeight}` : "—";
+}
+
+function disposePixelStream() {
+  try { state.pixelStreaming?.disconnect(); } catch (_) { /* best effort */ }
+  state.pixelStreaming = null;
+  state.pixelConfig = null;
+  $("pixelStream").replaceChildren();
+  resetWebRtcStats();
+}
+
+function createPixelStream() {
+  disposePixelStream();
+  $("frameState").textContent = "CONNECTING";
+  $("frameState").style.color = "var(--danger)";
+  $("previewEmpty").style.display = "grid";
+  $("playStream").hidden = true;
+  const config = new Config({
+    initialSettings: {
+      [TextParameters.SignallingServerUrl]: signallingUrl(),
+      [OptionParameters.StreamerId]: state.selectedStreamerId,
+      [Flags.AutoConnect]: true,
+      [Flags.AutoPlayVideo]: true,
+      [Flags.StartVideoMuted]: true,
+      [Flags.WaitForStreamer]: true,
+      [Flags.HoveringMouseMode]: false,
+      // 权威动作必须经 /ws/operator 到 BSK/MJScene，不能由媒体 SDK 直接驱动 UE。
+      [Flags.KeyboardInput]: false,
+      [Flags.MouseInput]: false,
+      [Flags.TouchInput]: false,
+      [Flags.GamepadInput]: false,
+    },
+  });
+  const stream = new PixelStreaming(config, { videoElementParent: $("pixelStream") });
+  state.pixelConfig = config;
+  state.pixelStreaming = stream;
+  window.__pixelStream = stream;
+  stream.addEventListener("webRtcConnecting", () => {
+    $("frameState").textContent = "CONNECTING";
+  });
+  stream.addEventListener("webRtcConnected", () => {
+    $("frameState").textContent = "MEDIA SETUP";
+  });
+  stream.addEventListener("videoInitialized", () => {
+    $("previewEmpty").style.display = "none";
+    $("pixelStream").style.display = "block";
+    $("frameState").textContent = "LIVE WEBRTC";
+    $("frameState").style.color = "var(--accent)";
+  });
+  stream.addEventListener("playStreamRejected", () => {
+    $("playStream").hidden = false;
+    $("frameState").textContent = "CLICK TO PLAY";
+  });
+  stream.addEventListener("webRtcDisconnected", () => {
+    $("frameState").textContent = "DISCONNECTED";
+    $("frameState").style.color = "var(--danger)";
+    resetWebRtcStats();
+  });
+  stream.addEventListener("webRtcFailed", () => {
+    $("frameState").textContent = "WEBRTC FAILED";
+    $("frameState").style.color = "var(--danger)";
+  });
+  stream.addEventListener("subscribeFailed", (event) => {
+    $("frameState").textContent = event?.message || "STREAM UNAVAILABLE";
+    const failedStream = stream;
+    setTimeout(() => {
+      if (state.pixelStreaming === failedStream) {
+        connectPixelStreaming();
+      }
+    }, 1000);
+  });
+  stream.addEventListener("statsReceived", (event) => {
+    updateWebRtcStats(event?.data?.aggregatedStats);
+  });
 }
 
 function applyControlLimits(limits = {}) {
@@ -260,6 +408,17 @@ $("linearSpeed").addEventListener("input", (event) => {
 $("startEpisode").addEventListener("click", startEpisode);
 $("successEpisode").addEventListener("click", () => stopEpisode("success"));
 $("failureEpisode").addEventListener("click", () => stopEpisode("failure"));
+$("streamSelector").addEventListener("change", (event) => {
+  state.selectedStreamerId = event.target.value;
+  createPixelStream();
+});
+$("reconnectStream").addEventListener("click", () => {
+  connectPixelStreaming();
+});
+$("playStream").addEventListener("click", () => {
+  state.pixelStreaming?.play();
+  $("playStream").hidden = true;
+});
 
 connect();
 connectPixelStreaming();

@@ -9,10 +9,26 @@ param(
     [int]$PixelStreamerPort = 8888,
     [int]$PixelPlayerPort = 8080,
     [string]$PixelStreamingId = 'BskRenderer',
+    [string[]]$PixelStreamingCameraIds = @(
+        'teleop/camera/spacecraft_overview',
+        'teleop/camera/so101_wrist_cam'
+    ),
+    [ValidateRange(160, 1920)]
+    [int]$PixelStreamingCameraWidth = 640,
+    [ValidateRange(90, 1080)]
+    [int]$PixelStreamingCameraHeight = 360,
     [double]$Duration = 300.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
     [double]$PreviewRate = 60.0,
+    [switch]$RemoteAccess,
+    [string]$PublicHost = '127.0.0.1',
+    [string]$PixelPlayerPublicUrl = '',
+    [string]$StreamAccessKey = '',
+    [string]$StreamJwtSecret = '',
+    [string]$IceServersJson = '[]',
+    [string]$TurnUrlsJson = '[]',
+    [string]$TurnAuthSecret = '',
     [switch]$Rebuild,
     [switch]$ReimportAssets,
     [switch]$NoBrowser
@@ -37,9 +53,29 @@ foreach ($path in @($AdapterRoot, $ModelRoot, $UnrealRoot, $ueScripts)) {
 # Stop only PIDs previously recorded by this project before binding fixed ports.
 & (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet
 
-Write-Output 'Starting the local Pixel Streaming 2 signalling server ...'
-& (Join-Path $PSScriptRoot 'start_pixel_streaming.ps1') -UnrealRoot $UnrealRoot `
-    -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort
+if ($RemoteAccess) {
+    if (!$StreamAccessKey) {
+        $bytes = New-Object byte[] 24
+        $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
+        $StreamAccessKey = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+    }
+    if (!$StreamJwtSecret) {
+        $bytes = New-Object byte[] 48
+        $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
+        $StreamJwtSecret = [Convert]::ToBase64String($bytes)
+    }
+    if (!$PixelPlayerPublicUrl) { $PixelPlayerPublicUrl = "ws://$PublicHost`:$PixelPlayerPort" }
+    Write-Output 'Starting JWT-protected Pixel Streaming 2 signalling server ...'
+    & (Join-Path $PSScriptRoot 'start_secure_pixel_streaming.ps1') `
+        -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort -JwtSecret $StreamJwtSecret `
+        -IceServersJson $IceServersJson -TurnUrlsJson $TurnUrlsJson -TurnAuthSecret $TurnAuthSecret
+} else {
+    Write-Output 'Starting the local Pixel Streaming 2 signalling server ...'
+    & (Join-Path $PSScriptRoot 'start_pixel_streaming.ps1') -UnrealRoot $UnrealRoot `
+        -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort
+}
 
 Write-Output 'Checking the existing UE assets and runtime plugin ...'
 $catalog = Join-Path $ueProject 'Saved\AssetImport\cubesat_so101.catalog.json'
@@ -58,11 +94,26 @@ if ($Rebuild -or !(Test-Path -LiteralPath $pluginBinary)) {
 }
 
 $powershellExe = (Get-Command powershell.exe).Source
+$cameraStreamers = @()
+foreach ($cameraId in $PixelStreamingCameraIds) {
+    $safeId = $cameraId -replace '[^A-Za-z0-9_-]', '_'
+    $label = if ($cameraId -match 'wrist') { 'WristCamera' } elseif ($cameraId -match 'overview') { 'SpacecraftOverview' } else { $cameraId }
+    $cameraStreamers += "${PixelStreamingId}__${safeId}=$label"
+}
 $backendArgs = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_backend.ps1'),
+    '-ApiHost', $(if ($RemoteAccess) { '0.0.0.0' } else { '127.0.0.1' }),
     '-ApiPort', $ApiPort, '-ControlPort', $ControlPort, '-CapturePort', $CapturePort,
-    '-PixelStreamingPlayerPort', $PixelPlayerPort, '-PixelStreamingId', $PixelStreamingId
+    '-PixelStreamingPlayerPort', $PixelPlayerPort, '-PixelStreamingId', $PixelStreamingId,
+    '-PixelStreamingCameraStreamers', ($cameraStreamers -join ';')
 )
+if ($RemoteAccess) {
+    $backendArgs += @(
+        '-PixelStreamingSignallingUrl', $PixelPlayerPublicUrl,
+        '-StreamAccessJwtSecret', $StreamJwtSecret,
+        '-StreamAccessKey', $StreamAccessKey
+    )
+}
 $backend = Start-Process -FilePath $powershellExe -ArgumentList $backendArgs -PassThru -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logDirectory 'backend.out.log') `
     -RedirectStandardError (Join-Path $logDirectory 'backend.err.log')
@@ -83,7 +134,11 @@ try {
         -CaptureProducts @('rgb','depth','segmentation') -CaptureRate $CaptureRate `
         -CaptureNetworkHost '127.0.0.1' -CaptureNetworkPort $CapturePort `
         -PixelStreamingURL "ws://127.0.0.1:$PixelStreamerPort" -PixelStreamingId $PixelStreamingId `
-        -PixelStreamingFps ([int][Math]::Round($PreviewRate))
+        -PixelStreamingFps ([int][Math]::Round($PreviewRate)) `
+        -PixelStreamingCameraIds $PixelStreamingCameraIds `
+        -PixelStreamingCameraWidth $PixelStreamingCameraWidth `
+        -PixelStreamingCameraHeight $PixelStreamingCameraHeight `
+        -PixelStreamingCameraFps ([int][Math]::Min(30, [Math]::Round($PreviewRate)))
     $rendererPid = [int](Get-Content -Raw -LiteralPath (Join-Path $ueProject 'Saved\BskRenderer.pid'))
 
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
@@ -125,8 +180,11 @@ try {
         api_url = "http://127.0.0.1:$ApiPort"
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runDirectory 'platform.json') -Encoding utf8
 
-    if (!$NoBrowser) { Start-Process "http://127.0.0.1:$ApiPort" }
-    Write-Output "Space Arm Data Platform is running: http://127.0.0.1:$ApiPort"
+    $operatorUrl = if ($RemoteAccess) {
+        "http://$PublicHost`:$ApiPort/?access_key=$([Uri]::EscapeDataString($StreamAccessKey))"
+    } else { "http://127.0.0.1:$ApiPort" }
+    if (!$NoBrowser) { Start-Process $operatorUrl }
+    Write-Output "Space Arm Data Platform is running: $operatorUrl"
     Write-Output "Preview: $PreviewRate FPS Pixel Streaming 2/WebRTC; dataset: $CaptureRate Hz authoritative RGB/depth/segmentation."
     Write-Output 'Use W/S, A/D, Q/E directly for XYZ; hold Shift for rotation; use F/R for the gripper; Esc latches emergency stop.'
     Write-Output 'Run .\scripts\stop_platform.ps1 when finished.'

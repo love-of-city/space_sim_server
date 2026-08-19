@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -12,16 +13,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from .capture_receiver import CaptureReceiver
-from .models import EpisodeStart, EpisodeStop, OperatorAction, SimulationObservation
+from .jobs import JobManager
+from .models import EpisodeStart, EpisodeStop, OperatorAction, SimulationObservation, TaskComplete, TaskCreate
 from .recorder import EpisodeRecorder
 from .safety import ActionRejected, SafetyController
 from .simulation_hub import SimulationHub
+from .stream_access import issue_stream_access_token
+from .tasks import TaskStore
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,11 @@ class PlatformConfig:
     deadman_timeout_s: float = 0.25
     pixel_streaming_player_port: int = 8080
     pixel_streaming_streamer_id: str = "BskRenderer"
+    pixel_streaming_signalling_url: str = ""
+    pixel_streaming_camera_streamers: tuple[tuple[str, str], ...] = ()
+    stream_access_jwt_secret: str = ""
+    stream_access_key: str = ""
+    stream_access_token_ttl_seconds: int = 900
 
 
 class OperatorSessions:
@@ -77,6 +86,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         data_root=project_root / "data" / "episodes",
     )
     recorder = EpisodeRecorder(config.data_root)
+    jobs = JobManager(config.data_root.parent)
+    tasks = TaskStore(config.data_root.parent / "tasks")
     safety = SafetyController(config.deadman_timeout_s)
     hub = SimulationHub()
     sessions = OperatorSessions()
@@ -115,16 +126,21 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                     await timeout_task
             captures.close()
             await hub.close()
+            jobs.close()
 
-    app = FastAPI(title="Space Arm Data Platform", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Space Arm Data Platform", version="0.2.0", lifespan=lifespan)
     app.state.config = config
     app.state.recorder = recorder
     app.state.safety = safety
     app.state.hub = hub
     app.state.captures = captures
     app.state.sessions = sessions
+    app.state.jobs = jobs
+    app.state.tasks = tasks
 
-    frontend = config.project_root / "frontend"
+    frontend_source = config.project_root / "frontend"
+    frontend_dist = frontend_source / "dist"
+    frontend = frontend_dist if (frontend_dist / "index.html").is_file() else frontend_source
     app.mount("/static", StaticFiles(directory=frontend), name="static")
 
     @app.get("/")
@@ -145,13 +161,34 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             "active_operator": sessions.active_operator,
         }
 
+    def authorize_access_key(candidate: str | None) -> None:
+        if config.stream_access_key and not hmac.compare_digest(candidate or "", config.stream_access_key):
+            raise HTTPException(status_code=401, detail="a valid stream access key is required")
+
     @app.get("/api/client-config")
-    async def client_config() -> dict[str, Any]:
-        return {
+    async def client_config(request: Request) -> dict[str, Any]:
+        authorize_access_key(request.headers.get("x-space-arm-access-key") or request.query_params.get("access_key"))
+        streamers = [
+            {"id": config.pixel_streaming_streamer_id, "label": "主视口"},
+            *(
+                {"id": streamer_id, "label": label}
+                for streamer_id, label in config.pixel_streaming_camera_streamers
+            ),
+        ]
+        response = {
             "preview_transport": "pixel_streaming_2",
             "pixel_streaming_player_port": config.pixel_streaming_player_port,
             "pixel_streaming_streamer_id": config.pixel_streaming_streamer_id,
+            "pixel_streaming_signalling_url": config.pixel_streaming_signalling_url,
+            "pixel_streaming_streamers": streamers,
         }
+        if config.stream_access_jwt_secret:
+            response["pixel_streaming_access_token"] = issue_stream_access_token(
+                config.stream_access_jwt_secret,
+                (item["id"] for item in streamers),
+                ttl_seconds=config.stream_access_token_ttl_seconds,
+            )
+        return response
 
     @app.get("/api/state")
     async def state() -> dict[str, Any]:
@@ -179,7 +216,70 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         recorder.record_action(neutral)
         await hub.publish_action(neutral)
         try:
-            return recorder.stop(request)
+            result = recorder.stop(request)
+            result["archive_job"] = jobs.submit_archive(result["episode_id"])
+            return result
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.get("/api/jobs")
+    async def list_jobs() -> dict[str, Any]:
+        return {"jobs": jobs.list()}
+
+    @app.get("/api/jobs/{job_id}")
+    async def get_job(job_id: str) -> dict[str, Any]:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return job
+
+    @app.post("/api/episodes/{episode_id}/archive")
+    async def archive_episode(episode_id: str) -> dict[str, Any]:
+        return jobs.submit_archive(episode_id)
+
+    @app.post("/api/tasks")
+    async def create_task(request: TaskCreate) -> dict[str, Any]:
+        return tasks.create(request)
+
+    @app.get("/api/tasks")
+    async def list_tasks() -> dict[str, Any]:
+        return {"tasks": tasks.list()}
+
+    @app.post("/api/tasks/{task_id}/start")
+    async def start_task(task_id: str) -> dict[str, Any]:
+        task = tasks.get(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        if task["status"] != "queued":
+            raise HTTPException(status_code=409, detail=f"task {task_id} is {task['status']}, expected queued")
+        try:
+            episode = recorder.start(EpisodeStart(
+                task_id=task_id,
+                task="scheduled space manipulator task",
+                instruction=task["instruction"],
+                seed=task["seed"],
+                tags=task["tags"],
+            ))
+            return tasks.transition(task_id, {"queued"}, "running", episode_id=episode["episode_id"])
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/tasks/{task_id}/complete")
+    async def complete_task(task_id: str, request: TaskComplete) -> dict[str, Any]:
+        task = tasks.get(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        if recorder.episode_id != task.get("episode_id"):
+            raise HTTPException(status_code=409, detail="task does not own the active episode")
+        neutral = safety.neutral(recorder.episode_id, "task_completed")
+        recorder.record_action(neutral)
+        await hub.publish_action(neutral)
+        try:
+            closed = recorder.stop(EpisodeStop(outcome=request.outcome, note=request.note))
+            archive_job = jobs.submit_archive(closed["episode_id"])
+            return tasks.transition(
+                task_id, {"running"}, "completed", outcome=request.outcome, archive_job_id=archive_job["job_id"]
+            )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -219,6 +319,11 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.websocket("/ws/operator")
     async def operator_socket(websocket: WebSocket) -> None:
+        if config.stream_access_key and not hmac.compare_digest(
+            websocket.query_params.get("access_key", ""), config.stream_access_key
+        ):
+            await websocket.close(code=4401, reason="invalid access key")
+            return
         identifier, granted = await sessions.connect(websocket)
         send_task: asyncio.Task[None] | None = None
 

@@ -1,7 +1,7 @@
 param(
     [string]$AdapterRoot = '',
     [string]$ModelRoot = '',
-    [string]$UnrealRoot = 'E:\UE5.6',
+    [string]$UnrealRoot = '',
     [int]$ApiPort = 8000,
     [int]$ControlPort = 8766,
     [int]$CapturePort = 8767,
@@ -54,6 +54,22 @@ if (!$powershellExe -or !(Test-Path -LiteralPath $powershellExe -PathType Leaf))
 if ($PreviewRate -le 0 -or $PreviewRate -gt 60) { throw 'PreviewRate must be in (0, 60].' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $projectRoot
+
+function Resolve-Unreal56Root([string]$RequestedRoot) {
+    $candidates = @()
+    if ($RequestedRoot) { $candidates += $RequestedRoot }
+    if ($env:UE56_ROOT) { $candidates += $env:UE56_ROOT }
+    $candidates += @('E:\UE5.6', 'E:\UE5.6\UE_5.6', 'C:\Program Files\Epic Games\UE_5.6')
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        foreach ($root in @($candidate, (Join-Path $candidate 'UE_5.6'))) {
+            if (Test-Path -LiteralPath (Join-Path $root 'Engine\Binaries\Win64\UnrealEditor.exe') -PathType Leaf) {
+                return (Resolve-Path -LiteralPath $root).Path
+            }
+        }
+    }
+    throw 'Unreal Engine 5.6 was not found. Pass -UnrealRoot or set UE56_ROOT.'
+}
+
 if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
 if (!$ModelRoot) {
     $modelCandidates = @(
@@ -66,6 +82,7 @@ if (!$ModelRoot) {
 if (!$ModelRoot) {
     throw 'spacecraft_and_arm model was not found in the adapter repository. Pull Git LFS assets or pass -ModelRoot explicitly.'
 }
+$UnrealRoot = Resolve-Unreal56Root $UnrealRoot
 $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
 $ueScripts = Join-Path $ueProject 'scripts'
 $runDirectory = Join-Path $projectRoot 'run'
@@ -74,6 +91,21 @@ New-Item -ItemType Directory -Path $runDirectory,$logDirectory -Force | Out-Null
 
 foreach ($path in @($AdapterRoot, $ModelRoot, $UnrealRoot, $ueScripts)) {
     if (!(Test-Path -LiteralPath $path)) { throw "Required path does not exist: $path" }
+}
+
+foreach ($command in @('python', 'conda', 'npm.cmd')) {
+    if (!(Get-Command $command -ErrorAction SilentlyContinue)) {
+        throw "Required command '$command' was not found on PATH. See README.md first-deployment prerequisites."
+    }
+}
+$meshProbe = Get-ChildItem -LiteralPath (Join-Path $ModelRoot 'assets\robotstudio_so101\assets') `
+    -File -Filter '*.stl' -ErrorAction SilentlyContinue | Select-Object -First 1
+if (!$meshProbe -or $meshProbe.Length -lt 1024) {
+    throw 'Spacecraft-arm STL assets are missing or still Git LFS pointers. Run git lfs install and git lfs pull in space_sim_UE_adapter.'
+}
+& python -c 'import fastapi, pydantic, uvicorn' 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw 'Backend Python dependencies are missing. Run: python -m pip install -e ".[test]"'
 }
 
 # Stop only PIDs previously recorded by this project before binding fixed ports.

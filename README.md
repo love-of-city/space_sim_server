@@ -55,7 +55,7 @@ Set-Location .\space_arm_data_platform
 python -m pip install -e ".[test]"
 ```
 
-还需要 Unreal Engine 5.6、Visual Studio 2022 C++/Windows SDK，以及包含 Basilisk/MJScene 的 Conda 环境 `mujoco-dev`。UE 默认可位于 `E:\UE5.6`；其他路径在启动时传入 `-UnrealRoot`。
+还需要 PowerShell 7、Node.js/npm、Unreal Engine 5.6、Visual Studio 2022 C++/Windows SDK，以及包含 Basilisk/MJScene 的 Conda 环境 `mujoco-dev`。启动脚本会自动检查这些命令、Web 后端依赖和 Git LFS 模型。UE 会从 `UE56_ROOT`、`E:\UE5.6` 和 Epic 默认安装目录查找；其他路径可传入 `-UnrealRoot`。
 
 ## 一条命令运行
 
@@ -66,7 +66,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`；模型会自动从该仓库的 `test\model\spacecraft_and_arm` 读取，不再需要复制工作区外部模型。
 
-首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖）；不会安装另一套 UE。随后加载Basilisk/MJScene和模型可能需要30～60秒。网页地址为 `http://127.0.0.1:8000`。
+首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖），再从 STL 生成 UE 网格；视缓存情况可能需要2～5分钟，不会安装另一套 UE。后续加载通常更快。网页地址为 `http://127.0.0.1:8000`。
 
 自定义任务时长、IK频率和采集率：
 

@@ -23,6 +23,8 @@ const state = {
   selectedStreamerId: "BskRenderer",
   lastFramesReceived: null,
   lastStatsTimestamp: null,
+  streamLive: false,
+  streamReconnectTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -167,11 +169,24 @@ function updateWebRtcStats(aggregatedStats) {
 }
 
 function disposePixelStream() {
+  if (state.streamReconnectTimer != null) {
+    clearTimeout(state.streamReconnectTimer);
+    state.streamReconnectTimer = null;
+  }
   try { state.pixelStreaming?.disconnect(); } catch (_) { /* best effort */ }
   state.pixelStreaming = null;
   state.pixelConfig = null;
+  state.streamLive = false;
   $("pixelStream").replaceChildren();
   resetWebRtcStats();
+}
+
+function schedulePixelStreamingReconnect(delayMs = 1500) {
+  if (state.streamReconnectTimer != null) clearTimeout(state.streamReconnectTimer);
+  state.streamReconnectTimer = setTimeout(() => {
+    state.streamReconnectTimer = null;
+    connectPixelStreaming();
+  }, delayMs);
 }
 
 function createPixelStream() {
@@ -207,6 +222,7 @@ function createPixelStream() {
     $("frameState").textContent = "MEDIA SETUP";
   });
   stream.addEventListener("videoInitialized", () => {
+    state.streamLive = true;
     $("previewEmpty").style.display = "none";
     $("pixelStream").style.display = "block";
     $("frameState").textContent = "LIVE WEBRTC";
@@ -220,23 +236,27 @@ function createPixelStream() {
     $("frameState").textContent = "DISCONNECTED";
     $("frameState").style.color = "var(--danger)";
     resetWebRtcStats();
+    if (state.pixelStreaming === stream) schedulePixelStreamingReconnect();
   });
   stream.addEventListener("webRtcFailed", () => {
     $("frameState").textContent = "WEBRTC FAILED";
     $("frameState").style.color = "var(--danger)";
+    if (state.pixelStreaming === stream) schedulePixelStreamingReconnect();
   });
   stream.addEventListener("subscribeFailed", (event) => {
     $("frameState").textContent = event?.message || "STREAM UNAVAILABLE";
-    const failedStream = stream;
-    setTimeout(() => {
-      if (state.pixelStreaming === failedStream) {
-        connectPixelStreaming();
-      }
-    }, 1000);
+    if (state.pixelStreaming === stream) schedulePixelStreamingReconnect(1000);
   });
   stream.addEventListener("statsReceived", (event) => {
     updateWebRtcStats(event?.data?.aggregatedStats);
   });
+  // RenderTarget streamers are created only after the BSK manifest arrives.
+  // The Epic SDK stops polling after a finite wait, so keep retrying at the
+  // application layer until the selected UE stream actually produces video.
+  state.streamReconnectTimer = setTimeout(() => {
+    state.streamReconnectTimer = null;
+    if (state.pixelStreaming === stream && !state.streamLive) connectPixelStreaming();
+  }, 10000);
 }
 
 function applyControlLimits(limits = {}) {

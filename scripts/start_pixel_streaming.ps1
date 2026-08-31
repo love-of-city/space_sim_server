@@ -4,7 +4,9 @@ param(
     [int]$StreamerPort = 8888,
     [ValidateRange(1, 65535)]
     [int]$PlayerPort = 8080,
-    [string]$PublicIp = '127.0.0.1'
+    [string]$PublicIp = '127.0.0.1',
+    [ValidateRange(20, 300)]
+    [int]$ReadyTimeout = 120
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,13 +48,17 @@ $process = Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirect
     player_port = $PlayerPort
 } | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding utf8
 
-$deadline = [DateTime]::UtcNow.AddSeconds(20)
+$deadline = [DateTime]::UtcNow.AddSeconds($ReadyTimeout)
+$ready = $false
 do {
     if ($process.HasExited) { throw 'Pixel Streaming signalling server exited during startup.' }
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$PlayerPort/player.html" -TimeoutSec 1
-        if ($response.StatusCode -eq 200) { break }
+        if ($response.StatusCode -eq 200) {
+            $ready = $true
+            break
+        }
     } catch { Start-Sleep -Milliseconds 250 }
 } while ([DateTime]::UtcNow -lt $deadline)
-if ([DateTime]::UtcNow -ge $deadline) { throw "Pixel Streaming player did not become ready on port $PlayerPort." }
+if (!$ready) { throw "Pixel Streaming player did not become ready on port $PlayerPort within $ReadyTimeout seconds." }
 Write-Output "Pixel Streaming player ready: http://127.0.0.1:$PlayerPort/player.html"

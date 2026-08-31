@@ -11,6 +11,7 @@ state to UE.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from pathlib import Path
 import socket
@@ -20,6 +21,7 @@ import time
 from typing import Any
 
 import numpy as np
+from Basilisk.architecture import sysModel
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -205,7 +207,8 @@ class CartesianTeleopTarget:
         client: SimulationControlClient,
         kinematics: SerialChainKinematics,
     ) -> None:
-        self.position = np.asarray(initial_position, dtype=float).copy()
+        self.initial_position = np.asarray(initial_position, dtype=float).copy()
+        self.position = self.initial_position.copy()
         self.velocity = np.zeros(6)
         self.client = client
         self.kinematics = kinematics
@@ -215,9 +218,29 @@ class CartesianTeleopTarget:
         self.desired_twist = np.zeros(6)
         self.achieved_twist = np.zeros(6)
         self.residual_twist = np.zeros(6)
-        self.jacobian_rank = 0
+        self.jacobian_rank = int(
+            np.linalg.matrix_rank(self.kinematics.jacobian(self.position[:5]))
+        )
+        self.update_count = 0
+        self.ik_solve_count = 0
 
-    def reference(self, sim_seconds: float) -> tuple[np.ndarray, np.ndarray]:
+    def reset(self, sim_seconds: float) -> None:
+        """Reset the cached command state at the given simulation time."""
+
+        self.position = self.initial_position.copy()
+        self.velocity.fill(0.0)
+        self.last_sim_seconds = float(sim_seconds)
+        self.applied_sequence = "0"
+        self.command_stale = True
+        self.desired_twist.fill(0.0)
+        self.achieved_twist.fill(0.0)
+        self.residual_twist.fill(0.0)
+        self.update_count = 0
+        self.ik_solve_count = 0
+
+    def update(self, sim_seconds: float) -> tuple[np.ndarray, np.ndarray]:
+        """Consume the latest action and update the cached joint reference once."""
+
         if self.last_sim_seconds is None:
             self.last_sim_seconds = sim_seconds
             return self.position.copy(), self.velocity.copy()
@@ -243,11 +266,11 @@ class CartesianTeleopTarget:
             self.achieved_twist = result.achieved_twist
             self.residual_twist = result.residual_twist
             self.jacobian_rank = result.jacobian_rank
+            self.ik_solve_count += 1
         else:
             self.velocity.fill(0.0)
             self.achieved_twist.fill(0.0)
             self.residual_twist.fill(0.0)
-            self.jacobian_rank = int(np.linalg.matrix_rank(self.kinematics.jacobian(self.position[:5])))
         proposed = self.position + self.velocity * dt
         clipped = np.clip(proposed, JOINT_MIN, JOINT_MAX)
         at_limit = clipped != proposed
@@ -255,7 +278,37 @@ class CartesianTeleopTarget:
         self.position = clipped
         self.applied_sequence = str(action.get("server_sequence", "0"))
         self.command_stale = stale
+        self.update_count += 1
         return self.position.copy(), self.velocity.copy()
+
+    def cached_reference(self, _sim_seconds: float) -> tuple[np.ndarray, np.ndarray]:
+        """Return the held target without running input handling or IK."""
+
+        return self.position.copy(), self.velocity.copy()
+
+    def reference(self, sim_seconds: float) -> tuple[np.ndarray, np.ndarray]:
+        """Compatibility wrapper for callers that explicitly request an update."""
+
+        return self.update(sim_seconds)
+
+
+class CartesianIkControlModel(sysModel.SysModel):
+    """Run endpoint IK on a scheduled BSK control task, outside MJScene RK stages."""
+
+    def __init__(self, target: CartesianTeleopTarget) -> None:
+        super().__init__()
+        self.ModelTag = "so101CartesianIkController"
+        self.target = target
+
+    def Reset(self, CurrentSimNanos: int) -> None:
+        """Reset the held reference when the Basilisk simulation resets."""
+
+        self.target.reset(CurrentSimNanos * 1.0e-9)
+
+    def UpdateState(self, CurrentSimNanos: int) -> None:
+        """Update the joint target once at the configured control-task rate."""
+
+        self.target.update(CurrentSimNanos * 1.0e-9)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -280,7 +333,7 @@ def run(args: argparse.Namespace) -> None:
     targets = CartesianTeleopTarget(native.PREGRASP, client, kinematics)
     original_reference = native.JointTrajectoryPublisher.__dict__["reference"]
     native.JointTrajectoryPublisher.reference = classmethod(
-        lambda _cls, seconds: targets.reference(seconds)
+        lambda _cls, seconds: targets.cached_reference(seconds)
     )
 
     from Basilisk.utilities import macros
@@ -290,7 +343,17 @@ def run(args: argparse.Namespace) -> None:
     bridge: BasiliskRenderBridge | None = None
     try:
         simulation, scene, dynamics_models, recorders = native._build_simulation()
-        keep_alive = (dynamics_models, recorders)
+        control_task_name = "teleopIkTask"
+        control_task = simulation.CreateNewTask(
+            control_task_name, macros.sec2nano(1.0 / args.ik_rate)
+        )
+        grasp_process = next(
+            process for process in simulation.procList if process.Name == "graspProcess"
+        )
+        grasp_process.addTask(control_task, 100)
+        ik_controller = CartesianIkControlModel(targets)
+        simulation.AddModelToTask(control_task_name, ik_controller)
+        keep_alive = (dynamics_models, recorders, ik_controller)
         bridge = BasiliskRenderBridge(
             host=args.render_host,
             port=args.render_port,
@@ -349,11 +412,13 @@ def run(args: argparse.Namespace) -> None:
         joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
 
         wall_start = time.monotonic()
+        processing_seconds = 0.0
         frame_count = int(math.ceil(args.duration * 30.0))
         for frame in range(1, frame_count + 1):
             sim_seconds = min(frame / 30.0, args.duration)
             deadline = wall_start + sim_seconds / args.simulation_rate
             time.sleep(max(0.0, deadline - time.monotonic()))
+            processing_start = time.monotonic()
             simulation.ConfigureStopTime(macros.sec2nano(sim_seconds))
             simulation.ExecuteSimulation()
             render_frame_id = bridge.last_published_frame_id
@@ -388,8 +453,30 @@ def run(args: argparse.Namespace) -> None:
                     "cartesian_command_residual": targets.residual_twist.tolist(),
                     "jacobian_rank": targets.jacobian_rank,
                     "command_stale": targets.command_stale,
+                    "ik_control_rate_hz": args.ik_rate,
+                    "ik_update_count": str(targets.update_count),
+                    "ik_solve_count": str(targets.ik_solve_count),
                 }
             )
+            processing_seconds += time.monotonic() - processing_start
+        wall_seconds = time.monotonic() - wall_start
+        print(
+            json.dumps(
+                {
+                    "type": "performance_summary",
+                    "simulated_seconds": args.duration,
+                    "wall_seconds": wall_seconds,
+                    "processing_seconds": processing_seconds,
+                    "wall_real_time_factor": args.duration / wall_seconds,
+                    "processing_real_time_factor": args.duration / processing_seconds,
+                    "ik_control_rate_hz": args.ik_rate,
+                    "ik_update_count": targets.update_count,
+                    "ik_solve_count": targets.ik_solve_count,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
         _ = keep_alive
     finally:
         native.JointTrajectoryPublisher.reference = original_reference
@@ -416,9 +503,19 @@ def main() -> None:
     parser.add_argument("--duration", type=float, default=300.0)
     parser.add_argument("--simulation-rate", type=float, default=1.0)
     parser.add_argument("--capture-rate", type=float, default=10.0)
+    parser.add_argument("--ik-rate", type=float, default=100.0)
     args = parser.parse_args()
-    if args.duration <= 0 or args.simulation_rate <= 0 or args.capture_rate <= 0:
-        parser.error("duration, simulation-rate and capture-rate must be positive")
+    if (
+        args.duration <= 0
+        or args.simulation_rate <= 0
+        or args.capture_rate <= 0
+        or args.ik_rate <= 0
+        or args.ik_rate > 500
+    ):
+        parser.error(
+            "duration, simulation-rate and capture-rate must be positive; "
+            "ik-rate must be in (0, 500]"
+        )
     if not args.adapter_root.is_dir() or not args.model_root.is_dir() or not args.catalog.is_file():
         parser.error("adapter-root, model-root or prepared asset catalog is missing")
     run(args)

@@ -7,7 +7,7 @@
       ↓ WebSocket
 本项目后端（限幅、失联保护、任务和记录）
       ↓ space-arm-control/1
-BSK + MJScene（500 Hz权威动力学、逆运动学与接触）
+BSK（默认100 Hz逆运动学）+ MJScene（500 Hz权威动力学与接触）
       ↓ bsk-render/2
 space_sim_UE_adapter / UE5（渲染与相机采集）
       ├─ Pixel Streaming 2 / WebRTC → 浏览器操作预览
@@ -35,7 +35,8 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 - 仿真模式按键和手柄输入直接生效；松键、窗口失焦、断线或250 ms超时立即停止。
 - `Esc`和页面急停按钮会锁存停止状态，必须点击“恢复控制”才能解除。
 - 末端线速度、角速度、关节速度、关节位置和夹爪速度均有限制。
-- BSK/MJScene以500 Hz运行，前端约30 Hz发动作，UE通过 WebRTC 以最高60 FPS预览。
+- IK在独立BSK控制任务中默认以100 Hz更新并缓存关节目标；MJScene以500 Hz运行PID、力和接触积分，避免在RK4阶段重复求解IK。
+- 前端约30 Hz发动作，UE通过 WebRTC 以最高60 FPS预览。
 - UE主视口经 Pixel Streaming 2 回传网页；RGB、深度和分割权威产品仍通过 `bsk-capture/1` 写入episode。
 - 记录用户请求、过滤后动作、关节状态、末端位姿/速度、IK残差、时间戳和相机数据。
 
@@ -62,10 +63,10 @@ Set-Location E:\mujoco_demo\space_arm_data_platform
 
 首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖）；不会安装另一套 UE。随后加载Basilisk/MJScene和模型可能需要30～60秒。网页地址为 `http://127.0.0.1:8000`。
 
-自定义任务时长和采集率：
+自定义任务时长、IK频率和采集率：
 
 ```powershell
-.\scripts\run_platform.ps1 -Duration 600 -PreviewRate 60 -CaptureRate 10 -SimulationRate 1
+.\scripts\run_platform.ps1 -Duration 600 -IkRate 100 -PreviewRate 60 -CaptureRate 10 -SimulationRate 1
 ```
 
 已有17个机械臂网格会直接复用。只有源STL或材质变化时才重新导入：

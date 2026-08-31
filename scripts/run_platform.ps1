@@ -20,7 +20,11 @@ param(
     [double]$Duration = 300.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
+    [ValidateRange(1.0, 500.0)]
+    [double]$IkRate = 100.0,
     [double]$PreviewRate = 60.0,
+    [ValidateRange(30, 600)]
+    [int]$RendererReadyTimeout = 240,
     [switch]$RemoteAccess,
     [string]$PublicHost = '127.0.0.1',
     [string]$PixelPlayerPublicUrl = '',
@@ -35,6 +39,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw 'This project requires PowerShell 7 or later. Start it with: pwsh -NoProfile -File .\scripts\run_platform.ps1'
+}
+
+# Reuse the exact PowerShell 7 executable that launched this entry script so
+# backend and simulation child processes cannot silently fall back to Windows
+# PowerShell 5.1 through powershell.exe.
+$powershellExe = (Get-Process -Id $PID).Path
+if (!$powershellExe -or !(Test-Path -LiteralPath $powershellExe -PathType Leaf)) {
+    throw 'Unable to resolve the current PowerShell 7 executable.'
+}
+
 if ($PreviewRate -le 0 -or $PreviewRate -gt 60) { throw 'PreviewRate must be in (0, 60].' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $projectRoot
@@ -52,6 +68,26 @@ foreach ($path in @($AdapterRoot, $ModelRoot, $UnrealRoot, $ueScripts)) {
 
 # Stop only PIDs previously recorded by this project before binding fixed ports.
 & (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet
+
+function Assert-TcpPortAvailable([int]$Port, [string]$Purpose) {
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
+    try {
+        $listener.Start()
+    } catch {
+        throw "$Purpose port $Port is already occupied after platform cleanup. Close the process using it or choose another port."
+    } finally {
+        try { $listener.Stop() } catch { }
+    }
+}
+
+foreach ($portCheck in @(
+    @{ Port = $ApiPort; Purpose = 'Backend API' },
+    @{ Port = $ControlPort; Purpose = 'Simulation control' },
+    @{ Port = $CapturePort; Purpose = 'Authoritative capture' },
+    @{ Port = $RenderPort; Purpose = 'UE render receiver' }
+)) {
+    Assert-TcpPortAvailable ([int]$portCheck.Port) ([string]$portCheck.Purpose)
+}
 
 if ($RemoteAccess) {
     if (!$StreamAccessKey) {
@@ -93,7 +129,6 @@ if ($Rebuild -or !(Test-Path -LiteralPath $pluginBinary)) {
     if ($LASTEXITCODE -ne 0) { throw 'UE runtime plugin build failed.' }
 }
 
-$powershellExe = (Get-Command powershell.exe).Source
 $cameraStreamers = @()
 foreach ($cameraId in $PixelStreamingCameraIds) {
     $safeId = $cameraId -replace '[^A-Za-z0-9_-]', '_'
@@ -129,6 +164,18 @@ try {
         } catch { Start-Sleep -Milliseconds 250 }
     }
     if (!$backendReady) { throw "Backend did not become ready on port $ApiPort." }
+    if ($backend.HasExited) {
+        throw 'The backend launcher exited even though an API health endpoint responded; refusing to use a stale backend instance.'
+    }
+
+    $backendServiceConnection = Get-NetTCPConnection -State Listen -LocalPort $ControlPort -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (!$backendServiceConnection) {
+        throw "The new backend did not own simulation control port $ControlPort."
+    }
+    $backendServicePid = [int]$backendServiceConnection.OwningProcess
+    $backendService = Get-Process -Id $backendServicePid -ErrorAction SilentlyContinue
+    if (!$backendService) { throw 'The backend service process disappeared during startup.' }
 
     & (Join-Path $ueScripts 'start_renderer.ps1') -UnrealRoot $UnrealRoot -Port $RenderPort `
         -CaptureProducts @('rgb','depth','segmentation') -CaptureRate $CaptureRate `
@@ -141,7 +188,12 @@ try {
         -PixelStreamingCameraFps ([int][Math]::Min(30, [Math]::Round($PreviewRate)))
     $rendererPid = [int](Get-Content -Raw -LiteralPath (Join-Path $ueProject 'Saved\BskRenderer.pid'))
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(90)
+    # UnrealEditor startup time is not stable: the first run after a plugin,
+    # material, shader-cache, or UE update can spend well over 90 seconds in
+    # shader/asset initialization before the runtime world starts listening.
+    # Wait for the actual TCP receiver instead of treating that one-time work
+    # as a renderer failure.
+    $deadline = [DateTime]::UtcNow.AddSeconds($RendererReadyTimeout)
     $rendererReady = $false
     while (!$rendererReady -and [DateTime]::UtcNow -lt $deadline) {
         if (!(Get-Process -Id $rendererPid -ErrorAction SilentlyContinue)) {
@@ -157,13 +209,18 @@ try {
         } catch { $rendererReady = $false } finally { $probe.Dispose() }
         if (!$rendererReady) { Start-Sleep -Milliseconds 300 }
     }
-    if (!$rendererReady) { throw "UE receiver did not become ready on port $RenderPort." }
+    if (!$rendererReady) {
+        $ueLog = Join-Path $ueProject 'Saved\Logs\BskUnrealRenderer.log'
+        $logHint = if (Test-Path -LiteralPath $ueLog -PathType Leaf) { " Check $ueLog." } else { '' }
+        throw "UE receiver did not become ready on port $RenderPort within $RendererReadyTimeout seconds.$logHint"
+    }
 
     $simulationArgs = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_simulation.ps1'),
         '-AdapterRoot', $AdapterRoot, '-ModelRoot', $ModelRoot,
         '-ControlPort', $ControlPort, '-RenderPort', $RenderPort,
-        '-Duration', $Duration, '-SimulationRate', $SimulationRate, '-CaptureRate', $CaptureRate
+        '-Duration', $Duration, '-SimulationRate', $SimulationRate, '-CaptureRate', $CaptureRate,
+        '-IkRate', $IkRate
     )
     $simulation = Start-Process -FilePath $powershellExe -ArgumentList $simulationArgs -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logDirectory 'simulation.out.log') `
@@ -172,6 +229,8 @@ try {
     @{
         backend_pid = $backend.Id
         backend_start = $backend.StartTime.ToUniversalTime().Ticks
+        backend_service_pid = $backendServicePid
+        backend_service_start = $backendService.StartTime.ToUniversalTime().Ticks
         simulation_pid = $simulation.Id
         simulation_start = $simulation.StartTime.ToUniversalTime().Ticks
         renderer_pid = $rendererPid
@@ -185,12 +244,13 @@ try {
     } else { "http://127.0.0.1:$ApiPort" }
     if (!$NoBrowser) { Start-Process $operatorUrl }
     Write-Output "Space Arm Data Platform is running: $operatorUrl"
-    Write-Output "Preview: $PreviewRate FPS Pixel Streaming 2/WebRTC; dataset: $CaptureRate Hz authoritative RGB/depth/segmentation."
+    Write-Output "Preview: $PreviewRate FPS Pixel Streaming 2/WebRTC; dataset: $CaptureRate Hz authoritative RGB/depth/segmentation; IK: $IkRate Hz."
     Write-Output 'Use W/S, A/D, Q/E directly for XYZ; hold Shift for rotation; use F/R for the gripper; Esc latches emergency stop.'
     Write-Output 'Run .\scripts\stop_platform.ps1 when finished.'
 } catch {
     if (!$backend.HasExited) { Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue }
-    & (Join-Path $ueScripts 'stop_renderer.ps1') -ErrorAction SilentlyContinue
-    & (Join-Path $PSScriptRoot 'stop_pixel_streaming.ps1') -Quiet -ErrorAction SilentlyContinue
+    # Also removes a Python backend child if its PowerShell parent was killed
+    # before platform.json could be written.
+    & (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet -ErrorAction SilentlyContinue
     throw
 }

@@ -460,7 +460,11 @@ def main() -> int:
     parser.add_argument(
         "--model-root",
         type=Path,
-        default=WORKSPACE_ROOT / "test" / "model" / "spacecraft_and_arm",
+        default=WORKSPACE_ROOT
+        / "space_sim_UE_adapter"
+        / "test"
+        / "model"
+        / "spacecraft_and_arm",
     )
     parser.add_argument(
         "--catalog",

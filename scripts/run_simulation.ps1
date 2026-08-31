@@ -14,7 +14,17 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $projectRoot
 if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
-if (!$ModelRoot) { $ModelRoot = Join-Path $workspaceRoot 'test\model\spacecraft_and_arm' }
+if (!$ModelRoot) {
+    $modelCandidates = @(
+        (Join-Path $AdapterRoot 'test\model\spacecraft_and_arm'),
+        (Join-Path $workspaceRoot 'test\model\spacecraft_and_arm')
+    )
+    $ModelRoot = $modelCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
+        Select-Object -First 1
+}
+if (!$ModelRoot) {
+    throw 'spacecraft_and_arm model was not found in the adapter repository. Pass -ModelRoot explicitly.'
+}
 $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\cubesat_so101.catalog.json'
 $scenario = Join-Path $projectRoot 'simulation\teleop_grasp_unreal.py'
 $env:PYTHONPATH = @(

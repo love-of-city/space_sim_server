@@ -490,7 +490,11 @@ def main() -> None:
     default_adapter = workspace / "space_sim_UE_adapter"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter-root", type=Path, default=default_adapter)
-    parser.add_argument("--model-root", type=Path, default=workspace / "test" / "model" / "spacecraft_and_arm")
+    parser.add_argument(
+        "--model-root",
+        type=Path,
+        default=default_adapter / "test" / "model" / "spacecraft_and_arm",
+    )
     parser.add_argument(
         "--catalog",
         type=Path,

@@ -42,24 +42,29 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 
 这仍是人工遥操作，不是视觉闭环或自主抓取策略。
 
-## 环境
+## 首次部署
 
-- Unreal Engine：`E:\UE5.6`
-- UE适配器：`E:\mujoco_demo\space_sim_UE_adapter`
-- Basilisk/MJScene：Conda环境 `mujoco-dev`
-- Web后端：Python、FastAPI、Uvicorn、Pydantic
+将两个仓库克隆到同一个父目录；CubeSat + SO-101 的 MJCF、STL、场景和许可证已随 UE 适配器仓库提供：
 
 ```powershell
-Set-Location E:\mujoco_demo\space_arm_data_platform
+git lfs install
+git clone https://github.com/love-of-city/space_sim_UE_Adapter.git space_sim_UE_adapter
+git clone https://github.com/love-of-city/space_sim_server.git space_arm_data_platform
+
+Set-Location .\space_arm_data_platform
 python -m pip install -e ".[test]"
 ```
+
+还需要 Unreal Engine 5.6、Visual Studio 2022 C++/Windows SDK，以及包含 Basilisk/MJScene 的 Conda 环境 `mujoco-dev`。UE 默认可位于 `E:\UE5.6`；其他路径在启动时传入 `-UnrealRoot`。
 
 ## 一条命令运行
 
 ```powershell
-Set-Location E:\mujoco_demo\space_arm_data_platform
-.\scripts\run_platform.ps1
+Set-Location .\space_arm_data_platform
+pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 ```
+
+若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`；模型会自动从该仓库的 `test\model\spacecraft_and_arm` 读取，不再需要复制工作区外部模型。
 
 首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖）；不会安装另一套 UE。随后加载Basilisk/MJScene和模型可能需要30～60秒。网页地址为 `http://127.0.0.1:8000`。
 
@@ -69,7 +74,7 @@ Set-Location E:\mujoco_demo\space_arm_data_platform
 .\scripts\run_platform.ps1 -Duration 600 -IkRate 100 -PreviewRate 60 -CaptureRate 10 -SimulationRate 1
 ```
 
-已有17个机械臂网格会直接复用。只有源STL或材质变化时才重新导入：
+新电脑首次运行会从适配器仓库内置 STL 自动生成17个机械臂网格；后续运行直接复用。只有源STL或材质变化时才重新导入：
 
 ```powershell
 .\scripts\run_platform.ps1 -ReimportAssets

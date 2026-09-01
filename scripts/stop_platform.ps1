@@ -30,10 +30,16 @@ function Stop-OrphanedPlatformBackends {
     }
 }
 
+$stopScene = Join-Path $PSScriptRoot 'stop_scene_instance.ps1'
+if (Test-Path -LiteralPath $stopScene) { & $stopScene -Quiet }
+
 $state = $null
 if (Test-Path -LiteralPath $statePath) {
     $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
-    Stop-RecordedProcessTree ([int]$state.simulation_pid) ([long]$state.simulation_start)
+    if ($state.PSObject.Properties.Name -contains 'simulation_pid') {
+        $simulationStart = if ($state.PSObject.Properties.Name -contains 'simulation_start') { [long]$state.simulation_start } else { 0 }
+        Stop-RecordedProcessTree ([int]$state.simulation_pid) $simulationStart
+    }
     if ($state.PSObject.Properties.Name -contains 'renderer_pid') {
         $rendererStart = if ($state.PSObject.Properties.Name -contains 'renderer_start') { [long]$state.renderer_start } else { 0 }
         Stop-RecordedProcessTree ([int]$state.renderer_pid) $rendererStart

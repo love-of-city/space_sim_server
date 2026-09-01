@@ -11,18 +11,23 @@ class FakeWebSocket:
         self.accepted = True
 
 
-def test_viewer_is_identified_for_promotion_when_owner_disconnects() -> None:
+def user(identifier: str) -> dict[str, str]:
+    return {"user_id": identifier, "username": identifier, "role": "operator"}
+
+
+def test_new_page_automatically_replaces_active_page_when_activated() -> None:
     async def scenario() -> None:
         sessions = OperatorSessions()
         first = FakeWebSocket()
         second = FakeWebSocket()
-        first_id, first_granted = await sessions.connect(first)  # type: ignore[arg-type]
-        second_id, second_granted = await sessions.connect(second)  # type: ignore[arg-type]
+        first_id, first_granted = await sessions.connect(first, user("same-user"))  # type: ignore[arg-type]
+        second_id, second_granted = await sessions.connect(second, user("same-user"))  # type: ignore[arg-type]
         assert first_granted
         assert not second_granted
-        released, promoted = await sessions.disconnect(first_id)
-        assert released
-        assert promoted == (second_id, second)
+        previous = await sessions.activate(second_id)
+        assert previous == (first_id, first)
         assert sessions.is_owner(second_id)
+        assert await sessions.disconnect(second_id)
+        assert not sessions.is_owner(first_id)
 
     asyncio.run(scenario())

@@ -14,15 +14,20 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from .auth import AuthError, AuthStore, SESSION_COOKIE
 from .capture_receiver import CaptureReceiver
 from .jobs import JobManager
-from .models import EpisodeStart, EpisodeStop, OperatorAction, SimulationObservation, TaskComplete, TaskCreate
+from .models import (
+    EpisodeStart, EpisodeStop, LoginRequest, OperatorAction, OperatorCreate,
+    PasswordChange, PasswordReset, SceneInstanceCreate, SimulationObservation, TaskComplete, TaskCreate,
+)
 from .recorder import EpisodeRecorder
 from .safety import ActionRejected, SafetyController
+from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
 from .simulation_hub import SimulationHub
 from .stream_access import issue_stream_access_token
 from .tasks import TaskStore
@@ -44,36 +49,65 @@ class PlatformConfig:
     stream_access_jwt_secret: str = ""
     stream_access_key: str = ""
     stream_access_token_ttl_seconds: int = 900
+    runtime_adapter_root: Path | None = None
+    runtime_model_root: Path | None = None
+    runtime_unreal_root: Path | None = None
+    runtime_powershell_exe: Path | None = None
+    runtime_render_port: int = 5558
+    runtime_pixel_streamer_port: int = 8888
+    runtime_pixel_streaming_camera_ids: tuple[str, ...] = ()
+    runtime_pixel_streaming_camera_width: int = 640
+    runtime_pixel_streaming_camera_height: int = 360
+    runtime_preview_rate: float = 60.0
+    runtime_renderer_ready_timeout: int = 240
+    runtime_ik_rate: float = 100.0
+    runtime_simulation_rate: float = 1.0
+    runtime_capture_rate: float = 10.0
+    runtime_default_duration: float = 300.0
+    runtime_default_dataset_capture: bool = False
+    auth_database: Path | None = None
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_password: str = "ChangeMe123!"
 
 
 class OperatorSessions:
-    """Allow many viewers but exactly one command owner."""
+    """Track authenticated browser tabs; one tab at a time emits commands."""
 
     def __init__(self) -> None:
         self.clients: dict[str, WebSocket] = {}
+        self.users: dict[str, dict[str, Any]] = {}
         self.active_operator: str | None = None
         self._lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket) -> tuple[str, bool]:
+    async def connect(self, websocket: WebSocket, user: dict[str, Any]) -> tuple[str, bool]:
         await websocket.accept()
         identifier = f"operator-{uuid.uuid4().hex[:8]}"
         async with self._lock:
             self.clients[identifier] = websocket
+            self.users[identifier] = user
             granted = self.active_operator is None
             if granted:
                 self.active_operator = identifier
         return identifier, granted
 
-    async def disconnect(self, identifier: str) -> tuple[bool, tuple[str, WebSocket] | None]:
+    async def activate(self, identifier: str) -> tuple[str, WebSocket] | None:
+        async with self._lock:
+            if identifier not in self.clients:
+                return None
+            previous = self.active_operator
+            self.active_operator = identifier
+            if previous and previous != identifier and previous in self.clients:
+                return previous, self.clients[previous]
+            return None
+
+    async def disconnect(self, identifier: str) -> bool:
         async with self._lock:
             self.clients.pop(identifier, None)
+            self.users.pop(identifier, None)
             released = self.active_operator == identifier
-            promoted: tuple[str, WebSocket] | None = None
             if released:
-                self.active_operator = next(iter(self.clients), None)
-                if self.active_operator is not None:
-                    promoted = (self.active_operator, self.clients[self.active_operator])
-            return released, promoted
+                self.active_operator = None
+            return released
 
     def is_owner(self, identifier: str) -> bool:
         return self.active_operator == identifier
@@ -86,6 +120,11 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         data_root=project_root / "data" / "episodes",
     )
     recorder = EpisodeRecorder(config.data_root)
+    auth = AuthStore(
+        config.auth_database or config.data_root.parent / "auth.sqlite3",
+        config.bootstrap_admin_username,
+        config.bootstrap_admin_password,
+    )
     jobs = JobManager(config.data_root.parent)
     tasks = TaskStore(config.data_root.parent / "tasks")
     safety = SafetyController(config.deadman_timeout_s)
@@ -96,6 +135,24 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         config.capture_port,
         recorder.record_authoritative_capture,
     )
+    launch_config = None
+    if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root, config.runtime_powershell_exe)):
+        launch_config = SceneLaunchConfig(
+            project_root=config.project_root, adapter_root=config.runtime_adapter_root,
+            model_root=config.runtime_model_root, unreal_root=config.runtime_unreal_root,
+            powershell_exe=config.runtime_powershell_exe, control_port=config.simulation_port,
+            capture_port=config.capture_port, render_port=config.runtime_render_port,
+            pixel_streamer_port=config.runtime_pixel_streamer_port,
+            pixel_streaming_id=config.pixel_streaming_streamer_id,
+            pixel_streaming_camera_ids=config.runtime_pixel_streaming_camera_ids,
+            pixel_streaming_camera_width=config.runtime_pixel_streaming_camera_width,
+            pixel_streaming_camera_height=config.runtime_pixel_streaming_camera_height,
+            preview_rate=config.runtime_preview_rate, renderer_ready_timeout=config.runtime_renderer_ready_timeout,
+            ik_rate=config.runtime_ik_rate, simulation_rate=config.runtime_simulation_rate,
+            capture_rate=config.runtime_capture_rate, default_duration=config.runtime_default_duration,
+            default_dataset_capture=config.runtime_default_dataset_capture,
+        )
+    scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     timeout_task: asyncio.Task[None] | None = None
 
     async def record_observation(observation: SimulationObservation) -> None:
@@ -124,12 +181,15 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 timeout_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await timeout_task
+            await asyncio.to_thread(scenes.close)
             captures.close()
             await hub.close()
             jobs.close()
+            auth.close()
 
     app = FastAPI(title="Space Arm Data Platform", version="0.2.0", lifespan=lifespan)
     app.state.config = config
+    app.state.auth = auth
     app.state.recorder = recorder
     app.state.safety = safety
     app.state.hub = hub
@@ -137,11 +197,106 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     app.state.sessions = sessions
     app.state.jobs = jobs
     app.state.tasks = tasks
+    app.state.scenes = scenes
 
     frontend_source = config.project_root / "frontend"
     frontend_dist = frontend_source / "dist"
     frontend = frontend_dist if (frontend_dist / "index.html").is_file() else frontend_source
     app.mount("/static", StaticFiles(directory=frontend), name="static")
+
+    def current_user(request: Request) -> dict[str, Any]:
+        user = getattr(request.state, "user", None)
+        if not user:
+            raise HTTPException(status_code=401, detail="请先登录")
+        return user
+
+    def require_admin(request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        if user["role"] != "admin":
+            raise HTTPException(status_code=403, detail="仅管理员可以管理操作员")
+        return user
+
+    def can_manage_scene(user: dict[str, Any], status: dict[str, Any]) -> bool:
+        owner = (status.get("instance") or {}).get("created_by") or {}
+        return user["role"] == "admin" or owner.get("user_id") == user["user_id"]
+
+    @app.middleware("http")
+    async def authenticated_api(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and path not in {"/api/health", "/api/auth/login"}:
+            user = auth.session_user(request.cookies.get(SESSION_COOKIE))
+            if not user:
+                return JSONResponse({"detail": "请先登录"}, status_code=401)
+            request.state.user = user
+        return await call_next(request)
+
+    @app.post("/api/auth/login")
+    async def login(payload: LoginRequest) -> JSONResponse:
+        user = await asyncio.to_thread(auth.authenticate, payload.username, payload.password)
+        if not user:
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        token, max_age = await asyncio.to_thread(auth.create_session, user["user_id"])
+        response = JSONResponse({"user": user})
+        response.set_cookie(
+            SESSION_COOKIE, token, max_age=max_age, httponly=True, samesite="strict",
+            secure=False, path="/",
+        )
+        return response
+
+    @app.get("/api/auth/me")
+    async def auth_me(request: Request) -> dict[str, Any]:
+        return {"user": current_user(request)}
+
+    @app.post("/api/auth/logout")
+    async def logout(request: Request) -> JSONResponse:
+        await asyncio.to_thread(auth.delete_session, request.cookies.get(SESSION_COOKIE))
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    @app.post("/api/auth/change-password")
+    async def change_password(payload: PasswordChange, request: Request) -> JSONResponse:
+        user = current_user(request)
+        try:
+            await asyncio.to_thread(
+                auth.change_password, user["user_id"], payload.current_password, payload.new_password
+            )
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
+    @app.get("/api/users")
+    async def list_users(request: Request) -> dict[str, Any]:
+        require_admin(request)
+        return {"users": await asyncio.to_thread(auth.list_users)}
+
+    @app.post("/api/users/operators")
+    async def create_operator(payload: OperatorCreate, request: Request) -> dict[str, Any]:
+        require_admin(request)
+        try:
+            return await asyncio.to_thread(auth.create_operator, payload.username, payload.password)
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.delete("/api/users/operators/{user_id}")
+    async def delete_operator(user_id: str, request: Request) -> dict[str, Any]:
+        require_admin(request)
+        try:
+            await asyncio.to_thread(auth.delete_operator, user_id)
+            return {"ok": True}
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/users/operators/{user_id}/reset-password")
+    async def reset_operator_password(user_id: str, payload: PasswordReset, request: Request) -> dict[str, Any]:
+        require_admin(request)
+        try:
+            await asyncio.to_thread(auth.reset_operator_password, user_id, payload.password)
+            return {"ok": True}
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/")
     async def index() -> FileResponse:
@@ -149,17 +304,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
-        return {
-            "ok": True,
-            "server_time_ns": str(time.time_ns()),
-            "simulation": hub.status(),
-            "active_episode": recorder.episode_id,
-            "capture_cameras": captures.camera_ids(),
-            "capture_error": captures.last_error,
-            "capture_channels": captures.status(),
-            "capture_sync": recorder.sync_status(),
-            "active_operator": sessions.active_operator,
-        }
+        # Kept public for the process launcher; operational state is available
+        # only from authenticated endpoints.
+        return {"ok": True, "server_time_ns": str(time.time_ns()), "authentication": "required"}
 
     def authorize_access_key(candidate: str | None) -> None:
         if config.stream_access_key and not hmac.compare_digest(candidate or "", config.stream_access_key):
@@ -201,22 +348,96 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             "cameras": captures.camera_ids(),
             "capture_channels": captures.status(),
             "capture_sync": recorder.sync_status(),
+            "scene_runtime": scenes.status(),
         }
 
-    @app.post("/api/episodes/start")
-    async def start_episode(request: EpisodeStart) -> dict[str, Any]:
+    @app.get("/api/scenes/catalog")
+    async def scene_catalog() -> dict[str, Any]:
+        return scenes.catalog()
+
+    @app.get("/api/scenes/runtime")
+    async def scene_runtime() -> dict[str, Any]:
+        return scenes.status()
+
+    @app.post("/api/scenes/instances")
+    async def create_scene_instance(payload: SceneInstanceCreate, request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
         try:
-            return recorder.start(request)
+            return await asyncio.to_thread(scenes.create_instance, payload, creator)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/scenes/start")
+    async def start_scene(payload: SceneInstanceCreate, request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        if recorder.episode_id:
+            raise HTTPException(status_code=409, detail="stop the active episode before starting another scene")
+        creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
+        try:
+            return await asyncio.to_thread(scenes.start, payload, creator)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/scenes/stop")
+    async def stop_scene(request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        status = scenes.status()
+        if status.get("instance") and not can_manage_scene(user, status):
+            raise HTTPException(status_code=403, detail="只能关闭自己创建的场景")
+        episode_result = None
+        if recorder.episode_id:
+            neutral = safety.neutral(recorder.episode_id, "scene_stopped")
+            recorder.record_action(neutral)
+            await hub.publish_action(neutral)
+            episode_result = recorder.stop(EpisodeStop(outcome="aborted", note="scene stopped"))
+            episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
+        try:
+            result = await asyncio.to_thread(scenes.stop)
+            if episode_result:
+                result["aborted_episode"] = episode_result
+            return result
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/episodes/start")
+    async def start_episode(payload: EpisodeStart, request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        scene_status = scenes.status()
+        if scenes.enabled and scene_status.get("phase") != "running":
+            raise HTTPException(status_code=409, detail="a running scene is required before data collection")
+        if scene_status.get("instance") and not can_manage_scene(user, scene_status):
+            raise HTTPException(status_code=403, detail="只能采集自己创建的场景")
+        scene_instance = scene_status.get("instance")
+        if scene_instance:
+            payload = payload.model_copy(
+                update={
+                    "seed": payload.seed if payload.seed is not None else scene_instance.get("seed"),
+                    "scene_instance": scene_instance,
+                    "operator": user["username"],
+                    "operator_user_id": user["user_id"],
+                    "operator_username": user["username"],
+                    "operator_role": user["role"],
+                }
+            )
+        try:
+            return recorder.start(payload)
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/episodes/stop")
-    async def stop_episode(request: EpisodeStop) -> dict[str, Any]:
+    async def stop_episode(payload: EpisodeStop, request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        scene_status = scenes.status()
+        if scene_status.get("instance") and not can_manage_scene(user, scene_status):
+            raise HTTPException(status_code=403, detail="只能结束自己场景的数据采集")
         neutral = safety.neutral(recorder.episode_id, "episode_stopped")
         recorder.record_action(neutral)
         await hub.publish_action(neutral)
         try:
-            result = recorder.stop(request)
+            result = recorder.stop(payload)
             result["archive_job"] = jobs.submit_archive(result["episode_id"])
             return result
         except RuntimeError as error:
@@ -319,13 +540,26 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.websocket("/ws/operator")
     async def operator_socket(websocket: WebSocket) -> None:
+        session_token = websocket.cookies.get(SESSION_COOKIE)
+        user = auth.session_user(session_token)
+        if not user:
+            await websocket.close(code=4401, reason="login required")
+            return
         if config.stream_access_key and not hmac.compare_digest(
             websocket.query_params.get("access_key", ""), config.stream_access_key
         ):
             await websocket.close(code=4401, reason="invalid access key")
             return
-        identifier, granted = await sessions.connect(websocket)
+        identifier, granted = await sessions.connect(websocket, user)
         send_task: asyncio.Task[None] | None = None
+        auth_task: asyncio.Task[None] | None = None
+
+        async def validate_session() -> None:
+            while True:
+                await asyncio.sleep(2.0)
+                if not auth.session_user(session_token):
+                    await websocket.close(code=4401, reason="session expired")
+                    return
 
         async def send_observations() -> None:
             revision = 0
@@ -336,12 +570,17 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                         {"type": "observation", "payload": observation.model_dump(mode="json")}
                     )
 
+        def user_controls_current_scene() -> bool:
+            status = scenes.status()
+            return status.get("phase") == "running" and can_manage_scene(user, status)
+
         try:
             await websocket.send_json(
                 {
                     "type": "session",
                     "operator_id": identifier,
                     "control_granted": granted,
+                    "user": user,
                     "simulation_connected": hub.connected,
                     "active_episode": recorder.episode_id,
                     "control_limits": {
@@ -352,17 +591,40 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 }
             )
             send_task = asyncio.create_task(send_observations())
+            auth_task = asyncio.create_task(validate_session())
             while True:
                 raw = await websocket.receive_json()
-                if raw.get("type") == "ping":
+                message_type = raw.get("type")
+                if message_type == "ping":
                     await websocket.send_json({"type": "pong", "server_time_ns": str(time.time_ns())})
                     continue
+                if message_type == "activate_control":
+                    if not user_controls_current_scene():
+                        await websocket.send_json({"type": "action_rejected", "reason": "not_scene_owner"})
+                        continue
+                    previous = await sessions.activate(identifier)
+                    if previous:
+                        neutral = safety.neutral(recorder.episode_id, "control_page_changed")
+                        recorder.record_action(neutral)
+                        await hub.publish_action(neutral)
+                        _, previous_socket = previous
+                        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+                            await previous_socket.send_json(
+                                {"type": "control_revoked", "reason": "another_page_activated"}
+                            )
+                    await websocket.send_json(
+                        {"type": "control_granted", "operator_id": identifier, "control_granted": True}
+                    )
+                    continue
                 if not sessions.is_owner(identifier):
-                    await websocket.send_json({"type": "action_rejected", "reason": "view_only"})
+                    await websocket.send_json({"type": "action_rejected", "reason": "inactive_page"})
+                    continue
+                if not user_controls_current_scene():
+                    await websocket.send_json({"type": "action_rejected", "reason": "not_scene_owner"})
                     continue
                 try:
-                    request = OperatorAction.model_validate(raw)
-                    action = safety.process(identifier, request, recorder.episode_id)
+                    action_request = OperatorAction.model_validate(raw)
+                    action = safety.process(identifier, action_request, recorder.episode_id)
                 except (ValidationError, ActionRejected) as error:
                     await websocket.send_json({"type": "action_rejected", "reason": str(error)})
                     continue
@@ -381,21 +643,12 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         finally:
             if send_task:
                 send_task.cancel()
-            released, promoted = await sessions.disconnect(identifier)
+            if auth_task:
+                auth_task.cancel()
+            released = await sessions.disconnect(identifier)
             if released:
                 neutral = safety.neutral(recorder.episode_id, "operator_disconnected")
                 recorder.record_action(neutral)
                 await hub.publish_action(neutral)
-            if promoted:
-                promoted_id, promoted_socket = promoted
-                with contextlib.suppress(RuntimeError, WebSocketDisconnect):
-                    await promoted_socket.send_json(
-                        {
-                            "type": "control_granted",
-                            "operator_id": promoted_id,
-                            "control_granted": True,
-                            "message": "Previous operator disconnected; control transferred to this session.",
-                        }
-                    )
 
     return app

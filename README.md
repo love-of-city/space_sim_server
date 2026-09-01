@@ -31,13 +31,14 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 - Web操作台支持键盘、浏览器Gamepad API和末端状态；显示 WebRTC RTT、码率、丢包、解码帧率和分辨率。
 - Pixel Streaming SDK 的键盘控制被关闭，机械臂动作仍只通过 `/ws/operator` 进入后端和权威仿真。
 - UE 为 manifest 相机动态创建独立 `SceneCapture2D + RenderTarget + Streamer`，浏览器切换相机不会改变仿真状态。
-- 单操作员控制权；其他连接自动成为只读观察者。
+- 采用管理员/操作员两种登录角色；场景创建者自动拥有该场景的操作和采集权限，同一用户的新页面点击画面后会自动替换旧操作页面。
 - 仿真模式按键和手柄输入直接生效；松键、窗口失焦、断线或250 ms超时立即停止。
-- `Esc`和页面急停按钮会锁存停止状态，必须点击“恢复控制”才能解除。
+- 点击实时画面进入键盘操作模式；`Esc`立即归零并退出操作模式，页面急停按钮单独负责锁存停止。
 - 末端线速度、角速度、关节速度、关节位置和夹爪速度均有限制。
 - IK在独立BSK控制任务中默认以100 Hz更新并缓存关节目标；MJScene以500 Hz运行PID、力和接触积分，避免在RK4阶段重复求解IK。
 - 前端约30 Hz发动作，UE通过 WebRTC 以最高60 FPS预览。
 - UE主视口经 Pixel Streaming 2 回传网页；RGB、深度和分割权威产品仍通过 `bsk-capture/1` 写入episode。
+- UE 环境复现 MyProject2 的原始 Sphere、8K 地球昼夜/法线/高光、云层/大气材质、银河星空、Lumen、光追、虚拟阴影和自动/局部曝光；对象尺寸按仿真设置，Sun 的照射方向和距离照度规律仍由现有星历规则驱动。当前遥操作场景显示配置化视觉地球，若 manifest 提供 Earth/Sun 星历则自动隐藏视觉地球并切换到权威天体。
 - 记录用户请求、过滤后动作、关节状态、末端位姿/速度、IK残差、时间戳和相机数据。
 
 这仍是人工遥操作，不是视觉闭环或自主抓取策略。
@@ -66,15 +67,17 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`；模型会自动从该仓库的 `test\model\spacecraft_and_arm` 读取，不再需要复制工作区外部模型。
 
-首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖），再从 STL 生成 UE 网格；视缓存情况可能需要2～5分钟，不会安装另一套 UE。后续加载通常更快。网页地址为 `http://127.0.0.1:8000`。
+首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖），再从 STL 生成 UE 网格；视缓存情况可能需要2～5分钟，不会安装另一套 UE。地球和银河 `.uasset` 通过 Git LFS 随适配器仓库提供，启动脚本会检查它们是否完整。后续加载通常更快。网页地址为 `http://127.0.0.1:8000`。
 
-自定义任务时长、IK频率和预览帧率（交互预览默认关闭高开销的权威数据采集）：
+`run_platform.ps1` 现在只启动控制平台（前端、后端、仿真控制/采集监听和 Pixel Streaming 信令），不会立即启动 UE 或 Basilisk/MJScene。进入网页后，在“场景实例”中选择模板、随机化配置、Seed、时长和是否启用权威采集，再点击“生成并启动场景”。Seed 留空时由后端生成，并与完整随机参数一起保存到 `run/scenes/<instance-id>.json`，可用于复现实验。
+
+设置前端场景表单的默认任务时长、IK频率和预览帧率（交互预览默认关闭高开销的权威数据采集）：
 
 ```powershell
 .\scripts\run_platform.ps1 -Duration 600 -IkRate 100 -PreviewRate 60 -SimulationRate 1
 ```
 
-需要录制训练数据时，显式启用 UE 权威 RGB、深度和实例分割采集，并用 `-CaptureRate` 指定采集率：
+需要录制训练数据时，可用以下参数让前端“权威采集”默认勾选，并用 `-CaptureRate` 指定采集率；也可以在每次启动场景前直接在网页中勾选：
 
 ```powershell
 .\scripts\run_platform.ps1 -Duration 600 -EnableDatasetCapture -CaptureRate 10
@@ -95,6 +98,32 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 ```
 
 本机默认端口：操作台 `8000`、Pixel Streaming 播放器 `8080`、UE 信令 `8888`。当前脚本面向本机 HTTP 使用；跨机器或公网部署时必须另外配置可访问的公网地址、HTTPS 以及 STUN/TURN。
+
+
+## 登录与用户权限
+
+平台现在要求登录后才能访问控制 API、启动/关闭场景、操作机械臂和采集训练数据。仅保留两种角色：
+
+- `admin`：拥有操作员全部能力，并可新增、删除操作员及重置操作员密码。
+- `operator`：可创建和关闭自己的场景、操作机械臂、开始和结束训练数据采集。
+
+首次创建认证数据库时会建立管理员。默认本机开发凭据为：
+
+```text
+用户名：admin
+密码：ChangeMe123!
+```
+
+推荐启动时显式设置管理员凭据：
+
+```powershell
+.\scripts\run_platform.ps1 `
+  -AdapterRoot 'C:\path\to\space_sim_UE_Adapter' `
+  -AdminUsername 'admin' `
+  -AdminPassword 'replace-with-a-strong-password'
+```
+
+管理员凭据只在认证数据库第一次创建管理员时使用；登录后可从页面右上角修改自己的密码。用户和会话持久保存在 `data/auth.sqlite3`。同一操作员打开多个页面时不需要申请控制权：点击实时画面的页面会自动成为当前操作页面，旧页面立即归零并退出操作。
 
 ## 跨机器安全模式
 
@@ -163,7 +192,7 @@ data/
 └── tasks/              # 与 UE/WebRTC 会话解耦的任务状态
 ```
 
-网页 WebRTC 视频只用于操作预览；训练数据直接保存 UE 权威帧的原始产品，不从网页视频或截图反推。启动平台时必须传入 `-EnableDatasetCapture` 才会生成这些权威产品。`steps.jsonl` 中记录 `step_id` 和 `render_frame_id`；`captures.jsonl` 记录匹配的 `source_frame_id`、`sim_time_ns` 及 `authoritative_state=true`。停止 episode 时，`metadata.json` 会给出匹配、待匹配和拒绝数量。
+网页 WebRTC 视频只用于操作预览；训练数据直接保存 UE 权威帧的原始产品，不从网页视频或截图反推。每个场景实例启动前必须在网页勾选权威采集，或在启动平台时传入 `-EnableDatasetCapture` 将其设为默认值，才会生成这些权威产品。Episode 元数据会同时记录本次场景实例、Seed 和完整随机参数。`steps.jsonl` 中记录 `step_id` 和 `render_frame_id`；`captures.jsonl` 记录匹配的 `source_frame_id`、`sim_time_ns` 及 `authoritative_state=true`。停止 episode 时，`metadata.json` 会给出匹配、待匹配和拒绝数量。
 
 停止 episode 后，后端自动提交有幂等键的归档任务：先生成逐文件 SHA-256 清单，再以临时文件写入并原子发布 `.tar.gz`。`/api/jobs` 可查询归档状态；`/api/tasks`、`/api/tasks/{id}/start` 和 `/api/tasks/{id}/complete` 提供持久化任务调度接口。
 
@@ -192,4 +221,4 @@ conda run --no-capture-output -n mujoco-dev python .\tools\validate_mujoco_fk.py
 
 1. 增加末端工作空间、自碰撞、抓取接触约束和力/力矩反馈。
 2. 对长时间高吞吐采集增加分片数据格式和对象存储同步。
-3. 增加任务重置、场景随机化，并让学习策略复用同一动作接口。
+3. 扩展更多场景模板、随机变量约束和批量无人值守训练调度。

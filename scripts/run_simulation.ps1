@@ -6,6 +6,7 @@ param(
     [double]$Duration = 300.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
+    [string]$SceneInstancePath = '',
     [ValidateRange(1.0, 500.0)]
     [double]$IkRate = 100.0
 )
@@ -32,10 +33,16 @@ $env:PYTHONPATH = @(
     (Join-Path $AdapterRoot 'Adapters')
 ) -join [IO.Path]::PathSeparator
 
-conda run --no-capture-output -n mujoco-dev python $scenario `
-    --adapter-root ([IO.Path]::GetFullPath($AdapterRoot)) `
-    --model-root ([IO.Path]::GetFullPath($ModelRoot)) `
-    --catalog ([IO.Path]::GetFullPath($catalog)) `
-    --control-port $ControlPort --render-port $RenderPort `
-    --duration $Duration --simulation-rate $SimulationRate --capture-rate $CaptureRate `
-    --ik-rate $IkRate
+$arguments = @(
+    'run', '--no-capture-output', '-n', 'mujoco-dev', 'python', $scenario,
+    '--adapter-root', ([IO.Path]::GetFullPath($AdapterRoot)),
+    '--model-root', ([IO.Path]::GetFullPath($ModelRoot)),
+    '--catalog', ([IO.Path]::GetFullPath($catalog)),
+    '--control-port', $ControlPort, '--render-port', $RenderPort,
+    '--duration', $Duration, '--simulation-rate', $SimulationRate,
+    '--capture-rate', $CaptureRate, '--ik-rate', $IkRate
+)
+if ($SceneInstancePath) {
+    $arguments += @('--scene-instance', ([IO.Path]::GetFullPath($SceneInstancePath)))
+}
+conda @arguments

@@ -9,3 +9,7 @@ run/
 frontend/node_modules/
 frontend/dist/
 signalling/node_modules/
+data/auth.sqlite3*
+data/archives/
+data/jobs/
+data/tasks/

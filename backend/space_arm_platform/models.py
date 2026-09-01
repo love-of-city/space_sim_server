@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -107,11 +107,51 @@ class EpisodeStart(BaseModel):
     operator: str = "operator"
     seed: int | None = None
     tags: list[str] = []
+    scene_instance: dict[str, Any] | None = None
+    operator_user_id: str | None = None
+    operator_username: str | None = None
+    operator_role: Literal["admin", "operator"] | None = None
 
 
 class EpisodeStop(BaseModel):
     outcome: Literal["success", "failure", "aborted", "unknown"] = "unknown"
     note: str = ""
+
+
+class SceneInstanceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str = "spacecraft-arm-teleop"
+    randomization_profile: str = "training-v1"
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    duration_s: float = Field(default=300.0, gt=0.0, le=86400.0)
+    simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)
+    capture_rate_hz: float = Field(default=10.0, gt=0.0, le=60.0)
+    ik_rate_hz: float = Field(default=100.0, ge=1.0, le=500.0)
+    dataset_capture: bool = False
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class OperatorCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=8, max_length=256)
+
+
+class PasswordReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str = Field(min_length=8, max_length=256)
+
+
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
 
 
 class TaskCreate(BaseModel):

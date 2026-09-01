@@ -47,6 +47,67 @@ ARM_JOINT_NAMES = (
 )
 
 
+def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
+    """Load and validate one reproducible scene-instance document."""
+
+    if path is None:
+        return None
+    resolved = path.resolve()
+    try:
+        document = json.loads(resolved.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f"unable to read scene instance {resolved}: {error}") from error
+    if document.get("schema") != "space-arm-scene-instance/1":
+        raise ValueError(f"unsupported scene instance schema: {document.get('schema')}")
+    if document.get("template_id") != "spacecraft-arm-teleop":
+        raise ValueError(f"unsupported scene template: {document.get('template_id')}")
+    runtime = document.get("runtime")
+    randomization = document.get("randomization")
+    if not isinstance(runtime, dict) or not isinstance(randomization, dict):
+        raise ValueError("scene instance requires runtime and randomization objects")
+    runtime_limits = {
+        "duration_s": (0.0, 86400.0),
+        "simulation_rate": (0.0, 100.0),
+        "capture_rate_hz": (0.0, 60.0),
+        "ik_rate_hz": (0.0, 500.0),
+    }
+    for field, (minimum, maximum) in runtime_limits.items():
+        try:
+            value = float(runtime[field])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"scene runtime.{field} must be a number") from error
+        if not math.isfinite(value) or value <= minimum or value > maximum:
+            raise ValueError(
+                f"scene runtime.{field} must be in ({minimum}, {maximum}]"
+            )
+        runtime[field] = value
+    expected_lengths = {
+        "target_position_m": 3,
+        "target_orientation_wxyz": 4,
+        "target_linear_velocity_m_s": 3,
+        "target_angular_velocity_rad_s": 3,
+        "arm_joint_position_rad": 6,
+    }
+    for field, length in expected_lengths.items():
+        values = randomization.get(field)
+        if not isinstance(values, list) or len(values) != length:
+            raise ValueError(f"scene randomization.{field} must contain {length} numbers")
+        try:
+            converted = [float(value) for value in values]
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"scene randomization.{field} must contain only numbers") from error
+        if not all(math.isfinite(value) for value in converted):
+            raise ValueError(f"scene randomization.{field} must contain finite numbers")
+        randomization[field] = converted
+    quaternion_norm = float(np.linalg.norm(randomization["target_orientation_wxyz"]))
+    if quaternion_norm <= 1.0e-12:
+        raise ValueError("scene target quaternion must have non-zero norm")
+    joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
+    if np.any(joints < JOINT_MIN) or np.any(joints > JOINT_MAX):
+        raise ValueError("scene arm joint positions exceed the SO-101 joint limits")
+    return document
+
+
 class SimulationControlClient:
     """Reconnectable latest-action client; its receive thread never touches BSK."""
 
@@ -312,6 +373,13 @@ class CartesianIkControlModel(sysModel.SysModel):
 
 
 def run(args: argparse.Namespace) -> None:
+    scene_instance = _load_scene_instance(args.scene_instance)
+    if scene_instance:
+        runtime = scene_instance["runtime"]
+        args.duration = float(runtime["duration_s"])
+        args.simulation_rate = float(runtime["simulation_rate"])
+        args.capture_rate = float(runtime["capture_rate_hz"])
+        args.ik_rate = float(runtime["ik_rate_hz"])
     adapter_root = args.adapter_root.resolve()
     ue_examples = adapter_root / "Unreal" / "BskUnrealRenderer" / "examples"
     sys.path.insert(0, str(adapter_root / "Adapters"))
@@ -330,7 +398,12 @@ def run(args: argparse.Namespace) -> None:
         joint_names=ARM_JOINT_NAMES,
         tool_site="so101_gripperframe",
     )
-    targets = CartesianTeleopTarget(native.PREGRASP, client, kinematics)
+    initial_joints = (
+        np.asarray(scene_instance["randomization"]["arm_joint_position_rad"], dtype=float)
+        if scene_instance
+        else np.asarray(native.PREGRASP, dtype=float)
+    )
+    targets = CartesianTeleopTarget(initial_joints, client, kinematics)
     original_reference = native.JointTrajectoryPublisher.__dict__["reference"]
     native.JointTrajectoryPublisher.reference = classmethod(
         lambda _cls, seconds: targets.cached_reference(seconds)
@@ -409,6 +482,25 @@ def run(args: argparse.Namespace) -> None:
         )
         simulation.AddModelToTask("graspTask", bridge, -10_000)
         native._initialize_state(simulation, scene)
+        if scene_instance:
+            randomized = scene_instance["randomization"]
+            target = scene.getBody("capture_target")
+            target.setPosition(np.asarray(randomized["target_position_m"], dtype=float))
+            target.setVelocity(np.asarray(randomized["target_linear_velocity_m_s"], dtype=float))
+            target.setAttitude(
+                native._quaternion_to_mrp(
+                    np.asarray(randomized["target_orientation_wxyz"], dtype=float)
+                )
+            )
+            target.setAttitudeRate(
+                np.asarray(randomized["target_angular_velocity_rad_s"], dtype=float)
+            )
+            for (body_name, joint_name), position in zip(
+                native.JOINTS, initial_joints, strict=True
+            ):
+                joint = scene.getBody(body_name).getScalarJoint(joint_name)
+                joint.setPosition(float(position))
+                joint.setVelocity(0.0)
         joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
 
         wall_start = time.monotonic()
@@ -436,6 +528,9 @@ def run(args: argparse.Namespace) -> None:
                     "protocol": CONTROL_PROTOCOL,
                     "type": "observation",
                     "simulation_id": "so101-teleop",
+                    "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
+                    "scene_seed": scene_instance.get("seed") if scene_instance else None,
+                    "scene_template_id": scene_instance.get("template_id") if scene_instance else "spacecraft-arm-teleop",
                     "step_id": str(frame),
                     "render_frame_id": str(render_frame_id),
                     # 使用权威渲染帧的离散时间，保证状态和相机产品可逐帧严格配对。
@@ -508,6 +603,7 @@ def main() -> None:
     parser.add_argument("--simulation-rate", type=float, default=1.0)
     parser.add_argument("--capture-rate", type=float, default=10.0)
     parser.add_argument("--ik-rate", type=float, default=100.0)
+    parser.add_argument("--scene-instance", type=Path)
     args = parser.parse_args()
     if (
         args.duration <= 0
@@ -522,7 +618,12 @@ def main() -> None:
         )
     if not args.adapter_root.is_dir() or not args.model_root.is_dir() or not args.catalog.is_file():
         parser.error("adapter-root, model-root or prepared asset catalog is missing")
-    run(args)
+    if args.scene_instance and not args.scene_instance.is_file():
+        parser.error("scene-instance file is missing")
+    try:
+        run(args)
+    except ValueError as error:
+        parser.error(str(error))
 
 
 if __name__ == "__main__":

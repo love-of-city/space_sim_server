@@ -37,6 +37,8 @@ param(
     [string]$IceServersJson = '[]',
     [string]$TurnUrlsJson = '[]',
     [string]$TurnAuthSecret = '',
+    [string]$AdminUsername = 'admin',
+    [string]$AdminPassword = 'ChangeMe123!',
     [switch]$Rebuild,
     [switch]$ReimportAssets,
     [switch]$NoBrowser
@@ -109,6 +111,31 @@ $meshProbe = Get-ChildItem -LiteralPath (Join-Path $ModelRoot 'assets\robotstudi
 if (!$meshProbe -or $meshProbe.Length -lt 1024) {
     throw 'Spacecraft-arm STL assets are missing or still Git LFS pointers. Run git lfs install and git lfs pull in space_sim_UE_adapter.'
 }
+$environmentAssetRoot = Join-Path $ueProject 'Content\Planets'
+$environmentAssetFiles = @(
+    'Earth\8k_earth_clouds.uasset',
+    'Earth\8k_earth_daymap.uasset',
+    'Earth\8k_earth_nightmap.uasset',
+    'Earth\8k_earth_normal_map.uasset',
+    'Earth\8k_earth_specular_map.uasset',
+    'Earth\M_Atmosphere.uasset',
+    'Earth\M_Clouds.uasset',
+    'Earth\M_Earth.uasset',
+    'Stars\8k_stars_milky_way.uasset',
+    'Stars\M_Stars.uasset'
+)
+foreach ($relativeAsset in $environmentAssetFiles) {
+    $assetPath = Join-Path $environmentAssetRoot $relativeAsset
+    $asset = Get-Item -LiteralPath $assetPath -ErrorAction SilentlyContinue
+    if (!$asset -or $asset.Length -lt 1024) {
+        throw "Earth/star environment asset is missing or still a Git LFS pointer: $assetPath. Run git lfs pull in space_sim_UE_adapter."
+    }
+}
+$environmentSpherePath = Join-Path $ueProject 'Content\_GENERATED\Hyperlovimia\Sphere_732702C4.uasset'
+$environmentSphere = Get-Item -LiteralPath $environmentSpherePath -ErrorAction SilentlyContinue
+if (!$environmentSphere -or $environmentSphere.Length -lt 1024) {
+    throw "MyProject2 environment Sphere is missing or still a Git LFS pointer: $environmentSpherePath. Run git lfs pull in space_sim_UE_adapter."
+}
 & python -c 'import fastapi, pydantic, uvicorn' 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw 'Backend Python dependencies are missing. Run: python -m pip install -e ".[test]"'
@@ -116,6 +143,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # Stop only PIDs previously recorded by this project before binding fixed ports.
 & (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet
+Remove-Item -LiteralPath (Join-Path $runDirectory 'scene_runtime.json') -Force -ErrorAction SilentlyContinue
 
 function Assert-TcpPortAvailable([int]$Port, [string]$Purpose) {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
@@ -138,6 +166,9 @@ foreach ($portCheck in @(
 }
 
 if ($RemoteAccess) {
+    if ($AdminPassword -eq 'ChangeMe123!') {
+        throw 'RemoteAccess requires a non-default -AdminPassword.'
+    }
     if (!$StreamAccessKey) {
         $bytes = New-Object byte[] 24
         $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
@@ -184,13 +215,33 @@ foreach ($cameraId in $PixelStreamingCameraIds) {
     $label = if ($cameraId -match 'wrist') { 'WristCamera' } elseif ($cameraId -match 'overview') { 'SpacecraftOverview' } else { $cameraId }
     $cameraStreamers += "${PixelStreamingId}__${safeId}=$label"
 }
+# Start-Process flattens -ArgumentList into one Windows command line and can split
+# values containing spaces (for example C:\Program Files\...).  Pass runtime
+# filesystem paths through the inherited environment instead; run_backend.ps1
+# then forwards them to Python using PowerShell's native argument binder.
+$env:SPACE_SIM_RUNTIME_ADAPTER_ROOT = $AdapterRoot
+$env:SPACE_SIM_RUNTIME_MODEL_ROOT = $ModelRoot
+$env:SPACE_SIM_RUNTIME_UNREAL_ROOT = $UnrealRoot
+$env:SPACE_SIM_RUNTIME_POWERSHELL_EXE = $powershellExe
+$env:SPACE_SIM_ADMIN_USERNAME = $AdminUsername
+$env:SPACE_SIM_ADMIN_PASSWORD = $AdminPassword
+
 $backendArgs = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_backend.ps1'),
     '-ApiHost', $(if ($RemoteAccess) { '0.0.0.0' } else { '127.0.0.1' }),
     '-ApiPort', $ApiPort, '-ControlPort', $ControlPort, '-CapturePort', $CapturePort,
     '-PixelStreamingPlayerPort', $PixelPlayerPort, '-PixelStreamingId', $PixelStreamingId,
-    '-PixelStreamingCameraStreamers', ($cameraStreamers -join ';')
+    '-PixelStreamingCameraStreamers', ($cameraStreamers -join ';'),
+    '-RenderPort', $RenderPort,
+    '-PixelStreamerPort', $PixelStreamerPort,
+    '-PixelStreamingCameraIds', ($PixelStreamingCameraIds -join ','),
+    '-PixelStreamingCameraWidth', $PixelStreamingCameraWidth,
+    '-PixelStreamingCameraHeight', $PixelStreamingCameraHeight,
+    '-PreviewRate', $PreviewRate, '-RendererReadyTimeout', $RendererReadyTimeout,
+    '-IkRate', $IkRate, '-SimulationRate', $SimulationRate,
+    '-CaptureRate', $CaptureRate, '-DefaultDuration', $Duration
 )
+if ($EnableDatasetCapture) { $backendArgs += '-DefaultDatasetCapture' }
 if ($RemoteAccess) {
     $backendArgs += @(
         '-PixelStreamingSignallingUrl', $PixelPlayerPublicUrl,
@@ -226,92 +277,28 @@ try {
     $backendService = Get-Process -Id $backendServicePid -ErrorAction SilentlyContinue
     if (!$backendService) { throw 'The backend service process disappeared during startup.' }
 
-    $rendererArgs = @{
-        UnrealRoot                 = $UnrealRoot
-        Port                       = $RenderPort
-        PixelStreamingURL          = "ws://127.0.0.1:$PixelStreamerPort"
-        PixelStreamingId           = $PixelStreamingId
-        PixelStreamingFps          = [int][Math]::Round($PreviewRate)
-        PixelStreamingCameraIds    = $PixelStreamingCameraIds
-        PixelStreamingCameraWidth  = $PixelStreamingCameraWidth
-        PixelStreamingCameraHeight = $PixelStreamingCameraHeight
-        PixelStreamingCameraFps    = [int][Math]::Min(30, [Math]::Round($PreviewRate))
-    }
-    if ($EnableDatasetCapture) {
-        $rendererArgs.CaptureProducts = @('rgb', 'depth', 'segmentation')
-        $rendererArgs.CaptureRate = $CaptureRate
-        $rendererArgs.CaptureNetworkHost = '127.0.0.1'
-        $rendererArgs.CaptureNetworkPort = $CapturePort
-        Write-Output "Authoritative dataset capture enabled at ${CaptureRate} Hz (RGB + depth + segmentation)."
-    } else {
-        Write-Output 'Authoritative dataset capture disabled for interactive preview. Use -EnableDatasetCapture when recording a dataset.'
-    }
-    & (Join-Path $ueScripts 'start_renderer.ps1') @rendererArgs
-    $rendererPid = [int](Get-Content -Raw -LiteralPath (Join-Path $ueProject 'Saved\BskRenderer.pid'))
-    $rendererProcess = Get-Process -Id $rendererPid -ErrorAction SilentlyContinue
-    if (!$rendererProcess) { throw 'The UE renderer process disappeared immediately after startup.' }
-
-    # UnrealEditor startup time is not stable: the first run after a plugin,
-    # material, shader-cache, or UE update can spend well over 90 seconds in
-    # shader/asset initialization before the runtime world starts listening.
-    # Wait for the actual TCP receiver instead of treating that one-time work
-    # as a renderer failure.
-    $deadline = [DateTime]::UtcNow.AddSeconds($RendererReadyTimeout)
-    $rendererReady = $false
-    while (!$rendererReady -and [DateTime]::UtcNow -lt $deadline) {
-        if (!(Get-Process -Id $rendererPid -ErrorAction SilentlyContinue)) {
-            throw 'UE exited before its render receiver became ready.'
-        }
-        $probe = [Net.Sockets.TcpClient]::new()
-        try {
-            $connect = $probe.BeginConnect('127.0.0.1', $RenderPort, $null, $null)
-            if ($connect.AsyncWaitHandle.WaitOne(300)) {
-                $probe.EndConnect($connect)
-                $rendererReady = $probe.Connected
-            }
-        } catch { $rendererReady = $false } finally { $probe.Dispose() }
-        if (!$rendererReady) { Start-Sleep -Milliseconds 300 }
-    }
-    if (!$rendererReady) {
-        $ueLog = Join-Path $ueProject 'Saved\Logs\BskUnrealRenderer.log'
-        $logHint = if (Test-Path -LiteralPath $ueLog -PathType Leaf) { " Check $ueLog." } else { '' }
-        throw "UE receiver did not become ready on port $RenderPort within $RendererReadyTimeout seconds.$logHint"
-    }
-
-    $simulationArgs = @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_simulation.ps1'),
-        '-AdapterRoot', $AdapterRoot, '-ModelRoot', $ModelRoot,
-        '-ControlPort', $ControlPort, '-RenderPort', $RenderPort,
-        '-Duration', $Duration, '-SimulationRate', $SimulationRate, '-CaptureRate', $CaptureRate,
-        '-IkRate', $IkRate
-    )
-    $simulation = Start-Process -FilePath $powershellExe -ArgumentList $simulationArgs -PassThru -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $logDirectory 'simulation.out.log') `
-        -RedirectStandardError (Join-Path $logDirectory 'simulation.err.log')
-
     @{
         backend_pid = $backend.Id
         backend_start = $backend.StartTime.ToUniversalTime().Ticks
         backend_service_pid = $backendServicePid
         backend_service_start = $backendService.StartTime.ToUniversalTime().Ticks
-        simulation_pid = $simulation.Id
-        simulation_start = $simulation.StartTime.ToUniversalTime().Ticks
-        renderer_pid = $rendererPid
-        renderer_start = $rendererProcess.StartTime.ToUniversalTime().Ticks
         adapter_root = $AdapterRoot
+        model_root = $ModelRoot
+        unreal_root = $UnrealRoot
         pixel_streamer_port = $PixelStreamerPort
         pixel_player_port = $PixelPlayerPort
         api_url = "http://127.0.0.1:$ApiPort"
+        mode = 'control-plane'
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runDirectory 'platform.json') -Encoding utf8
 
     $operatorUrl = if ($RemoteAccess) {
         "http://$PublicHost`:$ApiPort/?access_key=$([Uri]::EscapeDataString($StreamAccessKey))"
     } else { "http://127.0.0.1:$ApiPort" }
     if (!$NoBrowser) { Start-Process $operatorUrl }
-    Write-Output "Space Arm Data Platform is running: $operatorUrl"
-    $datasetStatus = if ($EnableDatasetCapture) { "$CaptureRate Hz authoritative RGB/depth/segmentation" } else { 'disabled' }
-    Write-Output "Preview target: $PreviewRate FPS Pixel Streaming 2/WebRTC; dataset capture: $datasetStatus; IK: $IkRate Hz."
-    Write-Output 'Use W/S, A/D, Q/E directly for XYZ; hold Shift for rotation; use F/R for the gripper; Esc latches emergency stop.'
+    Write-Output "Space Arm control platform is running: $operatorUrl"
+    Write-Output "Login username: $AdminUsername (bootstrap password applies only when the first admin is created)."
+    Write-Output 'UE and Basilisk/MJScene are not started yet. Select a scene template and randomization in the frontend, then click Start Scene.'
+    Write-Output "Scene defaults: duration $Duration s; preview $PreviewRate FPS; capture $CaptureRate Hz; IK $IkRate Hz."
     Write-Output 'Run .\scripts\stop_platform.ps1 when finished.'
 } catch {
     if (!$backend.HasExited) { Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue }

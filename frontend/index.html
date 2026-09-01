@@ -6,7 +6,20 @@
   <meta name="theme-color" content="#f4f7fa">
   <title>Space Arm · 遥操作采集台</title>
 </head>
-<body>
+<body class="auth-pending">
+  <div id="authGate" class="auth-gate" aria-live="polite">
+    <form id="loginForm" class="login-card">
+      <span class="mark login-mark" aria-hidden="true"><i></i></span>
+      <p class="eyebrow">SPACE ARM PLATFORM</p>
+      <h1>登录控制平台</h1>
+      <p>管理员和操作员登录后才能创建场景、操作机械臂和采集训练数据。</p>
+      <label>用户名<input id="loginUsername" autocomplete="username" required></label>
+      <label>密码<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">登录</button>
+      <small id="loginError"></small>
+    </form>
+  </div>
+
   <header class="topbar">
     <div class="identity">
       <span class="mark" aria-hidden="true"><i></i></span>
@@ -19,11 +32,14 @@
       <span class="status-item"><i id="backendDot" class="status-dot"></i><span id="backendState">后端连接中</span></span>
       <span class="status-item"><i id="simDot" class="status-dot"></i><span id="simState">仿真未连接</span></span>
       <span id="episodeBadge" class="episode-badge">未采集</span>
+      <span class="account-chip"><strong id="currentUsername">—</strong><small id="currentRole">—</small></span>
+      <button id="changePasswordButton" class="quiet-button account-logout" type="button">修改密码</button>
+      <button id="logoutButton" class="quiet-button account-logout" type="button">退出</button>
     </div>
   </header>
 
   <main class="workspace">
-    <section class="viewport" aria-label="UE Pixel Streaming 实时画面">
+    <section id="viewport" class="viewport" tabindex="0" role="button" aria-pressed="false" aria-label="点击进入机械臂键盘操作模式">
       <div id="pixelStream" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
       <div id="previewEmpty" class="preview-empty">
         <span class="signal-mark" aria-hidden="true"></span>
@@ -48,6 +64,10 @@
         <span><small>分辨率</small><strong id="webrtcResolution">—</strong></span>
       </div>
       <button id="playStream" class="play-stream" type="button" hidden>播放实时画面</button>
+      <div id="operationHint" class="operation-hint" aria-live="polite">
+        <strong id="operationHintTitle">等待场景运行</strong>
+        <small id="operationHintDetail">场景运行后点击画面进入操作</small>
+      </div>
       <div class="crosshair" aria-hidden="true"></div>
     </section>
 
@@ -57,7 +77,56 @@
           <p class="eyebrow">OPERATOR CONTROL</p>
           <h1>末端六维遥操作</h1>
         </div>
-        <p>直接按键控制末端，按住 Shift 切换姿态。松键或链路超时会自动停止。</p>
+        <p>场景运行后点击实时画面进入操作，按住 Shift 切换姿态；按 Esc 归零并退出操作。</p>
+      </section>
+
+      <section id="adminUsers" class="control-section admin-users" hidden>
+        <div class="section-heading"><h2>操作员管理</h2><span class="section-note">管理员</span></div>
+        <form id="createOperatorForm" class="admin-create-form">
+          <input id="operatorUsername" placeholder="新操作员用户名" minlength="3" maxlength="64" required>
+          <input id="operatorPassword" type="password" placeholder="初始密码（至少8位）" minlength="8" required>
+          <button class="primary" type="submit">新增操作员</button>
+        </form>
+        <div id="operatorList" class="operator-list"></div>
+      </section>
+
+      <section class="control-section scene-controls">
+        <div class="section-heading">
+          <h2>场景实例</h2>
+          <span id="scenePhase" class="section-status">平台空闲</span>
+        </div>
+        <div class="scene-form">
+          <label>场景模板
+            <select id="sceneTemplate"><option value="spacecraft-arm-teleop">CubeSat + SO-101 遥操作抓取</option></select>
+          </label>
+          <label>随机化配置
+            <select id="randomizationProfile"><option value="training-v1">训练随机化 v1</option></select>
+          </label>
+          <div class="scene-form-row">
+            <label>随机种子
+              <input id="sceneSeed" type="number" min="0" max="2147483647" placeholder="留空自动生成">
+            </label>
+            <label>时长（秒）
+              <input id="sceneDuration" type="number" min="1" max="86400" step="1" value="300">
+            </label>
+          </div>
+          <label class="scene-checkbox">
+            <input id="sceneDatasetCapture" type="checkbox">
+            <span>启用权威 RGB / 深度 / 分割采集</span>
+          </label>
+        </div>
+        <div class="scene-actions">
+          <button id="startScene" class="primary" type="button">生成并启动场景</button>
+          <button id="stopScene" type="button" disabled>停止场景</button>
+        </div>
+        <dl class="scene-instance-summary">
+          <div><dt>实例</dt><dd id="sceneInstanceId">—</dd></div>
+          <div><dt>Seed</dt><dd id="sceneInstanceSeed">—</dd></div>
+        </dl>
+        <details class="scene-parameters">
+          <summary>查看本次随机参数</summary>
+          <pre id="sceneParameters">尚未生成实例</pre>
+        </details>
       </section>
 
       <section class="control-section command-section">
@@ -83,8 +152,8 @@
           <div><span>夹爪</span><kbd>F</kbd><output id="grip">0.000</output><kbd>R</kbd></div>
         </div>
         <p class="projection-note">SO-101 为 5 轴机械臂，六维命令会投影到可实现运动。</p>
-        <div id="directControl" class="direct-status">等待操作输入</div>
-        <button id="estop" class="estop" type="button">立即停止输出 <span>Esc</span></button>
+        <div id="directControl" class="direct-status">等待场景和控制链路就绪</div>
+        <button id="estop" class="estop" type="button">立即停止输出</button>
       </section>
 
       <section class="control-section telemetry">

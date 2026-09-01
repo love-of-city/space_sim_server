@@ -20,6 +20,10 @@ param(
     [double]$Duration = 300.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
+    # Authoritative RGB/depth/segmentation capture performs synchronous GPU readbacks
+    # in the UE game thread. Keep it opt-in for interactive preview; enable it only
+    # when dataset/episode recording actually needs those products.
+    [switch]$EnableDatasetCapture,
     [ValidateRange(1.0, 500.0)]
     [double]$IkRate = 100.0,
     [double]$PreviewRate = 60.0,
@@ -61,8 +65,10 @@ function Resolve-Unreal56Root([string]$RequestedRoot) {
     if ($env:UE56_ROOT) { $candidates += $env:UE56_ROOT }
     $candidates += @('E:\UE5.6', 'E:\UE5.6\UE_5.6', 'C:\Program Files\Epic Games\UE_5.6')
     foreach ($candidate in $candidates | Select-Object -Unique) {
-        foreach ($root in @($candidate, (Join-Path $candidate 'UE_5.6'))) {
-            if (Test-Path -LiteralPath (Join-Path $root 'Engine\Binaries\Win64\UnrealEditor.exe') -PathType Leaf) {
+        # Use System.IO path composition here: Join-Path throws when a candidate drive (for example E:) is absent.
+        foreach ($root in @($candidate, ([IO.Path]::Combine($candidate, 'UE_5.6')))) {
+            $editor = [IO.Path]::Combine($root, 'Engine', 'Binaries', 'Win64', 'UnrealEditor.exe')
+            if (Test-Path -LiteralPath $editor -PathType Leaf) {
                 return (Resolve-Path -LiteralPath $root).Path
             }
         }
@@ -155,21 +161,22 @@ if ($RemoteAccess) {
         -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort
 }
 
-Write-Output 'Checking the existing UE assets and runtime plugin ...'
-$catalog = Join-Path $ueProject 'Saved\AssetImport\cubesat_so101.catalog.json'
-if ($ReimportAssets -or !(Test-Path -LiteralPath $catalog -PathType Leaf)) {
-    & (Join-Path $ueScripts 'prepare_spacecraft_arm_assets.ps1') -ModelRoot $ModelRoot `
-        -Variant combined -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$ReimportAssets
-    if ($LASTEXITCODE -ne 0) { throw 'Spacecraft/arm asset preparation failed.' }
-} else {
-    Write-Output "Reusing prepared CubeSat + SO-101 asset catalog: $catalog"
-}
-& (Join-Path $ueScripts 'prepare_runtime_materials.ps1') -UnrealRoot $UnrealRoot
+Write-Output 'Checking the existing UE modules and assets ...'
+$projectBinary = Join-Path $ueProject 'Binaries\Win64\UnrealEditor-BskUnrealRenderer.dll'
 $pluginBinary = Join-Path $ueProject 'Plugins\BskUnrealRuntime\Binaries\Win64\UnrealEditor-BskUnrealRuntime.dll'
-if ($Rebuild -or !(Test-Path -LiteralPath $pluginBinary)) {
+if ($Rebuild -or !(Test-Path -LiteralPath $projectBinary -PathType Leaf) -or !(Test-Path -LiteralPath $pluginBinary -PathType Leaf)) {
+    # Unreal commandlets must be able to load both modules before importing or configuring assets.
     & (Join-Path $ueScripts 'build.ps1') -UnrealRoot $UnrealRoot
-    if ($LASTEXITCODE -ne 0) { throw 'UE runtime plugin build failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'UE project/runtime plugin build failed.' }
 }
+
+$catalog = Join-Path $ueProject 'Saved\AssetImport\cubesat_so101.catalog.json'
+# The preparation script validates both the catalog fingerprint and every expected .uasset.
+# Do not skip it merely because a catalog survived an earlier failed import.
+& (Join-Path $ueScripts 'prepare_spacecraft_arm_assets.ps1') -ModelRoot $ModelRoot `
+    -Variant combined -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$ReimportAssets
+if ($LASTEXITCODE -ne 0) { throw 'Spacecraft/arm asset preparation failed.' }
+& (Join-Path $ueScripts 'prepare_runtime_materials.ps1') -UnrealRoot $UnrealRoot
 
 $cameraStreamers = @()
 foreach ($cameraId in $PixelStreamingCameraIds) {
@@ -219,16 +226,30 @@ try {
     $backendService = Get-Process -Id $backendServicePid -ErrorAction SilentlyContinue
     if (!$backendService) { throw 'The backend service process disappeared during startup.' }
 
-    & (Join-Path $ueScripts 'start_renderer.ps1') -UnrealRoot $UnrealRoot -Port $RenderPort `
-        -CaptureProducts @('rgb','depth','segmentation') -CaptureRate $CaptureRate `
-        -CaptureNetworkHost '127.0.0.1' -CaptureNetworkPort $CapturePort `
-        -PixelStreamingURL "ws://127.0.0.1:$PixelStreamerPort" -PixelStreamingId $PixelStreamingId `
-        -PixelStreamingFps ([int][Math]::Round($PreviewRate)) `
-        -PixelStreamingCameraIds $PixelStreamingCameraIds `
-        -PixelStreamingCameraWidth $PixelStreamingCameraWidth `
-        -PixelStreamingCameraHeight $PixelStreamingCameraHeight `
-        -PixelStreamingCameraFps ([int][Math]::Min(30, [Math]::Round($PreviewRate)))
+    $rendererArgs = @{
+        UnrealRoot                 = $UnrealRoot
+        Port                       = $RenderPort
+        PixelStreamingURL          = "ws://127.0.0.1:$PixelStreamerPort"
+        PixelStreamingId           = $PixelStreamingId
+        PixelStreamingFps          = [int][Math]::Round($PreviewRate)
+        PixelStreamingCameraIds    = $PixelStreamingCameraIds
+        PixelStreamingCameraWidth  = $PixelStreamingCameraWidth
+        PixelStreamingCameraHeight = $PixelStreamingCameraHeight
+        PixelStreamingCameraFps    = [int][Math]::Min(30, [Math]::Round($PreviewRate))
+    }
+    if ($EnableDatasetCapture) {
+        $rendererArgs.CaptureProducts = @('rgb', 'depth', 'segmentation')
+        $rendererArgs.CaptureRate = $CaptureRate
+        $rendererArgs.CaptureNetworkHost = '127.0.0.1'
+        $rendererArgs.CaptureNetworkPort = $CapturePort
+        Write-Output "Authoritative dataset capture enabled at ${CaptureRate} Hz (RGB + depth + segmentation)."
+    } else {
+        Write-Output 'Authoritative dataset capture disabled for interactive preview. Use -EnableDatasetCapture when recording a dataset.'
+    }
+    & (Join-Path $ueScripts 'start_renderer.ps1') @rendererArgs
     $rendererPid = [int](Get-Content -Raw -LiteralPath (Join-Path $ueProject 'Saved\BskRenderer.pid'))
+    $rendererProcess = Get-Process -Id $rendererPid -ErrorAction SilentlyContinue
+    if (!$rendererProcess) { throw 'The UE renderer process disappeared immediately after startup.' }
 
     # UnrealEditor startup time is not stable: the first run after a plugin,
     # material, shader-cache, or UE update can spend well over 90 seconds in
@@ -276,6 +297,8 @@ try {
         simulation_pid = $simulation.Id
         simulation_start = $simulation.StartTime.ToUniversalTime().Ticks
         renderer_pid = $rendererPid
+        renderer_start = $rendererProcess.StartTime.ToUniversalTime().Ticks
+        adapter_root = $AdapterRoot
         pixel_streamer_port = $PixelStreamerPort
         pixel_player_port = $PixelPlayerPort
         api_url = "http://127.0.0.1:$ApiPort"
@@ -286,7 +309,8 @@ try {
     } else { "http://127.0.0.1:$ApiPort" }
     if (!$NoBrowser) { Start-Process $operatorUrl }
     Write-Output "Space Arm Data Platform is running: $operatorUrl"
-    Write-Output "Preview: $PreviewRate FPS Pixel Streaming 2/WebRTC; dataset: $CaptureRate Hz authoritative RGB/depth/segmentation; IK: $IkRate Hz."
+    $datasetStatus = if ($EnableDatasetCapture) { "$CaptureRate Hz authoritative RGB/depth/segmentation" } else { 'disabled' }
+    Write-Output "Preview target: $PreviewRate FPS Pixel Streaming 2/WebRTC; dataset capture: $datasetStatus; IK: $IkRate Hz."
     Write-Output 'Use W/S, A/D, Q/E directly for XYZ; hold Shift for rotation; use F/R for the gripper; Esc latches emergency stop.'
     Write-Output 'Run .\scripts\stop_platform.ps1 when finished.'
 } catch {

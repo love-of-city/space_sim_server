@@ -21,8 +21,8 @@ const state = {
   pixelConfig: null,
   streamConfig: null,
   selectedStreamerId: "BskRenderer",
-  lastFramesReceived: null,
-  lastStatsTimestamp: null,
+  lastPresentedFrames: null,
+  lastPresentedTimestamp: null,
   streamLive: false,
   streamReconnectTimer: null,
 };
@@ -132,8 +132,8 @@ function signallingUrl() {
 }
 
 function resetWebRtcStats() {
-  state.lastFramesReceived = null;
-  state.lastStatsTimestamp = null;
+  state.lastPresentedFrames = null;
+  state.lastPresentedTimestamp = null;
   $("webrtcRtt").textContent = "—";
   $("webrtcBitrate").textContent = "—";
   $("webrtcLoss").textContent = "—";
@@ -148,15 +148,26 @@ function updateWebRtcStats(aggregatedStats) {
   const packetsReceived = Number(video.packetsReceived || 0);
   const packetsLost = Number(video.packetsLost || 0);
   const totalPackets = packetsReceived + packetsLost;
-  const timestamp = Number(video.timestamp || 0);
-  const framesReceived = Number(video.framesReceived || 0);
-  let fps = Number.isFinite(Number(video.framesPerSecond)) ? Number(video.framesPerSecond) : null;
-  if (fps == null && state.lastStatsTimestamp != null && timestamp > state.lastStatsTimestamp
-      && framesReceived >= state.lastFramesReceived) {
-    fps = (framesReceived - state.lastFramesReceived) * 1000 / (timestamp - state.lastStatsTimestamp);
+  // WebRTC's inbound framesPerSecond is the receive/decode rate. It can be
+  // much higher than what the browser actually presents because decoded frames
+  // may be dropped by the compositor. Measure non-dropped video frames instead.
+  const player = $("pixelStream").querySelector("video");
+  const quality = player?.getVideoPlaybackQuality?.();
+  const totalVideoFrames = Number(quality?.totalVideoFrames ?? player?.webkitDecodedFrameCount);
+  const droppedVideoFrames = Number(quality?.droppedVideoFrames ?? player?.webkitDroppedFrameCount ?? 0);
+  const presentedFrames = totalVideoFrames - droppedVideoFrames;
+  const presentedTimestamp = performance.now();
+  let fps = null;
+  if (Number.isFinite(presentedFrames) && presentedFrames >= 0) {
+    if (state.lastPresentedTimestamp != null
+        && presentedTimestamp > state.lastPresentedTimestamp
+        && presentedFrames >= state.lastPresentedFrames) {
+      fps = (presentedFrames - state.lastPresentedFrames) * 1000
+        / (presentedTimestamp - state.lastPresentedTimestamp);
+    }
+    state.lastPresentedTimestamp = presentedTimestamp;
+    state.lastPresentedFrames = presentedFrames;
   }
-  state.lastStatsTimestamp = timestamp;
-  state.lastFramesReceived = framesReceived;
   $("webrtcRtt").textContent = pair?.currentRoundTripTime != null
     ? `${(pair.currentRoundTripTime * 1000).toFixed(0)} ms` : "—";
   $("webrtcBitrate").textContent = video.bitrate != null

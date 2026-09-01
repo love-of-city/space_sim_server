@@ -32,7 +32,14 @@ $ueCandidates = @($UnrealRoot, (Join-Path $UnrealRoot 'UE_5.6'), 'E:\UE5.6\UE_5.
 $ue = $ueCandidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'Engine\Binaries\Win64\UnrealEditor.exe') } | Select-Object -First 1
 if (!$ue) { throw 'Unreal Engine 5.6 root could not be resolved.' }
 $server = Join-Path $ue 'Engine\Plugins\Media\PixelStreaming2\Resources\WebServers\SignallingWebServer'
-$node = Join-Path $server 'platform_scripts\cmd\node\node.exe'
+$bundledNode = Join-Path $server 'platform_scripts\cmd\node\node.exe'
+if (Test-Path -LiteralPath $bundledNode -PathType Leaf) {
+    $node = $bundledNode
+} else {
+    $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (!$nodeCommand) { throw 'Node.js was not found for the Pixel Streaming signalling server.' }
+    $node = $nodeCommand.Source
+}
 $arguments = @(
     'dist/index.js', '--streamer_port', "$StreamerPort", '--player_port', "$PlayerPort",
     '--serve', '--http_root', 'www', '--homepage', 'player.html',

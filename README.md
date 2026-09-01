@@ -68,11 +68,19 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖），再从 STL 生成 UE 网格；视缓存情况可能需要2～5分钟，不会安装另一套 UE。后续加载通常更快。网页地址为 `http://127.0.0.1:8000`。
 
-自定义任务时长、IK频率和采集率：
+自定义任务时长、IK频率和预览帧率（交互预览默认关闭高开销的权威数据采集）：
 
 ```powershell
-.\scripts\run_platform.ps1 -Duration 600 -IkRate 100 -PreviewRate 60 -CaptureRate 10 -SimulationRate 1
+.\scripts\run_platform.ps1 -Duration 600 -IkRate 100 -PreviewRate 60 -SimulationRate 1
 ```
+
+需要录制训练数据时，显式启用 UE 权威 RGB、深度和实例分割采集，并用 `-CaptureRate` 指定采集率：
+
+```powershell
+.\scripts\run_platform.ps1 -Duration 600 -EnableDatasetCapture -CaptureRate 10
+```
+
+权威采集会在 UE 游戏线程执行 SceneCapture、GPU→CPU 读回和编码，尤其实例分割还会按对象重复捕获，因此不应在只做交互预览时开启。
 
 新电脑首次运行会从适配器仓库内置 STL 自动生成17个机械臂网格；后续运行直接复用。只有源STL或材质变化时才重新导入：
 
@@ -155,7 +163,7 @@ data/
 └── tasks/              # 与 UE/WebRTC 会话解耦的任务状态
 ```
 
-网页 WebRTC 视频只用于操作预览；训练数据直接保存 UE 权威帧的原始产品，不从网页视频或截图反推。`steps.jsonl` 中记录 `step_id` 和 `render_frame_id`；`captures.jsonl` 记录匹配的 `source_frame_id`、`sim_time_ns` 及 `authoritative_state=true`。停止 episode 时，`metadata.json` 会给出匹配、待匹配和拒绝数量。
+网页 WebRTC 视频只用于操作预览；训练数据直接保存 UE 权威帧的原始产品，不从网页视频或截图反推。启动平台时必须传入 `-EnableDatasetCapture` 才会生成这些权威产品。`steps.jsonl` 中记录 `step_id` 和 `render_frame_id`；`captures.jsonl` 记录匹配的 `source_frame_id`、`sim_time_ns` 及 `authoritative_state=true`。停止 episode 时，`metadata.json` 会给出匹配、待匹配和拒绝数量。
 
 停止 episode 后，后端自动提交有幂等键的归档任务：先生成逐文件 SHA-256 清单，再以临时文件写入并原子发布 `.tar.gz`。`/api/jobs` 可查询归档状态；`/api/tasks`、`/api/tasks/{id}/start` 和 `/api/tasks/{id}/complete` 提供持久化任务调度接口。
 

@@ -106,9 +106,6 @@
             <label>随机种子
               <input id="sceneSeed" type="number" min="0" max="2147483647" placeholder="留空自动生成">
             </label>
-            <label>时长（秒）
-              <input id="sceneDuration" type="number" min="1" max="86400" step="1" value="300">
-            </label>
           </div>
           <label class="scene-checkbox">
             <input id="sceneDatasetCapture" type="checkbox">
@@ -144,11 +141,11 @@
         </div>
         <div class="joint-list" aria-label="键盘映射">
           <div><span>X 前后</span><kbd>S</kbd><output id="vx">0.000</output><kbd>W</kbd></div>
-          <div><span>Y 左右</span><kbd>A</kbd><output id="vy">0.000</output><kbd>D</kbd></div>
+          <div><span>Y 左右</span><kbd>D</kbd><output id="vy">0.000</output><kbd>A</kbd></div>
           <div><span>Z 上下</span><kbd>E</kbd><output id="vz">0.000</output><kbd>Q</kbd></div>
           <div><span>Roll</span><kbd>⇧E</kbd><output id="wx">0.000</output><kbd>⇧Q</kbd></div>
           <div><span>Pitch</span><kbd>⇧S</kbd><output id="wy">0.000</output><kbd>⇧W</kbd></div>
-          <div><span>Yaw</span><kbd>⇧A</kbd><output id="wz">0.000</output><kbd>⇧D</kbd></div>
+          <div><span>Yaw</span><kbd>⇧D</kbd><output id="wz">0.000</output><kbd>⇧A</kbd></div>
           <div><span>夹爪</span><kbd>F</kbd><output id="grip">0.000</output><kbd>R</kbd></div>
         </div>
         <p class="projection-note">SO-101 为 5 轴机械臂，六维命令会投影到可实现运动。</p>

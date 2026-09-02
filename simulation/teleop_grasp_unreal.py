@@ -38,6 +38,12 @@ from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_so
 JOINT_MIN = np.array([-1.91986, -1.74533, -1.69, -1.65806, -2.74385, -0.174533])
 JOINT_MAX = np.array([1.91986, 1.74533, 1.69, 1.65806, 2.74385, 1.74533])
 ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00])
+DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
+SUPPORTED_EPHEMERIS_CENTER = "Earth"
+SUPPORTED_EPHEMERIS_FRAME = "J2000"
+SUN_REFERENCE_DISTANCE_M = 149_597_870_700.0
+
+
 ARM_JOINT_NAMES = (
     "so101_shoulder_pan",
     "so101_shoulder_lift",
@@ -63,10 +69,26 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
         raise ValueError(f"unsupported scene template: {document.get('template_id')}")
     runtime = document.get("runtime")
     randomization = document.get("randomization")
+    environment = document.get("environment", {})
     if not isinstance(runtime, dict) or not isinstance(randomization, dict):
         raise ValueError("scene instance requires runtime and randomization objects")
+    if not isinstance(environment, dict):
+        raise ValueError("scene instance environment must be an object")
+    epoch = str(environment.get("ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC)).strip()
+    center = str(environment.get("ephemeris_center", SUPPORTED_EPHEMERIS_CENTER)).strip()
+    frame = str(environment.get("ephemeris_frame", SUPPORTED_EPHEMERIS_FRAME)).strip()
+    if not epoch:
+        raise ValueError("scene environment.ephemeris_epoch_utc must not be empty")
+    if center.casefold() != SUPPORTED_EPHEMERIS_CENTER.casefold():
+        raise ValueError("scene environment.ephemeris_center must be Earth")
+    if frame.casefold() != SUPPORTED_EPHEMERIS_FRAME.casefold():
+        raise ValueError("scene environment.ephemeris_frame must be J2000")
+    document["environment"] = {
+        "ephemeris_epoch_utc": epoch,
+        "ephemeris_center": SUPPORTED_EPHEMERIS_CENTER,
+        "ephemeris_frame": SUPPORTED_EPHEMERIS_FRAME,
+    }
     runtime_limits = {
-        "duration_s": (0.0, 86400.0),
         "simulation_rate": (0.0, 100.0),
         "capture_rate_hz": (0.0, 60.0),
         "ik_rate_hz": (0.0, 500.0),
@@ -376,7 +398,6 @@ def run(args: argparse.Namespace) -> None:
     scene_instance = _load_scene_instance(args.scene_instance)
     if scene_instance:
         runtime = scene_instance["runtime"]
-        args.duration = float(runtime["duration_s"])
         args.simulation_rate = float(runtime["simulation_rate"])
         args.capture_rate = float(runtime["capture_rate_hz"])
         args.ik_rate = float(runtime["ik_rate_hz"])
@@ -409,13 +430,40 @@ def run(args: argparse.Namespace) -> None:
         lambda _cls, seconds: targets.cached_reference(seconds)
     )
 
-    from Basilisk.utilities import macros
+    from Basilisk.utilities import macros, simIncludeGravBody
     from bsk_render_adapter import BasiliskRenderBridge, CameraVisual, SceneSettings
 
     client.start()
     bridge: BasiliskRenderBridge | None = None
     try:
         simulation, scene, dynamics_models, recorders = native._build_simulation()
+        ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
+        ephemeris_epoch = str(
+            ephemeris_environment.get("ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC)
+        )
+        gravity_factory = simIncludeGravBody.gravBodyFactory()
+        earth = gravity_factory.createEarth()
+        sun = gravity_factory.createSun()
+        ephemeris = gravity_factory.createSpiceInterface(
+            time=ephemeris_epoch,
+            spicePlanetFrames=[SUPPORTED_EPHEMERIS_FRAME, SUPPORTED_EPHEMERIS_FRAME],
+            epochInMsg=True,
+        )
+        ephemeris.zeroBase = SUPPORTED_EPHEMERIS_CENTER
+        # SPICE is visualization-only here: do not attach these gravity bodies to MJScene.
+        simulation.AddModelToTask("graspTask", ephemeris, 20_000)
+        print(
+            json.dumps(
+                {
+                    "type": "ephemeris_configuration",
+                    "epoch_utc": ephemeris_epoch,
+                    "center": SUPPORTED_EPHEMERIS_CENTER,
+                    "frame": SUPPORTED_EPHEMERIS_FRAME,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
         control_task_name = "teleopIkTask"
         control_task = simulation.CreateNewTask(
             control_task_name, macros.sec2nano(1.0 / args.ik_rate)
@@ -426,7 +474,15 @@ def run(args: argparse.Namespace) -> None:
         grasp_process.addTask(control_task, 100)
         ik_controller = CartesianIkControlModel(targets)
         simulation.AddModelToTask(control_task_name, ik_controller)
-        keep_alive = (dynamics_models, recorders, ik_controller)
+        keep_alive = (
+            dynamics_models,
+            recorders,
+            ik_controller,
+            gravity_factory,
+            earth,
+            sun,
+            ephemeris,
+        )
         bridge = BasiliskRenderBridge(
             host=args.render_host,
             port=args.render_port,
@@ -445,6 +501,20 @@ def run(args: argparse.Namespace) -> None:
             camera_pip_resolution=(640, 360),
             camera_picture_in_picture_start_slot=2,
             camera_display_names={"so101_wrist_cam": "SO-101 Wrist Camera"},
+        )
+        bridge.add_celestial_bodies(
+            [sun],
+            visual_overrides={
+                "sun": {
+                    "visual_role": "star",
+                    "luminous": True,
+                    "drives_directional_light": True,
+                    "light_color_rgb": (1.0, 0.98, 0.92),
+                    # Keep the current exposure calibration; UE applies the 1/r^2 correction.
+                    "light_illuminance_lux_at_reference_distance": 8.0,
+                    "light_reference_distance_m": SUN_REFERENCE_DISTANCE_M,
+                }
+            },
         )
         bridge.add_camera(
             CameraVisual(
@@ -505,9 +575,13 @@ def run(args: argparse.Namespace) -> None:
 
         wall_start = time.monotonic()
         processing_seconds = 0.0
-        frame_count = int(math.ceil(args.duration * 30.0))
-        for frame in range(1, frame_count + 1):
-            sim_seconds = min(frame / 30.0, args.duration)
+        frame_count = int(math.ceil(args.duration * 30.0)) if args.duration > 0.0 else None
+        frame = 0
+        while frame_count is None or frame < frame_count:
+            frame += 1
+            sim_seconds = frame / 30.0
+            if frame_count is not None:
+                sim_seconds = min(sim_seconds, args.duration)
             deadline = wall_start + sim_seconds / args.simulation_rate
             time.sleep(max(0.0, deadline - time.monotonic()))
             processing_start = time.monotonic()
@@ -554,24 +628,25 @@ def run(args: argparse.Namespace) -> None:
                 }
             )
             processing_seconds += time.monotonic() - processing_start
-        wall_seconds = time.monotonic() - wall_start
-        print(
-            json.dumps(
-                {
-                    "type": "performance_summary",
-                    "simulated_seconds": args.duration,
-                    "wall_seconds": wall_seconds,
-                    "processing_seconds": processing_seconds,
-                    "wall_real_time_factor": args.duration / wall_seconds,
-                    "processing_real_time_factor": args.duration / processing_seconds,
-                    "ik_control_rate_hz": args.ik_rate,
-                    "ik_update_count": targets.update_count,
-                    "ik_solve_count": targets.ik_solve_count,
-                },
-                sort_keys=True,
-            ),
-            flush=True,
-        )
+        if args.duration > 0.0:
+            wall_seconds = time.monotonic() - wall_start
+            print(
+                json.dumps(
+                    {
+                        "type": "performance_summary",
+                        "simulated_seconds": args.duration,
+                        "wall_seconds": wall_seconds,
+                        "processing_seconds": processing_seconds,
+                        "wall_real_time_factor": args.duration / wall_seconds,
+                        "processing_real_time_factor": args.duration / processing_seconds,
+                        "ik_control_rate_hz": args.ik_rate,
+                        "ik_update_count": targets.update_count,
+                        "ik_solve_count": targets.ik_solve_count,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
         _ = keep_alive
     finally:
         native.JointTrajectoryPublisher.reference = original_reference
@@ -599,21 +674,21 @@ def main() -> None:
     parser.add_argument("--control-port", type=int, default=8766)
     parser.add_argument("--render-host", default="127.0.0.1")
     parser.add_argument("--render-port", type=int, default=5558)
-    parser.add_argument("--duration", type=float, default=300.0)
+    parser.add_argument("--duration", type=float, default=0.0, help="Optional finite runtime in seconds; 0 runs until stopped.")
     parser.add_argument("--simulation-rate", type=float, default=1.0)
     parser.add_argument("--capture-rate", type=float, default=10.0)
     parser.add_argument("--ik-rate", type=float, default=100.0)
     parser.add_argument("--scene-instance", type=Path)
     args = parser.parse_args()
     if (
-        args.duration <= 0
+        args.duration < 0
         or args.simulation_rate <= 0
         or args.capture_rate <= 0
         or args.ik_rate <= 0
         or args.ik_rate > 500
     ):
         parser.error(
-            "duration, simulation-rate and capture-rate must be positive; "
+            "duration must be non-negative, simulation-rate and capture-rate must be positive; "
             "ik-rate must be in (0, 500]"
         )
     if not args.adapter_root.is_dir() or not args.model_root.is_dir() or not args.catalog.is_file():

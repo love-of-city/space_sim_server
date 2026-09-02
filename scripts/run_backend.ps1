@@ -24,7 +24,6 @@ param(
     [double]$IkRate = 100.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
-    [double]$DefaultDuration = 300.0,
     [switch]$DefaultDatasetCapture
 )
 
@@ -66,7 +65,7 @@ if ($AdapterRoot -and $ModelRoot -and $UnrealRoot -and $PowerShellExe) {
         '--runtime-pixel-streaming-camera-height', $PixelStreamingCameraHeight,
         '--runtime-preview-rate', $PreviewRate, '--runtime-renderer-ready-timeout', $RendererReadyTimeout,
         '--runtime-ik-rate', $IkRate, '--runtime-simulation-rate', $SimulationRate,
-        '--runtime-capture-rate', $CaptureRate, '--runtime-default-duration', $DefaultDuration
+        '--runtime-capture-rate', $CaptureRate
     )
     if ($DefaultDatasetCapture) { $arguments += '--runtime-default-dataset-capture' }
     foreach ($cameraId in ($PixelStreamingCameraIds -split ',' | Where-Object { $_ })) {

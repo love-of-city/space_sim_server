@@ -168,7 +168,6 @@ async function loadSceneCatalog() {
     const defaults = catalog.defaults || {};
     template.value = defaults.template_id || template.value;
     profile.value = defaults.randomization_profile || profile.value;
-    $("sceneDuration").value = defaults.duration_s || 300;
     $("sceneDatasetCapture").checked = Boolean(defaults.dataset_capture);
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
@@ -201,7 +200,7 @@ function applySceneRuntime(runtime = {}) {
   $("scenePhase").classList.toggle("scene-failed", phase === "failed");
   $("startScene").disabled = active || !enabled;
   $("stopScene").disabled = !active || !state.canManageScene;
-  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneDuration", "sceneDatasetCapture"].forEach((id) => {
+  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneDatasetCapture"].forEach((id) => {
     $(id).disabled = active;
   });
   $("linearSpeed").disabled = !state.sceneReady;
@@ -232,7 +231,6 @@ async function startScene() {
     template_id: $("sceneTemplate").value,
     randomization_profile: $("randomizationProfile").value,
     seed: seedText === "" ? null : Number(seedText),
-    duration_s: Number($("sceneDuration").value),
     simulation_rate: state.sceneDefaults.simulation_rate,
     capture_rate_hz: state.sceneDefaults.capture_rate_hz,
     ik_rate_hz: state.sceneDefaults.ik_rate_hz,
@@ -545,10 +543,10 @@ function keyboardAction() {
   if (rotationMode) {
     angular[0] = value("KeyQ", "KeyE");
     angular[1] = value("KeyW", "KeyS");
-    angular[2] = value("KeyD", "KeyA");
+    angular[2] = value("KeyA", "KeyD");
   } else {
     linear[0] = value("KeyW", "KeyS");
-    linear[1] = value("KeyD", "KeyA");
+    linear[1] = value("KeyA", "KeyD");
     linear[2] = value("KeyQ", "KeyE");
   }
   $("motionMode").textContent = rotationMode ? "旋转 RPY" : "平移 XYZ";

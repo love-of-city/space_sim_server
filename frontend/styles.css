@@ -135,7 +135,7 @@ h2 { margin: 0; font-size: 13px; line-height: 1.3; font-weight: 680; }
 .scene-form { display: grid; gap: 9px; }
 .scene-form label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
 .scene-form select, .scene-form input[type="number"] { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px; color: var(--text); background: var(--surface-soft); font-size: 11px; }
-.scene-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.scene-form-row { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .scene-checkbox { display: flex !important; grid-template-columns: none !important; flex-direction: row; align-items: center; gap: 8px !important; padding: 8px 10px; border-radius: 7px; background: var(--surface-soft); }
 .scene-checkbox input { margin: 0; accent-color: var(--accent); }
 .scene-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px; }

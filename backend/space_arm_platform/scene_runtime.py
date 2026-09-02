@@ -45,6 +45,9 @@ _NATIVE_TARGET_QUATERNION = (0.99967109, 0.02433362, -0.00809494, 0.00024763)
 _NATIVE_TARGET_SPIN = (1.0, 0.0, 0.0)
 _NATIVE_COMMON_VELOCITY = (0.01, -0.004, 0.002)
 _NATIVE_PREGRASP = (0.0, -0.1790243, 0.2159404, -0.0368382, 0.0, 0.4)
+_DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
+_DEFAULT_EPHEMERIS_CENTER = "Earth"
+_DEFAULT_EPHEMERIS_FRAME = "J2000"
 
 
 @dataclass(frozen=True)
@@ -67,7 +70,6 @@ class SceneLaunchConfig:
     ik_rate: float
     simulation_rate: float
     capture_rate: float
-    default_duration: float
     default_dataset_capture: bool
 
 
@@ -136,8 +138,12 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "seed": seed,
         "created_at_ns": str(time.time_ns()),
         "created_by": created_by,
+        "environment": {
+            "ephemeris_epoch_utc": _DEFAULT_EPHEMERIS_EPOCH_UTC,
+            "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
+            "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
+        },
         "runtime": {
-            "duration_s": request.duration_s,
             "simulation_rate": request.simulation_rate,
             "capture_rate_hz": request.capture_rate_hz,
             "ik_rate_hz": request.ik_rate_hz,
@@ -176,7 +182,6 @@ class SceneRuntimeManager:
             "defaults": {
                 "template_id": "spacecraft-arm-teleop",
                 "randomization_profile": "training-v1",
-                "duration_s": self.launch.default_duration if self.launch else 300.0,
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,
                 "capture_rate_hz": self.launch.capture_rate if self.launch else 10.0,
                 "ik_rate_hz": self.launch.ik_rate if self.launch else 100.0,

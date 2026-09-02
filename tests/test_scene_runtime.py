@@ -13,6 +13,9 @@ from space_arm_platform.scene_runtime import (
     _NATIVE_TARGET_POSITION,
     _NATIVE_TARGET_QUATERNION,
     _NATIVE_TARGET_SPIN,
+    _DEFAULT_EPHEMERIS_CENTER,
+    _DEFAULT_EPHEMERIS_EPOCH_UTC,
+    _DEFAULT_EPHEMERIS_FRAME,
 )
 
 
@@ -30,6 +33,11 @@ def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
     assert first["randomization"] != third["randomization"]
     assert first["instance_id"] != second["instance_id"]
     assert Path(first["config_path"]).is_file()
+    assert first["environment"] == {
+        "ephemeris_epoch_utc": _DEFAULT_EPHEMERIS_EPOCH_UTC,
+        "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
+        "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
+    }
 
 
 def test_fixed_profile_matches_native_initial_state(tmp_path: Path) -> None:

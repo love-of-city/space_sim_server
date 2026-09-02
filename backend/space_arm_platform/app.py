@@ -63,7 +63,6 @@ class PlatformConfig:
     runtime_ik_rate: float = 100.0
     runtime_simulation_rate: float = 1.0
     runtime_capture_rate: float = 10.0
-    runtime_default_duration: float = 300.0
     runtime_default_dataset_capture: bool = False
     auth_database: Path | None = None
     bootstrap_admin_username: str = "admin"
@@ -149,7 +148,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             pixel_streaming_camera_height=config.runtime_pixel_streaming_camera_height,
             preview_rate=config.runtime_preview_rate, renderer_ready_timeout=config.runtime_renderer_ready_timeout,
             ik_rate=config.runtime_ik_rate, simulation_rate=config.runtime_simulation_rate,
-            capture_rate=config.runtime_capture_rate, default_duration=config.runtime_default_duration,
+            capture_rate=config.runtime_capture_rate,
             default_dataset_capture=config.runtime_default_dataset_capture,
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)

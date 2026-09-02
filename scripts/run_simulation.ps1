@@ -3,7 +3,7 @@ param(
     [string]$ModelRoot = '',
     [int]$ControlPort = 8766,
     [int]$RenderPort = 5558,
-    [double]$Duration = 300.0,
+    [double]$Duration = 0.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
     [string]$SceneInstancePath = '',

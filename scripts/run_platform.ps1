@@ -17,7 +17,6 @@ param(
     [int]$PixelStreamingCameraWidth = 640,
     [ValidateRange(90, 1080)]
     [int]$PixelStreamingCameraHeight = 360,
-    [double]$Duration = 300.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
     # Authoritative RGB/depth/segmentation capture performs synchronous GPU readbacks
@@ -239,7 +238,7 @@ $backendArgs = @(
     '-PixelStreamingCameraHeight', $PixelStreamingCameraHeight,
     '-PreviewRate', $PreviewRate, '-RendererReadyTimeout', $RendererReadyTimeout,
     '-IkRate', $IkRate, '-SimulationRate', $SimulationRate,
-    '-CaptureRate', $CaptureRate, '-DefaultDuration', $Duration
+    '-CaptureRate', $CaptureRate
 )
 if ($EnableDatasetCapture) { $backendArgs += '-DefaultDatasetCapture' }
 if ($RemoteAccess) {
@@ -298,7 +297,7 @@ try {
     Write-Output "Space Arm control platform is running: $operatorUrl"
     Write-Output "Login username: $AdminUsername (bootstrap password applies only when the first admin is created)."
     Write-Output 'UE and Basilisk/MJScene are not started yet. Select a scene template and randomization in the frontend, then click Start Scene.'
-    Write-Output "Scene defaults: duration $Duration s; preview $PreviewRate FPS; capture $CaptureRate Hz; IK $IkRate Hz."
+    Write-Output "Scene runs until manually stopped; preview $PreviewRate FPS; capture $CaptureRate Hz; IK $IkRate Hz."
     Write-Output 'Run .\scripts\stop_platform.ps1 when finished.'
 } catch {
     if (!$backend.HasExited) { Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue }

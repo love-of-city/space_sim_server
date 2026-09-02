@@ -44,13 +44,12 @@ $instance = Get-Content -Raw -LiteralPath $SceneInstancePath | ConvertFrom-Json
 if ([string]$instance.schema -ne 'space-arm-scene-instance/1') {
     throw "Unsupported scene instance schema: $($instance.schema)"
 }
-$duration = [double]$instance.runtime.duration_s
 $simulationRate = [double]$instance.runtime.simulation_rate
 $captureRate = [double]$instance.runtime.capture_rate_hz
 $ikRate = [double]$instance.runtime.ik_rate_hz
 $datasetCapture = [bool]$instance.runtime.dataset_capture
-if ($duration -le 0 -or $simulationRate -le 0 -or $captureRate -le 0 -or $ikRate -le 0) {
-    throw 'Scene runtime rates and duration must be positive.'
+if ($simulationRate -le 0 -or $captureRate -le 0 -or $ikRate -le 0) {
+    throw 'Scene runtime rates must be positive.'
 }
 
 $normalizedCameraIds = @()
@@ -128,16 +127,22 @@ try {
     Write-RuntimeState 'starting_renderer'
 
     $deadline = [DateTime]::UtcNow.AddSeconds($RendererReadyTimeout)
-    while (!(Test-TcpPort $RenderPort) -and [DateTime]::UtcNow -lt $deadline) {
+    $rendererReady = $false
+    while (!$rendererReady -and [DateTime]::UtcNow -lt $deadline) {
         if (!(Get-Process -Id $rendererPid -ErrorAction SilentlyContinue)) {
             throw 'UE exited before its render receiver became ready.'
         }
-        Start-Sleep -Milliseconds 300
+        $rendererReady = Test-TcpPort $RenderPort
+        if (!$rendererReady) { Start-Sleep -Milliseconds 300 }
     }
-    if (!(Test-TcpPort $RenderPort)) {
+    if (!$rendererReady) {
         $ueLog = Join-Path $ueProject 'Saved\Logs\BskUnrealRenderer.log'
         throw "UE receiver did not become ready on port $RenderPort within $RendererReadyTimeout seconds. Check $ueLog."
     }
+    # The readiness probe is a real TCP client. UE accepts one sender at a time,
+    # so give its receiver thread a brief moment to observe the probe disconnect
+    # before the Basilisk render bridge establishes the authoritative connection.
+    Start-Sleep -Milliseconds 250
 
     Write-RuntimeState 'starting_simulation'
     $powershellExe = (Get-Process -Id $PID).Path
@@ -145,7 +150,7 @@ try {
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_simulation.ps1'),
         '-AdapterRoot', $AdapterRoot, '-ModelRoot', $ModelRoot,
         '-ControlPort', $ControlPort, '-RenderPort', $RenderPort,
-        '-Duration', $duration, '-SimulationRate', $simulationRate,
+        '-Duration', 0.0, '-SimulationRate', $simulationRate,
         '-CaptureRate', $captureRate, '-IkRate', $ikRate,
         '-SceneInstancePath', $SceneInstancePath
     )

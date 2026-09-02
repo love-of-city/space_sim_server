@@ -69,18 +69,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖），再从 STL 生成 UE 网格；视缓存情况可能需要2～5分钟，不会安装另一套 UE。地球和银河 `.uasset` 通过 Git LFS 随适配器仓库提供，启动脚本会检查它们是否完整。后续加载通常更快。网页地址为 `http://127.0.0.1:8000`。
 
-`run_platform.ps1` 现在只启动控制平台（前端、后端、仿真控制/采集监听和 Pixel Streaming 信令），不会立即启动 UE 或 Basilisk/MJScene。进入网页后，在“场景实例”中选择模板、随机化配置、Seed、时长和是否启用权威采集，再点击“生成并启动场景”。Seed 留空时由后端生成，并与完整随机参数一起保存到 `run/scenes/<instance-id>.json`，可用于复现实验。
+`run_platform.ps1` 现在只启动控制平台（前端、后端、仿真控制/采集监听和 Pixel Streaming 信令），不会立即启动 UE 或 Basilisk/MJScene。进入网页后，在“场景实例”中选择模板、随机化配置、Seed 和是否启用权威采集，再点击“生成并启动场景”。场景会持续运行，直到用户主动点击“停止场景”或关闭平台。Seed 留空时由后端生成，并与完整随机参数一起保存到 `run/scenes/<instance-id>.json`，可用于复现实验。
 
-设置前端场景表单的默认任务时长、IK频率和预览帧率（交互预览默认关闭高开销的权威数据采集）：
+设置 IK 频率和预览帧率（交互预览默认关闭高开销的权威数据采集）：
 
 ```powershell
-.\scripts\run_platform.ps1 -Duration 600 -IkRate 100 -PreviewRate 60 -SimulationRate 1
+.\scripts\run_platform.ps1 -IkRate 100 -PreviewRate 60 -SimulationRate 1
 ```
 
 需要录制训练数据时，可用以下参数让前端“权威采集”默认勾选，并用 `-CaptureRate` 指定采集率；也可以在每次启动场景前直接在网页中勾选：
 
 ```powershell
-.\scripts\run_platform.ps1 -Duration 600 -EnableDatasetCapture -CaptureRate 10
+.\scripts\run_platform.ps1 -EnableDatasetCapture -CaptureRate 10
 ```
 
 权威采集会在 UE 游戏线程执行 SceneCapture、GPU→CPU 读回和编码，尤其实例分割还会按对象重复捕获，因此不应在只做交互预览时开启。
@@ -159,7 +159,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 | 运动 | 负方向 | 正方向 |
 |---|---:|---:|
 | X 前后 | S | W |
-| Y 左右 | A | D |
+| Y 左右 | D | A |
 | Z 上下 | E | Q |
 
 按住Shift时控制末端旋转：
@@ -168,7 +168,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 |---|---:|---:|
 | Roll | Shift+E | Shift+Q |
 | Pitch | Shift+S | Shift+W |
-| Yaw | Shift+A | Shift+D |
+| Yaw | Shift+D | Shift+A |
 
 夹爪始终使用 `F/R` 进行闭合/张开。
 

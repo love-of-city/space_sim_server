@@ -54,7 +54,6 @@ def main() -> None:
     parser.add_argument("--runtime-ik-rate", type=float, default=100.0)
     parser.add_argument("--runtime-simulation-rate", type=float, default=1.0)
     parser.add_argument("--runtime-capture-rate", type=float, default=10.0)
-    parser.add_argument("--runtime-default-duration", type=float, default=300.0)
     parser.add_argument("--runtime-default-dataset-capture", action="store_true")
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args()
@@ -97,7 +96,6 @@ def main() -> None:
             runtime_ik_rate=args.runtime_ik_rate,
             runtime_simulation_rate=args.runtime_simulation_rate,
             runtime_capture_rate=args.runtime_capture_rate,
-            runtime_default_duration=args.runtime_default_duration,
             runtime_default_dataset_capture=args.runtime_default_dataset_capture,
         )
     )

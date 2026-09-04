@@ -172,6 +172,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 夹爪始终使用 `F/R` 进行闭合/张开。
 
+UE Pixel Streaming 主视口支持观察模式：按 `C` 进入/退出自由视角，使用
+`W/S`、`A/D`、`Q/E` 和鼠标飞行观察，按 `Home` 返回主视角。自由视角只影响
+玩家画面，不会改变 BSK/MJScene 动力学或权威相机采集。
+
 手柄默认映射：左摇杆平移XY、LT/RT平移Z、右摇杆Pitch/Yaw、A/B控制Roll、X/Y控制夹爪。
 
 ## 数据位置

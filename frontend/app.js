@@ -16,6 +16,7 @@ const state = {
   pressed: new Set(),
   estopped: false,
   operationActive: false,
+  freeCameraMode: false,
   lastAckAt: 0,
   linearSpeed: 0.05,
   pixelStreaming: null,
@@ -38,6 +39,29 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const controlKeys = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "KeyQ", "KeyE", "KeyR", "KeyF", "ShiftLeft", "ShiftRight", "Escape"]);
+
+function setPixelStreamingCameraInputEnabled(enabled) {
+  const stream = state.pixelStreaming;
+  if (!stream?.config) return;
+  stream.config.setFlagEnabled(Flags.KeyboardInput, enabled);
+  stream.config.setFlagEnabled(Flags.MouseInput, enabled);
+}
+
+function setFreeCameraMode(enabled, message = "") {
+  if (state.freeCameraMode === enabled) return;
+  state.freeCameraMode = enabled;
+  state.pressed.clear();
+  if (enabled) {
+    setPixelStreamingCameraInputEnabled(true);
+    if (state.operationActive) sendNeutralAction("keyboard");
+  } else {
+    // Keep the key event flowing to UE first so C/Home can toggle/reset its
+    // camera state, then remove the Pixel Streaming listeners after the event.
+    setTimeout(() => setPixelStreamingCameraInputEnabled(false), 0);
+  }
+  updateOperationUI();
+  if (message) setMessage(message);
+}
 
 function setMessage(text) { $("message").textContent = text; }
 function setOnline(id, online) { $(id).classList.toggle("online", online); }
@@ -440,6 +464,7 @@ function disposePixelStream() {
   try { state.pixelStreaming?.disconnect(); } catch (_) { /* best effort */ }
   state.pixelStreaming = null;
   state.pixelConfig = null;
+  state.freeCameraMode = false;
   state.streamLive = false;
   $("pixelStream").replaceChildren();
   resetWebRtcStats();
@@ -468,7 +493,9 @@ function createPixelStream() {
       [Flags.StartVideoMuted]: true,
       [Flags.WaitForStreamer]: true,
       [Flags.HoveringMouseMode]: false,
-      // 权威动作必须经 /ws/operator 到 BSK/MJScene，不能由媒体 SDK 直接驱动 UE。
+      // W/A/S/D/Q/E/R/F remain page-owned robot controls outside free-camera
+      // mode. Camera input is enabled dynamically only while C free-flight is
+      // active, so Pixel Streaming never drives the robot directly.
       [Flags.KeyboardInput]: false,
       [Flags.MouseInput]: false,
       [Flags.TouchInput]: false,
@@ -616,19 +643,24 @@ function updateOperationUI() {
   } else if (!state.controlGranted) {
     hintTitle.textContent = "点击切换到当前操作页面";
     hintDetail.textContent = "同一用户的旧页面会自动退出操作";
+  } else if (state.freeCameraMode) {
+    hintTitle.textContent = "自由视角已开启";
+    hintDetail.textContent = "WASD / QE 飞行，鼠标观察；按 C 或 Home 返回主视角";
   } else if (state.operationActive) {
     hintTitle.textContent = "操作模式已开启";
-    hintDetail.textContent = "WASD / QE 控制，按 Esc 退出";
+    hintDetail.textContent = "WASD / QE 控制，F/R 夹爪；按 C 进入自由视角，Esc 退出操作";
   } else {
     hintTitle.textContent = "点击画面进入操作";
-    hintDetail.textContent = "进入后使用键盘控制，按 Esc 退出";
+    hintDetail.textContent = "C 进入自由视角；Home 返回主视角；点击画面后可操作机械臂";
   }
 
   const directStatus = $("directControl");
   if (state.estopped) {
     directStatus.textContent = "急停已锁存";
+  } else if (state.freeCameraMode) {
+    directStatus.textContent = "自由视角：WASD/QE 飞行，鼠标观察（C/Home 返回主视角）";
   } else if (state.operationActive) {
-    directStatus.textContent = "操作模式：等待输入（Esc 退出）";
+    directStatus.textContent = "操作模式：等待输入（C 自由视角，Esc 退出）";
   } else if (available) {
     directStatus.textContent = "点击实时画面进入操作模式";
   } else {
@@ -656,7 +688,7 @@ function completeEnterOperationMode() {
   state.operationActive = true;
   $("viewport").focus({ preventScroll: true });
   updateOperationUI();
-  setMessage("已进入操作模式：使用 WASD/QE/F/R 控制，按 Esc 退出");
+  setMessage("已进入操作模式：WASD/QE/F/R 控制；按 C 进入自由视角");
 }
 
 function exitOperationMode(message = "已退出操作模式，点击实时画面可重新进入") {
@@ -670,7 +702,7 @@ function exitOperationMode(message = "已退出操作模式，点击实时画面
 }
 
 function sendAction() {
-  if (!state.operationActive || !state.sceneReady || state.estopped) return;
+  if (!state.operationActive || state.freeCameraMode || !state.sceneReady || state.estopped) return;
   if (!state.connected || !state.controlGranted || state.ws.readyState !== WebSocket.OPEN) return;
   const gamepad = gamepadAction();
   const keyboard = keyboardAction();
@@ -760,20 +792,41 @@ $("viewport").addEventListener("pointerdown", (event) => {
 }, true);
 
 window.addEventListener("keydown", (event) => {
+  const editing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable;
+  if (!editing && !event.repeat && event.code === "KeyC" && state.streamLive) {
+    if (!state.freeCameraMode) {
+      // Enable the SDK listeners before the event continues to its document
+      // handlers, allowing this C press to reach Unreal as well.
+      setFreeCameraMode(true, "已进入自由视角：WASD/QE 飞行，鼠标观察；按 C 或 Home 返回");
+    } else {
+      // Do not stop propagation: UE must receive C and switch back too.
+      setFreeCameraMode(false, "正在返回主视角");
+    }
+    event.preventDefault();
+    return;
+  }
+  if (!editing && event.code === "Home" && state.freeCameraMode) {
+    // Home is a browser navigation key. Prevent the page action but allow the
+    // Pixel Streaming keyboard controller to forward it to Unreal.
+    setFreeCameraMode(false, "正在返回主视角");
+    event.preventDefault();
+    return;
+  }
   if (event.code === "Escape" && state.operationActive) {
     event.preventDefault();
     event.stopImmediatePropagation();
     exitOperationMode();
     return;
   }
+  if (state.freeCameraMode) return;
   if (!state.operationActive || !controlKeys.has(event.code)) return;
-  const editing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable;
   if (editing || event.repeat) return;
   event.preventDefault();
   event.stopImmediatePropagation();
   state.pressed.add(event.code);
 }, true);
 window.addEventListener("keyup", (event) => {
+  if (state.freeCameraMode) return;
   if (!state.operationActive || !controlKeys.has(event.code)) return;
   event.preventDefault();
   event.stopImmediatePropagation();

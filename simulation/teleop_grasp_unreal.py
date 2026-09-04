@@ -42,6 +42,16 @@ DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
 SUPPORTED_EPHEMERIS_CENTER = "Earth"
 SUPPORTED_EPHEMERIS_FRAME = "J2000"
 SUN_REFERENCE_DISTANCE_M = 149_597_870_700.0
+EARTH_EQUATORIAL_RADIUS_M = 6_378_136.6
+MINIMUM_PERIAPSIS_ALTITUDE_M = 120_000.0
+DEFAULT_ORBIT = {
+    "altitude_m": 500_000.0,
+    "eccentricity": 0.0,
+    "inclination_deg": 51.6,
+    "raan_deg": 0.0,
+    "argument_of_periapsis_deg": 0.0,
+    "true_anomaly_deg": 180.0,
+}
 
 
 ARM_JOINT_NAMES = (
@@ -83,10 +93,41 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
         raise ValueError("scene environment.ephemeris_center must be Earth")
     if frame.casefold() != SUPPORTED_EPHEMERIS_FRAME.casefold():
         raise ValueError("scene environment.ephemeris_frame must be J2000")
+    orbit = environment.get("orbit", DEFAULT_ORBIT)
+    if not isinstance(orbit, dict):
+        raise ValueError("scene environment.orbit must be an object")
+    normalized_orbit: dict[str, float] = {}
+    for field, default in DEFAULT_ORBIT.items():
+        try:
+            value = float(orbit.get(field, default))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"scene environment.orbit.{field} must be a number") from error
+        if not math.isfinite(value):
+            raise ValueError(f"scene environment.orbit.{field} must be finite")
+        normalized_orbit[field] = value
+    eccentricity = normalized_orbit["eccentricity"]
+    inclination_deg = normalized_orbit["inclination_deg"]
+    altitude_m = normalized_orbit["altitude_m"]
+    if altitude_m <= 0.0:
+        raise ValueError("scene environment.orbit.altitude_m must be positive")
+    if eccentricity < 0.0 or eccentricity >= 1.0:
+        raise ValueError("scene environment.orbit.eccentricity must be in [0, 1)")
+    if inclination_deg < 0.0 or inclination_deg > 180.0:
+        raise ValueError("scene environment.orbit.inclination_deg must be in [0, 180]")
+    periapsis_altitude_m = (
+        (EARTH_EQUATORIAL_RADIUS_M + altitude_m) * (1.0 - eccentricity)
+        - EARTH_EQUATORIAL_RADIUS_M
+    )
+    if periapsis_altitude_m < MINIMUM_PERIAPSIS_ALTITUDE_M:
+        raise ValueError(
+            "scene environment.orbit periapsis altitude must be at least "
+            f"{MINIMUM_PERIAPSIS_ALTITUDE_M:.0f} m"
+        )
     document["environment"] = {
         "ephemeris_epoch_utc": epoch,
         "ephemeris_center": SUPPORTED_EPHEMERIS_CENTER,
         "ephemeris_frame": SUPPORTED_EPHEMERIS_FRAME,
+        "orbit": normalized_orbit,
     }
     runtime_limits = {
         "simulation_rate": (0.0, 100.0),
@@ -391,6 +432,7 @@ class CartesianIkControlModel(sysModel.SysModel):
     def UpdateState(self, CurrentSimNanos: int) -> None:
         """Update the joint target once at the configured control-task rate."""
 
+
         self.target.update(CurrentSimNanos * 1.0e-9)
 
 
@@ -430,11 +472,13 @@ def run(args: argparse.Namespace) -> None:
         lambda _cls, seconds: targets.cached_reference(seconds)
     )
 
-    from Basilisk.utilities import macros, simIncludeGravBody
+    from Basilisk.simulation import NBodyGravity, pointMassGravityModel
+    from Basilisk.utilities import macros, orbitalMotion, simIncludeGravBody
     from bsk_render_adapter import BasiliskRenderBridge, CameraVisual, SceneSettings
 
     client.start()
     bridge: BasiliskRenderBridge | None = None
+    gravity_factory = None
     try:
         simulation, scene, dynamics_models, recorders = native._build_simulation()
         ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
@@ -450,20 +494,41 @@ def run(args: argparse.Namespace) -> None:
             epochInMsg=True,
         )
         ephemeris.zeroBase = SUPPORTED_EPHEMERIS_CENTER
-        # SPICE is visualization-only here: do not attach these gravity bodies to MJScene.
-        simulation.AddModelToTask("graspTask", ephemeris, 20_000)
-        print(
-            json.dumps(
-                {
-                    "type": "ephemeris_configuration",
-                    "epoch_utc": ephemeris_epoch,
-                    "center": SUPPORTED_EPHEMERIS_CENTER,
-                    "frame": SUPPORTED_EPHEMERIS_FRAME,
-                },
-                sort_keys=True,
-            ),
-            flush=True,
+
+        # Register the environmental models with the MJScene dynamics task.
+        # Basilisk computes the accelerations and MJScene performs the unified
+        # multibody integration together with joints and contact.
+        scene.extraEoMCall = True
+        scene.AddModelToDynamicsTask(ephemeris, 20_000)
+        gravity = NBodyGravity.NBodyGravity()
+        gravity.ModelTag = "earthSunGravity"
+        scene.AddModelToDynamicsTask(gravity, 19_000)
+
+        earth.isCentralBody = True
+        # Keep the source strengths disabled until after the initial MJScene
+        # state has been assigned below.  Gravity targets remain natively bound
+        # to MJScene; no Python per-step state forwarding is required.
+        earth_gravity_model = pointMassGravityModel.PointMassGravityModel()
+        earth_gravity_model.muBody = 0.0
+        gravity.addGravitySource("earth", earth_gravity_model, True)
+        gravity.getGravitySource("earth").stateInMsg.subscribeTo(
+            ephemeris.planetStateOutMsgs[0]
         )
+
+        sun_gravity_model = pointMassGravityModel.PointMassGravityModel()
+        sun_gravity_model.muBody = 0.0
+        gravity.addGravitySource("sun", sun_gravity_model, False)
+        gravity.getGravitySource("sun").stateInMsg.subscribeTo(
+            ephemeris.planetStateOutMsgs[1]
+        )
+        gravity_target_names = list(scene.getBodyNames())
+        for body_name in gravity_target_names:
+            gravity.addGravityTarget(body_name, scene.getBody(body_name))
+
+        # The MJBody overload installs Basilisk's native subscriptions to the
+        # MJScene state and mass-property messages.  Keep this direct binding
+        # so the 500 Hz dynamics loop does not cross a Python bridge.
+        print(json.dumps({"type": "ephemeris_configuration", "epoch_utc": ephemeris_epoch, "center": SUPPORTED_EPHEMERIS_CENTER, "frame": SUPPORTED_EPHEMERIS_FRAME, "gravity_sources": ["earth", "sun"], "gravity_targets": gravity_target_names}, sort_keys=True), flush=True)
         control_task_name = "teleopIkTask"
         control_task = simulation.CreateNewTask(
             control_task_name, macros.sec2nano(1.0 / args.ik_rate)
@@ -479,6 +544,9 @@ def run(args: argparse.Namespace) -> None:
             recorders,
             ik_controller,
             gravity_factory,
+            earth_gravity_model,
+            sun_gravity_model,
+            gravity,
             earth,
             sun,
             ephemeris,
@@ -552,25 +620,84 @@ def run(args: argparse.Namespace) -> None:
         )
         simulation.AddModelToTask("graspTask", bridge, -10_000)
         native._initialize_state(simulation, scene)
-        if scene_instance:
-            randomized = scene_instance["randomization"]
-            target = scene.getBody("capture_target")
-            target.setPosition(np.asarray(randomized["target_position_m"], dtype=float))
-            target.setVelocity(np.asarray(randomized["target_linear_velocity_m_s"], dtype=float))
-            target.setAttitude(
-                native._quaternion_to_mrp(
-                    np.asarray(randomized["target_orientation_wxyz"], dtype=float)
-                )
+        environment = scene_instance.get("environment", {}) if scene_instance else {}
+        orbit = environment.get("orbit", DEFAULT_ORBIT)
+        elements = orbitalMotion.ClassicElements()
+        elements.a = float(earth.radEquator) + float(orbit["altitude_m"])
+        elements.e = float(orbit["eccentricity"])
+        elements.i = math.radians(float(orbit["inclination_deg"]))
+        elements.Omega = math.radians(float(orbit["raan_deg"]))
+        elements.omega = math.radians(float(orbit["argument_of_periapsis_deg"]))
+        elements.f = math.radians(float(orbit["true_anomaly_deg"]))
+        orbital_position, orbital_velocity = orbitalMotion.elem2rv(float(earth.mu), elements)
+        orbital_position = np.asarray(orbital_position, dtype=float)
+        orbital_velocity = np.asarray(orbital_velocity, dtype=float)
+        randomized = scene_instance["randomization"] if scene_instance else {
+            "target_position_m": list(native.TARGET_POS),
+            "target_orientation_wxyz": list(native.TARGET_QUAT),
+            "target_linear_velocity_m_s": list(native.COMMON_VELOCITY),
+            "target_angular_velocity_rad_s": list(native.TARGET_SPIN),
+        }
+        common_velocity = np.asarray(native.COMMON_VELOCITY, dtype=float)
+        bus_velocity = orbital_velocity + common_velocity
+        bus = scene.getBody("cubesat_bus")
+        target = scene.getBody("capture_target")
+        bus.setPosition(orbital_position)
+        bus.setVelocity(bus_velocity)
+        target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
+        target.setVelocity(
+            orbital_velocity
+            + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float)
+        )
+        target.setAttitude(
+            native._quaternion_to_mrp(
+                np.asarray(randomized["target_orientation_wxyz"], dtype=float)
             )
-            target.setAttitudeRate(
-                np.asarray(randomized["target_angular_velocity_rad_s"], dtype=float)
-            )
-            for (body_name, joint_name), position in zip(
-                native.JOINTS, initial_joints, strict=True
-            ):
-                joint = scene.getBody(body_name).getScalarJoint(joint_name)
-                joint.setPosition(float(position))
-                joint.setVelocity(0.0)
+        )
+        target.setAttitudeRate(np.asarray(randomized["target_angular_velocity_rad_s"], dtype=float))
+        for (body_name, joint_name), position in zip(native.JOINTS, initial_joints, strict=True):
+            joint = scene.getBody(body_name).getScalarJoint(joint_name)
+            joint.setPosition(float(position))
+            joint.setVelocity(0.0)
+
+        orbit_state = {
+            "semi_major_axis_m": float(elements.a),
+            "initial_position_m": orbital_position.tolist(),
+            "initial_velocity_m_s": bus_velocity.tolist(),
+            "initial_altitude_m": float(np.linalg.norm(orbital_position) - float(earth.radEquator)),
+            "initial_speed_m_s": float(np.linalg.norm(bus_velocity)),
+        }
+        print(
+            json.dumps(
+                {
+                    "type": "gravity_configuration",
+                    "sources": ["earth", "sun"],
+                    "central_body": "earth",
+                    "gravity_targets": gravity_target_names,
+                    "orbit": orbit,
+                    **orbit_state,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+
+        # Enable the physical Earth/Sun fields after the explicit initial
+        # MJScene state has been assigned.  NBodyGravity now reads the native
+        # MJScene messages at each integration/substep.
+        earth_gravity_model.muBody = float(earth.mu)
+        sun_gravity_model.muBody = float(sun.mu)
+        print(
+            json.dumps(
+                {
+                    "type": "gravity_initialization",
+                    "native_targets_bound": len(gravity_target_names),
+                    "gravity_enabled": True,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
         joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
 
         wall_start = time.monotonic()
@@ -652,6 +779,8 @@ def run(args: argparse.Namespace) -> None:
         native.JointTrajectoryPublisher.reference = original_reference
         if bridge:
             bridge.close()
+        if gravity_factory is not None:
+            gravity_factory.unloadSpiceKernels()
         client.close()
 
 

@@ -16,6 +16,7 @@ from space_arm_platform.scene_runtime import (
     _DEFAULT_EPHEMERIS_CENTER,
     _DEFAULT_EPHEMERIS_EPOCH_UTC,
     _DEFAULT_EPHEMERIS_FRAME,
+    _DEFAULT_ORBIT,
 )
 
 
@@ -37,6 +38,7 @@ def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
         "ephemeris_epoch_utc": _DEFAULT_EPHEMERIS_EPOCH_UTC,
         "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
         "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
+        "orbit": _DEFAULT_ORBIT,
     }
 
 

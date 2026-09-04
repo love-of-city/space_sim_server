@@ -48,6 +48,14 @@ _NATIVE_PREGRASP = (0.0, -0.1790243, 0.2159404, -0.0368382, 0.0, 0.4)
 _DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
 _DEFAULT_EPHEMERIS_CENTER = "Earth"
 _DEFAULT_EPHEMERIS_FRAME = "J2000"
+_DEFAULT_ORBIT = {
+    "altitude_m": 500_000.0,
+    "eccentricity": 0.0,
+    "inclination_deg": 51.6,
+    "raan_deg": 0.0,
+    "argument_of_periapsis_deg": 0.0,
+    "true_anomaly_deg": 180.0,
+}
 
 
 @dataclass(frozen=True)
@@ -142,6 +150,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "ephemeris_epoch_utc": _DEFAULT_EPHEMERIS_EPOCH_UTC,
             "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
             "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
+            "orbit": dict(_DEFAULT_ORBIT),
         },
         "runtime": {
             "simulation_rate": request.simulation_rate,

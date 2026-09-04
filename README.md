@@ -8,6 +8,8 @@
 本项目后端（限幅、失联保护、任务和记录）
       ↓ space-arm-control/1
 BSK（默认100 Hz逆运动学）+ MJScene（500 Hz权威动力学与接触）
+
+当前重构中的职责边界和扩展约定见 [仿真流程架构](docs/SIMULATION_ARCHITECTURE.md)。
       ↓ bsk-render/2
 space_sim_UE_adapter / UE5（渲染与相机采集）
       ├─ Pixel Streaming 2 / WebRTC → 浏览器操作预览

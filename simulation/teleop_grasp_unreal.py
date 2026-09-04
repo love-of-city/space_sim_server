@@ -33,6 +33,7 @@ from simulation.serial_chain_kinematics import (  # noqa: E402
     matrix_to_quaternion_wxyz,
 )
 from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_socket  # noqa: E402
+from simulation.architecture import BasiliskModuleRegistry  # noqa: E402
 
 
 JOINT_MIN = np.array([-1.91986, -1.74533, -1.69, -1.65806, -2.74385, -0.174533])
@@ -435,6 +436,7 @@ def run(args: argparse.Namespace) -> None:
 
     client.start()
     bridge: BasiliskRenderBridge | None = None
+    module_registry = BasiliskModuleRegistry()
     try:
         simulation, scene, dynamics_models, recorders = native._build_simulation()
         ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
@@ -451,7 +453,7 @@ def run(args: argparse.Namespace) -> None:
         )
         ephemeris.zeroBase = SUPPORTED_EPHEMERIS_CENTER
         # SPICE is visualization-only here: do not attach these gravity bodies to MJScene.
-        simulation.AddModelToTask("graspTask", ephemeris, 20_000)
+        module_registry.register("spice_ephemeris", ephemeris, task_name="graspTask", priority=20_000)
         print(
             json.dumps(
                 {
@@ -473,15 +475,14 @@ def run(args: argparse.Namespace) -> None:
         )
         grasp_process.addTask(control_task, 100)
         ik_controller = CartesianIkControlModel(targets)
-        simulation.AddModelToTask(control_task_name, ik_controller)
+        module_registry.register("teleop_ik", ik_controller, task_name=control_task_name)
         keep_alive = (
             dynamics_models,
             recorders,
-            ik_controller,
+            module_registry,
             gravity_factory,
             earth,
             sun,
-            ephemeris,
         )
         bridge = BasiliskRenderBridge(
             host=args.render_host,
@@ -550,7 +551,8 @@ def run(args: argparse.Namespace) -> None:
                 max_extrapolation_ms=50.0,
             )
         )
-        simulation.AddModelToTask("graspTask", bridge, -10_000)
+        module_registry.register("render_state_publisher", bridge, task_name="graspTask", priority=-10_000)
+        module_registry.attach(simulation)
         native._initialize_state(simulation, scene)
         if scene_instance:
             randomized = scene_instance["randomization"]

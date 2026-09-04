@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "simulation-state-v1.schema.json",
+  "title": "space-sim-state/1",
+  "description": "Authoritative MJScene state snapshot consumed by Basilisk modules and adapters.",
+  "type": "object",
+  "required": ["protocol", "type", "sim_time_s", "bodies", "body_properties", "joints", "reaction_wheels", "thrusters"],
+  "properties": {
+    "protocol": {"const": "space-sim-state/1"},
+    "type": {"const": "state"},
+    "sim_time_s": {"type": "number", "minimum": 0},
+    "bodies": {"type": "array", "items": {"$ref": "#/$defs/bodyState"}},
+    "body_properties": {"type": "array", "items": {"$ref": "#/$defs/bodyProperties"}},
+    "joints": {"type": "array", "items": {"$ref": "#/$defs/jointState"}},
+    "reaction_wheels": {"type": "array", "items": {"$ref": "#/$defs/reactionWheelState"}},
+    "thrusters": {"type": "array", "items": {"$ref": "#/$defs/thrusterState"}},
+    "metadata": {"type": "object"}
+  },
+  "$defs": {
+    "bodyState": {
+      "type": "object",
+      "required": ["body_id", "position_m", "velocity_m_s", "attitude_wxyz", "angular_velocity_rad_s"],
+      "properties": {
+        "body_id": {"type": "string", "minLength": 1},
+        "position_m": {"$ref": "#/$defs/vector3"},
+        "velocity_m_s": {"$ref": "#/$defs/vector3"},
+        "attitude_wxyz": {"$ref": "#/$defs/quaternion"},
+        "angular_velocity_rad_s": {"$ref": "#/$defs/vector3"}
+      },
+      "additionalProperties": false
+    },
+    "bodyProperties": {
+      "type": "object",
+      "required": ["body_id", "mass_kg", "center_of_mass_m", "inertia_kg_m2"],
+      "properties": {
+        "body_id": {"type": "string", "minLength": 1},
+        "mass_kg": {"type": "number", "exclusiveMinimum": 0},
+        "center_of_mass_m": {"$ref": "#/$defs/vector3"},
+        "inertia_kg_m2": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"type": "number"}}
+      },
+      "additionalProperties": false
+    },
+    "jointState": {
+      "type": "object",
+      "required": ["joint_id", "position_rad", "velocity_rad_s"],
+      "properties": {
+        "joint_id": {"type": "string", "minLength": 1},
+        "position_rad": {"type": "number"},
+        "velocity_rad_s": {"type": "number"}
+      },
+      "additionalProperties": false
+    },
+    "reactionWheelState": {
+      "type": "object",
+      "required": ["wheel_id", "speed_rad_s"],
+      "properties": {
+        "wheel_id": {"type": "string", "minLength": 1},
+        "speed_rad_s": {"type": "number"},
+        "torque_limit_nm": {"type": ["number", "null"], "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "thrusterState": {
+      "type": "object",
+      "required": ["thruster_id", "enabled", "thrust_n"],
+      "properties": {
+        "thruster_id": {"type": "string", "minLength": 1},
+        "enabled": {"type": "boolean"},
+        "thrust_n": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "vector3": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "quaternion": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}
+  },
+  "additionalProperties": false
+}

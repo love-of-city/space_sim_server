@@ -182,7 +182,7 @@ def _load_scene() -> mujoco.MJScene:
     return mujoco.MJScene.fromFile(str(MODEL_PATH), files=mesh_files)
 
 
-def _build_simulation() -> tuple[Any, Any, list[Any], list[Any]]:
+def _build_simulation(*, attitude_control_enabled: bool | None = None) -> tuple[Any, Any, list[Any], list[Any]]:
     """Create the Basilisk scene, controller chain, and recorders."""
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("graspProcess")
@@ -224,6 +224,15 @@ def _build_simulation() -> tuple[Any, Any, list[Any], list[Any]]:
         )
         command_recorders.append(limiter.actuatorOutMsg.recorder())
         simulation.AddModelToTask("graspTask", command_recorders[-1])
+
+    # The server-side BSK chain drives physical MJCF rotors, not a second hub.
+    repository_root = Path(__file__).resolve().parents[4]
+    if str(repository_root) not in sys.path:
+        sys.path.insert(0, str(repository_root))
+    from simulation.attitude_control import AttitudeControl
+    simulation.attitude_control = AttitudeControl(
+        simulation, process, scene, MODEL_PATH, enabled=attitude_control_enabled
+    )
 
     state_recorder = scene.stateOutMsg.recorder()
     simulation.AddModelToTask("graspTask", state_recorder)

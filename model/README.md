@@ -4,7 +4,8 @@
 
 ## 目录和入口
 
-- `SARM/platform/sarm_platform.xml`：平台实际运行场景，包含卫星、六轴机械臂、双指夹爪和自由目标。
+- `SARM/platform/sarm_platform.xml`：平台实际运行场景，包含卫星、三轴反作用轮、六轴机械臂、双指夹爪和自由目标。
+- `SARM/platform/attitude_control.json`：惯性姿态保持的开关/频率/增益；硬件质量、惯量、限矩和轮速边界在平台 XML。详见[姿态控制说明](../docs/ATTITUDE_CONTROL.md)。
 - `SARM/platform/scenarios/scenario_sarm_grasp.py`：原生 Basilisk/MJScene 控制脚本，路径相对于脚本解析，不依赖特定用户名或盘符。
 - `SARM/mjcf/SARM.xml`：独立模型入口；`SARM_scene.xml` 是其独立查看场景，并非平台运行入口。
 - `SARM/meshes/`：OBJ/STL 网格源文件。

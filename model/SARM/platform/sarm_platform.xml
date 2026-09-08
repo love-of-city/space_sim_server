@@ -4,6 +4,11 @@
  <default>
   <joint damping="0.5" frictionloss="0.05" />
  </default>
+ <!-- SI units: wheel relative speed [rad/s]; inertia [kg*m^2], torque [N*m].
+      Provisional simulation hardware, not a flight-qualified product specification. -->
+ <custom>
+  <numeric name="rw_max_speed_rad_s" data="628.318530717959 628.318530717959 628.318530717959" />
+ </custom>
  <asset>
   <mesh name="base_link_high_precision" content_type="model/obj" file="../meshes/base_link.obj" />
   <mesh name="link1" content_type="model/stl" file="../meshes/link1.STL" />
@@ -22,8 +27,26 @@
    <!-- Free flight must not inherit the arm joint damping/friction at orbital speed. -->
    <joint name="cubesat_free" type="free" damping="0" frictionloss="0" stiffness="0" armature="0"/>
    <site name="cubesat_origin" pos="0 0 0" size="0.01"/>
-   <inertial pos="0.18986 0.27487 -0.31454" mass="162.76" fullinertia="4.8392 5.532 8.6291 0.095847 0.01857 -0.006219" />
+   <!-- Original bus budget includes the three allocated 1 kg rotors below.
+        Residual bus + rotors preserve 162.76 kg, original COM and locked inertia.
+        Ideal balanced rotors; no housing/contact/friction or extra reaction torque. -->
+   <inertial pos="0.19086150225338 0.27386849774662 -0.31353849774662" mass="159.76" fullinertia="4.7668795192789 5.4596795192789 8.5567795192789 0.095686759639459 0.018730240360541 -0.0063792403605408" />
    <geom type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="base_link_high_precision" name="sarm_base_high_precision" contype="1" conaffinity="1" />
+   <body name="rw_x" pos="0.02986 0.27487 -0.31454">
+    <inertial pos="0 0 0" mass="1" diaginertia="0.01 0.0054 0.0054" />
+    <joint name="rw_x_spin" type="hinge" axis="1 0 0" limited="false" damping="0" frictionloss="0" stiffness="0" armature="0" />
+    <geom name="rw_x_rotor" type="cylinder" size="0.14142135623731 0.03464101615138" quat="0.7071067811865476 0 0.7071067811865476 0" mass="0" contype="0" conaffinity="0" rgba="0.15 0.35 0.75 1" />
+   </body>
+   <body name="rw_y" pos="0.18986 0.43487 -0.31454">
+    <inertial pos="0 0 0" mass="1" diaginertia="0.0054 0.01 0.0054" />
+    <joint name="rw_y_spin" type="hinge" axis="0 1 0" limited="false" damping="0" frictionloss="0" stiffness="0" armature="0" />
+    <geom name="rw_y_rotor" type="cylinder" size="0.14142135623731 0.03464101615138" quat="0.7071067811865476 -0.7071067811865476 0 0" mass="0" contype="0" conaffinity="0" rgba="0.15 0.35 0.75 1" />
+   </body>
+   <body name="rw_z" pos="0.18986 0.27487 -0.47454">
+    <inertial pos="0 0 0" mass="1" diaginertia="0.0054 0.0054 0.01" />
+    <joint name="rw_z_spin" type="hinge" axis="0 0 1" limited="false" damping="0" frictionloss="0" stiffness="0" armature="0" />
+    <geom name="rw_z_rotor" type="cylinder" size="0.14142135623731 0.03464101615138" mass="0" contype="0" conaffinity="0" rgba="0.15 0.35 0.75 1" />
+   </body>
    <body name="link1" quat="0.707105 0 0 0.707108">
     <inertial pos="1.0911e-08 0.0018897 0.061536" quat="0.999735 -0.0230413 -3.8107e-08 -1.65342e-06" mass="0.69371" diaginertia="0.0016057 0.00158462 0.000631457" />
     <joint name="joint1" range="-3.1416 3.1416" actuatorfrcrange="-100 100" limited="true" />
@@ -86,8 +109,11 @@
   <motor name="sarm_joint6_motor" joint="joint6" ctrllimited="true" ctrlrange="-100 100" forcelimited="true" forcerange="-100 100" />
   <motor name="sarm_joint_finger1_motor" joint="joint_finger1" ctrllimited="true" ctrlrange="-0.5 0.5" forcelimited="true" forcerange="-0.5 0.5" />
   <motor name="sarm_joint_finger2_motor" joint="joint_finger2" ctrllimited="true" ctrlrange="-0.5 0.5" forcelimited="true" forcerange="-0.5 0.5" />
+  <motor name="rw_x_motor" joint="rw_x_spin" gear="1" ctrllimited="true" ctrlrange="-0.2 0.2" forcelimited="true" forcerange="-0.2 0.2" />
+  <motor name="rw_y_motor" joint="rw_y_spin" gear="1" ctrllimited="true" ctrlrange="-0.2 0.2" forcelimited="true" forcerange="-0.2 0.2" />
+  <motor name="rw_z_motor" joint="rw_z_spin" gear="1" ctrllimited="true" ctrlrange="-0.2 0.2" forcelimited="true" forcerange="-0.2 0.2" />
  </actuator>
  <keyframe>
-  <key name="home" qpos="0 0 0 0 0 0 0.01875 0.01875" />
+  <key name="home" qpos="0 0 0 1 0 0 0  0 0 0  0 0 0 0 0 0 0.01875 0.01875  1 0 0 1 0 0 0" />
  </keyframe>
 </mujoco>

@@ -8,7 +8,8 @@ param(
     [double]$CaptureRate = 10.0,
     [string]$SceneInstancePath = '',
     [ValidateRange(1.0, 500.0)]
-    [double]$IkRate = 100.0
+    [double]$IkRate = 100.0,
+    [switch]$DisableAttitudeControl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,6 +48,7 @@ $arguments = @(
 if ($SceneInstancePath) {
     $arguments += @('--scene-instance', ([IO.Path]::GetFullPath($SceneInstancePath)))
 }
+if ($DisableAttitudeControl) { $arguments += '--disable-attitude-control' }
 conda @arguments
 $exitCode = $LASTEXITCODE
 exit $exitCode

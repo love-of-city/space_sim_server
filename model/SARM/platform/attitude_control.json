@@ -1,0 +1,8 @@
+{
+  "mode": "initial_inertial_hold",
+  "enabled": true,
+  "control_rate_hz": 100.0,
+  "mrp_proportional_gain_nm": 8.0,
+  "rate_derivative_gain_nm_s": 12.0,
+  "speed_guard_fraction": 0.98
+}

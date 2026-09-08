@@ -107,6 +107,10 @@
               <input id="sceneSeed" type="number" min="0" max="2147483647" placeholder="留空自动生成">
             </label>
           </div>
+          <label for="sceneSunlightIntensity">太阳光照强度（倍率）
+            <input id="sceneSunlightIntensity" type="number" min="0" max="20000" step="any" value="1" required aria-describedby="sceneSunlightHelp">
+          </label>
+          <small id="sceneSunlightHelp">0～20,000 倍；约 12,500 倍对应 100,000 lux 参考照度，1 保持当前标定，0 关闭太阳直接照明。仅影响渲染，不改变轨道与动力学。</small>
           <label class="scene-checkbox">
             <input id="sceneDatasetCapture" type="checkbox">
             <span>启用权威 RGB / 深度 / 分割采集</span>
@@ -119,9 +123,10 @@
         <dl class="scene-instance-summary">
           <div><dt>实例</dt><dd id="sceneInstanceId">—</dd></div>
           <div><dt>Seed</dt><dd id="sceneInstanceSeed">—</dd></div>
+          <div><dt>太阳光照</dt><dd id="sceneInstanceSunlight">—</dd></div>
         </dl>
         <details class="scene-parameters">
-          <summary>查看本次随机参数</summary>
+          <summary>查看本次环境与随机参数</summary>
           <pre id="sceneParameters">尚未生成实例</pre>
         </details>
       </section>
@@ -148,9 +153,9 @@
           <div><span>Yaw</span><kbd>⇧D</kbd><output id="wz">0.000</output><kbd>⇧A</kbd></div>
           <div><span>夹爪</span><kbd>F</kbd><output id="grip">0.000</output><kbd>R</kbd></div>
         </div>
-        <p class="projection-note">SO-101 为 5 轴机械臂，六维命令会投影到可实现运动。</p>
+        <p class="projection-note">SARM 为六轴机械臂；接近奇异位形时，命令会投影到可实现运动。</p>
         <div id="directControl" class="direct-status">等待场景和控制链路就绪</div>
-        <button id="estop" class="estop" type="button">立即停止输出</button>
+        <button id="estop" class="estop" type="button">立即停止机械臂输出</button>
       </section>
 
       <section class="control-section telemetry">
@@ -163,6 +168,11 @@
           <div><dt>动作序号</dt><dd id="actionSequence">—</dd></div>
           <div><dt>末端位置</dt><dd id="toolPosition">—</dd></div>
           <div><dt>雅可比秩</dt><dd id="jacobianRank">—</dd></div>
+          <div><dt>姿态控制</dt><dd id="attitudeMode">—</dd></div>
+          <div><dt>姿态误差</dt><dd id="attitudeError">—</dd></div>
+          <div><dt>本体角速度</dt><dd id="bodyRate">—</dd></div>
+          <div><dt>轮速 X/Y/Z</dt><dd id="wheelSpeeds">—</dd></div>
+          <div><dt>轮矩 X/Y/Z</dt><dd id="wheelTorques">—</dd></div>
           <div><dt>输入设备</dt><dd id="inputSource">键盘</dd></div>
           <div><dt>数据目录</dt><dd id="episodePath">—</dd></div>
         </dl>

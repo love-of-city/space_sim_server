@@ -198,6 +198,7 @@ async function loadSceneCatalog() {
     template.value = defaults.template_id || template.value;
     profile.value = defaults.randomization_profile || profile.value;
     $("sceneDatasetCapture").checked = Boolean(defaults.dataset_capture);
+    $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
       capture_rate_hz: Number(defaults.capture_rate_hz || 10),
@@ -229,7 +230,7 @@ function applySceneRuntime(runtime = {}) {
   $("scenePhase").classList.toggle("scene-failed", phase === "failed");
   $("startScene").disabled = active || !enabled;
   $("stopScene").disabled = !active || !state.canManageScene;
-  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneDatasetCapture"].forEach((id) => {
+  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneDatasetCapture", "sceneSunlightIntensity"].forEach((id) => {
     $(id).disabled = active;
   });
   $("linearSpeed").disabled = !state.sceneReady;
@@ -237,8 +238,11 @@ function applySceneRuntime(runtime = {}) {
   updateOperationUI();
   $("sceneInstanceId").textContent = instance.instance_id || "—";
   $("sceneInstanceSeed").textContent = instance.seed ?? "—";
+  const instanceSunlight = instance.environment?.lighting?.sunlight_intensity_scale ?? 1;
+  $("sceneInstanceSunlight").textContent = instance.instance_id ? `${instanceSunlight} 倍` : "—";
+  if (active && instance.instance_id) $("sceneSunlightIntensity").value = String(instanceSunlight);
   $("sceneParameters").textContent = instance.randomization
-    ? JSON.stringify(instance.randomization, null, 2)
+    ? JSON.stringify({ environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
   if (runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
@@ -255,6 +259,13 @@ async function readApiResponse(response) {
 }
 
 async function startScene() {
+  const sunlightText = $("sceneSunlightIntensity").value.trim();
+  const sunlightScale = Number(sunlightText);
+  if (sunlightText === "" || !Number.isFinite(sunlightScale) || sunlightScale < 0 || sunlightScale > 20000) {
+    setMessage("太阳光照强度请输入 0～20,000 之间的数值（1 为默认倍率）");
+    $("sceneSunlightIntensity").focus();
+    return;
+  }
   const seedText = $("sceneSeed").value.trim();
   const request = {
     template_id: $("sceneTemplate").value,
@@ -264,6 +275,7 @@ async function startScene() {
     capture_rate_hz: state.sceneDefaults.capture_rate_hz,
     ik_rate_hz: state.sceneDefaults.ik_rate_hz,
     dataset_capture: $("sceneDatasetCapture").checked,
+    sunlight_intensity_scale: sunlightScale,
   };
   $("startScene").disabled = true;
   setMessage("正在生成可复现场景实例…");
@@ -352,10 +364,18 @@ function connect() {
       $("simState").textContent = "仿真在线";
       $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
       $("actionSequence").textContent = obs.applied_action_sequence;
-      updateMotionOutputs(obs.end_effector_twist_body || [], obs.joint_velocity_rad_s?.[6] || 0);
+      updateMotionOutputs(obs.end_effector_twist_body || [], obs.gripper_velocity_m_s?.[0] ?? obs.joint_velocity_rad_s?.[6] ?? 0);
       const position = obs.end_effector_position_body_m || [];
       $("toolPosition").textContent = position.length === 3 ? position.map((value) => Number(value).toFixed(3)).join(", ") : "—";
       $("jacobianRank").textContent = `${obs.jacobian_rank ?? "—"} / 6`;
+      const attitude = obs.attitude_control;
+      const wheels = obs.reaction_wheels;
+      $("attitudeMode").textContent = !attitude ? "—" : !attitude.enabled ? "控制关闭" :
+        !attitude.reference_initialized ? "初始化" : attitude.saturated ? "惯性保持 · 饱和" : "惯性保持";
+      $("attitudeError").textContent = attitude ? `${(attitude.attitude_error_angle_rad * 180 / Math.PI).toFixed(3)} °` : "—";
+      $("bodyRate").textContent = attitude ? attitude.angular_velocity_body_rad_s.map(v => Number(v).toFixed(4)).join(", ") + " rad/s" : "—";
+      $("wheelSpeeds").textContent = wheels ? wheels.speed_rad_s.map(v => (v * 60 / (2 * Math.PI)).toFixed(1)).join(", ") + " rpm" : "—";
+      $("wheelTorques").textContent = wheels ? wheels.applied_motor_torque_nm.map(v => Number(v).toFixed(3)).join(", ") + " N·m" : "—";
     } else if (message.type === "action_ack") {
       state.lastAckAt = performance.now();
       $("actionSequence").textContent = message.server_sequence;
@@ -899,7 +919,7 @@ $("estop").addEventListener("click", () => {
     updateOperationUI();
     setMessage("急停已解除，点击实时画面重新进入操作模式");
   }
-  $("estop").textContent = state.estopped ? "恢复控制" : "立即停止输出";
+  $("estop").textContent = state.estopped ? "恢复控制" : "立即停止机械臂输出";
 });
 $("linearSpeed").addEventListener("input", (event) => {
   state.linearSpeed = Number(event.target.value);

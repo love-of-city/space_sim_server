@@ -4,87 +4,633 @@
   "title": "space-arm-control/1",
   "description": "Length-prefixed JSON contract between the data platform and the authoritative BSK/MJScene process.",
   "oneOf": [
-    {"$ref": "#/$defs/simHello"},
-    {"$ref": "#/$defs/action"},
-    {"$ref": "#/$defs/observation"}
+    {
+      "$ref": "#/$defs/simHello"
+    },
+    {
+      "$ref": "#/$defs/action"
+    },
+    {
+      "$ref": "#/$defs/observation"
+    }
   ],
   "$defs": {
     "base": {
       "type": "object",
-      "required": ["protocol", "type"],
+      "required": [
+        "protocol",
+        "type"
+      ],
       "properties": {
-        "protocol": {"const": "space-arm-control/1"},
-        "type": {"type": "string"}
+        "protocol": {
+          "const": "space-arm-control/1"
+        },
+        "type": {
+          "type": "string"
+        }
       }
     },
     "simHello": {
       "allOf": [
-        {"$ref": "#/$defs/base"},
+        {
+          "$ref": "#/$defs/base"
+        },
         {
           "type": "object",
-          "required": ["type", "simulation_id", "capabilities"],
+          "required": [
+            "type",
+            "simulation_id",
+            "capabilities"
+          ],
           "properties": {
-            "type": {"const": "sim_hello"},
-            "simulation_id": {"type": "string", "minLength": 1},
-            "capabilities": {"type": "array", "items": {"type": "string"}}
+            "type": {
+              "const": "sim_hello"
+            },
+            "simulation_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
       ]
     },
     "action": {
       "allOf": [
-        {"$ref": "#/$defs/base"},
+        {
+          "$ref": "#/$defs/base"
+        },
         {
           "type": "object",
-          "required": ["type", "server_sequence", "deadman", "end_effector_linear_velocity_body_m_s", "end_effector_angular_velocity_body_rad_s", "gripper_velocity_rad_s"],
+          "required": [
+            "type",
+            "server_sequence",
+            "deadman",
+            "end_effector_linear_velocity_body_m_s",
+            "end_effector_angular_velocity_body_rad_s",
+            "gripper_velocity_rad_s"
+          ],
           "properties": {
-            "type": {"const": "action"},
-            "episode_id": {"type": ["string", "null"]},
-            "server_sequence": {"type": "string", "pattern": "^[0-9]+$"},
-            "server_time_ns": {"type": "string", "pattern": "^[0-9]+$"},
-            "deadman": {"type": "boolean"},
-            "control_frame": {"const": "spacecraft_body"},
-            "requested_end_effector_linear_speed_m_s": {"type": "number", "exclusiveMinimum": 0},
-            "applied_end_effector_linear_speed_m_s": {"type": "number", "exclusiveMinimum": 0},
+            "type": {
+              "const": "action"
+            },
+            "episode_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "server_sequence": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "server_time_ns": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "deadman": {
+              "type": "boolean"
+            },
+            "control_frame": {
+              "const": "spacecraft_body"
+            },
+            "requested_end_effector_linear_speed_m_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "applied_end_effector_linear_speed_m_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
             "end_effector_linear_velocity_body_m_s": {
               "type": "array",
               "minItems": 3,
               "maxItems": 3,
-              "items": {"type": "number"}
+              "items": {
+                "type": "number"
+              }
             },
             "end_effector_angular_velocity_body_rad_s": {
               "type": "array",
               "minItems": 3,
               "maxItems": 3,
-              "items": {"type": "number"}
+              "items": {
+                "type": "number"
+              }
             },
-            "gripper_velocity_rad_s": {"type": "number"}
+            "gripper_velocity_rad_s": {
+              "type": "number"
+            },
+            "gripper_velocity_m_s": {
+              "type": "number",
+              "description": "SARM slider command in metres/second; prefer over legacy angular field."
+            }
           }
         }
       ]
     },
     "observation": {
       "allOf": [
-        {"$ref": "#/$defs/base"},
+        {
+          "$ref": "#/$defs/base"
+        },
         {
           "type": "object",
-          "required": ["type", "step_id", "render_frame_id", "sim_time_ns", "applied_action_sequence", "joint_position_rad", "joint_velocity_rad_s", "end_effector_position_body_m", "end_effector_orientation_body_wxyz", "end_effector_twist_body", "cartesian_command_residual", "jacobian_rank"],
+          "required": [
+            "protocol",
+            "type",
+            "simulation_id",
+            "step_id",
+            "render_frame_id",
+            "sim_time_ns",
+            "wall_time_ns",
+            "applied_action_sequence",
+            "joint_position_rad",
+            "joint_velocity_rad_s",
+            "target_joint_position_rad"
+          ],
           "properties": {
-            "type": {"const": "observation"},
-            "step_id": {"type": "string", "pattern": "^[0-9]+$"},
-            "render_frame_id": {"type": "string", "pattern": "^[0-9]+$"},
-            "sim_time_ns": {"type": "string", "pattern": "^[0-9]+$"},
-            "applied_action_sequence": {"type": "string", "pattern": "^[0-9]+$"},
-            "joint_position_rad": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
-            "joint_velocity_rad_s": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
-            "end_effector_position_body_m": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
-            "end_effector_orientation_body_wxyz": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
-            "end_effector_twist_body": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
-            "cartesian_command_residual": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "number"}},
-            "jacobian_rank": {"type": "integer", "minimum": 0, "maximum": 5}
+            "type": {
+              "const": "observation",
+              "title": "Type",
+              "type": "string"
+            },
+            "step_id": {
+              "title": "Step Id",
+              "type": "string"
+            },
+            "render_frame_id": {
+              "title": "Render Frame Id",
+              "type": "string"
+            },
+            "sim_time_ns": {
+              "title": "Sim Time Ns",
+              "type": "string"
+            },
+            "applied_action_sequence": {
+              "title": "Applied Action Sequence",
+              "type": "string"
+            },
+            "joint_position_rad": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 8,
+              "minItems": 6,
+              "title": "Joint Position Rad",
+              "type": "array",
+              "description": "Deprecated mixed-unit alias: legacy 6, or SARM 6 radians + 2 metres. Use explicit arm/gripper SI fields."
+            },
+            "joint_velocity_rad_s": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 8,
+              "minItems": 6,
+              "title": "Joint Velocity Rad S",
+              "type": "array"
+            },
+            "end_effector_position_body_m": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "title": "End Effector Position Body M",
+              "type": "array"
+            },
+            "end_effector_orientation_body_wxyz": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "title": "End Effector Orientation Body Wxyz",
+              "type": "array"
+            },
+            "end_effector_twist_body": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 6,
+              "minItems": 6,
+              "title": "End Effector Twist Body",
+              "type": "array"
+            },
+            "cartesian_command_residual": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 6,
+              "minItems": 6,
+              "title": "Cartesian Command Residual",
+              "type": "array"
+            },
+            "jacobian_rank": {
+              "default": 0,
+              "maximum": 6,
+              "minimum": 0,
+              "title": "Jacobian Rank",
+              "type": "integer"
+            },
+            "protocol": {
+              "const": "space-arm-control/1",
+              "title": "Protocol",
+              "type": "string"
+            },
+            "simulation_id": {
+              "title": "Simulation Id",
+              "type": "string"
+            },
+            "wall_time_ns": {
+              "title": "Wall Time Ns",
+              "type": "string"
+            },
+            "target_joint_position_rad": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 8,
+              "minItems": 6,
+              "title": "Target Joint Position Rad",
+              "type": "array"
+            },
+            "command_stale": {
+              "default": false,
+              "title": "Command Stale",
+              "type": "boolean"
+            },
+            "arm_joint_position_rad": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 6,
+                  "minItems": 6,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Arm Joint Position Rad"
+            },
+            "arm_joint_velocity_rad_s": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 6,
+                  "minItems": 6,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Arm Joint Velocity Rad S"
+            },
+            "target_arm_joint_position_rad": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 6,
+                  "minItems": 6,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Arm Joint Position Rad"
+            },
+            "gripper_position_m": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Gripper Position M"
+            },
+            "gripper_velocity_m_s": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Gripper Velocity M S"
+            },
+            "target_gripper_position_m": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Gripper Position M"
+            },
+            "attitude_control": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AttitudeControlObservation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "reaction_wheels": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ReactionWheelObservation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
           }
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "joint_position_rad": {
+                  "minItems": 6,
+                  "maxItems": 6
+                },
+                "joint_velocity_rad_s": {
+                  "minItems": 6,
+                  "maxItems": 6
+                },
+                "target_joint_position_rad": {
+                  "minItems": 6,
+                  "maxItems": 6
+                }
+              }
+            },
+            {
+              "properties": {
+                "joint_position_rad": {
+                  "minItems": 8,
+                  "maxItems": 8
+                },
+                "joint_velocity_rad_s": {
+                  "minItems": 8,
+                  "maxItems": 8
+                },
+                "target_joint_position_rad": {
+                  "minItems": 8,
+                  "maxItems": 8
+                }
+              }
+            }
+          ]
         }
       ]
+    },
+    "AttitudeControlObservation": {
+      "additionalProperties": false,
+      "description": "Truth attitude and controller status; quaternions use w-x-y-z order.",
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "mode": {
+          "const": "initial_inertial_hold",
+          "title": "Mode",
+          "type": "string"
+        },
+        "reference_frame": {
+          "const": "J2000",
+          "title": "Reference Frame",
+          "type": "string"
+        },
+        "reference_initialized": {
+          "title": "Reference Initialized",
+          "type": "boolean"
+        },
+        "state_time_ns": {
+          "pattern": "^[0-9]+$",
+          "title": "State Time Ns",
+          "type": "string"
+        },
+        "control_time_ns": {
+          "pattern": "^[0-9]+$",
+          "title": "Control Time Ns",
+          "type": "string"
+        },
+        "orientation_inertial_wxyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Orientation Inertial Wxyz",
+          "type": "array"
+        },
+        "reference_orientation_inertial_wxyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Reference Orientation Inertial Wxyz",
+          "type": "array"
+        },
+        "angular_velocity_body_rad_s": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Angular Velocity Body Rad S",
+          "type": "array"
+        },
+        "attitude_error_angle_rad": {
+          "maximum": 3.141592653589794,
+          "minimum": 0.0,
+          "title": "Attitude Error Angle Rad",
+          "type": "number"
+        },
+        "control_rate_hz": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 500.0,
+          "title": "Control Rate Hz",
+          "type": "number"
+        },
+        "saturated": {
+          "title": "Saturated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "mode",
+        "reference_frame",
+        "reference_initialized",
+        "state_time_ns",
+        "control_time_ns",
+        "orientation_inertial_wxyz",
+        "reference_orientation_inertial_wxyz",
+        "angular_velocity_body_rad_s",
+        "attitude_error_angle_rad",
+        "control_rate_hz",
+        "saturated"
+      ],
+      "title": "AttitudeControlObservation",
+      "type": "object"
+    },
+    "ReactionWheelObservation": {
+      "additionalProperties": false,
+      "description": "Wheel-relative speeds/momenta and drive torques, never arm joints.",
+      "properties": {
+        "names": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Names",
+          "type": "array"
+        },
+        "speed_rad_s": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Speed Rad S",
+          "type": "array"
+        },
+        "relative_momentum_nms": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Relative Momentum Nms",
+          "type": "array"
+        },
+        "requested_motor_torque_nm": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Requested Motor Torque Nm",
+          "type": "array"
+        },
+        "applied_motor_torque_nm": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Applied Motor Torque Nm",
+          "type": "array"
+        },
+        "max_motor_torque_nm": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Max Motor Torque Nm",
+          "type": "array"
+        },
+        "max_speed_rad_s": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Max Speed Rad S",
+          "type": "array"
+        },
+        "torque_limited": {
+          "items": {
+            "type": "boolean"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Torque Limited",
+          "type": "array"
+        },
+        "speed_limited": {
+          "items": {
+            "type": "boolean"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Speed Limited",
+          "type": "array"
+        },
+        "overspeed": {
+          "items": {
+            "type": "boolean"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Overspeed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "names",
+        "speed_rad_s",
+        "relative_momentum_nms",
+        "requested_motor_torque_nm",
+        "applied_motor_torque_nm",
+        "max_motor_torque_nm",
+        "max_speed_rad_s",
+        "torque_limited",
+        "speed_limited",
+        "overspeed"
+      ],
+      "title": "ReactionWheelObservation",
+      "type": "object"
     }
   }
 }

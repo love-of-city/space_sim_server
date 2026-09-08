@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
+
+from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE, MAX_SUNLIGHT_INTENSITY_SCALE
 
 
 CONTROL_PROTOCOL = "space-arm-control/1"
@@ -72,6 +74,45 @@ class SimulationHello(BaseModel):
     capabilities: list[str] = []
 
 
+Vector3 = Annotated[list[FiniteFloat], Field(min_length=3, max_length=3)]
+Quaternion = Annotated[list[FiniteFloat], Field(min_length=4, max_length=4)]
+ArmVector = Annotated[list[FiniteFloat], Field(min_length=6, max_length=6)]
+FingerVector = Annotated[list[FiniteFloat], Field(min_length=2, max_length=2)]
+WheelFlags = Annotated[list[bool], Field(min_length=3, max_length=3)]
+
+
+class AttitudeControlObservation(BaseModel):
+    """Truth attitude and controller status; quaternions use w-x-y-z order."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    mode: Literal["initial_inertial_hold"]
+    reference_frame: Literal["J2000"]
+    reference_initialized: bool
+    state_time_ns: str = Field(pattern=r"^[0-9]+$")
+    control_time_ns: str = Field(pattern=r"^[0-9]+$")
+    orientation_inertial_wxyz: Quaternion
+    reference_orientation_inertial_wxyz: Quaternion
+    angular_velocity_body_rad_s: Vector3
+    attitude_error_angle_rad: FiniteFloat = Field(ge=0.0, le=3.141592653589794)
+    control_rate_hz: FiniteFloat = Field(gt=0.0, le=500.0)
+    saturated: bool
+
+
+class ReactionWheelObservation(BaseModel):
+    """Wheel-relative speeds/momenta and drive torques, never arm joints."""
+    model_config = ConfigDict(extra="forbid")
+    names: list[str] = Field(min_length=3, max_length=3)
+    speed_rad_s: Vector3
+    relative_momentum_nms: Vector3
+    requested_motor_torque_nm: Vector3
+    applied_motor_torque_nm: Vector3
+    max_motor_torque_nm: Vector3
+    max_speed_rad_s: Vector3
+    torque_limited: WheelFlags
+    speed_limited: WheelFlags
+    overspeed: WheelFlags
+
+
 class SimulationObservation(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -83,15 +124,45 @@ class SimulationObservation(BaseModel):
     sim_time_ns: str
     wall_time_ns: str
     applied_action_sequence: str
-    joint_position_rad: list[float] = Field(min_length=6, max_length=6)
-    joint_velocity_rad_s: list[float] = Field(min_length=6, max_length=6)
-    target_joint_position_rad: list[float] = Field(min_length=6, max_length=6)
+    joint_position_rad: list[FiniteFloat] = Field(min_length=6, max_length=8)
+    joint_velocity_rad_s: list[FiniteFloat] = Field(min_length=6, max_length=8)
+    target_joint_position_rad: list[FiniteFloat] = Field(min_length=6, max_length=8)
     end_effector_position_body_m: list[float] = Field(default_factory=lambda: [0.0] * 3, min_length=3, max_length=3)
     end_effector_orientation_body_wxyz: list[float] = Field(default_factory=lambda: [1.0, 0.0, 0.0, 0.0], min_length=4, max_length=4)
     end_effector_twist_body: list[float] = Field(default_factory=lambda: [0.0] * 6, min_length=6, max_length=6)
     cartesian_command_residual: list[float] = Field(default_factory=lambda: [0.0] * 6, min_length=6, max_length=6)
-    jacobian_rank: int = Field(default=0, ge=0, le=5)
+    jacobian_rank: int = Field(default=0, ge=0, le=6)
     command_stale: bool = False
+    # Optional only for pre-SARM peers. New SARM publishes all six SI fields.
+    arm_joint_position_rad: ArmVector | None = None
+    arm_joint_velocity_rad_s: ArmVector | None = None
+    target_arm_joint_position_rad: ArmVector | None = None
+    gripper_position_m: FingerVector | None = None
+    gripper_velocity_m_s: FingerVector | None = None
+    target_gripper_position_m: FingerVector | None = None
+    attitude_control: AttitudeControlObservation | None = None
+    reaction_wheels: ReactionWheelObservation | None = None
+
+    @model_validator(mode="after")
+    def validate_joint_layout(self):
+        """Accept legacy six or SARM eight, but never seven/mismatched arrays."""
+        count = len(self.joint_position_rad)
+        if count not in (6, 8) or any(len(v) != count for v in (
+            self.joint_velocity_rad_s, self.target_joint_position_rad
+        )):
+            raise ValueError("joint arrays must have the same length: legacy 6 or SARM 8")
+        pairs = (
+            (self.arm_joint_position_rad, self.gripper_position_m, self.joint_position_rad),
+            (self.arm_joint_velocity_rad_s, self.gripper_velocity_m_s, self.joint_velocity_rad_s),
+            (self.target_arm_joint_position_rad, self.target_gripper_position_m, self.target_joint_position_rad),
+        )
+        if any(arm is not None or fingers is not None for arm, fingers, _ in pairs):
+            if count != 8 or any(arm is None or fingers is None or arm + fingers != legacy
+                                 for arm, fingers, legacy in pairs):
+                raise ValueError("SARM SI fields must be complete and match legacy aliases")
+        if (self.attitude_control is None) != (self.reaction_wheels is None):
+            raise ValueError("attitude and wheel telemetry must be supplied together")
+        return self
 
     @field_validator("step_id", "render_frame_id", "sim_time_ns", "wall_time_ns", "applied_action_sequence")
     @classmethod
@@ -129,6 +200,11 @@ class SceneInstanceCreate(BaseModel):
     capture_rate_hz: float = Field(default=10.0, gt=0.0, le=60.0)
     ik_rate_hz: float = Field(default=100.0, ge=1.0, le=500.0)
     dataset_capture: bool = False
+    sunlight_intensity_scale: FiniteFloat = Field(
+        default=DEFAULT_SUNLIGHT_INTENSITY_SCALE, strict=True,
+        ge=0.0, le=MAX_SUNLIGHT_INTENSITY_SCALE,
+        description="Scene solar illumination multiplier; 1 preserves current lighting, 0 disables direct sunlight.",
+    )
 
 
 class LoginRequest(BaseModel):

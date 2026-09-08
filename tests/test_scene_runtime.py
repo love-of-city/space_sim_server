@@ -39,6 +39,7 @@ def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
         "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
         "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
         "orbit": _DEFAULT_ORBIT,
+        "lighting": {"sunlight_intensity_scale": 1.0},
     }
 
 

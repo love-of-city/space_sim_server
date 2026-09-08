@@ -34,6 +34,9 @@ from simulation.serial_chain_kinematics import (  # noqa: E402
 )
 from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_socket  # noqa: E402
 from simulation.architecture import BasiliskModuleRegistry  # noqa: E402
+from space_arm_platform.lighting import (  # noqa: E402
+    DEFAULT_SUNLIGHT_INTENSITY_SCALE, validate_sunlight_intensity_scale,
+)
 
 
 JOINT_MIN = np.array([-3.1416, -3.1416, -3.1416, -3.1416, -3.1416, -6.2832, 0.0, 0.0])
@@ -123,11 +126,18 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
             "scene environment.orbit periapsis altitude must be at least "
             f"{MINIMUM_PERIAPSIS_ALTITUDE_M:.0f} m"
         )
+    lighting = environment.get("lighting", {})
+    if not isinstance(lighting, dict):
+        raise ValueError("scene environment.lighting must be an object")
+    sunlight_scale = validate_sunlight_intensity_scale(
+        lighting.get("sunlight_intensity_scale", DEFAULT_SUNLIGHT_INTENSITY_SCALE)
+    )
     document["environment"] = {
         "ephemeris_epoch_utc": epoch,
         "ephemeris_center": SUPPORTED_EPHEMERIS_CENTER,
         "ephemeris_frame": SUPPORTED_EPHEMERIS_FRAME,
         "orbit": normalized_orbit,
+        "lighting": {"sunlight_intensity_scale": sunlight_scale},
     }
     runtime_limits = {
         "simulation_rate": (0.0, 100.0),
@@ -259,6 +269,7 @@ class SimulationControlClient:
                                     "gripper_velocity",
                                     "joint_observation",
                                     "cartesian_observation",
+                                    "sarm_si_joint_observation", "reaction_wheel_attitude_control",
                                 ],
                             }
                         )
@@ -522,7 +533,20 @@ def run(args: argparse.Namespace) -> None:
     gravity_factory = None
     module_registry = BasiliskModuleRegistry()
     try:
-        simulation, scene, dynamics_models, recorders = native._build_simulation()
+        simulation, scene, dynamics_models, recorders = native._build_simulation(
+            attitude_control_enabled=False if getattr(args, "disable_attitude_control", False) else None
+        )
+        print(json.dumps({
+            "type": "attitude_control_configuration",
+            "settings": simulation.attitude_control.settings,
+            "enabled": simulation.attitude_control.enabled,
+            "hardware_source": str(native.MODEL_PATH),
+            "settings_source": str(native.MODEL_PATH.with_name("attitude_control.json")),
+            "wheel_axes_body": [list(w.axis) for w in simulation.attitude_control.wheels],
+            "spin_inertia_kg_m2": [w.spin_inertia for w in simulation.attitude_control.wheels],
+            "max_torque_nm": [w.max_torque for w in simulation.attitude_control.wheels],
+            "max_speed_rad_s": [w.max_speed for w in simulation.attitude_control.wheels],
+        }, sort_keys=True), flush=True)
         ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
         ephemeris_epoch = str(
             ephemeris_environment.get("ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC)
@@ -614,8 +638,15 @@ def run(args: argparse.Namespace) -> None:
             },
         )
         _register_celestial_bodies(bridge, earth, sun)
+        sunlight_scale = ephemeris_environment.get("lighting", {}).get(
+            "sunlight_intensity_scale", DEFAULT_SUNLIGHT_INTENSITY_SCALE
+        )
+        print(json.dumps({"type": "lighting_configuration",
+                          "sunlight_intensity_scale": sunlight_scale,
+                          "scope": "rendering_only"}, sort_keys=True), flush=True)
         bridge.set_scene_settings(
             SceneSettings(
+                sunlight_intensity_scale=sunlight_scale,
                 origin_object_id="teleop/cubesat_bus",
                 # Focus targets must be registered body IDs, not MJCF sites.
                 default_camera_target="teleop/cubesat_bus",
@@ -755,6 +786,15 @@ def run(args: argparse.Namespace) -> None:
                     "sim_time_ns": str(render_sim_time_ns),
                     "wall_time_ns": str(time.time_ns()),
                     "applied_action_sequence": targets.applied_sequence,
+                    # Legacy aliases retain 8 mixed-unit entries for older clients.
+                    # Explicit SI fields are authoritative for new consumers.
+                    "arm_joint_position_rad": joint_position[:6],
+                    "arm_joint_velocity_rad_s": joint_velocity[:6],
+                    "target_arm_joint_position_rad": targets.position[:6].tolist(),
+                    "gripper_position_m": joint_position[6:],
+                    "gripper_velocity_m_s": joint_velocity[6:],
+                    "target_gripper_position_m": targets.position[6:].tolist(),
+                    **simulation.attitude_control.telemetry(),
                     "joint_position_rad": joint_position,
                     "joint_velocity_rad_s": joint_velocity,
                     "target_joint_position_rad": targets.position.tolist(),
@@ -825,6 +865,8 @@ def main() -> None:
     parser.add_argument("--capture-rate", type=float, default=10.0)
     parser.add_argument("--ik-rate", type=float, default=100.0)
     parser.add_argument("--scene-instance", type=Path)
+    parser.add_argument("--disable-attitude-control", action="store_true",
+                        help="Leave rotors installed but command zero motor torque (A/B diagnostics)")
     args = parser.parse_args()
     if args.catalog is None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"

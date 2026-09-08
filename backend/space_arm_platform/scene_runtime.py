@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import SceneInstanceCreate
+from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE
 
 
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -150,6 +151,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
             "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
             "orbit": dict(_DEFAULT_ORBIT),
+            "lighting": {"sunlight_intensity_scale": request.sunlight_intensity_scale},
         },
         "runtime": {
             "simulation_rate": request.simulation_rate,
@@ -188,6 +190,7 @@ class SceneRuntimeManager:
             "templates": list(SCENE_TEMPLATES),
             "randomization_profiles": list(RANDOMIZATION_PROFILES),
             "defaults": {
+                "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
                 "template_id": "spacecraft-arm-teleop",
                 "randomization_profile": "training-v1",
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,

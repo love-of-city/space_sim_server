@@ -29,7 +29,7 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 
 - 默认动作空间为末端平移3维、末端旋转3维和夹爪开合。
 - 从MJCF自动解析安装位姿、关节轴和工具坐标，使用阻尼最小二乘雅可比逆解。
-- SO-101只有5个机械臂自由度，因此六维命令会投影到物理可实现的5维运动，并记录命令残差和雅可比秩。
+- 默认 SARM 模型包含6个机械臂转动关节和2个夹爪移动关节；六维末端命令由雅可比逆解转换，并记录命令残差和雅可比秩。
 - Web操作台支持键盘、浏览器Gamepad API和末端状态；显示 WebRTC RTT、码率、丢包、解码帧率和分辨率。
 - Pixel Streaming SDK 的键盘控制被关闭，机械臂动作仍只通过 `/ws/operator` 进入后端和权威仿真。
 - UE 为 manifest 相机动态创建独立 `SceneCapture2D + RenderTarget + Streamer`，浏览器切换相机不会改变仿真状态。
@@ -47,12 +47,15 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 
 ## 首次部署
 
-将两个仓库克隆到同一个父目录；CubeSat + SO-101 的 MJCF、STL、场景和许可证已随 UE 适配器仓库提供：
+将两个仓库克隆到同一个父目录。当前 SARM 的 MJCF、网格、原生场景控制脚本及任务盒 CAD 源文件随本服务端的 `model/` 提供；UE 网格、地球和星空资产随适配器仓库提供。两个仓库都需要拉取 Git LFS：
 
 ```powershell
 git lfs install
 git clone https://github.com/love-of-city/space_sim_UE_Adapter.git space_sim_UE_adapter
 git clone https://github.com/love-of-city/space_sim_server.git space_arm_data_platform
+
+git -C .\space_sim_UE_adapter lfs pull
+git -C .\space_arm_data_platform lfs pull
 
 Set-Location .\space_arm_data_platform
 python -m pip install -e ".[test]"
@@ -67,9 +70,9 @@ Set-Location .\space_arm_data_platform
 pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 ```
 
-若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`；模型会自动从该仓库的 `test\model\spacecraft_and_arm` 读取，不再需要复制工作区外部模型。
+若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`。默认模型是本仓库的 `model\SARM\platform\sarm_platform.xml`，无需另行复制外部模型；也可用 `-ModelRoot` 指定其他模型目录。PowerShell 入口仍保留旧工作区模型和适配器内 CubeSat + SO-101 的查找回退。模型目录与本地兼容路径说明见 `model/README.md`。
 
-首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure（约十几 MB，并安装其 Node 依赖），再从 STL 生成 UE 网格；视缓存情况可能需要2～5分钟，不会安装另一套 UE。地球和银河 `.uasset` 通过 Git LFS 随适配器仓库提供，启动脚本会检查它们是否完整。后续加载通常更快。网页地址为 `http://127.0.0.1:8000`。
+首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure 并安装其 Node 依赖，同时根据当前模型路径生成本机 UE 资源映射。首次克隆、模型位置或网格内容变化时，资源准备脚本可能重新导入网格并应用构建设置，因此准备时间取决于本机缓存。地球和银河 `.uasset` 通过 Git LFS 随适配器仓库提供，启动脚本会检查它们是否完整。不会安装另一套 UE。网页地址为 `http://127.0.0.1:8000`。
 
 `run_platform.ps1` 现在只启动控制平台（前端、后端、仿真控制/采集监听和 Pixel Streaming 信令），不会立即启动 UE 或 Basilisk/MJScene。进入网页后，在“场景实例”中选择模板、随机化配置、Seed 和是否启用权威采集，再点击“生成并启动场景”。场景会持续运行，直到用户主动点击“停止场景”或关闭平台。Seed 留空时由后端生成，并与完整随机参数一起保存到 `run/scenes/<instance-id>.json`，可用于复现实验。
 
@@ -87,7 +90,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 权威采集会在 UE 游戏线程执行 SceneCapture、GPU→CPU 读回和编码，尤其实例分割还会按对象重复捕获，因此不应在只做交互预览时开启。
 
-新电脑首次运行会从适配器仓库内置 STL 自动生成17个机械臂网格；后续运行直接复用。只有源STL或材质变化时才重新导入：
+当前 SARM 渲染使用9个网格（底座 OBJ 和8个关节/夹爪 STL）。资源准备脚本检查资源映射指纹及 `.uasset` 是否存在；需要时从服务端模型重新导入，后续复用缓存。`Saved/AssetImport` 是本机生成文件，不随仓库提交。需要强制重新导入时：
 
 ```powershell
 .\scripts\run_platform.ps1 -ReimportAssets

@@ -80,6 +80,7 @@ function Resolve-Unreal56Root([string]$RequestedRoot) {
 if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
 if (!$ModelRoot) {
     $modelCandidates = @(
+        (Join-Path $projectRoot 'model\SARM\platform'),
         (Join-Path $workspaceRoot 'model\SARM\platform'),
         (Join-Path $AdapterRoot 'test\model\spacecraft_and_arm'),
         (Join-Path $workspaceRoot 'test\model\spacecraft_and_arm')
@@ -88,7 +89,7 @@ if (!$ModelRoot) {
         Select-Object -First 1
 }
 if (!$ModelRoot) {
-    throw 'spacecraft_and_arm model was not found in the adapter repository. Pull Git LFS assets or pass -ModelRoot explicitly.'
+    throw 'SARM model was not found in this repository or the legacy workspace/adapter locations. Pull Git LFS assets or pass -ModelRoot explicitly.'
 }
 $UnrealRoot = Resolve-Unreal56Root $UnrealRoot
 $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
@@ -106,9 +107,9 @@ foreach ($command in @('python', 'conda', 'npm.cmd')) {
         throw "Required command '$command' was not found on PATH. See README.md first-deployment prerequisites."
     }
 }
-$meshProbe = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Get-Item -LiteralPath (Join-Path $workspaceRoot 'model\SARM\meshes\base_link.obj') -ErrorAction SilentlyContinue } else { Get-ChildItem -LiteralPath (Join-Path $ModelRoot 'assets\robotstudio_so101\assets') -File -Filter '*.stl' -ErrorAction SilentlyContinue | Select-Object -First 1 }
+$meshProbe = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Get-Item -LiteralPath (Join-Path (Split-Path -Parent $ModelRoot) 'meshes\base_link.obj') -ErrorAction SilentlyContinue } else { Get-ChildItem -LiteralPath (Join-Path $ModelRoot 'assets\robotstudio_so101\assets') -File -Filter '*.stl' -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if (!$meshProbe -or $meshProbe.Length -lt 1024) {
-    throw 'Spacecraft-arm STL assets are missing or still Git LFS pointers. Run git lfs install and git lfs pull in space_sim_UE_adapter.'
+    throw 'Model mesh assets are missing or still Git LFS pointers. Run git lfs install and git lfs pull in the server repository (SARM), or in space_sim_UE_adapter for legacy models.'
 }
 $environmentAssetRoot = Join-Path $ueProject 'Content\Planets'
 $environmentAssetFiles = @(
@@ -204,7 +205,11 @@ $catalog = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Join-Path $ueProj
 # The preparation script validates both the catalog fingerprint and every expected .uasset.
 # Do not skip it merely because a catalog survived an earlier failed import.
 if ((Split-Path -Leaf $ModelRoot) -eq 'platform') {
-    if (!(Test-Path -LiteralPath $catalog -PathType Leaf)) { throw "SARM asset catalog is missing: $catalog" }
+    # Saved/ is machine-local: regenerate absolute source paths after a clone or move.
+    & (Join-Path $ueScripts 'prepare_mjcf_assets.ps1') `
+        -MjcfPath (Join-Path $ModelRoot 'sarm_platform.xml') -Destination '/Game/BSK/Generated/SARM' `
+        -CatalogPath $catalog -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$ReimportAssets
+    if ($LASTEXITCODE -ne 0) { throw 'SARM asset preparation failed.' }
     Write-Output "Using SARM satellite + arm model: $ModelRoot"
 } else {
     & (Join-Path $ueScripts 'prepare_spacecraft_arm_assets.ps1') -ModelRoot $ModelRoot `

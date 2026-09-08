@@ -1,0 +1,17 @@
+<mujoco model="SARM_scene">
+  <include file="SARM.xml"/>
+
+  <statistic center="0 0 0.35" extent="1.2" meansize="0.08"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual>
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.2 0.3 0.4" rgb2="0.1 0.15 0.2" width="512" height="512" mark="cross" markrgb="0.8 0.8 0.8"/>
+    <material name="grid" texture="grid" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  </asset>
+  <worldbody>
+    <light pos="0 0 1.5" directional="true"/>
+    <geom name="floor" size="0 0 1" type="plane" material="grid"/>
+  </worldbody>
+</mujoco>

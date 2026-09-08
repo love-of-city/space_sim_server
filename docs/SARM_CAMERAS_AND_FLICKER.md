@@ -2,8 +2,8 @@
 
 ## 生效的模型与相机
 
-平台运行入口是 `../model/SARM/platform/sarm_platform.xml`。编辑器中常用的
-`../model/SARM/mjcf/SARM.xml` 是独立模型入口，`SARM_scene.xml` 会包含它。
+平台运行入口是 `model/SARM/platform/sarm_platform.xml`。编辑器中常用的
+`model/SARM/mjcf/SARM.xml` 是独立模型入口，`SARM_scene.xml` 会包含它。
 本次在两个入口中配置了同名、同标定的相机，没有改动关节、惯量、执行器或网格。
 
 所有位置单位为米，均相对于挂载的 body，而不是惯性世界坐标。

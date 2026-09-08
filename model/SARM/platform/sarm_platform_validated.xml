@@ -1,0 +1,95 @@
+<mujoco model="SARM">
+  <compiler angle="radian" meshdir="../meshes/"/>
+
+  <option gravity="0 0 0" integrator="implicitfast" cone="elliptic" iterations="20"/>
+
+  <size nkey="1"/>
+
+  <default>
+    <joint damping="0.5" frictionloss="0.05"/>
+  </default>
+
+  <asset>
+    <mesh name="base_link_high_precision" content_type="model/obj" file="../meshes/base_link.obj"/>
+    <mesh name="link1" content_type="model/stl" file="../meshes/link1.STL"/>
+    <mesh name="link2" content_type="model/stl" file="../meshes/link2.STL"/>
+    <mesh name="link3" content_type="model/stl" file="../meshes/link3.STL"/>
+    <mesh name="link4" content_type="model/stl" file="../meshes/link4.STL"/>
+    <mesh name="link5" content_type="model/stl" file="../meshes/link5.STL"/>
+    <mesh name="link6" content_type="model/stl" file="../meshes/link6.STL"/>
+    <mesh name="finger1" content_type="model/stl" file="../meshes/finger1.STL"/>
+    <mesh name="finger2" content_type="model/stl" file="../meshes/finger2.STL"/>
+  </asset>
+
+  <worldbody>
+    <body name="cubesat_bus">
+      <inertial pos="0.18986 0.27487 -0.31454" quat="0.0471535 0.70725 -0.0482326 0.703738" mass="162.76" diaginertia="8.6292 5.54501 4.82609"/>
+      <joint name="cubesat_free" type="free"/>
+      <geom name="sarm_base_high_precision" type="mesh" rgba="0.75294 0.75294 0.75294 1" mesh="base_link_high_precision"/>
+      <site name="cubesat_origin" size="0.01"/>
+      <body name="link1" quat="0.707105 0 0 0.707108">
+        <inertial pos="1.0911e-08 0.0018897 0.061536" quat="0.999735 -0.0230413 -3.8107e-08 -1.65342e-06" mass="0.69371" diaginertia="0.0016057 0.00158462 0.000631457"/>
+        <joint name="joint1" range="-3.1416 3.1416" actuatorfrcrange="-100 100" limited="true"/>
+        <geom type="mesh" rgba="0.43922 0.43922 0.43922 1" mesh="link1"/>
+        <body name="link2" pos="0 0 0.095" quat="0.707105 -0.707108 0 0">
+          <inertial pos="0.27 0 0.12404" quat="0.5 0.5 0.5 0.5" mass="2.4574" diaginertia="0.10872 0.10693 0.0031113"/>
+          <joint name="joint2" range="-3.1416 3.1416" actuatorfrcrange="-100 100" limited="true"/>
+          <geom type="mesh" rgba="0.43922 0.43922 0.43922 1" mesh="link2"/>
+          <body name="link3" pos="0.54 0 0.135">
+            <inertial pos="-0.2511 2.6168e-08 -0.14997" quat="0.518828 0.480435 0.480435 0.518828" mass="1.8453" diaginertia="0.026644 0.0258214 0.00181074"/>
+            <joint name="joint3" range="-3.1416 3.1416" actuatorfrcrange="-100 100" limited="true"/>
+            <geom type="mesh" rgba="0.43922 0.43922 0.43922 1" mesh="link3"/>
+            <body name="link4" pos="-0.43 0 -0.145" quat="-3.67321e-06 0 0 -1">
+              <inertial pos="0.023288 1.6705e-07 -0.13273" quat="0.489102 0.510666 0.510664 0.489104" mass="0.57839" diaginertia="0.0011196 0.00109832 0.000389603"/>
+              <joint name="joint4" range="-3.1416 3.1416" actuatorfrcrange="-100 100" limited="true"/>
+              <geom type="mesh" rgba="0.43922 0.43922 0.43922 1" mesh="link4"/>
+              <body name="link5" pos="0 0 -0.135" quat="0.499998 0.5 0.500002 0.5">
+                <inertial pos="-1.6705e-07 -0.023288 0.13273" quat="0.722189 0.691696 -1.27373e-06 1.32988e-06" mass="0.57839" diaginertia="0.0011196 0.00109832 0.000389603"/>
+                <joint name="joint5" range="-3.1416 3.1416" actuatorfrcrange="-100 100" limited="true"/>
+                <geom type="mesh" rgba="0.43922 0.43922 0.43922 1" mesh="link5"/>
+                <body name="link6" pos="0 0 0.135" quat="0.707105 0.707108 0 0">
+                  <inertial pos="0 0 0.14576" mass="0.44938" diaginertia="0.00055493 0.00053894 0.00032719"/>
+                  <joint name="joint6" range="-6.2832 6.2832" actuatorfrcrange="-100 100" limited="true"/>
+                  <geom type="mesh" rgba="0.41176 0.41176 0.41176 1" mesh="link6"/>
+                  <site name="sarm_ee" size="0.01" group="4" pos="0 0 0.25" rgba="1 0.8 0.1 1"/>
+                  <body name="finger1" pos="0 0 0.25">
+                    <inertial pos="0 -0.00775 -0.0275" quat="0.707107 0 0 0.707107" mass="0.017988" diaginertia="5.2018e-06 4.8945e-06 1.0275e-06"/>
+                    <joint name="joint_finger1" type="slide" range="0 0.0375" actuatorfrcrange="-100 100" axis="0 -1 0" limited="true"/>
+                    <geom type="mesh" rgba="0.41176 0.41176 0.41176 1" mesh="finger1"/>
+                  </body>
+                  <body name="finger2" pos="0 0 0.25">
+                    <inertial pos="0 0.00775 -0.0275" quat="0.707107 0 0 0.707107" mass="0.017988" diaginertia="5.2018e-06 4.8945e-06 1.0275e-06"/>
+                    <joint name="joint_finger2" type="slide" range="0 0.0375" actuatorfrcrange="-100 100" axis="0 1 0" limited="true"/>
+                    <geom type="mesh" rgba="0.41176 0.41176 0.41176 1" mesh="finger2"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+    <body name="capture_target" pos="1 0 0">
+      <inertial pos="0.055 0 0" mass="0.1" diaginertia="3.34933e-05 7.758e-05 7.758e-05"/>
+      <joint name="capture_target_free" type="free"/>
+      <geom name="capture_target_handle" size="0.004 0.025" pos="0.015 0 0" quat="0.707107 0 0.707107 0" type="cylinder" condim="6" priority="1" friction="1 0.005 0.0005" solref="0.01" rgba="0.85 0.25 0.12 1" mass="0"/>
+      <geom name="capture_target_body_geom" size="0.025 0.025 0.025" pos="0.065 0 0" type="box" rgba="0.25 0.45 0.72 1" mass="0"/>
+      <site name="capture_target_grasp" quat="0.707107 0 0.707107 0" size="0.005 0.026" type="cylinder" group="4" pos="0.015 0 0" rgba="1 0.8 0.1 0.5"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="sarm_joint1_motor" joint="joint1" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+    <general name="sarm_joint2_motor" joint="joint2" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+    <general name="sarm_joint3_motor" joint="joint3" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+    <general name="sarm_joint4_motor" joint="joint4" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+    <general name="sarm_joint5_motor" joint="joint5" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+    <general name="sarm_joint6_motor" joint="joint6" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+    <general name="sarm_joint_finger1_motor" joint="joint_finger1" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+    <general name="sarm_joint_finger2_motor" joint="joint_finger2" ctrlrange="-100 100" ctrllimited="true" forcelimited="true" forcerange="-100 100"/>
+  </actuator>
+
+  <keyframe>
+    <key name="home" qpos="0 0 0 0 0 0 0.01875 0.01875 0 0 0 0 0 0 0 0 0 0 0 0 0 0"/>
+  </keyframe>
+</mujoco>

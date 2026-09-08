@@ -809,12 +809,12 @@ def main() -> None:
     parser.add_argument(
         "--model-root",
         type=Path,
-        default=PROJECT_ROOT.parent / "model" / "SARM" / "platform",
+        default=PROJECT_ROOT / "model" / "SARM" / "platform",
     )
     parser.add_argument(
         "--catalog",
         type=Path,
-        default=default_adapter / "Unreal" / "BskUnrealRenderer" / "Saved" / "AssetImport" / "cubesat_so101.catalog.json",
+        help="Prepared UE catalog; defaults to the selected adapter/model catalog.",
     )
     parser.add_argument("--control-host", default="127.0.0.1")
     parser.add_argument("--control-port", type=int, default=8766)
@@ -826,6 +826,9 @@ def main() -> None:
     parser.add_argument("--ik-rate", type=float, default=100.0)
     parser.add_argument("--scene-instance", type=Path)
     args = parser.parse_args()
+    if args.catalog is None:
+        catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
+        args.catalog = args.adapter_root / "Unreal" / "BskUnrealRenderer" / "Saved" / "AssetImport" / catalog_name
     if (
         args.duration < 0
         or args.simulation_rate <= 0

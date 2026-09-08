@@ -10,7 +10,7 @@ import pytest
 from simulation.serial_chain_kinematics import SerialChainKinematics, quaternion_wxyz_to_matrix
 from space_arm_platform.scene_runtime import SCENE_TEMPLATES
 
-MODEL_ROOT = Path(__file__).resolve().parents[2] / "model" / "SARM"
+MODEL_ROOT = Path(__file__).resolve().parents[1] / "model" / "SARM"
 CAMERAS = {"spacecraft_overview", "sarm_wrist_cam"}
 
 

@@ -17,6 +17,7 @@ $workspaceRoot = Split-Path -Parent $projectRoot
 if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
 if (!$ModelRoot) {
     $modelCandidates = @(
+        (Join-Path $projectRoot 'model\SARM\platform'),
         (Join-Path $workspaceRoot 'model\SARM\platform'),
         (Join-Path $AdapterRoot 'test\model\spacecraft_and_arm'),
         (Join-Path $workspaceRoot 'test\model\spacecraft_and_arm')
@@ -25,7 +26,7 @@ if (!$ModelRoot) {
         Select-Object -First 1
 }
 if (!$ModelRoot) {
-    throw 'spacecraft_and_arm model was not found in the adapter repository. Pass -ModelRoot explicitly.'
+    throw 'SARM model was not found in this repository or the legacy workspace/adapter locations. Pass -ModelRoot explicitly.'
 }
 $catalog = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_platform.catalog.json' } else { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\cubesat_so101.catalog.json' }
 $scenario = Join-Path $projectRoot 'simulation\teleop_grasp_unreal.py'

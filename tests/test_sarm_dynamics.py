@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-MODEL_ROOT = Path(__file__).resolve().parents[2] / "model/SARM/platform"
+MODEL_ROOT = Path(__file__).resolve().parents[1] / "model/SARM/platform"
 
 
 @pytest.mark.parametrize("name", ["cubesat_free", "capture_target_free"])

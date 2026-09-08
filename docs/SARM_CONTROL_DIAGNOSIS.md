@@ -2,8 +2,8 @@
 
 ## 实际加载哪个 XML
 
-当前平台加载 `../model/SARM/platform/sarm_platform.xml`，不是编辑器中打开的
-`../model/SARM/mjcf/SARM.xml`。后者是独立机械臂模型；前者是包含卫星、机械臂和自由目标的运行场景。
+当前平台加载 `model/SARM/platform/sarm_platform.xml`，不是编辑器中打开的
+`model/SARM/mjcf/SARM.xml`。后者是独立机械臂模型；前者是包含卫星、机械臂和自由目标的运行场景。
 模型名称是 **SARM**，不是 SRAM。
 
 ## 根因及修改
@@ -47,7 +47,7 @@
 双指为米制滑动关节。原 Kp=0.2 N/m，在完整 0.0375 m 行程内最大比例输出仅
 0.0075 N，小于 XML 中 0.01 N 的摩擦损失。
 
-`../model/SARM/platform/scenarios/scenario_sarm_grasp.py` 中只将最后两项 Kp 改为
+`model/SARM/platform/scenarios/scenario_sarm_grasp.py` 中只将最后两项 Kp 改为
 **40 N/m**。保留原来的 **0.05 N/指限幅**、Kd、关节阻尼和摩擦，未提高安全力上限。
 原生对照测试已确认可以按毫米级指令打开并关闭。
 

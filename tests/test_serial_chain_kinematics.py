@@ -8,7 +8,7 @@ from simulation.serial_chain_kinematics import (
 )
 
 
-MODEL = Path(__file__).resolve().parents[2] / "model" / "SARM" / "platform" / "sarm_platform.xml"
+MODEL = Path(__file__).resolve().parents[1] / "model" / "SARM" / "platform" / "sarm_platform.xml"
 JOINTS = tuple(f"joint{i}" for i in range(1, 7))
 
 

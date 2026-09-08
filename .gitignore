@@ -13,3 +13,10 @@ data/auth.sqlite3*
 data/archives/
 data/jobs/
 data/tasks/
+
+# Local model export artifacts; keep source XML/URDF/CAD under version control.
+/model/*.zip
+/model/SARM/export.log
+/model/SARM/mjcf/SARM.txt
+/model/SARM/mjcf/SARM_scene.txt
+/model/SARM/platform/sarm_platform_diag*.xml

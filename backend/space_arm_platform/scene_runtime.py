@@ -21,9 +21,9 @@ from .models import SceneInstanceCreate
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
         "id": "spacecraft-arm-teleop",
-        "label": "CubeSat + SO-101 遥操作抓取",
-        "description": "自由漂浮 CubeSat、SO-101 机械臂和可抓取目标。",
-        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/so101_wrist_cam"],
+        "label": "SARM 卫星机械臂遥操作抓取",
+        "description": "自由漂浮 SARM 卫星、机械臂和可抓取目标。",
+        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
     },
 )
 
@@ -36,15 +36,15 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     {
         "id": "training-v1",
         "label": "训练随机化 v1",
-        "description": "在可抓取邻域内随机目标位置/姿态/自旋和机械臂初始关节。",
+        "description": "在可抓取邻域内随机目标位置/姿态和机械臂初始关节。",
     },
 )
 
 _NATIVE_TARGET_POSITION = (0.38754456, -0.00109359, 0.42397138)
 _NATIVE_TARGET_QUATERNION = (0.99967109, 0.02433362, -0.00809494, 0.00024763)
-_NATIVE_TARGET_SPIN = (1.0, 0.0, 0.0)
+_NATIVE_TARGET_SPIN = (0.0, 0.0, 0.0)
 _NATIVE_COMMON_VELOCITY = (0.01, -0.004, 0.002)
-_NATIVE_PREGRASP = (0.0, -0.1790243, 0.2159404, -0.0368382, 0.0, 0.4)
+_NATIVE_PREGRASP = (0.0, -0.1790243, 0.2159404, -0.0368382, 0.0, 0.0, 0.01875, 0.01875)
 _DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
 _DEFAULT_EPHEMERIS_CENTER = "Earth"
 _DEFAULT_EPHEMERIS_FRAME = "J2000"
@@ -127,12 +127,11 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         randomization["target_orientation_wxyz"] = _multiply_quaternion(
             list(_NATIVE_TARGET_QUATERNION), perturbation
         )
-        randomization["target_angular_velocity_rad_s"] = [
-            _NATIVE_TARGET_SPIN[0] + rng.uniform(-0.15, 0.15),
-            rng.uniform(-0.04, 0.04),
-            rng.uniform(-0.04, 0.04),
-        ]
-        joint_spans = (0.04, 0.035, 0.035, 0.03, 0.04, 0.025)
+        # Keep the initial target angular rate at zero.  Basilisk/MJScene 2.11.1
+        # becomes numerically unstable when the second free body receives a
+        # non-identity attitude and a non-zero angular rate during initialization.
+        randomization["target_angular_velocity_rad_s"] = list(_NATIVE_TARGET_SPIN)
+        joint_spans = (0.04, 0.035, 0.035, 0.03, 0.04, 0.04, 0.01, 0.01)
         randomization["arm_joint_position_rad"] = [
             value + rng.uniform(-span, span)
             for value, span in zip(_NATIVE_PREGRASP, joint_spans, strict=True)

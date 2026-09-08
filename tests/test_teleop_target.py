@@ -3,6 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
+import xml.etree.ElementTree as ET
 
 
 SCENARIO = Path(__file__).resolve().parents[1] / "simulation" / "teleop_grasp_unreal.py"
@@ -23,7 +25,7 @@ class FakeClient:
                 "server_sequence": "7",
                 "end_effector_linear_velocity_body_m_s": [0.02, 0.0, 0.0],
                 "end_effector_angular_velocity_body_rad_s": [0.0, 0.0, 0.1],
-                "gripper_velocity_rad_s": -0.25,
+                "gripper_velocity_m_s": -0.005,
             },
             self.stale,
         )
@@ -36,7 +38,7 @@ class CountingKinematics:
 
     def jacobian(self, _position):
         self.jacobian_calls += 1
-        return np.eye(6, 5)
+        return np.eye(6)
 
     def inverse_velocity(self, _position, twist, *, joint_velocity_limits):
         self.inverse_calls += 1
@@ -46,27 +48,27 @@ class CountingKinematics:
             joint_velocity_rad_s=velocity,
             achieved_twist=achieved,
             residual_twist=np.zeros(6),
-            jacobian_rank=5,
+            jacobian_rank=6,
         )
 
 
 def test_target_integrates_only_fresh_deadman_command() -> None:
-    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4])
-    model = Path(__file__).resolve().parents[2] / "test" / "model" / "spacecraft_and_arm" / "assets" / "cubesat_so101_grasp" / "cubesat_so101_grasp.xml"
+    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
+    model = Path(__file__).resolve().parents[2] / "model" / "SARM" / "platform" / "sarm_platform.xml"
     kinematics = MODULE.SerialChainKinematics.from_mjcf(
         model,
         base_body="cubesat_bus",
         joint_names=MODULE.ARM_JOINT_NAMES,
-        tool_site="so101_gripperframe",
+        tool_site="sarm_ee",
     )
     target = MODULE.CartesianTeleopTarget(initial, FakeClient(), kinematics)
     target.reference(0.0)
     position, velocity = target.reference(0.002)
-    assert position[5] == 0.3995
-    assert np.linalg.norm(position[:5] - initial[:5]) > 0.0
-    assert np.all(np.abs(velocity[:5]) <= MODULE.ARM_JOINT_VELOCITY_LIMIT + 1e-12)
+    assert position[6:] == pytest.approx([0.01874, 0.01874])
+    assert np.linalg.norm(position[:6] - initial[:6]) > 0.0
+    assert np.all(np.abs(velocity[:6]) <= MODULE.ARM_JOINT_VELOCITY_LIMIT + 1e-12)
     assert target.applied_sequence == "7"
-    assert target.jacobian_rank == 5
+    assert target.jacobian_rank == np.linalg.matrix_rank(kinematics.jacobian(initial[:6]), tol=1e-5)
 
     stale_target = MODULE.CartesianTeleopTarget(initial, FakeClient(stale=True), kinematics)
     stale_target.reference(0.0)
@@ -76,7 +78,7 @@ def test_target_integrates_only_fresh_deadman_command() -> None:
 
 
 def test_cached_reference_never_recomputes_ik() -> None:
-    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4])
+    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
     kinematics = CountingKinematics()
     target = MODULE.CartesianTeleopTarget(initial, FakeClient(), kinematics)
     target.reset(0.0)
@@ -96,7 +98,7 @@ def test_cached_reference_never_recomputes_ik() -> None:
 
 
 def test_control_model_updates_only_when_scheduled() -> None:
-    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4])
+    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
     kinematics = CountingKinematics()
     target = MODULE.CartesianTeleopTarget(initial, FakeClient(), kinematics)
     controller = MODULE.CartesianIkControlModel(target)
@@ -104,3 +106,48 @@ def test_control_model_updates_only_when_scheduled() -> None:
     controller.UpdateState(10_000_000)
     assert kinematics.inverse_calls == 1
     assert target.update_count == 1
+
+
+def test_controller_limits_match_all_eight_sarm_joints() -> None:
+    model = Path(__file__).resolve().parents[2] / "model/SARM/platform/sarm_platform.xml"
+    root = ET.parse(model).getroot()
+    names = (*MODULE.ARM_JOINT_NAMES, "joint_finger1", "joint_finger2")
+    limits = np.array([
+        np.fromstring(root.find(f'.//joint[@name="{name}"]').get("range"), sep=" ")
+        for name in names
+    ])
+    assert np.array_equal(MODULE.JOINT_MIN, limits[:, 0])
+    assert np.array_equal(MODULE.JOINT_MAX, limits[:, 1])
+
+
+def test_joint5_and_both_fingers_stop_at_xml_limits() -> None:
+    initial = np.zeros(8)
+    initial[4] = MODULE.JOINT_MAX[4] - 0.0005
+    initial[6:] = 0.00001
+    target = MODULE.CartesianTeleopTarget(initial, FakeClient(), CountingKinematics())
+    target.reset(0.0)
+    position, velocity = target.update(0.01)
+    assert position[4] == MODULE.JOINT_MAX[4]
+    assert velocity[4] == 0.0
+    assert np.array_equal(position[6:], [0.0, 0.0])
+    assert np.array_equal(velocity[6:], [0.0, 0.0])
+
+
+@pytest.mark.parametrize("reason", ["stale", "deadman"])
+def test_release_or_timeout_holds_last_target_for_arm_and_both_fingers(reason) -> None:
+    client = FakeClient()
+    target = MODULE.CartesianTeleopTarget(
+        np.array([0, -0.1, 0.2, 0, 0, 0, 0.01875, 0.01875]), client, CountingKinematics()
+    )
+    target.reset(0.0)
+    target.update(0.01)
+    held = target.position.copy()
+    action, _ = client.latest_action()
+    if reason == "deadman":
+        action["deadman"] = False
+    client.latest_action = lambda: (action, reason == "stale")
+    for time in (0.02, 0.03, 0.04):
+        position, velocity = target.update(time)
+        assert np.array_equal(position, held)
+        assert np.array_equal(velocity, np.zeros(8))
+    assert target.ik_solve_count == 1

@@ -57,6 +57,7 @@ class AppliedAction(BaseModel):
     end_effector_linear_velocity_body_m_s: list[float] = Field(min_length=3, max_length=3)
     end_effector_angular_velocity_body_rad_s: list[float] = Field(min_length=3, max_length=3)
     gripper_velocity_rad_s: float
+    gripper_velocity_m_s: float = 0.0
     input_source: str
     limited: bool = False
     reason: str = ""

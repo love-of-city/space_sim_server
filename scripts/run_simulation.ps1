@@ -17,6 +17,7 @@ $workspaceRoot = Split-Path -Parent $projectRoot
 if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
 if (!$ModelRoot) {
     $modelCandidates = @(
+        (Join-Path $workspaceRoot 'model\SARM\platform'),
         (Join-Path $AdapterRoot 'test\model\spacecraft_and_arm'),
         (Join-Path $workspaceRoot 'test\model\spacecraft_and_arm')
     )
@@ -26,7 +27,7 @@ if (!$ModelRoot) {
 if (!$ModelRoot) {
     throw 'spacecraft_and_arm model was not found in the adapter repository. Pass -ModelRoot explicitly.'
 }
-$catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\cubesat_so101.catalog.json'
+$catalog = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_platform.catalog.json' } else { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\cubesat_so101.catalog.json' }
 $scenario = Join-Path $projectRoot 'simulation\teleop_grasp_unreal.py'
 $env:PYTHONPATH = @(
     (Join-Path $projectRoot 'backend'),
@@ -46,3 +47,5 @@ if ($SceneInstancePath) {
     $arguments += @('--scene-instance', ([IO.Path]::GetFullPath($SceneInstancePath)))
 }
 conda @arguments
+$exitCode = $LASTEXITCODE
+exit $exitCode

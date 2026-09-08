@@ -1,4 +1,4 @@
-"""Run the authoritative CubeSat + SO-101 MJScene under live operator control.
+"""Run the authoritative SARM MJScene under live operator control.
 
 This process owns all joint/contact dynamics.  The browser never moves UE
 actors directly: it sends a bounded six-dimensional end-effector twist and a
@@ -36,12 +36,14 @@ from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_so
 from simulation.architecture import BasiliskModuleRegistry  # noqa: E402
 
 
-JOINT_MIN = np.array([-1.91986, -1.74533, -1.69, -1.65806, -2.74385, -0.174533])
-JOINT_MAX = np.array([1.91986, 1.74533, 1.69, 1.65806, 2.74385, 1.74533])
-ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00])
+JOINT_MIN = np.array([-3.1416, -3.1416, -3.1416, -3.1416, -3.1416, -6.2832, 0.0, 0.0])
+JOINT_MAX = np.array([3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 6.2832, 0.0375, 0.0375])
+ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00, 1.00])
 DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
 SUPPORTED_EPHEMERIS_CENTER = "Earth"
 SUPPORTED_EPHEMERIS_FRAME = "J2000"
+# Inertial translation and planet-fixed attitude are different SPICE outputs.
+CELESTIAL_FIXED_FRAMES = ("IAU_EARTH", "IAU_SUN")
 SUN_REFERENCE_DISTANCE_M = 149_597_870_700.0
 EARTH_EQUATORIAL_RADIUS_M = 6_378_136.6
 MINIMUM_PERIAPSIS_ALTITUDE_M = 120_000.0
@@ -56,11 +58,8 @@ DEFAULT_ORBIT = {
 
 
 ARM_JOINT_NAMES = (
-    "so101_shoulder_pan",
-    "so101_shoulder_lift",
-    "so101_elbow_flex",
-    "so101_wrist_flex",
-    "so101_wrist_roll",
+    "joint1", "joint2", "joint3", "joint4",
+    "joint5", "joint6",
 )
 
 
@@ -150,7 +149,7 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
         "target_orientation_wxyz": 4,
         "target_linear_velocity_m_s": 3,
         "target_angular_velocity_rad_s": 3,
-        "arm_joint_position_rad": 6,
+        "arm_joint_position_rad": 8,
     }
     for field, length in expected_lengths.items():
         values = randomization.get(field)
@@ -168,7 +167,7 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
         raise ValueError("scene target quaternion must have non-zero norm")
     joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
     if np.any(joints < JOINT_MIN) or np.any(joints > JOINT_MAX):
-        raise ValueError("scene arm joint positions exceed the SO-101 joint limits")
+        raise ValueError("scene arm joint positions exceed the SARM joint limits")
     return document
 
 
@@ -224,6 +223,7 @@ class SimulationControlClient:
             action["deadman"] = False
             action["end_effector_linear_velocity_body_m_s"] = [0.0] * 3
             action["end_effector_angular_velocity_body_rad_s"] = [0.0] * 3
+            action["gripper_velocity_m_s"] = 0.0
             action["gripper_velocity_rad_s"] = 0.0
         return action, stale
 
@@ -306,7 +306,10 @@ class SimulationControlClient:
                 isinstance(value, (int, float)) and math.isfinite(value)
                 for value in [*linear, *angular]
             )
-            and isinstance(message.get("gripper_velocity_rad_s"), (int, float))
+            and (
+                isinstance(message.get("gripper_velocity_m_s"), (int, float))
+                or isinstance(message.get("gripper_velocity_rad_s"), (int, float))
+            )
         )
 
     @staticmethod
@@ -319,6 +322,7 @@ class SimulationControlClient:
             "control_frame": "spacecraft_body",
             "end_effector_linear_velocity_body_m_s": [0.0] * 3,
             "end_effector_angular_velocity_body_rad_s": [0.0] * 3,
+            "gripper_velocity_m_s": 0.0,
             "gripper_velocity_rad_s": 0.0,
         }
 
@@ -334,7 +338,7 @@ class CartesianTeleopTarget:
     ) -> None:
         self.initial_position = np.asarray(initial_position, dtype=float).copy()
         self.position = self.initial_position.copy()
-        self.velocity = np.zeros(6)
+        self.velocity = np.zeros_like(self.initial_position)
         self.client = client
         self.kinematics = kinematics
         self.last_sim_seconds: float | None = None
@@ -344,7 +348,7 @@ class CartesianTeleopTarget:
         self.achieved_twist = np.zeros(6)
         self.residual_twist = np.zeros(6)
         self.jacobian_rank = int(
-            np.linalg.matrix_rank(self.kinematics.jacobian(self.position[:5]))
+            np.linalg.matrix_rank(self.kinematics.jacobian(self.position[:6]))
         )
         self.update_count = 0
         self.ik_solve_count = 0
@@ -382,12 +386,14 @@ class CartesianTeleopTarget:
         )
         if enabled:
             result = self.kinematics.inverse_velocity(
-                self.position[:5],
+                self.position[:6],
                 self.desired_twist,
                 joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
             )
-            self.velocity[:5] = result.joint_velocity_rad_s
-            self.velocity[5] = float(action["gripper_velocity_rad_s"])
+            self.velocity[:6] = result.joint_velocity_rad_s
+            gripper_velocity = float(action.get("gripper_velocity_m_s", action.get("gripper_velocity_rad_s", 0.0)))
+            self.velocity[6] = gripper_velocity
+            self.velocity[7] = gripper_velocity
             self.achieved_twist = result.achieved_twist
             self.residual_twist = result.residual_twist
             self.jacobian_rank = result.jacobian_rank
@@ -437,6 +443,40 @@ class CartesianIkControlModel(sysModel.SysModel):
         self.target.update(CurrentSimNanos * 1.0e-9)
 
 
+def _create_ephemeris_interface(gravity_factory: Any, epoch_utc: str) -> Any:
+    """Use one clock/frame for gravity and rendering, with physical planet spin."""
+
+    ephemeris = gravity_factory.createSpiceInterface(
+        time=epoch_utc,
+        spicePlanetFrames=list(CELESTIAL_FIXED_FRAMES),
+        epochInMsg=True,
+    )
+    ephemeris.referenceBase = SUPPORTED_EPHEMERIS_FRAME
+    ephemeris.zeroBase = SUPPORTED_EPHEMERIS_CENTER
+    return ephemeris
+
+
+def _register_celestial_bodies(bridge: Any, earth: Any, sun: Any) -> None:
+    """Share the gravity-bound body readers with the renderer; no backdrop Earth."""
+
+    # Render the same Earth/Sun state messages used by native gravity.
+    # The bridge subtracts the moving spacecraft origin for BOTH bodies.
+    bridge.add_celestial_bodies(
+        [earth, sun],
+        visual_overrides={
+            "sun": {
+                "visual_role": "star",
+                "luminous": True,
+                "drives_directional_light": True,
+                "light_color_rgb": (1.0, 0.98, 0.92),
+                # Keep the current exposure calibration; UE applies the 1/r^2 correction.
+                "light_illuminance_lux_at_reference_distance": 8.0,
+                "light_reference_distance_m": SUN_REFERENCE_DISTANCE_M,
+            }
+        },
+    )
+
+
 def run(args: argparse.Namespace) -> None:
     scene_instance = _load_scene_instance(args.scene_instance)
     if scene_instance:
@@ -455,12 +495,12 @@ def run(args: argparse.Namespace) -> None:
     native = load_native_grasp_module(args.model_root.resolve())
     native.TIME_STEP = 0.002  # One authoritative 500 Hz dynamics step.
 
-    client = SimulationControlClient(args.control_host, args.control_port, "so101-teleop")
+    client = SimulationControlClient(args.control_host, args.control_port, "sarm-teleop")
     kinematics = SerialChainKinematics.from_mjcf(
         native.MODEL_PATH,
         base_body="cubesat_bus",
         joint_names=ARM_JOINT_NAMES,
-        tool_site="so101_gripperframe",
+        tool_site="sarm_ee",
     )
     initial_joints = (
         np.asarray(scene_instance["randomization"]["arm_joint_position_rad"], dtype=float)
@@ -475,7 +515,7 @@ def run(args: argparse.Namespace) -> None:
 
     from Basilisk.simulation import NBodyGravity, pointMassGravityModel
     from Basilisk.utilities import macros, orbitalMotion, simIncludeGravBody
-    from bsk_render_adapter import BasiliskRenderBridge, CameraVisual, SceneSettings
+    from bsk_render_adapter import BasiliskRenderBridge, SceneSettings
 
     client.start()
     bridge: BasiliskRenderBridge | None = None
@@ -490,12 +530,7 @@ def run(args: argparse.Namespace) -> None:
         gravity_factory = simIncludeGravBody.gravBodyFactory()
         earth = gravity_factory.createEarth()
         sun = gravity_factory.createSun()
-        ephemeris = gravity_factory.createSpiceInterface(
-            time=ephemeris_epoch,
-            spicePlanetFrames=[SUPPORTED_EPHEMERIS_FRAME, SUPPORTED_EPHEMERIS_FRAME],
-            epochInMsg=True,
-        )
-        ephemeris.zeroBase = SUPPORTED_EPHEMERIS_CENTER
+        ephemeris = _create_ephemeris_interface(gravity_factory, ephemeris_epoch)
 
         # Register the environmental models with the MJScene dynamics task.
         # Basilisk computes the accelerations and MJScene performs the unified
@@ -504,7 +539,10 @@ def run(args: argparse.Namespace) -> None:
         scene.AddModelToDynamicsTask(ephemeris, 20_000)
         gravity = NBodyGravity.NBodyGravity()
         gravity.ModelTag = "earthSunGravity"
-        scene.AddModelToDynamicsTask(gravity, 19_000)
+        # Higher priorities run first.  MJScene forward kinematics (10_000)
+        # must publish this substep's body states before gravity reads them;
+        # trajectory/controllers (9_000 and below) then consume the fresh state.
+        scene.AddModelToDynamicsTask(gravity, 9_500)
 
         earth.isCentralBody = True
         # Keep the source strengths disabled until after the initial MJScene
@@ -530,7 +568,7 @@ def run(args: argparse.Namespace) -> None:
         # The MJBody overload installs Basilisk's native subscriptions to the
         # MJScene state and mass-property messages.  Keep this direct binding
         # so the 500 Hz dynamics loop does not cross a Python bridge.
-        print(json.dumps({"type": "ephemeris_configuration", "epoch_utc": ephemeris_epoch, "center": SUPPORTED_EPHEMERIS_CENTER, "frame": SUPPORTED_EPHEMERIS_FRAME, "gravity_sources": ["earth", "sun"], "gravity_targets": gravity_target_names}, sort_keys=True), flush=True)
+        print(json.dumps({"type": "ephemeris_configuration", "epoch_utc": ephemeris_epoch, "center": SUPPORTED_EPHEMERIS_CENTER, "frame": SUPPORTED_EPHEMERIS_FRAME, "planet_fixed_frames": dict(zip(("earth", "sun"), CELESTIAL_FIXED_FRAMES)), "gravity_sources": ["earth", "sun"], "gravity_targets": gravity_target_names}, sort_keys=True), flush=True)
         control_task_name = "teleopIkTask"
         control_task = simulation.CreateNewTask(
             control_task_name, macros.sec2nano(1.0 / args.ik_rate)
@@ -559,7 +597,7 @@ def run(args: argparse.Namespace) -> None:
             origin_object="teleop/cubesat_bus",
             frame_period_ns=macros.sec2nano(1.0 / 30.0),
         )
-        body_ids = bridge.add_mj_scene(
+        bridge.add_mj_scene(
             scene,
             namespace="teleop",
             source_path=native.MODEL_PATH,
@@ -569,49 +607,19 @@ def run(args: argparse.Namespace) -> None:
             camera_capture_rate_hz=args.capture_rate,
             camera_capture_products=("rgb", "depth", "segmentation"),
             camera_pip_resolution=(640, 360),
-            camera_picture_in_picture_start_slot=2,
-            camera_display_names={"so101_wrist_cam": "SO-101 Wrist Camera"},
-        )
-        bridge.add_celestial_bodies(
-            [sun],
-            visual_overrides={
-                "sun": {
-                    "visual_role": "star",
-                    "luminous": True,
-                    "drives_directional_light": True,
-                    "light_color_rgb": (1.0, 0.98, 0.92),
-                    # Keep the current exposure calibration; UE applies the 1/r^2 correction.
-                    "light_illuminance_lux_at_reference_distance": 8.0,
-                    "light_reference_distance_m": SUN_REFERENCE_DISTANCE_M,
-                }
+            camera_picture_in_picture_start_slot=1,
+            camera_display_names={
+                "spacecraft_overview": "Spacecraft Overview",
+                "sarm_wrist_cam": "SARM Wrist Camera",
             },
         )
-        bridge.add_camera(
-            CameraVisual(
-                camera_id="teleop/camera/spacecraft_overview",
-                display_name="Spacecraft Overview",
-                parent_id=body_ids["cubesat_bus"],
-                position_body_m=(0.0, -0.22, 0.34),
-                orientation_body_from_camera_wxyz=(
-                    0.9602216126462713,
-                    0.0191150104507704,
-                    -0.0679365250286891,
-                    0.2701734619637677,
-                ),
-                field_of_view_rad=math.radians(70.0),
-                resolution=(640, 360),
-                semantic_label="spacecraft_overview_camera",
-                picture_in_picture=True,
-                capture_rate_hz=args.capture_rate,
-                capture_products=("rgb", "depth", "segmentation"),
-                picture_in_picture_slot=1,
-            )
-        )
+        _register_celestial_bodies(bridge, earth, sun)
         bridge.set_scene_settings(
             SceneSettings(
                 origin_object_id="teleop/cubesat_bus",
-                default_camera_target="teleop/so101_gripper",
-                default_camera_distance_m=1.25,
+                # Focus targets must be registered body IDs, not MJCF sites.
+                default_camera_target="teleop/cubesat_bus",
+                default_camera_distance_m=2.8,
                 orbit_lines=False,
                 trajectory_history=False,
                 # 预览通道只保留很短的插值缓冲，并允许最多 50 ms 的视觉外推；
@@ -648,16 +656,22 @@ def run(args: argparse.Namespace) -> None:
         bus.setPosition(orbital_position)
         bus.setVelocity(bus_velocity)
         target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
+        # Both free bodies use the same inertial frame.  The randomized
+        # target velocity is only a local offset, not its full orbital speed.
         target.setVelocity(
-            orbital_velocity
-            + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float)
+            orbital_velocity + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float)
         )
         target.setAttitude(
             native._quaternion_to_mrp(
                 np.asarray(randomized["target_orientation_wxyz"], dtype=float)
             )
         )
-        target.setAttitudeRate(np.asarray(randomized["target_angular_velocity_rad_s"], dtype=float))
+        target_spin = np.asarray(randomized["target_angular_velocity_rad_s"], dtype=float)
+        if float(np.linalg.norm(target_spin)) > 1.0e-12:
+            # Older scene files may still contain the pre-fix spin value.
+            # Normalize it so they cannot reintroduce the MJScene startup NaN.
+            target_spin = np.zeros(3)
+        target.setAttitudeRate(target_spin)
         for (body_name, joint_name), position in zip(native.JOINTS, initial_joints, strict=True):
             joint = scene.getBody(body_name).getScalarJoint(joint_name)
             joint.setPosition(float(position))
@@ -722,16 +736,16 @@ def run(args: argparse.Namespace) -> None:
             joint_position = [float(joint.stateOutMsg.read().state) for joint in joints]
             joint_velocity = [float(joint.stateDotOutMsg.read().state) for joint in joints]
             end_effector_position, end_effector_rotation = kinematics.forward(
-                np.asarray(joint_position[:5])
+                np.asarray(joint_position[:6])
             )
             end_effector_twist = kinematics.jacobian(
-                np.asarray(joint_position[:5])
-            ) @ np.asarray(joint_velocity[:5])
+                np.asarray(joint_position[:6])
+            ) @ np.asarray(joint_velocity[:6])
             client.send_observation(
                 {
                     "protocol": CONTROL_PROTOCOL,
                     "type": "observation",
-                    "simulation_id": "so101-teleop",
+                    "simulation_id": "sarm-teleop",
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
                     "scene_seed": scene_instance.get("seed") if scene_instance else None,
                     "scene_template_id": scene_instance.get("template_id") if scene_instance else "spacecraft-arm-teleop",
@@ -795,7 +809,7 @@ def main() -> None:
     parser.add_argument(
         "--model-root",
         type=Path,
-        default=default_adapter / "test" / "model" / "spacecraft_and_arm",
+        default=PROJECT_ROOT.parent / "model" / "SARM" / "platform",
     )
     parser.add_argument(
         "--catalog",

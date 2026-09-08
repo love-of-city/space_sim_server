@@ -27,6 +27,7 @@ const state = {
   lastPresentedTimestamp: null,
   streamLive: false,
   streamReconnectTimer: null,
+  pixelConnectPromise: null,
   scenePhase: "idle",
   sceneReady: false,
   sceneDefaults: { simulation_rate: 1, capture_rate_hz: 10, ik_rate_hz: 100 },
@@ -40,11 +41,11 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const controlKeys = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "KeyQ", "KeyE", "KeyR", "KeyF", "ShiftLeft", "ShiftRight", "Escape"]);
 
-function setPixelStreamingCameraInputEnabled(enabled) {
+function setPixelStreamingInputEnabled(keyboardEnabled, mouseEnabled) {
   const stream = state.pixelStreaming;
   if (!stream?.config) return;
-  stream.config.setFlagEnabled(Flags.KeyboardInput, enabled);
-  stream.config.setFlagEnabled(Flags.MouseInput, enabled);
+  stream.config.setFlagEnabled(Flags.KeyboardInput, keyboardEnabled);
+  stream.config.setFlagEnabled(Flags.MouseInput, mouseEnabled);
 }
 
 function setFreeCameraMode(enabled, message = "") {
@@ -52,12 +53,16 @@ function setFreeCameraMode(enabled, message = "") {
   state.freeCameraMode = enabled;
   state.pressed.clear();
   if (enabled) {
-    setPixelStreamingCameraInputEnabled(true);
+    // Keep the keyboard listener registered for the lifetime of the stream.
+    // The page capture handler blocks robot-control keys outside free-camera
+    // mode; toggling the SDK listener itself at C-time is unreliable when the
+    // browser and Pixel Streaming change focus at the same time.
+    setPixelStreamingInputEnabled(true, true);
     if (state.operationActive) sendNeutralAction("keyboard");
   } else {
     // Keep the key event flowing to UE first so C/Home can toggle/reset its
     // camera state, then remove the Pixel Streaming listeners after the event.
-    setTimeout(() => setPixelStreamingCameraInputEnabled(false), 0);
+    setTimeout(() => setPixelStreamingInputEnabled(true, false), 0);
   }
   updateOperationUI();
   if (message) setMessage(message);
@@ -347,10 +352,10 @@ function connect() {
       $("simState").textContent = "仿真在线";
       $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
       $("actionSequence").textContent = obs.applied_action_sequence;
-      updateMotionOutputs(obs.end_effector_twist_body || [], obs.joint_velocity_rad_s?.[5] || 0);
+      updateMotionOutputs(obs.end_effector_twist_body || [], obs.joint_velocity_rad_s?.[6] || 0);
       const position = obs.end_effector_position_body_m || [];
       $("toolPosition").textContent = position.length === 3 ? position.map((value) => Number(value).toFixed(3)).join(", ") : "—";
-      $("jacobianRank").textContent = `${obs.jacobian_rank ?? "—"} / 5`;
+      $("jacobianRank").textContent = `${obs.jacobian_rank ?? "—"} / 6`;
     } else if (message.type === "action_ack") {
       state.lastAckAt = performance.now();
       $("actionSequence").textContent = message.server_sequence;
@@ -363,7 +368,14 @@ function connect() {
 }
 
 async function connectPixelStreaming() {
-  try {
+  // Reconnect callbacks, the 10-second startup watchdog, and manual reconnect
+  // can otherwise overlap.  That creates two Pixel Streaming players for the
+  // main viewport and makes the displayed stream flash while old participants
+  // are being removed.
+  if (state.pixelConnectPromise) return state.pixelConnectPromise;
+  let pending;
+  pending = (async () => {
+    try {
     const accessKey = new URLSearchParams(location.search).get("access_key");
     const response = await apiRequest("/api/client-config", {
       cache: "no-store",
@@ -389,11 +401,16 @@ async function connectPixelStreaming() {
     }
     state.selectedStreamerId = selector.value || config.pixel_streaming_streamer_id;
     createPixelStream();
-  } catch (error) {
-    console.warn("Pixel Streaming configuration is unavailable", error);
-    $("frameState").textContent = "WEBRTC OFFLINE";
-    setTimeout(connectPixelStreaming, 1500);
-  }
+    } catch (error) {
+      console.warn("Pixel Streaming configuration is unavailable", error);
+      $("frameState").textContent = "WEBRTC OFFLINE";
+      schedulePixelStreamingReconnect();
+    }
+  })().finally(() => {
+    if (state.pixelConnectPromise === pending) state.pixelConnectPromise = null;
+  });
+  state.pixelConnectPromise = pending;
+  return pending;
 }
 
 function signallingUrl() {
@@ -461,9 +478,18 @@ function disposePixelStream() {
     clearTimeout(state.streamReconnectTimer);
     state.streamReconnectTimer = null;
   }
-  try { state.pixelStreaming?.disconnect(); } catch (_) { /* best effort */ }
+  const previousStream = state.pixelStreaming;
+  try {
+    setPixelStreamingInputEnabled(false, false);
+  } catch (_) { /* best effort */ }
+  // Invalidate ownership BEFORE disconnect(): the SDK can synchronously emit
+  // webRtcDisconnected here. A retired player must never schedule a reconnect
+  // or overwrite the new player's LIVE state/stats.
   state.pixelStreaming = null;
   state.pixelConfig = null;
+  try {
+    previousStream?.disconnect();
+  } catch (_) { /* best effort */ }
   state.freeCameraMode = false;
   state.streamLive = false;
   $("pixelStream").replaceChildren();
@@ -493,10 +519,11 @@ function createPixelStream() {
       [Flags.StartVideoMuted]: true,
       [Flags.WaitForStreamer]: true,
       [Flags.HoveringMouseMode]: false,
-      // W/A/S/D/Q/E/R/F remain page-owned robot controls outside free-camera
-      // mode. Camera input is enabled dynamically only while C free-flight is
-      // active, so Pixel Streaming never drives the robot directly.
-      [Flags.KeyboardInput]: false,
+      // Keep keyboard forwarding installed for the lifetime of the stream.
+      // The page capture handler owns W/A/S/D/Q/E/R/F outside free-camera
+      // mode and stops those events before they reach the SDK; free-camera
+      // mode lets them through to Unreal.
+      [Flags.KeyboardInput]: true,
       [Flags.MouseInput]: false,
       [Flags.TouchInput]: false,
       [Flags.GamepadInput]: false,
@@ -507,12 +534,24 @@ function createPixelStream() {
   state.pixelStreaming = stream;
   window.__pixelStream = stream;
   stream.addEventListener("webRtcConnecting", () => {
+    if (state.pixelStreaming !== stream) return;
     $("frameState").textContent = "CONNECTING";
   });
   stream.addEventListener("webRtcConnected", () => {
+    if (state.pixelStreaming !== stream) return;
+    // WebRTC connection is already the authoritative readiness signal for the
+    // main viewport.  Waiting only for videoInitialized made the watchdog
+    // tear down a healthy player every 10 seconds in Pixel Streaming 2, which
+    // produced repeated PlayerN connections and visible main-view flashing.
+    state.streamLive = true;
+    if (state.streamReconnectTimer != null) {
+      clearTimeout(state.streamReconnectTimer);
+      state.streamReconnectTimer = null;
+    }
     $("frameState").textContent = "MEDIA SETUP";
   });
   stream.addEventListener("videoInitialized", () => {
+    if (state.pixelStreaming !== stream) return;
     state.streamLive = true;
     $("previewEmpty").style.display = "none";
     $("pixelStream").style.display = "block";
@@ -520,25 +559,33 @@ function createPixelStream() {
     $("frameState").style.color = "var(--accent)";
   });
   stream.addEventListener("playStreamRejected", () => {
+    if (state.pixelStreaming !== stream) return;
     $("playStream").hidden = false;
     $("frameState").textContent = "CLICK TO PLAY";
   });
   stream.addEventListener("webRtcDisconnected", () => {
+    if (state.pixelStreaming !== stream) return;
+    state.streamLive = false;
     $("frameState").textContent = "DISCONNECTED";
     $("frameState").style.color = "var(--danger)";
     resetWebRtcStats();
     if (state.pixelStreaming === stream) schedulePixelStreamingReconnect();
   });
   stream.addEventListener("webRtcFailed", () => {
+    if (state.pixelStreaming !== stream) return;
+    state.streamLive = false;
     $("frameState").textContent = "WEBRTC FAILED";
     $("frameState").style.color = "var(--danger)";
     if (state.pixelStreaming === stream) schedulePixelStreamingReconnect();
   });
   stream.addEventListener("subscribeFailed", (event) => {
+    if (state.pixelStreaming !== stream) return;
+    state.streamLive = false;
     $("frameState").textContent = event?.message || "STREAM UNAVAILABLE";
     if (state.pixelStreaming === stream) schedulePixelStreamingReconnect(1000);
   });
   stream.addEventListener("statsReceived", (event) => {
+    if (state.pixelStreaming !== stream) return;
     updateWebRtcStats(event?.data?.aggregatedStats);
   });
   // RenderTarget streamers are created only after the BSK manifest arrives.
@@ -693,9 +740,11 @@ function completeEnterOperationMode() {
 
 function exitOperationMode(message = "已退出操作模式，点击实时画面可重新进入") {
   const wasActive = state.operationActive;
+  const wasFreeCamera = state.freeCameraMode;
   state.pressed.clear();
   if (wasActive) sendNeutralAction("keyboard");
   state.operationActive = false;
+  if (wasFreeCamera) setFreeCameraMode(false);
   highlightKeys();
   updateOperationUI();
   if (message) setMessage(message);
@@ -814,7 +863,7 @@ window.addEventListener("keydown", (event) => {
   }
   if (event.code === "Escape" && state.operationActive) {
     event.preventDefault();
-    event.stopImmediatePropagation();
+    if (!state.freeCameraMode) event.stopImmediatePropagation();
     exitOperationMode();
     return;
   }

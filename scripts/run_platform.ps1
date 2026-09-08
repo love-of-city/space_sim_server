@@ -11,7 +11,7 @@ param(
     [string]$PixelStreamingId = 'BskRenderer',
     [string[]]$PixelStreamingCameraIds = @(
         'teleop/camera/spacecraft_overview',
-        'teleop/camera/so101_wrist_cam'
+        'teleop/camera/sarm_wrist_cam'
     ),
     [ValidateRange(160, 1920)]
     [int]$PixelStreamingCameraWidth = 640,
@@ -80,6 +80,7 @@ function Resolve-Unreal56Root([string]$RequestedRoot) {
 if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
 if (!$ModelRoot) {
     $modelCandidates = @(
+        (Join-Path $workspaceRoot 'model\SARM\platform'),
         (Join-Path $AdapterRoot 'test\model\spacecraft_and_arm'),
         (Join-Path $workspaceRoot 'test\model\spacecraft_and_arm')
     )
@@ -105,8 +106,7 @@ foreach ($command in @('python', 'conda', 'npm.cmd')) {
         throw "Required command '$command' was not found on PATH. See README.md first-deployment prerequisites."
     }
 }
-$meshProbe = Get-ChildItem -LiteralPath (Join-Path $ModelRoot 'assets\robotstudio_so101\assets') `
-    -File -Filter '*.stl' -ErrorAction SilentlyContinue | Select-Object -First 1
+$meshProbe = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Get-Item -LiteralPath (Join-Path $workspaceRoot 'model\SARM\meshes\base_link.obj') -ErrorAction SilentlyContinue } else { Get-ChildItem -LiteralPath (Join-Path $ModelRoot 'assets\robotstudio_so101\assets') -File -Filter '*.stl' -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if (!$meshProbe -or $meshProbe.Length -lt 1024) {
     throw 'Spacecraft-arm STL assets are missing or still Git LFS pointers. Run git lfs install and git lfs pull in space_sim_UE_adapter.'
 }
@@ -200,12 +200,17 @@ if ($Rebuild -or !(Test-Path -LiteralPath $projectBinary -PathType Leaf) -or !(T
     if ($LASTEXITCODE -ne 0) { throw 'UE project/runtime plugin build failed.' }
 }
 
-$catalog = Join-Path $ueProject 'Saved\AssetImport\cubesat_so101.catalog.json'
+$catalog = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Join-Path $ueProject 'Saved\AssetImport\sarm_platform.catalog.json' } else { Join-Path $ueProject 'Saved\AssetImport\cubesat_so101.catalog.json' }
 # The preparation script validates both the catalog fingerprint and every expected .uasset.
 # Do not skip it merely because a catalog survived an earlier failed import.
-& (Join-Path $ueScripts 'prepare_spacecraft_arm_assets.ps1') -ModelRoot $ModelRoot `
-    -Variant combined -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$ReimportAssets
-if ($LASTEXITCODE -ne 0) { throw 'Spacecraft/arm asset preparation failed.' }
+if ((Split-Path -Leaf $ModelRoot) -eq 'platform') {
+    if (!(Test-Path -LiteralPath $catalog -PathType Leaf)) { throw "SARM asset catalog is missing: $catalog" }
+    Write-Output "Using SARM satellite + arm model: $ModelRoot"
+} else {
+    & (Join-Path $ueScripts 'prepare_spacecraft_arm_assets.ps1') -ModelRoot $ModelRoot `
+        -Variant combined -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$ReimportAssets
+    if ($LASTEXITCODE -ne 0) { throw 'Spacecraft/arm asset preparation failed.' }
+}
 & (Join-Path $ueScripts 'prepare_runtime_materials.ps1') -UnrealRoot $UnrealRoot
 
 $cameraStreamers = @()

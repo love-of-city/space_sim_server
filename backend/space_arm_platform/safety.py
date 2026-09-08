@@ -20,7 +20,7 @@ class SafetyController:
     LINEAR_SPEED_DEFAULT_M_S = 0.05
     LINEAR_SPEED_MAX_M_S = 0.20
     ANGULAR_MAX_RAD_S = 0.50
-    GRIPPER_MAX_RAD_S = 0.80
+    GRIPPER_MAX_M_S = 0.01
 
     def __init__(self, timeout_s: float = 0.25) -> None:
         self.timeout_s = float(timeout_s)
@@ -142,7 +142,8 @@ class SafetyController:
             end_effector_angular_velocity_body_rad_s=[
                 value * self.ANGULAR_MAX_RAD_S for value in normalized_angular
             ],
-            gripper_velocity_rad_s=grip * self.GRIPPER_MAX_RAD_S,
+            gripper_velocity_rad_s=grip * self.GRIPPER_MAX_M_S,
+            gripper_velocity_m_s=grip * self.GRIPPER_MAX_M_S,
             input_source=request.input_source,
             limited=limited,
             reason=reason,

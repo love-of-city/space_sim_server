@@ -1,5 +1,3 @@
-import time
-
 import pytest
 
 from space_arm_platform.models import OperatorAction
@@ -25,12 +23,15 @@ def test_action_is_clipped_scaled_and_deadman_guarded() -> None:
     assert action.limited
     assert action.end_effector_linear_velocity_body_m_s == pytest.approx([0.05, -0.05, 0.025])
     assert action.end_effector_angular_velocity_body_rad_s == pytest.approx([0.25, 0.0, 0.125])
-    assert action.gripper_velocity_rad_s == pytest.approx(-0.4)
+    # SARM has prismatic fingers; 50% of the 0.01 m/s limit is 0.005 m/s.
+    assert action.gripper_velocity_m_s == pytest.approx(-0.005)
+    assert action.gripper_velocity_rad_s == action.gripper_velocity_m_s  # Legacy wire alias.
     assert action.applied_end_effector_linear_speed_m_s == pytest.approx(0.05)
 
     stopped = safety.process("operator", request(2, deadman=False), "episode-test")
     assert stopped.end_effector_linear_velocity_body_m_s == [0.0] * 3
     assert stopped.end_effector_angular_velocity_body_rad_s == [0.0] * 3
+    assert stopped.gripper_velocity_m_s == 0.0
     assert stopped.gripper_velocity_rad_s == 0.0
 
 
@@ -55,10 +56,15 @@ def test_duplicate_sequence_is_rejected() -> None:
         safety.process("operator", request(7), None)
 
 
-def test_timeout_emits_only_one_neutral_action() -> None:
+def test_timeout_emits_only_one_neutral_action(monkeypatch) -> None:
+    # A real 5 ms sleep may not advance Windows' coarse monotonic clock.
+    now = [10.0]
+    monkeypatch.setattr("space_arm_platform.safety.time.monotonic", lambda: now[0])
     safety = SafetyController(timeout_s=0.001)
     safety.process("operator", request(1), None)
-    time.sleep(0.005)
+    now[0] += 0.0005
+    assert safety.timeout_action(None) is None
+    now[0] += 0.002
     neutral = safety.timeout_action(None)
     assert neutral is not None
     assert not neutral.deadman

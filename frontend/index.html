@@ -40,7 +40,7 @@
 
   <main class="workspace">
     <section id="viewport" class="viewport" tabindex="0" role="button" aria-pressed="false" aria-label="点击进入机械臂键盘操作模式；按 C 进入自由视角，Home 返回主视角">
-      <div id="pixelStream" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
+      <div id="pixelStream" tabindex="-1" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
       <div id="previewEmpty" class="preview-empty">
         <span class="signal-mark" aria-hidden="true"></span>
         <strong>等待实时画面</strong>
@@ -77,7 +77,7 @@
           <p class="eyebrow">OPERATOR CONTROL</p>
           <h1>末端六维遥操作</h1>
         </div>
-        <p>场景运行后点击实时画面进入操作，按住 Shift 切换姿态；按 C 进入自由视角，按 Home 返回主视角；按 Esc 归零并退出机械臂操作。</p>
+        <p>点击画面操作机械臂，Shift 切换姿态；C 进入全局自由视角，WASD/QE 移动、Shift 加速、鼠标观察；C/Home 返回主视角，Esc 停止输入并退出。</p>
       </section>
 
       <section id="adminUsers" class="control-section admin-users" hidden>
@@ -107,6 +107,11 @@
               <input id="sceneSeed" type="number" min="0" max="2147483647" placeholder="留空自动生成">
             </label>
           </div>
+          <label class="scene-checkbox">
+            <input id="sceneRandomizeOrbitPhase" type="checkbox" aria-describedby="sceneOrbitPhaseHelp">
+            <span>沿当前圆轨道随机初始位置</span>
+          </label>
+          <small id="sceneOrbitPhaseHelp">在圆周 0～360° 内随机选择起点，轨道高度与倾角不变；独立于抓取目标随机化。相同 Seed 可复现，关闭时使用原来的 180° 起点。</small>
           <label for="sceneSunlightIntensity">太阳光照强度（倍率）
             <input id="sceneSunlightIntensity" type="number" min="0" max="20000" step="any" value="1" required aria-describedby="sceneSunlightHelp">
           </label>
@@ -124,6 +129,7 @@
           <div><dt>实例</dt><dd id="sceneInstanceId">—</dd></div>
           <div><dt>Seed</dt><dd id="sceneInstanceSeed">—</dd></div>
           <div><dt>太阳光照</dt><dd id="sceneInstanceSunlight">—</dd></div>
+          <div><dt>轨道起点</dt><dd id="sceneInstanceOrbitPhase">—</dd></div>
         </dl>
         <details class="scene-parameters">
           <summary>查看本次环境与随机参数</summary>

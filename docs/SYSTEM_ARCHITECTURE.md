@@ -216,12 +216,14 @@ running → stopped / completed / failed
 
 当前只有一个模板 `spacecraft-arm-teleop`；随机化方案为 `none` 和 `training-v1`。实例采用 `space-arm-scene-instance/1`，保存到 `run/scenes/<instance-id>.json`，包含：
 
-- `created_by`、模板、实际 Seed；
+- `created_by`、模板、实际 Seed，以及独立的轨道起点随机开关 `randomize_orbit_phase`（默认 `false`）；
 - `environment`：星历历元、中心、参考系和轨道参数；
 - `runtime`：仿真倍速、IK 频率、采集频率、是否启用权威采集；
 - `randomization`：目标位姿/速度、8 个初始关节值。
 
-随机化使用局部 `random.Random(seed)`。目标初始角速度目前固定为零；即使旧实例包含非零值，仿真入口也会归零，以规避已验证的启动数值不稳定。
+局部抓取随机化使用 `random.Random(seed)`。轨道起点开关独立于 `none` / `training-v1`：开启时用独立的版本化随机流 `random.Random(f"space-arm-orbit-phase-v1:{seed}")` 均匀抽取 `[0, 360)` 度，只覆盖实例的 `environment.orbit.true_anomaly_deg`，不改变已有局部随机参数、轨道高度、倾角或星历时刻；关闭时仍为 180°。加载实例只应用保存的角度，不再次抽样。位置和速度由同一组轨道根数计算，再赋给权威 MJScene；渲染桥读取同一状态。详情见[轨道起点初始化](ORBIT_INITIALIZATION.md)。
+
+目标初始角速度目前固定为零；即使旧实例包含非零值，仿真入口也会归零，以规避已验证的启动数值不稳定。
 
 相同 Seed 可重建随机参数，**不等于保证跨 UE/GPU/引擎版本逐像素一致或跨物理版本逐位一致**。当前实例没有完整封存模型、软件环境及两仓库提交哈希；严格复现实验还需额外保存这些版本信息。
 
@@ -488,7 +490,7 @@ BskRenderer__teleop_camera_sarm_wrist_cam
 
 XML 的 FOV 为垂直 FOV，适配器/UE 必须按宽高比转换 UE 所需的水平 FOV。相机安装四元数固定于 body，不是运行时重新瞄准某个目标。
 
-当前前端保留 Pixel Streaming 键盘转发设施：在机械臂操作模式截获相关按键并经后端发送；进入自由相机模式才允许相机键输入进入 UE。**不能简单描述为“SDK 键盘功能始终关闭”，也不能让自由相机按键同时驱动机械臂。**
+当前前端在机械臂操作模式截获相关按键并经后端发送；全局自由相机使用独立 `BskCameraInput` Pixel Streaming 命令传送明确模式、物理按键状态和相对鼠标位移。相机键不经过 SDK 的旧 `keyCode` 转发；SDK 键盘设施仅保留其他 UE 快捷键，SDK 鼠标转发关闭。**自由相机输入与机械臂输入互斥**。失焦/断流清空输入，UE 有 0.5 秒心跳超时恢复。详见[全局自由相机说明](FREE_CAMERA_INPUT.md)。
 
 ### 11.3 预览与权威采集的区别
 

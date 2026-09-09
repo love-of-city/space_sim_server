@@ -69,7 +69,10 @@ def test_client_config_selects_pixel_streaming_without_changing_capture_channel(
         assert "operationActive" in frontend
         assert "enterOperationMode" in frontend
         assert "exitOperationMode" in frontend
-        assert 'event.code === "Escape" && state.operationActive' in frontend
+        # Escape must also exit a standalone camera session, not just robot
+        # operation. Behavioral coverage lives in free_camera_routing.test.mjs.
+        assert 'event.code === "Escape" && (state.operationActive || state.freeCameraMode)' in frontend
+        assert 'import { FreeCameraController } from "./free_camera.js"' in frontend
         assert "sendNeutralAction" in frontend
         assert 'id="operationHint"' in index
 

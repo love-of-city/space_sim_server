@@ -1,0 +1,334 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="ground_validation_satellite_SYNTHETIC_free_preview">
+  <!-- CAD geometry only. No inferred moving joints or real mass data. Source axes retained; origin shifted to bounding-box center. -->
+  <compiler angle="radian" meshdir="meshes" inertiafromgeom="false" autolimits="true" />
+  <option timestep="0.002" gravity="0 0 0" integrator="implicitfast" />
+  <statistic center="0 0 0" extent="0.769" />
+  <visual>
+    <global offwidth="1600" offheight="1200" azimuth="135" elevation="25" />
+    <quality offsamples="4" />
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.6 0.6 0.6" specular="0.2 0.2 0.2" />
+  </visual>
+  <asset>
+    <texture name="preview_background" type="skybox" builtin="gradient" rgb1="0.13 0.17 0.23" rgb2="0.025 0.04 0.07" width="512" height="3072" />
+    <mesh name="part_001_color_00" file="part_001_color_00.obj" inertia="shell" />
+    <mesh name="part_002_color_00" file="part_002_color_00.obj" inertia="shell" />
+    <mesh name="part_003_color_00" file="part_003_color_00.obj" inertia="shell" />
+    <mesh name="part_004_color_00" file="part_004_color_00.obj" inertia="shell" />
+    <mesh name="part_005_color_00" file="part_005_color_00.obj" inertia="shell" />
+    <mesh name="part_006_color_00" file="part_006_color_00.obj" inertia="shell" />
+    <mesh name="part_007_color_00" file="part_007_color_00.obj" inertia="shell" />
+    <mesh name="part_007_color_01" file="part_007_color_01.obj" inertia="shell" />
+    <mesh name="part_008_color_00" file="part_008_color_00.obj" inertia="shell" />
+    <mesh name="part_009_color_00" file="part_009_color_00.obj" inertia="shell" />
+    <mesh name="part_010_color_00" file="part_010_color_00.obj" inertia="shell" />
+    <mesh name="part_011_color_00" file="part_011_color_00.obj" inertia="shell" />
+    <mesh name="part_012_color_00" file="part_012_color_00.obj" inertia="shell" />
+    <mesh name="part_013_color_00" file="part_013_color_00.obj" inertia="shell" />
+    <mesh name="part_014_color_00" file="part_014_color_00.obj" inertia="shell" />
+    <mesh name="part_015_color_00" file="part_015_color_00.obj" inertia="shell" />
+    <mesh name="part_020_color_00" file="part_020_color_00.obj" inertia="shell" />
+    <mesh name="part_020_color_01" file="part_020_color_01.obj" inertia="shell" />
+    <mesh name="part_021_color_00" file="part_021_color_00.obj" inertia="shell" />
+    <mesh name="part_021_color_01" file="part_021_color_01.obj" inertia="shell" />
+    <mesh name="part_022_color_00" file="part_022_color_00.obj" inertia="shell" />
+    <mesh name="part_023_color_00" file="part_023_color_00.obj" inertia="shell" />
+    <mesh name="part_024_color_00" file="part_024_color_00.obj" inertia="shell" />
+    <mesh name="part_025_color_00" file="part_025_color_00.obj" inertia="shell" />
+    <mesh name="part_026_color_00" file="part_026_color_00.obj" inertia="shell" />
+    <mesh name="part_027_color_00" file="part_027_color_00.obj" inertia="shell" />
+    <mesh name="part_028_color_00" file="part_028_color_00.obj" inertia="shell" />
+    <mesh name="part_029_color_00" file="part_029_color_00.obj" inertia="shell" />
+    <mesh name="part_030_color_00" file="part_030_color_00.obj" inertia="shell" />
+    <mesh name="part_032_color_00" file="part_032_color_00.obj" inertia="shell" />
+    <mesh name="part_032_color_01" file="part_032_color_01.obj" inertia="shell" />
+    <mesh name="part_033_color_00" file="part_033_color_00.obj" inertia="shell" />
+    <mesh name="part_034_color_00" file="part_034_color_00.obj" inertia="shell" />
+    <mesh name="part_035_color_00" file="part_035_color_00.obj" inertia="shell" />
+    <mesh name="part_036_color_00" file="part_036_color_00.obj" inertia="shell" />
+    <mesh name="part_036_color_01" file="part_036_color_01.obj" inertia="shell" />
+    <mesh name="part_036_color_02" file="part_036_color_02.obj" inertia="shell" />
+    <mesh name="part_036_color_03" file="part_036_color_03.obj" inertia="shell" />
+    <mesh name="part_036_color_04" file="part_036_color_04.obj" inertia="shell" />
+    <mesh name="part_036_color_05" file="part_036_color_05.obj" inertia="shell" />
+    <mesh name="part_037_color_00" file="part_037_color_00.obj" inertia="shell" />
+    <mesh name="part_038_color_00" file="part_038_color_00.obj" inertia="shell" />
+    <mesh name="part_039_color_00" file="part_039_color_00.obj" inertia="shell" />
+    <mesh name="part_040_color_00" file="part_040_color_00.obj" inertia="shell" />
+    <mesh name="part_041_color_00" file="part_041_color_00.obj" inertia="shell" />
+    <mesh name="part_042_color_00" file="part_042_color_00.obj" inertia="shell" />
+    <mesh name="part_043_color_00" file="part_043_color_00.obj" inertia="shell" />
+    <mesh name="part_044_color_00" file="part_044_color_00.obj" inertia="shell" />
+    <mesh name="part_044_color_01" file="part_044_color_01.obj" inertia="shell" />
+    <mesh name="part_045_color_00" file="part_045_color_00.obj" inertia="shell" />
+    <mesh name="part_045_color_01" file="part_045_color_01.obj" inertia="shell" />
+    <mesh name="part_045_color_02" file="part_045_color_02.obj" inertia="shell" />
+    <mesh name="part_045_color_03" file="part_045_color_03.obj" inertia="shell" />
+    <mesh name="part_045_color_04" file="part_045_color_04.obj" inertia="shell" />
+    <mesh name="part_045_color_05" file="part_045_color_05.obj" inertia="shell" />
+    <mesh name="part_045_color_06" file="part_045_color_06.obj" inertia="shell" />
+    <mesh name="part_045_color_07" file="part_045_color_07.obj" inertia="shell" />
+    <mesh name="part_045_color_08" file="part_045_color_08.obj" inertia="shell" />
+    <mesh name="part_045_color_09" file="part_045_color_09.obj" inertia="shell" />
+    <mesh name="part_045_color_10" file="part_045_color_10.obj" inertia="shell" />
+    <mesh name="part_045_color_11" file="part_045_color_11.obj" inertia="shell" />
+    <mesh name="part_045_color_12" file="part_045_color_12.obj" inertia="shell" />
+    <mesh name="part_045_color_13" file="part_045_color_13.obj" inertia="shell" />
+    <mesh name="part_045_color_14" file="part_045_color_14.obj" inertia="shell" />
+    <mesh name="part_045_color_15" file="part_045_color_15.obj" inertia="shell" />
+    <mesh name="part_045_color_16" file="part_045_color_16.obj" inertia="shell" />
+    <mesh name="part_045_color_17" file="part_045_color_17.obj" inertia="shell" />
+    <mesh name="part_045_color_18" file="part_045_color_18.obj" inertia="shell" />
+    <mesh name="part_045_color_19" file="part_045_color_19.obj" inertia="shell" />
+    <mesh name="part_046_color_00" file="part_046_color_00.obj" inertia="shell" />
+    <mesh name="part_047_color_00" file="part_047_color_00.obj" inertia="shell" />
+    <mesh name="part_048_color_00" file="part_048_color_00.obj" inertia="shell" />
+    <mesh name="part_048_color_01" file="part_048_color_01.obj" inertia="shell" />
+    <mesh name="part_049_color_00" file="part_049_color_00.obj" inertia="shell" />
+    <mesh name="part_050_color_00" file="part_050_color_00.obj" inertia="shell" />
+    <mesh name="part_051_color_00" file="part_051_color_00.obj" inertia="shell" />
+    <mesh name="part_052_color_00" file="part_052_color_00.obj" inertia="shell" />
+    <mesh name="part_053_color_00" file="part_053_color_00.obj" inertia="shell" />
+    <mesh name="part_054_color_00" file="part_054_color_00.obj" inertia="shell" />
+    <mesh name="part_054_color_01" file="part_054_color_01.obj" inertia="shell" />
+    <mesh name="part_054_color_02" file="part_054_color_02.obj" inertia="shell" />
+    <mesh name="part_055_color_00" file="part_055_color_00.obj" inertia="shell" />
+    <mesh name="part_056_color_00" file="part_056_color_00.obj" inertia="shell" />
+    <mesh name="part_057_color_00" file="part_057_color_00.obj" inertia="shell" />
+    <mesh name="part_058_color_00" file="part_058_color_00.obj" inertia="shell" />
+    <mesh name="part_058_color_01" file="part_058_color_01.obj" inertia="shell" />
+    <mesh name="part_059_color_00" file="part_059_color_00.obj" inertia="shell" />
+    <mesh name="part_060_color_00" file="part_060_color_00.obj" inertia="shell" />
+    <mesh name="part_061_color_00" file="part_061_color_00.obj" inertia="shell" />
+    <mesh name="part_062_color_00" file="part_062_color_00.obj" inertia="shell" />
+    <mesh name="part_063_color_00" file="part_063_color_00.obj" inertia="shell" />
+    <mesh name="part_064_color_00" file="part_064_color_00.obj" inertia="shell" />
+    <mesh name="part_065_color_00" file="part_065_color_00.obj" inertia="shell" />
+    <mesh name="part_066_color_00" file="part_066_color_00.obj" inertia="shell" />
+    <mesh name="part_067_color_00" file="part_067_color_00.obj" inertia="shell" />
+    <mesh name="part_068_color_00" file="part_068_color_00.obj" inertia="shell" />
+    <mesh name="part_069_color_00" file="part_069_color_00.obj" inertia="shell" />
+    <mesh name="part_069_color_01" file="part_069_color_01.obj" inertia="shell" />
+    <mesh name="part_070_color_00" file="part_070_color_00.obj" inertia="shell" />
+    <mesh name="part_071_color_00" file="part_071_color_00.obj" inertia="shell" />
+    <mesh name="part_072_color_00" file="part_072_color_00.obj" inertia="shell" />
+    <mesh name="part_073_color_00" file="part_073_color_00.obj" inertia="shell" />
+    <mesh name="part_074_color_00" file="part_074_color_00.obj" inertia="shell" />
+  </asset>
+  <worldbody>
+    <light name="key" directional="true" pos="1 -2 3" dir="-1 2 -3" diffuse="0.7 0.7 0.7" castshadow="false" />
+    <light name="fill" directional="true" pos="-2 1 1" dir="2 -1 -1" diffuse="0.35 0.4 0.5" castshadow="false" />
+    <body name="ground_validation_satellite">
+      <!-- SYNTHETIC preview only: total mass chosen by user/default, uniform bounding-box inertia, conservative box collision. NOT engineering data. -->
+      <freejoint name="satellite_free_preview" />
+      <inertial pos="0 0 0" mass="1" diaginertia="0.0323259295906 0.0792958254239 0.0515902708333" />
+      <geom name="preview_collision_bbox" type="box" size="0.3845 0.08325 0.30007870013" group="3" mass="0" rgba="0.95 0.3 0.12 0.16" friction="0.8 0.005 0.0001" />
+      <geom name="instance_0006_part_001_color_00" type="mesh" mesh="part_001_color_00" pos="0.1755 0.05625 0.04707870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0007_part_002_color_00" type="mesh" mesh="part_002_color_00" pos="0.1809 0.05625 0.04757870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0009_part_003_color_00" type="mesh" mesh="part_003_color_00" pos="0.22675 -0.00024999999998 -0.15617129987" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0010_part_004_color_00" type="mesh" mesh="part_004_color_00" pos="0.241825 -0.00024999999998 -0.15667281027" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0012_part_005_color_00" type="mesh" mesh="part_005_color_00" pos="0.1155 -0.00024999999998 0.250328700057" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0013_part_006_color_00" type="mesh" mesh="part_006_color_00" pos="0.11135 -0.00024999999998 0.25132870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0015_part_007_color_00" type="mesh" mesh="part_007_color_00" pos="0.26865 -0.03025 0.21432870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0015_part_007_color_01" type="mesh" mesh="part_007_color_01" pos="0.26865 -0.03025 0.21432870013" quat="0 0 0 1" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0016_part_008_color_00" type="mesh" mesh="part_008_color_00" pos="0.2689 -0.0305 0.21432870013" quat="0 0 0 1" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0018_part_009_color_00" type="mesh" mesh="part_009_color_00" pos="0.1755 -0.05325 0.04707870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0019_part_010_color_00" type="mesh" mesh="part_010_color_00" pos="0.1977 -0.05325 0.0477035742633" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0021_part_007_color_00" type="mesh" mesh="part_007_color_00" pos="0.26865 0.02975 0.21432870013" quat="0 0 1 0" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0021_part_007_color_01" type="mesh" mesh="part_007_color_01" pos="0.26865 0.02975 0.21432870013" quat="0 0 1 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0022_part_008_color_00" type="mesh" mesh="part_008_color_00" pos="0.2689 0.03 0.21432870013" quat="0 0 1 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0024_part_011_color_00" type="mesh" mesh="part_011_color_00" pos="0.28615 -0.00024999999998 0.04707870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0025_part_012_color_00" type="mesh" mesh="part_012_color_00" pos="0.28615 -0.00024999999998 0.0478279859097" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0027_part_013_color_00" type="mesh" mesh="part_013_color_00" pos="0.06485 -0.00024999999998 0.04707870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0028_part_014_color_00" type="mesh" mesh="part_014_color_00" pos="0.06485 -0.00024999999998 0.04882870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0030_part_015_color_00" type="mesh" mesh="part_015_color_00" pos="0.1755 0.073 0.04207870013" quat="0 0 0 1" rgba="0.59061885 0.63759685 0.85499263 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0037_part_020_color_00" type="mesh" mesh="part_020_color_00" pos="0.243149022794 -0.00924999999998 -0.17267129987" quat="0.5 0.5 0.5 -0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0037_part_020_color_01" type="mesh" mesh="part_020_color_01" pos="0.243149022794 -0.00924999999998 -0.17267129987" quat="0.5 0.5 0.5 -0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0038_part_021_color_00" type="mesh" mesh="part_021_color_00" pos="0.24365 -0.00924999999993 -0.19132129987" quat="0 -0.707106781187 0.707106781186 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0038_part_021_color_01" type="mesh" mesh="part_021_color_01" pos="0.24365 -0.00924999999993 -0.19132129987" quat="0 -0.707106781187 0.707106781186 0" rgba="0.19461784 0.17144111 0.46207699 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0039_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.24365 -0.039 -0.18767129987" quat="0 1 0 0" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0040_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.2139 -0.00924999999993 -0.18767129987" quat="0 1 0 0" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0041_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.24365 0.0205000000002 -0.18767129987" quat="0 1 0 0" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0042_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.2734 -0.00924999999993 -0.18767129987" quat="0 1 0 0" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0045_part_023_color_00" type="mesh" mesh="part_023_color_00" pos="0.32365 -0.000249999999988 -0.0898159608107" quat="0.653281482438 -0.270598050073 -0.270598050073 -0.653281482438" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0046_part_024_color_00" type="mesh" mesh="part_024_color_00" pos="0.33365 0.0153063491861 -0.105372309997" quat="0.653281482438 -0.270598050073 -0.270598050073 -0.653281482438" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0048_part_025_color_00" type="mesh" mesh="part_025_color_00" pos="0.336215742149 0.0280690738387 -0.118135034649" quat="0.653281482438 -0.270598050073 -0.653281482438 0.270598050073" rgba="1 0.31854677 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0049_part_026_color_00" type="mesh" mesh="part_026_color_00" pos="0.345000660172 -0.00382088924497 -0.0869521783469" quat="0.653281482438 -0.270598050073 -0.653281482438 0.270598050073" rgba="1 0.31854677 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0050_part_027_color_00" type="mesh" mesh="part_027_color_00" pos="0.33415 0.00558363088504 -0.0962152772402" quat="0.653281482438 -0.270598050073 -0.653281482438 0.270598050073" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0052_part_028_color_00" type="mesh" mesh="part_028_color_00" pos="0.18535 0.06675 -0.16217129987" quat="0.5 -0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0053_part_029_color_00" type="mesh" mesh="part_029_color_00" pos="0.18535 0.07025 -0.18679629987" quat="0 1 0 0" rgba="0 1 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0054_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.17235 0.07025 -0.17467129987" quat="0 -0.707106781187 0.707106781187 0" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0055_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.19835 0.07025 -0.17467129987" quat="0 -0.707106781187 0.707106781187 0" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0057_part_028_color_00" type="mesh" mesh="part_028_color_00" pos="0.08665 0.06675 0.25632870013" quat="0.5 0.5 0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0058_part_030_color_00" type="mesh" mesh="part_030_color_00" pos="0.08665 0.07025 0.28095370013" quat="0 0 0 1" rgba="0 1 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0059_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.09965 0.07025 0.26882870013" quat="0.707106781187 0 0 -0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0060_part_022_color_00" type="mesh" mesh="part_022_color_00" pos="0.07365 0.07025 0.26882870013" quat="0.707106781187 0 0 -0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0064_part_032_color_00" type="mesh" mesh="part_032_color_00" pos="0.09735 -0.04525 0.08232870013" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0064_part_032_color_01" type="mesh" mesh="part_032_color_01" pos="0.09735 -0.04525 0.08232870013" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0065_part_033_color_00" type="mesh" mesh="part_033_color_00" pos="0.09735 -0.04825 0.08232870013" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0067_part_032_color_00" type="mesh" mesh="part_032_color_00" pos="0.07335 -0.04525 0.08232870013" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0067_part_032_color_01" type="mesh" mesh="part_032_color_01" pos="0.07335 -0.04525 0.08232870013" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0068_part_033_color_00" type="mesh" mesh="part_033_color_00" pos="0.07335 -0.04825 0.08232870013" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0070_part_032_color_00" type="mesh" mesh="part_032_color_00" pos="0.09735 -0.04525 0.00232870012999" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0070_part_032_color_01" type="mesh" mesh="part_032_color_01" pos="0.09735 -0.04525 0.00232870012999" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0071_part_033_color_00" type="mesh" mesh="part_033_color_00" pos="0.09735 -0.04825 0.00232870012999" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0073_part_032_color_00" type="mesh" mesh="part_032_color_00" pos="0.07335 -0.04525 0.00232870012999" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0073_part_032_color_01" type="mesh" mesh="part_032_color_01" pos="0.07335 -0.04525 0.00232870012999" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0074_part_033_color_00" type="mesh" mesh="part_033_color_00" pos="0.07335 -0.04825 0.00232870012999" quat="0.5 0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0077_part_034_color_00" type="mesh" mesh="part_034_color_00" pos="0.2454 -0.0605 -0.16767129987" quat="0.5 -0.5 -0.5 0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0078_part_035_color_00" type="mesh" mesh="part_035_color_00" pos="0.2454 -0.0655 -0.17717129987" quat="0.5 -0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0079_part_036_color_00" type="mesh" mesh="part_036_color_00" pos="0.2454 -0.06885 -0.17717129987" quat="0.707106781187 0.707106781187 -0 -0" rgba="0.9911021 0.9911021 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0079_part_036_color_01" type="mesh" mesh="part_036_color_01" pos="0.2454 -0.06885 -0.17717129987" quat="0.707106781187 0.707106781187 -0 -0" rgba="0.00151763 0.00151763 0.00151763 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0079_part_036_color_02" type="mesh" mesh="part_036_color_02" pos="0.2454 -0.06885 -0.17717129987" quat="0.707106781187 0.707106781187 -0 -0" rgba="0.01298303 0.06301001 0.23074006 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0079_part_036_color_03" type="mesh" mesh="part_036_color_03" pos="0.2454 -0.06885 -0.17717129987" quat="0.707106781187 0.707106781187 -0 -0" rgba="0.52099556 0.52099556 0.52099556 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0079_part_036_color_04" type="mesh" mesh="part_036_color_04" pos="0.2454 -0.06885 -0.17717129987" quat="0.707106781187 0.707106781187 -0 -0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0079_part_036_color_05" type="mesh" mesh="part_036_color_05" pos="0.2454 -0.06885 -0.17717129987" quat="0.707106781187 0.707106781187 -0 -0" rgba="1 1 0.24286681 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0081_part_037_color_00" type="mesh" mesh="part_037_color_00" pos="0.11235 -0.00524999999998 0.267215027915" quat="0 0 0 1" rgba="0 1 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0083_part_038_color_00" type="mesh" mesh="part_038_color_00" pos="0.07085 -0.04675 0.25982870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0084_part_039_color_00" type="mesh" mesh="part_039_color_00" pos="0.07085 -0.04675 0.26632870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0086_part_038_color_00" type="mesh" mesh="part_038_color_00" pos="0.15385 -0.04675 0.25982870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0087_part_039_color_00" type="mesh" mesh="part_039_color_00" pos="0.15385 -0.04675 0.26632870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0089_part_038_color_00" type="mesh" mesh="part_038_color_00" pos="0.15385 0.03625 0.25982870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0090_part_039_color_00" type="mesh" mesh="part_039_color_00" pos="0.15385 0.03625 0.26632870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0092_part_038_color_00" type="mesh" mesh="part_038_color_00" pos="0.07085 0.03625 0.25982870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0093_part_039_color_00" type="mesh" mesh="part_039_color_00" pos="0.07085 0.03625 0.26632870013" quat="0 0 0 1" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0094_part_040_color_00" type="mesh" mesh="part_040_color_00" pos="0.07085 -0.04675 0.27257870013" quat="0 1 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0095_part_040_color_00" type="mesh" mesh="part_040_color_00" pos="0.15385 -0.04675 0.27257870013" quat="0 1 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0096_part_040_color_00" type="mesh" mesh="part_040_color_00" pos="0.15385 0.03625 0.27257870013" quat="0 1 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0097_part_040_color_00" type="mesh" mesh="part_040_color_00" pos="0.07085 0.03625 0.27257870013" quat="0 1 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0099_part_041_color_00" type="mesh" mesh="part_041_color_00" pos="0.07085 -0.04675 0.27032870013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0100_part_042_color_00" type="mesh" mesh="part_042_color_00" pos="0.07085 -0.04675 0.26890370013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0102_part_041_color_00" type="mesh" mesh="part_041_color_00" pos="0.15385 -0.04675 0.27032870013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0103_part_042_color_00" type="mesh" mesh="part_042_color_00" pos="0.15385 -0.04675 0.26890370013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0105_part_041_color_00" type="mesh" mesh="part_041_color_00" pos="0.15385 0.03625 0.27032870013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0106_part_042_color_00" type="mesh" mesh="part_042_color_00" pos="0.15385 0.03625 0.26890370013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0108_part_041_color_00" type="mesh" mesh="part_041_color_00" pos="0.07085 0.03625 0.27032870013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0109_part_042_color_00" type="mesh" mesh="part_042_color_00" pos="0.07085 0.03625 0.26890370013" quat="0.707106781187 0.707106781187 -0 -0" rgba="0 0.52099556 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0110_part_043_color_00" type="mesh" mesh="part_043_color_00" pos="0.114424999684 -0.00524999999998 0.25479870013" quat="0.5 -0.5 0.5 0.5" rgba="0.52711517 0.52711517 0.52711517 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0113_part_044_color_00" type="mesh" mesh="part_044_color_00" pos="0.118349999878 -0.00125007001407 -0.191171285092" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0113_part_044_color_01" type="mesh" mesh="part_044_color_01" pos="0.118349999878 -0.00125007001407 -0.191171285092" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.03310477 0.03310477 0.03310477 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_00" type="mesh" mesh="part_045_color_00" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_01" type="mesh" mesh="part_045_color_01" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.03310477 0.03310477 0.03310477 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_02" type="mesh" mesh="part_045_color_02" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.18447499 0.18447499 0.18447499 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_03" type="mesh" mesh="part_045_color_03" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_04" type="mesh" mesh="part_045_color_04" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.60382736 0.60382736 0.60382736 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_05" type="mesh" mesh="part_045_color_05" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.49693301 0.49693301 0.49693301 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_06" type="mesh" mesh="part_045_color_06" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.11953843 0.05951124 0.03820437 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_07" type="mesh" mesh="part_045_color_07" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.01599629 0.01599629 0.01599629 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_08" type="mesh" mesh="part_045_color_08" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="1 0.8307699 0.24228115 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_09" type="mesh" mesh="part_045_color_09" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.8713671 0.72305512 0.47932017 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_10" type="mesh" mesh="part_045_color_10" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.12477182 0.09989873 0.10702311 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_11" type="mesh" mesh="part_045_color_11" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.04666509 0.16202937 0.14126329 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_12" type="mesh" mesh="part_045_color_12" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.43965718 0.20155625 0.10224173 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_13" type="mesh" mesh="part_045_color_13" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0 0.26225066 0.06662594 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_14" type="mesh" mesh="part_045_color_14" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.88792312 0.7011019 0.19120169 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_15" type="mesh" mesh="part_045_color_15" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.00856813 0.0409152 0.14702727 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_16" type="mesh" mesh="part_045_color_16" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.35153261 0.35153261 0.35153261 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_17" type="mesh" mesh="part_045_color_17" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.78353781 0.78353781 0.78353781 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_18" type="mesh" mesh="part_045_color_18" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0114_part_045_color_19" type="mesh" mesh="part_045_color_19" pos="0.118349999827 -0.00125009977688 -0.213624979199" quat="0.707106781311 -5.05159876435e-07 -5.03406353047e-07 -0.707106781061" rgba="0.52099556 0.36130679 0.11697067 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0117_part_046_color_00" type="mesh" mesh="part_046_color_00" pos="0.30865 0.01875 0.23182870013" quat="0.707106781187 -0 0.707106781187 -0" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0118_part_047_color_00" type="mesh" mesh="part_047_color_00" pos="0.32673 0.01875 0.23182870013" quat="0.707106781187 -0 0.707106781187 -0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0119_part_048_color_00" type="mesh" mesh="part_048_color_00" pos="0.3339 0.01875 0.23182870013" quat="0 0.707106781187 0.707106781187 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0119_part_048_color_01" type="mesh" mesh="part_048_color_01" pos="0.3339 0.01875 0.23182870013" quat="0 0.707106781187 0.707106781187 0" rgba="1 1 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0122_part_049_color_00" type="mesh" mesh="part_049_color_00" pos="0.21615 -0.00074999999998 0.09192870013" quat="0 -0.707106781187 0 0.707106781187" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0123_part_050_color_00" type="mesh" mesh="part_050_color_00" pos="0.21615 -0.000748759335449 0.14282870013" quat="0 -0.707106781187 0 0.707106781187" rgba="1 1 1 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0124_part_051_color_00" type="mesh" mesh="part_051_color_00" pos="0.26765 0.04725 0.16102870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0125_part_051_color_00" type="mesh" mesh="part_051_color_00" pos="0.16465 0.04725 0.16102870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0127_part_052_color_00" type="mesh" mesh="part_052_color_00" pos="0.0652 0.02595 -0.07037129987" quat="0.5 0.5 -0.5 0.5" rgba="0.42869118 0.08021957 0.04518616 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0128_part_053_color_00" type="mesh" mesh="part_053_color_00" pos="0.0651999999999 0.03595 -0.06147129987" quat="0.5 0.5 -0.5 0.5" rgba="0.42869118 0.08021957 0.04518616 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0129_part_054_color_00" type="mesh" mesh="part_054_color_00" pos="0.05485 -0.00424999999998 0.22922870013" quat="0.5 -0.5 0.5 -0.5" rgba="1 1 0.88788152 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0129_part_054_color_01" type="mesh" mesh="part_054_color_01" pos="0.05485 -0.00424999999998 0.22922870013" quat="0.5 -0.5 0.5 -0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0129_part_054_color_02" type="mesh" mesh="part_054_color_02" pos="0.05485 -0.00424999999998 0.22922870013" quat="0.5 -0.5 0.5 -0.5" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0132_part_055_color_00" type="mesh" mesh="part_055_color_00" pos="0.1755 -0.06441 0.04707870013" quat="1.21474245089e-19 0.707106781187 -0.707106781187 1.21474245089e-19" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0133_part_056_color_00" type="mesh" mesh="part_056_color_00" pos="0.1755 -0.07413 0.04707870013" quat="1.21474245089e-19 0.707106781187 -0.707106781187 1.21474245089e-19" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0135_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2995 -0.06927 0.22207870013" quat="0.499485340548 0.499485340548 -0.500514130248 0.500514130248" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0136_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2995 -0.06632 0.22207870013" quat="0.499485340548 0.499485340548 -0.500514130248 0.500514130248" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0136_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2995 -0.06632 0.22207870013" quat="0.499485340548 0.499485340548 -0.500514130248 0.500514130248" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0138_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.0515 -0.06927 0.22207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0139_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.0515 -0.06632 0.22207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0139_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.0515 -0.06632 0.22207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0141_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2995 -0.06927 0.15207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0142_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2995 -0.06632 0.15207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0142_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2995 -0.06632 0.15207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0144_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2995 -0.06927 0.08207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0145_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2995 -0.06632 0.08207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0145_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2995 -0.06632 0.08207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0147_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2995 -0.06927 0.01207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0148_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2995 -0.06632 0.01207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0148_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2995 -0.06632 0.01207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0150_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2995 -0.06927 -0.05792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0151_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2995 -0.06632 -0.05792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0151_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2995 -0.06632 -0.05792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0153_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2995 -0.06927 -0.12792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0154_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2995 -0.06632 -0.12792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0154_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2995 -0.06632 -0.12792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0156_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.0515 -0.06927 -0.12792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0157_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.0515 -0.06632 -0.12792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0157_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.0515 -0.06632 -0.12792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0159_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.0515 -0.06927 -0.05792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0160_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.0515 -0.06632 -0.05792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0160_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.0515 -0.06632 -0.05792129987" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0162_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.0515 -0.06927 0.01207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0163_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.0515 -0.06632 0.01207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0163_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.0515 -0.06632 0.01207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0165_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.0515 -0.06927 0.08207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0166_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.0515 -0.06632 0.08207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0166_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.0515 -0.06632 0.08207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0168_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.0515 -0.06927 0.15207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0169_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.0515 -0.06632 0.15207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0169_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.0515 -0.06632 0.15207870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0171_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.1255 -0.06927 0.21432870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0172_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.1255 -0.06632 0.21432870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0172_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.1255 -0.06632 0.21432870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0174_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2355 -0.06927 0.11932870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0175_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2355 -0.06632 0.11932870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0175_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2355 -0.06632 0.11932870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0177_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.1155 -0.06927 0.11932870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0178_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.1155 -0.06632 0.11932870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0178_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.1155 -0.06632 0.11932870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0180_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.2995 -0.06927 0.04457870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0181_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.2995 -0.06632 0.04457870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0181_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.2995 -0.06632 0.04457870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0183_part_057_color_00" type="mesh" mesh="part_057_color_00" pos="0.0515 -0.06927 0.04457870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0184_part_058_color_00" type="mesh" mesh="part_058_color_00" pos="0.0515 -0.06632 0.04457870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0184_part_058_color_01" type="mesh" mesh="part_058_color_01" pos="0.0515 -0.06632 0.04457870013" quat="0.499999378649 0.499999378649 -0.500000621351 0.500000621351" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0186_part_059_color_00" type="mesh" mesh="part_059_color_00" pos="0.0105 -0.07192 0.15032870013" quat="0.5 -0.5 0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0187_part_060_color_00" type="mesh" mesh="part_060_color_00" pos="-0.00257999999997 -0.07702 0.15032870013" quat="0.5 -0.5 0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0189_part_059_color_00" type="mesh" mesh="part_059_color_00" pos="0.0105 -0.07192 -0.05617129987" quat="0.5 -0.5 0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0190_part_060_color_00" type="mesh" mesh="part_060_color_00" pos="-0.00257999999997 -0.07702 -0.05617129987" quat="0.5 -0.5 0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0192_part_061_color_00" type="mesh" mesh="part_061_color_00" pos="0.338 -0.06809 0.04707870013" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0193_part_062_color_00" type="mesh" mesh="part_062_color_00" pos="0.3475 -0.06525 0.04707870013" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0194_part_063_color_00" type="mesh" mesh="part_063_color_00" pos="0.3475 -0.07575 0.04707870013" quat="0 -0.707106781187 0 0.707106781187" rgba="0.59061885 0.63759685 0.85499263 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0195_part_064_color_00" type="mesh" mesh="part_064_color_00" pos="0.3665 -0.07625 0.04707870013" quat="1 0 0 0" rgba="0.59061885 0.63759685 0.85499263 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0196_part_065_color_00" type="mesh" mesh="part_065_color_00" pos="-0.01275 -0.07652 0.15032870013" quat="0 0 0 1" rgba="0.42869049 0.39157248 0.3662526 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0197_part_065_color_00" type="mesh" mesh="part_065_color_00" pos="-0.01275 -0.07652 -0.0561712998701" quat="0 0 0 1" rgba="0.42869049 0.39157248 0.3662526 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0199_part_066_color_00" type="mesh" mesh="part_066_color_00" pos="-0.2045 -0.06291 0.04707870013" quat="1.21474245089e-19 0.707106781187 -0.707106781187 1.21474245089e-19" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0200_part_067_color_00" type="mesh" mesh="part_067_color_00" pos="-0.2045 -0.07263 0.04707870013" quat="1.21474245089e-19 0.707106781187 -0.707106781187 1.21474245089e-19" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0202_part_068_color_00" type="mesh" mesh="part_068_color_00" pos="-0.0805 -0.06777 0.04457870013" quat="0.499786760053 0.499786760053 -0.500213149044 0.500213149044" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0203_part_069_color_00" type="mesh" mesh="part_069_color_00" pos="-0.0805 -0.06482 0.04457870013" quat="0.499786760053 0.499786760053 -0.500213149044 0.500213149044" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0203_part_069_color_01" type="mesh" mesh="part_069_color_01" pos="-0.0805 -0.06482 0.04457870013" quat="0.499786760053 0.499786760053 -0.500213149044 0.500213149044" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0205_part_068_color_00" type="mesh" mesh="part_068_color_00" pos="-0.2545 -0.06777 0.21432870013" quat="0.499786760053 0.499786760053 -0.500213149044 0.500213149044" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0206_part_069_color_00" type="mesh" mesh="part_069_color_00" pos="-0.2545 -0.06482 0.21432870013" quat="0.499786760053 0.499786760053 -0.500213149044 0.500213149044" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0206_part_069_color_01" type="mesh" mesh="part_069_color_01" pos="-0.2545 -0.06482 0.21432870013" quat="0.499786760053 0.499786760053 -0.500213149044 0.500213149044" rgba="1 0 0 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0208_part_070_color_00" type="mesh" mesh="part_070_color_00" pos="-0.03575 -0.068295 0.15032870013" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0209_part_071_color_00" type="mesh" mesh="part_071_color_00" pos="-0.0145 -0.0716 0.15032870013" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0211_part_070_color_00" type="mesh" mesh="part_070_color_00" pos="-0.03575 -0.068295 -0.05617129987" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0212_part_071_color_00" type="mesh" mesh="part_071_color_00" pos="-0.0145 -0.0716 -0.05617129987" quat="0.5 0.5 -0.5 0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0213_part_072_color_00" type="mesh" mesh="part_072_color_00" pos="-0.3645 -0.06777 0.04707870013" quat="0.5 0.5 0.5 -0.5" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0214_part_073_color_00" type="mesh" mesh="part_073_color_00" pos="-0.3765 -0.07477 0.04707870013" quat="1 0 0 0" rgba="0.59061885 0.63759685 0.85499263 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0215_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.2995 -0.05925 0.22207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0216_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.2995 -0.05925 0.15207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0217_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.2995 -0.05925 0.08207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0218_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.2995 -0.05925 0.01207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0219_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.2995 -0.05925 -0.05792129987" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0220_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.2995 -0.05925 -0.12792129987" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0221_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.0515 -0.05925 -0.12792129987" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0222_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.0515 -0.05925 -0.05792129987" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0223_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.0515 -0.05925 0.01207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0224_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.0515 -0.05925 0.08207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0225_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.0515 -0.05925 0.15207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+      <geom name="instance_0226_part_074_color_00" type="mesh" mesh="part_074_color_00" pos="0.0515 -0.05925 0.22207870013" quat="0 0 0.707106781187 0.707106781187" rgba="0.61049557 0.30498731 0.03189603 1" mass="0" contype="0" conaffinity="0" group="2" />
+    </body>
+  </worldbody>
+</mujoco>

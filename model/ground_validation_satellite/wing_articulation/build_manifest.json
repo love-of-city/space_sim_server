@@ -1,0 +1,1574 @@
+{
+  "schema": "single-wing-motion-preview/1",
+  "source_sha256": "a165279b773a15c19c6c600144b0e51f309fb76c3a46cae4b3871faac36076d9",
+  "model_file": "ground_validation_satellite_articulated.xml",
+  "generated_sha256": {
+    "articulated_meshes/hinge_fixed_visual.obj": "ba26433f42bcf7122b251737567c4df657e761900f32a5d88e854bffb8416f7d",
+    "articulated_meshes/hinge_moving_visual.obj": "aade77d1b226d44001c245e0062012189fe512e37ce9ff679a01644eb2e7a8b3",
+    "ground_validation_satellite_articulated.xml": "61e3a9147a254a8505dd6c1c558365ebaef69e70a6605edacd568c2ec4955e9d"
+  },
+  "protected_sha256": {
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\地面验证星模型.stp": "a165279b773a15c19c6c600144b0e51f309fb76c3a46cae4b3871faac36076d9",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\ground_validation_satellite\\ground_validation_satellite.xml": "2395532d054c399377a51460be89a40bf76788d7b7f5031b375bfdd40496b5df",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\ground_validation_satellite\\conversion_manifest.json": "535bda6633fdee5d33a16ce11d55ddd5aa5ee6d7a283adaa8a3bff33bc60e9ab",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\ground_validation_satellite\\satellite_free_preview.xml": "5d871ad988f313eeefaba62caf0ecd38ca92729951796f26cc8a8b56b522d054",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\SARM\\platform\\sarm_platform.xml": "b7cce869e64f76edd7c48ac476d053d56d85968fe0d452215126a5bfbc602225"
+  },
+  "joint": {
+    "name": "outer_panel_hinge",
+    "type": "hinge",
+    "point_model_m": [
+      -0.014499999999979196,
+      -0.07702000000003,
+      0.047078700129939186
+    ],
+    "direction_model": [
+      -3.4358104976816786e-19,
+      0.0,
+      1.0
+    ],
+    "actual_range_deg": null,
+    "limited": false,
+    "zero_pose": "unchanged source CAD pose",
+    "actuator": null
+  },
+  "bodies": {
+    "inner": "satellite_inner_panel",
+    "outer": "satellite_outer_panel"
+  },
+  "synthetic_inertia": {
+    "mass_kg": 1.0,
+    "center_model_m": [
+      -0.19824999999998685,
+      -0.07242000000001,
+      0.047078700129988535
+    ],
+    "size_m": [
+      0.3725,
+      0.020700000000000024,
+      0.4145
+    ],
+    "diaginertia_kg_m2": [
+      0.01435322833333333,
+      0.025880541666666663,
+      0.011598728333333334
+    ],
+    "method": "uniform AABB; NOT real mass or COM"
+  },
+  "hinge_visual_partition": {
+    "source_triangles": 11730,
+    "fixed_triangles": 9305,
+    "moving_triangles": 2689,
+    "cut_triangles": 173,
+    "source_area_m2": 0.003295157774481261,
+    "area_error_m2": 4.336808689942018e-19,
+    "generated_cut_caps": false,
+    "mechanical_internals_reconstructed": false,
+    "plane_normal_mesh_local": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "plane_offset_mesh_local_m": 0.0017500000000100213,
+    "method": "surface clipping through measured axis; not physical leaf/pin reconstruction"
+  },
+  "moving_leaf_instances": [
+    "instance_0199",
+    "instance_0200",
+    "instance_0202",
+    "instance_0203",
+    "instance_0205",
+    "instance_0206",
+    "instance_0208",
+    "instance_0209",
+    "instance_0211",
+    "instance_0212",
+    "instance_0213",
+    "instance_0214"
+  ],
+  "attachment_note": "Unlock device 02 follows its outer-panel mount; no internal unlock DOF/event. 01/03 remain fixed.",
+  "collision_enabled": false,
+  "platform_integration_done": false,
+  "geometry_mapping": [
+    {
+      "source_geom": "instance_0006_part_001_color_00",
+      "output_geom": "instance_0006_part_001_color_00",
+      "instance": "instance_0006",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0007_part_002_color_00",
+      "output_geom": "instance_0007_part_002_color_00",
+      "instance": "instance_0007",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0009_part_003_color_00",
+      "output_geom": "instance_0009_part_003_color_00",
+      "instance": "instance_0009",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0010_part_004_color_00",
+      "output_geom": "instance_0010_part_004_color_00",
+      "instance": "instance_0010",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0012_part_005_color_00",
+      "output_geom": "instance_0012_part_005_color_00",
+      "instance": "instance_0012",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0013_part_006_color_00",
+      "output_geom": "instance_0013_part_006_color_00",
+      "instance": "instance_0013",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0015_part_007_color_00",
+      "output_geom": "instance_0015_part_007_color_00",
+      "instance": "instance_0015",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0015_part_007_color_01",
+      "output_geom": "instance_0015_part_007_color_01",
+      "instance": "instance_0015",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0016_part_008_color_00",
+      "output_geom": "instance_0016_part_008_color_00",
+      "instance": "instance_0016",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0018_part_009_color_00",
+      "output_geom": "instance_0018_part_009_color_00",
+      "instance": "instance_0018",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0019_part_010_color_00",
+      "output_geom": "instance_0019_part_010_color_00",
+      "instance": "instance_0019",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0021_part_007_color_00",
+      "output_geom": "instance_0021_part_007_color_00",
+      "instance": "instance_0021",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0021_part_007_color_01",
+      "output_geom": "instance_0021_part_007_color_01",
+      "instance": "instance_0021",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0022_part_008_color_00",
+      "output_geom": "instance_0022_part_008_color_00",
+      "instance": "instance_0022",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0024_part_011_color_00",
+      "output_geom": "instance_0024_part_011_color_00",
+      "instance": "instance_0024",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0025_part_012_color_00",
+      "output_geom": "instance_0025_part_012_color_00",
+      "instance": "instance_0025",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0027_part_013_color_00",
+      "output_geom": "instance_0027_part_013_color_00",
+      "instance": "instance_0027",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0028_part_014_color_00",
+      "output_geom": "instance_0028_part_014_color_00",
+      "instance": "instance_0028",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0030_part_015_color_00",
+      "output_geom": "instance_0030_part_015_color_00",
+      "instance": "instance_0030",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0037_part_020_color_00",
+      "output_geom": "instance_0037_part_020_color_00",
+      "instance": "instance_0037",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0037_part_020_color_01",
+      "output_geom": "instance_0037_part_020_color_01",
+      "instance": "instance_0037",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0038_part_021_color_00",
+      "output_geom": "instance_0038_part_021_color_00",
+      "instance": "instance_0038",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0038_part_021_color_01",
+      "output_geom": "instance_0038_part_021_color_01",
+      "instance": "instance_0038",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0039_part_022_color_00",
+      "output_geom": "instance_0039_part_022_color_00",
+      "instance": "instance_0039",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0040_part_022_color_00",
+      "output_geom": "instance_0040_part_022_color_00",
+      "instance": "instance_0040",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0041_part_022_color_00",
+      "output_geom": "instance_0041_part_022_color_00",
+      "instance": "instance_0041",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0042_part_022_color_00",
+      "output_geom": "instance_0042_part_022_color_00",
+      "instance": "instance_0042",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0045_part_023_color_00",
+      "output_geom": "instance_0045_part_023_color_00",
+      "instance": "instance_0045",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0046_part_024_color_00",
+      "output_geom": "instance_0046_part_024_color_00",
+      "instance": "instance_0046",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0048_part_025_color_00",
+      "output_geom": "instance_0048_part_025_color_00",
+      "instance": "instance_0048",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0049_part_026_color_00",
+      "output_geom": "instance_0049_part_026_color_00",
+      "instance": "instance_0049",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0050_part_027_color_00",
+      "output_geom": "instance_0050_part_027_color_00",
+      "instance": "instance_0050",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0052_part_028_color_00",
+      "output_geom": "instance_0052_part_028_color_00",
+      "instance": "instance_0052",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0053_part_029_color_00",
+      "output_geom": "instance_0053_part_029_color_00",
+      "instance": "instance_0053",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0054_part_022_color_00",
+      "output_geom": "instance_0054_part_022_color_00",
+      "instance": "instance_0054",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0055_part_022_color_00",
+      "output_geom": "instance_0055_part_022_color_00",
+      "instance": "instance_0055",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0057_part_028_color_00",
+      "output_geom": "instance_0057_part_028_color_00",
+      "instance": "instance_0057",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0058_part_030_color_00",
+      "output_geom": "instance_0058_part_030_color_00",
+      "instance": "instance_0058",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0059_part_022_color_00",
+      "output_geom": "instance_0059_part_022_color_00",
+      "instance": "instance_0059",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0060_part_022_color_00",
+      "output_geom": "instance_0060_part_022_color_00",
+      "instance": "instance_0060",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0064_part_032_color_00",
+      "output_geom": "instance_0064_part_032_color_00",
+      "instance": "instance_0064",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0064_part_032_color_01",
+      "output_geom": "instance_0064_part_032_color_01",
+      "instance": "instance_0064",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0065_part_033_color_00",
+      "output_geom": "instance_0065_part_033_color_00",
+      "instance": "instance_0065",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0067_part_032_color_00",
+      "output_geom": "instance_0067_part_032_color_00",
+      "instance": "instance_0067",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0067_part_032_color_01",
+      "output_geom": "instance_0067_part_032_color_01",
+      "instance": "instance_0067",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0068_part_033_color_00",
+      "output_geom": "instance_0068_part_033_color_00",
+      "instance": "instance_0068",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0070_part_032_color_00",
+      "output_geom": "instance_0070_part_032_color_00",
+      "instance": "instance_0070",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0070_part_032_color_01",
+      "output_geom": "instance_0070_part_032_color_01",
+      "instance": "instance_0070",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0071_part_033_color_00",
+      "output_geom": "instance_0071_part_033_color_00",
+      "instance": "instance_0071",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0073_part_032_color_00",
+      "output_geom": "instance_0073_part_032_color_00",
+      "instance": "instance_0073",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0073_part_032_color_01",
+      "output_geom": "instance_0073_part_032_color_01",
+      "instance": "instance_0073",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0074_part_033_color_00",
+      "output_geom": "instance_0074_part_033_color_00",
+      "instance": "instance_0074",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0077_part_034_color_00",
+      "output_geom": "instance_0077_part_034_color_00",
+      "instance": "instance_0077",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0078_part_035_color_00",
+      "output_geom": "instance_0078_part_035_color_00",
+      "instance": "instance_0078",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0079_part_036_color_00",
+      "output_geom": "instance_0079_part_036_color_00",
+      "instance": "instance_0079",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0079_part_036_color_01",
+      "output_geom": "instance_0079_part_036_color_01",
+      "instance": "instance_0079",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0079_part_036_color_02",
+      "output_geom": "instance_0079_part_036_color_02",
+      "instance": "instance_0079",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0079_part_036_color_03",
+      "output_geom": "instance_0079_part_036_color_03",
+      "instance": "instance_0079",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0079_part_036_color_04",
+      "output_geom": "instance_0079_part_036_color_04",
+      "instance": "instance_0079",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0079_part_036_color_05",
+      "output_geom": "instance_0079_part_036_color_05",
+      "instance": "instance_0079",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0081_part_037_color_00",
+      "output_geom": "instance_0081_part_037_color_00",
+      "instance": "instance_0081",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0083_part_038_color_00",
+      "output_geom": "instance_0083_part_038_color_00",
+      "instance": "instance_0083",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0084_part_039_color_00",
+      "output_geom": "instance_0084_part_039_color_00",
+      "instance": "instance_0084",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0086_part_038_color_00",
+      "output_geom": "instance_0086_part_038_color_00",
+      "instance": "instance_0086",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0087_part_039_color_00",
+      "output_geom": "instance_0087_part_039_color_00",
+      "instance": "instance_0087",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0089_part_038_color_00",
+      "output_geom": "instance_0089_part_038_color_00",
+      "instance": "instance_0089",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0090_part_039_color_00",
+      "output_geom": "instance_0090_part_039_color_00",
+      "instance": "instance_0090",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0092_part_038_color_00",
+      "output_geom": "instance_0092_part_038_color_00",
+      "instance": "instance_0092",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0093_part_039_color_00",
+      "output_geom": "instance_0093_part_039_color_00",
+      "instance": "instance_0093",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0094_part_040_color_00",
+      "output_geom": "instance_0094_part_040_color_00",
+      "instance": "instance_0094",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0095_part_040_color_00",
+      "output_geom": "instance_0095_part_040_color_00",
+      "instance": "instance_0095",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0096_part_040_color_00",
+      "output_geom": "instance_0096_part_040_color_00",
+      "instance": "instance_0096",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0097_part_040_color_00",
+      "output_geom": "instance_0097_part_040_color_00",
+      "instance": "instance_0097",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0099_part_041_color_00",
+      "output_geom": "instance_0099_part_041_color_00",
+      "instance": "instance_0099",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0100_part_042_color_00",
+      "output_geom": "instance_0100_part_042_color_00",
+      "instance": "instance_0100",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0102_part_041_color_00",
+      "output_geom": "instance_0102_part_041_color_00",
+      "instance": "instance_0102",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0103_part_042_color_00",
+      "output_geom": "instance_0103_part_042_color_00",
+      "instance": "instance_0103",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0105_part_041_color_00",
+      "output_geom": "instance_0105_part_041_color_00",
+      "instance": "instance_0105",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0106_part_042_color_00",
+      "output_geom": "instance_0106_part_042_color_00",
+      "instance": "instance_0106",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0108_part_041_color_00",
+      "output_geom": "instance_0108_part_041_color_00",
+      "instance": "instance_0108",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0109_part_042_color_00",
+      "output_geom": "instance_0109_part_042_color_00",
+      "instance": "instance_0109",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0110_part_043_color_00",
+      "output_geom": "instance_0110_part_043_color_00",
+      "instance": "instance_0110",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0113_part_044_color_00",
+      "output_geom": "instance_0113_part_044_color_00",
+      "instance": "instance_0113",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0113_part_044_color_01",
+      "output_geom": "instance_0113_part_044_color_01",
+      "instance": "instance_0113",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_00",
+      "output_geom": "instance_0114_part_045_color_00",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_01",
+      "output_geom": "instance_0114_part_045_color_01",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_02",
+      "output_geom": "instance_0114_part_045_color_02",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_03",
+      "output_geom": "instance_0114_part_045_color_03",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_04",
+      "output_geom": "instance_0114_part_045_color_04",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_05",
+      "output_geom": "instance_0114_part_045_color_05",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_06",
+      "output_geom": "instance_0114_part_045_color_06",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_07",
+      "output_geom": "instance_0114_part_045_color_07",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_08",
+      "output_geom": "instance_0114_part_045_color_08",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_09",
+      "output_geom": "instance_0114_part_045_color_09",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_10",
+      "output_geom": "instance_0114_part_045_color_10",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_11",
+      "output_geom": "instance_0114_part_045_color_11",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_12",
+      "output_geom": "instance_0114_part_045_color_12",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_13",
+      "output_geom": "instance_0114_part_045_color_13",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_14",
+      "output_geom": "instance_0114_part_045_color_14",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_15",
+      "output_geom": "instance_0114_part_045_color_15",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_16",
+      "output_geom": "instance_0114_part_045_color_16",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_17",
+      "output_geom": "instance_0114_part_045_color_17",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_18",
+      "output_geom": "instance_0114_part_045_color_18",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0114_part_045_color_19",
+      "output_geom": "instance_0114_part_045_color_19",
+      "instance": "instance_0114",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0117_part_046_color_00",
+      "output_geom": "instance_0117_part_046_color_00",
+      "instance": "instance_0117",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0118_part_047_color_00",
+      "output_geom": "instance_0118_part_047_color_00",
+      "instance": "instance_0118",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0119_part_048_color_00",
+      "output_geom": "instance_0119_part_048_color_00",
+      "instance": "instance_0119",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0119_part_048_color_01",
+      "output_geom": "instance_0119_part_048_color_01",
+      "instance": "instance_0119",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0122_part_049_color_00",
+      "output_geom": "instance_0122_part_049_color_00",
+      "instance": "instance_0122",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0123_part_050_color_00",
+      "output_geom": "instance_0123_part_050_color_00",
+      "instance": "instance_0123",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0124_part_051_color_00",
+      "output_geom": "instance_0124_part_051_color_00",
+      "instance": "instance_0124",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0125_part_051_color_00",
+      "output_geom": "instance_0125_part_051_color_00",
+      "instance": "instance_0125",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0127_part_052_color_00",
+      "output_geom": "instance_0127_part_052_color_00",
+      "instance": "instance_0127",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0128_part_053_color_00",
+      "output_geom": "instance_0128_part_053_color_00",
+      "instance": "instance_0128",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0129_part_054_color_00",
+      "output_geom": "instance_0129_part_054_color_00",
+      "instance": "instance_0129",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0129_part_054_color_01",
+      "output_geom": "instance_0129_part_054_color_01",
+      "instance": "instance_0129",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0129_part_054_color_02",
+      "output_geom": "instance_0129_part_054_color_02",
+      "instance": "instance_0129",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0132_part_055_color_00",
+      "output_geom": "instance_0132_part_055_color_00",
+      "instance": "instance_0132",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0133_part_056_color_00",
+      "output_geom": "instance_0133_part_056_color_00",
+      "instance": "instance_0133",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0135_part_057_color_00",
+      "output_geom": "instance_0135_part_057_color_00",
+      "instance": "instance_0135",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0136_part_058_color_00",
+      "output_geom": "instance_0136_part_058_color_00",
+      "instance": "instance_0136",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0136_part_058_color_01",
+      "output_geom": "instance_0136_part_058_color_01",
+      "instance": "instance_0136",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0138_part_057_color_00",
+      "output_geom": "instance_0138_part_057_color_00",
+      "instance": "instance_0138",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0139_part_058_color_00",
+      "output_geom": "instance_0139_part_058_color_00",
+      "instance": "instance_0139",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0139_part_058_color_01",
+      "output_geom": "instance_0139_part_058_color_01",
+      "instance": "instance_0139",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0141_part_057_color_00",
+      "output_geom": "instance_0141_part_057_color_00",
+      "instance": "instance_0141",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0142_part_058_color_00",
+      "output_geom": "instance_0142_part_058_color_00",
+      "instance": "instance_0142",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0142_part_058_color_01",
+      "output_geom": "instance_0142_part_058_color_01",
+      "instance": "instance_0142",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0144_part_057_color_00",
+      "output_geom": "instance_0144_part_057_color_00",
+      "instance": "instance_0144",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0145_part_058_color_00",
+      "output_geom": "instance_0145_part_058_color_00",
+      "instance": "instance_0145",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0145_part_058_color_01",
+      "output_geom": "instance_0145_part_058_color_01",
+      "instance": "instance_0145",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0147_part_057_color_00",
+      "output_geom": "instance_0147_part_057_color_00",
+      "instance": "instance_0147",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0148_part_058_color_00",
+      "output_geom": "instance_0148_part_058_color_00",
+      "instance": "instance_0148",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0148_part_058_color_01",
+      "output_geom": "instance_0148_part_058_color_01",
+      "instance": "instance_0148",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0150_part_057_color_00",
+      "output_geom": "instance_0150_part_057_color_00",
+      "instance": "instance_0150",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0151_part_058_color_00",
+      "output_geom": "instance_0151_part_058_color_00",
+      "instance": "instance_0151",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0151_part_058_color_01",
+      "output_geom": "instance_0151_part_058_color_01",
+      "instance": "instance_0151",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0153_part_057_color_00",
+      "output_geom": "instance_0153_part_057_color_00",
+      "instance": "instance_0153",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0154_part_058_color_00",
+      "output_geom": "instance_0154_part_058_color_00",
+      "instance": "instance_0154",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0154_part_058_color_01",
+      "output_geom": "instance_0154_part_058_color_01",
+      "instance": "instance_0154",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0156_part_057_color_00",
+      "output_geom": "instance_0156_part_057_color_00",
+      "instance": "instance_0156",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0157_part_058_color_00",
+      "output_geom": "instance_0157_part_058_color_00",
+      "instance": "instance_0157",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0157_part_058_color_01",
+      "output_geom": "instance_0157_part_058_color_01",
+      "instance": "instance_0157",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0159_part_057_color_00",
+      "output_geom": "instance_0159_part_057_color_00",
+      "instance": "instance_0159",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0160_part_058_color_00",
+      "output_geom": "instance_0160_part_058_color_00",
+      "instance": "instance_0160",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0160_part_058_color_01",
+      "output_geom": "instance_0160_part_058_color_01",
+      "instance": "instance_0160",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0162_part_057_color_00",
+      "output_geom": "instance_0162_part_057_color_00",
+      "instance": "instance_0162",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0163_part_058_color_00",
+      "output_geom": "instance_0163_part_058_color_00",
+      "instance": "instance_0163",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0163_part_058_color_01",
+      "output_geom": "instance_0163_part_058_color_01",
+      "instance": "instance_0163",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0165_part_057_color_00",
+      "output_geom": "instance_0165_part_057_color_00",
+      "instance": "instance_0165",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0166_part_058_color_00",
+      "output_geom": "instance_0166_part_058_color_00",
+      "instance": "instance_0166",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0166_part_058_color_01",
+      "output_geom": "instance_0166_part_058_color_01",
+      "instance": "instance_0166",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0168_part_057_color_00",
+      "output_geom": "instance_0168_part_057_color_00",
+      "instance": "instance_0168",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0169_part_058_color_00",
+      "output_geom": "instance_0169_part_058_color_00",
+      "instance": "instance_0169",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0169_part_058_color_01",
+      "output_geom": "instance_0169_part_058_color_01",
+      "instance": "instance_0169",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0171_part_057_color_00",
+      "output_geom": "instance_0171_part_057_color_00",
+      "instance": "instance_0171",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0172_part_058_color_00",
+      "output_geom": "instance_0172_part_058_color_00",
+      "instance": "instance_0172",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0172_part_058_color_01",
+      "output_geom": "instance_0172_part_058_color_01",
+      "instance": "instance_0172",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0174_part_057_color_00",
+      "output_geom": "instance_0174_part_057_color_00",
+      "instance": "instance_0174",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0175_part_058_color_00",
+      "output_geom": "instance_0175_part_058_color_00",
+      "instance": "instance_0175",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0175_part_058_color_01",
+      "output_geom": "instance_0175_part_058_color_01",
+      "instance": "instance_0175",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0177_part_057_color_00",
+      "output_geom": "instance_0177_part_057_color_00",
+      "instance": "instance_0177",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0178_part_058_color_00",
+      "output_geom": "instance_0178_part_058_color_00",
+      "instance": "instance_0178",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0178_part_058_color_01",
+      "output_geom": "instance_0178_part_058_color_01",
+      "instance": "instance_0178",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0180_part_057_color_00",
+      "output_geom": "instance_0180_part_057_color_00",
+      "instance": "instance_0180",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0181_part_058_color_00",
+      "output_geom": "instance_0181_part_058_color_00",
+      "instance": "instance_0181",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0181_part_058_color_01",
+      "output_geom": "instance_0181_part_058_color_01",
+      "instance": "instance_0181",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0183_part_057_color_00",
+      "output_geom": "instance_0183_part_057_color_00",
+      "instance": "instance_0183",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0184_part_058_color_00",
+      "output_geom": "instance_0184_part_058_color_00",
+      "instance": "instance_0184",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0184_part_058_color_01",
+      "output_geom": "instance_0184_part_058_color_01",
+      "instance": "instance_0184",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0186_part_059_color_00",
+      "output_geom": "instance_0186_part_059_color_00",
+      "instance": "instance_0186",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0187_part_060_color_00",
+      "output_geom": "instance_0187_part_060_color_00",
+      "instance": "instance_0187",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0189_part_059_color_00",
+      "output_geom": "instance_0189_part_059_color_00",
+      "instance": "instance_0189",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0190_part_060_color_00",
+      "output_geom": "instance_0190_part_060_color_00",
+      "instance": "instance_0190",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0192_part_061_color_00",
+      "output_geom": "instance_0192_part_061_color_00",
+      "instance": "instance_0192",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0193_part_062_color_00",
+      "output_geom": "instance_0193_part_062_color_00",
+      "instance": "instance_0193",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0194_part_063_color_00",
+      "output_geom": "instance_0194_part_063_color_00",
+      "instance": "instance_0194",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0195_part_064_color_00",
+      "output_geom": "instance_0195_part_064_color_00",
+      "instance": "instance_0195",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0196_part_065_color_00",
+      "output_geom": "instance_0196_hinge_fixed_visual",
+      "instance": "instance_0196",
+      "moving": false,
+      "partition": "fixed"
+    },
+    {
+      "source_geom": "instance_0196_part_065_color_00",
+      "output_geom": "instance_0196_hinge_moving_visual",
+      "instance": "instance_0196",
+      "moving": true,
+      "partition": "moving"
+    },
+    {
+      "source_geom": "instance_0197_part_065_color_00",
+      "output_geom": "instance_0197_hinge_fixed_visual",
+      "instance": "instance_0197",
+      "moving": false,
+      "partition": "fixed"
+    },
+    {
+      "source_geom": "instance_0197_part_065_color_00",
+      "output_geom": "instance_0197_hinge_moving_visual",
+      "instance": "instance_0197",
+      "moving": true,
+      "partition": "moving"
+    },
+    {
+      "source_geom": "instance_0199_part_066_color_00",
+      "output_geom": "instance_0199_part_066_color_00",
+      "instance": "instance_0199",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0200_part_067_color_00",
+      "output_geom": "instance_0200_part_067_color_00",
+      "instance": "instance_0200",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0202_part_068_color_00",
+      "output_geom": "instance_0202_part_068_color_00",
+      "instance": "instance_0202",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0203_part_069_color_00",
+      "output_geom": "instance_0203_part_069_color_00",
+      "instance": "instance_0203",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0203_part_069_color_01",
+      "output_geom": "instance_0203_part_069_color_01",
+      "instance": "instance_0203",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0205_part_068_color_00",
+      "output_geom": "instance_0205_part_068_color_00",
+      "instance": "instance_0205",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0206_part_069_color_00",
+      "output_geom": "instance_0206_part_069_color_00",
+      "instance": "instance_0206",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0206_part_069_color_01",
+      "output_geom": "instance_0206_part_069_color_01",
+      "instance": "instance_0206",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0208_part_070_color_00",
+      "output_geom": "instance_0208_part_070_color_00",
+      "instance": "instance_0208",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0209_part_071_color_00",
+      "output_geom": "instance_0209_part_071_color_00",
+      "instance": "instance_0209",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0211_part_070_color_00",
+      "output_geom": "instance_0211_part_070_color_00",
+      "instance": "instance_0211",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0212_part_071_color_00",
+      "output_geom": "instance_0212_part_071_color_00",
+      "instance": "instance_0212",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0213_part_072_color_00",
+      "output_geom": "instance_0213_part_072_color_00",
+      "instance": "instance_0213",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0214_part_073_color_00",
+      "output_geom": "instance_0214_part_073_color_00",
+      "instance": "instance_0214",
+      "moving": true,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0215_part_074_color_00",
+      "output_geom": "instance_0215_part_074_color_00",
+      "instance": "instance_0215",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0216_part_074_color_00",
+      "output_geom": "instance_0216_part_074_color_00",
+      "instance": "instance_0216",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0217_part_074_color_00",
+      "output_geom": "instance_0217_part_074_color_00",
+      "instance": "instance_0217",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0218_part_074_color_00",
+      "output_geom": "instance_0218_part_074_color_00",
+      "instance": "instance_0218",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0219_part_074_color_00",
+      "output_geom": "instance_0219_part_074_color_00",
+      "instance": "instance_0219",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0220_part_074_color_00",
+      "output_geom": "instance_0220_part_074_color_00",
+      "instance": "instance_0220",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0221_part_074_color_00",
+      "output_geom": "instance_0221_part_074_color_00",
+      "instance": "instance_0221",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0222_part_074_color_00",
+      "output_geom": "instance_0222_part_074_color_00",
+      "instance": "instance_0222",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0223_part_074_color_00",
+      "output_geom": "instance_0223_part_074_color_00",
+      "instance": "instance_0223",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0224_part_074_color_00",
+      "output_geom": "instance_0224_part_074_color_00",
+      "instance": "instance_0224",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0225_part_074_color_00",
+      "output_geom": "instance_0225_part_074_color_00",
+      "instance": "instance_0225",
+      "moving": false,
+      "partition": null
+    },
+    {
+      "source_geom": "instance_0226_part_074_color_00",
+      "output_geom": "instance_0226_part_074_color_00",
+      "instance": "instance_0226",
+      "moving": false,
+      "partition": null
+    }
+  ],
+  "validation_status": "passed",
+  "validation": {
+    "nq": 1,
+    "nv": 1,
+    "nu": 0,
+    "body_count_excluding_world": 3,
+    "geom_count": 208,
+    "neutral_pose_max_vertex_or_bounds_error_m": 1.0497364366646167e-09,
+    "rigid_motion_max_vertex_error_m": 4.440892098500626e-16,
+    "tested_angles_deg": [
+      -45,
+      0,
+      30,
+      60,
+      90,
+      135,
+      180
+    ],
+    "tested_angles_are_not_joint_limits": true,
+    "finite_passive_steps": 500,
+    "timestep_s": 0.002,
+    "simulation_warnings": 0
+  },
+  "protected_inputs_unchanged": true
+}

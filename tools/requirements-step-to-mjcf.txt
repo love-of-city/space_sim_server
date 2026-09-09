@@ -1,0 +1,10 @@
+# Install only in a dedicated venv, not the Basilisk/MJScene runtime.
+cadquery-ocp==8.0.1.0.0
+mujoco==3.12.0
+numpy==2.4.6
+pillow==12.3.0
+# Optional converter regression tests
+pytest==9.1.1
+# Optional headless CPU preview backend (no OpenGL / GPU drivers)
+numba==0.67.0
+llvmlite==0.49.0

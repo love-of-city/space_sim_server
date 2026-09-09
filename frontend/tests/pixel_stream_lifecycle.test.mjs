@@ -30,6 +30,7 @@ function harness() {
     signallingUrl: () => "ws://localhost/", setPixelStreamingInputEnabled() {},
     resetWebRtcStats() {}, updateWebRtcStats() { statsUpdates++; },
     connectPixelStreaming() { reconnects++; },
+    setFreeCameraMode(enabled) { state.freeCameraMode = enabled; },
     setTimeout(fn, delay) { const id = ++nextId; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
   });
@@ -82,4 +83,14 @@ test("disposing the player clears timers without being resurrected by SDK callba
   assert.equal(h.timers.size, 0);
   h.players[0].emit("videoInitialized");
   assert.equal(h.state.streamLive, false);
+});
+
+
+test("replacing or losing an active stream exits free-camera mode", () => {
+  for (const event of ["dispose", "webRtcDisconnected", "webRtcFailed", "subscribeFailed"]) {
+    const h = harness(); h.context.createPixelStream();
+    h.players[0].emit("webRtcConnected"); h.state.freeCameraMode = true;
+    if (event === "dispose") h.context.disposePixelStream(); else h.players[0].emit(event);
+    assert.equal(h.state.freeCameraMode, false);
+  }
 });

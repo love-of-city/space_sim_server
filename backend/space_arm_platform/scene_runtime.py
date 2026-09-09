@@ -138,11 +138,19 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             for value, span in zip(_NATIVE_PREGRASP, joint_spans, strict=True)
         ]
 
+    orbit = dict(_DEFAULT_ORBIT)
+    if request.randomize_orbit_phase:
+        # A versioned, independent stream preserves existing training-v1
+        # samples and gives the same orbital phase for either local profile.
+        orbit_rng = random.Random(f"space-arm-orbit-phase-v1:{seed}")
+        orbit["true_anomaly_deg"] = orbit_rng.random() * 360.0
+
     return {
         "schema": "space-arm-scene-instance/1",
         "instance_id": f"scene-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}",
         "template_id": request.template_id,
         "randomization_profile": request.randomization_profile,
+        "randomize_orbit_phase": request.randomize_orbit_phase,
         "seed": seed,
         "created_at_ns": str(time.time_ns()),
         "created_by": created_by,
@@ -150,7 +158,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "ephemeris_epoch_utc": _DEFAULT_EPHEMERIS_EPOCH_UTC,
             "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
             "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
-            "orbit": dict(_DEFAULT_ORBIT),
+            "orbit": orbit,
             "lighting": {"sunlight_intensity_scale": request.sunlight_intensity_scale},
         },
         "runtime": {
@@ -193,6 +201,7 @@ class SceneRuntimeManager:
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
                 "template_id": "spacecraft-arm-teleop",
                 "randomization_profile": "training-v1",
+                "randomize_orbit_phase": False,
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,
                 "capture_rate_hz": self.launch.capture_rate if self.launch else 10.0,
                 "ik_rate_hz": self.launch.ik_rate if self.launch else 100.0,

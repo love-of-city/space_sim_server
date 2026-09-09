@@ -23,7 +23,9 @@ scripts/run_simulation.ps1
 
 BSK 负责调度、环境模型、IK/PID、姿态反馈/轮矩分配和指令处理；MJScene 是当前多刚体积分、约束、接触与力耦合的唯一权威。UE 不参与物理积分。
 
-太阳光照倍率通过实例的 `environment.lighting.sunlight_intensity_scale` → `SceneSettings` → UE 传递，默认 1、范围 0～10。它只改变渲染，不输入重力/姿态模块，详见[太阳光照初始化](SUNLIGHT_CONFIGURATION.md)。
+太阳光照倍率通过实例的 `environment.lighting.sunlight_intensity_scale` → `SceneSettings` → UE 传递，默认 1、范围 0～20,000。它只改变渲染，不输入重力/姿态模块，详见[太阳光照初始化](SUNLIGHT_CONFIGURATION.md)。
+
+轨道起点可通过创建请求的 `randomize_orbit_phase` 独立开启随机化（默认关闭）。后端将抽样相位保存为 `environment.orbit.true_anomaly_deg`，仿真加载后由 `_apply_orbital_initial_state()` 使用 BSK `elem2rv` 统一计算并设置卫星与目标的位置/速度，保留抓取局部布局、关节初态和原有共同漂移速度。该选项不改星历历元、不旋转卫星的初始惯性姿态，也不在 UE 单独挪动模型或背景；详见[轨道起点初始化](ORBIT_INITIALIZATION.md)。
 
 ## 当前任务与消息顺序
 

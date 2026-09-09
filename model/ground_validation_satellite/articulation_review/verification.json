@@ -1,0 +1,43 @@
+{
+  "protected_inputs_sha256": {
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\地面验证星模型.stp": "a165279b773a15c19c6c600144b0e51f309fb76c3a46cae4b3871faac36076d9",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\ground_validation_satellite\\conversion_manifest.json": "535bda6633fdee5d33a16ce11d55ddd5aa5ee6d7a283adaa8a3bff33bc60e9ab",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\ground_validation_satellite\\ground_validation_satellite.xml": "2395532d054c399377a51460be89a40bf76788d7b7f5031b375bfdd40496b5df",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\ground_validation_satellite\\satellite_free_preview.xml": "5d871ad988f313eeefaba62caf0ecd38ca92729951796f26cc8a8b56b522d054",
+    "C:\\Users\\LYH\\space_sim_server\\space_sim_server\\model\\SARM\\platform\\sarm_platform.xml": "b7cce869e64f76edd7c48ac476d053d56d85968fe0d452215126a5bfbc602225"
+  },
+  "protected_inputs_unchanged": true,
+  "annotation_method": "native SVG projection of compiled geometry",
+  "ai_generated": false,
+  "all_candidates_unconfirmed": true,
+  "all_ranges_null": true,
+  "part_face_counts_match": true,
+  "candidate_A_axis_separation_m": 4.7406523151494184e-14,
+  "render_views": [
+    "rear",
+    "front",
+    "hinge_pair",
+    "selfie_camera",
+    "selfie_camera_side",
+    "release_latch",
+    "release_latch_02",
+    "separation_interface"
+  ],
+  "inputs_unchanged_since_task_start": true,
+  "mesh_hashes_checked": 103,
+  "regression_tests_passed": 41,
+  "original_visual_body_count": 1,
+  "original_visual_joint_count": 0,
+  "png_snapshots": {
+    "method": "Headless Edge rendering the native SVG annotations; not AI generation",
+    "files": [
+      "overview.png",
+      "selfie_camera_annotated.png"
+    ]
+  },
+  "visual_inspection": [
+    "overview.png",
+    "selfie_camera_annotated.png",
+    "review.html initial page"
+  ]
+}

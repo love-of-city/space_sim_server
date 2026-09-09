@@ -195,6 +195,10 @@ class SceneInstanceCreate(BaseModel):
 
     template_id: str = "spacecraft-arm-teleop"
     randomization_profile: str = "training-v1"
+    randomize_orbit_phase: bool = Field(
+        default=False, strict=True,
+        description="Sample a seed-reproducible starting phase on the current circular orbit, independently of local grasp randomization.",
+    )
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)
     capture_rate_hz: float = Field(default=10.0, gt=0.0, le=60.0)

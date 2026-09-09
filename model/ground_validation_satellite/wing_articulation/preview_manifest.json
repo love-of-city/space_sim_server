@@ -1,0 +1,157 @@
+{
+  "renderer": "CPU geometry from compiled MuJoCo and mj_forward body poses",
+  "native_opengl": false,
+  "ai_generated": false,
+  "angles_deg": [
+    0,
+    5,
+    10,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    55,
+    60,
+    65,
+    70,
+    75,
+    80,
+    85,
+    90
+  ],
+  "demonstration_angles_only": true,
+  "camera_is_fixed": true,
+  "camera": {
+    "target": [
+      -4.556535648791993e-09,
+      -0.18188500471175056,
+      4.15807055453854e-10
+    ],
+    "eye": [
+      0.8520121296239531,
+      -0.8968080722611658,
+      0.5913793801673161
+    ],
+    "basis": [
+      [
+        0.6427876096865393,
+        0.7660444431189781,
+        -0.0
+      ],
+      [
+        -0.3596360818745141,
+        0.3017705036589468,
+        0.882947592858927
+      ],
+      [
+        -0.6763770970748588,
+        0.5675477726922733,
+        -0.4694715627858908
+      ]
+    ],
+    "radial": [
+      0.6763770970748588,
+      -0.5675477726922733,
+      0.4694715627858908
+    ],
+    "focal": 1234.2896230122246,
+    "width": 1100,
+    "height": 850,
+    "azimuth_deg": -40,
+    "elevation_deg": 28,
+    "fit_method": "exact static and posed moving vertices; fixed camera"
+  },
+  "xml_colors_changed": false,
+  "preview_moving_geometry_highlight": true,
+  "contact_or_limit_validation_done": false,
+  "frames": [
+    {
+      "angle_deg": 0,
+      "file": "preview/pose_000.png"
+    },
+    {
+      "angle_deg": 5,
+      "file": "preview/pose_005.png"
+    },
+    {
+      "angle_deg": 10,
+      "file": "preview/pose_010.png"
+    },
+    {
+      "angle_deg": 15,
+      "file": "preview/pose_015.png"
+    },
+    {
+      "angle_deg": 20,
+      "file": "preview/pose_020.png"
+    },
+    {
+      "angle_deg": 25,
+      "file": "preview/pose_025.png"
+    },
+    {
+      "angle_deg": 30,
+      "file": "preview/pose_030.png"
+    },
+    {
+      "angle_deg": 35,
+      "file": "preview/pose_035.png"
+    },
+    {
+      "angle_deg": 40,
+      "file": "preview/pose_040.png"
+    },
+    {
+      "angle_deg": 45,
+      "file": "preview/pose_045.png"
+    },
+    {
+      "angle_deg": 50,
+      "file": "preview/pose_050.png"
+    },
+    {
+      "angle_deg": 55,
+      "file": "preview/pose_055.png"
+    },
+    {
+      "angle_deg": 60,
+      "file": "preview/pose_060.png"
+    },
+    {
+      "angle_deg": 65,
+      "file": "preview/pose_065.png"
+    },
+    {
+      "angle_deg": 70,
+      "file": "preview/pose_070.png"
+    },
+    {
+      "angle_deg": 75,
+      "file": "preview/pose_075.png"
+    },
+    {
+      "angle_deg": 80,
+      "file": "preview/pose_080.png"
+    },
+    {
+      "angle_deg": 85,
+      "file": "preview/pose_085.png"
+    },
+    {
+      "angle_deg": 90,
+      "file": "preview/pose_090.png"
+    }
+  ],
+  "model_sha256": "61e3a9147a254a8505dd6c1c558365ebaef69e70a6605edacd568c2ec4955e9d",
+  "manually_inspected": [
+    "preview/pose_000.png",
+    "preview/pose_090.png",
+    "motion_overview.png",
+    "motion_preview.html"
+  ],
+  "gif_frames": 36
+}

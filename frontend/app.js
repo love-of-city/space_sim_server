@@ -6,6 +6,7 @@ import {
   TextParameters,
 } from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.6";
 import "./styles.css";
+import { FreeCameraController } from "./free_camera.js";
 
 const state = {
   ws: null,
@@ -48,22 +49,41 @@ function setPixelStreamingInputEnabled(keyboardEnabled, mouseEnabled) {
   stream.config.setFlagEnabled(Flags.MouseInput, mouseEnabled);
 }
 
+const freeCamera = new FreeCameraController({
+  element: $("pixelStream"),
+  send: command => state.streamLive && state.pixelStreaming?.emitCommand(command) === true,
+  onExit: () => setFreeCameraMode(false, "鼠标已解锁，已返回主视角"),
+  onLockState: locked => {
+    updateOperationUI();
+    if (locked) setMessage(freeCamera.inputMode === "raw"
+      ? "鼠标已锁定（原始输入）：固定增益观察，WASD/QE 移动；C/Home/Esc 返回"
+      : "鼠标已锁定（兼容输入）：当前浏览器未确认原始输入支持，指针速度可能受系统设置影响");
+  },
+  onLockError: error => {
+    updateOperationUI();
+    setMessage(`鼠标未锁定：请点击视频画面重试；锁定成功前鼠标不会控制视角${error?.name ? `（${error.name}）` : ""}`);
+  },
+});
+
+// Read-only mouse diagnostics; does not expose camera mutation or robot input.
+window.__freeCameraDiagnostics = () => freeCamera.getDiagnostics();
+
 function setFreeCameraMode(enabled, message = "") {
   if (state.freeCameraMode === enabled) return;
+  if (enabled && state.selectedStreamerId !== (state.streamConfig?.pixel_streaming_streamer_id || "BskRenderer")) {
+    setMessage("请先选择“主视口”，再按 C 进入全局自由视角；模型相机是固定安装视角");
+    return;
+  }
+  // No SDK mouse/keyboard camera events: one explicit command owns the mode,
+  // translation and relative look, including blur and stream replacement.
+  setPixelStreamingInputEnabled(true, false);
+  if (!freeCamera.setActive(enabled) && enabled) {
+    setMessage("视频尚未就绪，暂时不能进入自由视角");
+    return;
+  }
   state.freeCameraMode = enabled;
   state.pressed.clear();
-  if (enabled) {
-    // Keep the keyboard listener registered for the lifetime of the stream.
-    // The page capture handler blocks robot-control keys outside free-camera
-    // mode; toggling the SDK listener itself at C-time is unreliable when the
-    // browser and Pixel Streaming change focus at the same time.
-    setPixelStreamingInputEnabled(true, true);
-    if (state.operationActive) sendNeutralAction("keyboard");
-  } else {
-    // Keep the key event flowing to UE first so C/Home can toggle/reset its
-    // camera state, then remove the Pixel Streaming listeners after the event.
-    setTimeout(() => setPixelStreamingInputEnabled(true, false), 0);
-  }
+  if (enabled && state.operationActive) sendNeutralAction("keyboard");
   updateOperationUI();
   if (message) setMessage(message);
 }
@@ -198,6 +218,7 @@ async function loadSceneCatalog() {
     template.value = defaults.template_id || template.value;
     profile.value = defaults.randomization_profile || profile.value;
     $("sceneDatasetCapture").checked = Boolean(defaults.dataset_capture);
+    $("sceneRandomizeOrbitPhase").checked = defaults.randomize_orbit_phase === true;
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
@@ -230,7 +251,7 @@ function applySceneRuntime(runtime = {}) {
   $("scenePhase").classList.toggle("scene-failed", phase === "failed");
   $("startScene").disabled = active || !enabled;
   $("stopScene").disabled = !active || !state.canManageScene;
-  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneDatasetCapture", "sceneSunlightIntensity"].forEach((id) => {
+  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity"].forEach((id) => {
     $(id).disabled = active;
   });
   $("linearSpeed").disabled = !state.sceneReady;
@@ -240,9 +261,15 @@ function applySceneRuntime(runtime = {}) {
   $("sceneInstanceSeed").textContent = instance.seed ?? "—";
   const instanceSunlight = instance.environment?.lighting?.sunlight_intensity_scale ?? 1;
   $("sceneInstanceSunlight").textContent = instance.instance_id ? `${instanceSunlight} 倍` : "—";
-  if (active && instance.instance_id) $("sceneSunlightIntensity").value = String(instanceSunlight);
+  const instanceOrbitPhase = instance.environment?.orbit?.true_anomaly_deg ?? 180;
+  const randomizeOrbitPhase = instance.randomize_orbit_phase === true;
+  $("sceneInstanceOrbitPhase").textContent = instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
+  if (active && instance.instance_id) {
+    $("sceneSunlightIntensity").value = String(instanceSunlight);
+    $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
+  }
   $("sceneParameters").textContent = instance.randomization
-    ? JSON.stringify({ environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
+    ? JSON.stringify({ randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
   if (runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
@@ -270,6 +297,7 @@ async function startScene() {
   const request = {
     template_id: $("sceneTemplate").value,
     randomization_profile: $("randomizationProfile").value,
+    randomize_orbit_phase: $("sceneRandomizeOrbitPhase").checked,
     seed: seedText === "" ? null : Number(seedText),
     simulation_rate: state.sceneDefaults.simulation_rate,
     capture_rate_hz: state.sceneDefaults.capture_rate_hz,
@@ -494,6 +522,7 @@ function updateWebRtcStats(aggregatedStats) {
 }
 
 function disposePixelStream() {
+  if (state.freeCameraMode) setFreeCameraMode(false);
   if (state.streamReconnectTimer != null) {
     clearTimeout(state.streamReconnectTimer);
     state.streamReconnectTimer = null;
@@ -539,10 +568,8 @@ function createPixelStream() {
       [Flags.StartVideoMuted]: true,
       [Flags.WaitForStreamer]: true,
       [Flags.HoveringMouseMode]: false,
-      // Keep keyboard forwarding installed for the lifetime of the stream.
-      // The page capture handler owns W/A/S/D/Q/E/R/F outside free-camera
-      // mode and stops those events before they reach the SDK; free-camera
-      // mode lets them through to Unreal.
+      // Retain SDK keyboard input for non-camera UE shortcuts only. Camera
+      // keys use physical codes and explicit BskCameraInput commands.
       [Flags.KeyboardInput]: true,
       [Flags.MouseInput]: false,
       [Flags.TouchInput]: false,
@@ -585,6 +612,7 @@ function createPixelStream() {
   });
   stream.addEventListener("webRtcDisconnected", () => {
     if (state.pixelStreaming !== stream) return;
+    if (state.freeCameraMode) setFreeCameraMode(false);
     state.streamLive = false;
     $("frameState").textContent = "DISCONNECTED";
     $("frameState").style.color = "var(--danger)";
@@ -593,6 +621,7 @@ function createPixelStream() {
   });
   stream.addEventListener("webRtcFailed", () => {
     if (state.pixelStreaming !== stream) return;
+    if (state.freeCameraMode) setFreeCameraMode(false);
     state.streamLive = false;
     $("frameState").textContent = "WEBRTC FAILED";
     $("frameState").style.color = "var(--danger)";
@@ -600,6 +629,7 @@ function createPixelStream() {
   });
   stream.addEventListener("subscribeFailed", (event) => {
     if (state.pixelStreaming !== stream) return;
+    if (state.freeCameraMode) setFreeCameraMode(false);
     state.streamLive = false;
     $("frameState").textContent = event?.message || "STREAM UNAVAILABLE";
     if (state.pixelStreaming === stream) schedulePixelStreamingReconnect(1000);
@@ -695,7 +725,14 @@ function updateOperationUI() {
   viewport.classList.toggle("operation-available", available && !state.operationActive);
   viewport.setAttribute("aria-pressed", String(state.operationActive));
 
-  if (!state.sceneReady) {
+  // Camera look depends on pointer-lock, not robot-control/scene permissions.
+  // Keep its actual lock state visible even while simulation is disconnected.
+  if (state.freeCameraMode) {
+    hintTitle.textContent = freeCamera.locked ? "自由视角 · 鼠标已锁定" : "自由视角 · 鼠标未锁定";
+    hintDetail.textContent = freeCamera.locked
+      ? `${freeCamera.inputMode === "raw" ? "原始输入 · 固定增益" : "兼容输入 · 受系统指针设置影响"}；WASD / QE 移动；C / Home / Esc 返回`
+      : "点击视频画面锁定鼠标后再转动；C / Home / Esc 返回";
+  } else if (!state.sceneReady) {
     hintTitle.textContent = "等待场景运行";
     hintDetail.textContent = "场景运行后点击画面进入操作";
   } else if (!state.connected) {
@@ -710,9 +747,6 @@ function updateOperationUI() {
   } else if (!state.controlGranted) {
     hintTitle.textContent = "点击切换到当前操作页面";
     hintDetail.textContent = "同一用户的旧页面会自动退出操作";
-  } else if (state.freeCameraMode) {
-    hintTitle.textContent = "自由视角已开启";
-    hintDetail.textContent = "WASD / QE 飞行，鼠标观察；按 C 或 Home 返回主视角";
   } else if (state.operationActive) {
     hintTitle.textContent = "操作模式已开启";
     hintDetail.textContent = "WASD / QE 控制，F/R 夹爪；按 C 进入自由视角，Esc 退出操作";
@@ -725,7 +759,9 @@ function updateOperationUI() {
   if (state.estopped) {
     directStatus.textContent = "急停已锁存";
   } else if (state.freeCameraMode) {
-    directStatus.textContent = "自由视角：WASD/QE 飞行，鼠标观察（C/Home 返回主视角）";
+    directStatus.textContent = freeCamera.locked
+      ? "自由视角：鼠标已锁定，WASD/QE 移动（C/Home/Esc 返回）"
+      : "自由视角：鼠标未锁定，请点击视频画面";
   } else if (state.operationActive) {
     directStatus.textContent = "操作模式：等待输入（C 自由视角，Esc 退出）";
   } else if (available) {
@@ -857,56 +893,71 @@ async function stopEpisode(outcome) {
 $("viewport").addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;
   if (event.target.closest("button, select, .viewport-toolbar, .webrtc-stats")) return;
+  if (state.freeCameraMode) {
+    freeCamera.requestPointerLock();
+    return;
+  }
   enterOperationMode();
 }, true);
 
 window.addEventListener("keydown", (event) => {
   const editing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable;
-  if (!editing && !event.repeat && event.code === "KeyC" && state.streamLive) {
-    if (!state.freeCameraMode) {
-      // Enable the SDK listeners before the event continues to its document
-      // handlers, allowing this C press to reach Unreal as well.
-      setFreeCameraMode(true, "已进入自由视角：WASD/QE 飞行，鼠标观察；按 C 或 Home 返回");
-    } else {
-      // Do not stop propagation: UE must receive C and switch back too.
-      setFreeCameraMode(false, "正在返回主视角");
-    }
-    event.preventDefault();
+  if (editing) {
+    // Typing into page forms must never reach UE keyboard shortcuts.
+    event.stopImmediatePropagation();
     return;
   }
-  if (!editing && event.code === "Home" && state.freeCameraMode) {
-    // Home is a browser navigation key. Prevent the page action but allow the
-    // Pixel Streaming keyboard controller to forward it to Unreal.
-    setFreeCameraMode(false, "正在返回主视角");
+  if (event.code === "KeyC" || event.code === "Home") {
     event.preventDefault();
+    event.stopImmediatePropagation(); // Do not toggle a second time in UE.
+    if (event.repeat || !state.streamLive) return;
+    if (event.code === "KeyC") {
+      const enabled = !state.freeCameraMode;
+      setFreeCameraMode(enabled, enabled
+        ? "已进入全局自由视角：WASD/QE 移动，Shift 加速，鼠标观察；C/Home/Esc 返回"
+        : "已返回主视角");
+    } else if (state.freeCameraMode) setFreeCameraMode(false, "已返回主视角");
     return;
   }
-  if (event.code === "Escape" && state.operationActive) {
+  if (event.code === "Escape" && (state.operationActive || state.freeCameraMode)) {
     event.preventDefault();
-    if (!state.freeCameraMode) event.stopImmediatePropagation();
+    event.stopImmediatePropagation();
     exitOperationMode();
     return;
   }
-  if (state.freeCameraMode) return;
-  if (!state.operationActive || !controlKeys.has(event.code)) return;
-  if (editing || event.repeat) return;
+  if (freeCamera.handleKey(event, true)) return;
+  if (!controlKeys.has(event.code)) return;
   event.preventDefault();
   event.stopImmediatePropagation();
-  state.pressed.add(event.code);
+  if (!state.freeCameraMode && state.operationActive && !event.repeat) state.pressed.add(event.code);
 }, true);
 window.addEventListener("keyup", (event) => {
-  if (state.freeCameraMode) return;
-  if (!state.operationActive || !controlKeys.has(event.code)) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  state.pressed.delete(event.code);
+  if (freeCamera.handleKey(event, false)) return;
+  if (controlKeys.has(event.code) || ["KeyC", "Home"].includes(event.code)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    state.pressed.delete(event.code);
+  } else if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable) {
+    event.stopImmediatePropagation();
+  }
+}, true);
+window.addEventListener("keypress", (event) => {
+  if (state.freeCameraMode || controlKeys.has(event.code) || event.code === "KeyC"
+      || ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable) {
+    event.stopImmediatePropagation();
+  }
 }, true);
 window.addEventListener("blur", () => {
-  if (state.operationActive) exitOperationMode("页面失去焦点，已自动退出操作模式");
+  if (state.operationActive || state.freeCameraMode) exitOperationMode("页面失去焦点，已停止输入并返回主视角");
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden && state.operationActive) {
-    exitOperationMode("页面已隐藏，已自动退出操作模式");
+  if (document.hidden && (state.operationActive || state.freeCameraMode)) {
+    exitOperationMode("页面已隐藏，已停止输入并返回主视角");
+  }
+});
+document.addEventListener("focusin", event => {
+  if (state.freeCameraMode && (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable)) {
+    exitOperationMode("正在编辑表单，已停止相机输入");
   }
 });
 $("estop").addEventListener("click", () => {

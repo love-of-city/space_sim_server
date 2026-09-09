@@ -1,0 +1,39 @@
+{
+  "regression_tests_passed": 55,
+  "original_files_unchanged_since_task_start": 5,
+  "original_mesh_hashes_checked": 103,
+  "generated_mesh_and_xml_hashes_checked": true,
+  "source_and_platform_scene_unchanged": true,
+  "mujoco_validation": {
+    "nq": 1,
+    "nv": 1,
+    "nu": 0,
+    "body_count_excluding_world": 3,
+    "geom_count": 208,
+    "neutral_pose_max_vertex_or_bounds_error_m": 1.0497364366646167e-09,
+    "rigid_motion_max_vertex_error_m": 4.440892098500626e-16,
+    "tested_angles_deg": [
+      -45,
+      0,
+      30,
+      60,
+      90,
+      135,
+      180
+    ],
+    "tested_angles_are_not_joint_limits": true,
+    "finite_passive_steps": 500,
+    "timestep_s": 0.002,
+    "simulation_warnings": 0
+  },
+  "hinge_partition_area_conserved": true,
+  "preview_poses_match_mujoco_forward_kinematics": true,
+  "preview_frames_checked": 19,
+  "gif_frames_checked": 36,
+  "screenshot_method": "Headless browser renders native SVG labels over CPU geometry frames",
+  "moving_mass_is_synthetic": true,
+  "real_joint_limits_known": false,
+  "mechanical_hinge_internals_reconstructed": false,
+  "collision_or_actuator_added": false,
+  "platform_integration_done": false
+}

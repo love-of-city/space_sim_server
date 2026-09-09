@@ -80,6 +80,10 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
         raise ValueError(f"unsupported scene instance schema: {document.get('schema')}")
     if document.get("template_id") != "spacecraft-arm-teleop":
         raise ValueError(f"unsupported scene template: {document.get('template_id')}")
+    randomize_orbit_phase = document.get("randomize_orbit_phase", False)
+    if not isinstance(randomize_orbit_phase, bool):
+        raise ValueError("scene randomize_orbit_phase must be a boolean")
+    document["randomize_orbit_phase"] = randomize_orbit_phase
     runtime = document.get("runtime")
     randomization = document.get("randomization")
     environment = document.get("environment", {})
@@ -99,6 +103,9 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
     orbit = environment.get("orbit", DEFAULT_ORBIT)
     if not isinstance(orbit, dict):
         raise ValueError("scene environment.orbit must be an object")
+    if randomize_orbit_phase and ("orbit" not in environment or "true_anomaly_deg" not in orbit):
+        raise ValueError("randomized scene requires a saved environment.orbit.true_anomaly_deg")
+    # Replay the stored angle, never resample from Seed during loading.
     normalized_orbit: dict[str, float] = {}
     for field, default in DEFAULT_ORBIT.items():
         try:
@@ -488,6 +495,70 @@ def _register_celestial_bodies(bridge: Any, earth: Any, sun: Any) -> None:
     )
 
 
+def _apply_orbital_initial_state(
+    scene: Any,
+    native: Any,
+    earth: Any,
+    orbit: dict[str, float],
+    randomized: dict[str, Any],
+    initial_joints: np.ndarray,
+) -> dict[str, Any]:
+    """Apply one saved orbital phase to the authoritative MJScene bodies.
+
+    The render bridge reads these same bodies. Local grasp offsets, joint
+    states and the legacy common drift are retained, while both free bodies
+    receive the orbital position AND velocity for the selected phase.
+    """
+    from Basilisk.utilities import orbitalMotion
+
+    elements = orbitalMotion.ClassicElements()
+    elements.a = float(earth.radEquator) + float(orbit["altitude_m"])
+    elements.e = float(orbit["eccentricity"])
+    elements.i = math.radians(float(orbit["inclination_deg"]))
+    elements.Omega = math.radians(float(orbit["raan_deg"]))
+    elements.omega = math.radians(float(orbit["argument_of_periapsis_deg"]))
+    elements.f = math.radians(float(orbit["true_anomaly_deg"]))
+    orbital_position, orbital_velocity = orbitalMotion.elem2rv(float(earth.mu), elements)
+    orbital_position = np.asarray(orbital_position, dtype=float)
+    orbital_velocity = np.asarray(orbital_velocity, dtype=float)
+    common_velocity = np.asarray(native.COMMON_VELOCITY, dtype=float)
+    bus_velocity = orbital_velocity + common_velocity
+    bus = scene.getBody("cubesat_bus")
+    target = scene.getBody("capture_target")
+    bus.setPosition(orbital_position)
+    bus.setVelocity(bus_velocity)
+    target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
+    # Both free bodies use the same inertial frame.  The randomized
+    # target velocity is only a local offset, not its full orbital speed.
+    target.setVelocity(
+        orbital_velocity + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float)
+    )
+    target.setAttitude(
+        native._quaternion_to_mrp(
+            np.asarray(randomized["target_orientation_wxyz"], dtype=float)
+        )
+    )
+    target_spin = np.asarray(randomized["target_angular_velocity_rad_s"], dtype=float)
+    if float(np.linalg.norm(target_spin)) > 1.0e-12:
+        # Older scene files may still contain the pre-fix spin value.
+        # Normalize it so they cannot reintroduce the MJScene startup NaN.
+        target_spin = np.zeros(3)
+    target.setAttitudeRate(target_spin)
+    for (body_name, joint_name), position in zip(native.JOINTS, initial_joints, strict=True):
+        joint = scene.getBody(body_name).getScalarJoint(joint_name)
+        joint.setPosition(float(position))
+        joint.setVelocity(0.0)
+
+    orbit_state = {
+        "semi_major_axis_m": float(elements.a),
+        "initial_position_m": orbital_position.tolist(),
+        "initial_velocity_m_s": bus_velocity.tolist(),
+        "initial_altitude_m": float(np.linalg.norm(orbital_position) - float(earth.radEquator)),
+        "initial_speed_m_s": float(np.linalg.norm(bus_velocity)),
+    }
+    return orbit_state
+
+
 def run(args: argparse.Namespace) -> None:
     scene_instance = _load_scene_instance(args.scene_instance)
     if scene_instance:
@@ -525,7 +596,7 @@ def run(args: argparse.Namespace) -> None:
     )
 
     from Basilisk.simulation import NBodyGravity, pointMassGravityModel
-    from Basilisk.utilities import macros, orbitalMotion, simIncludeGravBody
+    from Basilisk.utilities import macros, simIncludeGravBody
     from bsk_render_adapter import BasiliskRenderBridge, SceneSettings
 
     client.start()
@@ -664,57 +735,15 @@ def run(args: argparse.Namespace) -> None:
         native._initialize_state(simulation, scene)
         environment = scene_instance.get("environment", {}) if scene_instance else {}
         orbit = environment.get("orbit", DEFAULT_ORBIT)
-        elements = orbitalMotion.ClassicElements()
-        elements.a = float(earth.radEquator) + float(orbit["altitude_m"])
-        elements.e = float(orbit["eccentricity"])
-        elements.i = math.radians(float(orbit["inclination_deg"]))
-        elements.Omega = math.radians(float(orbit["raan_deg"]))
-        elements.omega = math.radians(float(orbit["argument_of_periapsis_deg"]))
-        elements.f = math.radians(float(orbit["true_anomaly_deg"]))
-        orbital_position, orbital_velocity = orbitalMotion.elem2rv(float(earth.mu), elements)
-        orbital_position = np.asarray(orbital_position, dtype=float)
-        orbital_velocity = np.asarray(orbital_velocity, dtype=float)
         randomized = scene_instance["randomization"] if scene_instance else {
             "target_position_m": list(native.TARGET_POS),
             "target_orientation_wxyz": list(native.TARGET_QUAT),
             "target_linear_velocity_m_s": list(native.COMMON_VELOCITY),
             "target_angular_velocity_rad_s": list(native.TARGET_SPIN),
         }
-        common_velocity = np.asarray(native.COMMON_VELOCITY, dtype=float)
-        bus_velocity = orbital_velocity + common_velocity
-        bus = scene.getBody("cubesat_bus")
-        target = scene.getBody("capture_target")
-        bus.setPosition(orbital_position)
-        bus.setVelocity(bus_velocity)
-        target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
-        # Both free bodies use the same inertial frame.  The randomized
-        # target velocity is only a local offset, not its full orbital speed.
-        target.setVelocity(
-            orbital_velocity + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float)
+        orbit_state = _apply_orbital_initial_state(
+            scene, native, earth, orbit, randomized, initial_joints
         )
-        target.setAttitude(
-            native._quaternion_to_mrp(
-                np.asarray(randomized["target_orientation_wxyz"], dtype=float)
-            )
-        )
-        target_spin = np.asarray(randomized["target_angular_velocity_rad_s"], dtype=float)
-        if float(np.linalg.norm(target_spin)) > 1.0e-12:
-            # Older scene files may still contain the pre-fix spin value.
-            # Normalize it so they cannot reintroduce the MJScene startup NaN.
-            target_spin = np.zeros(3)
-        target.setAttitudeRate(target_spin)
-        for (body_name, joint_name), position in zip(native.JOINTS, initial_joints, strict=True):
-            joint = scene.getBody(body_name).getScalarJoint(joint_name)
-            joint.setPosition(float(position))
-            joint.setVelocity(0.0)
-
-        orbit_state = {
-            "semi_major_axis_m": float(elements.a),
-            "initial_position_m": orbital_position.tolist(),
-            "initial_velocity_m_s": bus_velocity.tolist(),
-            "initial_altitude_m": float(np.linalg.norm(orbital_position) - float(earth.radEquator)),
-            "initial_speed_m_s": float(np.linalg.norm(bus_velocity)),
-        }
         print(
             json.dumps(
                 {
@@ -723,6 +752,7 @@ def run(args: argparse.Namespace) -> None:
                     "central_body": "earth",
                     "gravity_targets": gravity_target_names,
                     "orbit": orbit,
+                    "randomize_orbit_phase": bool(scene_instance and scene_instance["randomize_orbit_phase"]),
                     **orbit_state,
                 },
                 sort_keys=True,

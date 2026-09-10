@@ -17,7 +17,7 @@ from simulation.teleop_grasp_unreal import _apply_orbital_initial_state, _load_s
 
 def make_instance(tmp_path, **kwargs):
     return SceneRuntimeManager(None, project_root=tmp_path).create_instance(
-        SceneInstanceCreate(seed=42, randomize_orbit_phase=True, **kwargs)
+        SceneInstanceCreate(seed=42, randomize_orbit_phase=True, template_id="spacecraft-arm-teleop", **kwargs)
     )
 
 

@@ -99,6 +99,11 @@ $simulation = $null
 try {
     & (Join-Path $PSScriptRoot 'stop_scene_instance.ps1') -Quiet -PreserveState -AdapterRoot $AdapterRoot
     Write-RuntimeState 'starting_renderer'
+    if ((Split-Path -Leaf $ModelRoot) -eq 'platform') {
+        & (Join-Path $PSScriptRoot 'prepare_sarm_scene.ps1') `
+            -AdapterRoot $AdapterRoot -ModelRoot $ModelRoot -UnrealRoot $UnrealRoot -TemplateId ([string]$instance.template_id)
+        if ($LASTEXITCODE -ne 0) { throw 'Ground-validation target asset preparation failed.' }
+    }
 
     if (Test-TcpPort $RenderPort) { throw "UE render receiver port $RenderPort is already occupied." }
     $rendererArgs = @{

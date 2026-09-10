@@ -206,11 +206,10 @@ $catalog = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Join-Path $ueProj
 # Do not skip it merely because a catalog survived an earlier failed import.
 if ((Split-Path -Leaf $ModelRoot) -eq 'platform') {
     # Saved/ is machine-local: regenerate absolute source paths after a clone or move.
-    & (Join-Path $ueScripts 'prepare_mjcf_assets.ps1') `
-        -MjcfPath (Join-Path $ModelRoot 'sarm_platform.xml') -Destination '/Game/BSK/Generated/SARM' `
-        -CatalogPath $catalog -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$ReimportAssets
+    & (Join-Path $PSScriptRoot 'prepare_sarm_scene.ps1') `
+        -AdapterRoot $AdapterRoot -ModelRoot $ModelRoot -UnrealRoot $UnrealRoot -Force:$ReimportAssets
     if ($LASTEXITCODE -ne 0) { throw 'SARM asset preparation failed.' }
-    Write-Output "Using SARM satellite + arm model: $ModelRoot"
+    Write-Output "Using SARM satellite + arm with articulated ground-validation target: $ModelRoot"
 } else {
     & (Join-Path $ueScripts 'prepare_spacecraft_arm_assets.ps1') -ModelRoot $ModelRoot `
         -Variant combined -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$ReimportAssets

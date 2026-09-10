@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -173,12 +174,19 @@ def _quaternion_to_mrp(quaternion: np.ndarray) -> np.ndarray:
 
 
 def _load_scene() -> mujoco.MJScene:
-    """Load the grasp MJCF and its mesh assets through the MuJoCo VFS."""
-    # The exported meshes use uppercase .STL; include them on case-sensitive hosts too.
-    mesh_files = [
-        str(path.resolve()) for path in sorted(MESH_DIR.iterdir())
-        if path.is_file() and path.suffix.casefold() in {".stl", ".obj"}
-    ]
+    """Load visual AND rigid-flex collision meshes through the MuJoCo VFS."""
+    root = ET.parse(MODEL_PATH).getroot()
+    compiler = root.find("compiler")
+    meshdir = compiler.get("meshdir", "") if compiler is not None else ""
+    mesh_files = sorted({str((MODEL_PATH.parent / meshdir / mesh.get("file")).resolve())
+                         for selector in ("./asset/mesh[@file]", ".//flexcomp[@file]")
+                         for mesh in root.findall(selector)})
+    for path in mesh_files:
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"Missing MJCF mesh: {path}. Run git lfs pull.")
+        with open(path, "rb") as stream:
+            if stream.read(128).startswith(b"version https://git-lfs.github.com/spec/v1"):
+                raise ValueError(f"Mesh is still an LFS pointer: {path}. Run git lfs pull.")
     return mujoco.MJScene.fromFile(str(MODEL_PATH), files=mesh_files)
 
 

@@ -21,7 +21,7 @@ from space_arm_platform.scene_runtime import (
 
 
 def request(seed: int | None, profile: str = "training-v1") -> SceneInstanceCreate:
-    return SceneInstanceCreate(seed=seed, randomization_profile=profile)
+    return SceneInstanceCreate(seed=seed, randomization_profile=profile, template_id="spacecraft-arm-teleop")
 
 
 def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:

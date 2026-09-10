@@ -6,6 +6,7 @@
 - [仿真核心架构与扩展约定](docs/SIMULATION_ARCHITECTURE.md)：当前原生 SARM 调用链与通用架构接口的区别。
 - [场景初始化太阳光照](docs/SUNLIGHT_CONFIGURATION.md)：0～20,000 倍太阳照明、实例保存、UE 参数传递与兼容说明。
 - [反作用轮与姿态保持](docs/ATTITUDE_CONTROL.md)：物理参数、惯性保持闭环、遥测、限幅和验证。
+- [关节卫星待抓取目标](docs/GROUND_CAPTURE_TARGET.md)：新默认场景、原始模型保护、估算物理参数、UE 资源与旧实例兼容。
 - [模型目录与 Git LFS](model/README.md)：运行入口、源模型、CAD 和本地兼容路径。
 
 > **更新（2026-09-08）**：已修复 SARM 8 项观测被后端 6 项限制拒收的问题，新增明确 SI 关节字段、三轴反作用轮及默认初始惯性姿态保持。真实 Hub/Recorder 和渲染协议已做隔离集成验证；GPU 视频/权威图像链路的覆盖边界见[架构文档](docs/SYSTEM_ARCHITECTURE.md#gaps)。
@@ -85,7 +86,7 @@ Set-Location .\space_arm_data_platform
 pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 ```
 
-若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`。默认模型是本仓库的 `model\SARM\platform\sarm_platform.xml`，无需另行复制外部模型；也可用 `-ModelRoot` 指定其他模型目录。PowerShell 入口仍保留旧工作区模型和适配器内 CubeSat + SO-101 的查找回退。模型目录与本地兼容路径说明见 `model/README.md`。
+若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`。默认 `ModelRoot` 是本仓库的 `model\SARM\platform`，无需另行复制外部模型；实际 XML 按场景模板选择，当前为粗碰撞体＋内部接触组合版（见下文）。也可用 `-ModelRoot` 指定兼容的模型目录。PowerShell 入口仍保留旧工作区模型和适配器内 CubeSat + SO-101 的查找回退。模型目录与本地兼容路径说明见 `model/README.md`。
 
 首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure 并安装其 Node 依赖，同时根据当前模型路径生成本机 UE 资源映射。首次克隆、模型位置或网格内容变化时，资源准备脚本可能重新导入网格并应用构建设置，因此准备时间取决于本机缓存。地球和银河 `.uasset` 通过 Git LFS 随适配器仓库提供，启动脚本会检查它们是否完整。不会安装另一套 UE。网页地址为 `http://127.0.0.1:8000`。
 
@@ -107,7 +108,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 权威采集会在 UE 游戏线程执行 SceneCapture、GPU→CPU 读回和编码，尤其实例分割还会按对象重复捕获，因此不应在只做交互预览时开启。
 
-当前 SARM 渲染使用9个网格（底座 OBJ 和8个关节/夹爪 STL）。资源准备脚本检查资源映射指纹及 `.uasset` 是否存在；需要时从服务端模型重新导入，后续复用缓存。`Saved/AssetImport` 是本机生成文件，不随仓库提交。需要强制重新导入时：
+当前默认场景为 **SARM + 地面验证星（粗碰撞体·内部碰撞）**（`sarm-ground-validation-self-collision-grasp`），加载 `model/SARM/platform/sarm_ground_target_self_collision.xml`。保留原三个外部接触粗盒，新增两个内部接触代理，开启外侧板与本体/内侧板接触；不使用高精度三角面。铰链附近采用明确记录的近似间隙，不是工程限位或精准 CAD 碰撞。旧无内部碰撞模板、高精度实验及已保存实例不改写；需创建新模板实例生效。详见[粗碰撞内部接触](docs/COARSE_SELF_COLLISION.md)及[待抓取目标说明](docs/GROUND_CAPTURE_TARGET.md)。
+
+当前组合场景渲染使用113个网格（原 SARM 9个 + 目标104个）。资源准备脚本检查资源映射指纹及 `.uasset` 是否存在；需要时从服务端模型重新导入，后续复用缓存。`Saved/AssetImport` 是本机生成文件，不随仓库提交。需要强制重新导入时：
 
 ```powershell
 .\scripts\run_platform.ps1 -ReimportAssets

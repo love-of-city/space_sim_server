@@ -59,6 +59,10 @@ def test_native_mesh_loader_includes_uppercase_exports(tmp_path):
     for name in ("link.STL", "lower.stl", "base.OBJ", "lower.obj", "export.log"):
         (tmp_path / name).write_bytes(b"fixture")
     (tmp_path / "not_a_file.STL").mkdir()
+    scene_path = tmp_path / "scene.xml"
+    scene_path.write_text('<mujoco><asset>' + ''.join(
+        f'<mesh name="m{i}" file="{name}"/>' for i, name in enumerate(("link.STL", "lower.stl", "base.OBJ", "lower.obj"))
+    ) + '</asset></mujoco>', encoding="utf-8")
     calls = []
     sentinel = object()
 
@@ -68,9 +72,31 @@ def test_native_mesh_loader_includes_uppercase_exports(tmp_path):
 
     namespace = {
         "mujoco": SimpleNamespace(MJScene=SimpleNamespace(fromFile=from_file)),
-        "MESH_DIR": tmp_path, "MODEL_PATH": tmp_path / "scene.xml",
+        "MESH_DIR": tmp_path, "MODEL_PATH": tmp_path / "scene.xml", "ET": ET, "Path": Path,
     }
     exec(compile(ast.Module(body=[loader], type_ignores=[]), str(SCENARIO), "exec"), namespace)
     assert namespace["_load_scene"]() is sentinel
     assert calls[0][0] == str(tmp_path / "scene.xml")
     assert {Path(path).name for path in calls[0][1]} == {"link.STL", "lower.stl", "base.OBJ", "lower.obj"}
+
+
+def test_native_vfs_includes_rigid_flex_collision_files_not_just_visuals(tmp_path):
+    tree = ast.parse(SCENARIO.read_text(encoding="utf-8"))
+    loader = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_load_scene")
+    meshdir = tmp_path / "meshes"
+    meshdir.mkdir()
+    (meshdir / "visual.OBJ").write_bytes(b"visual fixture")
+    (meshdir / "collision_only.obj").write_bytes(b"collision fixture")
+    xml = tmp_path / "scene.xml"
+    xml.write_text('<mujoco><compiler meshdir="meshes"/><asset><mesh file="visual.OBJ"/></asset>'
+                   '<worldbody><body><flexcomp type="mesh" rigid="true" file="collision_only.obj"/>'
+                   '</body></worldbody></mujoco>')
+    calls = []
+    namespace = {"mujoco": SimpleNamespace(MJScene=SimpleNamespace(fromFile=lambda *a, **k: calls.append((a,k)))),
+                 "MODEL_PATH": xml, "ET": ET, "Path": Path}
+    exec(compile(ast.Module(body=[loader], type_ignores=[]), str(SCENARIO), "exec"), namespace)
+    namespace["_load_scene"]()
+    assert set(calls[0][1]["files"]) == {str((meshdir / name).resolve()) for name in ("visual.OBJ", "collision_only.obj")}
+    (meshdir / "collision_only.obj").write_bytes(b"version https://git-lfs.github.com/spec/v1\n")
+    with pytest.raises(ValueError, match="LFS pointer"):
+        namespace["_load_scene"]()

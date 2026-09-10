@@ -4,8 +4,12 @@
 
 ## 目录和入口
 
-- `SARM/platform/sarm_platform.xml`：平台实际运行场景，包含卫星、三轴反作用轮、六轴机械臂、双指夹爪和自由目标。
-- `SARM/platform/attitude_control.json`：惯性姿态保持的开关/频率/增益；硬件质量、惯量、限矩和轮速边界在平台 XML。详见[姿态控制说明](../docs/ATTITUDE_CONTROL.md)。
+- **`SARM/platform/sarm_ground_target_self_collision.xml`**：当前默认，保留三个外部抓取粗盒、增加两个板件内部接触粗盒，开启外侧板与固定目标接触。原始模型/质量/惯量不变；铰链邻域间隙为近似，不是真实限位。详见[粗碰撞内部接触](../docs/COARSE_SELF_COLLISION.md)。
+- `SARM/platform/sarm_ground_target.xml`：旧无内部接触粗盒组合，保留给旧模板/实例，也作为高精度试验的历史输入，未修改。
+- `ground_validation_satellite/mesh_collision_trial/sarm_mesh_collision.xml`：保留的高精度三角网格碰撞实验版，显式选择 `sarm-ground-validation-mesh-grasp` 才加载；原始转换文件未删除。铰链零位接触、显著慢于实时的限制仍在。
+- `SARM/platform/sarm_platform.xml`：SARM 基础场景及旧模板/离线回归入口，包含卫星、三轴反作用轮、六轴机械臂、双指夹爪和原小方块目标。
+- `ground_validation_satellite/ground_validation_satellite_articulated.xml`：用户指定的原始关节卫星模型，保留用于 CAD/机构预览，不直接替代整个 SARM 场景。
+- `SARM/platform/attitude_control.json`：惯性姿态保持的开关/频率/增益（高精度组合目录保留其同内容副本，修改后需重新生成/验证）；硬件质量、惯量、限矩和轮速边界在平台 XML。详见[姿态控制说明](../docs/ATTITUDE_CONTROL.md)。
 - `SARM/platform/scenarios/scenario_sarm_grasp.py`：原生 Basilisk/MJScene 控制脚本，路径相对于脚本解析，不依赖特定用户名或盘符。
 - `SARM/mjcf/SARM.xml`：独立模型入口；`SARM_scene.xml` 是其独立查看场景，并非平台运行入口。
 - `SARM/meshes/`：OBJ/STL 网格源文件。
@@ -13,7 +17,7 @@
 - `任务盒_v1/`：SolidWorks 装配/零件和 STEP 源文件，仅作为设计源文件保存，不由平台启动脚本直接加载。
 - `*_raw.xml`、`*_validated*.xml`、`*_before_*.xml`：保留的转换/验证版本，不是默认运行入口。
 
-两个正式 MJCF 入口都包含 `spacecraft_overview` 和 `sarm_wrist_cam` 相机。
+SARM 独立模型与四个平台组合 MJCF 入口都包含 `spacecraft_overview` 和 `sarm_wrist_cam` 相机。
 轨道参数由服务端场景实例/星历配置控制，不由 CAD 文件决定。
 
 ## Git LFS

@@ -1,0 +1,70 @@
+{
+  "schema": "sarm-ground-capture/1",
+  "template_id": "sarm-ground-validation-grasp",
+  "sources": {
+    "model/SARM/platform/sarm_platform.xml": "e3b22cf621b3e28a5ac4b133e62f4328fbea9573adc3aa29a1f5c357bb34e534",
+    "model/ground_validation_satellite/ground_validation_satellite_articulated.xml": "2d2fbc9af5b6e9357e6bc35b4eb6e1a687e89b050543cf3c47b667a1d3f37988"
+  },
+  "output": "model/SARM/platform/sarm_ground_target.xml",
+  "sha256": "a386ea78baa5c4b49ec67a6f4585d40db5f985b23133b34466dfab9e5e0e7e95",
+  "source_visual_geoms": 208,
+  "synthetic_physics": true,
+  "target_mass_kg": 10.0,
+  "proxy_method": "component AABBs; synthetic mass and uniform-box inertia; external contacts only",
+  "proxies": {
+    "capture_target": {
+      "mass_kg": 8.0,
+      "center_m": [
+        0.20359075,
+        0.00475,
+        0.0
+      ],
+      "half_size_m": [
+        0.16109075,
+        0.0785,
+        0.30007871
+      ]
+    },
+    "satellite_inner_panel": {
+      "mass_kg": 1.0,
+      "center_m": [
+        0.185,
+        -0.07275,
+        0.0470787
+      ],
+      "half_size_m": [
+        0.19950001,
+        0.01050001,
+        0.20725001
+      ]
+    },
+    "satellite_outer_panel": {
+      "mass_kg": 1.0,
+      "center_m": [
+        -0.18375,
+        0.0046,
+        0.0
+      ],
+      "half_size_m": [
+        0.18625001,
+        0.01035001,
+        0.20725001
+      ]
+    }
+  },
+  "initial_position_m": [
+    0.94,
+    0.039086,
+    0.4
+  ],
+  "initial_orientation_wxyz": [
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "passive_joint": "outer_panel_hinge",
+  "initial_joint_position_rad": 0.0,
+  "real_joint_limits_known": false,
+  "automated_grasp_validated": false
+}

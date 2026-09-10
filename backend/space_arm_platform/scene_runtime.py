@@ -17,12 +17,31 @@ from typing import Any
 
 from .models import SceneInstanceCreate
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE
+from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, capture_target
 
 
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
+        "id": SELF_COLLISION_TEMPLATE,
+        "label": "SARM + 地面验证星（粗碰撞体·内部碰撞）",
+        "description": "默认启用外侧板与本体/内侧板接触；" + capture_target(SELF_COLLISION_TEMPLATE).runtime_warning,
+        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
+    },
+    {
+        "id": GROUND_TARGET_TEMPLATE,
+        "label": "SARM + 地面验证星（粗碰撞盒·无内部碰撞）",
+        "description": "旧实例兼容配置：保留关节卫星与被动铰链，使用粗碰撞盒；不计算目标内部碰撞。",
+        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
+    },
+    {
+        "id": MESH_TARGET_TEMPLATE,
+        "label": "SARM + 地面验证星（高精度三角网格碰撞·实验）",
+        "description": capture_target(MESH_TARGET_TEMPLATE).runtime_warning,
+        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
+    },
+    {
         "id": "spacecraft-arm-teleop",
-        "label": "SARM 卫星机械臂遥操作抓取",
+        "label": "SARM + 原小方块目标（兼容旧实例）",
         "description": "自由漂浮 SARM 卫星、机械臂和可抓取目标。",
         "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
     },
@@ -107,18 +126,19 @@ def _multiply_quaternion(a: list[float], b: list[float]) -> list[float]:
 
 def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
     rng = random.Random(seed)
+    target = capture_target(request.template_id)
     randomization: dict[str, Any] = {
-        "target_position_m": list(_NATIVE_TARGET_POSITION),
-        "target_orientation_wxyz": list(_NATIVE_TARGET_QUATERNION),
+        "target_position_m": list(target.position_m),
+        "target_orientation_wxyz": list(target.orientation_wxyz),
         "target_linear_velocity_m_s": list(_NATIVE_COMMON_VELOCITY),
         "target_angular_velocity_rad_s": list(_NATIVE_TARGET_SPIN),
         "arm_joint_position_rad": list(_NATIVE_PREGRASP),
     }
     if request.randomization_profile == "training-v1":
         randomization["target_position_m"] = [
-            _NATIVE_TARGET_POSITION[0] + rng.uniform(-0.018, 0.018),
-            _NATIVE_TARGET_POSITION[1] + rng.uniform(-0.020, 0.020),
-            _NATIVE_TARGET_POSITION[2] + rng.uniform(-0.018, 0.018),
+            target.position_m[0] + rng.uniform(-0.018, 0.018),
+            target.position_m[1] + rng.uniform(-0.020, 0.020),
+            target.position_m[2] + rng.uniform(-0.018, 0.018),
         ]
         axis = [rng.uniform(-1.0, 1.0) for _ in range(3)]
         axis_norm = math.sqrt(sum(value * value for value in axis)) or 1.0
@@ -126,7 +146,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         half_angle = math.radians(rng.uniform(-4.0, 4.0)) * 0.5
         perturbation = [math.cos(half_angle), *(value * math.sin(half_angle) for value in axis)]
         randomization["target_orientation_wxyz"] = _multiply_quaternion(
-            list(_NATIVE_TARGET_QUATERNION), perturbation
+            list(target.orientation_wxyz), perturbation
         )
         # Keep the initial target angular rate at zero.  Basilisk/MJScene 2.11.1
         # becomes numerically unstable when the second free body receives a
@@ -137,6 +157,9 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             value + rng.uniform(-span, span)
             for value, span in zip(_NATIVE_PREGRASP, joint_spans, strict=True)
         ]
+
+    if target.hinge_joint:
+        randomization["target_hinge_position_rad"] = 0.0
 
     orbit = dict(_DEFAULT_ORBIT)
     if request.randomize_orbit_phase:
@@ -152,6 +175,14 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
         "seed": seed,
+        "capture_target": {
+            "source_model": target.source_model,
+            "runtime_model": target.runtime_model,
+            "collision_model": target.collision_model,
+            "runtime_warning": target.runtime_warning,
+            "synthetic_mass_kg": target.synthetic_mass_kg,
+            "passive_joint": target.hinge_joint or None,
+        },
         "created_at_ns": str(time.time_ns()),
         "created_by": created_by,
         "environment": {
@@ -199,7 +230,7 @@ class SceneRuntimeManager:
             "randomization_profiles": list(RANDOMIZATION_PROFILES),
             "defaults": {
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
-                "template_id": "spacecraft-arm-teleop",
+                "template_id": DEFAULT_TEMPLATE,
                 "randomization_profile": "training-v1",
                 "randomize_orbit_phase": False,
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,

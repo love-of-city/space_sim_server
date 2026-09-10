@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE, MAX_SUNLIGHT_INTENSITY_SCALE
+from .scene_targets import DEFAULT_TEMPLATE
 
 
 CONTROL_PROTOCOL = "space-arm-control/1"
@@ -193,7 +194,7 @@ class EpisodeStop(BaseModel):
 class SceneInstanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    template_id: str = "spacecraft-arm-teleop"
+    template_id: str = DEFAULT_TEMPLATE
     randomization_profile: str = "training-v1"
     randomize_orbit_phase: bool = Field(
         default=False, strict=True,

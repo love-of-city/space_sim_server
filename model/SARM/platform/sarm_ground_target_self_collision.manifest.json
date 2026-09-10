@@ -1,0 +1,141 @@
+{
+  "schema": "sarm-ground-capture/1",
+  "template_id": "sarm-ground-validation-self-collision-grasp",
+  "sources": {
+    "model/SARM/platform/sarm_platform.xml": "e3b22cf621b3e28a5ac4b133e62f4328fbea9573adc3aa29a1f5c357bb34e534",
+    "model/ground_validation_satellite/ground_validation_satellite_articulated.xml": "2d2fbc9af5b6e9357e6bc35b4eb6e1a687e89b050543cf3c47b667a1d3f37988"
+  },
+  "output": "model/SARM/platform/sarm_ground_target_self_collision.xml",
+  "sha256": "2f0e302bb34a6c3abe25c3c801b16979c790aa2025b4d0d11ab1001493d38a29",
+  "source_visual_geoms": 208,
+  "synthetic_physics": true,
+  "target_mass_kg": 10.0,
+  "proxy_method": "unchanged external AABBs; two pair-only panel AABBs with approximate hinge clearance; inertia unchanged",
+  "proxies": {
+    "capture_target": {
+      "mass_kg": 8.0,
+      "center_m": [
+        0.20359075,
+        0.00475,
+        0.0
+      ],
+      "half_size_m": [
+        0.16109075,
+        0.0785,
+        0.30007871
+      ]
+    },
+    "satellite_inner_panel": {
+      "mass_kg": 1.0,
+      "center_m": [
+        0.185,
+        -0.07275,
+        0.0470787
+      ],
+      "half_size_m": [
+        0.19950001,
+        0.01050001,
+        0.20725001
+      ]
+    },
+    "satellite_outer_panel": {
+      "mass_kg": 1.0,
+      "center_m": [
+        -0.18375,
+        0.0046,
+        0.0
+      ],
+      "half_size_m": [
+        0.18625001,
+        0.01035001,
+        0.20725001
+      ]
+    }
+  },
+  "initial_position_m": [
+    0.94,
+    0.039086,
+    0.4
+  ],
+  "initial_orientation_wxyz": [
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "passive_joint": "outer_panel_hinge",
+  "initial_joint_position_rad": 0.0,
+  "real_joint_limits_known": false,
+  "automated_grasp_validated": false,
+  "target_internal_collision_enabled": true,
+  "collision_model": "coarse_boxes_with_target_self_collision",
+  "internal_contact": {
+    "hinge_envelope_half_width_m": 0.01495001,
+    "extra_clearance_m": 0.001,
+    "hinge_keepout_each_side_m": 0.01595001,
+    "zero_pose_internal_panel_gap_m": 0.03190002,
+    "geometry_is_approximate": true,
+    "engineering_hinge_clearance_known": false,
+    "external_collision_shapes_changed": false,
+    "boxes": {
+      "satellite_inner_panel": {
+        "center_m": [
+          0.1929750100000105,
+          -0.07275,
+          0.0470787
+        ],
+        "half_size_m": [
+          0.1915249999999895,
+          0.01050001,
+          0.20725001
+        ],
+        "original_x_bounds_m": [
+          -0.014500010000000008,
+          0.38450001
+        ],
+        "internal_x_bounds_m": [
+          0.0014500100000210004,
+          0.38450001
+        ]
+      },
+      "satellite_outer_panel": {
+        "center_m": [
+          -0.19297501,
+          0.0046,
+          0.0
+        ],
+        "half_size_m": [
+          0.177025,
+          0.01035001,
+          0.20725001
+        ],
+        "original_x_bounds_m": [
+          -0.37000001,
+          0.002500009999999997
+        ],
+        "internal_x_bounds_m": [
+          -0.37000001,
+          -0.01595001
+        ]
+      }
+    },
+    "pairs": [
+      [
+        "capture_target_collision",
+        "satellite_outer_panel_internal_collision"
+      ],
+      [
+        "satellite_inner_panel_internal_collision",
+        "satellite_outer_panel_internal_collision"
+      ]
+    ]
+  },
+  "contact_filter": {
+    "external_target_contype": 2,
+    "external_target_conaffinity": 1,
+    "internal_proxy_contype": 0,
+    "internal_proxy_conaffinity": 0,
+    "target_body_exclusions": [],
+    "global_parent_filter_changed": false
+  }
+}

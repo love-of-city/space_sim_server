@@ -1,6 +1,6 @@
 # 仿真核心架构与扩展约定
 
-> 更新：2026-09-08。本文聚焦 BSK/MJScene 核心；整个前端、后端、UE、视频、采集与部署关系见[总体架构文档](SYSTEM_ARCHITECTURE.md)。
+> 更新：2026-09-09。本文聚焦 BSK/MJScene 核心；整个前端、后端、UE、视频、采集与部署关系见[总体架构文档](SYSTEM_ARCHITECTURE.md)。
 >
 > 本文区分当前 SARM 实际调用路径与通用架构抽象。8/6 关节契约不一致已修复；新姿态链详见[反作用轮与姿态保持](ATTITUDE_CONTROL.md)，其余限制见[当前缺口](SYSTEM_ARCHITECTURE.md#gaps)。
 
@@ -12,7 +12,7 @@ scripts/run_simulation.ps1
   → 适配器 load_native_grasp_module()
   → model/SARM/platform/scenarios/scenario_sarm_grasp.py
       → SimulationBaseClass + graspProcess + graspTask（2 ms）
-      → MJScene.fromFile(sarm_platform.xml)
+      → MJScene.fromFile(sarm_ground_target_self_collision.xml；其他模板/旧实例保留原 XML)
       → 目标消息 + 8 组 PID / 限幅器 / 执行器连接
       → 三个轮体/hinge motor + AttitudeControl（独立 100 Hz 姿态任务）
   → 服务端接入 SPICE、Earth/Sun NBodyGravity、独立 IK task、渲染桥
@@ -20,6 +20,8 @@ scripts/run_simulation.ps1
   → ConfigureStopTime() / ExecuteSimulation() 分段推进
   → 原生状态经渲染桥发往 UE，观测另发往后端
 ```
+
+默认抓取目标为地面验证星的**粗碰撞体＋内部接触版**（`sarm-ground-validation-self-collision-grasp`），加载 `model/SARM/platform/sarm_ground_target_self_collision.xml`。保留原外部抓取粗盒，以两个 pair-only 板件代理处理外侧板与固定目标接触；铰链邻域使用近似间隙避免初始假接触，不增加真实限位的假设。机器人、轮、相机、质量/惯量、8 路控制及轨道不变。旧粗盒、高精度实验和小方块模板保留，旧实例不自动换物理模型。见[粗碰撞内部接触](COARSE_SELF_COLLISION.md)与[目标专题](GROUND_CAPTURE_TARGET.md)。
 
 BSK 负责调度、环境模型、IK/PID、姿态反馈/轮矩分配和指令处理；MJScene 是当前多刚体积分、约束、接触与力耦合的唯一权威。UE 不参与物理积分。
 

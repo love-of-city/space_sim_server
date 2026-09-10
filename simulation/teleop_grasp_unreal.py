@@ -39,6 +39,9 @@ from space_arm_platform.lighting import (  # noqa: E402
 )
 
 
+from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
+
+
 JOINT_MIN = np.array([-3.1416, -3.1416, -3.1416, -3.1416, -3.1416, -6.2832, 0.0, 0.0])
 JOINT_MAX = np.array([3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 6.2832, 0.0375, 0.0375])
 ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00, 1.00])
@@ -78,8 +81,7 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
         raise ValueError(f"unable to read scene instance {resolved}: {error}") from error
     if document.get("schema") != "space-arm-scene-instance/1":
         raise ValueError(f"unsupported scene instance schema: {document.get('schema')}")
-    if document.get("template_id") != "spacecraft-arm-teleop":
-        raise ValueError(f"unsupported scene template: {document.get('template_id')}")
+    target = capture_target(document.get("template_id"))
     randomize_orbit_phase = document.get("randomize_orbit_phase", False)
     if not isinstance(randomize_orbit_phase, bool):
         raise ValueError("scene randomize_orbit_phase must be a boolean")
@@ -185,6 +187,11 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
     joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
     if np.any(joints < JOINT_MIN) or np.any(joints > JOINT_MAX):
         raise ValueError("scene arm joint positions exceed the SARM joint limits")
+    if target.hinge_joint:
+        angle = randomization.get("target_hinge_position_rad", 0.0)
+        if isinstance(angle, bool) or not isinstance(angle, (int, float)) or not math.isfinite(angle) or angle != 0.0:
+            raise ValueError("target_hinge_position_rad must be 0 at startup; only the CAD zero pose has validated clearance")
+        randomization["target_hinge_position_rad"] = 0.0
     return document
 
 
@@ -549,6 +556,12 @@ def _apply_orbital_initial_state(
         joint.setPosition(float(position))
         joint.setVelocity(0.0)
 
+    # Extra target DOFs never enter the SARM arm/IK/actuator arrays.
+    if "target_hinge_position_rad" in randomized:
+        hinge = scene.getBody("satellite_outer_panel").getScalarJoint("outer_panel_hinge")
+        hinge.setPosition(float(randomized["target_hinge_position_rad"]))
+        hinge.setVelocity(0.0)
+
     orbit_state = {
         "semi_major_axis_m": float(elements.a),
         "initial_position_m": orbital_position.tolist(),
@@ -575,6 +588,16 @@ def run(args: argparse.Namespace) -> None:
     from scenario_spacecraft_arm_grasp_unreal import load_native_grasp_module
 
     native = load_native_grasp_module(args.model_root.resolve())
+    template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
+    target_spec = capture_target(template_id)
+    native.MODEL_PATH = target_spec.resolve_model(args.model_root)
+    if not native.MODEL_PATH.is_file():
+        raise FileNotFoundError(f"Selected target scene is missing: {native.MODEL_PATH}")
+    print(json.dumps({"type": "capture_target_configuration", "template_id": template_id,
+                      "runtime_model": target_spec.runtime_model, "collision_model": target_spec.collision_model,
+                      "runtime_warning": target_spec.runtime_warning}, ensure_ascii=True), flush=True)
+    native.TARGET_POS = np.asarray(target_spec.position_m, dtype=float)
+    native.TARGET_QUAT = np.asarray(target_spec.orientation_wxyz, dtype=float)
     native.TIME_STEP = 0.002  # One authoritative 500 Hz dynamics step.
 
     client = SimulationControlClient(args.control_host, args.control_port, "sarm-teleop")
@@ -741,6 +764,8 @@ def run(args: argparse.Namespace) -> None:
             "target_linear_velocity_m_s": list(native.COMMON_VELOCITY),
             "target_angular_velocity_rad_s": list(native.TARGET_SPIN),
         }
+        if target_spec.hinge_joint:
+            randomized.setdefault("target_hinge_position_rad", 0.0)
         orbit_state = _apply_orbital_initial_state(
             scene, native, earth, orbit, randomized, initial_joints
         )
@@ -809,7 +834,15 @@ def run(args: argparse.Namespace) -> None:
                     "simulation_id": "sarm-teleop",
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
                     "scene_seed": scene_instance.get("seed") if scene_instance else None,
-                    "scene_template_id": scene_instance.get("template_id") if scene_instance else "spacecraft-arm-teleop",
+                    "capture_target": {
+                        "model_file": target_spec.model_file,
+                        "runtime_model": target_spec.runtime_model,
+                        "collision_model": target_spec.collision_model,
+                        "runtime_warning": target_spec.runtime_warning,
+                        "synthetic_mass_kg": target_spec.synthetic_mass_kg,
+                        "hinge_position_rad": float(scene.getBody(target_spec.hinge_body).getScalarJoint(target_spec.hinge_joint).stateOutMsg.read().state) if target_spec.hinge_joint else None,
+                    },
+                    "scene_template_id": template_id,
                     "step_id": str(frame),
                     "render_frame_id": str(render_frame_id),
                     # 使用权威渲染帧的离散时间，保证状态和相机产品可逐帧严格配对。

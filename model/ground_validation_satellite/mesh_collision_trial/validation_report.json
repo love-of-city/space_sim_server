@@ -1,0 +1,3241 @@
+{
+  "schema": "triangle-collision-validation/1",
+  "native_matched_python_mujoco": "3.7.0",
+  "candidate_sha256": {
+    "cleaned_meshes/part_050_color_00_a91584ed0a.obj": "3d5a58ab14fff5c24c290767d99e8bd67cac9b3ac113c94394ff61266c7f27e1",
+    "cleaned_meshes/hinge_fixed_visual_ba26433f42.obj": "eae00993fec4f2b5e92b0edfd11cbde6348d2fed90a2bf7ba0ff429dcfcc000d",
+    "cleaned_meshes/hinge_moving_visual_aade77d1b2.obj": "d1d992264fb3a02e9f35457ad8273d8193a9e0ff5798ae61a292f6b3d104efa5",
+    "attitude_control.json": "afe911500e22c6171a42f5a654a26f21148b22e859f8521d7213f5ac119f6db2",
+    "sarm_mesh_collision.xml": "a335769646a3c1048b34501d703421dd9ad09f0220b5a5c12197272b9445168f",
+    "satellite_mesh_collision.xml": "4c41f3c3cd9285e51143636bb4d1b4439098f38984a22265770ab0c7dbb90f5f"
+  },
+  "compile_wall_s": 17.558193000000756,
+  "model": {
+    "nbody": 4,
+    "nq": 8,
+    "nv": 7,
+    "nu": 0,
+    "nflex": 208,
+    "collision_triangles": 1694919,
+    "collision_vertices": 895387
+  },
+  "geometry": {
+    "all_surfaces_compared": 208,
+    "all_retained_triangles_compared": 1694919,
+    "max_triangle_vertex_error_m": 1.0340969172266932e-08,
+    "comparison": "Every retained source triangle vertex vs compiled collision triangle, in body coordinates; not sparse sampling",
+    "source_surfaces": [
+      {
+        "flex": "contact_target_instance_0196_hinge_moving_visual",
+        "body": "satellite_outer_panel",
+        "triangles": 2643,
+        "max_triangle_vertex_error_m": 1.7321140208331093e-09
+      },
+      {
+        "flex": "contact_target_instance_0197_hinge_moving_visual",
+        "body": "satellite_outer_panel",
+        "triangles": 2643,
+        "max_triangle_vertex_error_m": 1.7321139930924746e-09
+      },
+      {
+        "flex": "contact_target_instance_0199_part_066_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 1148,
+        "max_triangle_vertex_error_m": 7.468874924188123e-09
+      },
+      {
+        "flex": "contact_target_instance_0200_part_067_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 172,
+        "max_triangle_vertex_error_m": 7.216015090586609e-09
+      },
+      {
+        "flex": "contact_target_instance_0202_part_068_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.9038385689143335e-10
+      },
+      {
+        "flex": "contact_target_instance_0203_part_069_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991645401888901e-11
+      },
+      {
+        "flex": "contact_target_instance_0203_part_069_color_01",
+        "body": "satellite_outer_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928522977045476e-10
+      },
+      {
+        "flex": "contact_target_instance_0205_part_068_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903838495765529e-10
+      },
+      {
+        "flex": "contact_target_instance_0206_part_069_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991646647236146e-11
+      },
+      {
+        "flex": "contact_target_instance_0206_part_069_color_01",
+        "body": "satellite_outer_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928522261823186e-10
+      },
+      {
+        "flex": "contact_target_instance_0208_part_070_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 2996,
+        "max_triangle_vertex_error_m": 2.0426874632288614e-09
+      },
+      {
+        "flex": "contact_target_instance_0209_part_071_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 584,
+        "max_triangle_vertex_error_m": 9.313497349249384e-10
+      },
+      {
+        "flex": "contact_target_instance_0211_part_070_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 2996,
+        "max_triangle_vertex_error_m": 2.0426874632288614e-09
+      },
+      {
+        "flex": "contact_target_instance_0212_part_071_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 584,
+        "max_triangle_vertex_error_m": 9.31349738534866e-10
+      },
+      {
+        "flex": "contact_target_instance_0213_part_072_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 3716,
+        "max_triangle_vertex_error_m": 1.7652783441045996e-09
+      },
+      {
+        "flex": "contact_target_instance_0214_part_073_color_00",
+        "body": "satellite_outer_panel",
+        "triangles": 9568,
+        "max_triangle_vertex_error_m": 5.977729882425453e-10
+      },
+      {
+        "flex": "contact_target_instance_0132_part_055_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 5152,
+        "max_triangle_vertex_error_m": 9.74932840314525e-09
+      },
+      {
+        "flex": "contact_target_instance_0133_part_056_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 492,
+        "max_triangle_vertex_error_m": 8.966919338813934e-09
+      },
+      {
+        "flex": "contact_target_instance_0135_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.9037969531718393e-10
+      },
+      {
+        "flex": "contact_target_instance_0136_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991448739702255e-11
+      },
+      {
+        "flex": "contact_target_instance_0136_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928088105586821e-10
+      },
+      {
+        "flex": "contact_target_instance_0138_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837123525479e-10
+      },
+      {
+        "flex": "contact_target_instance_0139_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638142301977e-11
+      },
+      {
+        "flex": "contact_target_instance_0139_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928508785111315e-10
+      },
+      {
+        "flex": "contact_target_instance_0141_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837229276764e-10
+      },
+      {
+        "flex": "contact_target_instance_0142_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638043270637e-11
+      },
+      {
+        "flex": "contact_target_instance_0142_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.092850878513244e-10
+      },
+      {
+        "flex": "contact_target_instance_0144_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837229276764e-10
+      },
+      {
+        "flex": "contact_target_instance_0145_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991639046621532e-11
+      },
+      {
+        "flex": "contact_target_instance_0145_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928507578746846e-10
+      },
+      {
+        "flex": "contact_target_instance_0147_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.9038372242054715e-10
+      },
+      {
+        "flex": "contact_target_instance_0148_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638670364933e-11
+      },
+      {
+        "flex": "contact_target_instance_0148_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928508031141439e-10
+      },
+      {
+        "flex": "contact_target_instance_0150_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837229276764e-10
+      },
+      {
+        "flex": "contact_target_instance_0151_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991639046621532e-11
+      },
+      {
+        "flex": "contact_target_instance_0151_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928507578746846e-10
+      },
+      {
+        "flex": "contact_target_instance_0153_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837229276764e-10
+      },
+      {
+        "flex": "contact_target_instance_0154_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638043270637e-11
+      },
+      {
+        "flex": "contact_target_instance_0154_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.092850878513244e-10
+      },
+      {
+        "flex": "contact_target_instance_0156_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837123525479e-10
+      },
+      {
+        "flex": "contact_target_instance_0157_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638142301977e-11
+      },
+      {
+        "flex": "contact_target_instance_0157_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928508785111315e-10
+      },
+      {
+        "flex": "contact_target_instance_0159_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837123525479e-10
+      },
+      {
+        "flex": "contact_target_instance_0160_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.99163914565286e-11
+      },
+      {
+        "flex": "contact_target_instance_0160_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.092850757872572e-10
+      },
+      {
+        "flex": "contact_target_instance_0162_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.9038371184541867e-10
+      },
+      {
+        "flex": "contact_target_instance_0163_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638769396265e-11
+      },
+      {
+        "flex": "contact_target_instance_0163_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928508031120313e-10
+      },
+      {
+        "flex": "contact_target_instance_0165_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837123525479e-10
+      },
+      {
+        "flex": "contact_target_instance_0166_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.99163914565286e-11
+      },
+      {
+        "flex": "contact_target_instance_0166_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.092850757872572e-10
+      },
+      {
+        "flex": "contact_target_instance_0168_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837123525479e-10
+      },
+      {
+        "flex": "contact_target_instance_0169_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638142301977e-11
+      },
+      {
+        "flex": "contact_target_instance_0169_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928508785111315e-10
+      },
+      {
+        "flex": "contact_target_instance_0171_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837229276764e-10
+      },
+      {
+        "flex": "contact_target_instance_0172_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638043270637e-11
+      },
+      {
+        "flex": "contact_target_instance_0172_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.092850878513244e-10
+      },
+      {
+        "flex": "contact_target_instance_0174_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837229276764e-10
+      },
+      {
+        "flex": "contact_target_instance_0175_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991639046621532e-11
+      },
+      {
+        "flex": "contact_target_instance_0175_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928507578746846e-10
+      },
+      {
+        "flex": "contact_target_instance_0177_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837123525479e-10
+      },
+      {
+        "flex": "contact_target_instance_0178_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991639244684248e-11
+      },
+      {
+        "flex": "contact_target_instance_0178_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928507578746846e-10
+      },
+      {
+        "flex": "contact_target_instance_0180_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837229276764e-10
+      },
+      {
+        "flex": "contact_target_instance_0181_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.99163854494607e-11
+      },
+      {
+        "flex": "contact_target_instance_0181_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.0928507578746846e-10
+      },
+      {
+        "flex": "contact_target_instance_0183_part_057_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3380,
+        "max_triangle_vertex_error_m": 2.903837123525479e-10
+      },
+      {
+        "flex": "contact_target_instance_0184_part_058_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 7.991638643977405e-11
+      },
+      {
+        "flex": "contact_target_instance_0184_part_058_color_01",
+        "body": "satellite_inner_panel",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.092850757872572e-10
+      },
+      {
+        "flex": "contact_target_instance_0186_part_059_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3796,
+        "max_triangle_vertex_error_m": 1.8939471467601945e-09
+      },
+      {
+        "flex": "contact_target_instance_0187_part_060_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 1168,
+        "max_triangle_vertex_error_m": 1.8400920259396681e-09
+      },
+      {
+        "flex": "contact_target_instance_0189_part_059_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 3796,
+        "max_triangle_vertex_error_m": 1.8939471467601945e-09
+      },
+      {
+        "flex": "contact_target_instance_0190_part_060_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 1168,
+        "max_triangle_vertex_error_m": 1.8400920259396681e-09
+      },
+      {
+        "flex": "contact_target_instance_0192_part_061_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 5408,
+        "max_triangle_vertex_error_m": 1.7828851208370433e-09
+      },
+      {
+        "flex": "contact_target_instance_0193_part_062_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 9.192524501900315e-10
+      },
+      {
+        "flex": "contact_target_instance_0194_part_063_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 10316,
+        "max_triangle_vertex_error_m": 9.487313723585614e-10
+      },
+      {
+        "flex": "contact_target_instance_0195_part_064_color_00",
+        "body": "satellite_inner_panel",
+        "triangles": 9824,
+        "max_triangle_vertex_error_m": 8.263774367722652e-10
+      },
+      {
+        "flex": "contact_target_instance_0196_hinge_fixed_visual",
+        "body": "satellite_inner_panel",
+        "triangles": 9265,
+        "max_triangle_vertex_error_m": 1.790879038317728e-09
+      },
+      {
+        "flex": "contact_target_instance_0197_hinge_fixed_visual",
+        "body": "satellite_inner_panel",
+        "triangles": 9265,
+        "max_triangle_vertex_error_m": 1.790879038317728e-09
+      },
+      {
+        "flex": "contact_target_instance_0006_part_001_color_00",
+        "body": "capture_target",
+        "triangles": 231070,
+        "max_triangle_vertex_error_m": 8.288637328567646e-09
+      },
+      {
+        "flex": "contact_target_instance_0007_part_002_color_00",
+        "body": "capture_target",
+        "triangles": 5052,
+        "max_triangle_vertex_error_m": 7.999149737012328e-09
+      },
+      {
+        "flex": "contact_target_instance_0009_part_003_color_00",
+        "body": "capture_target",
+        "triangles": 12802,
+        "max_triangle_vertex_error_m": 2.5559032324358984e-09
+      },
+      {
+        "flex": "contact_target_instance_0010_part_004_color_00",
+        "body": "capture_target",
+        "triangles": 3212,
+        "max_triangle_vertex_error_m": 2.005606368954691e-09
+      },
+      {
+        "flex": "contact_target_instance_0012_part_005_color_00",
+        "body": "capture_target",
+        "triangles": 41716,
+        "max_triangle_vertex_error_m": 2.6159255982295464e-09
+      },
+      {
+        "flex": "contact_target_instance_0013_part_006_color_00",
+        "body": "capture_target",
+        "triangles": 2920,
+        "max_triangle_vertex_error_m": 2.518615627013767e-09
+      },
+      {
+        "flex": "contact_target_instance_0015_part_007_color_00",
+        "body": "capture_target",
+        "triangles": 4082,
+        "max_triangle_vertex_error_m": 1.2897966489087256e-09
+      },
+      {
+        "flex": "contact_target_instance_0015_part_007_color_01",
+        "body": "capture_target",
+        "triangles": 72,
+        "max_triangle_vertex_error_m": 9.870298597556143e-10
+      },
+      {
+        "flex": "contact_target_instance_0016_part_008_color_00",
+        "body": "capture_target",
+        "triangles": 1928,
+        "max_triangle_vertex_error_m": 1.3140739042209478e-09
+      },
+      {
+        "flex": "contact_target_instance_0018_part_009_color_00",
+        "body": "capture_target",
+        "triangles": 99584,
+        "max_triangle_vertex_error_m": 1.0340969172266932e-08
+      },
+      {
+        "flex": "contact_target_instance_0019_part_010_color_00",
+        "body": "capture_target",
+        "triangles": 1680,
+        "max_triangle_vertex_error_m": 8.308223709052523e-09
+      },
+      {
+        "flex": "contact_target_instance_0021_part_007_color_00",
+        "body": "capture_target",
+        "triangles": 4082,
+        "max_triangle_vertex_error_m": 1.2897966489087256e-09
+      },
+      {
+        "flex": "contact_target_instance_0021_part_007_color_01",
+        "body": "capture_target",
+        "triangles": 72,
+        "max_triangle_vertex_error_m": 9.870298597556143e-10
+      },
+      {
+        "flex": "contact_target_instance_0022_part_008_color_00",
+        "body": "capture_target",
+        "triangles": 1928,
+        "max_triangle_vertex_error_m": 1.3140739042209478e-09
+      },
+      {
+        "flex": "contact_target_instance_0024_part_011_color_00",
+        "body": "capture_target",
+        "triangles": 91114,
+        "max_triangle_vertex_error_m": 7.648491671385572e-09
+      },
+      {
+        "flex": "contact_target_instance_0025_part_012_color_00",
+        "body": "capture_target",
+        "triangles": 8769,
+        "max_triangle_vertex_error_m": 7.630374076768043e-09
+      },
+      {
+        "flex": "contact_target_instance_0027_part_013_color_00",
+        "body": "capture_target",
+        "triangles": 70824,
+        "max_triangle_vertex_error_m": 7.659304321782394e-09
+      },
+      {
+        "flex": "contact_target_instance_0028_part_014_color_00",
+        "body": "capture_target",
+        "triangles": 7304,
+        "max_triangle_vertex_error_m": 7.450354485726211e-09
+      },
+      {
+        "flex": "contact_target_instance_0030_part_015_color_00",
+        "body": "capture_target",
+        "triangles": 39782,
+        "max_triangle_vertex_error_m": 2.5846035283370284e-09
+      },
+      {
+        "flex": "contact_target_instance_0037_part_020_color_00",
+        "body": "capture_target",
+        "triangles": 9097,
+        "max_triangle_vertex_error_m": 1.8714960186222087e-09
+      },
+      {
+        "flex": "contact_target_instance_0037_part_020_color_01",
+        "body": "capture_target",
+        "triangles": 1465,
+        "max_triangle_vertex_error_m": 1.8617443261740701e-09
+      },
+      {
+        "flex": "contact_target_instance_0038_part_021_color_00",
+        "body": "capture_target",
+        "triangles": 892,
+        "max_triangle_vertex_error_m": 7.132254599281243e-10
+      },
+      {
+        "flex": "contact_target_instance_0038_part_021_color_01",
+        "body": "capture_target",
+        "triangles": 59109,
+        "max_triangle_vertex_error_m": 1.7841370109359765e-09
+      },
+      {
+        "flex": "contact_target_instance_0039_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9803693403776756e-10
+      },
+      {
+        "flex": "contact_target_instance_0040_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9803693403776756e-10
+      },
+      {
+        "flex": "contact_target_instance_0041_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9803693403776756e-10
+      },
+      {
+        "flex": "contact_target_instance_0042_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9803693403776756e-10
+      },
+      {
+        "flex": "contact_target_instance_0045_part_023_color_00",
+        "body": "capture_target",
+        "triangles": 9352,
+        "max_triangle_vertex_error_m": 2.157181770456829e-09
+      },
+      {
+        "flex": "contact_target_instance_0046_part_024_color_00",
+        "body": "capture_target",
+        "triangles": 1176,
+        "max_triangle_vertex_error_m": 1.2920915779559724e-09
+      },
+      {
+        "flex": "contact_target_instance_0048_part_025_color_00",
+        "body": "capture_target",
+        "triangles": 52884,
+        "max_triangle_vertex_error_m": 2.0224007470296393e-09
+      },
+      {
+        "flex": "contact_target_instance_0049_part_026_color_00",
+        "body": "capture_target",
+        "triangles": 5500,
+        "max_triangle_vertex_error_m": 5.105208943593112e-10
+      },
+      {
+        "flex": "contact_target_instance_0050_part_027_color_00",
+        "body": "capture_target",
+        "triangles": 63996,
+        "max_triangle_vertex_error_m": 1.0333097409417084e-09
+      },
+      {
+        "flex": "contact_target_instance_0052_part_028_color_00",
+        "body": "capture_target",
+        "triangles": 12472,
+        "max_triangle_vertex_error_m": 1.0764785994010207e-09
+      },
+      {
+        "flex": "contact_target_instance_0053_part_029_color_00",
+        "body": "capture_target",
+        "triangles": 68718,
+        "max_triangle_vertex_error_m": 9.526627481868906e-10
+      },
+      {
+        "flex": "contact_target_instance_0054_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9804003794741923e-10
+      },
+      {
+        "flex": "contact_target_instance_0055_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9804003794741923e-10
+      },
+      {
+        "flex": "contact_target_instance_0057_part_028_color_00",
+        "body": "capture_target",
+        "triangles": 12472,
+        "max_triangle_vertex_error_m": 1.0764785994010207e-09
+      },
+      {
+        "flex": "contact_target_instance_0058_part_030_color_00",
+        "body": "capture_target",
+        "triangles": 68718,
+        "max_triangle_vertex_error_m": 9.526627723223565e-10
+      },
+      {
+        "flex": "contact_target_instance_0059_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9804184692757104e-10
+      },
+      {
+        "flex": "contact_target_instance_0060_part_022_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.9804184692757104e-10
+      },
+      {
+        "flex": "contact_target_instance_0064_part_032_color_00",
+        "body": "capture_target",
+        "triangles": 512,
+        "max_triangle_vertex_error_m": 1.473906016247623e-10
+      },
+      {
+        "flex": "contact_target_instance_0064_part_032_color_01",
+        "body": "capture_target",
+        "triangles": 68,
+        "max_triangle_vertex_error_m": 7.441282704689056e-11
+      },
+      {
+        "flex": "contact_target_instance_0065_part_033_color_00",
+        "body": "capture_target",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.1176937747672116e-10
+      },
+      {
+        "flex": "contact_target_instance_0067_part_032_color_00",
+        "body": "capture_target",
+        "triangles": 512,
+        "max_triangle_vertex_error_m": 1.473906016247623e-10
+      },
+      {
+        "flex": "contact_target_instance_0067_part_032_color_01",
+        "body": "capture_target",
+        "triangles": 68,
+        "max_triangle_vertex_error_m": 7.441282704689056e-11
+      },
+      {
+        "flex": "contact_target_instance_0068_part_033_color_00",
+        "body": "capture_target",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.1176937747672116e-10
+      },
+      {
+        "flex": "contact_target_instance_0070_part_032_color_00",
+        "body": "capture_target",
+        "triangles": 512,
+        "max_triangle_vertex_error_m": 1.4739060501770257e-10
+      },
+      {
+        "flex": "contact_target_instance_0070_part_032_color_01",
+        "body": "capture_target",
+        "triangles": 68,
+        "max_triangle_vertex_error_m": 7.441282373261284e-11
+      },
+      {
+        "flex": "contact_target_instance_0071_part_033_color_00",
+        "body": "capture_target",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.11769377432476e-10
+      },
+      {
+        "flex": "contact_target_instance_0073_part_032_color_00",
+        "body": "capture_target",
+        "triangles": 512,
+        "max_triangle_vertex_error_m": 1.4739060501770257e-10
+      },
+      {
+        "flex": "contact_target_instance_0073_part_032_color_01",
+        "body": "capture_target",
+        "triangles": 68,
+        "max_triangle_vertex_error_m": 7.441282373261284e-11
+      },
+      {
+        "flex": "contact_target_instance_0074_part_033_color_00",
+        "body": "capture_target",
+        "triangles": 140,
+        "max_triangle_vertex_error_m": 1.11769377432476e-10
+      },
+      {
+        "flex": "contact_target_instance_0077_part_034_color_00",
+        "body": "capture_target",
+        "triangles": 3568,
+        "max_triangle_vertex_error_m": 1.1290134169802905e-09
+      },
+      {
+        "flex": "contact_target_instance_0078_part_035_color_00",
+        "body": "capture_target",
+        "triangles": 280,
+        "max_triangle_vertex_error_m": 9.304128074343817e-10
+      },
+      {
+        "flex": "contact_target_instance_0079_part_036_color_00",
+        "body": "capture_target",
+        "triangles": 8694,
+        "max_triangle_vertex_error_m": 9.566569614833344e-10
+      },
+      {
+        "flex": "contact_target_instance_0079_part_036_color_01",
+        "body": "capture_target",
+        "triangles": 17,
+        "max_triangle_vertex_error_m": 6.741307506665001e-10
+      },
+      {
+        "flex": "contact_target_instance_0079_part_036_color_02",
+        "body": "capture_target",
+        "triangles": 2,
+        "max_triangle_vertex_error_m": 1.2065241511299186e-10
+      },
+      {
+        "flex": "contact_target_instance_0079_part_036_color_03",
+        "body": "capture_target",
+        "triangles": 22928,
+        "max_triangle_vertex_error_m": 9.598793229218057e-10
+      },
+      {
+        "flex": "contact_target_instance_0079_part_036_color_04",
+        "body": "capture_target",
+        "triangles": 34,
+        "max_triangle_vertex_error_m": 8.274372191668682e-10
+      },
+      {
+        "flex": "contact_target_instance_0079_part_036_color_05",
+        "body": "capture_target",
+        "triangles": 57,
+        "max_triangle_vertex_error_m": 9.471722230329195e-10
+      },
+      {
+        "flex": "contact_target_instance_0081_part_037_color_00",
+        "body": "capture_target",
+        "triangles": 93092,
+        "max_triangle_vertex_error_m": 2.521907740841541e-09
+      },
+      {
+        "flex": "contact_target_instance_0083_part_038_color_00",
+        "body": "capture_target",
+        "triangles": 782,
+        "max_triangle_vertex_error_m": 3.202315277316669e-10
+      },
+      {
+        "flex": "contact_target_instance_0084_part_039_color_00",
+        "body": "capture_target",
+        "triangles": 306,
+        "max_triangle_vertex_error_m": 6.538959447511378e-11
+      },
+      {
+        "flex": "contact_target_instance_0086_part_038_color_00",
+        "body": "capture_target",
+        "triangles": 782,
+        "max_triangle_vertex_error_m": 3.202315277316669e-10
+      },
+      {
+        "flex": "contact_target_instance_0087_part_039_color_00",
+        "body": "capture_target",
+        "triangles": 306,
+        "max_triangle_vertex_error_m": 6.538959447511378e-11
+      },
+      {
+        "flex": "contact_target_instance_0089_part_038_color_00",
+        "body": "capture_target",
+        "triangles": 782,
+        "max_triangle_vertex_error_m": 3.202315277316669e-10
+      },
+      {
+        "flex": "contact_target_instance_0090_part_039_color_00",
+        "body": "capture_target",
+        "triangles": 306,
+        "max_triangle_vertex_error_m": 6.538959447511378e-11
+      },
+      {
+        "flex": "contact_target_instance_0092_part_038_color_00",
+        "body": "capture_target",
+        "triangles": 782,
+        "max_triangle_vertex_error_m": 3.202315277316669e-10
+      },
+      {
+        "flex": "contact_target_instance_0093_part_039_color_00",
+        "body": "capture_target",
+        "triangles": 306,
+        "max_triangle_vertex_error_m": 6.538959447511378e-11
+      },
+      {
+        "flex": "contact_target_instance_0094_part_040_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.1839220914187569e-10
+      },
+      {
+        "flex": "contact_target_instance_0095_part_040_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.1839220914187569e-10
+      },
+      {
+        "flex": "contact_target_instance_0096_part_040_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.1839220914187569e-10
+      },
+      {
+        "flex": "contact_target_instance_0097_part_040_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 1.1839220914187569e-10
+      },
+      {
+        "flex": "contact_target_instance_0099_part_041_color_00",
+        "body": "capture_target",
+        "triangles": 1410,
+        "max_triangle_vertex_error_m": 2.3259673149432071e-10
+      },
+      {
+        "flex": "contact_target_instance_0100_part_042_color_00",
+        "body": "capture_target",
+        "triangles": 484,
+        "max_triangle_vertex_error_m": 1.6145992739187937e-10
+      },
+      {
+        "flex": "contact_target_instance_0102_part_041_color_00",
+        "body": "capture_target",
+        "triangles": 1410,
+        "max_triangle_vertex_error_m": 2.325967308139673e-10
+      },
+      {
+        "flex": "contact_target_instance_0103_part_042_color_00",
+        "body": "capture_target",
+        "triangles": 484,
+        "max_triangle_vertex_error_m": 1.6145992739187937e-10
+      },
+      {
+        "flex": "contact_target_instance_0105_part_041_color_00",
+        "body": "capture_target",
+        "triangles": 1410,
+        "max_triangle_vertex_error_m": 2.325967308139673e-10
+      },
+      {
+        "flex": "contact_target_instance_0106_part_042_color_00",
+        "body": "capture_target",
+        "triangles": 484,
+        "max_triangle_vertex_error_m": 1.6145992739187937e-10
+      },
+      {
+        "flex": "contact_target_instance_0108_part_041_color_00",
+        "body": "capture_target",
+        "triangles": 1410,
+        "max_triangle_vertex_error_m": 2.3259673149432071e-10
+      },
+      {
+        "flex": "contact_target_instance_0109_part_042_color_00",
+        "body": "capture_target",
+        "triangles": 484,
+        "max_triangle_vertex_error_m": 1.6145992739187937e-10
+      },
+      {
+        "flex": "contact_target_instance_0110_part_043_color_00",
+        "body": "capture_target",
+        "triangles": 5942,
+        "max_triangle_vertex_error_m": 4.763842181527947e-10
+      },
+      {
+        "flex": "contact_target_instance_0113_part_044_color_00",
+        "body": "capture_target",
+        "triangles": 750,
+        "max_triangle_vertex_error_m": 3.58862491714752e-09
+      },
+      {
+        "flex": "contact_target_instance_0113_part_044_color_01",
+        "body": "capture_target",
+        "triangles": 226,
+        "max_triangle_vertex_error_m": 2.5834147870127083e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_00",
+        "body": "capture_target",
+        "triangles": 76085,
+        "max_triangle_vertex_error_m": 4.3211307719485284e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_01",
+        "body": "capture_target",
+        "triangles": 4277,
+        "max_triangle_vertex_error_m": 4.098719518756155e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_02",
+        "body": "capture_target",
+        "triangles": 14432,
+        "max_triangle_vertex_error_m": 4.207244815184552e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_03",
+        "body": "capture_target",
+        "triangles": 2148,
+        "max_triangle_vertex_error_m": 3.484653235001677e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_04",
+        "body": "capture_target",
+        "triangles": 61970,
+        "max_triangle_vertex_error_m": 4.1436634540357844e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_05",
+        "body": "capture_target",
+        "triangles": 6130,
+        "max_triangle_vertex_error_m": 4.138633245434462e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_06",
+        "body": "capture_target",
+        "triangles": 1876,
+        "max_triangle_vertex_error_m": 4.032785748158931e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_07",
+        "body": "capture_target",
+        "triangles": 2114,
+        "max_triangle_vertex_error_m": 3.979899455554835e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_08",
+        "body": "capture_target",
+        "triangles": 12379,
+        "max_triangle_vertex_error_m": 4.093125252583718e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_09",
+        "body": "capture_target",
+        "triangles": 540,
+        "max_triangle_vertex_error_m": 3.6070037479534923e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_10",
+        "body": "capture_target",
+        "triangles": 8140,
+        "max_triangle_vertex_error_m": 3.835913854817656e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_11",
+        "body": "capture_target",
+        "triangles": 184,
+        "max_triangle_vertex_error_m": 3.7173852296993324e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_12",
+        "body": "capture_target",
+        "triangles": 16,
+        "max_triangle_vertex_error_m": 2.8179173116268297e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_13",
+        "body": "capture_target",
+        "triangles": 2312,
+        "max_triangle_vertex_error_m": 3.4107093607461253e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_14",
+        "body": "capture_target",
+        "triangles": 448,
+        "max_triangle_vertex_error_m": 3.929181224356671e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_15",
+        "body": "capture_target",
+        "triangles": 6481,
+        "max_triangle_vertex_error_m": 3.91678106090958e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_16",
+        "body": "capture_target",
+        "triangles": 4717,
+        "max_triangle_vertex_error_m": 4.1426535283734066e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_17",
+        "body": "capture_target",
+        "triangles": 408,
+        "max_triangle_vertex_error_m": 3.6672138519210006e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_18",
+        "body": "capture_target",
+        "triangles": 26,
+        "max_triangle_vertex_error_m": 3.018360877618872e-09
+      },
+      {
+        "flex": "contact_target_instance_0114_part_045_color_19",
+        "body": "capture_target",
+        "triangles": 1562,
+        "max_triangle_vertex_error_m": 4.194766999193281e-09
+      },
+      {
+        "flex": "contact_target_instance_0117_part_046_color_00",
+        "body": "capture_target",
+        "triangles": 9880,
+        "max_triangle_vertex_error_m": 1.4296866860524174e-09
+      },
+      {
+        "flex": "contact_target_instance_0118_part_047_color_00",
+        "body": "capture_target",
+        "triangles": 952,
+        "max_triangle_vertex_error_m": 1.014886021091463e-09
+      },
+      {
+        "flex": "contact_target_instance_0119_part_048_color_00",
+        "body": "capture_target",
+        "triangles": 5288,
+        "max_triangle_vertex_error_m": 1.030715966272644e-09
+      },
+      {
+        "flex": "contact_target_instance_0119_part_048_color_01",
+        "body": "capture_target",
+        "triangles": 262,
+        "max_triangle_vertex_error_m": 9.294721121663221e-10
+      },
+      {
+        "flex": "contact_target_instance_0122_part_049_color_00",
+        "body": "capture_target",
+        "triangles": 12,
+        "max_triangle_vertex_error_m": 4.914312185104364e-09
+      },
+      {
+        "flex": "contact_target_instance_0123_part_050_color_00",
+        "body": "capture_target",
+        "triangles": 149758,
+        "max_triangle_vertex_error_m": 7.696416057467728e-09
+      },
+      {
+        "flex": "contact_target_instance_0124_part_051_color_00",
+        "body": "capture_target",
+        "triangles": 868,
+        "max_triangle_vertex_error_m": 9.323185280256373e-10
+      },
+      {
+        "flex": "contact_target_instance_0125_part_051_color_00",
+        "body": "capture_target",
+        "triangles": 868,
+        "max_triangle_vertex_error_m": 9.323185278248626e-10
+      },
+      {
+        "flex": "contact_target_instance_0127_part_052_color_00",
+        "body": "capture_target",
+        "triangles": 1940,
+        "max_triangle_vertex_error_m": 3.794910961580496e-10
+      },
+      {
+        "flex": "contact_target_instance_0128_part_053_color_00",
+        "body": "capture_target",
+        "triangles": 1940,
+        "max_triangle_vertex_error_m": 8.872519228618801e-10
+      },
+      {
+        "flex": "contact_target_instance_0129_part_054_color_00",
+        "body": "capture_target",
+        "triangles": 1987,
+        "max_triangle_vertex_error_m": 5.354868530318399e-10
+      },
+      {
+        "flex": "contact_target_instance_0129_part_054_color_01",
+        "body": "capture_target",
+        "triangles": 298,
+        "max_triangle_vertex_error_m": 2.740124397405915e-10
+      },
+      {
+        "flex": "contact_target_instance_0129_part_054_color_02",
+        "body": "capture_target",
+        "triangles": 139,
+        "max_triangle_vertex_error_m": 2.5289376071563773e-10
+      },
+      {
+        "flex": "contact_target_instance_0215_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.6074531740671345e-10
+      },
+      {
+        "flex": "contact_target_instance_0216_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.6074531740671345e-10
+      },
+      {
+        "flex": "contact_target_instance_0217_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607453051055725e-10
+      },
+      {
+        "flex": "contact_target_instance_0218_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607453020302873e-10
+      },
+      {
+        "flex": "contact_target_instance_0219_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607453051055725e-10
+      },
+      {
+        "flex": "contact_target_instance_0220_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.6074531740671345e-10
+      },
+      {
+        "flex": "contact_target_instance_0221_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607453113377226e-10
+      },
+      {
+        "flex": "contact_target_instance_0222_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607452990365814e-10
+      },
+      {
+        "flex": "contact_target_instance_0223_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607452959612961e-10
+      },
+      {
+        "flex": "contact_target_instance_0224_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607452990365814e-10
+      },
+      {
+        "flex": "contact_target_instance_0225_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607453113377226e-10
+      },
+      {
+        "flex": "contact_target_instance_0226_part_074_color_00",
+        "body": "capture_target",
+        "triangles": 560,
+        "max_triangle_vertex_error_m": 2.607453113377226e-10
+      }
+    ]
+  },
+  "contact_radius_per_surface_m": 1e-05,
+  "source_triangle_instances": 1695101,
+  "removed_zero_area_triangle_instances": 182,
+  "removed_original_area_m2": 3.702419734677819e-16,
+  "neutral_pose_contacts": {
+    "angle_deg": 0,
+    "forward_wall_s": 0.18082979999962845,
+    "contacts": 200,
+    "root_outer_contacts": 0,
+    "root_outer_maximum_normal_force_N": 0.0,
+    "minimum_contact_distance_m": -0.0002803542308299969,
+    "maximum_normal_force_N": 50.954198246481525,
+    "pairs": [
+      {
+        "surfaces": [
+          "contact_target_instance_0196_hinge_moving_visual",
+          "contact_target_instance_0196_hinge_fixed_visual"
+        ],
+        "count": 50
+      },
+      {
+        "surfaces": [
+          "contact_target_instance_0197_hinge_moving_visual",
+          "contact_target_instance_0197_hinge_fixed_visual"
+        ],
+        "count": 50
+      },
+      {
+        "surfaces": [
+          "contact_target_instance_0208_part_070_color_00",
+          "contact_target_instance_0196_hinge_fixed_visual"
+        ],
+        "count": 50
+      },
+      {
+        "surfaces": [
+          "contact_target_instance_0211_part_070_color_00",
+          "contact_target_instance_0197_hinge_fixed_visual"
+        ],
+        "count": 50
+      }
+    ]
+  },
+  "smaller_skin_neutral_probe": {
+    "radius_per_surface_m": 1e-07,
+    "contacts": 200,
+    "root_outer_contacts": 0,
+    "root_outer_maximum_normal_force_N": 0.0,
+    "minimum_contact_distance_m": -7.184958787532464e-05,
+    "maximum_normal_force_N": 11.747993603568693,
+    "pairs": [
+      {
+        "surfaces": [
+          "contact_target_instance_0196_hinge_moving_visual",
+          "contact_target_instance_0196_hinge_fixed_visual"
+        ],
+        "count": 50
+      },
+      {
+        "surfaces": [
+          "contact_target_instance_0197_hinge_moving_visual",
+          "contact_target_instance_0197_hinge_fixed_visual"
+        ],
+        "count": 50
+      },
+      {
+        "surfaces": [
+          "contact_target_instance_0208_part_070_color_00",
+          "contact_target_instance_0196_hinge_fixed_visual"
+        ],
+        "count": 50
+      },
+      {
+        "surfaces": [
+          "contact_target_instance_0211_part_070_color_00",
+          "contact_target_instance_0197_hinge_fixed_visual"
+        ],
+        "count": 50
+      }
+    ]
+  },
+  "angle_sweep": [
+    {
+      "angle_deg": 0,
+      "forward_wall_s": 0.18082979999962845,
+      "contacts": 200,
+      "root_outer_contacts": 0,
+      "root_outer_maximum_normal_force_N": 0.0,
+      "minimum_contact_distance_m": -0.0002803542308299969,
+      "maximum_normal_force_N": 50.954198246481525,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        }
+      ]
+    },
+    {
+      "angle_deg": 30,
+      "forward_wall_s": 0.1328713999973843,
+      "contacts": 100,
+      "root_outer_contacts": 0,
+      "root_outer_maximum_normal_force_N": 0.0,
+      "minimum_contact_distance_m": -5.4491421791482455e-05,
+      "maximum_normal_force_N": 8.996727787328059,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        }
+      ]
+    },
+    {
+      "angle_deg": 90,
+      "forward_wall_s": 0.18760350000229664,
+      "contacts": 100,
+      "root_outer_contacts": 0,
+      "root_outer_maximum_normal_force_N": 0.0,
+      "minimum_contact_distance_m": -9.374613978776548e-05,
+      "maximum_normal_force_N": 15.596994664243844,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        }
+      ]
+    },
+    {
+      "angle_deg": 135,
+      "forward_wall_s": 0.23853409999719588,
+      "contacts": 100,
+      "root_outer_contacts": 0,
+      "root_outer_maximum_normal_force_N": 0.0,
+      "minimum_contact_distance_m": -0.0005096912970270233,
+      "maximum_normal_force_N": 118.64165177094947,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        }
+      ]
+    },
+    {
+      "angle_deg": 180,
+      "forward_wall_s": 0.20868609999888577,
+      "contacts": 150,
+      "root_outer_contacts": 0,
+      "root_outer_maximum_normal_force_N": 0.0,
+      "minimum_contact_distance_m": -0.0006003838292017988,
+      "maximum_normal_force_N": 160.85732474124106,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0214_part_073_color_00",
+            "contact_target_instance_0194_part_063_color_00"
+          ],
+          "count": 50
+        }
+      ]
+    },
+    {
+      "angle_deg": 190,
+      "forward_wall_s": 4.371595299999171,
+      "contacts": 2681,
+      "root_outer_contacts": 1331,
+      "root_outer_maximum_normal_force_N": 7706.713572657737,
+      "minimum_contact_distance_m": -0.02390490260119922,
+      "maximum_normal_force_N": 8797.700731290439,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0171_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0172_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0177_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0178_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0009_part_003_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0010_part_004_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0015_part_007_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0016_part_008_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0018_part_009_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0019_part_010_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0024_part_011_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0037_part_020_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0045_part_023_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0122_part_049_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0123_part_050_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0138_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0156_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0159_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0162_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0165_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0168_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0183_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0009_part_003_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0012_part_005_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0015_part_007_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0018_part_009_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0019_part_010_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0024_part_011_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0037_part_020_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0045_part_023_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0048_part_025_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0122_part_049_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0123_part_050_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0202_part_068_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0202_part_068_color_00",
+            "contact_target_instance_0183_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0205_part_068_color_00",
+            "contact_target_instance_0123_part_050_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0206_part_069_color_00",
+            "contact_target_instance_0123_part_050_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0025_part_012_color_00"
+          ],
+          "count": 25
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0113_part_044_color_01"
+          ],
+          "count": 20
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0206_part_069_color_01",
+            "contact_target_instance_0123_part_050_color_00"
+          ],
+          "count": 16
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0113_part_044_color_00"
+          ],
+          "count": 12
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0025_part_012_color_00"
+          ],
+          "count": 8
+        }
+      ]
+    },
+    {
+      "angle_deg": 200,
+      "forward_wall_s": 8.394882000000507,
+      "contacts": 4669,
+      "root_outer_contacts": 2619,
+      "root_outer_maximum_normal_force_N": 12431.632735362737,
+      "minimum_contact_distance_m": -0.03301999884615952,
+      "maximum_normal_force_N": 12431.632735362737,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0138_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0139_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0156_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0157_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0159_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0160_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0162_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0163_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0165_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0166_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0168_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0169_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0183_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0184_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0009_part_003_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0012_part_005_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0018_part_009_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0021_part_007_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0021_part_007_color_01"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0024_part_011_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0037_part_020_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0045_part_023_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0046_part_024_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0048_part_025_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_13"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_15"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0117_part_046_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0119_part_048_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0122_part_049_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0123_part_050_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0187_part_060_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0190_part_060_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0009_part_003_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0010_part_004_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0012_part_005_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0018_part_009_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0021_part_007_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0024_part_011_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0037_part_020_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0045_part_023_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0048_part_025_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0064_part_032_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0067_part_032_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0068_part_033_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0070_part_032_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0073_part_032_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0074_part_033_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_01"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_02"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_03"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_04"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_13"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_15"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0117_part_046_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0119_part_048_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0122_part_049_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0123_part_050_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0221_part_074_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0222_part_074_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0223_part_074_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0224_part_074_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0225_part_074_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0226_part_074_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0202_part_068_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0202_part_068_color_00",
+            "contact_target_instance_0183_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0202_part_068_color_00",
+            "contact_target_instance_0184_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0203_part_069_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0203_part_069_color_00",
+            "contact_target_instance_0183_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0203_part_069_color_00",
+            "contact_target_instance_0184_part_058_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0203_part_069_color_00",
+            "contact_target_instance_0184_part_058_color_01"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0203_part_069_color_01",
+            "contact_target_instance_0183_part_057_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0187_part_060_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0190_part_060_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0113_part_044_color_00"
+          ],
+          "count": 38
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0113_part_044_color_01"
+          ],
+          "count": 36
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0203_part_069_color_01",
+            "contact_target_instance_0184_part_058_color_00"
+          ],
+          "count": 36
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0113_part_044_color_01"
+          ],
+          "count": 20
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_10"
+          ],
+          "count": 14
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0202_part_068_color_00",
+            "contact_target_instance_0184_part_058_color_01"
+          ],
+          "count": 14
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_02"
+          ],
+          "count": 13
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_05"
+          ],
+          "count": 13
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0113_part_044_color_00"
+          ],
+          "count": 12
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_07"
+          ],
+          "count": 9
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_01"
+          ],
+          "count": 8
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_06"
+          ],
+          "count": 4
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_10"
+          ],
+          "count": 2
+        }
+      ]
+    },
+    {
+      "angle_deg": 225,
+      "forward_wall_s": 9.447166500001913,
+      "contacts": 2408,
+      "root_outer_contacts": 1558,
+      "root_outer_maximum_normal_force_N": 12431.633012452277,
+      "minimum_contact_distance_m": -0.0330199995829927,
+      "maximum_normal_force_N": 12431.633012452277,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0006_part_001_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0007_part_002_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0012_part_005_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0027_part_013_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0028_part_014_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0030_part_015_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0113_part_044_color_01"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_01"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_04"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_05"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_13"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_15"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0006_part_001_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0007_part_002_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0012_part_005_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0027_part_013_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0028_part_014_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0030_part_015_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0113_part_044_color_01"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_03"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_04"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_13"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_15"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_16"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0129_part_054_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0133_part_056_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_07"
+          ],
+          "count": 45
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0129_part_054_color_01"
+          ],
+          "count": 30
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_02"
+          ],
+          "count": 25
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_06"
+          ],
+          "count": 17
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_02"
+          ],
+          "count": 17
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0113_part_044_color_00"
+          ],
+          "count": 16
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0113_part_044_color_00"
+          ],
+          "count": 16
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0129_part_054_color_02"
+          ],
+          "count": 14
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_10"
+          ],
+          "count": 10
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0114_part_045_color_17"
+          ],
+          "count": 8
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_01"
+          ],
+          "count": 8
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0200_part_067_color_00",
+            "contact_target_instance_0114_part_045_color_10"
+          ],
+          "count": 2
+        }
+      ]
+    },
+    {
+      "angle_deg": 270,
+      "forward_wall_s": 0.18659919999845442,
+      "contacts": 650,
+      "root_outer_contacts": 0,
+      "root_outer_maximum_normal_force_N": 0.0,
+      "minimum_contact_distance_m": -0.0035400001000242386,
+      "maximum_normal_force_N": 1087.8377579581609,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0199_part_066_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0186_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0187_part_060_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0132_part_055_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0189_part_059_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0190_part_060_color_00"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        }
+      ]
+    },
+    {
+      "angle_deg": 360,
+      "forward_wall_s": 0.15822380000099656,
+      "contacts": 200,
+      "root_outer_contacts": 0,
+      "root_outer_maximum_normal_force_N": 0.0,
+      "minimum_contact_distance_m": -0.00028035423082999696,
+      "maximum_normal_force_N": 50.946880755058864,
+      "pairs": [
+        {
+          "surfaces": [
+            "contact_target_instance_0196_hinge_moving_visual",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0197_hinge_moving_visual",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0208_part_070_color_00",
+            "contact_target_instance_0196_hinge_fixed_visual"
+          ],
+          "count": 50
+        },
+        {
+          "surfaces": [
+            "contact_target_instance_0211_part_070_color_00",
+            "contact_target_instance_0197_hinge_fixed_visual"
+          ],
+          "count": 50
+        }
+      ]
+    }
+  ],
+  "sweep_is_static_overlap_detection_not_dynamic_nonpenetration_proof": true,
+  "passive_smoke": {
+    "simulation_duration_s": 0.02,
+    "wall_s": 1.531110699997953,
+    "measured_real_time_factor": 0.013062412796166038,
+    "hinge_initial_rate_rad_s": 0.1,
+    "hinge_final_rate_rad_s": -0.10780089146787122,
+    "hinge_final_angle_rad": 0.0005424088312062861,
+    "finite": true,
+    "warnings": {}
+  },
+  "conversion_verified": true,
+  "ready_for_production": false,
+  "default_scene_changed": false,
+  "blocking_findings": [
+    "Preview-only split hinge surfaces/nearby moving hardware generate contact at neutral pose; engineering articulation/contact geometry must be resolved, not silently excluded",
+    "Full-resolution triangle contact is substantially slower than the 500 Hz wall-time budget on this host",
+    "Surface contact has an explicit skin, not CAD-exact volume contact; no high-speed tunnelling guarantee",
+    "Mass/inertia and true hinge stops remain uncalibrated"
+  ],
+  "ue_browser_and_long_duration_tested": false,
+  "native_basilisk": {
+    "mujoco_version": "3.7.0",
+    "model": "sarm_mesh_collision.xml",
+    "compile_and_build_wall_s": 23.06478900000002,
+    "simulation_duration_s": 0.01,
+    "step_wall_s": 4.095830300000671,
+    "measured_real_time_factor": 0.0024415074032726313,
+    "bodies": [
+      "cubesat_bus",
+      "rw_x",
+      "rw_y",
+      "rw_z",
+      "link1",
+      "link2",
+      "link3",
+      "link4",
+      "link5",
+      "link6",
+      "finger1",
+      "finger2",
+      "capture_target",
+      "satellite_inner_panel",
+      "satellite_outer_panel"
+    ],
+    "body_count": 15,
+    "qpos_size": 26,
+    "qpos_finite": true,
+    "arm_control_channels": 8,
+    "attitude_control_enabled": true,
+    "hinge_initial_rate_rad_s": 0.1,
+    "hinge_final_rate_rad_s": -0.06574658010348232,
+    "hinge_final_angle_rad": 0.0007724787680974892,
+    "scope": "Native SARM+target MJScene + existing arm/attitude controller smoke, NOT orbital/UE/browser acceptance"
+  }
+}

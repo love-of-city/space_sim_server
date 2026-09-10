@@ -1,8 +1,8 @@
 # 太空仿真平台总体架构设计与实现总结
 
-> 文档日期：2026-09-08。性质：依据代码整理的当前架构说明，不是所有规划能力均已实现的承诺。
+> 文档日期：2026-09-08；待抓取目标更新：2026-09-09。性质：依据代码整理的当前架构说明，不是所有规划能力均已实现的承诺。
 >
-> 代码基线：服务端 `10bf803`；UE 适配器 `a1dd084`。本文、同次文档调整及后续反作用轮/观测修复尚不包含在这两个提交中。
+> 代码基线：服务端 `10bf803`；UE 适配器 `a1dd084`。本文、同次文档调整及后续反作用轮/观测修复及目标替换尚不包含在这两个提交中。
 >
 > **更新现状：SARM 8/6 项观测校验缺口已修复，三个真实转子和初始惯性姿态闭环已接入。** 真实 Hub/Recorder 与 UE 渲染协议完成隔离集成测试，但这不代表 GPU 视频与全部权威采集链路已验收。详见[姿态控制](ATTITUDE_CONTROL.md)与[当前缺口](#gaps)。
 
@@ -30,7 +30,7 @@
 <a id="overview"></a>
 ## 1. 系统定位与核心原则
 
-平台面向**太空机械臂遥操作、自由漂浮多刚体仿真、UE 可视化与同步训练数据采集**。当前默认场景是 SARM 卫星本体、三个正交反作用轮、六轴机械臂、双指夹爪及一个自由目标，不是旧的 CubeSat + SO-101 模型。
+平台面向**太空机械臂遥操作、自由漂浮多刚体仿真、UE 可视化与同步训练数据采集**。当前默认场景是 SARM 卫星本体、三个正交反作用轮、六轴机械臂、双指夹爪及自由漂浮的地面验证星（被动外侧板铰链），不是旧的 CubeSat + SO-101 模型。
 
 本文使用三种状态描述：
 
@@ -155,7 +155,7 @@ flowchart TB
 | 控制与观测连接 | [simulation_hub.py](../backend/space_arm_platform/simulation_hub.py) | 单一仿真 TCP 连接、动作发送、观测校验和广播 |
 | 原生仿真入口 | [teleop_grasp_unreal.py](../simulation/teleop_grasp_unreal.py) | 实例加载、IK、星历/重力接入、初始轨道、桥接、观测发送 |
 | 机械臂运动学 | [serial_chain_kinematics.py](../simulation/serial_chain_kinematics.py) | MJCF 串联链解析、正运动学、雅可比与阻尼最小二乘逆解 |
-| 物理模型与原生构建 | [sarm_platform.xml](../model/SARM/platform/sarm_platform.xml)、[scenario_sarm_grasp.py](../model/SARM/platform/scenarios/scenario_sarm_grasp.py) | 刚体、惯量、关节、接触、执行器、原生 PID/限幅与初态 |
+| 物理模型与原生构建 | [sarm_ground_target_self_collision.xml](../model/SARM/platform/sarm_ground_target_self_collision.xml)（粗盒内部接触默认；旧粗盒、高精度实验与小方块入口保留）、[scenario_sarm_grasp.py](../model/SARM/platform/scenarios/scenario_sarm_grasp.py) | 刚体、惯量、关节、接触、执行器、原生 PID/限幅与初态 |
 | 通用架构基础 | [architecture.py](../simulation/architecture.py) | 状态/控制抽象、接口、模块注册器、通用编排器；接入程度见第 7 节 |
 | 身份与会话 | [auth.py](../backend/space_arm_platform/auth.py) | 两种用户角色、密码摘要、SQLite 会话 |
 | 图像接收与配对 | [capture_receiver.py](../backend/space_arm_platform/capture_receiver.py)、[recorder.py](../backend/space_arm_platform/recorder.py) | 产品解包、预览分流、权威帧配对和落盘 |
@@ -214,12 +214,13 @@ running → stopped / completed / failed
 
 ### 5.3 实例配置和复现能力
 
-当前只有一个模板 `spacecraft-arm-teleop`；随机化方案为 `none` 和 `training-v1`。实例采用 `space-arm-scene-instance/1`，保存到 `run/scenes/<instance-id>.json`，包含：
+当前默认模板为 `sarm-ground-validation-self-collision-grasp`（粗碰撞体·内部碰撞），以显式 geom pair 开启外侧板与固定目标接触，使用近似铰链间隙；不使用高精度三角面或新增角度限位。旧无内部接触粗盒、高精度实验、小方块模板保留，已有实例不自动迁移；随机化方案为 `none` 和 `training-v1`。实例采用 `space-arm-scene-instance/1`，保存到 `run/scenes/<instance-id>.json`。细节见[粗碰撞内部接触](COARSE_SELF_COLLISION.md)，实例包含：
 
 - `created_by`、模板、实际 Seed，以及独立的轨道起点随机开关 `randomize_orbit_phase`（默认 `false`）；
 - `environment`：星历历元、中心、参考系和轨道参数；
 - `runtime`：仿真倍速、IK 频率、采集频率、是否启用权威采集；
-- `randomization`：目标位姿/速度、8 个初始关节值。
+- `randomization`：目标位姿/速度、8 个机械臂/夹爪初始关节值；新目标另外保存被动铰链的零位初态。
+- `capture_target`：源/运行 XML、碰撞模式 `collision_model`、实验限制 `runtime_warning`、被动关节及估算质量；模型组合、真实性边界与 UE 资源见[待抓取目标](GROUND_CAPTURE_TARGET.md)。
 
 局部抓取随机化使用 `random.Random(seed)`。轨道起点开关独立于 `none` / `training-v1`：开启时用独立的版本化随机流 `random.Random(f"space-arm-orbit-phase-v1:{seed}")` 均匀抽取 `[0, 360)` 度，只覆盖实例的 `environment.orbit.true_anomaly_deg`，不改变已有局部随机参数、轨道高度、倾角或星历时刻；关闭时仍为 180°。加载实例只应用保存的角度，不再次抽样。位置和速度由同一组轨道根数计算，再赋给权威 MJScene；渲染桥读取同一状态。详情见[轨道起点初始化](ORBIT_INITIALIZATION.md)。
 
@@ -321,7 +322,7 @@ running → stopped / completed / failed
 
 | 内容 | 当前来源 | 消费方 |
 | --- | --- | --- |
-| 刚体质量、质心、惯性张量、关节轴/范围、阻尼/摩擦、碰撞、执行器 | `model/SARM/platform/sarm_platform.xml` | MJScene；部分元数据也被运动学/渲染适配器读取 |
+| 刚体质量、质心、惯性张量、关节轴/范围、阻尼/摩擦、碰撞、执行器 | SARM 源参数在 `model/SARM/platform/sarm_platform.xml`；目标估算质量/惯量在 `tools/build_sarm_ground_target.py`；当前默认为 `sarm_ground_target_self_collision.xml`，含原外部粗盒及两个内部接触代理，参数同样由该生成器维护；`tools/build_satellite_mesh_collision.py` 派生的 `mesh_collision_trial/sarm_mesh_collision.xml` 仅保留供手动试验 | MJScene；部分元数据也被运动学/渲染适配器读取 |
 | 太阳照明倍率（默认 1，范围 0～20,000） | 创建请求 → 场景实例 `environment.lighting.sunlight_intensity_scale` | 仅渲染 SceneSettings/UE，不参与动力学；见[配置说明](SUNLIGHT_CONFIGURATION.md) |
 | 姿态开关、频率、PD 增益、轮速保护裕量 | `model/SARM/platform/attitude_control.json` | BSK 姿态模块；轮的物理参数仍从 MJCF 读取 |
 | 相机挂载位姿、垂直 FOV、原始分辨率 | 同一 MJCF 的 `<camera>` | 适配器 manifest → UE 相机 |

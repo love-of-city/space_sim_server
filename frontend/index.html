@@ -97,8 +97,9 @@
         </div>
         <div class="scene-form">
           <label>场景模板
-            <select id="sceneTemplate"><option value="spacecraft-arm-teleop">CubeSat + SO-101 遥操作抓取</option></select>
+            <select id="sceneTemplate" aria-describedby="sceneCollisionWarning"><option value="sarm-ground-validation-self-collision-grasp">SARM + 地面验证星（粗碰撞体·内部碰撞）</option></select>
           </label>
+          <small id="sceneCollisionWarning">默认粗碰撞体版已启用目标内部碰撞；铰链附近采用近似间隙，接触角度不代表真实限位。旧粗盒版不计算目标内部碰撞；高精度三角网格版仅供实验，运行速度显著低于实时。</small>
           <label>随机化配置
             <select id="randomizationProfile"><option value="training-v1">训练随机化 v1</option></select>
           </label>
@@ -130,6 +131,7 @@
           <div><dt>Seed</dt><dd id="sceneInstanceSeed">—</dd></div>
           <div><dt>太阳光照</dt><dd id="sceneInstanceSunlight">—</dd></div>
           <div><dt>轨道起点</dt><dd id="sceneInstanceOrbitPhase">—</dd></div>
+          <div><dt>待抓取物体</dt><dd id="sceneInstanceTarget">—</dd></div>
         </dl>
         <details class="scene-parameters">
           <summary>查看本次环境与随机参数</summary>

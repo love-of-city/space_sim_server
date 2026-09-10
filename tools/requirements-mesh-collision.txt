@@ -1,0 +1,6 @@
+# Install into a SEPARATE venv; do not replace the Basilisk MuJoCo DLL.
+# This version matches the native Basilisk/MJScene runtime validated locally.
+mujoco==3.7.0
+numpy==2.4.6
+pytest==9.1.1
+pillow==12.3.0

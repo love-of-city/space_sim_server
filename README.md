@@ -1,5 +1,17 @@
 # 太空机械臂遥操作与数据采集平台
 
+## 一键公网启动 / 停止
+
+在远程仿真机的本仓库根目录：
+
+- 双击 **`start_deployment.cmd`**：没有旧固定域名配置时，自动创建临时公网 HTTPS 入口；**不用填写 IP、域名、证书或初始化密码**。完成后打开访问链接/登录信息窗口。
+- 双击 **`stop_deployment.cmd`**：关闭本次公网隧道及整个平台/场景。
+- 双击 **`show_deployment_access.cmd`**：重新查看当前公网访问链接和自动生成的初始化密码。
+
+自动加载已有环境，缺少工具时下载校验，密码/密钥加密保存。已有管理员自定义密码不变；已知默认密码在备份后自动安全更换。首启切换或强制重启会停止旧场景。
+
+**这是临时公网发布，不是固定域名的正式生产托管**：自动网址重启可能变化，无服务可用性保证；WebRTC 视频仍可能需要 TURN，不能仅凭网页打开就认定视频连通。用户网页和手柄在用户自己的电脑上使用。详见 [免填写公网发布](docs/PUBLIC_DEPLOYMENT.md)。已有固定域名配置继续使用原模式，见 [高级部署说明](docs/DEPLOYMENT.md)。
+
 ## 架构与文档
 
 - [系统总体架构设计与实现总结](docs/SYSTEM_ARCHITECTURE.md)：系统组成、进程/协议、控制和采集链路、模型/器件配置归属、部署及当前缺口。
@@ -86,7 +98,7 @@ Set-Location .\space_arm_data_platform
 pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 ```
 
-若两个仓库不是同级目录，显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`。默认 `ModelRoot` 是本仓库的 `model\SARM\platform`，无需另行复制外部模型；实际 XML 按场景模板选择，当前为粗碰撞体＋内部接触组合版（见下文）。也可用 `-ModelRoot` 指定兼容的模型目录。PowerShell 入口仍保留旧工作区模型和适配器内 CubeSat + SO-101 的查找回退。模型目录与本地兼容路径说明见 `model/README.md`。
+默认会查找同级 UE 适配器仓库，也兼容服务端和适配器各多套一层同名目录的布局；其他布局可显式增加 `-AdapterRoot 'D:\path\to\space_sim_UE_adapter'`。默认 `ModelRoot` 是本仓库的 `model\SARM\platform`，无需另行复制外部模型；实际 XML 按场景模板选择，当前为粗碰撞体＋内部接触组合版（见下文）。也可用 `-ModelRoot` 指定兼容的模型目录。PowerShell 入口仍保留旧工作区模型和适配器内 CubeSat + SO-101 的查找回退。模型目录与本地兼容路径说明见 `model/README.md`。
 
 首次运行会使用 UE 5.6 自带脚本准备官方 Pixel Streaming Infrastructure 并安装其 Node 依赖，同时根据当前模型路径生成本机 UE 资源映射。首次克隆、模型位置或网格内容变化时，资源准备脚本可能重新导入网格并应用构建设置，因此准备时间取决于本机缓存。地球和银河 `.uasset` 通过 Git LFS 随适配器仓库提供，启动脚本会检查它们是否完整。不会安装另一套 UE。网页地址为 `http://127.0.0.1:8000`。
 
@@ -150,21 +162,31 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 管理员凭据只在认证数据库第一次创建管理员时使用；登录后可从页面右上角修改自己的密码。用户和会话持久保存在 `data/auth.sqlite3`。同一操作员打开多个页面时不需要申请控制权：点击实时画面的页面会自动成为当前操作页面，旧页面立即归零并退出操作。
 
-## 跨机器安全模式
+## 推荐部署：本地浏览器操作远程仿真机
+
+新增可配置的 HTTPS/WSS 同源部署入口，详见 [Windows 部署指南](docs/DEPLOYMENT.md)。
+
+- 配置模板：`deploy/deployment.example.json`，复制为 `deployment.local.json` 后填写真实主机名与 TLS 方式。
+- 默认只校验：`scripts/deploy_platform.ps1 -ValidateOnly`；切换运行环境必须显式指定 `-Start`，会停止旧平台。
+- 使用现有 Windows + UE/Basilisk 环境，不迁移模型；手柄接在本地浏览器所在电脑。
+- 部署模式启用 Secure Cookie、Origin 白名单和登录限流，内部服务只监听 loopback；视频直连/TURN 仍需实际网络配置。
+- 手柄诊断可显示设备、轴/按钮与阻断原因。首次接入需回中；非标准映射不自动发送机械臂动作。
+
+## 跨机器安全模式（底层参数）
 
 局域网或公网部署时显式启用 JWT 信令；本机模式默认不增加鉴权复杂度：
 
 ```powershell
-.\scripts\run_platform.ps1 -RemoteAccess -PublicHost 192.168.1.50
+.\scripts\run_platform.ps1 -RemoteAccess -PublicHost 192.168.1.50 -AdminPassword $env:SPACE_SIM_ADMIN_PASSWORD
 ```
 
 脚本会生成本次运行的访问密钥和 JWT 密钥，并输出带 `access_key` 的操作台地址。安全信令在 WebSocket 握手时验证短期 JWT，token 只允许访问声明的 Streamer ID，订阅时会再次校验。
-默认只有播放器端口监听外部网卡；UE Streamer 端口只绑定 `127.0.0.1`，避免外部进程冒充同名 UE Streamer。
+底层 `-RemoteAccess` 默认让 API 和播放器端口监听外部网卡（不等同于完整 HTTPS 部署）；推荐部署脚本改为 loopback + 代理。UE Streamer 端口只绑定 `127.0.0.1`，避免外部进程冒充同名 UE Streamer。
 
 跨 NAT 时可以注入 STUN/TURN：
 
 ```powershell
-.\scripts\run_platform.ps1 -RemoteAccess -PublicHost simulator.example.com `
+.\scripts\run_platform.ps1 -RemoteAccess -PublicHost simulator.example.com -AdminPassword $env:SPACE_SIM_ADMIN_PASSWORD `
   -PixelPlayerPublicUrl wss://simulator.example.com/stream `
   -IceServersJson '[{"urls":"stun:stun.example.com:3478"}]' `
   -TurnUrlsJson '["turn:turn.example.com:3478?transport=udp"]' `

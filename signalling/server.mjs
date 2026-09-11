@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { PeerDeparture } from "./peer_departure.mjs";
+import { parseAllowedOrigins, isAllowedOrigin } from "./origin.mjs";
 import { URL } from "node:url";
 import WebSocket, { WebSocketServer } from "ws";
 import {
@@ -21,6 +23,7 @@ const playerHost = process.env.PS_PLAYER_HOST || "0.0.0.0";
 const streamerHost = process.env.PS_STREAMER_HOST || "127.0.0.1";
 const maxSubscribers = Number(process.env.PS_MAX_SUBSCRIBERS || 4);
 const jwtSecret = process.env.PS_JWT_SECRET || "";
+const allowedOrigins = parseAllowedOrigins(process.env.PS_ALLOWED_ORIGINS);
 const staticIceServers = parseJsonArray(process.env.PS_ICE_SERVERS_JSON);
 const turnUrls = parseJsonArray(process.env.PS_TURN_URLS_JSON).map(String);
 const turnSecret = process.env.PS_TURN_AUTH_SECRET || "";
@@ -73,9 +76,38 @@ function peerConnectionOptions() {
   return { iceServers };
 }
 
+function configurationMessage() {
+  const message = MessageHelpers.createMessage(Messages.config, {
+    protocolVersion: SignallingProtocol.SIGNALLING_VERSION,
+  });
+  // UE 5.6's generated peerConnectionOptions schema has no declared fields.
+  // mergePartial() inside createMessage() drops iceServers. Like Epic's own
+  // SignallingServer, attach this extensible RTCConfiguration AFTER creation.
+  message.peerConnectionOptions = peerConnectionOptions();
+  return message;
+}
+
 const streamerRegistry = new StreamerRegistry();
 const playerRegistry = new PlayerRegistry();
 const context = { streamerRegistry, playerRegistry };
+
+class SafeStreamerConnection extends StreamerConnection {
+  constructor(...args) {
+    super(...args);
+    this.peerDepartures = new Map();
+    this.on("disconnect", () => {
+      for (const peer of this.peerDepartures.values()) peer.finish(false);
+    });
+  }
+  forwardMessage(message) {
+    const playerId = message.playerId;
+    if (message.type === Messages.offer.typeName) this.peerDepartures.get(playerId)?.offered();
+    // Never deliver late SDP/ICE to a player that switched to another camera.
+    const player = playerRegistry.get(playerId);
+    if (!player || player.closed || player.subscribedStreamer !== this) return;
+    super.forwardMessage(message);
+  }
+}
 
 function notifyPlayersOfStreamerList() {
   for (const player of playerRegistry.listPlayers()) {
@@ -94,6 +126,7 @@ class AuthorizedPlayerConnection {
     this.access = access;
     this.remoteAddress = remoteAddress;
     this.subscribedStreamer = null;
+    this.closed = false;
     this.transport = new WebSocketTransportNJS(ws);
     this.protocol = new SignallingProtocol(this.transport);
     this.streamerIdChanged = (newId) => this.send(
@@ -130,6 +163,10 @@ class AuthorizedPlayerConnection {
     this.send(MessageHelpers.createMessage(Messages.streamerList, { ids: this.visibleStreamerIds() }));
   }
   subscribe(streamerId) {
+    if (this.closed) return;
+    // The frontend may repeat its selection on streamer-list refresh. This
+    // must not send a rapid playerDisconnected/playerConnected pair to UE.
+    if (this.subscribedStreamer?.streamerId === streamerId) return;
     if (!this.access.streamer_ids.includes(streamerId)) {
       this.send(MessageHelpers.createMessage(Messages.subscribeFailed, { message: "Streamer is not permitted by this token." }));
       return;
@@ -139,6 +176,10 @@ class AuthorizedPlayerConnection {
       this.send(MessageHelpers.createMessage(Messages.subscribeFailed, { message: "Streamer is not available." }));
       return;
     }
+    if (streamer.subscribers.has(this.playerId)) {
+      this.send(MessageHelpers.createMessage(Messages.subscribeFailed, { message: "Previous subscription is still closing; reconnect to retry." }));
+      return;
+    }
     if (streamer.maxSubscribers > 0 && streamer.subscribers.size >= streamer.maxSubscribers) {
       this.send(MessageHelpers.createMessage(Messages.subscribeFailed, { message: "Streamer subscriber limit reached." }));
       return;
@@ -146,6 +187,16 @@ class AuthorizedPlayerConnection {
     this.unsubscribe();
     this.subscribedStreamer = streamer;
     streamer.subscribers.add(this.playerId);
+    const playerId = this.playerId;
+    const peer = new PeerDeparture((notify) => {
+      streamer.peerDepartures.delete(playerId);
+      streamer.subscribers.delete(playerId);
+      if (notify) {
+        try { streamer.protocol.sendMessage(MessageHelpers.createMessage(Messages.playerDisconnected, { playerId })); }
+        catch { /* streamer transport already closed */ }
+      }
+    });
+    streamer.peerDepartures.set(playerId, peer);
     streamer.on("id_changed", this.streamerIdChanged);
     streamer.on("disconnect", this.streamerDisconnected);
     streamer.protocol.sendMessage(MessageHelpers.createMessage(Messages.playerConnected, {
@@ -155,22 +206,22 @@ class AuthorizedPlayerConnection {
   unsubscribe() {
     if (!this.subscribedStreamer) return;
     const streamer = this.subscribedStreamer;
-    streamer.subscribers.delete(this.playerId);
-    streamer.protocol.sendMessage(MessageHelpers.createMessage(Messages.playerDisconnected, { playerId: this.playerId }));
+    // End routing/control immediately. Only UE peer teardown is delayed; this
+    // does not keep a disconnected browser authorized or its input active.
+    this.subscribedStreamer = null;
     streamer.off("id_changed", this.streamerIdChanged);
     streamer.off("disconnect", this.streamerDisconnected);
-    this.subscribedStreamer = null;
+    streamer.peerDepartures.get(this.playerId)?.leave();
   }
   forward(message) {
-    if (!this.subscribedStreamer) {
-      const fallback = this.visibleStreamerIds()[0];
-      if (fallback) this.subscribe(fallback);
-    }
-    if (!this.subscribedStreamer) return;
+    // Late ICE/answers must never auto-subscribe an unrelated fallback stream.
+    if (this.closed || !this.subscribedStreamer) return;
     message.playerId = this.playerId;
     this.subscribedStreamer.protocol.sendMessage(message);
   }
   disconnect() {
+    if (this.closed) return;
+    this.closed = true;
     this.unsubscribe();
     try { this.protocol.disconnect(); } catch { /* already closed */ }
   }
@@ -178,7 +229,7 @@ class AuthorizedPlayerConnection {
 
 const streamerServer = new WebSocketServer({ host: streamerHost, port: streamerPort, backlog: 16 });
 streamerServer.on("connection", (ws, request) => {
-  const streamer = new StreamerConnection(context, ws, request.socket.remoteAddress);
+  const streamer = new SafeStreamerConnection(context, ws, request.socket.remoteAddress);
   streamer.maxSubscribers = maxSubscribers;
   streamerRegistry.add(streamer);
   streamer.on("id_changed", notifyPlayersOfStreamerList);
@@ -186,14 +237,14 @@ streamerServer.on("connection", (ws, request) => {
     streamerRegistry.remove(streamer);
     notifyPlayersOfStreamerList();
   });
-  const config = MessageHelpers.createMessage(Messages.config, {
-    protocolVersion: SignallingProtocol.SIGNALLING_VERSION,
-    peerConnectionOptions: peerConnectionOptions(),
-  });
-  streamer.sendMessage(config);
+  streamer.sendMessage(configurationMessage());
 });
 
-const playerServer = new WebSocketServer({ host: playerHost, port: playerPort, backlog: 64 });
+const playerServer = new WebSocketServer({
+  host: playerHost, port: playerPort, backlog: 64,
+  // Reject cross-origin browser upgrades before establishing a player session.
+  verifyClient: (info, done) => done(isAllowedOrigin(info.origin, allowedOrigins), 403, "Origin not allowed"),
+});
 playerServer.on("connection", (ws, request) => {
   try {
     const requestUrl = new URL(request.url || "/", "http://localhost");
@@ -202,10 +253,7 @@ playerServer.on("connection", (ws, request) => {
     const player = new AuthorizedPlayerConnection(ws, access, request.socket.remoteAddress);
     playerRegistry.add(player);
     player.transport.on("close", () => playerRegistry.remove(player));
-    player.send(MessageHelpers.createMessage(Messages.config, {
-      protocolVersion: SignallingProtocol.SIGNALLING_VERSION,
-      peerConnectionOptions: peerConnectionOptions(),
-    }));
+    player.send(configurationMessage());
   } catch (error) {
     ws.close(4401, error instanceof Error ? error.message : "Unauthorized");
   }

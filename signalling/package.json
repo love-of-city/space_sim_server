@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs"
+    "check": "node --check server.mjs && node --check origin.mjs && node --check peer_departure.mjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@epicgames-ps/lib-pixelstreamingcommon-ue5.6": "0.1.4",

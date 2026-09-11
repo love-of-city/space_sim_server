@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -22,8 +23,8 @@ def main() -> None:
     parser.add_argument("--pixel-streaming-player-port", type=int, default=8080)
     parser.add_argument("--pixel-streaming-streamer-id", default="BskRenderer")
     parser.add_argument("--pixel-streaming-signalling-url", default="")
-    parser.add_argument("--stream-access-jwt-secret", default="")
-    parser.add_argument("--stream-access-key", default="")
+    parser.add_argument("--stream-access-jwt-secret", default=os.environ.get("SPACE_SIM_STREAM_JWT_SECRET", ""))
+    parser.add_argument("--stream-access-key", default=os.environ.get("SPACE_SIM_STREAM_ACCESS_KEY", ""))
     parser.add_argument("--stream-access-token-ttl-seconds", type=int, default=900)
     parser.add_argument(
         "--pixel-streaming-camera-streamer",
@@ -55,8 +56,19 @@ def main() -> None:
     parser.add_argument("--runtime-simulation-rate", type=float, default=1.0)
     parser.add_argument("--runtime-capture-rate", type=float, default=10.0)
     parser.add_argument("--runtime-default-dataset-capture", action="store_true")
+    parser.add_argument("--secure-cookies", action="store_true", default=os.environ.get("SPACE_SIM_SECURE_COOKIES") == "1")
+    parser.add_argument("--allowed-origin", action="append", default=None)
+    parser.add_argument("--login-attempts-per-minute", type=int, default=10)
+    parser.add_argument("--forwarded-allow-ips", default=os.environ.get("SPACE_SIM_FORWARDED_ALLOW_IPS", "127.0.0.1,::1"))
+    parser.add_argument("--no-access-log", action="store_true", default=os.environ.get("SPACE_SIM_NO_ACCESS_LOG") == "1")
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args()
+    try:
+        origins = args.allowed_origin if args.allowed_origin is not None else json.loads(os.environ.get("SPACE_SIM_ALLOWED_ORIGINS", "[]"))
+        if not isinstance(origins, list) or not all(isinstance(origin, str) for origin in origins):
+            raise ValueError("expected a JSON array of origins")
+    except (ValueError, TypeError) as error:
+        parser.error(f"Invalid SPACE_SIM_ALLOWED_ORIGINS: {error}")
     camera_streamers: list[tuple[str, str]] = []
     for value in args.pixel_streaming_camera_streamer:
         streamer_id, separator, label = value.partition("=")
@@ -82,6 +94,9 @@ def main() -> None:
             auth_database=args.auth_database.resolve() if args.auth_database else None,
             bootstrap_admin_username=args.bootstrap_admin_username,
             bootstrap_admin_password=args.bootstrap_admin_password,
+            secure_cookies=args.secure_cookies,
+            allowed_origins=tuple(origins),
+            login_attempts_per_minute=args.login_attempts_per_minute,
             runtime_adapter_root=args.runtime_adapter_root.resolve() if args.runtime_adapter_root else None,
             runtime_model_root=args.runtime_model_root.resolve() if args.runtime_model_root else None,
             runtime_unreal_root=args.runtime_unreal_root.resolve() if args.runtime_unreal_root else None,
@@ -99,7 +114,12 @@ def main() -> None:
             runtime_default_dataset_capture=args.runtime_default_dataset_capture,
         )
     )
-    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)
+    # Simulation ownership and TCP listeners are process-local: one worker only.
+    uvicorn.run(
+        app, host=args.host, port=args.port, log_level=args.log_level,
+        proxy_headers=True, forwarded_allow_ips=args.forwarded_allow_ips,
+        access_log=not args.no_access_log,
+    )
 
 
 if __name__ == "__main__":

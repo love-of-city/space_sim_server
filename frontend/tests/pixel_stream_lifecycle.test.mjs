@@ -44,7 +44,7 @@ test("disconnecting a retired player cannot create an orphan reconnect timer", (
   h.context.createPixelStream();
   assert.equal(h.players.length, 2);
   assert.equal(h.timers.size, 1, "only the current player's startup watchdog remains");
-  assert.equal([...h.timers.values()][0].delay, 10000);
+  assert.equal([...h.timers.values()][0].delay, 60000);
   h.players[1].emit("webRtcConnected");
   assert.equal(h.timers.size, 0);
 });
@@ -92,5 +92,37 @@ test("replacing or losing an active stream exits free-camera mode", () => {
     h.players[0].emit("webRtcConnected"); h.state.freeCameraMode = true;
     if (event === "dispose") h.context.disposePixelStream(); else h.players[0].emit(event);
     assert.equal(h.state.freeCameraMode, false);
+  }
+});
+
+
+test("stream discovery and RTC negotiation replace the old startup deadline", () => {
+  const h = harness(); h.context.createPixelStream();
+  const stream = h.players[0];
+  const firstTimer = h.state.streamReconnectTimer;
+  stream.emit("streamerListMessage");
+  assert.equal(h.timers.has(firstTimer), false);
+  const discoveryTimer = h.state.streamReconnectTimer;
+  stream.emit("webRtcConnecting");
+  assert.equal(h.timers.has(discoveryTimer), false);
+  assert.equal(h.timers.size, 1);
+  assert.equal([...h.timers.values()][0].delay, 60000);
+  assert.equal(h.players.length, 1, "a newly joining player must not be replaced");
+  stream.emit("webRtcConnected");
+  stream.emit("streamerListMessage");
+  assert.equal(h.timers.size, 0, "discovery cannot rearm a LIVE player's watchdog");
+});
+
+test("a renderer becoming running does not tear down its waiting player", () => {
+  const start = source.indexOf('  if (phase === "running"');
+  const end = source.indexOf("  updateEpisodeUI();", start);
+  const block = source.slice(start, end);
+  for (const waiting of [true, false]) {
+    let reconnects = 0;
+    const context = vm.createContext({phase: "running", previousPhase: "starting_renderer",
+      instance: {}, state: {pixelStreaming: waiting ? {} : null, pixelConnectPromise: null},
+      setMessage() {}, connectPixelStreaming() { reconnects++; }});
+    vm.runInContext(block, context);
+    assert.equal(reconnects, waiting ? 0 : 1);
   }
 });

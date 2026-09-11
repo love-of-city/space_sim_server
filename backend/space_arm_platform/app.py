@@ -31,6 +31,7 @@ from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
 from .simulation_hub import SimulationHub
 from .stream_access import issue_stream_access_token
 from .tasks import TaskStore
+from .web_security import LoginRateLimiter, validate_origins
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,9 @@ class PlatformConfig:
     auth_database: Path | None = None
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = "ChangeMe123!"
+    secure_cookies: bool = False
+    allowed_origins: tuple[str, ...] = ()
+    login_attempts_per_minute: int = 10
 
 
 class OperatorSessions:
@@ -118,12 +122,21 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         project_root=project_root,
         data_root=project_root / "data" / "episodes",
     )
+    allowed_origins = validate_origins(config.allowed_origins)
+    login_limiter = LoginRateLimiter(config.login_attempts_per_minute)
     recorder = EpisodeRecorder(config.data_root)
     auth = AuthStore(
         config.auth_database or config.data_root.parent / "auth.sqlite3",
         config.bootstrap_admin_username,
         config.bootstrap_admin_password,
     )
+    if config.secure_cookies:
+        # Bootstrap flags do not update an existing database. Fail closed if an
+        # administrator still uses the documented local-development password.
+        for user in auth.list_users():
+            if user["role"] == "admin" and auth.authenticate(user["username"], "ChangeMe123!"):
+                auth.close()
+                raise ValueError("Change the existing default administrator password before HTTPS deployment")
     jobs = JobManager(config.data_root.parent)
     tasks = TaskStore(config.data_root.parent / "tasks")
     safety = SafetyController(config.deadman_timeout_s)
@@ -221,16 +234,31 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def authenticated_api(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if allowed_origins and (
+            (origin is not None and origin not in allowed_origins)
+            or (request.method not in {"GET", "HEAD", "OPTIONS"} and origin is None)
+        ):
+            return JSONResponse({"detail": "origin not allowed"}, status_code=403, headers={"Cache-Control": "no-store"})
         path = request.url.path
         if path.startswith("/api/") and path not in {"/api/health", "/api/auth/login"}:
             user = auth.session_user(request.cookies.get(SESSION_COOKIE))
             if not user:
-                return JSONResponse({"detail": "请先登录"}, status_code=401)
+                return JSONResponse({"detail": "请先登录"}, status_code=401, headers={"Cache-Control": "no-store"})
             request.state.user = user
-        return await call_next(request)
+        response = await call_next(request)
+        if path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.post("/api/auth/login")
-    async def login(payload: LoginRequest) -> JSONResponse:
+    async def login(payload: LoginRequest, request: Request) -> JSONResponse:
+        retry_after = login_limiter.retry_after(request.client.host if request.client else "unknown")
+        if retry_after:
+            return JSONResponse(
+                {"detail": "登录尝试过于频繁，请稍后重试"}, status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
         user = await asyncio.to_thread(auth.authenticate, payload.username, payload.password)
         if not user:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -238,7 +266,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         response = JSONResponse({"user": user})
         response.set_cookie(
             SESSION_COOKIE, token, max_age=max_age, httponly=True, samesite="strict",
-            secure=False, path="/",
+            secure=config.secure_cookies, path="/",
         )
         return response
 
@@ -250,7 +278,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     async def logout(request: Request) -> JSONResponse:
         await asyncio.to_thread(auth.delete_session, request.cookies.get(SESSION_COOKIE))
         response = JSONResponse({"ok": True})
-        response.delete_cookie(SESSION_COOKIE, path="/")
+        response.delete_cookie(SESSION_COOKIE, path="/", secure=config.secure_cookies, httponly=True, samesite="strict")
         return response
 
     @app.post("/api/auth/change-password")
@@ -263,7 +291,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except AuthError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         response = JSONResponse({"ok": True})
-        response.delete_cookie(SESSION_COOKIE, path="/")
+        response.delete_cookie(SESSION_COOKIE, path="/", secure=config.secure_cookies, httponly=True, samesite="strict")
         return response
 
     @app.get("/api/users")
@@ -539,6 +567,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.websocket("/ws/operator")
     async def operator_socket(websocket: WebSocket) -> None:
+        if allowed_origins and websocket.headers.get("origin") not in allowed_origins:
+            await websocket.close(code=4403, reason="origin not allowed")
+            return
         session_token = websocket.cookies.get(SESSION_COOKIE)
         user = auth.session_user(session_token)
         if not user:

@@ -7,6 +7,9 @@ import {
 } from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.6";
 import "./styles.css";
 import { FreeCameraController } from "./free_camera.js";
+import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
+
+const gamepadInput = new GamepadInput();
 
 const state = {
   ws: null,
@@ -37,6 +40,7 @@ const state = {
   operationRequested: false,
   actionTimer: null,
   stateTimer: null,
+  gamepadSnapshot: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -276,7 +280,9 @@ function applySceneRuntime(runtime = {}) {
   if (runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
     setMessage(`场景 ${instance.instance_id || ""} 已运行，可开始遥操作或采集`);
-    connectPixelStreaming();
+    // The waiting player may have subscribed milliseconds ago. Moving from
+    // launcher startup to running is not a reason to destroy its RTC handshake.
+    if (!state.pixelStreaming && !state.pixelConnectPromise) connectPixelStreaming();
   }
   updateEpisodeUI();
 }
@@ -555,6 +561,14 @@ function schedulePixelStreamingReconnect(delayMs = 1500) {
   }, delayMs);
 }
 
+function armPixelStreamingWatchdog(stream, delayMs = 60000) {
+  if (state.streamReconnectTimer != null) clearTimeout(state.streamReconnectTimer);
+  state.streamReconnectTimer = setTimeout(() => {
+    state.streamReconnectTimer = null;
+    if (state.pixelStreaming === stream && !state.streamLive) connectPixelStreaming();
+  }, delayMs);
+}
+
 function createPixelStream() {
   disposePixelStream();
   $("frameState").textContent = "CONNECTING";
@@ -585,6 +599,14 @@ function createPixelStream() {
   stream.addEventListener("webRtcConnecting", () => {
     if (state.pixelStreaming !== stream) return;
     $("frameState").textContent = "CONNECTING";
+    // Give negotiation its own deadline, independent of how long UE took to load.
+    armPixelStreamingWatchdog(stream);
+  });
+  stream.addEventListener("streamerListMessage", () => {
+    if (state.pixelStreaming !== stream || state.streamLive) return;
+    // Healthy signalling / streamer discovery is progress, not a reason to
+    // periodically replace a player while the renderer is coming online.
+    armPixelStreamingWatchdog(stream);
   });
   stream.addEventListener("webRtcConnected", () => {
     if (state.pixelStreaming !== stream) return;
@@ -640,13 +662,9 @@ function createPixelStream() {
     if (state.pixelStreaming !== stream) return;
     updateWebRtcStats(event?.data?.aggregatedStats);
   });
-  // RenderTarget streamers are created only after the BSK manifest arrives.
-  // The Epic SDK stops polling after a finite wait, so keep retrying at the
-  // application layer until the selected UE stream actually produces video.
-  state.streamReconnectTimer = setTimeout(() => {
-    state.streamReconnectTimer = null;
-    if (state.pixelStreaming === stream && !state.streamLive) connectPixelStreaming();
-  }, 10000);
+  // Bound a genuinely stalled setup, but never recycle players on an absolute
+  // 10-second cycle: UE startup and public ICE negotiation can take much longer.
+  armPixelStreamingWatchdog(stream);
 }
 
 function applyControlLimits(limits = {}) {
@@ -680,16 +698,18 @@ function keyboardAction() {
 }
 
 function gamepadAction() {
-  const gamepad = [...navigator.getGamepads()].find(Boolean);
-  if (!gamepad) return null;
-  const dz = (value) => Math.abs(value || 0) < 0.12 ? 0 : -(value || 0);
-  const buttons = gamepad.buttons;
-  return {
-    linear: [dz(gamepad.axes[1]), dz(gamepad.axes[0]), (buttons[7]?.value || 0) - (buttons[6]?.value || 0)],
-    angular: [(buttons[1]?.value || 0) - (buttons[0]?.value || 0), dz(gamepad.axes[3]), dz(gamepad.axes[2])],
-    grip: (buttons[3]?.value || 0) - (buttons[2]?.value || 0),
-    source: "gamepad",
-  };
+  const snapshot = gamepadInput.read();
+  state.gamepadSnapshot = snapshot;
+  const labels = {unsupported: "API 不可用", blocked: "读取被阻止", disconnected: "未发现设备",
+    unmapped: "映射待适配", centering: "等待回中", connected: "已连接"};
+  $("gamepadStatus").textContent = labels[snapshot.status];
+  $("gamepadName").textContent = snapshot.device
+    ? `${snapshot.device.id}（#${snapshot.device.index} / ${snapshot.device.mapping}）` : "—";
+  $("gamepadAxes").textContent = snapshot.axes.length ? snapshot.axes.map(v => v.toFixed(2)).join(" / ") : "—";
+  $("gamepadButtons").textContent = snapshot.buttons.map((v, i) => v > 0.01 ? `${i}:${v.toFixed(2)}` : "").filter(Boolean).join(" ") || "无";
+  $("gamepadHint").textContent = snapshot.hint;
+  $("gamepadGate").textContent = gamepadControlBlockReason(state);
+  return snapshot.action;
 }
 
 function transmitAction(action, deadman) {
@@ -793,7 +813,7 @@ function completeEnterOperationMode() {
   state.operationActive = true;
   $("viewport").focus({ preventScroll: true });
   updateOperationUI();
-  setMessage("已进入操作模式：WASD/QE/F/R 控制；按 C 进入自由视角");
+  setMessage("已进入操作模式：键盘或手柄控制；按 C 进入自由视角");
 }
 
 function exitOperationMode(message = "已退出操作模式，点击实时画面可重新进入") {
@@ -809,9 +829,10 @@ function exitOperationMode(message = "已退出操作模式，点击实时画面
 }
 
 function sendAction() {
-  if (!state.operationActive || state.freeCameraMode || !state.sceneReady || state.estopped) return;
-  if (!state.connected || !state.controlGranted || state.ws.readyState !== WebSocket.OPEN) return;
+  // Poll diagnostics even outside operation mode; this never grants control.
   const gamepad = gamepadAction();
+  if (!state.operationActive || state.freeCameraMode || !state.sceneReady || !state.canManageScene || state.estopped) return;
+  if (!state.connected || !state.controlGranted || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
   const keyboard = keyboardAction();
   const gamepadActive = gamepad && [...gamepad.linear, ...gamepad.angular, gamepad.grip].some((value) => Math.abs(value) > 0.01);
   const action = gamepadActive ? gamepad : keyboard;
@@ -1038,3 +1059,11 @@ $("createOperatorForm").addEventListener("submit", async (event) => {
 });
 
 initialize();
+
+// Read-only diagnostics for local-browser / remote-desktop troubleshooting.
+window.__gamepadDiagnostics = () => ({
+  secureContext: window.isSecureContext, pageVisible: !document.hidden,
+  pageFocused: document.hasFocus(), snapshot: state.gamepadSnapshot
+    ? JSON.parse(JSON.stringify(state.gamepadSnapshot)) : null,
+  operationStatus: gamepadControlBlockReason(state),
+});

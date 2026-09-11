@@ -39,7 +39,7 @@
   </header>
 
   <main class="workspace">
-    <section id="viewport" class="viewport" tabindex="0" role="button" aria-pressed="false" aria-label="点击进入机械臂键盘操作模式；按 C 进入自由视角，Home 返回主视角">
+    <section id="viewport" class="viewport" tabindex="0" role="button" aria-pressed="false" aria-label="点击进入机械臂键盘或手柄操作模式；按 C 进入自由视角，Home 返回主视角">
       <div id="pixelStream" tabindex="-1" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
       <div id="previewEmpty" class="preview-empty">
         <span class="signal-mark" aria-hidden="true"></span>
@@ -144,6 +144,16 @@
           <h2>实时指令</h2>
           <span id="controlAuthority" class="section-status">只读</span>
         </div>
+        <details class="gamepad-diagnostics" open>
+          <summary>手柄诊断 <strong id="gamepadStatus">等待检测</strong></summary>
+          <dl>
+            <div><dt>设备</dt><dd id="gamepadName">—</dd></div>
+            <div><dt>摇杆轴</dt><dd id="gamepadAxes">—</dd></div>
+            <div><dt>按下按钮</dt><dd id="gamepadButtons">无</dd></div>
+          </dl>
+          <p id="gamepadHint">手柄应连接在运行此网页的电脑上。</p>
+          <p id="gamepadGate">等待控制链路就绪。</p>
+        </details>
         <div class="mode-line"><span>键盘模式</span><strong id="motionMode">平移 XYZ</strong></div>
         <div class="speed-control">
           <div class="speed-label">

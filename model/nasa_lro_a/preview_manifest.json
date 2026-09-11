@@ -1,0 +1,107 @@
+{
+  "model_file": "nasa_lro_a.xml",
+  "model_sha256": "afb2ac73d0d17b7932bf39956c81b914471fbbadd7b22475805c63956cdf1312",
+  "renderer": "Custom CPU two-sided z-buffer from MuJoCo-compiled geometry and world poses",
+  "native_opengl": false,
+  "ai_generated": false,
+  "platform_or_ue_screenshot": false,
+  "live_3d": false,
+  "physical_scale_verified": false,
+  "triangle_count": 74099,
+  "views": [
+    {
+      "file": "preview/01_front_oblique.png",
+      "label": "Front oblique",
+      "label_zh": "正面斜视",
+      "foreground_pixels": 383688,
+      "camera": {
+        "eye": [
+          23.429891514004293,
+          -44.42180465431983,
+          27.22131256535656
+        ],
+        "target": [
+          -7.585663935509776,
+          -0.1270009610967726,
+          3.1460296531944882
+        ],
+        "azimuth_deg": -55,
+        "elevation_deg": 24,
+        "width": 1400,
+        "height": 1050,
+        "fovy_deg": 38
+      }
+    },
+    {
+      "file": "preview/02_rear_oblique.png",
+      "label": "Rear oblique",
+      "label_zh": "背面斜视",
+      "foreground_pixels": 415458,
+      "camera": {
+        "eye": [
+          -37.782383023621975,
+          42.99838321474222,
+          26.585705149213236
+        ],
+        "target": [
+          -7.585663935509776,
+          -0.1270009610967726,
+          3.1460296531944882
+        ],
+        "azimuth_deg": 125,
+        "elevation_deg": 24,
+        "width": 1400,
+        "height": 1050,
+        "fovy_deg": 38
+      }
+    },
+    {
+      "file": "preview/03_front.png",
+      "label": "Front (-Y)",
+      "label_zh": "正视图",
+      "foreground_pixels": 261641,
+      "camera": {
+        "eye": [
+          -7.585663935509772,
+          -56.07505829432721,
+          3.1460296531944882
+        ],
+        "target": [
+          -7.585663935509776,
+          -0.1270009610967726,
+          3.1460296531944882
+        ],
+        "azimuth_deg": -90,
+        "elevation_deg": 0,
+        "width": 1400,
+        "height": 1050,
+        "fovy_deg": 38
+      }
+    },
+    {
+      "file": "preview/04_top.png",
+      "label": "Upper view",
+      "label_zh": "俯视图",
+      "foreground_pixels": 560391,
+      "camera": {
+        "eye": [
+          -7.585663935509775,
+          -14.726937288154748,
+          57.633733813045396
+        ],
+        "target": [
+          -7.585663935509776,
+          -0.1270009610967726,
+          3.1460296531944882
+        ],
+        "azimuth_deg": -90,
+        "elevation_deg": 75,
+        "width": 1400,
+        "height": 1050,
+        "fovy_deg": 38
+      }
+    }
+  ],
+  "overview": "preview/overview.png",
+  "elapsed_seconds": 1.9656159000005573
+}

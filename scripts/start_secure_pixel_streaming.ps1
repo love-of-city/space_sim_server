@@ -5,6 +5,8 @@ param(
     [int]$PlayerPort = 8080,
     [Parameter(Mandatory = $true)]
     [string]$JwtSecret,
+    [string]$PlayerHost = '0.0.0.0',
+    [string]$AllowedOriginsJson = '[]',
     [string]$IceServersJson = '[]',
     [string]$TurnUrlsJson = '[]',
     [string]$TurnAuthSecret = '',
@@ -33,7 +35,7 @@ if (Test-Path -LiteralPath $statePath) {
 Push-Location $serviceRoot
 try {
     if (!(Test-Path -LiteralPath (Join-Path $serviceRoot 'node_modules'))) {
-        npm.cmd install --no-audit --no-fund
+        npm.cmd ci --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw 'Secure signalling dependency installation failed.' }
     }
     npm.cmd run check
@@ -45,7 +47,7 @@ try {
 Push-Location $frontendRoot
 try {
     if (!(Test-Path -LiteralPath (Join-Path $frontendRoot 'node_modules'))) {
-        npm.cmd install --no-audit --no-fund
+        npm.cmd ci --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw 'Operator console dependency installation failed.' }
     }
     npm.cmd run build
@@ -57,6 +59,7 @@ try {
 $previous = @{
     PS_PLAYER_PORT = $env:PS_PLAYER_PORT
     PS_PLAYER_HOST = $env:PS_PLAYER_HOST
+    PS_ALLOWED_ORIGINS = $env:PS_ALLOWED_ORIGINS
     PS_STREAMER_PORT = $env:PS_STREAMER_PORT
     PS_STREAMER_HOST = $env:PS_STREAMER_HOST
     PS_JWT_SECRET = $env:PS_JWT_SECRET
@@ -67,7 +70,8 @@ $previous = @{
 }
 try {
     $env:PS_PLAYER_PORT = "$PlayerPort"
-    $env:PS_PLAYER_HOST = '0.0.0.0'
+    $env:PS_PLAYER_HOST = $PlayerHost
+    $env:PS_ALLOWED_ORIGINS = $AllowedOriginsJson
     $env:PS_STREAMER_PORT = "$StreamerPort"
     $env:PS_STREAMER_HOST = '127.0.0.1'
     $env:PS_JWT_SECRET = $JwtSecret

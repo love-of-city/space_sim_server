@@ -38,7 +38,7 @@ $frontendRoot = Join-Path $projectRoot 'frontend'
 Push-Location $frontendRoot
 try {
     if (!(Test-Path -LiteralPath (Join-Path $frontendRoot 'node_modules'))) {
-        npm.cmd install --no-audit --no-fund
+        npm.cmd ci --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw 'Operator console dependency installation failed.' }
     }
     npm.cmd run build
@@ -52,8 +52,9 @@ $arguments = @('-m', 'space_arm_platform.main', '--host', $ApiHost, '--port', $A
     '--capture-port', $CapturePort, '--pixel-streaming-player-port', $PixelStreamingPlayerPort,
     '--pixel-streaming-streamer-id', $PixelStreamingId, '--data-root', ([IO.Path]::GetFullPath($DataRoot)))
 if ($PixelStreamingSignallingUrl) { $arguments += @('--pixel-streaming-signalling-url', $PixelStreamingSignallingUrl) }
-if ($StreamAccessJwtSecret) { $arguments += @('--stream-access-jwt-secret', $StreamAccessJwtSecret) }
-if ($StreamAccessKey) { $arguments += @('--stream-access-key', $StreamAccessKey) }
+# Secrets reach Python through its environment, not process command lines.
+if ($StreamAccessJwtSecret) { $env:SPACE_SIM_STREAM_JWT_SECRET = $StreamAccessJwtSecret }
+if ($StreamAccessKey) { $env:SPACE_SIM_STREAM_ACCESS_KEY = $StreamAccessKey }
 if ($AdapterRoot -and $ModelRoot -and $UnrealRoot -and $PowerShellExe) {
     $arguments += @(
         '--runtime-adapter-root', ([IO.Path]::GetFullPath($AdapterRoot)),

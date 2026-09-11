@@ -1,4 +1,4 @@
-param([switch]$Quiet)
+param([switch]$Quiet, [switch]$KeepPendingPublic)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -29,6 +29,24 @@ function Stop-OrphanedPlatformBackends {
         if (!$Quiet) { Write-Output "Stopped orphaned Space Arm backend (PID $($backend.ProcessId))." }
     }
 }
+
+# Both live and interrupted setup records are project-owned PID/start-time pairs.
+# A public launcher can preserve its temporary closed gateway while replacing the old platform.
+$deploymentRecords = @((Join-Path $projectRoot 'run/deployment.json'))
+if (!$KeepPendingPublic) { $deploymentRecords += Join-Path $projectRoot 'run/public-pending.json' }
+foreach ($recordPath in $deploymentRecords) {
+    if (!(Test-Path -LiteralPath $recordPath)) { continue }
+    $deployment = Get-Content -Raw -LiteralPath $recordPath | ConvertFrom-Json
+    foreach ($prefix in @('tunnel', 'proxy')) {
+        $processId = [int]$deployment."${prefix}_pid"
+        $startTicks = [long]$deployment."${prefix}_start"
+        # Never fall back to PID-only termination for public/proxy processes.
+        if ($processId -gt 0 -and $startTicks -gt 0) { Stop-RecordedProcessTree $processId $startTicks }
+    }
+    Remove-Item -LiteralPath $recordPath -Force
+}
+$publicAccess = Join-Path $projectRoot 'run/public-access.json'
+if (Test-Path -LiteralPath $publicAccess) { Remove-Item -LiteralPath $publicAccess -Force }
 
 $stopScene = Join-Path $PSScriptRoot 'stop_scene_instance.ps1'
 if (Test-Path -LiteralPath $stopScene) { & $stopScene -Quiet }

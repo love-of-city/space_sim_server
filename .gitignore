@@ -20,3 +20,11 @@ data/tasks/
 /model/SARM/mjcf/SARM.txt
 /model/SARM/mjcf/SARM_scene.txt
 /model/SARM/platform/sarm_platform_diag*.xml
+
+# Machine-local deployment settings, credentials and TLS private material.
+deploy/*.local.json
+deploy/*.local.ps1
+deploy/certs/
+deploy/secrets/
+.env
+.env.local

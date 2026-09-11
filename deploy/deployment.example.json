@@ -1,0 +1,21 @@
+{
+  "public_url": "https://sim.example.com",
+  "tls_mode": "acme",
+  "certificate_file": "",
+  "certificate_key_file": "",
+  "caddy_executable": "caddy.exe",
+  "api_port": 8000,
+  "player_port": 8080,
+  "streamer_port": 8888,
+  "control_port": 8766,
+  "capture_port": 8767,
+  "render_port": 5558,
+  "admin_username": "admin",
+  "require_access_key": true,
+  "show_access_window": true,
+  "adapter_root": "",
+  "model_root": "",
+  "unreal_root": "",
+  "ice_servers": [],
+  "turn_urls": []
+}

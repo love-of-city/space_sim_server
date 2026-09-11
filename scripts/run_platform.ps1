@@ -30,20 +30,37 @@ param(
     [int]$RendererReadyTimeout = 240,
     [switch]$RemoteAccess,
     [string]$PublicHost = '127.0.0.1',
+    [string]$PublicOperatorUrl = '',
+    [string]$ApiHost = '',
+    [string]$PixelPlayerHost = '',
+    [switch]$SecureCookies,
+    [string]$AllowedOriginsJson = '[]',
+    [switch]$NoAccessLog,
     [string]$PixelPlayerPublicUrl = '',
-    [string]$StreamAccessKey = '',
-    [string]$StreamJwtSecret = '',
+    [string]$StreamAccessKey = $env:SPACE_SIM_STREAM_ACCESS_KEY,
+    [bool]$RequireAccessKey = $true,
+    [string]$StreamJwtSecret = $env:SPACE_SIM_STREAM_JWT_SECRET,
     [string]$IceServersJson = '[]',
     [string]$TurnUrlsJson = '[]',
     [string]$TurnAuthSecret = '',
     [string]$AdminUsername = 'admin',
-    [string]$AdminPassword = 'ChangeMe123!',
+    [string]$AdminPassword = $(if ($env:SPACE_SIM_ADMIN_PASSWORD) { $env:SPACE_SIM_ADMIN_PASSWORD } else { 'ChangeMe123!' }),
     [switch]$Rebuild,
     [switch]$ReimportAssets,
+    [switch]$KeepPendingPublic,
     [switch]$NoBrowser
 )
 
 $ErrorActionPreference = 'Stop'
+$cleanupOnStartupFailure = $false
+trap {
+    $startupError = $_
+    if ($cleanupOnStartupFailure) {
+        try { & (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet }
+        catch { Write-Warning 'Startup cleanup failed; inspect recorded platform processes.' }
+    }
+    throw $startupError
+}
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'This project requires PowerShell 7 or later. Start it with: pwsh -NoProfile -File .\scripts\run_platform.ps1'
 }
@@ -57,6 +74,27 @@ if (!$powershellExe -or !(Test-Path -LiteralPath $powershellExe -PathType Leaf))
 }
 
 if ($PreviewRate -le 0 -or $PreviewRate -gt 60) { throw 'PreviewRate must be in (0, 60].' }
+# Validate remote settings BEFORE stopping any running scene/platform.
+if ($RemoteAccess -and (!$AdminPassword -or $AdminPassword -eq 'ChangeMe123!')) {
+    throw 'RemoteAccess requires a non-default administrator password.'
+}
+if (!$ApiHost) { $ApiHost = if ($RemoteAccess) { '0.0.0.0' } else { '127.0.0.1' } }
+if (!$PixelPlayerHost) { $PixelPlayerHost = '0.0.0.0' }
+$origins = ConvertFrom-Json -InputObject $AllowedOriginsJson -NoEnumerate
+if ($origins -isnot [array]) { throw 'AllowedOriginsJson must be a JSON array.' }
+if ($PublicOperatorUrl) {
+    $publicUri = [uri]$PublicOperatorUrl
+    if (!$RemoteAccess -or !$publicUri.IsAbsoluteUri -or $publicUri.Scheme -ne 'https' -or
+        $publicUri.UserInfo -or $publicUri.Query -or $publicUri.Fragment -or $publicUri.AbsolutePath -ne '/') {
+        throw 'PublicOperatorUrl requires RemoteAccess and an HTTPS origin without a path/query.'
+    }
+    $PublicOperatorUrl = $publicUri.GetLeftPart([UriPartial]::Authority)
+    if (!$PixelPlayerPublicUrl) { $PixelPlayerPublicUrl = ($PublicOperatorUrl -replace '^https:', 'wss:') + '/stream' }
+}
+if ($SecureCookies -and (!$PublicOperatorUrl -or !$origins.Count)) {
+    throw 'SecureCookies requires PublicOperatorUrl and an explicit AllowedOriginsJson list.'
+}
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $projectRoot
 
@@ -77,7 +115,8 @@ function Resolve-Unreal56Root([string]$RequestedRoot) {
     throw 'Unreal Engine 5.6 was not found. Pass -UnrealRoot or set UE56_ROOT.'
 }
 
-if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
+. (Join-Path $PSScriptRoot 'platform_paths.ps1')
+$AdapterRoot = Resolve-PlatformAdapterRoot $AdapterRoot $projectRoot
 if (!$ModelRoot) {
     $modelCandidates = @(
         (Join-Path $projectRoot 'model\SARM\platform'),
@@ -142,7 +181,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Stop only PIDs previously recorded by this project before binding fixed ports.
-& (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet
+& (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet -KeepPendingPublic:$KeepPendingPublic
+$cleanupOnStartupFailure = $true
 Remove-Item -LiteralPath (Join-Path $runDirectory 'scene_runtime.json') -Force -ErrorAction SilentlyContinue
 
 function Assert-TcpPortAvailable([int]$Port, [string]$Purpose) {
@@ -169,7 +209,9 @@ if ($RemoteAccess) {
     if ($AdminPassword -eq 'ChangeMe123!') {
         throw 'RemoteAccess requires a non-default -AdminPassword.'
     }
-    if (!$StreamAccessKey) {
+    # When the operator opts out, leave the key empty: the backend skips the
+    # access-key check entirely rather than comparing against a blank value.
+    if ($RequireAccessKey -and !$StreamAccessKey) {
         $bytes = New-Object byte[] 24
         $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
         try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
@@ -185,6 +227,7 @@ if ($RemoteAccess) {
     Write-Output 'Starting JWT-protected Pixel Streaming 2 signalling server ...'
     & (Join-Path $PSScriptRoot 'start_secure_pixel_streaming.ps1') `
         -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort -JwtSecret $StreamJwtSecret `
+        -PlayerHost $PixelPlayerHost -AllowedOriginsJson $AllowedOriginsJson `
         -IceServersJson $IceServersJson -TurnUrlsJson $TurnUrlsJson -TurnAuthSecret $TurnAuthSecret
 } else {
     Write-Output 'Starting the local Pixel Streaming 2 signalling server ...'
@@ -233,10 +276,15 @@ $env:SPACE_SIM_RUNTIME_UNREAL_ROOT = $UnrealRoot
 $env:SPACE_SIM_RUNTIME_POWERSHELL_EXE = $powershellExe
 $env:SPACE_SIM_ADMIN_USERNAME = $AdminUsername
 $env:SPACE_SIM_ADMIN_PASSWORD = $AdminPassword
+$env:SPACE_SIM_STREAM_JWT_SECRET = if ($RemoteAccess) { $StreamJwtSecret } else { '' }
+$env:SPACE_SIM_STREAM_ACCESS_KEY = if ($RemoteAccess -and $RequireAccessKey) { $StreamAccessKey } else { '' }
+$env:SPACE_SIM_SECURE_COOKIES = if ($SecureCookies) { '1' } else { '0' }
+$env:SPACE_SIM_ALLOWED_ORIGINS = $AllowedOriginsJson
+$env:SPACE_SIM_NO_ACCESS_LOG = if ($NoAccessLog) { '1' } else { '0' }
 
 $backendArgs = @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_backend.ps1'),
-    '-ApiHost', $(if ($RemoteAccess) { '0.0.0.0' } else { '127.0.0.1' }),
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $PSScriptRoot 'run_backend.ps1') + '"'),
+    '-ApiHost', $ApiHost,
     '-ApiPort', $ApiPort, '-ControlPort', $ControlPort, '-CapturePort', $CapturePort,
     '-PixelStreamingPlayerPort', $PixelPlayerPort, '-PixelStreamingId', $PixelStreamingId,
     '-PixelStreamingCameraStreamers', ($cameraStreamers -join ';'),
@@ -252,9 +300,7 @@ $backendArgs = @(
 if ($EnableDatasetCapture) { $backendArgs += '-DefaultDatasetCapture' }
 if ($RemoteAccess) {
     $backendArgs += @(
-        '-PixelStreamingSignallingUrl', $PixelPlayerPublicUrl,
-        '-StreamAccessJwtSecret', $StreamJwtSecret,
-        '-StreamAccessKey', $StreamAccessKey
+        '-PixelStreamingSignallingUrl', $PixelPlayerPublicUrl
     )
 }
 $backend = Start-Process -FilePath $powershellExe -ArgumentList $backendArgs -PassThru -WindowStyle Hidden `
@@ -299,11 +345,17 @@ try {
         mode = 'control-plane'
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runDirectory 'platform.json') -Encoding utf8
 
-    $operatorUrl = if ($RemoteAccess) {
-        "http://$PublicHost`:$ApiPort/?access_key=$([Uri]::EscapeDataString($StreamAccessKey))"
-    } else { "http://127.0.0.1:$ApiPort" }
+    $operatorBaseUrl = if ($PublicOperatorUrl) { $PublicOperatorUrl } elseif ($RemoteAccess) { "http://$PublicHost`:$ApiPort" } else { "http://127.0.0.1:$ApiPort" }
+    $operatorUrl = if ($RemoteAccess -and $RequireAccessKey -and $StreamAccessKey) { "$operatorBaseUrl/?access_key=$([Uri]::EscapeDataString($StreamAccessKey))" } else { $operatorBaseUrl }
     if (!$NoBrowser) { Start-Process $operatorUrl }
-    Write-Output "Space Arm control platform is running: $operatorUrl"
+    if ($SecureCookies) {
+        Write-Output "Space Arm control platform is running: $operatorBaseUrl"
+        if ($RequireAccessKey) {
+            Write-Output 'Use your SPACE_SIM_STREAM_ACCESS_KEY in the access_key URL parameter; it is intentionally not logged.'
+        } else {
+            Write-Output 'The stream access key is DISABLED for this deployment; log in on the HTTPS origin to operate.'
+        }
+    } else { Write-Output "Space Arm control platform is running: $operatorUrl" }
     Write-Output "Login username: $AdminUsername (bootstrap password applies only when the first admin is created)."
     Write-Output 'UE and Basilisk/MJScene are not started yet. Select a scene template and randomization in the frontend, then click Start Scene.'
     Write-Output "Scene runs until manually stopped; preview $PreviewRate FPS; capture $CaptureRate Hz; IK $IkRate Hz."

@@ -1,6 +1,6 @@
 # 仿真核心架构与扩展约定
 
-> 更新：2026-09-09。本文聚焦 BSK/MJScene 核心；整个前端、后端、UE、视频、采集与部署关系见[总体架构文档](SYSTEM_ARCHITECTURE.md)。
+> 更新：2026-09-14。本文聚焦 BSK/MJScene 核心；整个前端、后端、UE、视频、采集与部署关系见[总体架构文档](SYSTEM_ARCHITECTURE.md)。
 >
 > 本文区分当前 SARM 实际调用路径与通用架构抽象。8/6 关节契约不一致已修复；新姿态链详见[反作用轮与姿态保持](ATTITUDE_CONTROL.md)，其余限制见[当前缺口](SYSTEM_ARCHITECTURE.md#gaps)。
 
@@ -43,7 +43,7 @@ BSK 负责调度、环境模型、IK/PID、姿态反馈/轮矩分配和指令处
 | 独立 `teleopIkTask` | 遥操作 IK | 默认 100 Hz，process 中 task 优先级 `100` |
 | 外层 `graspTask` | `BasiliskRenderBridge` | 优先级 `-10000`，桥内按名义 30 Hz 节流 |
 
-同一任务内较高优先级先执行，不同层级的数字不可直接比较。动力学子任务可在积分子步多次执行；IK 只更新缓存目标，轨迹发布器读取缓存，不重复求解。
+同一任务内较高优先级先执行，不同层级的数字不可直接比较。动力学子任务可在积分子步多次执行；IK 只更新缓存目标，轨迹发布器读取缓存，不重复求解。实时 IK 保存末端目标位置和姿态，纯平移严格要求零角速度；关节约束通过整组六维速度统一缩放处理。新实例默认使用 `teleop-balanced-v1` 均衡初态，并由实际跟踪误差保护决定是否继续推进参考。
 
 ## 通用架构抽象（不等于已全部接入默认场景）
 
@@ -85,7 +85,7 @@ SceneBackend.read_state()
 
 - [实际遥操作入口](../simulation/teleop_grasp_unreal.py)
 - [原生模型与 PID 构建](../model/SARM/platform/scenarios/scenario_sarm_grasp.py)
-- [当前运行 MJCF](../model/SARM/platform/sarm_platform.xml)
+- [当前默认运行 MJCF](../model/SARM/platform/sarm_ground_target_self_collision.xml)
 - [总体架构：配置与器件归属](SYSTEM_ARCHITECTURE.md#configuration)
 - [总体架构：时间与坐标](SYSTEM_ARCHITECTURE.md#frames)
 - [动力学诊断](SARM_CONTROL_DIAGNOSIS.md)

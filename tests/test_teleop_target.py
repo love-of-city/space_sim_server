@@ -6,6 +6,9 @@ import numpy as np
 import pytest
 import xml.etree.ElementTree as ET
 
+from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
+from simulation.serial_chain_kinematics import rotation_matrix_to_vector
+
 
 SCENARIO = Path(__file__).resolve().parents[1] / "simulation" / "teleop_grasp_unreal.py"
 SPEC = importlib.util.spec_from_file_location("teleop_grasp_unreal_test", SCENARIO)
@@ -32,28 +35,49 @@ class FakeClient:
 
 
 class CountingKinematics:
-    def __init__(self) -> None:
+    def __init__(self, *, constant_velocity: bool = False) -> None:
         self.jacobian_calls = 0
         self.inverse_calls = 0
+        self.constant_velocity = constant_velocity
+
+    def forward(self, position):
+        q = np.asarray(position, dtype=float)
+        rotation = (
+            MODULE.axis_angle_to_matrix(np.array([1.0, 0.0, 0.0]), q[3])
+            @ MODULE.axis_angle_to_matrix(np.array([0.0, 1.0, 0.0]), q[4])
+            @ MODULE.axis_angle_to_matrix(np.array([0.0, 0.0, 1.0]), q[5])
+        )
+        return q[:3].copy(), rotation
 
     def jacobian(self, _position):
         self.jacobian_calls += 1
         return np.eye(6)
 
-    def inverse_velocity(self, _position, twist, *, joint_velocity_limits):
+    def inverse_velocity_bounded(
+        self, _position, twist, *, joint_velocity_limits,
+        joint_position_min=None, joint_position_max=None, dt=None,
+    ):
         self.inverse_calls += 1
-        velocity = np.minimum(np.asarray(joint_velocity_limits), 0.1)
-        achieved = np.asarray(twist, dtype=float).copy()
+        limits = np.asarray(joint_velocity_limits, dtype=float)
+        if self.constant_velocity:
+            velocity = np.minimum(limits, 0.1)
+            achieved = np.asarray(twist, dtype=float).copy()
+        else:
+            velocity = np.clip(np.asarray(twist, dtype=float), -limits, limits)
+            achieved = velocity.copy()
         return SimpleNamespace(
             joint_velocity_rad_s=velocity,
             achieved_twist=achieved,
-            residual_twist=np.zeros(6),
+            residual_twist=np.asarray(twist, dtype=float) - achieved,
             jacobian_rank=6,
+            velocity_scale=1.0,
+            minimum_singular_value=1.0,
+            condition_number=1.0,
         )
 
 
 def test_target_integrates_only_fresh_deadman_command() -> None:
-    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
+    initial = np.asarray(BALANCED_TELEOP_HOME, dtype=float)
     model = Path(__file__).resolve().parents[1] / "model" / "SARM" / "platform" / "sarm_platform.xml"
     kinematics = MODULE.SerialChainKinematics.from_mjcf(
         model,
@@ -124,7 +148,9 @@ def test_joint5_and_both_fingers_stop_at_xml_limits() -> None:
     initial = np.zeros(8)
     initial[4] = MODULE.JOINT_MAX[4] - 0.0005
     initial[6:] = 0.00001
-    target = MODULE.CartesianTeleopTarget(initial, FakeClient(), CountingKinematics())
+    target = MODULE.CartesianTeleopTarget(
+        initial, FakeClient(), CountingKinematics(constant_velocity=True)
+    )
     target.reset(0.0)
     position, velocity = target.update(0.01)
     assert position[4] == MODULE.JOINT_MAX[4]
@@ -141,16 +167,20 @@ def test_release_or_timeout_holds_last_target_for_arm_and_both_fingers(reason) -
     )
     target.reset(0.0)
     target.update(0.01)
-    held = target.position.copy()
+    held_tool_position = target.target_tool_position.copy()
+    held_tool_rotation = target.target_tool_rotation.copy()
+    held_gripper = target.position[6:].copy()
     action, _ = client.latest_action()
     if reason == "deadman":
         action["deadman"] = False
     client.latest_action = lambda: (action, reason == "stale")
     for time in (0.02, 0.03, 0.04):
         position, velocity = target.update(time)
-        assert np.array_equal(position, held)
-        assert np.array_equal(velocity, np.zeros(8))
-    assert target.ik_solve_count == 1
+        assert np.array_equal(target.target_tool_position, held_tool_position)
+        assert np.array_equal(target.target_tool_rotation, held_tool_rotation)
+        assert np.array_equal(position[6:], held_gripper)
+        assert np.array_equal(velocity[6:], np.zeros(2))
+    assert target.ik_solve_count == 4
 
 
 @pytest.mark.parametrize("model_relative,catalog_name", [
@@ -190,3 +220,70 @@ def test_cli_keeps_explicit_catalog_override(tmp_path, monkeypatch):
     monkeypatch.setattr(MODULE, "run", calls.append)
     MODULE.main()
     assert calls[0].catalog == catalog
+
+
+class MutableClient:
+    def __init__(self, linear=(0.0, 0.0, 0.0), angular=(0.0, 0.0, 0.0), deadman=True):
+        self.linear = list(linear)
+        self.angular = list(angular)
+        self.deadman = deadman
+
+    def latest_action(self):
+        return ({
+            "deadman": self.deadman,
+            "server_sequence": "11",
+            "end_effector_linear_velocity_body_m_s": self.linear,
+            "end_effector_angular_velocity_body_rad_s": self.angular,
+            "gripper_velocity_m_s": 0.0,
+        }, False)
+
+
+def test_balanced_home_tracks_each_translation_axis_without_attitude_drift() -> None:
+    model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_platform.xml"
+    kinematics = MODULE.SerialChainKinematics.from_mjcf(
+        model,
+        base_body="cubesat_bus",
+        joint_names=MODULE.ARM_JOINT_NAMES,
+        tool_site="sarm_ee",
+    )
+    initial = np.asarray(BALANCED_TELEOP_HOME, dtype=float)
+    for axis in range(3):
+        command = [0.0, 0.0, 0.0]
+        command[axis] = 0.05
+        target = MODULE.CartesianTeleopTarget(initial, MutableClient(linear=command), kinematics)
+        target.reset(0.0)
+        start_position, start_rotation = kinematics.forward(initial[:6])
+        for step in range(1, 101):
+            target.update(step * 0.01)
+        end_position, end_rotation = kinematics.forward(target.position[:6])
+        displacement = end_position - start_position
+        target_displacement = target.target_tool_position - start_position
+        assert displacement[axis] == pytest.approx(target_displacement[axis], abs=8.0e-4)
+        assert displacement[axis] > 0.04
+        assert np.linalg.norm(np.delete(displacement, axis)) < 2.5e-4
+        attitude_error = rotation_matrix_to_vector(end_rotation @ start_rotation.T)
+        assert np.linalg.norm(attitude_error) < np.deg2rad(0.02)
+        assert target.velocity_scale == pytest.approx(1.0)
+
+
+def test_measured_attitude_error_slows_translation_without_rotating_reference() -> None:
+    model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_platform.xml"
+    kinematics = MODULE.SerialChainKinematics.from_mjcf(
+        model,
+        base_body="cubesat_bus",
+        joint_names=MODULE.ARM_JOINT_NAMES,
+        tool_site="sarm_ee",
+    )
+    initial = np.asarray(BALANCED_TELEOP_HOME, dtype=float)
+    client = MutableClient(linear=(0.05, 0.0, 0.0))
+    target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
+    target.reset(0.0)
+    disturbed = initial[:6].copy()
+    disturbed[4] += 0.02
+    target.bind_joint_state_provider(lambda: disturbed)
+    initial_target_position = target.target_tool_position.copy()
+    target.update(0.01)
+    assert np.linalg.norm(target.orientation_error) > MODULE.ORIENTATION_TRACKING_SLOWDOWN_START_RAD
+    assert 0.0 < target.tracking_scale < 1.0
+    assert 0.0 < np.linalg.norm(target.target_tool_position - initial_target_position) < 0.0005
+    assert np.allclose(target.achieved_twist[3:], 0.0, atol=1e-10)

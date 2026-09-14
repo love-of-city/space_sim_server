@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from space_arm_platform.app import PlatformConfig, create_app
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SceneInstanceCreate
+from space_arm_platform.control_defaults import BALANCED_TELEOP_PROFILE
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.scene_runtime import SceneRuntimeManager, _DEFAULT_ORBIT
 
@@ -16,7 +17,7 @@ from space_arm_platform.scene_runtime import SceneRuntimeManager, _DEFAULT_ORBIT
 def test_orbital_randomization_is_opt_in_and_keeps_the_original_start(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     assert manager.catalog()["defaults"]["randomize_orbit_phase"] is False
-    for profile in ("none", "training-v1"):
+    for profile in ("none", "training-v1", BALANCED_TELEOP_PROFILE):
         for seed in (0, 42, 2**31 - 1):
             instance = manager.create_instance(SceneInstanceCreate(seed=seed, randomization_profile=profile))
             assert instance["randomize_orbit_phase"] is False
@@ -24,7 +25,7 @@ def test_orbital_randomization_is_opt_in_and_keeps_the_original_start(tmp_path):
             assert instance["environment"]["orbit"]["true_anomaly_deg"] == 180.0
 
 
-@pytest.mark.parametrize("profile", ["none", "training-v1"])
+@pytest.mark.parametrize("profile", ["none", "training-v1", BALANCED_TELEOP_PROFILE])
 def test_same_seed_only_changes_the_orbital_phase_when_enabled(tmp_path, profile):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     global_rng_state = random.getstate()
@@ -49,7 +50,7 @@ def test_same_seed_only_changes_the_orbital_phase_when_enabled(tmp_path, profile
 def test_orbital_phase_is_independent_of_local_profile_and_lighting(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     angles = []
-    for profile in ("none", "training-v1"):
+    for profile in ("none", "training-v1", BALANCED_TELEOP_PROFILE):
         for light in (0, 1, 12500):
             instance = manager.create_instance(SceneInstanceCreate(
                 seed=42, randomization_profile=profile,

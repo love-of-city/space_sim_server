@@ -3,8 +3,9 @@
 This process owns all joint/contact dynamics.  The browser never moves UE
 actors directly: it sends a bounded six-dimensional end-effector twist and a
 gripper command to the platform backend.  This process projects the Cartesian
-command through damped least-squares inverse kinematics into PID joint
-references, and the existing bsk_render_adapter publishes the resulting world
+command through direction-preserving, speed-bounded six-dimensional inverse
+kinematics into PID joint references, and the existing bsk_render_adapter
+publishes the resulting world
 state to UE.
 """
 
@@ -19,7 +20,7 @@ import socket
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from Basilisk.architecture import sysModel
@@ -31,7 +32,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
 from simulation.serial_chain_kinematics import (  # noqa: E402
     SerialChainKinematics,
+    axis_angle_to_matrix,
     matrix_to_quaternion_wxyz,
+    rotation_matrix_to_vector,
 )
 from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_socket  # noqa: E402
 from simulation.architecture import BasiliskModuleRegistry  # noqa: E402
@@ -41,11 +44,21 @@ from space_arm_platform.lighting import (  # noqa: E402
 
 
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
+from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 
 
 JOINT_MIN = np.array([-3.1416, -3.1416, -3.1416, -3.1416, -3.1416, -6.2832, 0.0, 0.0])
 JOINT_MAX = np.array([3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 6.2832, 0.0375, 0.0375])
 ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00, 1.00])
+MAX_LINEAR_COMMAND_ACCELERATION_M_S2 = 0.20
+MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 = 2.0
+POSITION_TRACKING_SLOWDOWN_START_M = 0.015
+POSITION_TRACKING_STOP_M = 0.030
+ORIENTATION_TRACKING_SLOWDOWN_START_RAD = math.radians(0.5)
+ORIENTATION_TRACKING_STOP_RAD = math.radians(2.0)
+TELEOP_ARM_KP = np.array([32.0, 32.0, 32.0, 30.0, 30.0, 15.0])
+TELEOP_ARM_KD = np.array([2.0, 2.0, 2.0, 0.7, 0.5, 0.25])
+TELEOP_ARM_TORQUE_LIMIT = np.array([2.0, 2.0, 2.0, 1.0, 1.0, 0.35])
 DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
 SUPPORTED_EPHEMERIS_CENTER = "Earth"
 SUPPORTED_EPHEMERIS_FRAME = "J2000"
@@ -397,7 +410,7 @@ class SimulationControlClient:
 
 
 class CartesianTeleopTarget:
-    """Project Cartesian twist commands into bounded PID joint references."""
+    """Track a Cartesian pose target through bounded differential IK references."""
 
     def __init__(
         self,
@@ -410,6 +423,20 @@ class CartesianTeleopTarget:
         self.velocity = np.zeros_like(self.initial_position)
         self.client = client
         self.kinematics = kinematics
+        self._joint_state_provider: Callable[[], np.ndarray] | None = None
+        self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(
+            self.initial_position[:6]
+        )
+        self.actual_tool_position = self.target_tool_position.copy()
+        self.actual_tool_rotation = self.target_tool_rotation.copy()
+        self.position_error = np.zeros(3)
+        self.orientation_error = np.zeros(3)
+        self.commanded_linear_velocity = np.zeros(3)
+        self.commanded_angular_velocity = np.zeros(3)
+        self.tracking_scale = 1.0
+        self.velocity_scale = 1.0
+        self.minimum_singular_value = 0.0
+        self.condition_number = math.inf
         self.last_sim_seconds: float | None = None
         self.applied_sequence = "0"
         self.command_stale = True
@@ -422,11 +449,67 @@ class CartesianTeleopTarget:
         self.update_count = 0
         self.ik_solve_count = 0
 
+    def bind_joint_state_provider(self, provider: Callable[[], np.ndarray]) -> None:
+        """Use measured arm joint positions for Cartesian pose feedback."""
+
+        self._joint_state_provider = provider
+
+    def _actual_arm_position(self) -> np.ndarray:
+        if self._joint_state_provider is None:
+            return self.position[:6].copy()
+        measured = np.asarray(self._joint_state_provider(), dtype=float)
+        if measured.shape != (6,) or not np.all(np.isfinite(measured)):
+            raise ValueError("measured arm joint state must contain six finite values")
+        return measured
+
+    @staticmethod
+    def _limit_vector(vector: np.ndarray, maximum_norm: float) -> np.ndarray:
+        norm = float(np.linalg.norm(vector))
+        if norm <= maximum_norm or norm <= 1.0e-14:
+            return vector
+        return vector * (maximum_norm / norm)
+
+    @classmethod
+    def _approach_vector(
+        cls, current: np.ndarray, target: np.ndarray, maximum_delta: float
+    ) -> np.ndarray:
+        return current + cls._limit_vector(target - current, maximum_delta)
+
+    def _advance_target(self, linear_velocity: np.ndarray, angular_velocity: np.ndarray, dt: float) -> None:
+        self.target_tool_position = self.target_tool_position + linear_velocity * dt
+        angular_speed = float(np.linalg.norm(angular_velocity))
+        if angular_speed > 1.0e-14:
+            delta = axis_angle_to_matrix(angular_velocity / angular_speed, angular_speed * dt)
+            # Commands and Jacobian angular velocity are expressed in the
+            # spacecraft body frame, so apply the spatial rotation on the left.
+            self.target_tool_rotation = delta @ self.target_tool_rotation
+
+    @staticmethod
+    def _tracking_scale(error: float, slowdown_start: float, stop: float) -> float:
+        if error <= slowdown_start:
+            return 1.0
+        if error >= stop:
+            return 0.0
+        return (stop - error) / (stop - slowdown_start)
+
     def reset(self, sim_seconds: float) -> None:
-        """Reset the cached command state at the given simulation time."""
+        """Reset the held joint and Cartesian references at simulation start."""
 
         self.position = self.initial_position.copy()
         self.velocity.fill(0.0)
+        self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(
+            self.initial_position[:6]
+        )
+        self.actual_tool_position = self.target_tool_position.copy()
+        self.actual_tool_rotation = self.target_tool_rotation.copy()
+        self.position_error.fill(0.0)
+        self.orientation_error.fill(0.0)
+        self.commanded_linear_velocity.fill(0.0)
+        self.commanded_angular_velocity.fill(0.0)
+        self.tracking_scale = 1.0
+        self.velocity_scale = 1.0
+        self.minimum_singular_value = 0.0
+        self.condition_number = math.inf
         self.last_sim_seconds = float(sim_seconds)
         self.applied_sequence = "0"
         self.command_stale = True
@@ -437,45 +520,116 @@ class CartesianTeleopTarget:
         self.ik_solve_count = 0
 
     def update(self, sim_seconds: float) -> tuple[np.ndarray, np.ndarray]:
-        """Consume the latest action and update the cached joint reference once."""
+        """Update a pose-locked Cartesian target and bounded joint references."""
 
         if self.last_sim_seconds is None:
             self.last_sim_seconds = sim_seconds
             return self.position.copy(), self.velocity.copy()
         dt = max(0.0, min(0.02, sim_seconds - self.last_sim_seconds))
         self.last_sim_seconds = sim_seconds
+        if dt <= 0.0:
+            return self.position.copy(), self.velocity.copy()
+
         action, stale = self.client.latest_action()
         enabled = bool(action.get("deadman")) and not stale
-        self.desired_twist = np.array(
-            [
-                *action["end_effector_linear_velocity_body_m_s"],
-                *action["end_effector_angular_velocity_body_rad_s"],
-            ],
-            dtype=float,
+        requested_linear = np.asarray(
+            action["end_effector_linear_velocity_body_m_s"], dtype=float
+        )
+        requested_angular = np.asarray(
+            action["end_effector_angular_velocity_body_rad_s"], dtype=float
         )
         if enabled:
-            result = self.kinematics.inverse_velocity(
-                self.position[:6],
-                self.desired_twist,
-                joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
+            self.commanded_linear_velocity = self._approach_vector(
+                self.commanded_linear_velocity,
+                requested_linear,
+                MAX_LINEAR_COMMAND_ACCELERATION_M_S2 * dt,
             )
-            self.velocity[:6] = result.joint_velocity_rad_s
-            gripper_velocity = float(action.get("gripper_velocity_m_s", action.get("gripper_velocity_rad_s", 0.0)))
-            self.velocity[6] = gripper_velocity
-            self.velocity[7] = gripper_velocity
-            self.achieved_twist = result.achieved_twist
-            self.residual_twist = result.residual_twist
-            self.jacobian_rank = result.jacobian_rank
-            self.ik_solve_count += 1
+            self.commanded_angular_velocity = self._approach_vector(
+                self.commanded_angular_velocity,
+                requested_angular,
+                MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 * dt,
+            )
         else:
-            self.velocity.fill(0.0)
-            self.achieved_twist.fill(0.0)
-            self.residual_twist.fill(0.0)
-        proposed = self.position + self.velocity * dt
-        clipped = np.clip(proposed, JOINT_MIN, JOINT_MAX)
-        at_limit = clipped != proposed
-        self.velocity[at_limit] = 0.0
-        self.position = clipped
+            # Releasing the deadman stops advancing the Cartesian target.  The
+            # measured-velocity term in each joint PD performs the deceleration.
+            self.commanded_linear_velocity.fill(0.0)
+            self.commanded_angular_velocity.fill(0.0)
+        operator_linear = self.commanded_linear_velocity
+        operator_angular = self.commanded_angular_velocity
+
+        actual_arm = self._actual_arm_position()
+        self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(actual_arm)
+        self.position_error = self.target_tool_position - self.actual_tool_position
+        self.orientation_error = rotation_matrix_to_vector(
+            self.target_tool_rotation @ self.actual_tool_rotation.T
+        )
+        tracking_scale = min(
+            self._tracking_scale(
+                float(np.linalg.norm(self.position_error)),
+                POSITION_TRACKING_SLOWDOWN_START_M,
+                POSITION_TRACKING_STOP_M,
+            ),
+            self._tracking_scale(
+                float(np.linalg.norm(self.orientation_error)),
+                ORIENTATION_TRACKING_SLOWDOWN_START_RAD,
+                ORIENTATION_TRACKING_STOP_RAD,
+            ),
+        )
+        self.tracking_scale = tracking_scale
+        operator_linear = operator_linear * tracking_scale
+        operator_angular = operator_angular * tracking_scale
+
+        # The reference chain itself follows an exact six-dimensional twist.
+        # When input is released it holds the last exact joint solution; the
+        # existing joint feedback removes physical tracking error without an
+        # additional Cartesian loop fighting the coordinated trajectory.
+        self.desired_twist = np.concatenate((operator_linear, operator_angular))
+
+        result = self.kinematics.inverse_velocity_bounded(
+            self.position[:6],
+            self.desired_twist,
+            joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
+            joint_position_min=JOINT_MIN[:6],
+            joint_position_max=JOINT_MAX[:6],
+            dt=dt,
+        )
+        self.velocity[:6] = result.joint_velocity_rad_s
+        self.achieved_twist = result.achieved_twist
+        self.residual_twist = result.residual_twist
+        self.jacobian_rank = result.jacobian_rank
+        self.velocity_scale = result.velocity_scale
+        self.minimum_singular_value = result.minimum_singular_value
+        self.condition_number = result.condition_number
+        self.ik_solve_count += 1
+        if enabled:
+            self._advance_target(
+                self.achieved_twist[:3], self.achieved_twist[3:], dt
+            )
+            self.position_error = self.target_tool_position - self.actual_tool_position
+            self.orientation_error = rotation_matrix_to_vector(
+                self.target_tool_rotation @ self.actual_tool_rotation.T
+            )
+
+        gripper_velocity = 0.0
+        if enabled:
+            gripper_velocity = float(
+                action.get("gripper_velocity_m_s", action.get("gripper_velocity_rad_s", 0.0))
+            )
+        self.velocity[6] = gripper_velocity
+        self.velocity[7] = gripper_velocity
+
+        proposed_arm = self.position[:6] + self.velocity[:6] * dt
+        joint_limited_arm = np.clip(proposed_arm, JOINT_MIN[:6], JOINT_MAX[:6])
+        at_arm_limit = joint_limited_arm != proposed_arm
+        self.velocity[:6][at_arm_limit] = 0.0
+        self.position[:6] = joint_limited_arm
+
+        proposed_gripper = self.position[6:] + self.velocity[6:] * dt
+        clipped_gripper = np.clip(proposed_gripper, JOINT_MIN[6:], JOINT_MAX[6:])
+        at_gripper_limit = clipped_gripper != proposed_gripper
+        self.velocity[6:][at_gripper_limit] = 0.0
+        self.position[6:] = clipped_gripper
+
         self.applied_sequence = str(action.get("server_sequence", "0"))
         self.command_stale = stale
         self.update_count += 1
@@ -643,6 +797,12 @@ def run(args: argparse.Namespace) -> None:
     native.TARGET_POS = np.asarray(target_spec.position_m, dtype=float)
     native.TARGET_QUAT = np.asarray(target_spec.orientation_wxyz, dtype=float)
     native.TIME_STEP = 0.002  # One authoritative 500 Hz dynamics step.
+    native.KP = np.asarray(native.KP, dtype=float).copy()
+    native.KD = np.asarray(native.KD, dtype=float).copy()
+    native.TORQUE_LIMITS = np.asarray(native.TORQUE_LIMITS, dtype=float).copy()
+    native.KP[:6] = TELEOP_ARM_KP
+    native.KD[:6] = TELEOP_ARM_KD
+    native.TORQUE_LIMITS[:6] = TELEOP_ARM_TORQUE_LIMIT
 
     client = SimulationControlClient(args.control_host, args.control_port, "sarm-teleop")
     kinematics = SerialChainKinematics.from_mjcf(
@@ -654,7 +814,7 @@ def run(args: argparse.Namespace) -> None:
     initial_joints = (
         np.asarray(scene_instance["randomization"]["arm_joint_position_rad"], dtype=float)
         if scene_instance
-        else np.asarray(native.PREGRASP, dtype=float)
+        else np.asarray(BALANCED_TELEOP_HOME, dtype=float)
     )
     client.start()
     try:
@@ -891,6 +1051,13 @@ def _run_session(
             render_sim_time_ns = bridge.last_published_sim_time_ns
             joint_position = [float(joint.stateOutMsg.read().state) for joint in joints]
             joint_velocity = [float(joint.stateDotOutMsg.read().state) for joint in joints]
+            if frame == 1:
+                targets.bind_joint_state_provider(
+                    lambda: np.asarray(
+                        [float(joint.stateOutMsg.read().state) for joint in joints[:6]],
+                        dtype=float,
+                    )
+                )
             end_effector_position, end_effector_rotation = kinematics.forward(
                 np.asarray(joint_position[:6])
             )

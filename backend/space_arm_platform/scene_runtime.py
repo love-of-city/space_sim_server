@@ -17,6 +17,13 @@ from typing import Any
 
 from .models import SceneInstanceCreate
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE
+from .control_defaults import (
+    BALANCED_TELEOP_HOME,
+    BALANCED_TELEOP_JOINT_SPANS,
+    BALANCED_TELEOP_PROFILE,
+    DEFAULT_RANDOMIZATION_PROFILE,
+    LEGACY_PREGRASP,
+)
 from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, capture_target
 
 
@@ -49,14 +56,19 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
 
 RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     {
+        "id": BALANCED_TELEOP_PROFILE,
+        "label": "均衡遥操作 v1",
+        "description": "在六方向运动能力均衡的初始姿势附近随机化，适合末端位姿遥操作。",
+    },
+    {
         "id": "none",
-        "label": "固定基准",
-        "description": "使用原始 PREGRASP、目标位姿与速度，便于回归测试。",
+        "label": "固定基准（历史）",
+        "description": "使用原始 PREGRASP、目标位姿与速度，便于历史回归测试。",
     },
     {
         "id": "training-v1",
-        "label": "训练随机化 v1",
-        "description": "在可抓取邻域内随机目标位置/姿态和机械臂初始关节。",
+        "label": "训练随机化 v1（历史）",
+        "description": "保留原近奇异 PREGRASP 邻域，供旧数据和回归测试复现。",
     },
 )
 
@@ -64,7 +76,7 @@ _NATIVE_TARGET_POSITION = (0.38754456, -0.00109359, 0.42397138)
 _NATIVE_TARGET_QUATERNION = (0.99967109, 0.02433362, -0.00809494, 0.00024763)
 _NATIVE_TARGET_SPIN = (0.0, 0.0, 0.0)
 _NATIVE_COMMON_VELOCITY = (0.01, -0.004, 0.002)
-_NATIVE_PREGRASP = (0.0, -0.1790243, 0.2159404, -0.0368382, 0.0, 0.0, 0.01875, 0.01875)
+_NATIVE_PREGRASP = LEGACY_PREGRASP
 _DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
 _DEFAULT_EPHEMERIS_CENTER = "Earth"
 _DEFAULT_EPHEMERIS_FRAME = "J2000"
@@ -127,14 +139,16 @@ def _multiply_quaternion(a: list[float], b: list[float]) -> list[float]:
 def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
     rng = random.Random(seed)
     target = capture_target(request.template_id)
+    balanced_profile = request.randomization_profile == BALANCED_TELEOP_PROFILE
+    initial_arm = BALANCED_TELEOP_HOME if balanced_profile else _NATIVE_PREGRASP
     randomization: dict[str, Any] = {
         "target_position_m": list(target.position_m),
         "target_orientation_wxyz": list(target.orientation_wxyz),
         "target_linear_velocity_m_s": list(_NATIVE_COMMON_VELOCITY),
         "target_angular_velocity_rad_s": list(_NATIVE_TARGET_SPIN),
-        "arm_joint_position_rad": list(_NATIVE_PREGRASP),
+        "arm_joint_position_rad": list(initial_arm),
     }
-    if request.randomization_profile == "training-v1":
+    if request.randomization_profile in {"training-v1", BALANCED_TELEOP_PROFILE}:
         randomization["target_position_m"] = [
             target.position_m[0] + rng.uniform(-0.018, 0.018),
             target.position_m[1] + rng.uniform(-0.020, 0.020),
@@ -152,10 +166,14 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         # becomes numerically unstable when the second free body receives a
         # non-identity attitude and a non-zero angular rate during initialization.
         randomization["target_angular_velocity_rad_s"] = list(_NATIVE_TARGET_SPIN)
-        joint_spans = (0.04, 0.035, 0.035, 0.03, 0.04, 0.04, 0.01, 0.01)
+        joint_spans = (
+            BALANCED_TELEOP_JOINT_SPANS
+            if balanced_profile
+            else (0.04, 0.035, 0.035, 0.03, 0.04, 0.04, 0.01, 0.01)
+        )
         randomization["arm_joint_position_rad"] = [
             value + rng.uniform(-span, span)
-            for value, span in zip(_NATIVE_PREGRASP, joint_spans, strict=True)
+            for value, span in zip(initial_arm, joint_spans, strict=True)
         ]
 
     if target.hinge_joint:
@@ -231,7 +249,7 @@ class SceneRuntimeManager:
             "defaults": {
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
                 "template_id": DEFAULT_TEMPLATE,
-                "randomization_profile": "training-v1",
+                "randomization_profile": DEFAULT_RANDOMIZATION_PROFILE,
                 "randomize_orbit_phase": False,
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,
                 "capture_rate_hz": self.launch.capture_rate if self.launch else 10.0,

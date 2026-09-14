@@ -6,6 +6,12 @@ from fastapi.testclient import TestClient
 
 from space_arm_platform.app import PlatformConfig, create_app
 from space_arm_platform.models import SceneInstanceCreate
+from space_arm_platform.control_defaults import (
+    BALANCED_TELEOP_HOME,
+    BALANCED_TELEOP_JOINT_SPANS,
+    BALANCED_TELEOP_PROFILE,
+    DEFAULT_RANDOMIZATION_PROFILE,
+)
 from space_arm_platform.scene_runtime import (
     SceneRuntimeManager,
     _NATIVE_COMMON_VELOCITY,
@@ -77,7 +83,7 @@ def test_scene_api_catalog_and_instance_generation_without_launcher(tmp_path: Pa
         assert login.status_code == 200
         catalog = client.get("/api/scenes/catalog")
         assert catalog.status_code == 200
-        assert catalog.json()["defaults"]["randomization_profile"] == "training-v1"
+        assert catalog.json()["defaults"]["randomization_profile"] == DEFAULT_RANDOMIZATION_PROFILE
 
         created = client.post("/api/scenes/instances", json={"seed": 99})
         assert created.status_code == 200
@@ -88,3 +94,11 @@ def test_scene_api_catalog_and_instance_generation_without_launcher(tmp_path: Pa
         assert state["scene_runtime"]["enabled"] is False
         start = client.post("/api/scenes/start", json={"seed": 99})
         assert start.status_code == 409
+
+
+def test_balanced_teleop_profile_stays_near_validated_home(tmp_path: Path) -> None:
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    instance = manager.create_instance(request(12345, BALANCED_TELEOP_PROFILE))
+    joints = instance["randomization"]["arm_joint_position_rad"]
+    for actual, home, span in zip(joints, BALANCED_TELEOP_HOME, BALANCED_TELEOP_JOINT_SPANS, strict=True):
+        assert home - span <= actual <= home + span

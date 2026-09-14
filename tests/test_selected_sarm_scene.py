@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 from space_arm_platform.models import SceneInstanceCreate
+from space_arm_platform.control_defaults import BALANCED_TELEOP_PROFILE
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 from space_arm_platform.scene_targets import (
     DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, LEGACY_TEMPLATE,
@@ -49,7 +50,7 @@ def test_default_changes_collision_only_not_seeded_layout_or_saved_compatibility
     assert catalog["templates"][0]["id"] == DEFAULT_TEMPLATE
     assert {t["id"] for t in catalog["templates"]} == {SELF_COLLISION_TEMPLATE, MESH_TARGET_TEMPLATE, GROUND_TARGET_TEMPLATE, LEGACY_TEMPLATE}
     assert "内部碰撞" in catalog["templates"][0]["label"]
-    for randomization_profile in ("none", "training-v1"):
+    for randomization_profile in ("none", "training-v1", BALANCED_TELEOP_PROFILE):
         args = dict(seed=42, randomize_orbit_phase=True, randomization_profile=randomization_profile)
         coarse = manager.create_instance(SceneInstanceCreate(template_id=GROUND_TARGET_TEMPLATE, **args))
         active = manager.create_instance(SceneInstanceCreate(**args))

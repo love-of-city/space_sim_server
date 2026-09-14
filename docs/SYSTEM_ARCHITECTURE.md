@@ -1,6 +1,6 @@
 # 太空仿真平台总体架构设计与实现总结
 
-> 文档日期：2026-09-08；待抓取目标更新：2026-09-09。性质：依据代码整理的当前架构说明，不是所有规划能力均已实现的承诺。
+> 文档日期：2026-09-08；最近控制链更新：2026-09-14。性质：依据代码整理的当前架构说明，不是所有规划能力均已实现的承诺。
 >
 > 代码基线：服务端 `10bf803`；UE 适配器 `a1dd084`。本文、同次文档调整及后续反作用轮/观测修复及目标替换尚不包含在这两个提交中。
 >
@@ -154,7 +154,7 @@ flowchart TB
 | 输入安全 | [safety.py](../backend/space_arm_platform/safety.py) | 数值合法性、序列去重、速度缩放/限幅、超时中性动作 |
 | 控制与观测连接 | [simulation_hub.py](../backend/space_arm_platform/simulation_hub.py) | 单一仿真 TCP 连接、动作发送、观测校验和广播 |
 | 原生仿真入口 | [teleop_grasp_unreal.py](../simulation/teleop_grasp_unreal.py) | 实例加载、IK、星历/重力接入、初始轨道、桥接、观测发送 |
-| 机械臂运动学 | [serial_chain_kinematics.py](../simulation/serial_chain_kinematics.py) | MJCF 串联链解析、正运动学、雅可比与阻尼最小二乘逆解 |
+| 机械臂运动学 | [serial_chain_kinematics.py](../simulation/serial_chain_kinematics.py) | MJCF 串联链解析、正运动学、雅可比、历史阻尼解与实时遥操作使用的严格六维方向保持受限 IK |
 | 物理模型与原生构建 | [sarm_ground_target_self_collision.xml](../model/SARM/platform/sarm_ground_target_self_collision.xml)（粗盒内部接触默认；旧粗盒、高精度实验与小方块入口保留）、[scenario_sarm_grasp.py](../model/SARM/platform/scenarios/scenario_sarm_grasp.py) | 刚体、惯量、关节、接触、执行器、原生 PID/限幅与初态 |
 | 通用架构基础 | [architecture.py](../simulation/architecture.py) | 状态/控制抽象、接口、模块注册器、通用编排器；接入程度见第 7 节 |
 | 身份与会话 | [auth.py](../backend/space_arm_platform/auth.py) | 两种用户角色、密码摘要、SQLite 会话 |
@@ -214,7 +214,7 @@ running → stopped / completed / failed
 
 ### 5.3 实例配置和复现能力
 
-当前默认模板为 `sarm-ground-validation-self-collision-grasp`（粗碰撞体·内部碰撞），以显式 geom pair 开启外侧板与固定目标接触，使用近似铰链间隙；不使用高精度三角面或新增角度限位。旧无内部接触粗盒、高精度实验、小方块模板保留，已有实例不自动迁移；随机化方案为 `none` 和 `training-v1`。实例采用 `space-arm-scene-instance/1`，保存到 `run/scenes/<instance-id>.json`。细节见[粗碰撞内部接触](COARSE_SELF_COLLISION.md)，实例包含：
+当前默认模板为 `sarm-ground-validation-self-collision-grasp`（粗碰撞体·内部碰撞），以显式 geom pair 开启外侧板与固定目标接触，使用近似铰链间隙；不使用高精度三角面或新增角度限位。旧无内部接触粗盒、高精度实验、小方块模板保留，已有实例不自动迁移；新实例默认随机化方案为 `teleop-balanced-v1`，`none` 和 `training-v1` 作为历史复现方案保留。实例采用 `space-arm-scene-instance/1`，保存到 `run/scenes/<instance-id>.json`。细节见[粗碰撞内部接触](COARSE_SELF_COLLISION.md)，实例包含：
 
 - `created_by`、模板、实际 Seed，以及独立的轨道起点随机开关 `randomize_orbit_phase`（默认 `false`）；
 - `environment`：星历历元、中心、参考系和轨道参数；
@@ -222,7 +222,7 @@ running → stopped / completed / failed
 - `randomization`：目标位姿/速度、8 个机械臂/夹爪初始关节值；新目标另外保存被动铰链的零位初态。
 - `capture_target`：源/运行 XML、碰撞模式 `collision_model`、实验限制 `runtime_warning`、被动关节及估算质量；模型组合、真实性边界与 UE 资源见[待抓取目标](GROUND_CAPTURE_TARGET.md)。
 
-局部抓取随机化使用 `random.Random(seed)`。轨道起点开关独立于 `none` / `training-v1`：开启时用独立的版本化随机流 `random.Random(f"space-arm-orbit-phase-v1:{seed}")` 均匀抽取 `[0, 360)` 度，只覆盖实例的 `environment.orbit.true_anomaly_deg`，不改变已有局部随机参数、轨道高度、倾角或星历时刻；关闭时仍为 180°。加载实例只应用保存的角度，不再次抽样。位置和速度由同一组轨道根数计算，再赋给权威 MJScene；渲染桥读取同一状态。详情见[轨道起点初始化](ORBIT_INITIALIZATION.md)。
+局部抓取随机化使用 `random.Random(seed)`。轨道起点开关独立于 `teleop-balanced-v1` / `none` / `training-v1`：开启时用独立的版本化随机流 `random.Random(f"space-arm-orbit-phase-v1:{seed}")` 均匀抽取 `[0, 360)` 度，只覆盖实例的 `environment.orbit.true_anomaly_deg`，不改变已有局部随机参数、轨道高度、倾角或星历时刻；关闭时仍为 180°。加载实例只应用保存的角度，不再次抽样。位置和速度由同一组轨道根数计算，再赋给权威 MJScene；渲染桥读取同一状态。详情见[轨道起点初始化](ORBIT_INITIALIZATION.md)。
 
 目标初始角速度目前固定为零；即使旧实例包含非零值，仿真入口也会归零，以规避已验证的启动数值不稳定。
 
@@ -242,8 +242,8 @@ running → stopped / completed / failed
   → AppliedAction：spacecraft_body 坐标系下的 SI 指令
   → SimulationHub 的 TCP 控制连接
   → SimulationControlClient 的最新指令缓存
-  → 独立 IK task 更新目标关节状态
-  → 原生 PID → 限幅器 → MJScene actuator
+  → 独立 IK task：平滑命令 + 严格六维姿态锁定 + 方向保持受限 IK
+  → 实时遥操作关节 PD → 限幅器 → MJScene actuator
   → 物理状态反馈、渲染状态发布和后端 observation
 ```
 
@@ -256,13 +256,16 @@ running → stopped / completed / failed
 | 末端线速度档位 | 默认 `0.05 m/s`，可选范围 `0.01–0.20 m/s` |
 | 末端角速度上限 | `0.50 rad/s` |
 | 单指开合速度上限 | `0.01 m/s`；两指以同一标量命令分别沿各自关节轴运动 |
-| 机械臂关节速度上限 | `[0.70, 0.70, 0.70, 0.90, 1.00, 1.00] rad/s` |
+| 机械臂关节速度上限 | `[0.70, 0.70, 0.70, 0.90, 1.00, 1.00] rad/s`；约束触发时六维末端命令统一缩放 |
+| 线/角命令加速度 | `0.20 m/s²` / `2.0 rad/s²`；默认 `0.05 m/s` 约需 `0.25 s` 加速到稳态 |
+| 默认机械臂初态 | `teleop-balanced-v1` 的均衡姿势邻域；历史 `none` / `training-v1` 仍使用原 PREGRASP |
+| 实际跟踪保护 | 位置误差 `15–30 mm`、姿态误差 `0.5–2.0°` 之间逐渐减速，达到上限后暂停参考推进 |
 | 夹爪位置范围 | 每指 `0–0.0375 m` |
 | 后端输入超时 | 阈值 `0.25 s`，看门狗约每 `0.05 s` 检查 |
 | 仿真侧输入超时 | 独立按 `time.monotonic()` 判断 `0.25 s`，不依赖浏览器自觉归零 |
 | 无输入/deadman 关闭 | 不再推进关节目标，目标速度归零，PID 继续保持；不是冻结轨道或强制清零物理速度 |
 
-当前 `CartesianTeleopTarget` 用目标关节状态进行速度逆解并积分目标，真实关节由 PID 跟踪；它不是直接覆盖真实 `qpos`。IK 增量时间被裁剪到 `0–0.02 s`，因此降低 IK 频率不能未经验证就视为完全等价的控制行为。
+当前 `CartesianTeleopTarget` 同时保存末端目标位置和姿态。纯平移时六维任务中的角速度严格为零；受关节速度/位置约束时所有关节速度使用同一比例缩放，从而保留末端运动方向和姿态。若当前构型无法完成完整六维任务，则保持而不是用缓慢、偏斜并伴随转动的替代动作。真实关节仍由 PD 跟踪参考，控制器不会直接覆盖真实 `qpos`。IK 增量时间被裁剪到 `0–0.02 s`，因此降低 IK 频率不能未经验证就视为完全等价的控制行为。
 
 页面失焦、隐藏、退出操作模式和操作页面切换会发送中性动作。当前急停按钮的“锁存”属于前端 `state.estopped`，后端协议没有独立持久化的全局急停锁；不能把它描述为已经实现的跨页面、跨会话硬件急停系统。
 
@@ -326,7 +329,7 @@ running → stopped / completed / failed
 | 太阳照明倍率（默认 1，范围 0～20,000） | 创建请求 → 场景实例 `environment.lighting.sunlight_intensity_scale` | 仅渲染 SceneSettings/UE，不参与动力学；见[配置说明](SUNLIGHT_CONFIGURATION.md) |
 | 姿态开关、频率、PD 增益、轮速保护裕量 | `model/SARM/platform/attitude_control.json` | BSK 姿态模块；轮的物理参数仍从 MJCF 读取 |
 | 相机挂载位姿、垂直 FOV、原始分辨率 | 同一 MJCF 的 `<camera>` | 适配器 manifest → UE 相机 |
-| 原生步长、PID 增益、实际输出限幅、基准初态 | `scenario_sarm_grasp.py` 的 `TIME_STEP`、`KP`、`KD`、`TORQUE_LIMITS` 等 | BSK 原生控制和场景初始化 |
+| 原生步长、脚本化抓取 PID、基准初态 | `scenario_sarm_grasp.py` 的 `TIME_STEP`、`KP`、`KD`、`TORQUE_LIMITS` 等 | 原生脚本化抓取；实时遥操作入口在构建前为前六关节覆盖经验证的 PD/力矩参数 |
 | 末端命令上限与输入超时 | `safety.py`；仿真侧另有超时检查 | 后端及仿真控制缓存 |
 | IK 关节范围/速度限制 | `teleop_grasp_unreal.py` 中的数组 | 目标状态生成 |
 | 随机状态、星历历元/中心、轨道、运行倍速和采集选项 | 场景实例 JSON；模板默认值在 `scene_runtime.py` | 启动脚本和仿真入口 |
@@ -634,7 +637,7 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -AdapterRoot 'D:\workspace\spac
 
 | 能力 | 当前状态 | 不应作出的推断 |
 | --- | --- | --- |
-| SARM 原生动力学、六轴 IK、双指 PID | 已接入并有局部测试/原生验证 | 已覆盖 SARM 8 项真实 Hub 校验；仍非任意操作轨迹验收 |
+| SARM 原生动力学、六轴 IK、双指 PID | 已接入并有局部测试/原生验证 | 均衡初态、严格六维受限 IK 和实时关节 PD 已覆盖三轴局部运动；仍非任意长距离、碰撞约束轨迹验收 |
 | Earth/Sun 星历、引力和 UE 显示对齐 | 已接入，有专题验证 | 不是所有天体、摄动、辐射和成像模型均已支持 |
 | 双模型相机及 WebRTC 预览 | 已接入，播放器/相机有独立测试 | 不代表每帧完整无丢失，也不等于权威数据已匹配 |
 | CaptureReceiver / EpisodeRecorder / 归档 | 组件和配对测试已实现 | 合法遥测问题已修复；GPU 图像与时序配对仍需实际验收 |

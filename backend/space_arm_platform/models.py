@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE, MAX_SUNLIGHT_INTENSITY_SCALE
+from .control_defaults import DEFAULT_RANDOMIZATION_PROFILE
 from .scene_targets import DEFAULT_TEMPLATE
 
 
@@ -199,7 +200,7 @@ class SceneInstanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     template_id: str = DEFAULT_TEMPLATE
-    randomization_profile: str = "training-v1"
+    randomization_profile: str = DEFAULT_RANDOMIZATION_PROFILE
     randomize_orbit_phase: bool = Field(
         default=False, strict=True,
         description="Sample a seed-reproducible starting phase on the current circular orbit, independently of local grasp randomization.",

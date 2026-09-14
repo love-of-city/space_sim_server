@@ -30,10 +30,13 @@ class IkResult:
     achieved_twist: np.ndarray
     residual_twist: np.ndarray
     jacobian_rank: int
+    velocity_scale: float = 1.0
+    minimum_singular_value: float = 0.0
+    condition_number: float = math.inf
 
 
 class SerialChainKinematics:
-    """Forward kinematics and damped least-squares velocity IK for MJCF hinges."""
+    """Forward kinematics plus legacy and strict bounded velocity IK for MJCF hinges."""
 
     def __init__(self, segments: list[Segment], joint_names: tuple[str, ...]) -> None:
         self.segments = segments
@@ -160,6 +163,114 @@ class SerialChainKinematics:
             achieved_twist=achieved,
             residual_twist=twist - achieved,
             jacobian_rank=int(np.linalg.matrix_rank(jacobian, tol=1e-5)),
+        )
+
+    def inverse_velocity_bounded(
+        self,
+        joint_position_rad: np.ndarray,
+        desired_twist: np.ndarray,
+        *,
+        joint_velocity_limits: np.ndarray,
+        joint_position_min: np.ndarray | None = None,
+        joint_position_max: np.ndarray | None = None,
+        dt: float | None = None,
+        rcond: float = 1.0e-8,
+        residual_absolute_tolerance: float = 1.0e-8,
+        residual_relative_tolerance: float = 1.0e-5,
+    ) -> IkResult:
+        """Solve a direction-preserving, speed-bounded differential IK step.
+
+        The six-dimensional task is solved before limits are applied.  A single
+        scale factor is then applied to every joint velocity, so joint limits
+        slow the complete Cartesian command instead of changing its direction
+        or introducing tool rotation.  If the requested twist is outside the
+        Jacobian column space, the strict pose task is held rather than silently
+        replacing it with a different Cartesian motion.
+        """
+
+        q = np.asarray(joint_position_rad, dtype=float)
+        twist = np.asarray(desired_twist, dtype=float)
+        limits = np.asarray(joint_velocity_limits, dtype=float)
+        size = len(self.joint_names)
+        if q.shape != (size,) or not np.all(np.isfinite(q)):
+            raise ValueError(f"expected {size} finite joint positions, got {q.shape}")
+        if twist.shape != (6,) or not np.all(np.isfinite(twist)):
+            raise ValueError("desired twist must contain six finite values")
+        if limits.shape != (size,) or not np.all(np.isfinite(limits)) or np.any(limits <= 0.0):
+            raise ValueError("joint velocity limits must be positive and match the chain")
+        if dt is not None and (not math.isfinite(float(dt)) or float(dt) <= 0.0):
+            raise ValueError("dt must be positive and finite")
+
+        jacobian = self.jacobian(q)
+        singular_values = np.linalg.svd(jacobian, compute_uv=False)
+        minimum_singular_value = float(singular_values[-1]) if singular_values.size else 0.0
+        condition_number = (
+            float(singular_values[0] / singular_values[-1])
+            if singular_values.size and singular_values[-1] > 0.0
+            else math.inf
+        )
+        rank = int(np.linalg.matrix_rank(jacobian, tol=1.0e-5))
+        if float(np.linalg.norm(twist)) <= 1.0e-14:
+            velocity = np.zeros(size)
+            return IkResult(
+                joint_velocity_rad_s=velocity,
+                achieved_twist=np.zeros(6),
+                residual_twist=np.zeros(6),
+                jacobian_rank=rank,
+                velocity_scale=1.0,
+                minimum_singular_value=minimum_singular_value,
+                condition_number=condition_number,
+            )
+
+        unscaled, *_ = np.linalg.lstsq(jacobian, twist, rcond=float(rcond))
+        projected = jacobian @ unscaled
+        projection_error = float(np.linalg.norm(twist - projected))
+        allowed_error = float(residual_absolute_tolerance) + float(residual_relative_tolerance) * float(
+            np.linalg.norm(twist)
+        )
+        if projection_error > allowed_error:
+            velocity = np.zeros(size)
+            return IkResult(
+                joint_velocity_rad_s=velocity,
+                achieved_twist=np.zeros(6),
+                residual_twist=twist.copy(),
+                jacobian_rank=rank,
+                velocity_scale=0.0,
+                minimum_singular_value=minimum_singular_value,
+                condition_number=condition_number,
+            )
+
+        lower = -limits.copy()
+        upper = limits.copy()
+        if any(value is not None for value in (joint_position_min, joint_position_max, dt)):
+            if joint_position_min is None or joint_position_max is None or dt is None:
+                raise ValueError("joint position bounds and dt must be supplied together")
+            minimum = np.asarray(joint_position_min, dtype=float)
+            maximum = np.asarray(joint_position_max, dtype=float)
+            if minimum.shape != (size,) or maximum.shape != (size,):
+                raise ValueError("joint position bounds must match the chain")
+            if not np.all(np.isfinite(minimum)) or not np.all(np.isfinite(maximum)) or np.any(minimum > maximum):
+                raise ValueError("joint position bounds must be finite and ordered")
+            lower = np.maximum(lower, (minimum - q) / float(dt))
+            upper = np.minimum(upper, (maximum - q) / float(dt))
+
+        scale = 1.0
+        for value, low, high in zip(unscaled, lower, upper, strict=True):
+            if value > 1.0e-14:
+                scale = min(scale, max(0.0, float(high / value)))
+            elif value < -1.0e-14:
+                scale = min(scale, max(0.0, float(low / value)))
+        scale = max(0.0, min(1.0, scale))
+        velocity = unscaled * scale
+        achieved = jacobian @ velocity
+        return IkResult(
+            joint_velocity_rad_s=velocity,
+            achieved_twist=achieved,
+            residual_twist=twist - achieved,
+            jacobian_rank=rank,
+            velocity_scale=scale,
+            minimum_singular_value=minimum_singular_value,
+            condition_number=condition_number,
         )
 
 

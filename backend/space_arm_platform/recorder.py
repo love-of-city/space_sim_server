@@ -23,7 +23,7 @@ class EpisodeRecorder:
         self._episode_dir: Path | None = None
         self._step_index = 0
         self._capture_index = 0
-        self._steps_by_frame: dict[str, tuple[str, str]] = {}
+        self._steps_by_frame: dict[str, tuple[str, str, str]] = {}
         self._pending_captures: dict[str, list[tuple[dict[str, Any], dict[str, bytes]]]] = {}
         self._pending_capture_count = 0
         self._rejected_capture_count = 0
@@ -137,6 +137,7 @@ class EpisodeRecorder:
             self._steps_by_frame[observation.render_frame_id] = (
                 observation.step_id,
                 observation.sim_time_ns,
+                observation.render_session_id,
             )
             row: dict[str, Any] = {
                 "schema": "space-arm-step/1",
@@ -151,10 +152,11 @@ class EpisodeRecorder:
             pending = self._pending_captures.pop(observation.render_frame_id, [])
             self._pending_capture_count -= len(pending)
         for metadata, products in pending:
-            self._write_matched_capture(metadata, products, observation.step_id, observation.sim_time_ns)
+            self._write_matched_capture(metadata, products, observation.step_id, observation.sim_time_ns,
+                                        observation.render_session_id)
 
     def record_authoritative_capture(self, metadata: dict[str, Any], products: dict[str, bytes]) -> None:
-        matched_step: tuple[str, str] | None = None
+        matched_step: tuple[str, str, str] | None = None
         with self._lock:
             if self._episode_dir is None:
                 return
@@ -187,9 +189,15 @@ class EpisodeRecorder:
         products: dict[str, bytes],
         step_id: str,
         observation_sim_time_ns: str,
+        render_session_id: str = "",
     ) -> None:
         with self._lock:
             if self._episode_dir is None:
+                return
+            if render_session_id and metadata.get("session_id") != render_session_id:
+                # Also enforce at the locked write boundary: a capture callback
+                # can already be in flight when the API completes a reset.
+                self._rejected_capture_count += 1
                 return
             capture_sim_time_ns = str(metadata.get("sim_time_ns", ""))
             if capture_sim_time_ns != observation_sim_time_ns:

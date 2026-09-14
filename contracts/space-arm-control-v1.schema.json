@@ -12,6 +12,9 @@
     },
     {
       "$ref": "#/$defs/observation"
+    },
+    {
+      "$ref": "#/$defs/reset"
     }
   ],
   "$defs": {
@@ -55,6 +58,11 @@
               "items": {
                 "type": "string"
               }
+            },
+            "reset_generation": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Reset request ID; empty in the initial session."
             }
           }
         }
@@ -129,6 +137,11 @@
             "gripper_velocity_m_s": {
               "type": "number",
               "description": "SARM slider command in metres/second; prefer over legacy angular field."
+            },
+            "reset_generation": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Reset request ID; empty in the initial session."
             }
           }
         }
@@ -388,6 +401,14 @@
                 }
               ],
               "default": null
+            },
+            "reset_generation": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Reset request ID; empty in the initial session."
+            },
+            "render_session_id": {
+              "type": "string"
             }
           }
         },
@@ -631,6 +652,30 @@
       ],
       "title": "ReactionWheelObservation",
       "type": "object"
+    },
+    "reset": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "request_id"
+          ],
+          "properties": {
+            "type": {
+              "const": "reset"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      ]
     }
   }
 }

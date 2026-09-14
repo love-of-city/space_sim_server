@@ -92,6 +92,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 
 `run_platform.ps1` 现在只启动控制平台（前端、后端、仿真控制/采集监听和 Pixel Streaming 信令），不会立即启动 UE 或 Basilisk/MJScene。进入网页后，在“场景实例”中选择模板、随机化配置、Seed 和是否启用权威采集，再点击“生成并启动场景”。场景会持续运行，直到用户主动点击“停止场景”或关闭平台。Seed 留空时由后端生成，并与完整随机参数一起保存到 `run/scenes/<instance-id>.json`，可用于复现实验。
 
+场景运行后可点击“重置状态”恢复本次实例的初态，不重新随机化或重启 UE；采集期间须先结束采集。详见 [状态重置](docs/SCENE_RESET.md)。
+
+
 初始化可勾选“沿当前圆轨道随机初始位置”（默认关闭）。开启后沿当前 500 km、倾角 51.6° 的圆轨道均匀抽取 0～360° 的起点，不改变轨道形状/平面；关闭时保留原来的 180° 起点。该开关独立于 `none` / `training-v1` 抓取随机化，同一 Seed 的目标局部位姿和关节初态不会因开关变化而改变。实际起点显示在实例摘要中，并以 `randomize_orbit_phase` 和 `environment.orbit.true_anomaly_deg` 保存。卫星与目标使用该相位对应的位置及速度，UE 继续读取同一动力学状态；刷新网页或切换相机不会重新抽样。详见[轨道起点初始化](docs/ORBIT_INITIALIZATION.md)。
 
 设置 IK 频率和预览帧率（交互预览默认关闭高开销的权威数据采集）：

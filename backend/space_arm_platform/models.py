@@ -41,6 +41,7 @@ class AppliedAction(BaseModel):
 
     protocol: Literal[CONTROL_PROTOCOL] = CONTROL_PROTOCOL
     type: Literal["action"] = "action"
+    reset_generation: str = ""
     episode_id: str | None = None
     server_sequence: str
     server_time_ns: str
@@ -73,6 +74,7 @@ class SimulationHello(BaseModel):
     type: Literal["sim_hello"]
     simulation_id: str
     capabilities: list[str] = []
+    reset_generation: str = ""
 
 
 Vector3 = Annotated[list[FiniteFloat], Field(min_length=3, max_length=3)]
@@ -119,6 +121,8 @@ class SimulationObservation(BaseModel):
 
     protocol: Literal[CONTROL_PROTOCOL]
     type: Literal["observation"]
+    reset_generation: str = ""
+    render_session_id: str = ""
     simulation_id: str
     step_id: str
     render_frame_id: str

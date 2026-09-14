@@ -31,6 +31,10 @@ const state = {
   pixelConnectPromise: null,
   scenePhase: "idle",
   sceneReady: false,
+  resetPending: false,
+  simulationResetting: false,
+  simulationConnected: false,
+  resetSupported: false,
   sceneDefaults: { simulation_rate: 1, capture_rate_hz: 10, ik_rate_hz: 100 },
   currentUser: null,
   canManageScene: false,
@@ -242,15 +246,20 @@ function applySceneRuntime(runtime = {}) {
     state.currentUser.role === "admin" || !ownerId || ownerId === state.currentUser.user_id
   );
   state.scenePhase = phase;
-  state.sceneReady = phase === "running";
+  state.sceneReady = phase === "running" && !state.resetPending && !state.simulationResetting;
   if (!state.sceneReady && state.operationActive) {
     exitOperationMode("场景已结束，已退出操作模式");
   }
-  $("scenePhase").textContent = enabled ? (scenePhaseLabels[phase] || phase) : "运行时未配置";
+  $("scenePhase").textContent = state.resetPending || state.simulationResetting ? "正在重置" : enabled ? (scenePhaseLabels[phase] || phase) : "运行时未配置";
   $("scenePhase").classList.toggle("scene-running", state.sceneReady);
   $("scenePhase").classList.toggle("scene-failed", phase === "failed");
   $("startScene").disabled = active || !enabled;
   $("stopScene").disabled = !active || !state.canManageScene;
+  $("resetScene").disabled = !state.sceneReady || !state.simulationConnected
+    || !state.resetSupported || !state.canManageScene || Boolean(state.activeEpisode);
+  $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在重置…" : "重置状态";
+  $("resetScene").title = state.activeEpisode ? "请先结束当前采集，再重置状态"
+    : "恢复本次场景的初始状态，不重新随机生成";
   ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity"].forEach((id) => {
     $(id).disabled = active;
   });
@@ -323,6 +332,30 @@ async function startScene() {
   }
 }
 
+async function resetScene() {
+  if (state.resetPending || state.simulationResetting || !state.sceneReady) return;
+  state.resetPending = true;
+  state.sceneReady = false;
+  state.operationRequested = false;
+  exitOperationMode("正在重置场景，已停止操控输入");
+  $("resetScene").disabled = true;
+  $("resetScene").textContent = "正在重置…";
+  updateEpisodeUI();
+  try {
+    const response = await apiRequest("/api/scenes/reset", { method: "POST" });
+    const data = await readApiResponse(response);
+    if (!response.ok) throw new Error(data.detail || "重置失败");
+    setMessage(data.status === "completed"
+      ? "已恢复本次场景的初始状态，点击画面可重新进入操作"
+      : "重置已取消");
+  } catch (error) {
+    setMessage(error.message || "重置请求失败，请检查场景状态");
+  } finally {
+    state.resetPending = false;
+    await refreshState();
+  }
+}
+
 async function stopScene() {
   $("stopScene").disabled = true;
   setMessage("正在停止场景…");
@@ -387,7 +420,7 @@ function connect() {
       state.controlGranted = false;
       state.operationRequested = false;
       $("controlAuthority").textContent = "其他页面正在操作";
-      exitOperationMode("同一用户的其他页面已进入操作，本页面自动退出");
+      exitOperationMode(message.reason === "scene_reset" ? "场景正在重置，已撤销操控；完成后请重新点击画面" : "同一用户的其他页面已进入操作，本页面自动退出");
     } else if (message.type === "observation") {
       const obs = message.payload;
       setOnline("simDot", true);
@@ -410,7 +443,7 @@ function connect() {
       state.lastAckAt = performance.now();
       $("actionSequence").textContent = message.server_sequence;
     } else if (message.type === "action_rejected") {
-      const reasons = { inactive_page: "当前页面不是活动操作页面", not_scene_owner: "当前用户不能操作这个场景" };
+      const reasons = { scene_resetting: "场景正在重置，请稍候", inactive_page: "当前页面不是活动操作页面", not_scene_owner: "当前用户不能操作这个场景" };
       state.operationRequested = false;
       setMessage(reasons[message.reason] || `动作被拒绝：${message.reason}`);
     }
@@ -849,11 +882,15 @@ async function refreshState() {
   try {
     const response = await apiRequest("/api/state", { cache: "no-store" });
     const data = await response.json();
+    state.simulationConnected = data.simulation.connected;
+    state.simulationResetting = data.simulation.resetting === true;
+    state.resetSupported = data.simulation.reset_supported === true;
     setOnline("simDot", data.simulation.connected);
     $("simState").textContent = data.simulation.connected ? "仿真在线" : "仿真未连接";
     state.activeEpisode = data.active_episode;
     $("episodePath").textContent = data.episode_directory || "—";
     applySceneRuntime(data.scene_runtime || {});
+    if (data.simulation.reset_error) setMessage(data.simulation.reset_error);
   } catch (_) {
     setOnline("backendDot", false);
   }
@@ -980,6 +1017,7 @@ $("linearSpeed").addEventListener("input", (event) => {
 });
 $("startScene").addEventListener("click", startScene);
 $("stopScene").addEventListener("click", stopScene);
+$("resetScene").addEventListener("click", resetScene);
 $("startEpisode").addEventListener("click", startEpisode);
 $("successEpisode").addEventListener("click", () => stopEpisode("success"));
 $("failureEpisode").addEventListener("click", () => stopEpisode("failure"));

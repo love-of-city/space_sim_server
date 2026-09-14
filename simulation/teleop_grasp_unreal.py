@@ -11,6 +11,7 @@ state to UE.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import math
 from pathlib import Path
@@ -206,6 +207,9 @@ class SimulationControlClient:
         self._send_lock = threading.Lock()
         self._action: dict[str, Any] = self._neutral_action()
         self._received_monotonic = 0.0
+        self._reset_generation = ""
+        self._pending_reset: str | None = None
+        self._resetting = False
         self._socket: socket.socket | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -242,7 +246,7 @@ class SimulationControlClient:
             action["end_effector_angular_velocity_body_rad_s"] = list(
                 self._action["end_effector_angular_velocity_body_rad_s"]
             )
-            stale = time.monotonic() - self._received_monotonic > 0.25
+            stale = self._resetting or time.monotonic() - self._received_monotonic > 0.25
         if stale:
             action["deadman"] = False
             action["end_effector_linear_velocity_body_m_s"] = [0.0] * 3
@@ -250,6 +254,45 @@ class SimulationControlClient:
             action["gripper_velocity_m_s"] = 0.0
             action["gripper_velocity_rad_s"] = 0.0
         return action, stale
+
+    @property
+    def reset_generation(self) -> str:
+        with self._lock:
+            return self._reset_generation
+
+    def take_reset(self) -> str | None:
+        """Only the simulation thread may consume a reset, between advances."""
+        with self._lock:
+            request_id = self._pending_reset
+            if request_id is not None:
+                self._pending_reset = None
+                self._reset_generation = request_id
+            return request_id
+
+    def complete_reset(self) -> None:
+        with self._lock:
+            # A reset received during initialization must stay pending.
+            if self._pending_reset is None:
+                self._resetting = False
+            self._action = self._neutral_action()
+            self._received_monotonic = 0.0
+
+    def _accept_message(self, message: dict[str, Any]) -> None:
+        with self._lock:
+            if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") == "reset":
+                request_id = message.get("request_id")
+                if not isinstance(request_id, str) or not 1 <= len(request_id) <= 64:
+                    return
+                if request_id == self._reset_generation or self._resetting:
+                    return  # Reconnect/retry cannot reset an already applied generation twice.
+                self._pending_reset = request_id
+                self._resetting = True
+                self._action = self._neutral_action()
+                self._received_monotonic = 0.0
+            elif (not self._resetting and self._valid_action(message)
+                  and message.get("reset_generation", "") == self._reset_generation):
+                self._action = message
+                self._received_monotonic = time.monotonic()
 
     def send_observation(self, message: dict[str, Any]) -> bool:
         with self._lock:
@@ -277,7 +320,9 @@ class SimulationControlClient:
                                 "protocol": CONTROL_PROTOCOL,
                                 "type": "sim_hello",
                                 "simulation_id": self.simulation_id,
+                                "reset_generation": self.reset_generation,
                                 "capabilities": [
+                                    "scene_reset",
                                     "cartesian_twist_6d",
                                     "damped_least_squares_ik",
                                     "gripper_velocity",
@@ -295,10 +340,7 @@ class SimulationControlClient:
                         message = recv_socket(connection)
                     except socket.timeout:
                         continue
-                    if self._valid_action(message):
-                        with self._lock:
-                            self._action = message
-                            self._received_monotonic = time.monotonic()
+                    self._accept_message(message)
             except (OSError, EOFError, ValueError):
                 pass
             finally:
@@ -310,6 +352,8 @@ class SimulationControlClient:
         with self._lock:
             if self._socket is connection:
                 self._socket = None
+                self._action = self._neutral_action()
+                self._received_monotonic = 0.0
         try:
             connection.close()
         except OSError:
@@ -612,6 +656,28 @@ def run(args: argparse.Namespace) -> None:
         if scene_instance
         else np.asarray(native.PREGRASP, dtype=float)
     )
+    client.start()
+    try:
+        while True:
+            reset_request = _run_session(
+                args, native, scene_instance, target_spec, initial_joints, kinematics, client
+            )
+            if reset_request is None:
+                break
+            # Dispose of the old native graph before creating a fresh one.
+            # UE/Pixel Streaming and the backend control connection stay alive.
+            gc.collect()
+    finally:
+        client.close()
+
+
+def _run_session(
+    args: argparse.Namespace, native: Any, scene_instance: dict[str, Any] | None,
+    target_spec: Any, initial_joints: np.ndarray, kinematics: SerialChainKinematics,
+    client: SimulationControlClient,
+) -> str | None:
+    """Build one clean physics/controller/ephemeris/render session from the saved initial conditions."""
+    template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     targets = CartesianTeleopTarget(initial_joints, client, kinematics)
     original_reference = native.JointTrajectoryPublisher.__dict__["reference"]
     native.JointTrajectoryPublisher.reference = classmethod(
@@ -622,7 +688,6 @@ def run(args: argparse.Namespace) -> None:
     from Basilisk.utilities import macros, simIncludeGravBody
     from bsk_render_adapter import BasiliskRenderBridge, SceneSettings
 
-    client.start()
     bridge: BasiliskRenderBridge | None = None
     gravity_factory = None
     module_registry = BasiliskModuleRegistry()
@@ -806,8 +871,13 @@ def run(args: argparse.Namespace) -> None:
         wall_start = time.monotonic()
         processing_seconds = 0.0
         frame_count = int(math.ceil(args.duration * 30.0)) if args.duration > 0.0 else None
+        if client.reset_generation:
+            bridge.publish_event("scene_reset", {"request_id": client.reset_generation, "sim_time_ns": "0"})
         frame = 0
         while frame_count is None or frame < frame_count:
+            reset_request = client.take_reset()
+            if reset_request is not None:
+                return reset_request
             frame += 1
             sim_seconds = frame / 30.0
             if frame_count is not None:
@@ -827,11 +897,15 @@ def run(args: argparse.Namespace) -> None:
             end_effector_twist = kinematics.jacobian(
                 np.asarray(joint_position[:6])
             ) @ np.asarray(joint_velocity[:6])
+            if frame == 1:
+                client.complete_reset()
             client.send_observation(
                 {
                     "protocol": CONTROL_PROTOCOL,
                     "type": "observation",
                     "simulation_id": "sarm-teleop",
+                    "reset_generation": client.reset_generation,
+                    "render_session_id": bridge.session_id,
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
                     "scene_seed": scene_instance.get("seed") if scene_instance else None,
                     "capture_target": {
@@ -901,7 +975,6 @@ def run(args: argparse.Namespace) -> None:
             bridge.close()
         if gravity_factory is not None:
             gravity_factory.unloadSpiceKernels()
-        client.close()
 
 
 def main() -> None:

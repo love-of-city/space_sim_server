@@ -131,3 +131,29 @@ def test_capture_with_mismatched_authoritative_time_is_rejected(tmp_path) -> Non
             {"rgb": b"PNG"},
         )
     assert recorder.sync_status()["rejected_capture_count"] == 1
+
+
+@pytest.mark.parametrize("capture_first", [False, True])
+def test_old_render_session_cannot_pair_with_reused_frame_and_time(tmp_path, capture_first):
+    recorder = EpisodeRecorder(tmp_path)
+    recorder.start(EpisodeStart())
+    observation = SimulationObservation(
+        protocol="space-arm-control/1", type="observation", simulation_id="test",
+        render_session_id="new-session", reset_generation="reset-1", step_id="1",
+        render_frame_id="0", sim_time_ns="0", wall_time_ns="1", applied_action_sequence="0",
+        joint_position_rad=[0.] * 6, joint_velocity_rad_s=[0.] * 6, target_joint_position_rad=[0.] * 6)
+    old_capture = dict(protocol="bsk-capture/1", camera_id="wrist", session_id="old-session",
+                       capture_sequence="1", source_frame_id="0", sim_time_ns="0",
+                       stream_kind="authoritative", state_kind="authoritative",
+                       products=[{"name":"rgb", "file_name":"rgb.png"}])
+    if capture_first:
+        recorder.record_authoritative_capture(old_capture, {"rgb": b"old"})
+        recorder.record_observation(observation, None)
+    else:
+        recorder.record_observation(observation, None)
+        recorder.record_authoritative_capture(old_capture, {"rgb": b"old"})
+    assert recorder.sync_status()["rejected_capture_count"] == 1
+    assert recorder.sync_status()["matched_capture_count"] == 0
+    recorder.record_authoritative_capture({**old_capture, "session_id":"new-session"}, {"rgb": b"new"})
+    assert recorder.sync_status()["matched_capture_count"] == 1
+    recorder.stop(EpisodeStop())

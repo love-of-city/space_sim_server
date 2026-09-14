@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -27,6 +28,12 @@ class SimulationHub:
         self._latest_observation: SimulationObservation | None = None
         self._simulation_id: str | None = None
         self._revision = 0
+        self._capabilities: set[str] = set()
+        self._generation = ""
+        self._reset_request_id: str | None = None
+        self._reset_future: asyncio.Future[dict[str, Any]] | None = None
+        self._reset_error: str | None = None
+        self._reset_sent = False
         self._condition = asyncio.Condition()
         self.on_observation: ObservationCallback | None = None
 
@@ -52,6 +59,7 @@ class SimulationHub:
         self._server = await asyncio.start_server(self._handle_connection, host, port)
 
     async def close(self) -> None:
+        self.cancel_reset()
         if self._server:
             self._server.close()
             await self._server.wait_closed()
@@ -62,14 +70,65 @@ class SimulationHub:
                     await self._writer.wait_closed()
                 self._writer = None
 
+    @property
+    def resetting(self) -> bool:
+        return self._reset_request_id is not None
+
+    def begin_reset(self) -> str:
+        """Reserve the reset before yielding, so API/WS/recording cannot race it."""
+        if self.resetting:
+            raise RuntimeError("场景正在重置，请等待完成")
+        if not self.connected:
+            raise RuntimeError("仿真未连接，无法重置")
+        if "scene_reset" not in self._capabilities:
+            raise RuntimeError("当前仿真进程不支持重置，请使用重置分支启动场景")
+        self._reset_request_id = uuid.uuid4().hex
+        self._reset_future = asyncio.get_running_loop().create_future()
+        self._reset_error = None
+        self._reset_sent = False
+        self._latest_action = None
+        self._latest_observation = None
+        return self._reset_request_id
+
+    def _reset_packet(self) -> dict[str, Any]:
+        return {"protocol": CONTROL_PROTOCOL, "type": "reset",
+                "request_id": self._reset_request_id}
+
+    async def finish_reset(self, request_id: str, timeout: float = 60.0) -> dict[str, Any]:
+        future = self._reset_future
+        if request_id != self._reset_request_id or future is None:
+            raise RuntimeError("无效的重置请求")
+        self._reset_sent = True
+        try:
+            async with self._writer_lock:
+                if not self.connected:
+                    raise ConnectionError("仿真连接已断开")
+                await write_async(self._writer, self._reset_packet())
+            # A timed-out HTTP request must NOT enable control while reset may
+            # still be running. Reconnect resends the same idempotent request.
+            return await asyncio.wait_for(asyncio.shield(future), timeout)
+        except (TimeoutError, ConnectionError, OSError) as error:
+            self._reset_error = "重置尚未确认，操控保持禁用；请等待恢复连接或停止场景"
+            raise RuntimeError(self._reset_error) from error
+
+    def cancel_reset(self) -> None:
+        if self._reset_future and not self._reset_future.done():
+            self._reset_future.set_result({"status": "cancelled"})
+        self._reset_request_id = None
+        self._reset_future = None
+        self._reset_error = None
+        self._reset_sent = False
+        self._latest_action = None
+        self._latest_observation = None
+
     async def publish_action(self, action: AppliedAction) -> bool:
-        self._latest_action = action.model_copy(deep=True)
         async with self._writer_lock:
-            writer = self._writer
-            if writer is None or writer.is_closing():
+            if self.resetting or not self.connected:
                 return False
+            outgoing = action.model_copy(update={"reset_generation": self._generation}, deep=True)
+            self._latest_action = outgoing
             try:
-                await write_async(writer, action.model_dump(mode="json"))
+                await write_async(self._writer, outgoing.model_dump(mode="json"))
                 return True
             except (ConnectionError, OSError, asyncio.CancelledError):
                 return False
@@ -92,16 +151,37 @@ class SimulationHub:
             previous = self._writer
             self._writer = writer
             self._simulation_id = hello.simulation_id
-            if self._latest_action:
-                await write_async(writer, self._latest_action.model_dump(mode="json"))
+            self._capabilities = set(hello.capabilities)
+            self._generation = hello.reset_generation
+            # Never replay a held action after a transport reconnect.
+            self._latest_action = None
+            self._latest_observation = None
         if previous and previous is not writer:
             previous.close()
         try:
+            async with self._writer_lock:
+                if writer is self._writer and self.resetting and self._reset_sent:
+                    await write_async(writer, self._reset_packet())
             while True:
                 raw = await read_async(reader)
-                if raw.get("protocol") != CONTROL_PROTOCOL or raw.get("type") != "observation":
+                if writer is not self._writer or raw.get("protocol") != CONTROL_PROTOCOL or raw.get("type") != "observation":
                     continue
                 observation = SimulationObservation.model_validate(raw)
+                if self.resetting:
+                    if observation.reset_generation != self._reset_request_id or not observation.render_session_id:
+                        continue
+                    self._generation = observation.reset_generation
+                    result = {"status": "completed", "request_id": self._reset_request_id,
+                              "render_session_id": observation.render_session_id,
+                              "sim_time_ns": observation.sim_time_ns}
+                    self._reset_request_id = None
+                    self._reset_sent = False
+                    self._reset_error = None
+                    if self._reset_future and not self._reset_future.done():
+                        self._reset_future.set_result(result)
+                    self._reset_future = None
+                elif observation.reset_generation != self._generation:
+                    continue
                 self._latest_observation = observation
                 async with self._condition:
                     self._revision += 1
@@ -115,6 +195,7 @@ class SimulationHub:
                 if self._writer is writer:
                     self._writer = None
                     self._simulation_id = None
+                    self._latest_action = None
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
@@ -123,6 +204,9 @@ class SimulationHub:
         observation = self.latest_observation
         return {
             "connected": self.connected,
+            "resetting": self.resetting,
+            "reset_supported": "scene_reset" in self._capabilities,
+            "reset_error": self._reset_error,
             "simulation_id": self.simulation_id,
             "latest_observation": observation.model_dump(mode="json") if observation else None,
         }

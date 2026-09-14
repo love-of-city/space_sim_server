@@ -112,6 +112,16 @@ class OperatorSessions:
                 self.active_operator = None
             return released
 
+    async def suspend_control(self) -> None:
+        async with self._lock:
+            self.active_operator = None
+            clients = list(self.clients.values())
+        for websocket in clients:
+            with contextlib.suppress(RuntimeError, WebSocketDisconnect, TimeoutError, OSError):
+                await asyncio.wait_for(
+                    websocket.send_json({"type": "control_revoked", "reason": "scene_reset"}), timeout=2.0
+                )
+
     def is_owner(self, identifier: str) -> bool:
         return self.active_operator == identifier
 
@@ -142,10 +152,22 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     safety = SafetyController(config.deadman_timeout_s)
     hub = SimulationHub()
     sessions = OperatorSessions()
+
+    def record_current_capture(metadata: dict[str, Any], products: dict[str, bytes]) -> None:
+        # Capture transport can drain old packets after physics has reset.
+        # Frame IDs and simulation time both restart, so session identity matters.
+        if hub.resetting:
+            return
+        observation = hub.latest_observation
+        if (observation and observation.render_session_id
+                and metadata.get("session_id") != observation.render_session_id):
+            return
+        recorder.record_authoritative_capture(metadata, products)
+
     captures = CaptureReceiver(
         config.capture_host,
         config.capture_port,
-        recorder.record_authoritative_capture,
+        record_current_capture,
     )
     launch_config = None
     if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root, config.runtime_powershell_exe)):
@@ -408,12 +430,34 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
+    @app.post("/api/scenes/reset")
+    async def reset_scene(request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        status = scenes.status()
+        if not can_manage_scene(user, status):
+            raise HTTPException(status_code=403, detail="只能重置自己创建的场景")
+        if status.get("phase") != "running":
+            raise HTTPException(status_code=409, detail="场景尚未运行")
+        if recorder.episode_id:
+            raise HTTPException(status_code=409, detail="请先结束当前采集，再重置状态")
+        try:
+            request_id = hub.begin_reset()
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        safety.neutral(None, "scene_reset")
+        await sessions.suspend_control()
+        try:
+            return await hub.finish_reset(request_id)
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
     @app.post("/api/scenes/stop")
     async def stop_scene(request: Request) -> dict[str, Any]:
         user = current_user(request)
         status = scenes.status()
         if status.get("instance") and not can_manage_scene(user, status):
             raise HTTPException(status_code=403, detail="只能关闭自己创建的场景")
+        hub.cancel_reset()
         episode_result = None
         if recorder.episode_id:
             neutral = safety.neutral(recorder.episode_id, "scene_stopped")
@@ -431,6 +475,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/episodes/start")
     async def start_episode(payload: EpisodeStart, request: Request) -> dict[str, Any]:
+        if hub.resetting:
+            raise HTTPException(status_code=409, detail="场景正在重置，暂不能开始采集")
         user = current_user(request)
         scene_status = scenes.status()
         if scenes.enabled and scene_status.get("phase") != "running":
@@ -495,6 +541,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/tasks/{task_id}/start")
     async def start_task(task_id: str) -> dict[str, Any]:
+        if hub.resetting:
+            raise HTTPException(status_code=409, detail="场景正在重置，暂不能开始任务")
         task = tasks.get(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="task not found")
@@ -627,6 +675,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 message_type = raw.get("type")
                 if message_type == "ping":
                     await websocket.send_json({"type": "pong", "server_time_ns": str(time.time_ns())})
+                    continue
+                if hub.resetting:
+                    await websocket.send_json({"type": "action_rejected", "reason": "scene_resetting"})
                     continue
                 if message_type == "activate_control":
                     if not user_controls_current_scene():

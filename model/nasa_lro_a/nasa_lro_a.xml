@@ -1,0 +1,185 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="nasa_lro_a">
+  <!--FIXED VISUAL MODEL ONLY. No recovered joints, collision, mass, or inertia.-->
+  <!--Source world transforms baked into OBJ. glTF (x,y,z) -> MJCF (x,-z,y).-->
+  <compiler angle="radian" meshdir="meshes" inertiafromgeom="false" fusestatic="false" />
+  <option gravity="0 0 0" timestep="0.002" />
+  <default>
+    <geom type="mesh" group="2" contype="0" conaffinity="0" mass="0" />
+  </default>
+  <visual>
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.7 0.7 0.7" specular="0.1 0.1 0.1" />
+  </visual>
+  <asset>
+    <material name="mat_00_Crater_flat_black" rgba="0 0 0 1" specular="0.15" shininess="0.2" />
+    <material name="mat_01_Crater_flat_gold" rgba="0.784313738346 0.549172222614 0.1565117836 1" specular="0.15" shininess="0.2" />
+    <material name="mat_02_Crater_smooth_gold" rgba="0.784313738346 0.549172222614 0.1565117836 1" specular="0.15" shininess="0.2" />
+    <material name="mat_03_Default" rgba="0.784313738346 0.784313738346 0.784313738346 1" specular="0.15" shininess="0.2" />
+    <material name="mat_04_LRO_accs_black_fl" rgba="0 0 0 1" specular="0.15" shininess="0.2" />
+    <material name="mat_05_LRO_accs_bronze_fl" rgba="0.760173976421 0.643152534962 0.368139147758 1" specular="0.15" shininess="0.2" />
+    <material name="mat_06_LRO_accs_bronze_sm" rgba="0.760173976421 0.643152534962 0.368139147758 1" specular="0.15" shininess="0.2" />
+    <material name="mat_07_LRO_accs_gold_fl" rgba="0.783703386784 0.549828350544 0.155962467194 1" specular="0.15" shininess="0.2" />
+    <material name="mat_08_LRO_accs_gold_sm" rgba="0.783703386784 0.549828350544 0.155962467194 1" specular="0.15" shininess="0.2" />
+    <material name="mat_09_LRO_accs_grey_fl" rgba="0.307698190212 0.292027175426 0.295689314604 1" specular="0.15" shininess="0.2" />
+    <material name="mat_10_LRO_accs_grey_sm" rgba="0.307698190212 0.292027175426 0.295689314604 1" specular="0.15" shininess="0.2" />
+    <material name="mat_11_LRO_accs_silver_fl" rgba="0.784313738346 0.784313738346 0.784313738346 1" specular="0.15" shininess="0.2" />
+    <material name="mat_12_LRO_accs_silver_sm" rgba="0.784313738346 0.784313738346 0.784313738346 1" specular="0.15" shininess="0.2" />
+    <material name="mat_13_LRO_accs_thermal_fl" rgba="0.784313738346 0.62456703186 0.40830090642 1" specular="0.15" shininess="0.2" />
+    <material name="mat_14_LRO_DetailBlackFlat" rgba="0 0 0 1" specular="0.15" shininess="0.2" />
+    <material name="mat_15_LRO_DetailBlackSmooth" rgba="0.0977340340614 0.0977340340614 0.0977340340614 1" specular="0.15" shininess="0.2" />
+    <material name="mat_16_LRO_DetailGoldFlat" rgba="0.784313738346 0.549019634724 0.156862795353 1" specular="0.15" shininess="0.2" />
+    <material name="mat_17_LRO_DetailGoldSmooth" rgba="0.784313738346 0.547798871994 0.157656207681 1" specular="0.15" shininess="0.2" />
+    <material name="mat_18_LRO_DetailGreyFlat" rgba="0.633478283882 0.633478283882 0.633478283882 1" specular="0.15" shininess="0.2" />
+    <material name="mat_19_LRO_DetailGreySmooth" rgba="0.633478283882 0.633478283882 0.633478283882 1" specular="0.15" shininess="0.2" />
+    <material name="mat_20_LRO_mainbox" rgba="0.783703386784 0.549828350544 0.155962467194 1" specular="0.15" shininess="0.2" />
+    <material name="mat_21_LRO_radiator_base" rgba="0.289524674416 0.284885942936 0.334843963385 1" specular="0.15" shininess="0.2" />
+    <material name="mat_22_LRO_solarpanel_bronze_sm" rgba="0.778286397457 0.740199863911 0.574013888836 1" specular="0.15" shininess="0.2" />
+    <material name="mat_23_LRO_Dish" rgba="0.71404594183 0.719462871552 0.691371023655 1" specular="0.15" shininess="0.2" />
+    <material name="mat_24_LRO_solarpanel_1" rgba="0.192806974053 0.204144269228 0.311134576797 1" specular="0.15" shininess="0.2" />
+    <material name="mat_25_LRO_solarpanel_2" rgba="0.168472796679 0.1783926934 0.271880120039 1" specular="0.15" shininess="0.2" />
+    <material name="mat_26_LRO_solarpanel_3" rgba="0.159294575453 0.181617602706 0.266359716654 1" specular="0.15" shininess="0.2" />
+    <material name="mat_27_LRO_solarpanel_4" rgba="0.194450303912 0.205902189016 0.313796430826 1" specular="0.15" shininess="0.2" />
+    <material name="mat_28_LRO_solarpanel_5" rgba="0.175657585263 0.185987040401 0.283460438251 1" specular="0.15" shininess="0.2" />
+    <material name="mat_29_LRO_solarpanel_6" rgba="0.172095686197 0.168856486678 0.248411998153 1" specular="0.15" shininess="0.2" />
+    <material name="mat_30_LRO_solarpanel_7" rgba="0.193469136953 0.204867631197 0.312214851379 1" specular="0.15" shininess="0.2" />
+    <material name="mat_31_LRO_solarpanel_bak" rgba="0.171038374305 0.181109324098 0.276020437479 1" specular="0.15" shininess="0.2" />
+    <material name="mat_32_LRO_solarpanel_bronze" rgba="0.769237816334 0.69730681181 0.378820478916 1" specular="0.15" shininess="0.2" />
+    <material name="mat_33_LRO_solarpanel_gold" rgba="0.769237816334 0.59783321619 0.26340124011 1" specular="0.15" shininess="0.2" />
+    <mesh name="n000_m00_p00" file="n000_m00_p00.obj" inertia="shell" />
+    <mesh name="n000_m00_p01" file="n000_m00_p01.obj" inertia="shell" />
+    <mesh name="n000_m00_p02" file="n000_m00_p02.obj" inertia="shell" />
+    <mesh name="n000_m00_p03" file="n000_m00_p03.obj" inertia="shell" />
+    <mesh name="n000_m00_p04" file="n000_m00_p04.obj" inertia="shell" />
+    <mesh name="n000_m00_p05" file="n000_m00_p05.obj" inertia="shell" />
+    <mesh name="n000_m00_p06" file="n000_m00_p06.obj" inertia="shell" />
+    <mesh name="n000_m00_p07" file="n000_m00_p07.obj" inertia="shell" />
+    <mesh name="n000_m00_p08" file="n000_m00_p08.obj" inertia="shell" />
+    <mesh name="n000_m00_p09" file="n000_m00_p09.obj" inertia="shell" />
+    <mesh name="n000_m00_p10" file="n000_m00_p10.obj" inertia="shell" />
+    <mesh name="n000_m00_p11" file="n000_m00_p11.obj" inertia="shell" />
+    <mesh name="n000_m00_p12" file="n000_m00_p12.obj" inertia="shell" />
+    <mesh name="n000_m00_p13" file="n000_m00_p13.obj" inertia="shell" />
+    <mesh name="n000_m00_p14" file="n000_m00_p14.obj" inertia="shell" />
+    <mesh name="n000_m00_p15" file="n000_m00_p15.obj" inertia="shell" />
+    <mesh name="n000_m00_p16" file="n000_m00_p16.obj" inertia="shell" />
+    <mesh name="n000_m00_p17" file="n000_m00_p17.obj" inertia="shell" />
+    <mesh name="n000_m00_p18" file="n000_m00_p18.obj" inertia="shell" />
+    <mesh name="n000_m00_p19" file="n000_m00_p19.obj" inertia="shell" />
+    <mesh name="n000_m00_p20" file="n000_m00_p20.obj" inertia="shell" />
+    <mesh name="n000_m00_p21" file="n000_m00_p21.obj" inertia="shell" />
+    <mesh name="n000_m00_p22" file="n000_m00_p22.obj" inertia="shell" />
+    <mesh name="n002_m01_p00" file="n002_m01_p00.obj" inertia="shell" />
+    <mesh name="n002_m01_p01" file="n002_m01_p01.obj" inertia="shell" />
+    <mesh name="n002_m01_p02" file="n002_m01_p02.obj" inertia="shell" />
+    <mesh name="n002_m01_p03" file="n002_m01_p03.obj" inertia="shell" />
+    <mesh name="n002_m01_p04" file="n002_m01_p04.obj" inertia="shell" />
+    <mesh name="n002_m01_p05" file="n002_m01_p05.obj" inertia="shell" />
+    <mesh name="n002_m01_p06" file="n002_m01_p06.obj" inertia="shell" />
+    <mesh name="n004_m02_p00" file="n004_m02_p00.obj" inertia="shell" />
+    <mesh name="n004_m02_p01" file="n004_m02_p01.obj" inertia="shell" />
+    <mesh name="n004_m02_p02" file="n004_m02_p02.obj" inertia="shell" />
+    <mesh name="n004_m02_p03" file="n004_m02_p03.obj" inertia="shell" />
+    <mesh name="n004_m02_p04" file="n004_m02_p04.obj" inertia="shell" />
+    <mesh name="n004_m02_p05" file="n004_m02_p05.obj" inertia="shell" />
+    <mesh name="n004_m02_p06" file="n004_m02_p06.obj" inertia="shell" />
+    <mesh name="n006_m03_p00" file="n006_m03_p00.obj" inertia="shell" />
+    <mesh name="n006_m03_p01" file="n006_m03_p01.obj" inertia="shell" />
+    <mesh name="n006_m03_p02" file="n006_m03_p02.obj" inertia="shell" />
+    <mesh name="n006_m03_p03" file="n006_m03_p03.obj" inertia="shell" />
+    <mesh name="n006_m03_p04" file="n006_m03_p04.obj" inertia="shell" />
+    <mesh name="n006_m03_p05" file="n006_m03_p05.obj" inertia="shell" />
+    <mesh name="n006_m03_p06" file="n006_m03_p06.obj" inertia="shell" />
+    <mesh name="n008_m04_p00" file="n008_m04_p00.obj" inertia="shell" />
+    <mesh name="n008_m04_p01" file="n008_m04_p01.obj" inertia="shell" />
+    <mesh name="n008_m04_p02" file="n008_m04_p02.obj" inertia="shell" />
+    <mesh name="n008_m04_p03" file="n008_m04_p03.obj" inertia="shell" />
+    <mesh name="n008_m04_p04" file="n008_m04_p04.obj" inertia="shell" />
+    <mesh name="n008_m04_p05" file="n008_m04_p05.obj" inertia="shell" />
+    <mesh name="n008_m04_p06" file="n008_m04_p06.obj" inertia="shell" />
+    <mesh name="n008_m04_p07" file="n008_m04_p07.obj" inertia="shell" />
+    <mesh name="n008_m04_p08" file="n008_m04_p08.obj" inertia="shell" />
+    <mesh name="n008_m04_p09" file="n008_m04_p09.obj" inertia="shell" />
+    <mesh name="n008_m04_p10" file="n008_m04_p10.obj" inertia="shell" />
+  </asset>
+  <worldbody>
+    <body name="nasa_lro_a">
+      <body name="node_010_LWORoot">
+        <body name="node_001_Pivot_Layer_0">
+          <body name="node_000_Layer_0">
+            <geom name="visual_n000_m00_p00" mesh="n000_m00_p00" rgba="0 0 0 1" material="mat_00_Crater_flat_black" />
+            <geom name="visual_n000_m00_p01" mesh="n000_m00_p01" rgba="0.784313738346 0.549172222614 0.1565117836 1" material="mat_01_Crater_flat_gold" />
+            <geom name="visual_n000_m00_p02" mesh="n000_m00_p02" rgba="0.784313738346 0.549172222614 0.1565117836 1" material="mat_02_Crater_smooth_gold" />
+            <geom name="visual_n000_m00_p03" mesh="n000_m00_p03" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_03_Default" />
+            <geom name="visual_n000_m00_p04" mesh="n000_m00_p04" rgba="0 0 0 1" material="mat_04_LRO_accs_black_fl" />
+            <geom name="visual_n000_m00_p05" mesh="n000_m00_p05" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_05_LRO_accs_bronze_fl" />
+            <geom name="visual_n000_m00_p06" mesh="n000_m00_p06" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_06_LRO_accs_bronze_sm" />
+            <geom name="visual_n000_m00_p07" mesh="n000_m00_p07" rgba="0.783703386784 0.549828350544 0.155962467194 1" material="mat_07_LRO_accs_gold_fl" />
+            <geom name="visual_n000_m00_p08" mesh="n000_m00_p08" rgba="0.783703386784 0.549828350544 0.155962467194 1" material="mat_08_LRO_accs_gold_sm" />
+            <geom name="visual_n000_m00_p09" mesh="n000_m00_p09" rgba="0.307698190212 0.292027175426 0.295689314604 1" material="mat_09_LRO_accs_grey_fl" />
+            <geom name="visual_n000_m00_p10" mesh="n000_m00_p10" rgba="0.307698190212 0.292027175426 0.295689314604 1" material="mat_10_LRO_accs_grey_sm" />
+            <geom name="visual_n000_m00_p11" mesh="n000_m00_p11" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_11_LRO_accs_silver_fl" />
+            <geom name="visual_n000_m00_p12" mesh="n000_m00_p12" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_12_LRO_accs_silver_sm" />
+            <geom name="visual_n000_m00_p13" mesh="n000_m00_p13" rgba="0.784313738346 0.62456703186 0.40830090642 1" material="mat_13_LRO_accs_thermal_fl" />
+            <geom name="visual_n000_m00_p14" mesh="n000_m00_p14" rgba="0 0 0 1" material="mat_14_LRO_DetailBlackFlat" />
+            <geom name="visual_n000_m00_p15" mesh="n000_m00_p15" rgba="0.0977340340614 0.0977340340614 0.0977340340614 1" material="mat_15_LRO_DetailBlackSmooth" />
+            <geom name="visual_n000_m00_p16" mesh="n000_m00_p16" rgba="0.784313738346 0.549019634724 0.156862795353 1" material="mat_16_LRO_DetailGoldFlat" />
+            <geom name="visual_n000_m00_p17" mesh="n000_m00_p17" rgba="0.784313738346 0.547798871994 0.157656207681 1" material="mat_17_LRO_DetailGoldSmooth" />
+            <geom name="visual_n000_m00_p18" mesh="n000_m00_p18" rgba="0.633478283882 0.633478283882 0.633478283882 1" material="mat_18_LRO_DetailGreyFlat" />
+            <geom name="visual_n000_m00_p19" mesh="n000_m00_p19" rgba="0.633478283882 0.633478283882 0.633478283882 1" material="mat_19_LRO_DetailGreySmooth" />
+            <geom name="visual_n000_m00_p20" mesh="n000_m00_p20" rgba="0.783703386784 0.549828350544 0.155962467194 1" material="mat_20_LRO_mainbox" />
+            <geom name="visual_n000_m00_p21" mesh="n000_m00_p21" rgba="0.289524674416 0.284885942936 0.334843963385 1" material="mat_21_LRO_radiator_base" />
+            <geom name="visual_n000_m00_p22" mesh="n000_m00_p22" rgba="0.778286397457 0.740199863911 0.574013888836 1" material="mat_22_LRO_solarpanel_bronze_sm" />
+          </body>
+        </body>
+        <body name="node_003_Pivot_Layer_1">
+          <body name="node_002_Layer_1">
+            <geom name="visual_n002_m01_p00" mesh="n002_m01_p00" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_05_LRO_accs_bronze_fl" />
+            <geom name="visual_n002_m01_p01" mesh="n002_m01_p01" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_06_LRO_accs_bronze_sm" />
+            <geom name="visual_n002_m01_p02" mesh="n002_m01_p02" rgba="0.783703386784 0.549828350544 0.155962467194 1" material="mat_08_LRO_accs_gold_sm" />
+            <geom name="visual_n002_m01_p03" mesh="n002_m01_p03" rgba="0.307698190212 0.292027175426 0.295689314604 1" material="mat_09_LRO_accs_grey_fl" />
+            <geom name="visual_n002_m01_p04" mesh="n002_m01_p04" rgba="0.307698190212 0.292027175426 0.295689314604 1" material="mat_10_LRO_accs_grey_sm" />
+            <geom name="visual_n002_m01_p05" mesh="n002_m01_p05" rgba="0.633478283882 0.633478283882 0.633478283882 1" material="mat_18_LRO_DetailGreyFlat" />
+            <geom name="visual_n002_m01_p06" mesh="n002_m01_p06" rgba="0.633478283882 0.633478283882 0.633478283882 1" material="mat_19_LRO_DetailGreySmooth" />
+          </body>
+        </body>
+        <body name="node_005_Pivot_Layer_2">
+          <body name="node_004_Layer_2">
+            <geom name="visual_n004_m02_p00" mesh="n004_m02_p00" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_03_Default" />
+            <geom name="visual_n004_m02_p01" mesh="n004_m02_p01" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_05_LRO_accs_bronze_fl" />
+            <geom name="visual_n004_m02_p02" mesh="n004_m02_p02" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_06_LRO_accs_bronze_sm" />
+            <geom name="visual_n004_m02_p03" mesh="n004_m02_p03" rgba="0.783703386784 0.549828350544 0.155962467194 1" material="mat_08_LRO_accs_gold_sm" />
+            <geom name="visual_n004_m02_p04" mesh="n004_m02_p04" rgba="0.307698190212 0.292027175426 0.295689314604 1" material="mat_09_LRO_accs_grey_fl" />
+            <geom name="visual_n004_m02_p05" mesh="n004_m02_p05" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_11_LRO_accs_silver_fl" />
+            <geom name="visual_n004_m02_p06" mesh="n004_m02_p06" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_12_LRO_accs_silver_sm" />
+          </body>
+        </body>
+        <body name="node_007_Pivot_Layer_3">
+          <body name="node_006_Layer_3">
+            <geom name="visual_n006_m03_p00" mesh="n006_m03_p00" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_05_LRO_accs_bronze_fl" />
+            <geom name="visual_n006_m03_p01" mesh="n006_m03_p01" rgba="0.760173976421 0.643152534962 0.368139147758 1" material="mat_06_LRO_accs_bronze_sm" />
+            <geom name="visual_n006_m03_p02" mesh="n006_m03_p02" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_11_LRO_accs_silver_fl" />
+            <geom name="visual_n006_m03_p03" mesh="n006_m03_p03" rgba="0.784313738346 0.784313738346 0.784313738346 1" material="mat_12_LRO_accs_silver_sm" />
+            <geom name="visual_n006_m03_p04" mesh="n006_m03_p04" rgba="0.633478283882 0.633478283882 0.633478283882 1" material="mat_18_LRO_DetailGreyFlat" />
+            <geom name="visual_n006_m03_p05" mesh="n006_m03_p05" rgba="0.633478283882 0.633478283882 0.633478283882 1" material="mat_19_LRO_DetailGreySmooth" />
+            <geom name="visual_n006_m03_p06" mesh="n006_m03_p06" rgba="0.71404594183 0.719462871552 0.691371023655 1" material="mat_23_LRO_Dish" />
+          </body>
+        </body>
+        <body name="node_009_Pivot_Layer_4">
+          <body name="node_008_Layer_4">
+            <geom name="visual_n008_m04_p00" mesh="n008_m04_p00" rgba="0.192806974053 0.204144269228 0.311134576797 1" material="mat_24_LRO_solarpanel_1" />
+            <geom name="visual_n008_m04_p01" mesh="n008_m04_p01" rgba="0.168472796679 0.1783926934 0.271880120039 1" material="mat_25_LRO_solarpanel_2" />
+            <geom name="visual_n008_m04_p02" mesh="n008_m04_p02" rgba="0.159294575453 0.181617602706 0.266359716654 1" material="mat_26_LRO_solarpanel_3" />
+            <geom name="visual_n008_m04_p03" mesh="n008_m04_p03" rgba="0.194450303912 0.205902189016 0.313796430826 1" material="mat_27_LRO_solarpanel_4" />
+            <geom name="visual_n008_m04_p04" mesh="n008_m04_p04" rgba="0.175657585263 0.185987040401 0.283460438251 1" material="mat_28_LRO_solarpanel_5" />
+            <geom name="visual_n008_m04_p05" mesh="n008_m04_p05" rgba="0.172095686197 0.168856486678 0.248411998153 1" material="mat_29_LRO_solarpanel_6" />
+            <geom name="visual_n008_m04_p06" mesh="n008_m04_p06" rgba="0.193469136953 0.204867631197 0.312214851379 1" material="mat_30_LRO_solarpanel_7" />
+            <geom name="visual_n008_m04_p07" mesh="n008_m04_p07" rgba="0.171038374305 0.181109324098 0.276020437479 1" material="mat_31_LRO_solarpanel_bak" />
+            <geom name="visual_n008_m04_p08" mesh="n008_m04_p08" rgba="0.769237816334 0.69730681181 0.378820478916 1" material="mat_32_LRO_solarpanel_bronze" />
+            <geom name="visual_n008_m04_p09" mesh="n008_m04_p09" rgba="0.778286397457 0.740199863911 0.574013888836 1" material="mat_22_LRO_solarpanel_bronze_sm" />
+            <geom name="visual_n008_m04_p10" mesh="n008_m04_p10" rgba="0.769237816334 0.59783321619 0.26340124011 1" material="mat_33_LRO_solarpanel_gold" />
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

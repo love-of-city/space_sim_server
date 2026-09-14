@@ -1,0 +1,9 @@
+# Optional, isolated Python 3.11 conversion/CPU-preview environment only.
+# Do not add these to the platform/Basilisk runtime dependencies.
+DracoPy==2.0.0
+mujoco==3.12.0
+numpy==2.4.6
+pillow==12.3.0
+numba==0.67.0
+# Tests are optional.
+pytest==9.1.1

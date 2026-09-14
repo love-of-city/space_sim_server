@@ -220,3 +220,14 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Device presence is separate from the source of the last transmitted action. */
+.gamepad-diagnostics { margin: 12px 0; padding: 10px 12px; border: 1px solid #d9e2ec; border-radius: 8px; background: #f7fafc; font-size: 12px; }
+.gamepad-diagnostics summary { cursor: pointer; }
+.gamepad-diagnostics summary strong { float: right; color: #325b79; }
+.gamepad-diagnostics dl { margin: 10px 0; }
+.gamepad-diagnostics dl > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; margin: 5px 0; }
+.gamepad-diagnostics dt { color: #526577; }
+.gamepad-diagnostics dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.gamepad-diagnostics p { margin: 7px 0 0; line-height: 1.5; color: #526577; }
+.gamepad-diagnostics #gamepadGate { color: #254b68; }

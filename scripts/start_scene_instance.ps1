@@ -28,6 +28,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $runDirectory = Join-Path $projectRoot 'run'
 $logDirectory = Join-Path $projectRoot 'logs'
 $statePath = Join-Path $runDirectory 'scene_runtime.json'
+. (Join-Path $PSScriptRoot 'scene_process_helpers.ps1')
 $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
 $ueScripts = Join-Path $ueProject 'scripts'
 New-Item -ItemType Directory -Path $runDirectory,$logDirectory -Force | Out-Null
@@ -167,14 +168,17 @@ try {
     $runtimeState.simulation_start = $simulation.StartTime.ToUniversalTime().Ticks
     Write-RuntimeState 'running'
 
-    $simulation.WaitForExit()
-    $exitCode = $simulation.ExitCode
-    $persistedPhase = ''
-    if (Test-Path -LiteralPath $statePath) {
-        try { $persistedPhase = [string](Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json).phase } catch { }
+    $outcome = Wait-SceneRuntimeExit $rendererProcess $simulation {
+        if (Test-Path -LiteralPath $statePath) {
+            try { return (Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json).phase -eq 'stopped' } catch { }
+        }
+        return $false
     }
-    if ($persistedPhase -eq 'stopped') { exit 0 }
-    if ($exitCode -ne 0) { throw "Basilisk/MJScene exited with code $exitCode. Check logs\$stamp.simulation.err.log." }
+    if ($outcome.component -eq 'stopped') { exit 0 }
+    if ($outcome.component -eq 'renderer') {
+        throw "UE renderer exited unexpectedly with code $($outcome.code). See $ueProject\Saved\Logs\BskUnrealRenderer.log and Saved\Crashes; the associated simulation will be stopped."
+    }
+    if ($outcome.code -ne 0) { throw "Basilisk/MJScene exited with code $($outcome.code). Check logs\$stamp.simulation.err.log." }
     Write-RuntimeState 'completed'
 } catch {
     $message = $_.Exception.Message
@@ -182,11 +186,11 @@ try {
     throw
 } finally {
     if ($simulation -and !$simulation.HasExited) {
-        Stop-Process -Id $simulation.Id -Force -ErrorAction SilentlyContinue
+        Stop-RecordedProcessTree $simulation.Id $runtimeState.simulation_start
     }
     if ($rendererPid -gt 0) {
         $renderer = Get-Process -Id $rendererPid -ErrorAction SilentlyContinue
-        if ($renderer) { Stop-Process -Id $rendererPid -Force -ErrorAction SilentlyContinue }
+        if ($renderer) { Stop-RecordedProcessTree $rendererPid $runtimeState.renderer_start }
     }
     $pidFile = Join-Path $ueProject 'Saved\BskRenderer.pid'
     if (Test-Path -LiteralPath $pidFile) { Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue }

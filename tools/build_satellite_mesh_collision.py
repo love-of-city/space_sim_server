@@ -37,7 +37,16 @@ def digest(path):
 
 
 def relative(path, directory):
-    return Path(os.path.relpath(path, directory)).as_posix()
+    """Return a portable POSIX relative path when roots share a drive.
+
+    Windows temporary directories may live on another drive than the checkout;
+    in that case ``os.path.relpath`` raises. Keep the path stable and explicit
+    rather than aborting the build.
+    """
+    try:
+        return Path(os.path.relpath(path, directory)).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
 
 
 def load_obj(path):

@@ -266,7 +266,7 @@ def test_balanced_home_tracks_each_translation_axis_without_attitude_drift() -> 
         assert target.velocity_scale == pytest.approx(1.0)
 
 
-def test_measured_attitude_error_slows_translation_without_rotating_reference() -> None:
+def test_large_tracking_error_never_freezes_the_operator_command() -> None:
     model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_platform.xml"
     kinematics = MODULE.SerialChainKinematics.from_mjcf(
         model,
@@ -275,15 +275,28 @@ def test_measured_attitude_error_slows_translation_without_rotating_reference() 
         tool_site="sarm_ee",
     )
     initial = np.asarray(BALANCED_TELEOP_HOME, dtype=float)
-    client = MutableClient(linear=(0.05, 0.0, 0.0))
-    target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
-    target.reset(0.0)
-    disturbed = initial[:6].copy()
-    disturbed[4] += 0.02
-    target.bind_joint_state_provider(lambda: disturbed)
-    initial_target_position = target.target_tool_position.copy()
-    target.update(0.01)
-    assert np.linalg.norm(target.orientation_error) > MODULE.ORIENTATION_TRACKING_SLOWDOWN_START_RAD
-    assert 0.0 < target.tracking_scale < 1.0
-    assert 0.0 < np.linalg.norm(target.target_tool_position - initial_target_position) < 0.0005
+
+    def one_update(joint_offset_rad: float) -> "MODULE.CartesianTeleopTarget":
+        client = MutableClient(linear=(0.05, 0.0, 0.0))
+        target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
+        target.reset(0.0)
+        disturbed = initial[:6].copy()
+        disturbed[4] += joint_offset_rad
+        target.bind_joint_state_provider(lambda: disturbed)
+        target.update(0.01)
+        return target
+
+    undisturbed_advance = one_update(0.0).target_tool_position - kinematics.forward(initial[:6])[0]
+
+    target = one_update(np.deg2rad(20.0))
+    assert np.linalg.norm(target.orientation_error) > np.deg2rad(10.0)
+    assert target.tracking_scale == pytest.approx(1.0)
+    # The reference advances by exactly the same amount as with zero measured
+    # error: the operator command is no longer a function of tracking error.
+    assert np.allclose(
+        target.target_tool_position - kinematics.forward(initial[:6])[0],
+        undisturbed_advance,
+        atol=1.0e-12,
+    )
+    assert np.linalg.norm(undisturbed_advance) > 1.0e-5
     assert np.allclose(target.achieved_twist[3:], 0.0, atol=1e-10)

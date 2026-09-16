@@ -52,10 +52,6 @@ JOINT_MAX = np.array([3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 6.2832, 0.0375, 0.
 ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00, 1.00])
 MAX_LINEAR_COMMAND_ACCELERATION_M_S2 = 0.20
 MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 = 2.0
-POSITION_TRACKING_SLOWDOWN_START_M = 0.015
-POSITION_TRACKING_STOP_M = 0.030
-ORIENTATION_TRACKING_SLOWDOWN_START_RAD = math.radians(0.5)
-ORIENTATION_TRACKING_STOP_RAD = math.radians(2.0)
 TELEOP_ARM_KP = np.array([32.0, 32.0, 32.0, 30.0, 30.0, 15.0])
 TELEOP_ARM_KD = np.array([2.0, 2.0, 2.0, 0.7, 0.5, 0.25])
 TELEOP_ARM_TORQUE_LIMIT = np.array([2.0, 2.0, 2.0, 1.0, 1.0, 0.35])
@@ -484,14 +480,6 @@ class CartesianTeleopTarget:
             # spacecraft body frame, so apply the spatial rotation on the left.
             self.target_tool_rotation = delta @ self.target_tool_rotation
 
-    @staticmethod
-    def _tracking_scale(error: float, slowdown_start: float, stop: float) -> float:
-        if error <= slowdown_start:
-            return 1.0
-        if error >= stop:
-            return 0.0
-        return (stop - error) / (stop - slowdown_start)
-
     def reset(self, sim_seconds: float) -> None:
         """Reset the held joint and Cartesian references at simulation start."""
 
@@ -559,25 +547,12 @@ class CartesianTeleopTarget:
 
         actual_arm = self._actual_arm_position()
         self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(actual_arm)
-        self.position_error = self.target_tool_position - self.actual_tool_position
-        self.orientation_error = rotation_matrix_to_vector(
-            self.target_tool_rotation @ self.actual_tool_rotation.T
-        )
-        tracking_scale = min(
-            self._tracking_scale(
-                float(np.linalg.norm(self.position_error)),
-                POSITION_TRACKING_SLOWDOWN_START_M,
-                POSITION_TRACKING_STOP_M,
-            ),
-            self._tracking_scale(
-                float(np.linalg.norm(self.orientation_error)),
-                ORIENTATION_TRACKING_SLOWDOWN_START_RAD,
-                ORIENTATION_TRACKING_STOP_RAD,
-            ),
-        )
-        self.tracking_scale = tracking_scale
-        operator_linear = operator_linear * tracking_scale
-        operator_angular = operator_angular * tracking_scale
+        # Tracking error is a closed-loop result, not a fault: a finite-gain
+        # joint PD holds a load-proportional steady-state error, so gating on it
+        # used to latch the operator command to zero and freeze the reference
+        # permanently.  The operator command is now passed through unchanged
+        # and the measured errors are published as diagnostics only.
+        self.tracking_scale = 1.0
 
         # The reference chain itself follows an exact six-dimensional twist.
         # When input is released it holds the last exact joint solution; the
@@ -605,10 +580,10 @@ class CartesianTeleopTarget:
             self._advance_target(
                 self.achieved_twist[:3], self.achieved_twist[3:], dt
             )
-            self.position_error = self.target_tool_position - self.actual_tool_position
-            self.orientation_error = rotation_matrix_to_vector(
-                self.target_tool_rotation @ self.actual_tool_rotation.T
-            )
+        self.position_error = self.target_tool_position - self.actual_tool_position
+        self.orientation_error = rotation_matrix_to_vector(
+            self.target_tool_rotation @ self.actual_tool_rotation.T
+        )
 
         gripper_velocity = 0.0
         if enabled:
@@ -1113,6 +1088,13 @@ def _run_session(
                     "ik_control_rate_hz": args.ik_rate,
                     "ik_update_count": str(targets.update_count),
                     "ik_solve_count": str(targets.ik_solve_count),
+                    "tracking_scale": float(targets.tracking_scale),
+                    "position_tracking_error_m": float(
+                        np.linalg.norm(targets.position_error)
+                    ),
+                    "orientation_tracking_error_rad": float(
+                        np.linalg.norm(targets.orientation_error)
+                    ),
                 }
             )
             processing_seconds += time.monotonic() - processing_start

@@ -112,7 +112,31 @@
 
 ## 可选复现
 
-这是高开销模型实验，不是平台首次部署步骤。需要时从服务端仓库根目录用 `uv venv .venv-mesh-collision --python 3.13` 创建独立环境，通过 `uv pip install --python .\.venv-mesh-collision\Scripts\python.exe -r tools/requirements-mesh-collision.txt` 安装专用依赖。不要重建已有环境或更换 Basilisk 的 MuJoCo DLL。
+这是高开销模型实验，不是平台首次部署步骤。从服务端仓库根目录选择一种方式准备独立环境；已有环境跳过创建，只需设置对应解释器并安装依赖。不要更换 Basilisk 的 MuJoCo DLL。
+
+uv：
+
+```powershell
+uv venv .venv-mesh-collision --python 3.13
+$converterPython = (Resolve-Path .\.venv-mesh-collision\Scripts\python.exe).Path
+uv pip install --python $converterPython -r tools/requirements-mesh-collision.txt
+```
+
+Conda：
+
+```powershell
+conda create --prefix .\.venv-mesh-collision python=3.13 pip
+$converterPython = (Resolve-Path .\.venv-mesh-collision\python.exe).Path
+& $converterPython -m pip install -r tools/requirements-mesh-collision.txt
+```
+
+传统 venv/pip：
+
+```powershell
+py -3.13 -m venv .venv-mesh-collision
+$converterPython = (Resolve-Path .\.venv-mesh-collision\Scripts\python.exe).Path
+& $converterPython -m pip install -r tools/requirements-mesh-collision.txt
+```
 
 生成、检查、回归和验证入口分别为 `tools/build_satellite_mesh_collision.py`（支持 `--check`）、`tests/test_mesh_collision_conversion.py`、`tools/validate_satellite_mesh_collision.py`。原生验证的 `--native-python` 应显式传入含 Basilisk/MJScene 的解释器。
 

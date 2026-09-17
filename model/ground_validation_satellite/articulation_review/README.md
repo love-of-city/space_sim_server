@@ -24,6 +24,6 @@ B1–B3 是圆柱轴线特征，不能直接等同于三个独立关节。C/D �
 
 ## 可选重新生成
 
-按[转换环境说明](../README.md#查看与可选重新转换)准备独立 uv 环境，从服务端仓库根目录用该解释器运行 `tools/extract_step_surface_evidence.py` 与 `tools/review_satellite_components.py`，参数为模型目录。仅用于 CAD 审查，不是首次部署步骤。
+按[转换环境说明](../README.md#查看与可选重新转换)选择 uv、Conda 或传统 venv 准备独立环境，从服务端仓库根目录用该解释器运行 `tools/extract_step_surface_evidence.py` 与 `tools/review_satellite_components.py`，参数为模型目录。仅用于 CAD 审查，不是首次部署步骤。
 
 报告使用 CPU 几何预览与 SVG/HTML 标注；表单需点击导出才保存意见，不直接修改模型。机构运动、限位与驱动需人类核对 CAD/工程资料。

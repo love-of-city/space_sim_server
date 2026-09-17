@@ -55,9 +55,31 @@ STEP 装配层级和每个实例的变换完整记录在 manifest 的 `assembly`
 
 ```powershell
 uv venv .venv-step --python 3.13
-uv pip install --python .\.venv-step\Scripts\python.exe -r tools/requirements-step-to-mjcf.txt
-.\.venv-step\Scripts\python.exe tools/convert_step_to_mjcf.py "model/地面验证星模型.stp" --output run/ground-validation-preview --no-render
-.\.venv-step\Scripts\python.exe tools/render_step_preview.py run/ground-validation-preview --backend cpu
+$converterPython = (Resolve-Path .\.venv-step\Scripts\python.exe).Path
+uv pip install --python $converterPython -r tools/requirements-step-to-mjcf.txt
+```
+
+Conda（使用同一目录作为环境前缀，无需激活）：
+
+```powershell
+conda create --prefix .\.venv-step python=3.13 pip
+$converterPython = (Resolve-Path .\.venv-step\python.exe).Path
+& $converterPython -m pip install -r tools/requirements-step-to-mjcf.txt
+```
+
+传统 venv/pip：
+
+```powershell
+py -3.13 -m venv .venv-step
+$converterPython = (Resolve-Path .\.venv-step\Scripts\python.exe).Path
+& $converterPython -m pip install -r tools/requirements-step-to-mjcf.txt
+```
+
+上面三种环境创建/安装方式只选一种；它们都将所选解释器保存为 `$converterPython`。已有环境只需设置该变量并执行对应安装命令，不重复创建。然后运行转换工具：
+
+```powershell
+& $converterPython tools/convert_step_to_mjcf.py "model/地面验证星模型.stp" --output run/ground-validation-preview --no-render
+& $converterPython tools/render_step_preview.py run/ground-validation-preview --backend cpu
 ```
 
 仅在该环境/输出目录尚未存在时执行创建步骤。输出放在本机 `run/` 下，不覆盖已经集成的平台模型。CPU 预览读取编译后的几何；不是 UE 画面。`--no-render` 仍执行转换校验，后续单独渲染。

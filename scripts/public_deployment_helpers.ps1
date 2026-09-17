@@ -154,7 +154,9 @@ function Wait-PublicGateway([string]$Url, [string]$Nonce, $Proxy, $Tunnel, [int]
 function Invoke-PublicAuth([string]$ProjectRoot, [string]$Username, [switch]$Apply) {
     $arguments = @((Join-Path $ProjectRoot 'tools/prepare_public_auth.py'), '--database', (Join-Path $ProjectRoot 'data/auth.sqlite3'), '--username', $Username)
     if ($Apply) { $arguments += @('--apply', '--backup-directory', (Join-Path $ProjectRoot 'run/auth-backups')) }
-    $result = & python @arguments
+    . (Join-Path $PSScriptRoot 'python_runtime.ps1')
+    $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $ProjectRoot
+    $result = & $pythonExe @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Public authentication preflight/migration failed. Custom passwords were not reset.' }
     return ($result | Out-String | ConvertFrom-Json)
 }

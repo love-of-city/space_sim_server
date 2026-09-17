@@ -1,4 +1,5 @@
 param(
+    [string]$Python = '',
     [string]$ConfigPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'deploy/deployment.local.json'),
     [switch]$ValidateOnly,
     [switch]$Start
@@ -19,10 +20,14 @@ if (!$Start) {
     return
 }
 
+. (Join-Path $PSScriptRoot 'python_runtime.ps1')
+$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn')
+$env:SPACE_SIM_PYTHON = $pythonExe
+
 # All deterministic checks precede run_platform.ps1, which stops the old platform.
 $caddy = (Get-Command $settings.CaddyExecutable -ErrorAction Stop).Source
-foreach ($command in @('python', 'conda', 'npm.cmd', 'node.exe')) { $null = Get-Command $command -ErrorAction Stop }
-& python (Join-Path $projectRoot 'tools/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
+foreach ($command in @('npm.cmd', 'node.exe')) { $null = Get-Command $command -ErrorAction Stop }
+& $pythonExe (Join-Path $projectRoot 'tools/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
 if ($LASTEXITCODE -ne 0) { throw 'Authentication preflight failed; existing platform was not stopped.' }
 
 $runDirectory = Join-Path $projectRoot 'run/deployment'

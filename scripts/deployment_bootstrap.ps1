@@ -35,38 +35,10 @@ function Initialize-LauncherConfig([string]$ConfigPath, [string]$ProjectRoot, [s
     Write-Host "已保存首次配置：$ConfigPath"
 }
 
-function Enable-LauncherRuntime([string]$CondaRoot) {
-    $candidates = @($CondaRoot, $env:SPACE_SIM_CONDA_ROOT)
-    if ($env:CONDA_EXE) { $candidates += Split-Path -Parent (Split-Path -Parent $env:CONDA_EXE) }
-    $command = Get-Command conda.exe -ErrorAction SilentlyContinue
-    if ($command) { $candidates += Split-Path -Parent (Split-Path -Parent $command.Source) }
-    foreach ($base in @($env:USERPROFILE, $env:ProgramData)) {
-        if ($base) {
-            foreach ($name in @('miniconda3', 'anaconda3', 'miniforge3')) { $candidates += Join-Path $base $name }
-        }
-    }
-    $root = $null
-    foreach ($candidate in $candidates | Where-Object { $_ } | Select-Object -Unique) {
-        if (Test-Path -LiteralPath ([IO.Path]::Combine($candidate, 'shell', 'condabin', 'Conda.psm1')) -PathType Leaf) {
-            $root = [IO.Path]::GetFullPath($candidate)
-            break
-        }
-    }
-    if (!$root) { throw 'Cannot find the existing Conda installation. Set SPACE_SIM_CONDA_ROOT or use -CondaRoot; no new simulation environment will be installed.' }
-    $env:CONDA_EXE = Join-Path $root 'Scripts/conda.exe'
-    $env:_CONDA_ROOT = $root
-    $env:_CONDA_EXE = $env:CONDA_EXE
-    Import-Module (Join-Path $root 'shell/condabin/Conda.psm1') -Global -Force
-    conda activate space-sim-server
-    if ($LASTEXITCODE -ne 0 -or !$env:CONDA_PREFIX) { throw 'Unable to activate the existing space-sim-server Conda environment.' }
-    $python = Join-Path $env:CONDA_PREFIX 'python.exe'
-    $actualPython = Get-Command python -ErrorAction Stop
-    if (!(Test-Path -LiteralPath $python -PathType Leaf) -or $actualPython.Source -ne $python) {
-        throw 'Conda activation did not select the expected Python; refusing to use another interpreter.'
-    }
+function Enable-LauncherRuntime([string]$Python) {
+    . (Join-Path $PSScriptRoot 'python_runtime.ps1')
+    $env:SPACE_SIM_PYTHON = Resolve-SpaceSimPython -RepositoryRoot (Split-Path -Parent $PSScriptRoot) -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn')
     foreach ($name in @('npm.cmd', 'node.exe')) { $null = Get-Command $name -ErrorAction Stop }
-    & $python -c 'import fastapi, pydantic, uvicorn'
-    if ($LASTEXITCODE -ne 0) { throw 'The existing space-sim-server environment is missing backend dependencies.' }
 }
 
 function New-LauncherSecret([int]$Bytes) {

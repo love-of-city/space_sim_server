@@ -89,7 +89,7 @@ Set-Location .\space_arm_data_platform
 python -m pip install -e ".[test]"
 ```
 
-还需要 PowerShell 7、Node.js/npm、Unreal Engine 5.6、Visual Studio 2022 C++/Windows SDK，以及包含 Basilisk/MJScene 的 Conda 环境 `mujoco-dev`。启动脚本会自动检查这些命令、Web 后端依赖和 Git LFS 模型。UE 会从 `UE56_ROOT`、`E:\UE5.6` 和 Epic 默认安装目录查找；其他路径可传入 `-UnrealRoot`。
+还需要 PowerShell 7、Node.js/npm、Unreal Engine 5.6、Visual Studio 2022 C++/Windows SDK，以及安装项目依赖和 Basilisk/MJScene 的 Python 环境。解释器按下述统一规则选择。UE 路径通过 `UE56_ROOT` 或 `-UnrealRoot` 指定。
 
 ## 一条命令运行
 
@@ -268,7 +268,7 @@ python -m pytest
 node .\tools\verify_pixel_streaming.mjs
 
 # 用原生MuJoCo校验MJCF正运动学
-conda run --no-capture-output -n mujoco-dev python .\tools\validate_mujoco_fk.py
+python .\tools\validate_mujoco_fk.py
 ```
 
 日志位于 `logs`。运行PID只临时写入 `run/platform.json`，停止脚本校验进程启动时间后再结束进程。
@@ -278,3 +278,24 @@ conda run --no-capture-output -n mujoco-dev python .\tools\validate_mujoco_fk.py
 1. 增加末端工作空间、自碰撞、抓取接触约束和力/力矩反馈。
 2. 对长时间高吞吐采集增加分片数据格式和对象存储同步。
 3. 扩展更多场景模板、随机变量约束和批量无人值守训练调度。
+
+## Python 环境选择（Conda / uv / venv 通用）
+
+启动脚本直接调用选中的 Python，不调用环境管理器、不固定环境名称。统一优先级：
+
+1. `-Python` 参数（调用 Python 的入口支持），其次 `SPACE_SIM_PYTHON`；值为解释器文件路径。
+2. 已激活环境：`VIRTUAL_ENV/Scripts/python.exe`，其次 `CONDA_PREFIX/python.exe`。嵌套激活时优先 venv。
+3. 仓库内 `.venv`、`venv`，再查父工作区内 `.venv`、`venv`。
+4. PATH 中的 `python` 可执行文件。
+
+显式配置或已激活环境无效时直接报错；选中解释器缺少入口所需模块时也报错，不会静默切换环境。请在该解释器内安装项目依赖；真实仿真需另行安装包含 MJScene 的 Basilisk。平台把选中的绝对路径通过 `SPACE_SIM_PYTHON` 传给后端、仿真和 Adapter 子进程。UE 资产导入仍使用编辑器内置 Python。
+
+使用 Conda 时先 `conda activate <你的环境名>`；使用 uv/venv 时可激活环境或放在上述本地目录，无需激活也可自动发现。显式覆盖示例：
+
+```powershell
+$env:SPACE_SIM_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
+# 然后执行项目启动脚本；取消覆盖后重新自动选择：
+Remove-Item Env:SPACE_SIM_PYTHON
+```
+
+公网入口同样遵循上述顺序。旧 `-CondaRoot` / `SPACE_SIM_CONDA_ROOT` 已移除，请激活目标环境或使用 `-Python` / `SPACE_SIM_PYTHON`。

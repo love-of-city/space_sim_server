@@ -1,4 +1,5 @@
 param(
+    [string]$Python = '',
     [string]$ApiHost = '127.0.0.1',
     [int]$ApiPort = 8000,
     [int]$ControlPort = 8766,
@@ -29,6 +30,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'python_runtime.ps1')
+$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn')
+$env:SPACE_SIM_PYTHON = $pythonExe
 if (!$AdapterRoot) { $AdapterRoot = $env:SPACE_SIM_RUNTIME_ADAPTER_ROOT }
 if (!$ModelRoot) { $ModelRoot = $env:SPACE_SIM_RUNTIME_MODEL_ROOT }
 if (!$UnrealRoot) { $UnrealRoot = $env:SPACE_SIM_RUNTIME_UNREAL_ROOT }
@@ -76,4 +80,4 @@ if ($AdapterRoot -and $ModelRoot -and $UnrealRoot -and $PowerShellExe) {
 foreach ($streamer in ($PixelStreamingCameraStreamers -split ';' | Where-Object { $_ })) {
     $arguments += @('--pixel-streaming-camera-streamer', $streamer)
 }
-python @arguments
+& $pythonExe @arguments

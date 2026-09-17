@@ -1,5 +1,5 @@
 # Called under deployment_launcher.ps1's shared lifecycle lock.
-function Start-PublicDeployment([string]$ProjectRoot, [string]$ConfigPath, [string]$SecretPath, [string]$CondaRoot,
+function Start-PublicDeployment([string]$ProjectRoot, [string]$ConfigPath, [string]$SecretPath, [string]$Python,
     [switch]$ValidateOnly, [switch]$NonInteractive, [switch]$Restart, [System.Collections.IDictionary]$Overrides = $null) {
     $previous = @{}
     $proxy = $null; $tunnel = $null; $switched = $false; $complete = $false
@@ -23,7 +23,8 @@ function Start-PublicDeployment([string]$ProjectRoot, [string]$ConfigPath, [stri
             return
         }
         Save-LauncherSecrets $SecretPath $values
-        Enable-LauncherRuntime $CondaRoot
+        $previous['SPACE_SIM_PYTHON'] = $env:SPACE_SIM_PYTHON
+        Enable-LauncherRuntime $Python
         $null = Invoke-PublicAuth $ProjectRoot $settings.AdminUsername
         $caddy = Resolve-LauncherCaddy $settings.CaddyExecutable $ProjectRoot
         $cloudflared = Resolve-PublicTunnel $ProjectRoot

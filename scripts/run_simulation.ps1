@@ -1,4 +1,5 @@
 param(
+    [string]$Python = '',
     [string]$AdapterRoot = '',
     [string]$ModelRoot = '',
     [int]$ControlPort = 8766,
@@ -14,6 +15,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'python_runtime.ps1')
+$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('numpy', 'Basilisk.simulation.mujoco')
+$env:SPACE_SIM_PYTHON = $pythonExe
 $workspaceRoot = Split-Path -Parent $projectRoot
 if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
 if (!$ModelRoot) {
@@ -37,7 +41,7 @@ $env:PYTHONPATH = @(
 ) -join [IO.Path]::PathSeparator
 
 $arguments = @(
-    'run', '--no-capture-output', '-n', 'mujoco-dev', 'python', $scenario,
+    $scenario,
     '--adapter-root', ([IO.Path]::GetFullPath($AdapterRoot)),
     '--model-root', ([IO.Path]::GetFullPath($ModelRoot)),
     '--catalog', ([IO.Path]::GetFullPath($catalog)),
@@ -49,6 +53,6 @@ if ($SceneInstancePath) {
     $arguments += @('--scene-instance', ([IO.Path]::GetFullPath($SceneInstancePath)))
 }
 if ($DisableAttitudeControl) { $arguments += '--disable-attitude-control' }
-conda @arguments
+& $pythonExe @arguments
 $exitCode = $LASTEXITCODE
 exit $exitCode

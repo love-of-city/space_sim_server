@@ -157,7 +157,7 @@ function Initialize-FixedConfig {
         $existing = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json -AsHashtable
         if ([string]$existing.tls_mode -eq $TlsMode) {
             # Keep machine-local roots and the chosen admin name across restarts.
-            foreach ($key in @('admin_username', 'require_access_key', 'show_access_window', 'adapter_root', 'model_root', 'unreal_root')) {
+            foreach ($key in @('preview_fps', 'encoder_min_quality', 'admin_username', 'require_access_key', 'show_access_window', 'adapter_root', 'model_root', 'unreal_root')) {
                 if ($existing.ContainsKey($key)) { $config[$key] = $existing[$key] }
             }
         }

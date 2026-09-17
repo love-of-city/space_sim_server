@@ -138,6 +138,13 @@ class SimulationObservation(BaseModel):
     end_effector_twist_body: list[float] = Field(default_factory=lambda: [0.0] * 6, min_length=6, max_length=6)
     cartesian_command_residual: list[float] = Field(default_factory=lambda: [0.0] * 6, min_length=6, max_length=6)
     jacobian_rank: int = Field(default=0, ge=0, le=6)
+    # Differential IK diagnostics published by the SARM simulator.
+    ik_mode: str = ""
+    ik_damping: FiniteFloat = 0.0
+    ik_velocity_scale: FiniteFloat = 1.0
+    ik_minimum_singular_value: FiniteFloat = 0.0
+    ik_condition_number: FiniteFloat = 0.0
+    ik_nullspace_correction_norm: FiniteFloat = 0.0
     command_stale: bool = False
     # Optional only for pre-SARM peers. New SARM publishes all six SI fields.
     arm_joint_position_rad: ArmVector | None = None

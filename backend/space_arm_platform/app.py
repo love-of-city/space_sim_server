@@ -59,7 +59,8 @@ class PlatformConfig:
     runtime_pixel_streaming_camera_ids: tuple[str, ...] = ()
     runtime_pixel_streaming_camera_width: int = 640
     runtime_pixel_streaming_camera_height: int = 360
-    runtime_preview_rate: float = 60.0
+    runtime_preview_rate: float = 90.0
+    runtime_encoder_min_quality: int = 60
     runtime_renderer_ready_timeout: int = 240
     runtime_ik_rate: float = 100.0
     runtime_simulation_rate: float = 1.0
@@ -71,6 +72,10 @@ class PlatformConfig:
     secure_cookies: bool = False
     allowed_origins: tuple[str, ...] = ()
     login_attempts_per_minute: int = 10
+
+    def __post_init__(self) -> None:
+        if type(self.runtime_encoder_min_quality) is not int or not 0 <= self.runtime_encoder_min_quality <= 100:
+            raise ValueError("runtime_encoder_min_quality must be an integer in [0, 100]")
 
 
 class OperatorSessions:
@@ -182,6 +187,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             pixel_streaming_camera_width=config.runtime_pixel_streaming_camera_width,
             pixel_streaming_camera_height=config.runtime_pixel_streaming_camera_height,
             preview_rate=config.runtime_preview_rate, renderer_ready_timeout=config.runtime_renderer_ready_timeout,
+            encoder_min_quality=config.runtime_encoder_min_quality,
             ik_rate=config.runtime_ik_rate, simulation_rate=config.runtime_simulation_rate,
             capture_rate=config.runtime_capture_rate,
             default_dataset_capture=config.runtime_default_dataset_capture,
@@ -377,6 +383,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             "pixel_streaming_streamer_id": config.pixel_streaming_streamer_id,
             "pixel_streaming_signalling_url": config.pixel_streaming_signalling_url,
             "pixel_streaming_streamers": streamers,
+            "pixel_streaming_fps": round(config.runtime_preview_rate),
+            "pixel_streaming_encoder_min_quality": config.runtime_encoder_min_quality,
         }
         if config.stream_access_jwt_secret:
             response["pixel_streaming_access_token"] = issue_stream_access_token(

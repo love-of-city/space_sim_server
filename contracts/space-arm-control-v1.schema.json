@@ -251,6 +251,36 @@
               "title": "Jacobian Rank",
               "type": "integer"
             },
+            "ik_mode": {
+              "default": "",
+              "title": "Ik Mode",
+              "type": "string"
+            },
+            "ik_damping": {
+              "default": 0.0,
+              "title": "Ik Damping",
+              "type": "number"
+            },
+            "ik_velocity_scale": {
+              "default": 1.0,
+              "title": "Ik Velocity Scale",
+              "type": "number"
+            },
+            "ik_minimum_singular_value": {
+              "default": 0.0,
+              "title": "Ik Minimum Singular Value",
+              "type": "number"
+            },
+            "ik_condition_number": {
+              "default": 0.0,
+              "title": "Ik Condition Number",
+              "type": "number"
+            },
+            "ik_nullspace_correction_norm": {
+              "default": 0.0,
+              "title": "Ik Nullspace Correction Norm",
+              "type": "number"
+            },
             "protocol": {
               "const": "space-arm-control/1",
               "title": "Protocol",

@@ -60,7 +60,9 @@
         <span><small>RTT</small><strong id="webrtcRtt">—</strong></span>
         <span><small>码率</small><strong id="webrtcBitrate">—</strong></span>
         <span><small>丢包</small><strong id="webrtcLoss">—</strong></span>
+        <span title="WebRTC 每秒收到的完整视频帧，不等于屏幕实际显示帧率"><small>接收帧率</small><strong id="webrtcReceiveFps">—</strong></span>
         <span title="浏览器实际呈现的非丢弃视频帧率"><small>显示帧率</small><strong id="webrtcFps">—</strong></span>
+        <span title="最近采样区间内已解码帧的平均量化参数；同一编码器下一般越高压缩越强。不是最低质量百分比；不支持或无新帧时显示 —"><small>平均 QP</small><strong id="webrtcQp">—</strong></span>
         <span><small>分辨率</small><strong id="webrtcResolution">—</strong></span>
       </div>
       <button id="playStream" class="play-stream" type="button" hidden>播放实时画面</button>
@@ -187,6 +189,7 @@
           <div><dt>动作序号</dt><dd id="actionSequence">—</dd></div>
           <div><dt>末端位置</dt><dd id="toolPosition">—</dd></div>
           <div><dt>雅可比秩</dt><dd id="jacobianRank">—</dd></div>
+          <div><dt>IK 求解</dt><dd id="ikSolver">—</dd></div>
           <div><dt>姿态控制</dt><dd id="attitudeMode">—</dd></div>
           <div><dt>姿态误差</dt><dd id="attitudeError">—</dd></div>
           <div><dt>本体角速度</dt><dd id="bodyRate">—</dd></div>

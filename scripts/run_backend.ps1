@@ -19,7 +19,10 @@ param(
     [string]$PixelStreamingCameraIds = '',
     [int]$PixelStreamingCameraWidth = 640,
     [int]$PixelStreamingCameraHeight = 360,
-    [double]$PreviewRate = 60.0,
+    [ValidateRange(1, 120)]
+    [double]$PreviewRate = 90.0,
+    [ValidateRange(0, 100)]
+    [int]$EncoderMinQuality = 60,
     [int]$RendererReadyTimeout = 240,
     [double]$IkRate = 100.0,
     [double]$SimulationRate = 1.0,
@@ -50,7 +53,8 @@ $env:PYTHONPATH = Join-Path $projectRoot 'backend'
 Set-Location $projectRoot
 $arguments = @('-m', 'space_arm_platform.main', '--host', $ApiHost, '--port', $ApiPort, '--simulation-port', $ControlPort,
     '--capture-port', $CapturePort, '--pixel-streaming-player-port', $PixelStreamingPlayerPort,
-    '--pixel-streaming-streamer-id', $PixelStreamingId, '--data-root', ([IO.Path]::GetFullPath($DataRoot)))
+    '--pixel-streaming-streamer-id', $PixelStreamingId, '--data-root', ([IO.Path]::GetFullPath($DataRoot)),
+    '--runtime-encoder-min-quality', $EncoderMinQuality)
 if ($PixelStreamingSignallingUrl) { $arguments += @('--pixel-streaming-signalling-url', $PixelStreamingSignallingUrl) }
 # Secrets reach Python through its environment, not process command lines.
 if ($StreamAccessJwtSecret) { $env:SPACE_SIM_STREAM_JWT_SECRET = $StreamAccessJwtSecret }

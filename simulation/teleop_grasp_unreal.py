@@ -15,6 +15,7 @@ import argparse
 import gc
 import json
 import math
+import os
 from pathlib import Path
 import socket
 import sys
@@ -50,6 +51,20 @@ from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 JOINT_MIN = np.array([-3.1416, -3.1416, -3.1416, -3.1416, -3.1416, -6.2832, 0.0, 0.0])
 JOINT_MAX = np.array([3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 6.2832, 0.0375, 0.0375])
 ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00, 1.00])
+# Differential IK kernels selectable for A/B evaluation.
+IK_MODE_IK_POSE = "ik_pose"
+IK_MODE_STRICT = "strict"
+IK_MODES = (IK_MODE_IK_POSE, IK_MODE_STRICT)
+# robosuite ``IK_POSE`` damping schedule: well-conditioned poses keep near-exact
+# task tracking (base damping) while the approach to a singularity ramps the
+# damping up, so the command slows down smoothly instead of freezing outright.
+IK_POSE_BASE_DAMPING = 1.0e-3
+IK_POSE_MAXIMUM_DAMPING = 5.0e-2
+IK_POSE_SINGULAR_VALUE_THRESHOLD = 2.0e-2
+# Posture gain [1/s] of the robosuite-style nullspace term.  The term is only
+# evaluated while the deadman is engaged and only projects into directions the
+# Jacobian cannot command, so it cannot move the tool off the commanded pose.
+IK_POSE_NULLSPACE_GAIN = 0.15
 MAX_LINEAR_COMMAND_ACCELERATION_M_S2 = 0.20
 MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 = 2.0
 TELEOP_ARM_KP = np.array([32.0, 32.0, 32.0, 30.0, 30.0, 15.0])
@@ -413,12 +428,36 @@ class CartesianTeleopTarget:
         initial_position: np.ndarray,
         client: SimulationControlClient,
         kinematics: SerialChainKinematics,
+        *,
+        ik_mode: str = IK_MODE_IK_POSE,
+        nullspace_reference: np.ndarray | None = None,
+        nullspace_gains: np.ndarray | None = None,
     ) -> None:
+        if ik_mode not in IK_MODES:
+            raise ValueError(f"unsupported IK mode {ik_mode!r}; expected one of {IK_MODES}")
         self.initial_position = np.asarray(initial_position, dtype=float).copy()
         self.position = self.initial_position.copy()
         self.velocity = np.zeros_like(self.initial_position)
         self.client = client
         self.kinematics = kinematics
+        self.ik_mode = ik_mode
+        # robosuite seeds its posture term from the reset joint configuration.
+        posture = (
+            self.initial_position[:6].copy()
+            if nullspace_reference is None
+            else np.asarray(nullspace_reference, dtype=float).copy()
+        )
+        if posture.shape != (6,) or not np.all(np.isfinite(posture)):
+            raise ValueError("nullspace reference must contain six finite joint positions")
+        self.nullspace_reference = posture
+        gains = (
+            np.full(6, IK_POSE_NULLSPACE_GAIN)
+            if nullspace_gains is None
+            else np.asarray(nullspace_gains, dtype=float).copy()
+        )
+        if gains.shape != (6,) or not np.all(np.isfinite(gains)) or np.any(gains < 0.0):
+            raise ValueError("nullspace gains must be six finite, non-negative values")
+        self.nullspace_gains = gains
         self._joint_state_provider: Callable[[], np.ndarray] | None = None
         self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(
             self.initial_position[:6]
@@ -433,6 +472,8 @@ class CartesianTeleopTarget:
         self.velocity_scale = 1.0
         self.minimum_singular_value = 0.0
         self.condition_number = math.inf
+        self.ik_damping = 0.0
+        self.nullspace_correction_norm = 0.0
         self.last_sim_seconds: float | None = None
         self.applied_sequence = "0"
         self.command_stale = True
@@ -498,6 +539,8 @@ class CartesianTeleopTarget:
         self.velocity_scale = 1.0
         self.minimum_singular_value = 0.0
         self.condition_number = math.inf
+        self.ik_damping = 0.0
+        self.nullspace_correction_norm = 0.0
         self.last_sim_seconds = float(sim_seconds)
         self.applied_sequence = "0"
         self.command_stale = True
@@ -560,14 +603,33 @@ class CartesianTeleopTarget:
         # additional Cartesian loop fighting the coordinated trajectory.
         self.desired_twist = np.concatenate((operator_linear, operator_angular))
 
-        result = self.kinematics.inverse_velocity_bounded(
-            self.position[:6],
-            self.desired_twist,
-            joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
-            joint_position_min=JOINT_MIN[:6],
-            joint_position_max=JOINT_MAX[:6],
-            dt=dt,
-        )
+        if self.ik_mode == IK_MODE_STRICT:
+            result = self.kinematics.inverse_velocity_bounded(
+                self.position[:6],
+                self.desired_twist,
+                joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
+                joint_position_min=JOINT_MIN[:6],
+                joint_position_max=JOINT_MAX[:6],
+                dt=dt,
+            )
+        else:
+            # robosuite IK_POSE: damped least squares plus a nullspace posture
+            # term.  The posture reference is withheld while the deadman is
+            # released, so a disengaged arm holds its joints exactly instead of
+            # drifting through the nullspace.
+            result = self.kinematics.inverse_velocity_ik_pose(
+                self.position[:6],
+                self.desired_twist,
+                joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
+                joint_position_min=JOINT_MIN[:6],
+                joint_position_max=JOINT_MAX[:6],
+                dt=dt,
+                base_damping=IK_POSE_BASE_DAMPING,
+                maximum_damping=IK_POSE_MAXIMUM_DAMPING,
+                singular_value_threshold=IK_POSE_SINGULAR_VALUE_THRESHOLD,
+                nullspace_reference=self.nullspace_reference if enabled else None,
+                nullspace_gains=self.nullspace_gains,
+            )
         self.velocity[:6] = result.joint_velocity_rad_s
         self.achieved_twist = result.achieved_twist
         self.residual_twist = result.residual_twist
@@ -575,6 +637,8 @@ class CartesianTeleopTarget:
         self.velocity_scale = result.velocity_scale
         self.minimum_singular_value = result.minimum_singular_value
         self.condition_number = result.condition_number
+        self.ik_damping = result.damping
+        self.nullspace_correction_norm = result.nullspace_correction_norm
         self.ik_solve_count += 1
         if enabled:
             self._advance_target(
@@ -813,7 +877,9 @@ def _run_session(
 ) -> str | None:
     """Build one clean physics/controller/ephemeris/render session from the saved initial conditions."""
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
-    targets = CartesianTeleopTarget(initial_joints, client, kinematics)
+    targets = CartesianTeleopTarget(
+        initial_joints, client, kinematics, ik_mode=args.ik_mode
+    )
     original_reference = native.JointTrajectoryPublisher.__dict__["reference"]
     native.JointTrajectoryPublisher.reference = classmethod(
         lambda _cls, seconds: targets.cached_reference(seconds)
@@ -1084,6 +1150,12 @@ def _run_session(
                     "end_effector_twist_body": end_effector_twist.tolist(),
                     "cartesian_command_residual": targets.residual_twist.tolist(),
                     "jacobian_rank": targets.jacobian_rank,
+                    "ik_mode": targets.ik_mode,
+                    "ik_damping": float(targets.ik_damping),
+                    "ik_velocity_scale": float(targets.velocity_scale),
+                    "ik_minimum_singular_value": float(targets.minimum_singular_value),
+                    "ik_condition_number": float(min(targets.condition_number, 1.0e9)),
+                    "ik_nullspace_correction_norm": float(targets.nullspace_correction_norm),
                     "command_stale": targets.command_stale,
                     "ik_control_rate_hz": args.ik_rate,
                     "ik_update_count": str(targets.update_count),
@@ -1149,6 +1221,15 @@ def main() -> None:
     parser.add_argument("--simulation-rate", type=float, default=1.0)
     parser.add_argument("--capture-rate", type=float, default=10.0)
     parser.add_argument("--ik-rate", type=float, default=100.0)
+    parser.add_argument(
+        "--ik-mode",
+        choices=IK_MODES,
+        default=os.environ.get("SPACE_SIM_IK_MODE", IK_MODE_IK_POSE),
+        help=(
+            "ik_pose (robosuite-style damped IK with nullspace posture control, default) "
+            "or strict (freeze instead of trading motion direction at a singularity)"
+        ),
+    )
     parser.add_argument("--scene-instance", type=Path)
     parser.add_argument("--disable-attitude-control", action="store_true",
                         help="Leave rotors installed but command zero motor torque (A/B diagnostics)")

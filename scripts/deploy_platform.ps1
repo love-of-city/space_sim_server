@@ -45,6 +45,8 @@ $proxy = $null
 try {
     $env:SPACE_SIM_FORWARDED_ALLOW_IPS = '127.0.0.1,::1'
     $arguments = @{
+        PreviewRate = $settings.PreviewFps
+        EncoderMinQuality = $settings.EncoderMinQuality
         RemoteAccess = $true; PublicOperatorUrl = $settings.PublicUrl
         ApiHost = '127.0.0.1'; PixelPlayerHost = '127.0.0.1'
         SecureCookies = $true; NoAccessLog = $true; NoBrowser = $true

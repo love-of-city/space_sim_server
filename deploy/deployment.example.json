@@ -4,6 +4,8 @@
   "certificate_file": "",
   "certificate_key_file": "",
   "caddy_executable": "caddy.exe",
+  "preview_fps": 90,
+  "encoder_min_quality": 60,
   "api_port": 8000,
   "player_port": 8080,
   "streamer_port": 8888,

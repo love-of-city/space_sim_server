@@ -25,8 +25,8 @@ function harness() {
   let reconnects = 0;
   let statsUpdates = 0;
   const context = vm.createContext({
-    state, $, window: {}, PixelStreaming: Player, Config: class {},
-    TextParameters: {}, OptionParameters: {}, Flags: {},
+    state, $, window: {}, PixelStreaming: Player, Config: class { constructor(options) { this.initialSettings = options.initialSettings; } },
+    TextParameters: {}, OptionParameters: {}, NumericParameters: { WebRTCFPS: "WebRTCFPS", MinQuality: "MinQuality" }, Flags: {},
     signallingUrl: () => "ws://localhost/", setPixelStreamingInputEnabled() {},
     resetWebRtcStats() {}, updateWebRtcStats() { statsUpdates++; },
     connectPixelStreaming() { reconnects++; },
@@ -124,5 +124,31 @@ test("a renderer becoming running does not tear down its waiting player", () => 
       setMessage() {}, connectPixelStreaming() { reconnects++; }});
     vm.runInContext(block, context);
     assert.equal(reconnects, waiting ? 0 : 1);
+  }
+});
+
+
+test("frontend SDK uses the server FPS target rather than falling back to 60", () => {
+  const h = harness();
+  h.state.streamConfig = { pixel_streaming_fps: 120 };
+  h.context.createPixelStream();
+  assert.equal(h.state.pixelConfig.initialSettings.WebRTCFPS, 120);
+  h.state.streamConfig = {};
+  h.context.createPixelStream();
+  assert.equal(h.state.pixelConfig.initialSettings.WebRTCFPS, 90);
+});
+
+
+test("frontend SDK preserves the server quality floor including explicit zero", () => {
+  const h = harness();
+  for (const quality of [0, 60, 75, 100]) {
+    h.state.streamConfig = { pixel_streaming_encoder_min_quality: quality };
+    h.context.createPixelStream();
+    assert.equal(h.state.pixelConfig.initialSettings.MinQuality, quality);
+  }
+  for (const config of [undefined, {}, { pixel_streaming_encoder_min_quality: null }]) {
+    h.state.streamConfig = config;
+    h.context.createPixelStream();
+    assert.equal(h.state.pixelConfig.initialSettings.MinQuality, 60);
   }
 });

@@ -96,8 +96,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { box-shadow: 0 
 .stream-controls button { padding: 0 11px; border-left: 1px solid rgba(255, 255, 255, .15); color: #aeb9c1; cursor: pointer; }
 .stream-controls button:hover { color: #fff; }
 .frame-state { padding: 7px 10px; border: 1px solid rgba(255, 255, 255, .14); border-radius: 999px; color: #f3b2b2; background: rgba(15, 22, 28, .84); font: 10px/1.2 ui-monospace, "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; backdrop-filter: blur(12px); }
-.webrtc-stats { position: absolute; z-index: 4; left: 16px; bottom: 16px; display: flex; align-items: center; gap: 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, .14); border-radius: 10px; color: #dce4e9; background: rgba(15, 22, 28, .84); backdrop-filter: blur(12px); }
-.webrtc-stats > span { display: grid; gap: 3px; min-width: 70px; padding: 8px 11px; border-right: 1px solid rgba(255, 255, 255, .1); }
+.webrtc-stats { max-width: calc(100% - 32px); position: absolute; z-index: 4; left: 16px; bottom: 16px; display: flex; align-items: center; gap: 0; overflow-x: auto; border: 1px solid rgba(255, 255, 255, .14); border-radius: 10px; color: #dce4e9; background: rgba(15, 22, 28, .84); backdrop-filter: blur(12px); }
+.webrtc-stats > span { flex-shrink: 0; display: grid; gap: 3px; min-width: 70px; padding: 8px 11px; border-right: 1px solid rgba(255, 255, 255, .1); }
 .webrtc-stats > span:last-child { min-width: 90px; border-right: 0; }
 .webrtc-stats small { color: #84929c; font-size: 9px; text-transform: uppercase; }
 .webrtc-stats strong { font: 10px ui-monospace, Consolas, monospace; font-weight: 500; }

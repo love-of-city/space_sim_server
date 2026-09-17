@@ -56,8 +56,8 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 
 - 三个正交反作用轮在 MJScene 中产生真实反力矩，BSK 100 Hz 姿态闭环保持初始 J2000 惯性姿态；前端显示姿态误差、轮速、轮矩和饱和状态。
 - 默认动作空间为末端平移3维、末端旋转3维和夹爪开合。
-- 从 MJCF 自动解析安装位姿、关节轴和工具坐标；实时遥操作使用严格六维、方向保持的受限速度 IK。关节速度或位置约束触发时，整条末端速度按同一比例缩放，不再逐关节裁剪后改变运动方向或夹爪姿态。
-- 默认 SARM 模型包含 6 个机械臂转动关节和 2 个夹爪移动关节；纯平移命令同时要求末端角速度为零，因此参考轨迹保持夹爪姿态。新场景默认使用 `teleop-balanced-v1` 均衡初态；`none` 和 `training-v1` 保留为历史复现方案。
+- 从 MJCF 自动解析安装位姿、关节轴和工具坐标；实时遥操作默认使用 robosuite `IK_POSE` 风格的阻尼最小二乘 IK 加零空间姿态控制（`--ik-mode ik_pose`），并保留方向保持的严格六维受限速度 IK 作为回退（`--ik-mode strict`）。两种内核都按整组关节速度统一缩放，不再逐关节裁剪后改变运动方向或夹爪姿态；详见[末端笛卡尔 IK 模式](docs/CARTESIAN_IK_MODES.md)。
+- 默认 SARM 模型包含 6 个机械臂转动关节和 2 个夹爪移动关节；纯平移命令的末端角速度指令为零，均衡位形下阻尼 IK 带来的姿态泄漏约为 `1e-7 rad/s` 量级。新场景默认使用 `teleop-balanced-v1` 均衡初态；`none` 和 `training-v1` 保留为历史复现方案。
 - Web操作台支持键盘、浏览器Gamepad API和末端状态；显示 WebRTC RTT、码率、丢包、解码帧率和分辨率。
 - 机械臂操作模式由页面截获相关按键，动作只通过 `/ws/operator` 进入后端和权威仿真；自由相机使用独立 `BskCameraInput` 命令直达 UE 玩家相机，不经旧键码转发，不改变物理场景。
 - UE 为 manifest 相机动态创建独立 `SceneCapture2D + RenderTarget + Streamer`，浏览器切换相机不会改变仿真状态。
@@ -66,7 +66,7 @@ UE不会根据浏览器输入自行移动Actor。机械臂画面始终来自MJSc
 - 点击实时画面进入键盘操作模式；`Esc`立即归零并退出操作模式，页面急停按钮单独负责锁存停止。
 - 末端线速度、角速度、关节速度、关节位置和夹爪速度均有限制；线速度命令默认按 `0.20 m/s²` 平滑加速，操作员指令始终原样透传，不因实际位置或姿态跟踪误差被缩放或清零；跟踪误差仅随观测发布供诊断。
 - IK 在独立 BSK 控制任务中默认以 100 Hz 更新并缓存关节目标；MJScene 以 500 Hz 运行 PID、力和接触积分。实时遥操作入口使用经动力学验收的机械臂 PD/力矩参数，原生脚本化抓取参数保持不变。
-- 前端约30 Hz发动作，UE通过 WebRTC 以最高60 FPS预览。
+- 前端约30 Hz发动作，UE/WebRTC 默认以 90 FPS 为预览目标（可配置 1～120）；实际接收和显示帧率需分别实测，见 [视频帧率验证](docs/VIDEO_FRAME_RATE.md)。
 - UE主视口经 Pixel Streaming 2 回传网页；RGB、深度和分割权威产品仍通过 `bsk-capture/1` 写入episode。
 - UE 环境复现 MyProject2 的原始 Sphere、8K 地球昼夜/法线/高光、云层/大气材质、银河星空、Lumen、光追、虚拟阴影和自动/局部曝光；对象尺寸按仿真设置，Sun 的照射方向和距离照度规律仍由现有星历规则驱动。当前 SARM 场景由与重力共享的 Earth/Sun 星历驱动天体位置和姿态，装饰地球已关闭；显示光照仍有标定和成像近似边界。
 - 记录用户请求、过滤后动作、关节状态、末端位姿/速度、IK残差、时间戳和相机数据。
@@ -112,7 +112,14 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File '.\scripts\run_platform.ps1'
 设置 IK 频率和预览帧率（交互预览默认关闭高开销的权威数据采集）：
 
 ```powershell
-.\scripts\run_platform.ps1 -IkRate 100 -PreviewRate 60 -SimulationRate 1
+.\scripts\run_platform.ps1 -IkRate 100 -PreviewRate 90 -SimulationRate 1
+```
+
+末端 IK 内核默认是 `ik_pose`（robosuite `IK_POSE` 风格：阻尼最小二乘 + 零空间姿态控制，接近奇异位形时平滑减速而不是冻结）。需要“宁停不偏”的严格行为或与历史数据对比时，用环境变量切回 `strict`：
+
+```powershell
+$env:SPACE_SIM_IK_MODE = 'strict'
+.\scripts\run_platform.ps1
 ```
 
 需要录制训练数据时，可用以下参数让前端“权威采集”默认勾选，并用 `-CaptureRate` 指定采集率；也可以在每次启动场景前直接在网页中勾选：

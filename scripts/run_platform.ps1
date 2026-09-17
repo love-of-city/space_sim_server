@@ -25,7 +25,10 @@ param(
     [switch]$EnableDatasetCapture,
     [ValidateRange(1.0, 500.0)]
     [double]$IkRate = 100.0,
-    [double]$PreviewRate = 60.0,
+    [ValidateRange(1, 120)]
+    [double]$PreviewRate = 90.0,
+    [ValidateRange(0, 100)]
+    [int]$EncoderMinQuality = 60,
     [ValidateRange(30, 600)]
     [int]$RendererReadyTimeout = 240,
     [switch]$RemoteAccess,
@@ -73,7 +76,7 @@ if (!$powershellExe -or !(Test-Path -LiteralPath $powershellExe -PathType Leaf))
     throw 'Unable to resolve the current PowerShell 7 executable.'
 }
 
-if ($PreviewRate -le 0 -or $PreviewRate -gt 60) { throw 'PreviewRate must be in (0, 60].' }
+if ($PreviewRate -lt 1 -or $PreviewRate -gt 120) { throw 'PreviewRate must be in [1, 120].' }
 # Validate remote settings BEFORE stopping any running scene/platform.
 if ($RemoteAccess -and (!$AdminPassword -or $AdminPassword -eq 'ChangeMe123!')) {
     throw 'RemoteAccess requires a non-default administrator password.'
@@ -293,7 +296,8 @@ $backendArgs = @(
     '-PixelStreamingCameraIds', ($PixelStreamingCameraIds -join ','),
     '-PixelStreamingCameraWidth', $PixelStreamingCameraWidth,
     '-PixelStreamingCameraHeight', $PixelStreamingCameraHeight,
-    '-PreviewRate', $PreviewRate, '-RendererReadyTimeout', $RendererReadyTimeout,
+    '-PreviewRate', $PreviewRate, '-EncoderMinQuality', $EncoderMinQuality,
+    '-RendererReadyTimeout', $RendererReadyTimeout,
     '-IkRate', $IkRate, '-SimulationRate', $SimulationRate,
     '-CaptureRate', $CaptureRate
 )
@@ -342,6 +346,8 @@ try {
         pixel_streamer_port = $PixelStreamerPort
         pixel_player_port = $PixelPlayerPort
         api_url = "http://127.0.0.1:$ApiPort"
+        preview_fps = [int][Math]::Round($PreviewRate)
+        encoder_min_quality = $EncoderMinQuality
         mode = 'control-plane'
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runDirectory 'platform.json') -Encoding utf8
 

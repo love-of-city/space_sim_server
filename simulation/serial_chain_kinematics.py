@@ -33,10 +33,57 @@ class IkResult:
     velocity_scale: float = 1.0
     minimum_singular_value: float = 0.0
     condition_number: float = math.inf
+    damping: float = 0.0
+    nullspace_correction_norm: float = 0.0
+
+
+@dataclass(frozen=True)
+class _StepContext:
+    """Validated geometry, joint bounds and spectrum of one differential-IK step."""
+
+    joint_position: np.ndarray
+    twist: np.ndarray
+    jacobian: np.ndarray
+    singular_values: np.ndarray
+    rank: int
+    lower: np.ndarray
+    upper: np.ndarray
+    right_vectors: np.ndarray | None = None
+
+    @property
+    def minimum_singular_value(self) -> float:
+        return float(self.singular_values[-1]) if self.singular_values.size else 0.0
+
+    @property
+    def condition_number(self) -> float:
+        if not self.singular_values.size or self.singular_values[-1] <= 0.0:
+            return math.inf
+        return float(self.singular_values[0] / self.singular_values[-1])
+
+    def nullspace_projector(self, *, rcond: float) -> np.ndarray:
+        """Return ``I - pinv(J) @ J`` reusing the singular value decomposition."""
+
+        size = len(self.joint_position)
+        if self.right_vectors is None:
+            raise ValueError("right singular vectors are required for nullspace control")
+        if not math.isfinite(rcond) or rcond <= 0.0:
+            raise ValueError("rcond must be positive and finite")
+        if self.singular_values.size == 0:
+            return np.eye(size)
+        task_directions = self.singular_values > rcond * float(self.singular_values[0])
+        if not np.any(task_directions):
+            return np.eye(size)
+        task_basis = self.right_vectors[task_directions]
+        return np.eye(size) - task_basis.T @ task_basis
 
 
 class SerialChainKinematics:
-    """Forward kinematics plus legacy and strict bounded velocity IK for MJCF hinges."""
+    """Forward kinematics plus three differential IK solvers for MJCF hinges.
+
+    ``inverse_velocity`` is a legacy weighted reference, ``inverse_velocity_bounded``
+    is the strict pose-preserving fallback, and ``inverse_velocity_ik_pose`` is the
+    robosuite ``IK_POSE``-style default used by live teleoperation.
+    """
 
     def __init__(self, segments: list[Segment], joint_names: tuple[str, ...]) -> None:
         self.segments = segments
@@ -143,6 +190,13 @@ class SerialChainKinematics:
         angular_weight: float = 0.30,
         joint_velocity_limits: np.ndarray | None = None,
     ) -> IkResult:
+        """Legacy weighted damped least-squares step without joint bounds.
+
+        Kept as a numerical reference for benchmarks and equivalence tests.
+        Live teleoperation uses :meth:`inverse_velocity_ik_pose` by default and
+        :meth:`inverse_velocity_bounded` as the strict fallback.
+        """
+
         twist = np.asarray(desired_twist, dtype=float)
         if twist.shape != (6,) or not np.all(np.isfinite(twist)):
             raise ValueError("desired twist must contain six finite values")
@@ -188,6 +242,156 @@ class SerialChainKinematics:
         replacing it with a different Cartesian motion.
         """
 
+        context = self._step_context(
+            joint_position_rad,
+            desired_twist,
+            joint_velocity_limits,
+            joint_position_min,
+            joint_position_max,
+            dt,
+        )
+        size = len(self.joint_names)
+        if float(np.linalg.norm(context.twist)) <= 1.0e-14:
+            return IkResult(
+                joint_velocity_rad_s=np.zeros(size),
+                achieved_twist=np.zeros(6),
+                residual_twist=np.zeros(6),
+                jacobian_rank=context.rank,
+                velocity_scale=1.0,
+                minimum_singular_value=context.minimum_singular_value,
+                condition_number=context.condition_number,
+            )
+
+        unscaled, *_ = np.linalg.lstsq(context.jacobian, context.twist, rcond=float(rcond))
+        projected = context.jacobian @ unscaled
+        projection_error = float(np.linalg.norm(context.twist - projected))
+        allowed_error = float(residual_absolute_tolerance) + float(residual_relative_tolerance) * float(
+            np.linalg.norm(context.twist)
+        )
+        if projection_error > allowed_error:
+            return IkResult(
+                joint_velocity_rad_s=np.zeros(size),
+                achieved_twist=np.zeros(6),
+                residual_twist=context.twist.copy(),
+                jacobian_rank=context.rank,
+                velocity_scale=0.0,
+                minimum_singular_value=context.minimum_singular_value,
+                condition_number=context.condition_number,
+            )
+
+        scale = _uniform_limit_scale(unscaled, context.lower, context.upper)
+        velocity = unscaled * scale
+        achieved = context.jacobian @ velocity
+        return IkResult(
+            joint_velocity_rad_s=velocity,
+            achieved_twist=achieved,
+            residual_twist=context.twist - achieved,
+            jacobian_rank=context.rank,
+            velocity_scale=scale,
+            minimum_singular_value=context.minimum_singular_value,
+            condition_number=context.condition_number,
+        )
+
+    def inverse_velocity_ik_pose(
+        self,
+        joint_position_rad: np.ndarray,
+        desired_twist: np.ndarray,
+        *,
+        joint_velocity_limits: np.ndarray,
+        joint_position_min: np.ndarray | None = None,
+        joint_position_max: np.ndarray | None = None,
+        dt: float | None = None,
+        base_damping: float = 1.0e-3,
+        maximum_damping: float = 5.0e-2,
+        singular_value_threshold: float = 2.0e-2,
+        nullspace_reference: np.ndarray | None = None,
+        nullspace_gains: np.ndarray | None = None,
+        nullspace_rcond: float = 1.0e-6,
+    ) -> IkResult:
+        """robosuite ``IK_POSE``-style damped differential IK with posture control.
+
+        This mirrors ``robosuite/controllers/parts/arm/ik.py`` and
+        ``robosuite/utils/ik_utils.py``::
+
+            dq = J.T @ solve(J @ J.T + damping**2 * I, twist)
+            dq += (I - pinv(J) @ J) @ (gains * (posture - q))
+            dq = scale_to_joint_speed_and_position_limits(dq)
+
+        Three properties are deliberately kept from the current platform:
+
+        * the damping ramps from ``base_damping`` to ``maximum_damping`` as the
+          smallest singular value falls below ``singular_value_threshold``, so
+          a well-conditioned pose keeps near-exact task tracking while a
+          singular direction stays bounded instead of freezing;
+        * joint speed and position limits rescale the whole step by one factor,
+          which preserves the Cartesian direction of the command;
+        * ``nullspace_reference`` is optional.  Teleoperation passes ``None``
+          while the deadman is released so the held joint reference cannot
+          drift through the posture term.
+        """
+
+        base = float(base_damping)
+        maximum = float(maximum_damping)
+        threshold = float(singular_value_threshold)
+        if not (math.isfinite(base) and math.isfinite(maximum)) or base < 0.0 or maximum < base:
+            raise ValueError("damping must satisfy 0 <= base_damping <= maximum_damping")
+        if not math.isfinite(threshold) or threshold <= 0.0:
+            raise ValueError("singular value threshold must be positive and finite")
+
+        reference = self._nullspace_reference_array(nullspace_reference)
+        gains = self._nullspace_gain_array(nullspace_gains) if reference is not None else None
+        context = self._step_context(
+            joint_position_rad,
+            desired_twist,
+            joint_velocity_limits,
+            joint_position_min,
+            joint_position_max,
+            dt,
+            full_svd=reference is not None,
+        )
+        damping = _adaptive_damping(
+            context.singular_values, base, maximum, threshold
+        )
+        step = context.jacobian.T @ np.linalg.solve(
+            context.jacobian @ context.jacobian.T + damping**2 * np.eye(6),
+            context.twist,
+        )
+        correction_norm = 0.0
+        if reference is not None:
+            assert gains is not None
+            projector = context.nullspace_projector(rcond=float(nullspace_rcond))
+            correction = projector @ (gains * (reference - context.joint_position))
+            step = step + correction
+            correction_norm = float(np.linalg.norm(correction))
+
+        scale = _uniform_limit_scale(step, context.lower, context.upper)
+        velocity = step * scale
+        achieved = context.jacobian @ velocity
+        return IkResult(
+            joint_velocity_rad_s=velocity,
+            achieved_twist=achieved,
+            residual_twist=context.twist - achieved,
+            jacobian_rank=context.rank,
+            velocity_scale=scale,
+            minimum_singular_value=context.minimum_singular_value,
+            condition_number=context.condition_number,
+            damping=damping,
+            nullspace_correction_norm=correction_norm * scale,
+        )
+
+    def _step_context(
+        self,
+        joint_position_rad: np.ndarray,
+        desired_twist: np.ndarray,
+        joint_velocity_limits: np.ndarray,
+        joint_position_min: np.ndarray | None,
+        joint_position_max: np.ndarray | None,
+        dt: float | None,
+        *,
+        full_svd: bool = False,
+    ) -> "_StepContext":
+        """Validate one differential-IK step and return its geometry and bounds."""
+
         q = np.asarray(joint_position_rad, dtype=float)
         twist = np.asarray(desired_twist, dtype=float)
         limits = np.asarray(joint_velocity_limits, dtype=float)
@@ -202,43 +406,12 @@ class SerialChainKinematics:
             raise ValueError("dt must be positive and finite")
 
         jacobian = self.jacobian(q)
-        singular_values = np.linalg.svd(jacobian, compute_uv=False)
-        minimum_singular_value = float(singular_values[-1]) if singular_values.size else 0.0
-        condition_number = (
-            float(singular_values[0] / singular_values[-1])
-            if singular_values.size and singular_values[-1] > 0.0
-            else math.inf
-        )
-        rank = int(np.linalg.matrix_rank(jacobian, tol=1.0e-5))
-        if float(np.linalg.norm(twist)) <= 1.0e-14:
-            velocity = np.zeros(size)
-            return IkResult(
-                joint_velocity_rad_s=velocity,
-                achieved_twist=np.zeros(6),
-                residual_twist=np.zeros(6),
-                jacobian_rank=rank,
-                velocity_scale=1.0,
-                minimum_singular_value=minimum_singular_value,
-                condition_number=condition_number,
-            )
-
-        unscaled, *_ = np.linalg.lstsq(jacobian, twist, rcond=float(rcond))
-        projected = jacobian @ unscaled
-        projection_error = float(np.linalg.norm(twist - projected))
-        allowed_error = float(residual_absolute_tolerance) + float(residual_relative_tolerance) * float(
-            np.linalg.norm(twist)
-        )
-        if projection_error > allowed_error:
-            velocity = np.zeros(size)
-            return IkResult(
-                joint_velocity_rad_s=velocity,
-                achieved_twist=np.zeros(6),
-                residual_twist=twist.copy(),
-                jacobian_rank=rank,
-                velocity_scale=0.0,
-                minimum_singular_value=minimum_singular_value,
-                condition_number=condition_number,
-            )
+        right_vectors: np.ndarray | None = None
+        if full_svd:
+            _, singular_values, right_vectors = np.linalg.svd(jacobian, full_matrices=False)
+        else:
+            singular_values = np.linalg.svd(jacobian, compute_uv=False)
+        rank = int(np.count_nonzero(singular_values > 1.0e-5))
 
         lower = -limits.copy()
         upper = limits.copy()
@@ -254,24 +427,36 @@ class SerialChainKinematics:
             lower = np.maximum(lower, (minimum - q) / float(dt))
             upper = np.minimum(upper, (maximum - q) / float(dt))
 
-        scale = 1.0
-        for value, low, high in zip(unscaled, lower, upper, strict=True):
-            if value > 1.0e-14:
-                scale = min(scale, max(0.0, float(high / value)))
-            elif value < -1.0e-14:
-                scale = min(scale, max(0.0, float(low / value)))
-        scale = max(0.0, min(1.0, scale))
-        velocity = unscaled * scale
-        achieved = jacobian @ velocity
-        return IkResult(
-            joint_velocity_rad_s=velocity,
-            achieved_twist=achieved,
-            residual_twist=twist - achieved,
-            jacobian_rank=rank,
-            velocity_scale=scale,
-            minimum_singular_value=minimum_singular_value,
-            condition_number=condition_number,
+        return _StepContext(
+            joint_position=q,
+            twist=twist,
+            jacobian=jacobian,
+            singular_values=singular_values,
+            rank=rank,
+            lower=lower,
+            upper=upper,
+            right_vectors=right_vectors,
         )
+
+    def _nullspace_reference_array(self, reference: np.ndarray | None) -> np.ndarray | None:
+        if reference is None:
+            return None
+        posture = np.asarray(reference, dtype=float)
+        size = len(self.joint_names)
+        if posture.shape != (size,) or not np.all(np.isfinite(posture)):
+            raise ValueError(f"nullspace reference must contain {size} finite joint positions")
+        return posture
+
+    def _nullspace_gain_array(self, gains: np.ndarray | None) -> np.ndarray:
+        size = len(self.joint_names)
+        if gains is None:
+            return np.ones(size)
+        posture_gains = np.asarray(gains, dtype=float)
+        if posture_gains.shape != (size,) or not np.all(np.isfinite(posture_gains)):
+            raise ValueError(f"nullspace gains must contain {size} finite values")
+        if np.any(posture_gains < 0.0):
+            raise ValueError("nullspace gains must not be negative")
+        return posture_gains
 
 
 def quaternion_wxyz_to_matrix(quaternion: np.ndarray) -> np.ndarray:
@@ -360,3 +545,34 @@ def _transform(position: np.ndarray, rotation: np.ndarray) -> np.ndarray:
     result = _translation(position)
     result[:3, :3] = rotation
     return result
+
+
+def _uniform_limit_scale(
+    joint_velocity: np.ndarray, lower: np.ndarray, upper: np.ndarray
+) -> float:
+    """Return one scale factor that fits every joint step inside its own bounds."""
+
+    scale = 1.0
+    for value, low, high in zip(joint_velocity, lower, upper, strict=True):
+        if value > 1.0e-14:
+            scale = min(scale, max(0.0, float(high / value)))
+        elif value < -1.0e-14:
+            scale = min(scale, max(0.0, float(low / value)))
+    return max(0.0, min(1.0, scale))
+
+
+def _adaptive_damping(
+    singular_values: np.ndarray,
+    base_damping: float,
+    maximum_damping: float,
+    singular_value_threshold: float,
+) -> float:
+    """Ramp damping up as the smallest singular value approaches zero."""
+
+    if not singular_values.size:
+        return maximum_damping
+    smallest = float(singular_values[-1])
+    if not math.isfinite(smallest):
+        return maximum_damping
+    proximity = 1.0 - max(0.0, min(1.0, smallest / singular_value_threshold))
+    return max(base_damping, maximum_damping * proximity)

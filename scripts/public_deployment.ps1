@@ -92,6 +92,8 @@ function Start-PublicDeployment([string]$ProjectRoot, [string]$ConfigPath, [stri
         $previous['SPACE_SIM_FORWARDED_ALLOW_IPS'] = $env:SPACE_SIM_FORWARDED_ALLOW_IPS
         $env:SPACE_SIM_FORWARDED_ALLOW_IPS = '127.0.0.1,::1'
         $arguments = @{
+            PreviewRate=$settings.PreviewFps
+            EncoderMinQuality=$settings.EncoderMinQuality
             RemoteAccess=$true; PublicOperatorUrl=$url; ApiHost='127.0.0.1'; PixelPlayerHost='127.0.0.1'
             SecureCookies=$true; NoAccessLog=$true; NoBrowser=$true; KeepPendingPublic=$true
             AllowedOriginsJson=(ConvertTo-Json -InputObject @($url) -Compress)

@@ -111,6 +111,7 @@ class SceneLaunchConfig:
     simulation_rate: float
     capture_rate: float
     default_dataset_capture: bool
+    encoder_min_quality: int = 60
 
 
 def _normalize_quaternion(values: list[float] | tuple[float, ...]) -> list[float]:
@@ -307,6 +308,7 @@ class SceneRuntimeManager:
                 "-PixelStreamingCameraWidth", str(self.launch.pixel_streaming_camera_width),
                 "-PixelStreamingCameraHeight", str(self.launch.pixel_streaming_camera_height),
                 "-PreviewRate", str(self.launch.preview_rate),
+                "-EncoderMinQuality", str(self.launch.encoder_min_quality),
                 "-RendererReadyTimeout", str(self.launch.renderer_ready_timeout),
             ]
             stamp = instance["instance_id"]

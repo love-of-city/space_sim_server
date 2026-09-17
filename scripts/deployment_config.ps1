@@ -4,7 +4,7 @@ function Get-DeploymentSettings([string]$ConfigPath, [string]$ProjectRoot) {
     if ($config -isnot [System.Collections.IDictionary]) { throw 'Deployment config must be a JSON object.' }
     $allowed = @('public_url', 'tls_mode', 'certificate_file', 'certificate_key_file', 'caddy_executable',
         'api_port', 'player_port', 'streamer_port', 'control_port', 'capture_port', 'render_port',
-        'admin_username', 'require_access_key', 'show_access_window', 'adapter_root', 'model_root', 'unreal_root', 'ice_servers', 'turn_urls')
+        'preview_fps', 'encoder_min_quality', 'admin_username', 'require_access_key', 'show_access_window', 'adapter_root', 'model_root', 'unreal_root', 'ice_servers', 'turn_urls')
     foreach ($key in $config.Keys) { if ($key -notin $allowed) { throw "Unknown deployment setting: $key" } }
     $url = [uri][string]$config.public_url
     if (!$url.IsAbsoluteUri -or $url.Scheme -ne 'https' -or !$url.Host -or $url.UserInfo -or
@@ -30,6 +30,24 @@ function Get-DeploymentSettings([string]$ConfigPath, [string]$ProjectRoot) {
     }
     if (($ports.Values | Sort-Object -Unique).Count -ne $ports.Count -or $url.Port -in $ports.Values) {
         throw 'Internal ports must be distinct and must not equal the HTTPS listener port.'
+    }
+    # Video pacing only. Do not change physics, observation or dataset capture rates.
+    $previewFps = 90
+    if ($config.ContainsKey('preview_fps')) {
+        $value = $config.preview_fps
+        if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 1 -or $value -gt 120) {
+            throw 'preview_fps must be an integer in [1, 120].'
+        }
+        $previewFps = [int]$value
+    }
+    # A quality floor, not a fixed bitrate. Explicit zero restores UE's unrestricted default.
+    $encoderMinQuality = 60
+    if ($config.ContainsKey('encoder_min_quality')) {
+        $value = $config.encoder_min_quality
+        if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100) {
+            throw 'encoder_min_quality must be an integer in [0, 100].'
+        }
+        $encoderMinQuality = [int]$value
     }
     $paths = @{}
     foreach ($key in @('adapter_root', 'model_root', 'unreal_root', 'certificate_file', 'certificate_key_file')) {
@@ -74,6 +92,8 @@ function Get-DeploymentSettings([string]$ConfigPath, [string]$ProjectRoot) {
     }
     return @{
         PublicUrl = $publicUrl; TlsMode = $tlsMode; Ports = $ports; Paths = $paths
+        PreviewFps = $previewFps
+        EncoderMinQuality = $encoderMinQuality
         CaddyExecutable = [string]$config.caddy_executable; AdminUsername = [string]$config.admin_username
         RequireAccessKey = $requireAccessKey; ShowAccessWindow = $showAccessWindow
         IceServersJson = ConvertTo-Json -InputObject $config.ice_servers -Depth 8 -Compress

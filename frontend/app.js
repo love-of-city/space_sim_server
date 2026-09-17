@@ -2,6 +2,7 @@ import {
   Config,
   Flags,
   OptionParameters,
+  NumericParameters,
   PixelStreaming,
   TextParameters,
 } from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.6";
@@ -27,8 +28,11 @@ const state = {
   pixelConfig: null,
   streamConfig: null,
   selectedStreamerId: "BskRenderer",
+  lastReceivedFrames: null,
+  lastReceivedTimestamp: null,
   lastPresentedFrames: null,
   lastPresentedTimestamp: null,
+  lastQpSample: null,
   streamLive: false,
   streamReconnectTimer: null,
   pixelConnectPromise: null,
@@ -437,6 +441,9 @@ function connect() {
       const position = obs.end_effector_position_body_m || [];
       $("toolPosition").textContent = position.length === 3 ? position.map((value) => Number(value).toFixed(3)).join(", ") : "—";
       $("jacobianRank").textContent = `${obs.jacobian_rank ?? "—"} / 6`;
+      $("ikSolver").textContent = obs.ik_mode
+        ? `${obs.ik_mode} · λ=${Number(obs.ik_damping ?? 0).toFixed(4)} · scale=${Number(obs.ik_velocity_scale ?? 1).toFixed(2)} · σmin=${Number(obs.ik_minimum_singular_value ?? 0).toExponential(1)}`
+        : "—";
       const attitude = obs.attitude_control;
       const wheels = obs.reaction_wheels;
       $("attitudeMode").textContent = !attitude ? "—" : !attitude.enabled ? "控制关闭" :
@@ -515,8 +522,13 @@ function signallingUrl() {
 }
 
 function resetWebRtcStats() {
+  state.lastReceivedFrames = null;
+  state.lastReceivedTimestamp = null;
+  $("webrtcReceiveFps").textContent = "—";
   state.lastPresentedFrames = null;
   state.lastPresentedTimestamp = null;
+  state.lastQpSample = null;
+  $("webrtcQp").textContent = "—";
   $("webrtcRtt").textContent = "—";
   $("webrtcBitrate").textContent = "—";
   $("webrtcLoss").textContent = "—";
@@ -524,13 +536,52 @@ function resetWebRtcStats() {
   $("webrtcResolution").textContent = "—";
 }
 
+// qpSum is cumulative across decoded frames. Difference consecutive samples so
+// a long clear period cannot conceal a recent compression-quality drop.
+function sampleAverageQp(video) {
+  if (!video || !Number.isFinite(video.qpSum) || video.qpSum < 0
+      || !Number.isFinite(video.framesDecoded) || video.framesDecoded < 0
+      || !Number.isFinite(video.timestamp)) {
+    state.lastQpSample = null;
+    return null;
+  }
+  const sample = {
+    qpSum: video.qpSum, framesDecoded: video.framesDecoded, timestamp: video.timestamp,
+    id: video.id, ssrc: video.ssrc, trackIdentifier: video.trackIdentifier, codecId: video.codecId,
+  };
+  const previous = state.lastQpSample;
+  state.lastQpSample = sample;
+  if (!previous || ["id", "ssrc", "trackIdentifier", "codecId"].some(key => sample[key] !== previous[key])
+      || sample.timestamp <= previous.timestamp || sample.framesDecoded <= previous.framesDecoded
+      || sample.qpSum < previous.qpSum) return null;
+  const average = (sample.qpSum - previous.qpSum) / (sample.framesDecoded - previous.framesDecoded);
+  return Number.isFinite(average) ? average : null;
+}
+
 function updateWebRtcStats(aggregatedStats) {
   const pair = aggregatedStats?.getActiveCandidatePair?.();
   const video = aggregatedStats?.inboundVideoStats;
+  const averageQp = sampleAverageQp(video);
+  $("webrtcQp").textContent = averageQp == null ? "—" : averageQp.toFixed(1);
   if (!video) return;
   const packetsReceived = Number(video.packetsReceived || 0);
   const packetsLost = Number(video.packetsLost || 0);
   const totalPackets = packetsReceived + packetsLost;
+  // Received frames and displayed frames are different counters. A 60 Hz client
+  // can receive 90 FPS without presenting 90 unique frames on its screen.
+  const receivedFrames = Number(video.framesReceived);
+  const receivedTimestamp = Number(video.timestamp);
+  let receivedFps = null;
+  if (Number.isFinite(receivedFrames) && Number.isFinite(receivedTimestamp)) {
+    if (state.lastReceivedTimestamp != null && receivedTimestamp > state.lastReceivedTimestamp
+        && receivedFrames >= state.lastReceivedFrames) {
+      receivedFps = (receivedFrames - state.lastReceivedFrames) * 1000
+        / (receivedTimestamp - state.lastReceivedTimestamp);
+    }
+    state.lastReceivedFrames = receivedFrames;
+    state.lastReceivedTimestamp = receivedTimestamp;
+  }
+  $("webrtcReceiveFps").textContent = receivedFps == null ? "—" : receivedFps.toFixed(0);
   // WebRTC's inbound framesPerSecond is the receive/decode rate. It can be
   // much higher than what the browser actually presents because decoded frames
   // may be dropped by the compositor. Measure non-dropped video frames instead.
@@ -554,7 +605,7 @@ function updateWebRtcStats(aggregatedStats) {
   $("webrtcRtt").textContent = pair?.currentRoundTripTime != null
     ? `${(pair.currentRoundTripTime * 1000).toFixed(0)} ms` : "—";
   $("webrtcBitrate").textContent = video.bitrate != null
-    ? `${(video.bitrate / 1000).toFixed(0)} kbps` : "—";
+    ? `${Number(video.bitrate).toFixed(0)} kbps` : "—";
   $("webrtcLoss").textContent = totalPackets > 0
     ? `${(packetsLost * 100 / totalPackets).toFixed(1)}%` : "—";
   $("webrtcFps").textContent = fps == null ? "—" : fps.toFixed(0);
@@ -612,6 +663,9 @@ function createPixelStream() {
     initialSettings: {
       [TextParameters.SignallingServerUrl]: signallingUrl(),
       [OptionParameters.StreamerId]: state.selectedStreamerId,
+      [NumericParameters.WebRTCFPS]: state.streamConfig?.pixel_streaming_fps ?? 90,
+      // Match the UE launch setting; nullish fallback must preserve an explicit 0.
+      [NumericParameters.MinQuality]: state.streamConfig?.pixel_streaming_encoder_min_quality ?? 60,
       [Flags.AutoConnect]: true,
       [Flags.AutoPlayVideo]: true,
       [Flags.StartVideoMuted]: true,

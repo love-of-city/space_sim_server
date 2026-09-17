@@ -106,3 +106,127 @@ def test_bounded_ik_holds_an_unachievable_strict_pose_task_at_singularity() -> N
     assert result.velocity_scale == 0.0
     assert np.array_equal(result.joint_velocity_rad_s, np.zeros(6))
     assert np.array_equal(result.residual_twist, desired)
+
+
+SINGULAR_PREGRASP = np.array([0.0, -0.1790243, 0.2159404, -0.0368382, 0.0, 0.0])
+ARM_VELOCITY_LIMITS = np.array([0.7, 0.7, 0.7, 0.9, 1.0, 1.0])
+
+
+def test_ik_pose_slows_down_instead_of_freezing_at_singular_pregrasp() -> None:
+    kinematics = chain()
+    desired = np.array([0.05, 0.0, 0.0, 0.0, 0.0, 0.0])
+    strict = kinematics.inverse_velocity_bounded(
+        SINGULAR_PREGRASP, desired, joint_velocity_limits=ARM_VELOCITY_LIMITS
+    )
+    assert np.array_equal(strict.joint_velocity_rad_s, np.zeros(6))
+
+    result = kinematics.inverse_velocity_ik_pose(
+        SINGULAR_PREGRASP, desired, joint_velocity_limits=ARM_VELOCITY_LIMITS
+    )
+    assert result.jacobian_rank == 5
+    assert result.damping == pytest.approx(5.0e-2)
+    assert result.velocity_scale == 1.0
+    assert np.all(np.isfinite(result.joint_velocity_rad_s))
+    assert np.max(np.abs(result.joint_velocity_rad_s)) < 0.1
+    assert np.linalg.norm(result.achieved_twist) > 0.0
+    assert np.linalg.norm(result.residual_twist) < np.linalg.norm(desired)
+
+
+def test_ik_pose_keeps_full_task_accuracy_at_balanced_home() -> None:
+    kinematics = chain()
+    q = np.asarray(BALANCED_TELEOP_HOME[:6], dtype=float)
+    desired = np.array([0.02, -0.01, 0.015, 0.1, -0.05, 0.08])
+    result = kinematics.inverse_velocity_ik_pose(
+        q, desired, joint_velocity_limits=ARM_VELOCITY_LIMITS
+    )
+    assert result.damping == pytest.approx(1.0e-3)
+    assert result.minimum_singular_value > 2.0e-2
+    assert result.velocity_scale == 1.0
+    assert result.jacobian_rank == 6
+    assert np.linalg.norm(result.residual_twist) / np.linalg.norm(desired) < 1.0e-3
+
+
+def test_ik_pose_scales_every_joint_with_one_uniform_factor() -> None:
+    kinematics = chain()
+    q = np.asarray(BALANCED_TELEOP_HOME[:6], dtype=float)
+    desired = np.array([0.20, 0.0, 0.0, 0.0, 0.0, 0.0])
+    bounded = kinematics.inverse_velocity_ik_pose(
+        q, desired, joint_velocity_limits=ARM_VELOCITY_LIMITS
+    )
+    reference = kinematics.inverse_velocity_ik_pose(
+        q, desired, joint_velocity_limits=ARM_VELOCITY_LIMITS * 100.0
+    )
+    assert 0.0 < bounded.velocity_scale < 1.0
+    assert reference.velocity_scale == 1.0
+    assert np.allclose(
+        bounded.joint_velocity_rad_s,
+        reference.joint_velocity_rad_s * bounded.velocity_scale,
+        atol=1.0e-12,
+    )
+    assert np.all(np.abs(bounded.joint_velocity_rad_s) <= ARM_VELOCITY_LIMITS + 1.0e-12)
+    assert np.max(np.abs(bounded.joint_velocity_rad_s) / ARM_VELOCITY_LIMITS) == pytest.approx(1.0)
+
+
+def test_ik_pose_posture_term_moves_only_inside_the_jacobian_nullspace() -> None:
+    kinematics = chain()
+    rest = np.asarray(BALANCED_TELEOP_HOME[:6], dtype=float)
+    desired = np.array([0.05, 0.0, 0.0, 0.0, 0.0, 0.0])
+    free = kinematics.inverse_velocity_ik_pose(
+        SINGULAR_PREGRASP, desired, joint_velocity_limits=ARM_VELOCITY_LIMITS
+    )
+    posture = kinematics.inverse_velocity_ik_pose(
+        SINGULAR_PREGRASP,
+        desired,
+        joint_velocity_limits=ARM_VELOCITY_LIMITS,
+        nullspace_reference=rest,
+        nullspace_gains=np.full(6, 0.15),
+    )
+    assert posture.nullspace_correction_norm > 1.0e-3
+    assert not np.allclose(posture.joint_velocity_rad_s, free.joint_velocity_rad_s)
+    assert np.allclose(posture.achieved_twist, free.achieved_twist, atol=1.0e-9)
+    assert np.all(np.abs(posture.joint_velocity_rad_s) <= ARM_VELOCITY_LIMITS + 1.0e-12)
+
+
+def test_ik_pose_without_posture_reference_holds_a_zero_command() -> None:
+    kinematics = chain()
+    result = kinematics.inverse_velocity_ik_pose(
+        SINGULAR_PREGRASP, np.zeros(6), joint_velocity_limits=ARM_VELOCITY_LIMITS
+    )
+    assert np.array_equal(result.joint_velocity_rad_s, np.zeros(6))
+    assert result.nullspace_correction_norm == 0.0
+    assert np.array_equal(result.residual_twist, np.zeros(6))
+
+
+def test_ik_pose_rejects_invalid_damping_and_posture_inputs() -> None:
+    kinematics = chain()
+    desired = np.array([0.05, 0.0, 0.0, 0.0, 0.0, 0.0])
+    with pytest.raises(ValueError):
+        kinematics.inverse_velocity_ik_pose(
+            SINGULAR_PREGRASP,
+            desired,
+            joint_velocity_limits=ARM_VELOCITY_LIMITS,
+            base_damping=0.10,
+            maximum_damping=0.01,
+        )
+    with pytest.raises(ValueError):
+        kinematics.inverse_velocity_ik_pose(
+            SINGULAR_PREGRASP,
+            desired,
+            joint_velocity_limits=ARM_VELOCITY_LIMITS,
+            singular_value_threshold=0.0,
+        )
+    with pytest.raises(ValueError):
+        kinematics.inverse_velocity_ik_pose(
+            SINGULAR_PREGRASP,
+            desired,
+            joint_velocity_limits=ARM_VELOCITY_LIMITS,
+            nullspace_reference=np.zeros(3),
+        )
+    with pytest.raises(ValueError):
+        kinematics.inverse_velocity_ik_pose(
+            SINGULAR_PREGRASP,
+            desired,
+            joint_velocity_limits=ARM_VELOCITY_LIMITS,
+            nullspace_reference=np.zeros(6),
+            nullspace_gains=np.full(6, -0.1),
+        )

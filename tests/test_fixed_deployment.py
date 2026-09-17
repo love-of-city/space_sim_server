@@ -106,7 +106,8 @@ if (Get-FixedDeploymentCandidate -ProjectRoot $Root) { throw 'Missing eturnal mu
     assert "MISSING-OK" in result.stdout
 
 
-def test_fixed_config_generation_is_idempotent_and_flags_placeholder_secret(tmp_path):
+@pytest.mark.parametrize("quality", [0, 75])
+def test_fixed_config_generation_is_idempotent_and_flags_placeholder_secret(tmp_path, quality):
     repo = tmp_path / "fixed init repo"
     (repo / "scripts").mkdir(parents=True)
     (repo / "deploy").mkdir(parents=True)
@@ -143,6 +144,12 @@ Initialize-FixedConfig -ConfigPath (Join-Path $Root 'deploy/fixed.local.json') -
     assert second.returncode == 0, second.stdout + second.stderr
     assert path.read_bytes() == original
     assert not list((repo / "deploy").glob(".fixed-*"))
+    assert payload["encoder_min_quality"] == 60
+    payload["encoder_min_quality"] = quality
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    regenerated = run_ps(harness, repo, env=env)
+    assert regenerated.returncode == 0, regenerated.stdout + regenerated.stderr
+    assert json.loads(path.read_text(encoding="utf-8"))["encoder_min_quality"] == quality
 
 @pytest.fixture
 def launcher_repo(tmp_path):

@@ -221,3 +221,27 @@ npm.cmd --prefix signalling test
 配置测试不执行 `-Start`。信令测试只启动随机 loopback 端口上的独立测试进程，并在结束后清理；不连接正在运行的 UE，不发送机械臂动作。
 
 官方参考：Caddy 的 reverse_proxy/TLS 文档、FastAPI Behind a Proxy、Epic UE 5.6 Pixel Streaming Hosting and Networking Guide。
+
+
+## 视频帧率（2026-09-17）
+
+部署 JSON 可设置 `"preview_fps": 90`（整数 1～120，缺省 90）。固定域名、IP 和
+临时公网部署都传递此设置，桌面启动器保留它。它统一控制主视口渲染上限、
+WebRTC 发送目标及两路相机更新目标；不改变动力学步长、30 Hz 状态发布、
+10 Hz 权威采集、分辨率或码率策略。详见 [视频帧率与质量验证](VIDEO_FRAME_RATE.md)。
+
+部署 JSON 还支持 `"encoder_min_quality": 60`（整数 0～100，缺省 60），限制
+Pixel Streaming 2 编码器过度降低质量。它传递到 UE 的
+`-PixelStreamingEncoderMinQuality`，浏览器也读取同一个质量下限。
+`fixed.local.json` 和 `ip.local.json` 均已设置，配置重建时保留自定义值。
+自适应码率仍开启，不强制固定码率，也不修改 90 FPS 目标或分辨率。
+质量下限越高可能越需要带宽，不能保证带宽不足时仍有 60+ 显示帧率。
+
+此项需在方便中断时**重启平台、重新启动场景并刷新网页**后全链路生效，
+仅编辑 JSON 不会热更新正在运行的 UE。网页新增“平均 QP”用于观察近期压缩强度，
+未提供统计或没有新解码帧时显示 `—`。需要回退时把实际使用的配置中
+`encoder_min_quality` 设为 **0** 并重启；0 会保留，不会被默认 60 覆盖。
+只针对质量下限的这次改动不需要重新编译 UE，但需同步配套适配器的启动脚本。
+
+**这是目标值，不是网络或客户端 FPS 保证。** 修改后需重新启动平台和场景才能生效；
+前端分别显示“接收帧率”和“显示帧率”，60 Hz 显示设备不能显示 90 张独立画面/秒。

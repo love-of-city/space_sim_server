@@ -53,6 +53,8 @@ def test_client_config_selects_pixel_streaming_without_changing_capture_channel(
             "pixel_streaming_streamer_id": "test-streamer",
             "pixel_streaming_signalling_url": "",
             "pixel_streaming_streamers": [{"id": "test-streamer", "label": "主视口"}],
+            "pixel_streaming_fps": 90,
+            "pixel_streaming_encoder_min_quality": 60,
         }
         assert client.get("/api/state").json()["capture_channels"] == {
             "preview_cameras": [],

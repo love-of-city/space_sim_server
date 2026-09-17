@@ -35,9 +35,14 @@ class FakeClient:
 
 
 class CountingKinematics:
+    """Record which differential IK kernel the target selects."""
+
     def __init__(self, *, constant_velocity: bool = False) -> None:
         self.jacobian_calls = 0
         self.inverse_calls = 0
+        self.inverse_bounded_calls = 0
+        self.inverse_ik_pose_calls = 0
+        self.last_nullspace_reference = "unset"
         self.constant_velocity = constant_velocity
 
     def forward(self, position):
@@ -53,11 +58,7 @@ class CountingKinematics:
         self.jacobian_calls += 1
         return np.eye(6)
 
-    def inverse_velocity_bounded(
-        self, _position, twist, *, joint_velocity_limits,
-        joint_position_min=None, joint_position_max=None, dt=None,
-    ):
-        self.inverse_calls += 1
+    def _solve(self, twist, joint_velocity_limits):
         limits = np.asarray(joint_velocity_limits, dtype=float)
         if self.constant_velocity:
             velocity = np.minimum(limits, 0.1)
@@ -73,7 +74,28 @@ class CountingKinematics:
             velocity_scale=1.0,
             minimum_singular_value=1.0,
             condition_number=1.0,
+            damping=0.0,
+            nullspace_correction_norm=0.0,
         )
+
+    def inverse_velocity_bounded(
+        self, _position, twist, *, joint_velocity_limits,
+        joint_position_min=None, joint_position_max=None, dt=None,
+    ):
+        self.inverse_calls += 1
+        self.inverse_bounded_calls += 1
+        return self._solve(twist, joint_velocity_limits)
+
+    def inverse_velocity_ik_pose(
+        self, _position, twist, *, joint_velocity_limits,
+        joint_position_min=None, joint_position_max=None, dt=None,
+        base_damping=None, maximum_damping=None, singular_value_threshold=None,
+        nullspace_reference=None, nullspace_gains=None,
+    ):
+        self.inverse_calls += 1
+        self.inverse_ik_pose_calls += 1
+        self.last_nullspace_reference = nullspace_reference
+        return self._solve(twist, joint_velocity_limits)
 
 
 def test_target_integrates_only_fresh_deadman_command() -> None:
@@ -299,4 +321,109 @@ def test_large_tracking_error_never_freezes_the_operator_command() -> None:
         atol=1.0e-12,
     )
     assert np.linalg.norm(undisturbed_advance) > 1.0e-5
-    assert np.allclose(target.achieved_twist[3:], 0.0, atol=1e-10)
+    # Damped least squares leaks a small angular component (~2e-7 rad/s here)
+    # instead of exactly zero, so the tolerance matches the solver now running.
+    assert np.allclose(target.achieved_twist[3:], 0.0, atol=1.0e-5)
+
+
+def test_ik_mode_selects_the_solver_kernel() -> None:
+    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
+    for mode, expected, other in (
+        ("ik_pose", "inverse_ik_pose_calls", "inverse_bounded_calls"),
+        ("strict", "inverse_bounded_calls", "inverse_ik_pose_calls"),
+    ):
+        kinematics = CountingKinematics()
+        target = MODULE.CartesianTeleopTarget(
+            initial, FakeClient(), kinematics, ik_mode=mode
+        )
+        target.reset(0.0)
+        target.update(0.01)
+        assert target.ik_mode == mode
+        assert getattr(kinematics, expected) == 1
+        assert getattr(kinematics, other) == 0
+        assert kinematics.inverse_calls == 1
+
+    with pytest.raises(ValueError):
+        MODULE.CartesianTeleopTarget(
+            initial, FakeClient(), CountingKinematics(), ik_mode="unsupported"
+        )
+
+
+def test_ik_pose_withholds_the_posture_reference_while_released() -> None:
+    initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
+    kinematics = CountingKinematics()
+    client = FakeClient()
+    target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
+    target.reset(0.0)
+    target.update(0.01)
+    assert np.array_equal(kinematics.last_nullspace_reference, target.nullspace_reference)
+    assert np.allclose(target.nullspace_reference, initial[:6])
+
+    action, _ = client.latest_action()
+    action["deadman"] = False
+    client.latest_action = lambda: (action, False)
+    target.update(0.02)
+    assert kinematics.last_nullspace_reference is None
+    assert target.nullspace_correction_norm == 0.0
+
+
+SINGULAR_PREGRASP = np.array(
+    [0.0, -0.1790243, 0.2159404, -0.0368382, 0.0, 0.0, 0.01875, 0.01875]
+)
+
+
+def test_ik_pose_mode_escapes_the_singular_pregrasp_freeze() -> None:
+    model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_platform.xml"
+    kinematics = MODULE.SerialChainKinematics.from_mjcf(
+        model,
+        base_body="cubesat_bus",
+        joint_names=MODULE.ARM_JOINT_NAMES,
+        tool_site="sarm_ee",
+    )
+    command = (0.05, 0.0, 0.0)
+    start_position = kinematics.forward(SINGULAR_PREGRASP[:6])[0]
+    strict = MODULE.CartesianTeleopTarget(
+        SINGULAR_PREGRASP, MutableClient(linear=command), kinematics, ik_mode="strict"
+    )
+    posture = MODULE.CartesianTeleopTarget(
+        SINGULAR_PREGRASP, MutableClient(linear=command), kinematics
+    )
+    strict.reset(0.0)
+    posture.reset(0.0)
+    for step in range(1, 51):
+        strict.update(step * 0.01)
+        posture.update(step * 0.01)
+
+    # Legacy strict IK holds the pose whenever the requested twist leaves the
+    # Jacobian column space; the damped solver keeps servoing.
+    assert np.array_equal(strict.velocity[:6], np.zeros(6))
+    assert np.array_equal(strict.target_tool_position, start_position)
+    assert np.linalg.norm(posture.velocity[:6]) > 0.0
+    assert np.linalg.norm(posture.target_tool_position - start_position) > 1.0e-5
+    assert posture.ik_damping > MODULE.IK_POSE_BASE_DAMPING
+    assert posture.jacobian_rank == 5
+
+
+def test_ik_pose_release_holds_the_joint_reference_exactly() -> None:
+    model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_platform.xml"
+    kinematics = MODULE.SerialChainKinematics.from_mjcf(
+        model,
+        base_body="cubesat_bus",
+        joint_names=MODULE.ARM_JOINT_NAMES,
+        tool_site="sarm_ee",
+    )
+    initial = np.asarray(BALANCED_TELEOP_HOME, dtype=float)
+    client = MutableClient(linear=(0.03, 0.0, 0.0))
+    target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
+    target.reset(0.0)
+    for step in range(1, 11):
+        target.update(step * 0.01)
+    held = target.position.copy()
+    assert np.linalg.norm(held[:6] - initial[:6]) > 1.0e-4
+
+    client.deadman = False
+    for step in range(11, 31):
+        position, velocity = target.update(step * 0.01)
+        assert np.array_equal(position[:6], held[:6])
+        assert np.array_equal(velocity[:6], np.zeros(6))
+        assert target.nullspace_correction_norm == 0.0

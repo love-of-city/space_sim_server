@@ -154,7 +154,7 @@ flowchart TB
 | 输入安全 | [safety.py](../backend/space_arm_platform/safety.py) | 数值合法性、序列去重、速度缩放/限幅、超时中性动作 |
 | 控制与观测连接 | [simulation_hub.py](../backend/space_arm_platform/simulation_hub.py) | 单一仿真 TCP 连接、动作发送、观测校验和广播 |
 | 原生仿真入口 | [teleop_grasp_unreal.py](../simulation/teleop_grasp_unreal.py) | 实例加载、IK、星历/重力接入、初始轨道、桥接、观测发送 |
-| 机械臂运动学 | [serial_chain_kinematics.py](../simulation/serial_chain_kinematics.py) | MJCF 串联链解析、正运动学、雅可比、历史阻尼解与实时遥操作使用的严格六维方向保持受限 IK |
+| 机械臂运动学 | [serial_chain_kinematics.py](../simulation/serial_chain_kinematics.py) | MJCF 串联链解析、正运动学、雅可比、历史阻尼参考解、robosuite `IK_POSE` 风格阻尼 IK（默认）与严格六维方向保持受限 IK（回退） |
 | 物理模型与原生构建 | [sarm_ground_target_self_collision.xml](../model/SARM/platform/sarm_ground_target_self_collision.xml)（粗盒内部接触默认；旧粗盒、高精度实验与小方块入口保留）、[scenario_sarm_grasp.py](../model/SARM/platform/scenarios/scenario_sarm_grasp.py) | 刚体、惯量、关节、接触、执行器、原生 PID/限幅与初态 |
 | 通用架构基础 | [architecture.py](../simulation/architecture.py) | 状态/控制抽象、接口、模块注册器、通用编排器；接入程度见第 7 节 |
 | 身份与会话 | [auth.py](../backend/space_arm_platform/auth.py) | 两种用户角色、密码摘要、SQLite 会话 |
@@ -242,7 +242,7 @@ running → stopped / completed / failed
   → AppliedAction：spacecraft_body 坐标系下的 SI 指令
   → SimulationHub 的 TCP 控制连接
   → SimulationControlClient 的最新指令缓存
-  → 独立 IK task：平滑命令 + 严格六维姿态锁定 + 方向保持受限 IK
+  → 独立 IK task：平滑命令 + 六维姿态锁定 + 选定 IK 内核（`ik_pose` 阻尼最小二乘加零空间姿态控制 / `strict` 方向保持受限 IK）
   → 实时遥操作关节 PD → 限幅器 → MJScene actuator
   → 物理状态反馈、渲染状态发布和后端 observation
 ```
@@ -265,7 +265,7 @@ running → stopped / completed / failed
 | 仿真侧输入超时 | 独立按 `time.monotonic()` 判断 `0.25 s`，不依赖浏览器自觉归零 |
 | 无输入/deadman 关闭 | 不再推进关节目标，目标速度归零，PID 继续保持；不是冻结轨道或强制清零物理速度 |
 
-当前 `CartesianTeleopTarget` 同时保存末端目标位置和姿态。纯平移时六维任务中的角速度严格为零；受关节速度/位置约束时所有关节速度使用同一比例缩放，从而保留末端运动方向和姿态。若当前构型无法完成完整六维任务，则保持而不是用缓慢、偏斜并伴随转动的替代动作。真实关节仍由 PD 跟踪参考，控制器不会直接覆盖真实 `qpos`。IK 增量时间被裁剪到 `0–0.02 s`，因此降低 IK 频率不能未经验证就视为完全等价的控制行为。
+当前 `CartesianTeleopTarget` 同时保存末端目标位置和姿态，并按 `--ik-mode`（默认 `ik_pose`，可用 `SPACE_SIM_IK_MODE` 环境变量覆盖）选择内核。两种内核都保证：受关节速度/位置约束时所有关节速度使用同一比例缩放，真实关节仍由 PD 跟踪参考，控制器不会直接覆盖真实 `qpos`。默认的 `ik_pose` 内核按 robosuite `IK_POSE` 方式求解阻尼最小二乘并叠加零空间姿态项，接近奇异位形时平滑减速而不是冻结，代价是残差方向可能与指令不完全一致；`strict` 内核保持方向不变的严格六维解，若当前构型无法完成完整六维任务则保持而不给出偏斜的替代动作。纯平移命令在满秩构型下角速度仍接近零（阻尼会带来约 `1e-7 rad/s` 量级的泄漏）。deadman 松开时不下发零空间姿态项，关节参考严格保持。IK 增量时间被裁剪到 `0–0.02 s`，因此降低 IK 频率不能未经验证就视为完全等价的控制行为。详见[末端笛卡尔 IK 模式](CARTESIAN_IK_MODES.md)。
 
 页面失焦、隐藏、退出操作模式和操作页面切换会发送中性动作。当前急停按钮的“锁存”属于前端 `state.estopped`，后端协议没有独立持久化的全局急停锁；不能把它描述为已经实现的跨页面、跨会话硬件急停系统。
 
@@ -365,8 +365,8 @@ BSK 链为真值导航 + `inertial3D → attTrackingError → mrpFeedback → rw
 | IK task | 100 Hz | 仿真时间，启动/实例可配置 |
 | 原生动力学 task | 500 Hz（2 ms） | 仿真时间；积分子步可能额外调用模块 |
 | 渲染桥状态及 observation | 名义 30 Hz | 仿真时间；发布受原生 task 离散时刻约束 |
-| UE 主视口预览 | 默认最高 60 FPS | 渲染/编码墙钟；不等于收到 60 Hz 的物理状态 |
-| 两台独立相机视频 | 当前监督脚本最高 30 FPS | 默认 640×360；不是动力学采样率 |
+| UE 主视口预览 | 默认目标 90 FPS，可配置 1～120 | 渲染/编码墙钟；不等于收到 90 Hz 的物理状态；实际吞吐需测量 |
+| 两台独立相机视频 | 跟随 `preview_fps`，默认目标 90 FPS | 默认仍为 640×360；不是动力学采样率；共享 RenderTarget 按单调时钟排期 |
 | 权威采集 | 默认 10 Hz，默认不开启 | 根据源帧仿真时间采样，实际吞吐受 GPU/网络/磁盘影响 |
 
 仿真入口通过 `time.monotonic()` 对照 `sim_seconds / simulation_rate` 尝试节拍控制；计算不足时会变慢，不保证硬实时。增大倍速不意味着把物理步长同时增大。
@@ -637,7 +637,7 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -AdapterRoot 'D:\workspace\spac
 
 | 能力 | 当前状态 | 不应作出的推断 |
 | --- | --- | --- |
-| SARM 原生动力学、六轴 IK、双指 PID | 已接入并有局部测试/原生验证 | 均衡初态、严格六维受限 IK 和实时关节 PD 已覆盖三轴局部运动；仍非任意长距离、碰撞约束轨迹验收 |
+| SARM 原生动力学、六轴 IK、双指 PID | 已接入并有局部测试/原生验证 | 均衡初态、两种六维 IK 内核和实时关节 PD 已覆盖三轴局部运动；仍非任意长距离、碰撞约束轨迹验收 |
 | Earth/Sun 星历、引力和 UE 显示对齐 | 已接入，有专题验证 | 不是所有天体、摄动、辐射和成像模型均已支持 |
 | 双模型相机及 WebRTC 预览 | 已接入，播放器/相机有独立测试 | 不代表每帧完整无丢失，也不等于权威数据已匹配 |
 | CaptureReceiver / EpisodeRecorder / 归档 | 组件和配对测试已实现 | 合法遥测问题已修复；GPU 图像与时序配对仍需实际验收 |

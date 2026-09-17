@@ -50,7 +50,8 @@ def main() -> None:
     parser.add_argument("--runtime-pixel-streaming-camera-id", action="append", default=[])
     parser.add_argument("--runtime-pixel-streaming-camera-width", type=int, default=640)
     parser.add_argument("--runtime-pixel-streaming-camera-height", type=int, default=360)
-    parser.add_argument("--runtime-preview-rate", type=float, default=60.0)
+    parser.add_argument("--runtime-preview-rate", type=float, default=90.0)
+    parser.add_argument("--runtime-encoder-min-quality", type=int, default=60)
     parser.add_argument("--runtime-renderer-ready-timeout", type=int, default=240)
     parser.add_argument("--runtime-ik-rate", type=float, default=100.0)
     parser.add_argument("--runtime-simulation-rate", type=float, default=1.0)
@@ -63,6 +64,10 @@ def main() -> None:
     parser.add_argument("--no-access-log", action="store_true", default=os.environ.get("SPACE_SIM_NO_ACCESS_LOG") == "1")
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args()
+    if not 0 <= args.runtime_encoder_min_quality <= 100:
+        parser.error("--runtime-encoder-min-quality must be in [0, 100]")
+    if not 1 <= args.runtime_preview_rate <= 120:
+        parser.error("--runtime-preview-rate must be in [1, 120]")
     try:
         origins = args.allowed_origin if args.allowed_origin is not None else json.loads(os.environ.get("SPACE_SIM_ALLOWED_ORIGINS", "[]"))
         if not isinstance(origins, list) or not all(isinstance(origin, str) for origin in origins):
@@ -107,6 +112,7 @@ def main() -> None:
             runtime_pixel_streaming_camera_width=args.runtime_pixel_streaming_camera_width,
             runtime_pixel_streaming_camera_height=args.runtime_pixel_streaming_camera_height,
             runtime_preview_rate=args.runtime_preview_rate,
+            runtime_encoder_min_quality=args.runtime_encoder_min_quality,
             runtime_renderer_ready_timeout=args.runtime_renderer_ready_timeout,
             runtime_ik_rate=args.runtime_ik_rate,
             runtime_simulation_rate=args.runtime_simulation_rate,

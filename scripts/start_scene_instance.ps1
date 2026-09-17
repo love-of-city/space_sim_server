@@ -17,7 +17,10 @@ param(
     [int]$PixelStreamingCameraWidth = 640,
     [ValidateRange(90, 1080)]
     [int]$PixelStreamingCameraHeight = 360,
-    [double]$PreviewRate = 60.0,
+    [ValidateRange(1, 120)]
+    [double]$PreviewRate = 90.0,
+    [ValidateRange(0, 100)]
+    [int]$EncoderMinQuality = 60,
     [ValidateRange(30, 600)]
     [int]$RendererReadyTimeout = 240
 )
@@ -69,6 +72,8 @@ $runtimeState = [ordered]@{
     instance_path = $SceneInstancePath
     instance = $instance
     adapter_root = $AdapterRoot
+    preview_fps = [int][Math]::Round($PreviewRate)
+    encoder_min_quality = $EncoderMinQuality
     renderer_pid = 0
     renderer_start = 0
     simulation_pid = 0
@@ -112,11 +117,12 @@ try {
         Port = $RenderPort
         PixelStreamingURL = "ws://127.0.0.1:$PixelStreamerPort"
         PixelStreamingId = $PixelStreamingId
-        PixelStreamingFps = [int][Math]::Min(60, [Math]::Max(1, [Math]::Round($PreviewRate)))
+        PixelStreamingFps = [int][Math]::Round($PreviewRate)
+        EncoderMinQuality = $EncoderMinQuality
         PixelStreamingCameraIds = $normalizedCameraIds
         PixelStreamingCameraWidth = $PixelStreamingCameraWidth
         PixelStreamingCameraHeight = $PixelStreamingCameraHeight
-        PixelStreamingCameraFps = [int][Math]::Min(30, [Math]::Max(1, [Math]::Round($PreviewRate)))
+        PixelStreamingCameraFps = [int][Math]::Round($PreviewRate)
     }
     if ($datasetCapture) {
         $rendererArgs.CaptureProducts = @('rgb', 'depth', 'segmentation')

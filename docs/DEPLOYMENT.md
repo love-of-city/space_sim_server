@@ -81,7 +81,7 @@ DPAPI 文件只能由同一台电脑、同一个 Windows 账号正常解密。�
 ## 2. 前提
 
 1. 原有 `scripts/run_platform.ps1` 在这台机器已能正常运行。
-2. 使用 PowerShell 7，激活已有的 `space-sim-server` 环境，确保 `python`、`conda`、`npm.cmd`、`node.exe` 可用。仿真环境继续沿用现有配置。
+2. 使用 PowerShell 7，按[README](../README.md#2-python-环境与安装)选择已有的仿真解释器，确保 `npm.cmd`、`node.exe` 可用。支持 uv、Conda 和 venv，不要求安装 Conda 或固定环境名；uv 使用 `uv pip install --python` 管理该解释器的包，无需安装 pip。
 3. 手动使用底层脚本时，安装官方 Caddy 2，放入 PATH，或在配置里填写其绝对路径；桌面入口会自动准备缺少的 Caddy。
 4. 确定本地电脑能够访问的主机名，以及直连/VPN/公网路线。推荐先在团队内网或 VPN 验收。
 5. **先在当前页面修改已有管理员的默认密码。** 初始化密码参数不会更新现有数据库；HTTPS 模式发现任何管理员仍使用文档中的本机默认密码时会拒绝启动。

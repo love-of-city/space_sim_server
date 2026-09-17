@@ -101,7 +101,7 @@ if ($SecureCookies -and (!$PublicOperatorUrl -or !$origins.Count)) {
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'python_runtime.ps1')
-$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn')
+$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn', 'numpy', 'Basilisk.simulation.mujoco')
 $env:SPACE_SIM_PYTHON = $pythonExe
 $workspaceRoot = Split-Path -Parent $projectRoot
 

@@ -34,19 +34,6 @@ git lfs pull
 `Saved/AssetImport` 中含本机绝对路径的映射由 `scripts/run_platform.ps1` 调用适配器资源准备脚本生成。
 直接执行 `run_simulation.ps1` 前，需先通过平台启动脚本完成资源准备。
 
-## 本地兼容目录（2026-09-08 迁移）
+## 本机生成内容
 
-原工作区将 `model/` 放在服务端 Git 仓库外。迁移时已逐文件校验 SHA-256，
-并保留完整原始备份于工作区的 `run/model-versioning-20260908-*/model-original/`。
-外层旧 `model` 路径是指向本仓库 `model/` 的 Windows 目录联接（junction），
-因此原 IDE 路径和既有启动参数仍指向同一份文件，不存在两套需要手动同步的模型。
-联接和备份仅用于原机器兼容；新克隆只需要本仓库的模型目录。
-
-## 仅本地保留、不提交的内容
-
-- 顶层 ZIP 导出包（已纳入展开后的模型/CAD 源文件）。
-- `SARM/export.log`、`SARM/mjcf/SARM.txt` 和 `SARM_scene.txt` 编译转储。
-- Python `__pycache__` / `.pyc`。
-- `SARM/platform/sarm_platform_diag*.xml` 临时诊断变体。
-
-上述文件没有删除；它们保留在本机且受 `.gitignore` 排除。
+虚拟环境、转换日志、编译转储、临时诊断 XML 和原机器的备份/目录联接不属于新克隆的部署依赖。只使用本仓库模型；模型转换是可选开发工作，不需要为启动平台重新转换 CAD。

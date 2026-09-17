@@ -22,13 +22,30 @@ $ue = Resolve-UeRoot $UnrealRoot
 $webServers = Join-Path $ue 'Engine\Plugins\Media\PixelStreaming2\Resources\WebServers'
 $download = Join-Path $webServers 'get_ps_servers.bat'
 $server = Join-Path $webServers 'SignallingWebServer'
-if (!(Test-Path -LiteralPath (Join-Path $server 'package.json') -PathType Leaf)) {
+$infrastructureFiles = @(
+    (Join-Path $webServers 'package.json'),
+    (Join-Path $server 'package.json')
+)
+$infrastructureComplete = !($infrastructureFiles | Where-Object {
+    !(Test-Path -LiteralPath $_ -PathType Leaf)
+})
+if (!$infrastructureComplete) {
     if (!(Test-Path -LiteralPath $download -PathType Leaf)) { throw 'The UE PixelStreaming2 server downloader is missing.' }
+
+    # Epic's downloader trusts DOWNLOAD_VERSION without checking whether a previous
+    # download/extraction completed. Remove a stale marker so it repairs partial installs.
+    Remove-Item -LiteralPath (Join-Path $webServers 'DOWNLOAD_VERSION') -Force -ErrorAction SilentlyContinue
 
     # Use the short path only for Epic's batch downloader. The infrastructure itself is built with system npm.
     $webServersForBatch = Join-Path (Convert-ToShortWindowsPath $ue) 'Engine\Plugins\Media\PixelStreaming2\Resources\WebServers'
     & (Join-Path $webServersForBatch 'get_ps_servers.bat') /v 5.6
     if ($LASTEXITCODE -ne 0) { throw 'Epic Pixel Streaming Infrastructure download failed.' }
+
+    foreach ($path in $infrastructureFiles) {
+        if (!(Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Pixel Streaming Infrastructure download is incomplete; missing: $path"
+        }
+    }
 }
 
 $dist = Join-Path $server 'dist\index.js'
@@ -39,7 +56,16 @@ if (!(Test-Path -LiteralPath $dist -PathType Leaf) -or !(Test-Path -LiteralPath 
 
     Push-Location $webServers
     try {
-        & $npmCommand.Source install --no-audit --no-fund
+        # Installing every workspace also installs the unused SFU, whose mediasoup
+        # postinstall downloads/builds a native worker. Keep local setup scoped to
+        # the signalling server and browser player that this platform actually runs.
+        & $npmCommand.Source install --no-audit --no-fund --include-workspace-root `
+            --workspace Common `
+            --workspace Signalling `
+            --workspace SignallingWebServer `
+            --workspace Frontend/library `
+            --workspace Frontend/ui-library `
+            --workspace Frontend/implementations/typescript
         if ($LASTEXITCODE -ne 0) { throw 'Pixel Streaming Infrastructure dependency installation failed.' }
 
         & $npmCommand.Source run build:all:cjs

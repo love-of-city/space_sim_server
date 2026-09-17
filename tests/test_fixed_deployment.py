@@ -157,7 +157,7 @@ def launcher_repo(tmp_path):
     for directory in ("scripts", "deploy", "tools"):
         (root / directory).mkdir(parents=True)
     for name in ("deployment_launcher.ps1", "deployment_bootstrap.ps1", "deployment_config.ps1",
-                 "fixed_deployment_helpers.ps1"):
+                 "fixed_deployment_helpers.ps1", "python_runtime.ps1"):
         shutil.copyfile(ROOT / "scripts" / name, root / "scripts" / name)
     for name in ("deployment.example.json", "Caddyfile.template"):
         shutil.copyfile(ROOT / "deploy" / name, root / "deploy" / name)
@@ -203,11 +203,6 @@ $null=New-Item -ItemType Directory -Path $run -Force
 """, encoding="utf-8")
     with (root / "scripts/deployment_bootstrap.ps1").open("a", encoding="utf-8") as file:
         file.write("""
-function Enable-LauncherRuntime {
-    param([string]$Python)
-    # Match the real runtime setup contract without activating/installing environments.
-    $env:SPACE_SIM_PYTHON = if ($Python) { $Python } else { (Get-Command python -CommandType Application | Select-Object -First 1).Source }
-}
 function Resolve-LauncherCaddy { param($RequestedExecutable,$ProjectRoot) return (Join-Path $ProjectRoot 'fake-caddy.exe') }
 function Show-LauncherAccess { param($Settings,[switch]$NonInteractive) Write-Output ('DIRECT:' + $Settings.PublicUrl) }
 function Test-LauncherRunning { return $false }
@@ -227,8 +222,9 @@ def launch(root, *args, **env):
         "SPACE_SIM_STREAM_ACCESS_KEY": "k" * 32,
     }
     values.update(env)
+    python_args = () if "-Python" in args else ("-Python", sys.executable)
     return run_ps(
-        root / "scripts/deployment_launcher.ps1", "-NonInteractive", *args,
+        root / "scripts/deployment_launcher.ps1", "-NonInteractive", *python_args, *args,
         env=clean_environment(**values),
     )
 

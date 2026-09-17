@@ -22,12 +22,8 @@ A 的上下铰链共轴，但机械限位、运动方向及驱动均未知；不
 B1–B3 是圆柱轴线特征，不能直接等同于三个独立关节。C/D 可能只需事件建模。
 本次检查不提供真实质量/惯量，不使用原自由预览的人为 1 kg 参数。
 
-## 复现（外层工作区 PowerShell）
+## 可选重新生成
 
-```powershell
-.\run\step-converter-venv\Scripts\python.exe -X utf8 .\space_sim_server\tools\extract_step_surface_evidence.py .\model\ground_validation_satellite
-.\run\step-converter-venv\Scripts\python.exe -X utf8 .\space_sim_server\tools\review_satellite_components.py .\model\ground_validation_satellite
-```
+按[转换环境说明](../README.md#查看与可选重新转换)准备独立 uv 环境，从服务端仓库根目录用该解释器运行 `tools/extract_step_surface_evidence.py` 与 `tools/review_satellite_components.py`，参数为模型目录。仅用于 CAD 审查，不是首次部署步骤。
 
-报告使用已有 CPU 几何渲染与原生 SVG/HTML 标注；无 AI 图片、无 CAD 云端上传、无额外二进制下载。
-表单需点击导出按钮才会保存确认意见，不会直接修改模型。
+报告使用 CPU 几何预览与 SVG/HTML 标注；表单需点击导出才保存意见，不直接修改模型。机构运动、限位与驱动需人类核对 CAD/工程资料。

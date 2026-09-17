@@ -8,7 +8,7 @@
 本目录版本只有显式选择高精度模板才加载；已保存高精度实例不自动迁移，需新建“粗碰撞体·内部碰撞”实例切换到当前默认。主平台未被自动重启。
 启用及回退只改变运行选择，没有更改本目录 XML/网格，也没有删除试验数据。以下转换结果及 `manifest.json` / `validation_report.json`
 中 `default_scene_changed: false` 等值是**切换前试验的历史记录**，不是当前启动开关。
-当前入口、使用步骤与切换验证见 `docs/GROUND_CAPTURE_TARGET.md`（仓库根目录）。
+当前入口、使用步骤与切换验证见[目标说明](../../../docs/GROUND_CAPTURE_TARGET.md)。
 
 ## 结论
 
@@ -110,22 +110,10 @@
 后续切换联调已做真实协议短测、UE 可视几何回放和两路 RGB 首帧输出；RGB 冷启动首帧偏暗，未验收图像质量。
 当前仍未完成浏览器、长时或高速碰撞验收；详见仓库 `docs/GROUND_CAPTURE_TARGET.md` 的切换验证范围。
 
-## 复现
+## 可选复现
 
-从服务端 Git 根目录运行，**单独创建环境，不升级生产 Basilisk 或原 CAD 转换环境**：
+这是高开销模型实验，不是平台首次部署步骤。需要时从服务端仓库根目录用 `uv venv .venv-mesh-collision --python 3.13` 创建独立环境，通过 `uv pip install --python .\.venv-mesh-collision\Scripts\python.exe -r tools/requirements-mesh-collision.txt` 安装专用依赖。不要重建已有环境或更换 Basilisk 的 MuJoCo DLL。
 
-```powershell
-python -m venv .venv-mesh-collision
-.\.venv-mesh-collision\Scripts\python.exe -m pip install -r tools/requirements-mesh-collision.txt
-.\.venv-mesh-collision\Scripts\python.exe tools/build_satellite_mesh_collision.py
-.\.venv-mesh-collision\Scripts\python.exe tools/build_satellite_mesh_collision.py --check
-.\.venv-mesh-collision\Scripts\python.exe -m pytest tests/test_mesh_collision_conversion.py -q
-.\.venv-mesh-collision\Scripts\python.exe tools/validate_satellite_mesh_collision.py --native-python <Basilisk环境的python.exe路径>
-```
+生成、检查、回归和验证入口分别为 `tools/build_satellite_mesh_collision.py`（支持 `--check`）、`tests/test_mesh_collision_conversion.py`、`tools/validate_satellite_mesh_collision.py`。原生验证的 `--native-python` 应显式传入含 Basilisk/MJScene 的解释器。
 
-本机独立环境：外层 `run/mesh-collision-venv`。详细过程日志在服务端 `run/mesh-collision-20260909/`。
-转换试验及本次入口切换均未覆盖原始 STEP/OBJ/XML 或原组合 XML，也没有重启主服务；没有提交或推送。
-当前新建场景默认模板为粗碰撞内部接触版；本目录的高精度实验模型和既有实例身份保留。
-
-**下一阶段**应先确认真实铰链分件/配合，再在可量化几何误差约束下做空间裁剪、碰撞分区或局部精度优化。
-任何精度下降或局部接触过滤都应明确列出并验证，不能静默回退为粗盒模型。
+后续需先确认真实铰链分件/配合，再评估几何简化与性能。精度下降或接触过滤必须明确记录并验证。

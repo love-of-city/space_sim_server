@@ -51,7 +51,7 @@ world
 
 ## 设置角度的示例
 
-在外层工作区使用专用转换环境运行以下 Python 逻辑：
+从服务端仓库根目录，使用专用转换环境运行以下 Python 逻辑：
 
 ```python
 import math
@@ -66,14 +66,11 @@ data.qpos[model.jnt_qposadr[jid]] = math.radians(45)  # 演示值，不是机械
 mujoco.mj_forward(model, data)
 ```
 
-当前服务器的原生 OpenGL Viewer 仍受系统驱动限制；可直接查看本目录的 HTML/GIF。
+没有可用 OpenGL 驱动时，可直接查看本目录的 HTML/GIF。
 HTML 播放的是 MuJoCo 编译几何和前向运动学生成的 CPU 图像，不是 AI 图片或 UE 截图。
 
-## 重新生成（外层工作区 PowerShell）
+## 可选重新生成
 
-```powershell
-.\run\step-converter-venv\Scripts\python.exe -X utf8 .\space_sim_server\tools\build_satellite_wing_joint.py .\model\ground_validation_satellite
-.\run\step-converter-venv\Scripts\python.exe -X utf8 .\space_sim_server\tools\preview_satellite_wing_joint.py .\model\ground_validation_satellite
-```
+先按[转换环境说明](../README.md#查看与可选重新转换)准备独立 uv 环境。从服务端仓库根目录使用该解释器运行 `tools/build_satellite_wing_joint.py` 和 `tools/preview_satellite_wing_joint.py`，传入待处理的模型副本目录。构建器校验源文件哈希，手动改动的派生文件可能拒绝覆盖。
 
-构建器校验源 STEP 和原网格哈希。若派生 XML/裁分 OBJ 被手动修改，构建器会拒绝覆盖；不会重置现有平台配置。
+这些工具用于模型开发，不是运行平台的前置步骤。实际机械限位、驱动和质量参数仍需工程资料确认。

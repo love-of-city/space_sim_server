@@ -47,52 +47,20 @@ p_model_m = p_source_m - [-0.1755000000000304, -0.05475000000002002, -0.04707870
 STEP 装配层级和每个实例的变换完整记录在 manifest 的 `assembly` 中，没有把装配层级误当成可动关节。
 **未推断**太阳翼、轮体、铰链、滑轨等关节，也未接入现有机械臂。
 
-## 本机查看
+## 查看与可选重新转换
 
-当前工作区：`C:\Users\LYH\space_sim_server`。
-专用转换虚拟环境在 `run/step-converter-venv`，没有修改 `mujoco-dev` 或 `space-sim-server` 环境。
+现有 `preview/` 图片可直接打开。交互查看需要可用的 OpenGL 驱动。静态预览与转换不属于平台首次部署步骤。
 
-若系统 OpenGL 正常，直接运行：
-
-```powershell
-.\run\step-converter-venv\Scripts\python.exe -m mujoco.viewer `
-  --mjcf .\model\ground_validation_satellite\ground_validation_satellite.xml
-```
-
-这台服务器的系统 WGL 不支持所需 OpenGL，因此本次预览使用**独立 CPU 三角形光栅化器**，直接读取 MuJoCo 编译后的顶点、面、法线、颜色和世界变换。支持真实深度遮挡、透视校正和双面 CAD 曲面显示；光照为预览用简化光照，不与 MuJoCo/UE 渲染器完全相同。
+如确需重新转换，从服务端仓库根目录创建**独立**转换环境，避免更换 Basilisk 所用的 MuJoCo。uv 用户：
 
 ```powershell
-# 打开已经生成的图片，不需要 OpenGL
-.\model\ground_validation_satellite\view_preview.ps1
-
-# 重新生成 CPU 预览
-.\model\ground_validation_satellite\render_preview.ps1
+uv venv .venv-step --python 3.13
+uv pip install --python .\.venv-step\Scripts\python.exe -r tools/requirements-step-to-mjcf.txt
+.\.venv-step\Scripts\python.exe tools/convert_step_to_mjcf.py "model/地面验证星模型.stp" --output run/ground-validation-preview --no-render
+.\.venv-step\Scripts\python.exe tools/render_step_preview.py run/ground-validation-preview --backend cpu
 ```
 
-`view_preview.ps1 -Interactive` 可在具有正常系统 OpenGL 的机器上打开可旋转的 MuJoCo Viewer；当前服务器不保证可用。
-
-环境说明：曾尝试从上游 GitHub 获取 Mesa 软件 OpenGL 包，但被 Windows Defender 隔离。没有解压/执行它，没有恢复隔离或更改防护设置，最终预览也没有使用 Mesa。
-
-## 重新转换（从服务端 Git 仓库根目录执行）
-
-新机器先建立独立环境：
-
-```powershell
-python -m venv .venv-step
-.\.venv-step\Scripts\python.exe -m pip install -r tools/requirements-step-to-mjcf.txt
-.\.venv-step\Scripts\python.exe tools/convert_step_to_mjcf.py `
-  "model/地面验证星模型.stp" --output model/ground_validation_satellite --no-render
-```
-
-生成不依赖 OpenGL 的 CPU 预览：
-
-```powershell
-.\.venv-step\Scripts\python.exe tools/render_step_preview.py model/ground_validation_satellite --backend cpu
-```
-
-`--no-render` 不跳过几何/编译验证，只跳过转换器内置的 OpenGL 图片渲染。正常 OpenGL 机器也可以将渲染命令改为 `--backend opengl` 使用原生 MuJoCo 渲染器。
-默认遇到无法修复的 CAD 面会报错；`--allow-incomplete-preview` 才允许明确记录缺面。**本次最终结果未使用该选项。**
-输出目录只能是空目录，或由此脚本为同一个源 SHA-256 创建的目录；不会覆盖其他现有模型目录。
+仅在该环境/输出目录尚未存在时执行创建步骤。输出放在本机 `run/` 下，不覆盖已经集成的平台模型。CPU 预览读取编译后的几何；不是 UE 画面。`--no-render` 仍执行转换校验，后续单独渲染。
 
 ## 已做验证 / 尚未做验证
 

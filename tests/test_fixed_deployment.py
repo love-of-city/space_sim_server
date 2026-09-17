@@ -150,7 +150,7 @@ def launcher_repo(tmp_path):
     for directory in ("scripts", "deploy", "tools"):
         (root / directory).mkdir(parents=True)
     for name in ("deployment_launcher.ps1", "deployment_bootstrap.ps1", "deployment_config.ps1",
-                 "fixed_deployment_helpers.ps1"):
+                 "fixed_deployment_helpers.ps1", "python_runtime.ps1"):
         shutil.copyfile(ROOT / "scripts" / name, root / "scripts" / name)
     for name in ("deployment.example.json", "Caddyfile.template"):
         shutil.copyfile(ROOT / "deploy" / name, root / "deploy" / name)
@@ -196,7 +196,6 @@ $null=New-Item -ItemType Directory -Path $run -Force
 """, encoding="utf-8")
     with (root / "scripts/deployment_bootstrap.ps1").open("a", encoding="utf-8") as file:
         file.write("""
-function Enable-LauncherRuntime { param($CondaRoot) }
 function Resolve-LauncherCaddy { param($RequestedExecutable,$ProjectRoot) return (Join-Path $ProjectRoot 'fake-caddy.exe') }
 function Show-LauncherAccess { param($Settings,[switch]$NonInteractive) Write-Output ('DIRECT:' + $Settings.PublicUrl) }
 function Test-LauncherRunning { return $false }
@@ -217,7 +216,7 @@ def launch(root, *args, **env):
     }
     values.update(env)
     return run_ps(
-        root / "scripts/deployment_launcher.ps1", "-NonInteractive", *args,
+        root / "scripts/deployment_launcher.ps1", "-NonInteractive", "-Python", sys.executable, *args,
         env=clean_environment(**values),
     )
 

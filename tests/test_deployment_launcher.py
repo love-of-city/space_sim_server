@@ -63,7 +63,8 @@ def repo(tmp_path):
     # Override only external effects, within this throwaway copy. No production test hooks.
     with (root / "scripts/deployment_bootstrap.ps1").open("a", encoding="utf-8") as file:
         file.write("""
-function Enable-LauncherRuntime { param($CondaRoot)
+function Enable-LauncherRuntime { param($Python)
+    $env:SPACE_SIM_PYTHON = (Get-Command python).Source
     if ($env:TEST_RUNTIME_FAIL) { throw 'Fake missing runtime.' }
 }
 function Resolve-LauncherCaddy { param($RequestedExecutable, $ProjectRoot)

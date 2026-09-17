@@ -56,7 +56,7 @@ DPAPI 文件只能由同一台电脑、同一个 Windows 账号正常解密。�
 .\start_deployment.cmd -Restart
 ```
 
-`-NonInteractive` 可用于已有配置的自动化启动：不会询问输入或复制剪贴板。缺少管理员/TURN 秘密或首次配置时会报错；停止入口不要求秘密。非标准 Conda 安装位置可用 `-CondaRoot` 或 `SPACE_SIM_CONDA_ROOT` 指定。
+`-NonInteractive` 可用于已有配置的自动化启动：不会询问输入或复制剪贴板。缺少管理员/TURN 秘密或首次配置时会报错；停止入口不要求秘密。非标准 Conda 安装位置可用 `-CondaRoot` 或 `SPACE_SIM_PYTHON` 指定。
 
 > 以下是底层部署脚本的架构与**高级手动配置**说明。使用上面的桌面入口时，不需要逐条手动执行这些准备命令。底层 `scripts/deploy_platform.ps1` 仍保留默认只校验、显式 `-Start` 才切换的行为。
 

@@ -2,7 +2,7 @@ param(
     [ValidateSet('Start', 'Stop')][string]$Action = 'Start',
     [ValidateSet('Auto', 'Fixed', 'Ip', 'Turn', 'Public', 'Direct')][string]$Mode = 'Auto',
     [string]$ConfigPath = '',
-    [string]$CondaRoot = '',
+    [string]$Python = '',
     [switch]$ValidateOnly,
     [switch]$NonInteractive,
     [switch]$Restart
@@ -107,7 +107,7 @@ try {
             }
             $turnOverrides['SPACE_SIM_TURN_AUTH_SECRET'] = [string]$turnCandidate.TurnSecret
         }
-        Start-PublicDeployment $projectRoot $ConfigPath $secretPath $CondaRoot -ValidateOnly:$ValidateOnly `
+        Start-PublicDeployment $projectRoot $ConfigPath $secretPath $Python -ValidateOnly:$ValidateOnly `
             -NonInteractive:$NonInteractive -Restart:$Restart -Overrides $turnOverrides
         return
     }
@@ -168,9 +168,10 @@ try {
     }
     Save-LauncherSecrets $secretPath $values
     Write-Host '正在加载现有仿真环境……'
-    Enable-LauncherRuntime $CondaRoot
+    $previous['SPACE_SIM_PYTHON'] = $env:SPACE_SIM_PYTHON
+    Enable-LauncherRuntime $Python
     # Keep the default-password gate read-only. Never silently reset an existing account.
-    & python (Join-Path $projectRoot 'tools/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
+    & $env:SPACE_SIM_PYTHON (Join-Path $projectRoot 'tools/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
     if ($LASTEXITCODE -ne 0) {
         throw 'Authentication preflight failed; no running services were stopped. If an existing admin still uses the default password, change it in the current local webpage, then double-click Start again.'
     }

@@ -1,4 +1,5 @@
 param(
+    [string]$Python = '',
     [string]$AdapterRoot = '',
     [string]$ModelRoot = '',
     [string]$UnrealRoot = '',
@@ -99,6 +100,9 @@ if ($SecureCookies -and (!$PublicOperatorUrl -or !$origins.Count)) {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'python_runtime.ps1')
+$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn')
+$env:SPACE_SIM_PYTHON = $pythonExe
 $workspaceRoot = Split-Path -Parent $projectRoot
 
 function Resolve-Unreal56Root([string]$RequestedRoot) {
@@ -144,7 +148,7 @@ foreach ($path in @($AdapterRoot, $ModelRoot, $UnrealRoot, $ueScripts)) {
     if (!(Test-Path -LiteralPath $path)) { throw "Required path does not exist: $path" }
 }
 
-foreach ($command in @('python', 'conda', 'npm.cmd')) {
+foreach ($command in @('npm.cmd')) {
     if (!(Get-Command $command -ErrorAction SilentlyContinue)) {
         throw "Required command '$command' was not found on PATH. See README.md first-deployment prerequisites."
     }
@@ -178,7 +182,7 @@ $environmentSphere = Get-Item -LiteralPath $environmentSpherePath -ErrorAction S
 if (!$environmentSphere -or $environmentSphere.Length -lt 1024) {
     throw "MyProject2 environment Sphere is missing or still a Git LFS pointer: $environmentSpherePath. Run git lfs pull in space_sim_UE_adapter."
 }
-& python -c 'import fastapi, pydantic, uvicorn' 2>$null
+& $pythonExe -c 'import fastapi, pydantic, uvicorn' 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw 'Backend Python dependencies are missing. Run: python -m pip install -e ".[test]"'
 }

@@ -135,7 +135,7 @@
 ```powershell
 .\start_deployment.cmd -ValidateOnly -Mode Turn -NonInteractive   # 只验证配置，不创建文件、不启停服务
 .\start_deployment.cmd -Restart                                    # 强制重启当前部署
-.\start_deployment.cmd -Mode Turn -CondaRoot 'D:\miniconda3'      # 指定 Conda 安装根目录
+.\start_deployment.cmd -Mode Turn -Python $env:SPACE_SIM_PYTHON      # 指定 Python 解释器
 ```
 
 环境变量覆盖（用于特殊网络或测试，正常使用不需要）：

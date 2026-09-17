@@ -166,7 +166,7 @@ def launcher_repo(tmp_path):
     (root / "scripts/public_deployment_helpers.ps1").write_text("# Fake public helpers.\n", encoding="utf-8")
     (root / "scripts/public_deployment.ps1").write_text("""
 function Start-PublicDeployment {
-    param([string]$ProjectRoot,[string]$ConfigPath,[string]$SecretPath,[string]$CondaRoot,
+    param([string]$ProjectRoot,[string]$ConfigPath,[string]$SecretPath,[string]$Python,
           [switch]$ValidateOnly,[switch]$NonInteractive,[switch]$Restart,[System.Collections.IDictionary]$Overrides)
     $settings=Get-DeploymentSettings $ConfigPath $ProjectRoot
     $values=Read-LauncherSecrets $SecretPath $settings -GenerateAdmin -NonInteractive -Overrides $Overrides
@@ -203,7 +203,11 @@ $null=New-Item -ItemType Directory -Path $run -Force
 """, encoding="utf-8")
     with (root / "scripts/deployment_bootstrap.ps1").open("a", encoding="utf-8") as file:
         file.write("""
-function Enable-LauncherRuntime { param($CondaRoot) }
+function Enable-LauncherRuntime {
+    param([string]$Python)
+    # Match the real runtime setup contract without activating/installing environments.
+    $env:SPACE_SIM_PYTHON = if ($Python) { $Python } else { (Get-Command python -CommandType Application | Select-Object -First 1).Source }
+}
 function Resolve-LauncherCaddy { param($RequestedExecutable,$ProjectRoot) return (Join-Path $ProjectRoot 'fake-caddy.exe') }
 function Show-LauncherAccess { param($Settings,[switch]$NonInteractive) Write-Output ('DIRECT:' + $Settings.PublicUrl) }
 function Test-LauncherRunning { return $false }
@@ -246,8 +250,9 @@ def test_launcher_auto_selects_turn_tunnel_and_injects_detected_secret(launcher_
     assert TEST_TURN_SECRET not in result.stdout + result.stderr
 
 
-def test_fixed_mode_still_supports_acme_public_hostname(launcher_repo):
-    result = launch(launcher_repo, "-Mode", "Fixed")
+@pytest.mark.parametrize("python_args", [(), ("-Python", sys.executable)])
+def test_fixed_mode_still_supports_acme_public_hostname(launcher_repo, python_args):
+    result = launch(launcher_repo, "-Mode", "Fixed", *python_args)
     assert result.returncode == 0, result.stdout + result.stderr
     fixed = json.loads((launcher_repo / "deploy/fixed.local.json").read_text(encoding="utf-8"))
     assert fixed["tls_mode"] == "acme"

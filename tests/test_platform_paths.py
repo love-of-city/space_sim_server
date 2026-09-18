@@ -86,3 +86,22 @@ def test_empty_adapter_folder_is_not_a_checkout(tmp_path):
     result = resolve(tmp_path, project)
     assert result.returncode != 0
     assert "UE adapter checkout was not found" in result.stderr
+
+
+def test_dataset_worktree_uses_matching_ue_not_main(tmp_path):
+    project = tmp_path / "space_sim_server_lerobot_v3"
+    project.mkdir()
+    main = make_adapter(tmp_path / "space_sim_UE_adapter")
+    chosen = make_adapter(tmp_path / "space_sim_UE_adapter_lerobot_v3")
+    result = resolve(tmp_path, project)
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()) == chosen
+
+
+def test_dataset_worktree_fails_closed_without_paired_ue(tmp_path):
+    project = tmp_path / "space_sim_server_lerobot_v3"
+    project.mkdir()
+    make_adapter(tmp_path / "space_sim_UE_adapter")
+    result = resolve(tmp_path, project)
+    assert result.returncode != 0
+    assert "Paired LeRobot UE worktree is missing" in result.stderr

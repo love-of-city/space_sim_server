@@ -12,8 +12,8 @@ from space_arm_platform.recorder import EpisodeRecorder
 
 
 def test_episode_records_actions_states_and_capture_products(tmp_path) -> None:
-    recorder = EpisodeRecorder(tmp_path)
-    metadata = recorder.start(EpisodeStart(instruction="抓取测试"))
+    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.01)
+    metadata = recorder.start(EpisodeStart(instruction="抓取测试", camera_ids=[]))
     action = AppliedAction(
         episode_id=metadata["episode_id"],
         server_sequence="1",
@@ -69,7 +69,7 @@ def test_episode_records_actions_states_and_capture_products(tmp_path) -> None:
 
 
 def test_capture_before_observation_is_paired_without_interpolated_state(tmp_path) -> None:
-    recorder = EpisodeRecorder(tmp_path)
+    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.01)
     recorder.start(EpisodeStart())
     recorder.record_authoritative_capture(
         {
@@ -104,7 +104,7 @@ def test_capture_before_observation_is_paired_without_interpolated_state(tmp_pat
 
 
 def test_capture_with_mismatched_authoritative_time_is_rejected(tmp_path) -> None:
-    recorder = EpisodeRecorder(tmp_path)
+    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.01)
     recorder.start(EpisodeStart())
     observation = SimulationObservation(
         protocol="space-arm-control/1",
@@ -135,7 +135,7 @@ def test_capture_with_mismatched_authoritative_time_is_rejected(tmp_path) -> Non
 
 @pytest.mark.parametrize("capture_first", [False, True])
 def test_old_render_session_cannot_pair_with_reused_frame_and_time(tmp_path, capture_first):
-    recorder = EpisodeRecorder(tmp_path)
+    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.01)
     recorder.start(EpisodeStart())
     observation = SimulationObservation(
         protocol="space-arm-control/1", type="observation", simulation_id="test",

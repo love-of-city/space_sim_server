@@ -20,10 +20,9 @@ param(
     [int]$PixelStreamingCameraHeight = 360,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
-    # Authoritative RGB/depth/segmentation capture performs synchronous GPU readbacks
-    # in the UE game thread. Keep it opt-in for interactive preview; enable it only
-    # when dataset/episode recording actually needs those products.
-    [switch]$EnableDatasetCapture,
+    # LeRobot recording needs authoritative products. Preview-only scenes may
+    # explicitly opt out, in which case camera episode start is rejected.
+    [switch]$EnableDatasetCapture = $true,
     [ValidateRange(1.0, 500.0)]
     [double]$IkRate = 100.0,
     [ValidateRange(1, 120)]
@@ -306,6 +305,7 @@ $backendArgs = @(
     '-CaptureRate', $CaptureRate
 )
 if ($EnableDatasetCapture) { $backendArgs += '-DefaultDatasetCapture' }
+else { $backendArgs += '-DefaultDatasetCapture:$false' }
 if ($RemoteAccess) {
     $backendArgs += @(
         '-PixelStreamingSignallingUrl', $PixelPlayerPublicUrl

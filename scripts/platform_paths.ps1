@@ -7,6 +7,15 @@ function Resolve-PlatformAdapterRoot([string]$RequestedRoot, [string]$ProjectRoo
         }
         return $root
     }
+    # Keep the dataset worktree paired with its UE worktree, never silently use
+    # the original main renderer binary for the new capture protocol.
+    if ((Split-Path -Leaf $ProjectRoot) -eq 'space_sim_server_lerobot_v3') {
+        $datasetAdapter = Join-Path (Split-Path -Parent $ProjectRoot) 'space_sim_UE_adapter_lerobot_v3'
+        if (Test-Path -LiteralPath (Join-Path $datasetAdapter 'Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject')) {
+            return $datasetAdapter
+        }
+        throw 'Paired LeRobot UE worktree is missing; set AdapterRoot explicitly.'
+    }
     $workspace = Split-Path -Parent $ProjectRoot
     $parent = Split-Path -Parent $workspace
     $candidates = @()

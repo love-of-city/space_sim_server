@@ -65,7 +65,7 @@ class PlatformConfig:
     runtime_ik_rate: float = 100.0
     runtime_simulation_rate: float = 1.0
     runtime_capture_rate: float = 10.0
-    runtime_default_dataset_capture: bool = False
+    runtime_default_dataset_capture: bool = True
     auth_database: Path | None = None
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = "ChangeMe123!"
@@ -196,7 +196,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     timeout_task: asyncio.Task[None] | None = None
 
     async def record_observation(observation: SimulationObservation) -> None:
-        recorder.record_observation(observation, safety.last_action)
+        await asyncio.to_thread(recorder.record_observation, observation, safety.last_action)
 
     hub.on_observation = record_observation
 
@@ -221,6 +221,13 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 timeout_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await timeout_task
+            if recorder.episode_id and not recorder.sync_status()["finalizing"]:
+                neutral = safety.neutral(recorder.episode_id, "backend_shutdown")
+                recorder.record_action(neutral)
+                await hub.publish_action(neutral)
+                closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="backend shutdown"))
+                if closed["dataset_status"] == "complete":
+                    jobs.submit_archive(closed["episode_id"])
             await asyncio.to_thread(scenes.close)
             captures.close()
             await hub.close()
@@ -471,8 +478,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             neutral = safety.neutral(recorder.episode_id, "scene_stopped")
             recorder.record_action(neutral)
             await hub.publish_action(neutral)
-            episode_result = recorder.stop(EpisodeStop(outcome="aborted", note="scene stopped"))
-            episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
+            episode_result = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="scene stopped"))
+            if episode_result["dataset_status"] == "complete":
+                episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
         try:
             result = await asyncio.to_thread(scenes.stop)
             if episode_result:
@@ -480,6 +488,20 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             return result
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    def recording_request(payload: EpisodeStart, instance: dict | None) -> EpisodeStart:
+        if instance is None:
+            return payload
+        runtime = instance.get("runtime", {})
+        if payload.camera_ids and not runtime.get("dataset_capture", False):
+            raise RuntimeError("当前场景未启用权威相机采集，请启用数据集采集后重新创建场景")
+        fps = runtime.get("capture_rate_hz", 10)
+        from .lerobot_capture import SUPPORTED_FPS
+        if fps not in SUPPORTED_FPS:
+            raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{SUPPORTED_FPS}")
+        if "fps" in payload.model_fields_set and payload.fps != fps:
+            raise RuntimeError("录制 FPS 必须与场景权威采样率一致")
+        return EpisodeStart.model_validate({**payload.model_dump(), "fps": int(fps), "scene_instance": instance})
 
     @app.post("/api/episodes/start")
     async def start_episode(payload: EpisodeStart, request: Request) -> dict[str, Any]:
@@ -504,7 +526,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 }
             )
         try:
-            return recorder.start(payload)
+            return await asyncio.to_thread(recorder.start, recording_request(payload, scene_instance))
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -518,8 +540,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         recorder.record_action(neutral)
         await hub.publish_action(neutral)
         try:
-            result = recorder.stop(payload)
-            result["archive_job"] = jobs.submit_archive(result["episode_id"])
+            result = await asyncio.to_thread(recorder.stop, payload)
+            if result["dataset_status"] == "complete":
+                result["archive_job"] = jobs.submit_archive(result["episode_id"])
             return result
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -557,13 +580,14 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if task["status"] != "queued":
             raise HTTPException(status_code=409, detail=f"task {task_id} is {task['status']}, expected queued")
         try:
-            episode = recorder.start(EpisodeStart(
+            episode = await asyncio.to_thread(recorder.start, recording_request(EpisodeStart(
                 task_id=task_id,
                 task="scheduled space manipulator task",
                 instruction=task["instruction"],
                 seed=task["seed"],
                 tags=task["tags"],
-            ))
+                scene_instance=scenes.status().get("instance"),
+            ), scenes.status().get("instance")))
             return tasks.transition(task_id, {"queued"}, "running", episode_id=episode["episode_id"])
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -579,7 +603,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         recorder.record_action(neutral)
         await hub.publish_action(neutral)
         try:
-            closed = recorder.stop(EpisodeStop(outcome=request.outcome, note=request.note))
+            closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome=request.outcome, note=request.note))
+            if closed["dataset_status"] != "complete":
+                return tasks.transition(task_id, {"running"}, "failed", outcome=request.outcome,
+                                        dataset_status=closed["dataset_status"], dataset_error=closed["dataset_error"])
             archive_job = jobs.submit_archive(closed["episode_id"])
             return tasks.transition(
                 task_id, {"running"}, "completed", outcome=request.outcome, archive_job_id=archive_job["job_id"]

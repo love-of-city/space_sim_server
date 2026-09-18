@@ -966,6 +966,11 @@ async function refreshState() {
     $("episodePath").textContent = data.episode_directory || "—";
     applySceneRuntime(data.scene_runtime || {});
     if (data.simulation.reset_error) setMessage(data.simulation.reset_error);
+    if (data.active_episode && data.capture_sync?.dataset_error) {
+      setMessage(`LeRobot 采集已出现错误，请结束本次采集：${data.capture_sync.dataset_error}`);
+    } else if (data.capture_sync?.finalizing) {
+      setMessage("正在等待末帧、编码视频并封口 LeRobot v3 数据集，请勿关闭服务");
+    }
   } catch (_) {
     setOnline("backendDot", false);
   }
@@ -988,7 +993,7 @@ async function startEpisode() {
   const data = await response.json();
   if (!response.ok) return setMessage(data.detail || "无法开始采集");
   state.activeEpisode = data.episode_id;
-  setMessage(`开始采集 ${data.episode_id}`);
+  setMessage(`开始 LeRobot v3 采集 ${data.episode_id}（${data.dataset_fps} FPS）`);
   await refreshState();
 }
 
@@ -1000,7 +1005,9 @@ async function stopEpisode(outcome) {
   const data = await response.json();
   if (!response.ok) return setMessage(data.detail || "无法结束采集");
   state.activeEpisode = null;
-  setMessage(`采集已结束：${outcome}，共 ${data.step_count} 步`);
+  setMessage(data.dataset_status === "complete"
+    ? `LeRobot v3 数据集已完成：${data.dataset_frame_count} 帧，${data.episode_id}/${data.dataset_path}`
+    : `采集未生成有效数据集（${data.dataset_status}）：${data.dataset_error || "没有完整样本"}`);
   await refreshState();
 }
 

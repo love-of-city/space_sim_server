@@ -12,6 +12,7 @@ dependencies = [
   "fastapi>=0.115",
   "pydantic>=2.8",
   "uvicorn[standard]>=0.30",
+  "lerobot==0.4.4",
 ]
 
 [project.optional-dependencies]

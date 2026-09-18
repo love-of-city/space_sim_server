@@ -255,7 +255,7 @@ class SceneRuntimeManager:
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,
                 "capture_rate_hz": self.launch.capture_rate if self.launch else 10.0,
                 "ik_rate_hz": self.launch.ik_rate if self.launch else 100.0,
-                "dataset_capture": self.launch.default_dataset_capture if self.launch else False,
+                "dataset_capture": self.launch.default_dataset_capture if self.launch else True,
             },
         }
 

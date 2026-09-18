@@ -128,7 +128,7 @@ def test_api_reset_guards_and_control_revocation(tmp_path, monkeypatch):
         monkeypatch.setattr(app.state.scenes, 'status', lambda: {'phase':'idle'})
         assert client.post('/api/scenes/reset').status_code == 409
         monkeypatch.setattr(app.state.scenes, 'status', lambda: {'phase':'running', 'instance':{}})
-        assert client.post('/api/episodes/start', json={}).status_code == 200
+        assert client.post('/api/episodes/start', json={'camera_ids': []}).status_code == 200
         assert '采集' in client.post('/api/scenes/reset').json()['detail']
         assert client.post('/api/episodes/stop', json={}).status_code == 200
         assert '未连接' in client.post('/api/scenes/reset').json()['detail']

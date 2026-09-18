@@ -20,7 +20,7 @@ from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 
 ROOT = Path(__file__).resolve().parents[1]
-ADAPTER = Path(os.environ.get('SPACE_SIM_RESET_ADAPTER', str(ROOT.parent / 'space_sim_UE_adapter_reset')))
+ADAPTER = Path(os.environ.get('SPACE_SIM_RESET_ADAPTER', str(ROOT.parent / 'space_sim_UE_adapter_lerobot_v3')))
 
 
 def control_action(generation=''):
@@ -57,11 +57,12 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(ADAPTER / 'Unreal/BskUnrealRenderer/examples'))
     # Establish the production DLL import order before loading any native scene.
     from scenario_spacecraft_arm_grasp_unreal import load_native_grasp_module
-    load_native_grasp_module(ROOT / 'model/SARM/platform')
+    native = load_native_grasp_module(ROOT / 'model/SARM/platform')
     import bsk_render_adapter
     from bsk_render_adapter.protocol import RecordingOnlyPublisher
 
     bridges, observations, events, scene_refs = [], [], [], []
+    authoritative_joint_samples = {}
     class ProbeBridge(bsk_render_adapter.BasiliskRenderBridge):
         def __init__(self, **kwargs):
             super().__init__(**kwargs, publisher=RecordingOnlyPublisher())
@@ -75,6 +76,10 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch):
             return super().add_mj_scene(scene, **kwargs)
         def UpdateState(self, nanos):
             super().UpdateState(nanos)
+            if self.last_published_sim_time_ns == int(nanos):
+                authoritative_joint_samples[(self.session_id, str(self.last_published_frame_id))] = (
+                    str(nanos), [float(self.scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
+                                 for body, joint in native.JOINTS])
             data = self.scene.stateOutMsg.read()
             snapshot = (np.array(data.qpos), np.array(data.qvel))
             if self.initial is None:
@@ -129,6 +134,7 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch):
                            scene_instance=config_path, catalog=tmp_path / 'unused.json',
                            control_host='127.0.0.1', control_port=0, render_host='127.0.0.1', render_port=0,
                            duration=.2, simulation_rate=1., capture_rate=10., ik_rate=100.,
+                           ik_mode=teleop.IK_MODE_IK_POSE,
                            disable_attitude_control=False)
     teleop.run(args)
     gc.collect()
@@ -145,6 +151,13 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch):
         np.testing.assert_allclose(bridge.initial[1][0], baseline[1][0], rtol=0, atol=1.e-12)
         np.testing.assert_allclose(bridge.initial[1][1], baseline[1][1], rtol=0, atol=1.e-12)
         assert not np.array_equal(bridge.initial[1][0], bridge.last[0])
+    # Recorded joints must be the render-time snapshot, not a later state read
+    # after ExecuteSimulation reaches the outer 30 Hz loop's stop time.
+    for observation in observations:
+        stamp, joints = authoritative_joint_samples[(observation['render_session_id'], observation['render_frame_id'])]
+        assert observation['observation_source'] == 'authoritative_render_snapshot'
+        assert observation['sim_time_ns'] == stamp
+        np.testing.assert_array_equal(observation['joint_position_rad'], joints)
     first = [o for o in observations if o['step_id'] == '1']
     assert [o['reset_generation'] for o in first] == ['', 'reset-1', 'reset-2']
     assert len({o['sim_time_ns'] for o in first}) == 1

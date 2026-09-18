@@ -160,3 +160,8 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 - [模型目录](model/README.md) / [目标与碰撞限制](docs/GROUND_CAPTURE_TARGET.md)
 - [状态重置](docs/SCENE_RESET.md) / [自由相机](docs/FREE_CAMERA_INPUT.md)
 - [姿态控制](docs/ATTITUDE_CONTROL.md) / [轨道初始化](docs/ORBIT_INITIALIZATION.md) / [太阳光照](docs/SUNLIGHT_CONFIGURATION.md)
+
+## LeRobot v3 原生采集（本分支）
+
+新的录制通过官方 LeRobot writer 直接生成 v3 数据集，不需要事后转换。
+参见 [采集链路、特征语义、同步规则和验证](docs/LEROBOT_V3_CAPTURE.md)。

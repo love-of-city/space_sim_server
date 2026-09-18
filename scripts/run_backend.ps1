@@ -28,13 +28,13 @@ param(
     [double]$IkRate = 100.0,
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 10.0,
-    [switch]$DefaultDatasetCapture
+    [switch]$DefaultDatasetCapture = $true
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'python_runtime.ps1')
-$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn')
+$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn', 'lerobot.datasets.lerobot_dataset')
 $env:SPACE_SIM_PYTHON = $pythonExe
 if (!$AdapterRoot) { $AdapterRoot = $env:SPACE_SIM_RUNTIME_ADAPTER_ROOT }
 if (!$ModelRoot) { $ModelRoot = $env:SPACE_SIM_RUNTIME_MODEL_ROOT }
@@ -77,6 +77,7 @@ if ($AdapterRoot -and $ModelRoot -and $UnrealRoot -and $PowerShellExe) {
         '--runtime-capture-rate', $CaptureRate
     )
     if ($DefaultDatasetCapture) { $arguments += '--runtime-default-dataset-capture' }
+    else { $arguments += '--no-runtime-default-dataset-capture' }
     foreach ($cameraId in ($PixelStreamingCameraIds -split ',' | Where-Object { $_ })) {
         $arguments += @('--runtime-pixel-streaming-camera-id', $cameraId.Trim())
     }

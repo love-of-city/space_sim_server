@@ -52,6 +52,9 @@ $simulationRate = [double]$instance.runtime.simulation_rate
 $captureRate = [double]$instance.runtime.capture_rate_hz
 $ikRate = [double]$instance.runtime.ik_rate_hz
 $datasetCapture = [bool]$instance.runtime.dataset_capture
+if ($datasetCapture -and $captureRate -notin @(1, 2, 5, 10)) {
+    throw 'LeRobot capture rate must be 1, 2, 5 or 10 Hz on the native simulation clocks.'
+}
 if ($simulationRate -le 0 -or $captureRate -le 0 -or $ikRate -le 0) {
     throw 'Scene runtime rates must be positive.'
 }

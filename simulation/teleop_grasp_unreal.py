@@ -38,6 +38,7 @@ from simulation.serial_chain_kinematics import (  # noqa: E402
     rotation_matrix_to_vector,
 )
 from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_socket  # noqa: E402
+from simulation.observation_capture import AuthoritativeObservationModel
 from simulation.architecture import BasiliskModuleRegistry  # noqa: E402
 from space_arm_platform.lighting import (  # noqa: E402
     DEFAULT_SUNLIGHT_INTENSITY_SCALE, validate_sunlight_intensity_scale,
@@ -816,6 +817,8 @@ def run(args: argparse.Namespace) -> None:
         args.simulation_rate = float(runtime["simulation_rate"])
         args.capture_rate = float(runtime["capture_rate_hz"])
         args.ik_rate = float(runtime["ik_rate_hz"])
+    if (scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True)) and args.capture_rate not in (1, 2, 5, 10):
+        raise ValueError("LeRobot capture rate must align with the 2 ms dynamics and render clocks: 1, 2, 5, 10 Hz")
     adapter_root = args.adapter_root.resolve()
     ue_examples = adapter_root / "Unreal" / "BskUnrealRenderer" / "examples"
     sys.path.insert(0, str(adapter_root / "Adapters"))
@@ -975,7 +978,9 @@ def _run_session(
             sun,
             ephemeris,
         )
+        dataset_capture = bool(scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True))
         bridge = BasiliskRenderBridge(
+            reliable_frames=dataset_capture,
             host=args.render_host,
             port=args.render_port,
             origin_object="teleop/cubesat_bus",
@@ -1019,6 +1024,85 @@ def _run_session(
                 max_extrapolation_ms=50.0,
             )
         )
+        joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
+
+        def snapshot_observation(render_frame_id: int, render_sim_time_ns: int) -> dict[str, Any]:
+            joint_position = [float(joint.stateOutMsg.read().state) for joint in joints]
+            joint_velocity = [float(joint.stateDotOutMsg.read().state) for joint in joints]
+            end_effector_position, end_effector_rotation = kinematics.forward(
+                np.asarray(joint_position[:6])
+            )
+            end_effector_twist = kinematics.jacobian(
+                np.asarray(joint_position[:6])
+            ) @ np.asarray(joint_velocity[:6])
+            return (
+                {
+                    "protocol": CONTROL_PROTOCOL,
+                    "type": "observation",
+                    "simulation_id": "sarm-teleop",
+                    "reset_generation": client.reset_generation,
+                    "render_session_id": bridge.session_id,
+                    "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
+                    "scene_seed": scene_instance.get("seed") if scene_instance else None,
+                    "capture_target": {
+                        "model_file": target_spec.model_file,
+                        "runtime_model": target_spec.runtime_model,
+                        "collision_model": target_spec.collision_model,
+                        "runtime_warning": target_spec.runtime_warning,
+                        "synthetic_mass_kg": target_spec.synthetic_mass_kg,
+                        "hinge_position_rad": float(scene.getBody(target_spec.hinge_body).getScalarJoint(target_spec.hinge_joint).stateOutMsg.read().state) if target_spec.hinge_joint else None,
+                    },
+                    "scene_template_id": template_id,
+                    "step_id": str(render_frame_id + 1),
+                    "observation_source": "authoritative_render_snapshot",
+                    "render_frame_id": str(render_frame_id),
+                    # 使用权威渲染帧的离散时间，保证状态和相机产品可逐帧严格配对。
+                    "sim_time_ns": str(render_sim_time_ns),
+                    "wall_time_ns": str(time.time_ns()),
+                    "applied_action_sequence": targets.applied_sequence,
+                    # Legacy aliases retain 8 mixed-unit entries for older clients.
+                    # Explicit SI fields are authoritative for new consumers.
+                    "arm_joint_position_rad": joint_position[:6],
+                    "arm_joint_velocity_rad_s": joint_velocity[:6],
+                    "target_arm_joint_position_rad": targets.position[:6].tolist(),
+                    "gripper_position_m": joint_position[6:],
+                    "gripper_velocity_m_s": joint_velocity[6:],
+                    "target_gripper_position_m": targets.position[6:].tolist(),
+                    **simulation.attitude_control.telemetry(),
+                    "joint_position_rad": joint_position,
+                    "joint_velocity_rad_s": joint_velocity,
+                    "target_joint_position_rad": targets.position.tolist(),
+                    "end_effector_position_body_m": end_effector_position.tolist(),
+                    "end_effector_orientation_body_wxyz": matrix_to_quaternion_wxyz(
+                        end_effector_rotation
+                    ).tolist(),
+                    "end_effector_twist_body": end_effector_twist.tolist(),
+                    "cartesian_command_residual": targets.residual_twist.tolist(),
+                    "jacobian_rank": targets.jacobian_rank,
+                    "ik_mode": targets.ik_mode,
+                    "ik_damping": float(targets.ik_damping),
+                    "ik_velocity_scale": float(targets.velocity_scale),
+                    "ik_minimum_singular_value": float(targets.minimum_singular_value),
+                    "ik_condition_number": float(min(targets.condition_number, 1.0e9)),
+                    "ik_nullspace_correction_norm": float(targets.nullspace_correction_norm),
+                    "command_stale": targets.command_stale,
+                    "ik_control_rate_hz": args.ik_rate,
+                    "ik_update_count": str(targets.update_count),
+                    "ik_solve_count": str(targets.ik_solve_count),
+                    "tracking_scale": float(targets.tracking_scale),
+                    "position_tracking_error_m": float(
+                        np.linalg.norm(targets.position_error)
+                    ),
+                    "orientation_tracking_error_rad": float(
+                        np.linalg.norm(targets.orientation_error)
+                    ),
+                }
+            )
+
+        observation_snapshots = AuthoritativeObservationModel(bridge, snapshot_observation)
+        module_registry.register("authoritative_observation_snapshot", observation_snapshots,
+                                 task_name="graspTask", priority=-10_001)
+
         module_registry.register("render_state_publisher", bridge, task_name="graspTask", priority=-10_000)
         module_registry.attach(simulation)
         native._initialize_state(simulation, scene)
@@ -1088,10 +1172,6 @@ def _run_session(
             processing_start = time.monotonic()
             simulation.ConfigureStopTime(macros.sec2nano(sim_seconds))
             simulation.ExecuteSimulation()
-            render_frame_id = bridge.last_published_frame_id
-            render_sim_time_ns = bridge.last_published_sim_time_ns
-            joint_position = [float(joint.stateOutMsg.read().state) for joint in joints]
-            joint_velocity = [float(joint.stateDotOutMsg.read().state) for joint in joints]
             if frame == 1:
                 targets.bind_joint_state_provider(
                     lambda: np.asarray(
@@ -1099,76 +1179,9 @@ def _run_session(
                         dtype=float,
                     )
                 )
-            end_effector_position, end_effector_rotation = kinematics.forward(
-                np.asarray(joint_position[:6])
-            )
-            end_effector_twist = kinematics.jacobian(
-                np.asarray(joint_position[:6])
-            ) @ np.asarray(joint_velocity[:6])
-            if frame == 1:
                 client.complete_reset()
-            client.send_observation(
-                {
-                    "protocol": CONTROL_PROTOCOL,
-                    "type": "observation",
-                    "simulation_id": "sarm-teleop",
-                    "reset_generation": client.reset_generation,
-                    "render_session_id": bridge.session_id,
-                    "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
-                    "scene_seed": scene_instance.get("seed") if scene_instance else None,
-                    "capture_target": {
-                        "model_file": target_spec.model_file,
-                        "runtime_model": target_spec.runtime_model,
-                        "collision_model": target_spec.collision_model,
-                        "runtime_warning": target_spec.runtime_warning,
-                        "synthetic_mass_kg": target_spec.synthetic_mass_kg,
-                        "hinge_position_rad": float(scene.getBody(target_spec.hinge_body).getScalarJoint(target_spec.hinge_joint).stateOutMsg.read().state) if target_spec.hinge_joint else None,
-                    },
-                    "scene_template_id": template_id,
-                    "step_id": str(frame),
-                    "render_frame_id": str(render_frame_id),
-                    # 使用权威渲染帧的离散时间，保证状态和相机产品可逐帧严格配对。
-                    "sim_time_ns": str(render_sim_time_ns),
-                    "wall_time_ns": str(time.time_ns()),
-                    "applied_action_sequence": targets.applied_sequence,
-                    # Legacy aliases retain 8 mixed-unit entries for older clients.
-                    # Explicit SI fields are authoritative for new consumers.
-                    "arm_joint_position_rad": joint_position[:6],
-                    "arm_joint_velocity_rad_s": joint_velocity[:6],
-                    "target_arm_joint_position_rad": targets.position[:6].tolist(),
-                    "gripper_position_m": joint_position[6:],
-                    "gripper_velocity_m_s": joint_velocity[6:],
-                    "target_gripper_position_m": targets.position[6:].tolist(),
-                    **simulation.attitude_control.telemetry(),
-                    "joint_position_rad": joint_position,
-                    "joint_velocity_rad_s": joint_velocity,
-                    "target_joint_position_rad": targets.position.tolist(),
-                    "end_effector_position_body_m": end_effector_position.tolist(),
-                    "end_effector_orientation_body_wxyz": matrix_to_quaternion_wxyz(
-                        end_effector_rotation
-                    ).tolist(),
-                    "end_effector_twist_body": end_effector_twist.tolist(),
-                    "cartesian_command_residual": targets.residual_twist.tolist(),
-                    "jacobian_rank": targets.jacobian_rank,
-                    "ik_mode": targets.ik_mode,
-                    "ik_damping": float(targets.ik_damping),
-                    "ik_velocity_scale": float(targets.velocity_scale),
-                    "ik_minimum_singular_value": float(targets.minimum_singular_value),
-                    "ik_condition_number": float(min(targets.condition_number, 1.0e9)),
-                    "ik_nullspace_correction_norm": float(targets.nullspace_correction_norm),
-                    "command_stale": targets.command_stale,
-                    "ik_control_rate_hz": args.ik_rate,
-                    "ik_update_count": str(targets.update_count),
-                    "ik_solve_count": str(targets.ik_solve_count),
-                    "tracking_scale": float(targets.tracking_scale),
-                    "position_tracking_error_m": float(
-                        np.linalg.norm(targets.position_error)
-                    ),
-                    "orientation_tracking_error_rad": float(
-                        np.linalg.norm(targets.orientation_error)
-                    ),
-                }
-            )
+            for observation_snapshot in observation_snapshots.drain():
+                client.send_observation(observation_snapshot)
             processing_seconds += time.monotonic() - processing_start
         if args.duration > 0.0:
             wall_seconds = time.monotonic() - wall_start

@@ -186,6 +186,13 @@ class SimulationObservation(BaseModel):
 
 
 class EpisodeStart(BaseModel):
+    fps: Literal[1, 2, 5, 10] = 10
+    camera_ids: list[str] = Field(default_factory=lambda: [
+        "teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"])
+    capture_products: list[Literal["rgb", "depth", "segmentation"]] = Field(
+        default_factory=lambda: ["rgb", "depth", "segmentation"])
+    max_frames: int = Field(default=18000, ge=1, le=108000)
+
     task_id: str | None = None
     task: str = "spacecraft arm teleoperation"
     instruction: str = "控制太空机械臂接近并抓取目标"
@@ -196,6 +203,18 @@ class EpisodeStart(BaseModel):
     operator_user_id: str | None = None
     operator_username: str | None = None
     operator_role: Literal["admin", "operator"] | None = None
+
+    @model_validator(mode="after")
+    def validate_dataset_features(self):
+        from .lerobot_capture import camera_key
+        keys = [camera_key(camera) for camera in self.camera_ids]
+        if any(not camera.strip() for camera in self.camera_ids) or len(set(keys)) != len(keys):
+            raise ValueError("camera IDs must be nonempty and have unique dataset keys")
+        if len(set(self.capture_products)) != len(self.capture_products):
+            raise ValueError("duplicate capture products")
+        if self.camera_ids and "rgb" not in self.capture_products:
+            raise ValueError("RGB is required for camera datasets")
+        return self
 
 
 class EpisodeStop(BaseModel):
@@ -216,12 +235,19 @@ class SceneInstanceCreate(BaseModel):
     simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)
     capture_rate_hz: float = Field(default=10.0, gt=0.0, le=60.0)
     ik_rate_hz: float = Field(default=100.0, ge=1.0, le=500.0)
-    dataset_capture: bool = False
+    dataset_capture: bool = True
     sunlight_intensity_scale: FiniteFloat = Field(
         default=DEFAULT_SUNLIGHT_INTENSITY_SCALE, strict=True,
         ge=0.0, le=MAX_SUNLIGHT_INTENSITY_SCALE,
         description="Scene solar illumination multiplier; 1 preserves current lighting, 0 disables direct sunlight.",
     )
+
+    @model_validator(mode="after")
+    def validate_dataset_sampling(self):
+        from .lerobot_capture import SUPPORTED_FPS
+        if self.dataset_capture and self.capture_rate_hz not in SUPPORTED_FPS:
+            raise ValueError(f"LeRobot capture FPS must be representable by the dynamics and render clocks: {SUPPORTED_FPS}")
+        return self
 
 
 class LoginRequest(BaseModel):

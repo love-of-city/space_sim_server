@@ -13,7 +13,9 @@ def login_admin(client: TestClient) -> None:
 
 
 def test_health_and_episode_lifecycle(tmp_path) -> None:
-    project_root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    # A unit recording must not inherit run/scene_runtime.json from an existing
+    # developer deployment (which may be a preview-only scene).
+    project_root = tmp_path / "project"
     app = create_app(
         PlatformConfig(
             project_root=project_root,

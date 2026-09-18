@@ -16,6 +16,7 @@ def test_health_and_episode_lifecycle(tmp_path) -> None:
     # A unit recording must not inherit run/scene_runtime.json from an existing
     # developer deployment (which may be a preview-only scene).
     project_root = tmp_path / "project"
+    (project_root / "frontend").mkdir(parents=True)
     app = create_app(
         PlatformConfig(
             project_root=project_root,

@@ -35,6 +35,8 @@ class IkResult:
     condition_number: float = math.inf
     damping: float = 0.0
     nullspace_correction_norm: float = 0.0
+    # Read-only evidence from the existing limiter; never changes the IK step.
+    limit_reasons: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -274,6 +276,7 @@ class SerialChainKinematics:
                 achieved_twist=np.zeros(6),
                 residual_twist=context.twist.copy(),
                 jacobian_rank=context.rank,
+                limit_reasons=({"code": "task_constraint", "joints": []},),
                 velocity_scale=0.0,
                 minimum_singular_value=context.minimum_singular_value,
                 condition_number=context.condition_number,
@@ -290,6 +293,8 @@ class SerialChainKinematics:
             velocity_scale=scale,
             minimum_singular_value=context.minimum_singular_value,
             condition_number=context.condition_number,
+            limit_reasons=_uniform_limit_reasons(unscaled, context.lower, context.upper,
+                                                np.asarray(joint_velocity_limits), scale),
         )
 
     def inverse_velocity_ik_pose(
@@ -325,9 +330,9 @@ class SerialChainKinematics:
           singular direction stays bounded instead of freezing;
         * joint speed and position limits rescale the whole step by one factor,
           which preserves the Cartesian direction of the command;
-        * ``nullspace_reference`` is optional.  Teleoperation passes ``None``
-          while the deadman is released so the held joint reference cannot
-          drift through the posture term.
+        * ``nullspace_reference`` is optional and used only by explicit
+          numerical experiments. Live teleoperation does not supply a posture
+          objective; arm-idle and gripper-only commands skip IK entirely.
         """
 
         base = float(base_damping)
@@ -377,6 +382,8 @@ class SerialChainKinematics:
             condition_number=context.condition_number,
             damping=damping,
             nullspace_correction_norm=correction_norm * scale,
+            limit_reasons=_uniform_limit_reasons(step, context.lower, context.upper,
+                                                np.asarray(joint_velocity_limits), scale),
         )
 
     def _step_context(
@@ -422,8 +429,8 @@ class SerialChainKinematics:
             maximum = np.asarray(joint_position_max, dtype=float)
             if minimum.shape != (size,) or maximum.shape != (size,):
                 raise ValueError("joint position bounds must match the chain")
-            if not np.all(np.isfinite(minimum)) or not np.all(np.isfinite(maximum)) or np.any(minimum > maximum):
-                raise ValueError("joint position bounds must be finite and ordered")
+            if np.any(np.isnan(minimum)) or np.any(np.isnan(maximum)) or np.any(minimum > maximum):
+                raise ValueError("joint position bounds must be ordered and not NaN")
             lower = np.maximum(lower, (minimum - q) / float(dt))
             upper = np.minimum(upper, (maximum - q) / float(dt))
 
@@ -559,6 +566,34 @@ def _uniform_limit_scale(
         elif value < -1.0e-14:
             scale = min(scale, max(0.0, float(low / value)))
     return max(0.0, min(1.0, scale))
+
+
+def _uniform_limit_reasons(
+    step: np.ndarray, lower: np.ndarray, upper: np.ndarray,
+    velocity_limits: np.ndarray, scale: float,
+) -> tuple[dict, ...]:
+    """Explain the already-computed scalar limit, including a zero-scale stop.
+
+    Observational only: no alternative solve, look-ahead, feedback or gating.
+    Inspect the unscaled step so that a stationary joint at its boundary is not
+    falsely named as the cause of another joint's stop.
+    """
+    if scale >= 1.0 - 1e-8:
+        return ()
+    positions, speeds = [], []
+    for i, value in enumerate(step):
+        if abs(value) <= 1e-14:
+            continue
+        bound = upper[i] if value > 0 else lower[i]
+        allowed = max(0.0, float(bound / value))
+        if not math.isclose(allowed, scale, rel_tol=1e-6, abs_tol=1e-8):
+            continue
+        if abs(bound) < velocity_limits[i] - 1e-10:
+            positions.append(i + 1)
+        else:
+            speeds.append(i + 1)
+    return tuple({"code": code, "joints": joints} for code, joints in
+                 (("joint_position_limit", positions), ("joint_speed_limit", speeds)) if joints)
 
 
 def _adaptive_damping(

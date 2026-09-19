@@ -1,3 +1,4 @@
+import { formatMotionSpeedDiagnostics } from "../motion_diagnostics.js";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -10,15 +11,17 @@ const observationHandler = source.slice(start, source.indexOf('} else if (messag
 function observe(payload) {
   const nodes = new Map();
   let output;
+  let jointObservation;
   const $ = (id) => {
     if (!nodes.has(id)) nodes.set(id, { textContent: "" });
     return nodes.get(id);
   };
   vm.runInNewContext(observationHandler, {
-    message: { payload }, $, setOnline() {},
+    message: { payload }, $, setOnline() {}, formatMotionSpeedDiagnostics,
+    jointAngles: { update(obs) { jointObservation = obs; } },
     updateMotionOutputs(twist, grip) { output = { twist, grip }; },
   });
-  return { output, $ };
+  return { output, $, jointObservation };
 }
 
 test("SARM telemetry uses a slider velocity, not the sixth revolute joint", () => {
@@ -51,4 +54,10 @@ test("attitude hold, wheel speed and saturation are displayed separately", () =>
   assert.equal(h.$("attitudeError").textContent, "1.000 °");
   assert.equal(h.$("wheelSpeeds").textContent, "60.0, 0.0, 0.0 rpm");
   assert.equal(h.$("wheelTorques").textContent, "0.200, 0.000, 0.000 N·m");
+});
+
+test("actual observation is forwarded unchanged to the joint-angle panel", () => {
+  const payload = {sim_time_ns: "0", arm_joint_position_rad: [0,0,0,0,0,5.2],
+    target_arm_joint_position_rad: [1,1,1,1,1,1], arm_joint_limits_rad: Array(6).fill([-6.28,6.28])};
+  assert.equal(observe(payload).jointObservation, payload);
 });

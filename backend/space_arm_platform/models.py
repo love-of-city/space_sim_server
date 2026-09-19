@@ -117,6 +117,35 @@ class ReactionWheelObservation(BaseModel):
     overspeed: WheelFlags
 
 
+class MotionLimitReason(BaseModel):
+    code: str
+    joints: list[int] = Field(default_factory=list)
+    detail: str = ""
+
+
+class MotionSpeedChannel(BaseModel):
+    active: bool = False
+    warning: bool = False
+    expected_speed: FiniteFloat = 0.0
+    actual_speed_along_command: FiniteFloat = 0.0
+    predicted_speed_along_command: FiniteFloat = 0.0
+    lateral_speed: FiniteFloat = 0.0
+    ratio: FiniteFloat | None = None
+    reasons: list[MotionLimitReason] = Field(default_factory=list)
+    state: str = "idle"
+
+
+class MotionSpeedDiagnostics(BaseModel):
+    frame: Literal["spacecraft_body"] = "spacecraft_body"
+    control_point: str = "sarm_ee"
+    threshold: FiniteFloat = 0.8
+    enabled: bool = False
+    command_stale: bool = False
+    measurement_valid: bool = False
+    linear: MotionSpeedChannel | None = None
+    angular: MotionSpeedChannel | None = None
+
+
 class SimulationObservation(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -140,6 +169,18 @@ class SimulationObservation(BaseModel):
     jacobian_rank: int = Field(default=0, ge=0, le=6)
     # Differential IK diagnostics published by the SARM simulator.
     ik_mode: str = ""
+    ik_status: str = ""
+    ik_reasons: list[MotionLimitReason] = Field(default_factory=list)
+    ik_solve_time_ms: FiniteFloat = 0.0
+    operator_twist_body: list[FiniteFloat] = Field(default_factory=lambda: [0.0]*6, min_length=6, max_length=6)
+    expected_twist_body: list[FiniteFloat] = Field(default_factory=lambda: [0.0]*6, min_length=6, max_length=6)
+    predicted_twist_body: list[FiniteFloat] = Field(default_factory=lambda: [0.0]*6, min_length=6, max_length=6)
+    joint_limit_margin_rad: list[FiniteFloat | None] | None = Field(default=None, min_length=6, max_length=6)
+    # J1-J6, model-zero coordinates; [None, None] denotes a continuous joint.
+    arm_joint_limits_rad: list[tuple[FiniteFloat | None, FiniteFloat | None]] | None = Field(
+        default=None, min_length=6, max_length=6
+    )
+    motion_speed_diagnostics: MotionSpeedDiagnostics | None = None
     ik_damping: FiniteFloat = 0.0
     ik_velocity_scale: FiniteFloat = 1.0
     ik_minimum_singular_value: FiniteFloat = 0.0
@@ -176,6 +217,17 @@ class SimulationObservation(BaseModel):
         if (self.attitude_control is None) != (self.reaction_wheels is None):
             raise ValueError("attitude and wheel telemetry must be supplied together")
         return self
+
+    @field_validator("arm_joint_limits_rad")
+    @classmethod
+    def validate_arm_limits(cls, value):
+        if value is not None:
+            for lower, upper in value:
+                if (lower is None) != (upper is None):
+                    raise ValueError("joint limits must be a finite pair or both null")
+                if lower is not None and lower >= upper:
+                    raise ValueError("joint lower limit must be less than upper limit")
+        return value
 
     @field_validator("step_id", "render_frame_id", "sim_time_ns", "wall_time_ns", "applied_action_sequence")
     @classmethod
@@ -230,6 +282,10 @@ class SceneInstanceCreate(BaseModel):
     randomize_orbit_phase: bool = Field(
         default=False, strict=True,
         description="Sample a seed-reproducible starting phase on the current circular orbit, independently of local grasp randomization.",
+    )
+    initial_arm_joint_position_deg: list[Annotated[FiniteFloat, Field(strict=True)]] | None = Field(
+        default=None, min_length=6, max_length=6,
+        description="Optional J1-J6 initial angles in model-zero degrees. Overrides arm randomization only; fingers are unchanged.",
     )
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)

@@ -20,7 +20,8 @@ function setup(value = "1") {
   $("randomizationProfile").value = "none";
   const requests=[], messages=[];
   const state={sceneDefaults:{simulation_rate:1,capture_rate_hz:10,ik_rate_hz:100}, currentUser:{role:"admin",user_id:"admin"}, scenePhase:"idle"};
-  const ctx=vm.createContext({$,state,console,Option:function(){}, scenePhaseLabels:{running:"运行中"},
+  const ctx=vm.createContext({ initialJointCatalog: null, configureInitialJoints() {},
+    initialJoints: { read: () => null, setRuntime() {} },$,state,console,Option:function(){}, scenePhaseLabels:{running:"运行中"},
     setMessage:m=>messages.push(m), updateOperationUI(){},updateEpisodeUI(){},connectPixelStreaming(){},exitOperationMode(){},refreshState:async()=>{},
     apiRequest:async (path, options={})=>{requests.push({path,options});return {ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{}})};},
     readApiResponse:async()=>({instance_id:"s1",seed:42}),applySceneRuntime(){}

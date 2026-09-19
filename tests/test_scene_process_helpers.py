@@ -97,3 +97,46 @@ def test_stop_marks_intent_before_ending_child_processes():
     assert 'Wait-SceneRuntimeExit $rendererProcess $simulation' in start
     assert 'Stop-RecordedProcessTree $simulation.Id $runtimeState.simulation_start' in start
     assert 'UE renderer exited unexpectedly' in start
+
+
+@pytest.mark.parametrize('failure', ['null', 'throws'])
+@pytest.mark.parametrize('stage', ['root', 'child', 'recheck'])
+def test_unreadable_start_time_is_not_killed_and_does_not_abort_cleanup(tmp_path, failure, stage):
+    script = tmp_path / 'unreadable.ps1'
+    script.write_text('''
+param($Helpers,$Failure,$Stage)
+$ErrorActionPreference='Stop'
+. $Helpers
+$script:reads=@{}
+$script:stops=[Collections.Generic.List[int]]::new()
+function Get-Process { param($Id,$ErrorAction)
+    $n=[int]$Id
+    $script:reads[$n]=1+[int]$script:reads[$n]
+    $unreadable=($Stage -eq 'root' -and $n -eq 1001) -or
+        ($Stage -eq 'child' -and $n -eq 1002) -or
+        ($Stage -eq 'recheck' -and $n -eq 1001 -and $script:reads[$n] -gt 1)
+    if($unreadable){
+        if($Failure -eq 'null'){return [pscustomobject]@{StartTime=$null}}
+        $p=[pscustomobject]@{}
+        $p | Add-Member ScriptProperty StartTime { throw 'Access denied or process exited' }
+        return $p
+    }
+    $ticks=if($n -eq 1001){20L}else{25L}
+    return [pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+}
+function Get-CimInstance { param($ClassName,$Filter,$ErrorAction)
+    if($Stage -eq 'root'){throw 'Unverified root must not enumerate descendants'}
+    if($Filter -eq 'ParentProcessId=1001'){return @([pscustomobject]@{ProcessId=1002})}
+    return @()
+}
+function Stop-Process {param($Id,[switch]$Force,$ErrorAction) $script:stops.Add([int]$Id)}
+Stop-RecordedProcessTree 1001 20
+@{stops=@($script:stops);completed=$true} | ConvertTo-Json -Compress
+''', encoding='utf-8')
+    result=invoke(script,HELPERS,failure,stage)
+    assert result.returncode == 0, result.stdout+result.stderr
+    # Write-Warning can be visible because this is a simple function; parse the
+    # final JSON line while retaining the warning for real startup diagnostics.
+    out=json.loads(result.stdout.strip().splitlines()[-1])
+    assert out['completed']
+    assert out['stops'] == {'root':[], 'child':[1001], 'recheck':[1002]}[stage]

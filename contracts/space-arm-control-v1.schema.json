@@ -439,6 +439,126 @@
             },
             "render_session_id": {
               "type": "string"
+            },
+            "ik_status": {
+              "default": "",
+              "title": "Ik Status",
+              "type": "string"
+            },
+            "ik_reasons": {
+              "items": {
+                "$ref": "#/$defs/MotionLimitReason"
+              },
+              "title": "Ik Reasons",
+              "type": "array"
+            },
+            "ik_solve_time_ms": {
+              "default": 0.0,
+              "title": "Ik Solve Time Ms",
+              "type": "number"
+            },
+            "operator_twist_body": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 6,
+              "minItems": 6,
+              "title": "Operator Twist Body",
+              "type": "array"
+            },
+            "expected_twist_body": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 6,
+              "minItems": 6,
+              "title": "Expected Twist Body",
+              "type": "array"
+            },
+            "predicted_twist_body": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 6,
+              "minItems": 6,
+              "title": "Predicted Twist Body",
+              "type": "array"
+            },
+            "joint_limit_margin_rad": {
+              "anyOf": [
+                {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "maxItems": 6,
+                  "minItems": 6,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Joint Limit Margin Rad"
+            },
+            "motion_speed_diagnostics": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MotionSpeedDiagnostics"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "arm_joint_limits_rad": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "prefixItems": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  "maxItems": 6,
+                  "minItems": 6,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Arm Joint Limits Rad"
             }
           }
         },
@@ -706,6 +826,150 @@
           }
         }
       ]
+    },
+    "MotionLimitReason": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "joints": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Joints",
+          "type": "array"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "MotionLimitReason",
+      "type": "object"
+    },
+    "MotionSpeedChannel": {
+      "properties": {
+        "active": {
+          "default": false,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "warning": {
+          "default": false,
+          "title": "Warning",
+          "type": "boolean"
+        },
+        "expected_speed": {
+          "default": 0.0,
+          "title": "Expected Speed",
+          "type": "number"
+        },
+        "actual_speed_along_command": {
+          "default": 0.0,
+          "title": "Actual Speed Along Command",
+          "type": "number"
+        },
+        "predicted_speed_along_command": {
+          "default": 0.0,
+          "title": "Predicted Speed Along Command",
+          "type": "number"
+        },
+        "lateral_speed": {
+          "default": 0.0,
+          "title": "Lateral Speed",
+          "type": "number"
+        },
+        "ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ratio"
+        },
+        "reasons": {
+          "items": {
+            "$ref": "#/$defs/MotionLimitReason"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "state": {
+          "default": "idle",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "title": "MotionSpeedChannel",
+      "type": "object"
+    },
+    "MotionSpeedDiagnostics": {
+      "properties": {
+        "frame": {
+          "const": "spacecraft_body",
+          "default": "spacecraft_body",
+          "title": "Frame",
+          "type": "string"
+        },
+        "control_point": {
+          "default": "sarm_ee",
+          "title": "Control Point",
+          "type": "string"
+        },
+        "threshold": {
+          "default": 0.8,
+          "title": "Threshold",
+          "type": "number"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "command_stale": {
+          "default": false,
+          "title": "Command Stale",
+          "type": "boolean"
+        },
+        "measurement_valid": {
+          "default": false,
+          "title": "Measurement Valid",
+          "type": "boolean"
+        },
+        "linear": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MotionSpeedChannel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "angular": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MotionSpeedChannel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "MotionSpeedDiagnostics",
+      "type": "object"
     }
   }
 }

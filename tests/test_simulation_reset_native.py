@@ -52,7 +52,8 @@ def test_client_reset_barrier_and_duplicate_delivery():
 
 
 @pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')
-def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch):
+@pytest.mark.parametrize("initial_angles", [None, [-45., -20., 25., -90., -50., 275.]])
+def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, initial_angles):
     monkeypatch.syspath_prepend(str(ADAPTER / 'Adapters'))
     monkeypatch.syspath_prepend(str(ADAPTER / 'Unreal/BskUnrealRenderer/examples'))
     # Establish the production DLL import order before loading any native scene.
@@ -84,6 +85,10 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch):
             snapshot = (np.array(data.qpos), np.array(data.qvel))
             if self.initial is None:
                 self.initial = (int(nanos), snapshot)
+                if initial_angles is not None:
+                    actual = [float(self.scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
+                              for body, joint in native.JOINTS[:6]]
+                    np.testing.assert_allclose(actual, np.deg2rad(initial_angles), rtol=0, atol=1.e-12)
             self.last = snapshot
         def close(self):
             super().close()
@@ -127,7 +132,7 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch):
     monkeypatch.setattr(bsk_render_adapter, 'BasiliskRenderBridge', ProbeBridge)
     monkeypatch.setattr(teleop, 'SimulationControlClient', OfflineClient)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
-    instance = manager.create_instance(SceneInstanceCreate(seed=123, randomize_orbit_phase=True))
+    instance = manager.create_instance(SceneInstanceCreate(seed=123, randomize_orbit_phase=True, initial_arm_joint_position_deg=initial_angles))
     config_path = Path(instance['config_path'])
     before = config_path.read_bytes()
     args = SimpleNamespace(adapter_root=ADAPTER, model_root=ROOT / 'model/SARM/platform',

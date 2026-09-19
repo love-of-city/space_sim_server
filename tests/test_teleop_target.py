@@ -202,7 +202,8 @@ def test_release_or_timeout_holds_last_target_for_arm_and_both_fingers(reason) -
         assert np.array_equal(target.target_tool_rotation, held_tool_rotation)
         assert np.array_equal(position[6:], held_gripper)
         assert np.array_equal(velocity[6:], np.zeros(2))
-    assert target.ik_solve_count == 4
+    assert target.ik_solve_count == 1
+    assert target.update_count == 4
 
 
 @pytest.mark.parametrize("model_relative,catalog_name", [
@@ -349,15 +350,16 @@ def test_ik_mode_selects_the_solver_kernel() -> None:
         )
 
 
-def test_ik_pose_withholds_the_posture_reference_while_released() -> None:
+def test_ik_pose_never_supplies_an_automatic_posture_reference() -> None:
     initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
     kinematics = CountingKinematics()
     client = FakeClient()
     target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
     target.reset(0.0)
     target.update(0.01)
-    assert np.array_equal(kinematics.last_nullspace_reference, target.nullspace_reference)
-    assert np.allclose(target.nullspace_reference, initial[:6])
+    assert kinematics.last_nullspace_reference is None
+    assert target.nullspace_correction_norm == 0.0
+    assert kinematics.inverse_calls == 1
 
     action, _ = client.latest_action()
     action["deadman"] = False
@@ -365,6 +367,8 @@ def test_ik_pose_withholds_the_posture_reference_while_released() -> None:
     target.update(0.02)
     assert kinematics.last_nullspace_reference is None
     assert target.nullspace_correction_norm == 0.0
+    assert kinematics.inverse_calls == 1
+    assert target.ik_solve_count == 1
 
 
 SINGULAR_PREGRASP = np.array(

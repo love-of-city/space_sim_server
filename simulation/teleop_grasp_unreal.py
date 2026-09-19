@@ -33,6 +33,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
 from simulation.serial_chain_kinematics import (  # noqa: E402
     SerialChainKinematics,
+    IkResult,
     axis_angle_to_matrix,
     matrix_to_quaternion_wxyz,
     rotation_matrix_to_vector,
@@ -47,10 +48,15 @@ from space_arm_platform.lighting import (  # noqa: E402
 
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
+from space_arm_platform.joint_limits import load_joint_limits
+from simulation.motion_diagnostics import MotionSpeedMonitor
 
 
-JOINT_MIN = np.array([-3.1416, -3.1416, -3.1416, -3.1416, -3.1416, -6.2832, 0.0, 0.0])
-JOINT_MAX = np.array([3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 6.2832, 0.0375, 0.0375])
+SARM_JOINT_NAMES = tuple(f"joint{i}" for i in range(1, 7)) + ("joint_finger1", "joint_finger2")
+# Compatibility aliases only. Each live target receives its selected model limits.
+_DEFAULT_LIMITS = load_joint_limits(PROJECT_ROOT / "model/SARM/platform/sarm_platform.xml", SARM_JOINT_NAMES)
+JOINT_MIN = np.array(_DEFAULT_LIMITS.lower)
+JOINT_MAX = np.array(_DEFAULT_LIMITS.upper)
 ARM_JOINT_VELOCITY_LIMIT = np.array([0.70, 0.70, 0.70, 0.90, 1.00, 1.00])
 # Differential IK kernels selectable for A/B evaluation.
 IK_MODE_IK_POSE = "ik_pose"
@@ -62,10 +68,6 @@ IK_MODES = (IK_MODE_IK_POSE, IK_MODE_STRICT)
 IK_POSE_BASE_DAMPING = 1.0e-3
 IK_POSE_MAXIMUM_DAMPING = 5.0e-2
 IK_POSE_SINGULAR_VALUE_THRESHOLD = 2.0e-2
-# Posture gain [1/s] of the robosuite-style nullspace term.  The term is only
-# evaluated while the deadman is engaged and only projects into directions the
-# Jacobian cannot command, so it cannot move the tool off the commanded pose.
-IK_POSE_NULLSPACE_GAIN = 0.15
 MAX_LINEAR_COMMAND_ACCELERATION_M_S2 = 0.20
 MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 = 2.0
 TELEOP_ARM_KP = np.array([32.0, 32.0, 32.0, 30.0, 30.0, 15.0])
@@ -95,7 +97,7 @@ ARM_JOINT_NAMES = (
 )
 
 
-def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
+def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> dict[str, Any] | None:
     """Load and validate one reproducible scene-instance document."""
 
     if path is None:
@@ -211,7 +213,9 @@ def _load_scene_instance(path: Path | None) -> dict[str, Any] | None:
     if quaternion_norm <= 1.0e-12:
         raise ValueError("scene target quaternion must have non-zero norm")
     joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
-    if np.any(joints < JOINT_MIN) or np.any(joints > JOINT_MAX):
+    scene_model = target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model
+    scene_limits = load_joint_limits(scene_model, SARM_JOINT_NAMES)
+    if np.any(joints < np.array(scene_limits.lower)) or np.any(joints > np.array(scene_limits.upper)):
         raise ValueError("scene arm joint positions exceed the SARM joint limits")
     if target.hinge_joint:
         angle = randomization.get("target_hinge_position_rad", 0.0)
@@ -422,7 +426,7 @@ class SimulationControlClient:
 
 
 class CartesianTeleopTarget:
-    """Track a Cartesian pose target through bounded differential IK references."""
+    """Integrate bounded joint references from operator twist; telemetry is passive."""
 
     def __init__(
         self,
@@ -431,8 +435,7 @@ class CartesianTeleopTarget:
         kinematics: SerialChainKinematics,
         *,
         ik_mode: str = IK_MODE_IK_POSE,
-        nullspace_reference: np.ndarray | None = None,
-        nullspace_gains: np.ndarray | None = None,
+        joint_limits=None,
     ) -> None:
         if ik_mode not in IK_MODES:
             raise ValueError(f"unsupported IK mode {ik_mode!r}; expected one of {IK_MODES}")
@@ -442,23 +445,20 @@ class CartesianTeleopTarget:
         self.client = client
         self.kinematics = kinematics
         self.ik_mode = ik_mode
-        # robosuite seeds its posture term from the reset joint configuration.
-        posture = (
-            self.initial_position[:6].copy()
-            if nullspace_reference is None
-            else np.asarray(nullspace_reference, dtype=float).copy()
-        )
-        if posture.shape != (6,) or not np.all(np.isfinite(posture)):
-            raise ValueError("nullspace reference must contain six finite joint positions")
-        self.nullspace_reference = posture
-        gains = (
-            np.full(6, IK_POSE_NULLSPACE_GAIN)
-            if nullspace_gains is None
-            else np.asarray(nullspace_gains, dtype=float).copy()
-        )
-        if gains.shape != (6,) or not np.all(np.isfinite(gains)) or np.any(gains < 0.0):
-            raise ValueError("nullspace gains must be six finite, non-negative values")
-        self.nullspace_gains = gains
+        limits = joint_limits or _DEFAULT_LIMITS
+        if limits.names != SARM_JOINT_NAMES:
+            raise ValueError("joint limit order does not match the SARM chain")
+        self.joint_min, self.joint_max = np.array(limits.lower), np.array(limits.upper)
+        if np.any(self.initial_position < self.joint_min) or np.any(self.initial_position > self.joint_max):
+            raise ValueError("initial joint positions exceed selected model limits")
+        self.speed_monitor = MotionSpeedMonitor()
+        self.solver_status = "idle"
+        self.solver_reasons = []
+        self.solve_time_ms = 0.
+        self.raw_operator_twist = np.zeros(6)
+        self._joint_velocity_provider = None
+        self._actuator_state_provider = None
+        self.actuator_diagnostics = None
         self._joint_state_provider: Callable[[], np.ndarray] | None = None
         self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(
             self.initial_position[:6]
@@ -488,9 +488,15 @@ class CartesianTeleopTarget:
         self.ik_solve_count = 0
 
     def bind_joint_state_provider(self, provider: Callable[[], np.ndarray]) -> None:
-        """Use measured arm joint positions for Cartesian pose feedback."""
+        """Use measured arm positions for telemetry; do not gate operator motion."""
 
         self._joint_state_provider = provider
+
+    def bind_joint_velocity_provider(self, provider: Callable[[], np.ndarray]) -> None:
+        self._joint_velocity_provider = provider
+
+    def bind_actuator_state_provider(self, provider) -> None:
+        self._actuator_state_provider = provider
 
     def _actual_arm_position(self) -> np.ndarray:
         if self._joint_state_provider is None:
@@ -526,6 +532,12 @@ class CartesianTeleopTarget:
         """Reset the held joint and Cartesian references at simulation start."""
 
         self.position = self.initial_position.copy()
+        self.raw_operator_twist.fill(0.)
+        self.actuator_diagnostics = None
+        self.speed_monitor.reset()
+        self.solver_reasons = []
+        self.solver_status = "idle"
+        self.solve_time_ms = 0.
         self.velocity.fill(0.0)
         self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(
             self.initial_position[:6]
@@ -552,7 +564,7 @@ class CartesianTeleopTarget:
         self.ik_solve_count = 0
 
     def update(self, sim_seconds: float) -> tuple[np.ndarray, np.ndarray]:
-        """Update a pose-locked Cartesian target and bounded joint references."""
+        """Update bounded joint references; hold them on release or stale input."""
 
         if self.last_sim_seconds is None:
             self.last_sim_seconds = sim_seconds
@@ -570,7 +582,15 @@ class CartesianTeleopTarget:
         requested_angular = np.asarray(
             action["end_effector_angular_velocity_body_rad_s"], dtype=float
         )
-        if enabled:
+        self.raw_operator_twist = np.concatenate((requested_linear, requested_angular))
+        requested_gripper = float(
+            action.get("gripper_velocity_m_s", action.get("gripper_velocity_rad_s", 0.0))
+        )
+        # The packet deadman authorizes both channels, but a gripper action must
+        # never enable arm IK. Numerical zero only: not a new joystick dead zone.
+        arm_enabled = enabled and bool(np.any(np.abs(self.raw_operator_twist) > 1.0e-14))
+        gripper_enabled = enabled and abs(requested_gripper) > 1.0e-14
+        if arm_enabled:
             self.commanded_linear_velocity = self._approach_vector(
                 self.commanded_linear_velocity,
                 requested_linear,
@@ -582,8 +602,9 @@ class CartesianTeleopTarget:
                 MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 * dt,
             )
         else:
-            # Releasing the deadman stops advancing the Cartesian target.  The
-            # measured-velocity term in each joint PD performs the deceleration.
+            # No arm input (including gripper-only) holds the arm reference.
+            # Clear the old smoothed twist so switching to the gripper does not
+            # continue the preceding arm command. Joint PD still handles inertia.
             self.commanded_linear_velocity.fill(0.0)
             self.commanded_angular_velocity.fill(0.0)
         operator_linear = self.commanded_linear_velocity
@@ -591,46 +612,62 @@ class CartesianTeleopTarget:
 
         actual_arm = self._actual_arm_position()
         self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(actual_arm)
-        # Tracking error is a closed-loop result, not a fault: a finite-gain
-        # joint PD holds a load-proportional steady-state error, so gating on it
-        # used to latch the operator command to zero and freeze the reference
-        # permanently.  The operator command is now passed through unchanged
-        # and the measured errors are published as diagnostics only.
         self.tracking_scale = 1.0
-
-        # The reference chain itself follows an exact six-dimensional twist.
-        # When input is released it holds the last exact joint solution; the
-        # existing joint feedback removes physical tracking error without an
-        # additional Cartesian loop fighting the coordinated trajectory.
         self.desired_twist = np.concatenate((operator_linear, operator_angular))
-
-        if self.ik_mode == IK_MODE_STRICT:
-            result = self.kinematics.inverse_velocity_bounded(
-                self.position[:6],
-                self.desired_twist,
-                joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
-                joint_position_min=JOINT_MIN[:6],
-                joint_position_max=JOINT_MAX[:6],
-                dt=dt,
+        # Restore the original single-pass velocity IK. Measured pose error is
+        # diagnostic only: no lead gates, Cartesian feedback or failure/braking
+        # state machine modifies the operator command.
+        if not arm_enabled:
+            # Keep measured telemetry running below, but skip reference-chain
+            # Jacobian/SVD/IK work. Geometry diagnostics retain the last sample.
+            result = IkResult(
+                joint_velocity_rad_s=np.zeros(6), achieved_twist=np.zeros(6),
+                residual_twist=np.zeros(6), jacobian_rank=self.jacobian_rank,
+                minimum_singular_value=self.minimum_singular_value,
+                condition_number=self.condition_number,
             )
+            self.solve_time_ms = 0.0
         else:
-            # robosuite IK_POSE: damped least squares plus a nullspace posture
-            # term.  The posture reference is withheld while the deadman is
-            # released, so a disengaged arm holds its joints exactly instead of
-            # drifting through the nullspace.
-            result = self.kinematics.inverse_velocity_ik_pose(
-                self.position[:6],
-                self.desired_twist,
-                joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
-                joint_position_min=JOINT_MIN[:6],
-                joint_position_max=JOINT_MAX[:6],
-                dt=dt,
-                base_damping=IK_POSE_BASE_DAMPING,
-                maximum_damping=IK_POSE_MAXIMUM_DAMPING,
-                singular_value_threshold=IK_POSE_SINGULAR_VALUE_THRESHOLD,
-                nullspace_reference=self.nullspace_reference if enabled else None,
-                nullspace_gains=self.nullspace_gains,
-            )
+            solve_start = time.perf_counter()
+            if self.ik_mode == IK_MODE_STRICT:
+                result = self.kinematics.inverse_velocity_bounded(
+                    self.position[:6],
+                    self.desired_twist,
+                    joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
+                    joint_position_min=self.joint_min[:6],
+                    joint_position_max=self.joint_max[:6],
+                    dt=dt,
+                )
+            else:
+                # Damped task motion only: no automatic return-to-home posture
+                # objective is passed by the teleoperation controller.
+                result = self.kinematics.inverse_velocity_ik_pose(
+                    self.position[:6],
+                    self.desired_twist,
+                    joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
+                    joint_position_min=self.joint_min[:6],
+                    joint_position_max=self.joint_max[:6],
+                    dt=dt,
+                    base_damping=IK_POSE_BASE_DAMPING,
+                    maximum_damping=IK_POSE_MAXIMUM_DAMPING,
+                    singular_value_threshold=IK_POSE_SINGULAR_VALUE_THRESHOLD,
+                )
+            self.solve_time_ms = (time.perf_counter() - solve_start) * 1000.0
+            self.ik_solve_count += 1
+        self.solver_reasons = [dict(reason) for reason in getattr(result, "limit_reasons", ())]
+        self.solver_status = (
+            "holding" if not arm_enabled else
+            "limited" if result.velocity_scale < 1.0 - 1e-6 else "tracking"
+        )
+        if arm_enabled and np.linalg.norm(result.residual_twist) > 1e-5:
+            if result.damping > IK_POSE_BASE_DAMPING + 1e-8:
+                self.solver_reasons.append({"code": "damped_task_error", "joints": []})
+            if result.minimum_singular_value < IK_POSE_SINGULAR_VALUE_THRESHOLD:
+                self.solver_reasons.append({"code": "singularity_nearby", "joints": []})
+            if not self.solver_reasons:
+                self.solver_reasons.append({"code": "task_residual", "joints": []})
+            if self.solver_status == "tracking":
+                self.solver_status = "approximate"
         self.velocity[:6] = result.joint_velocity_rad_s
         self.achieved_twist = result.achieved_twist
         self.residual_twist = result.residual_twist
@@ -640,32 +677,40 @@ class CartesianTeleopTarget:
         self.condition_number = result.condition_number
         self.ik_damping = result.damping
         self.nullspace_correction_norm = result.nullspace_correction_norm
-        self.ik_solve_count += 1
-        if enabled:
-            self._advance_target(
-                self.achieved_twist[:3], self.achieved_twist[3:], dt
-            )
+        if arm_enabled:
+            self._advance_target(self.achieved_twist[:3], self.achieved_twist[3:], dt)
         self.position_error = self.target_tool_position - self.actual_tool_position
         self.orientation_error = rotation_matrix_to_vector(
             self.target_tool_rotation @ self.actual_tool_rotation.T
         )
 
-        gripper_velocity = 0.0
-        if enabled:
-            gripper_velocity = float(
-                action.get("gripper_velocity_m_s", action.get("gripper_velocity_rad_s", 0.0))
-            )
+        gripper_velocity = requested_gripper if gripper_enabled else 0.0
         self.velocity[6] = gripper_velocity
         self.velocity[7] = gripper_velocity
 
         proposed_arm = self.position[:6] + self.velocity[:6] * dt
-        joint_limited_arm = np.clip(proposed_arm, JOINT_MIN[:6], JOINT_MAX[:6])
+        joint_limited_arm = np.clip(proposed_arm, self.joint_min[:6], self.joint_max[:6])
         at_arm_limit = joint_limited_arm != proposed_arm
         self.velocity[:6][at_arm_limit] = 0.0
         self.position[:6] = joint_limited_arm
+        if self._joint_velocity_provider is not None:
+            measured_velocity = np.asarray(self._joint_velocity_provider(), dtype=float)
+            if measured_velocity.shape != (6,):
+                raise ValueError("measured arm velocity must have six entries")
+            measured_twist = self.kinematics.jacobian(actual_arm) @ measured_velocity
+        else:
+            # Never mislabel the kinematic prediction as a physical measurement.
+            measured_velocity = np.full(6, np.nan)
+            measured_twist = np.full(6, np.nan)
+        self.actuator_diagnostics = self._actuator_state_provider() if self._actuator_state_provider is not None else None
+        self.speed_monitor.update(sim_seconds, self.desired_twist, measured_twist, self.achieved_twist,
+            enabled=arm_enabled, stale=stale, solver_reasons=self.solver_reasons,
+            measured_joints=actual_arm, target_joints=self.position[:6],
+            measured_joint_velocity=measured_velocity, target_joint_velocity=self.velocity[:6],
+            actuator_evidence=self.actuator_diagnostics)
 
         proposed_gripper = self.position[6:] + self.velocity[6:] * dt
-        clipped_gripper = np.clip(proposed_gripper, JOINT_MIN[6:], JOINT_MAX[6:])
+        clipped_gripper = np.clip(proposed_gripper, self.joint_min[6:], self.joint_max[6:])
         at_gripper_limit = clipped_gripper != proposed_gripper
         self.velocity[6:][at_gripper_limit] = 0.0
         self.position[6:] = clipped_gripper
@@ -811,7 +856,7 @@ def _apply_orbital_initial_state(
 
 
 def run(args: argparse.Namespace) -> None:
-    scene_instance = _load_scene_instance(args.scene_instance)
+    scene_instance = _load_scene_instance(args.scene_instance, args.model_root)
     if scene_instance:
         runtime = scene_instance["runtime"]
         args.simulation_rate = float(runtime["simulation_rate"])
@@ -881,8 +926,14 @@ def _run_session(
     """Build one clean physics/controller/ephemeris/render session from the saved initial conditions."""
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     targets = CartesianTeleopTarget(
-        initial_joints, client, kinematics, ik_mode=args.ik_mode
+        initial_joints, client, kinematics, ik_mode=args.ik_mode,
+        joint_limits=load_joint_limits(native.MODEL_PATH, SARM_JOINT_NAMES)
     )
+    # Display-only metadata, prepared once from the exact limits used by this session.
+    arm_joint_limits_rad = [
+        [float(lo), float(hi)] if np.isfinite(lo) and np.isfinite(hi) else [None, None]
+        for lo, hi in zip(targets.joint_min[:6], targets.joint_max[:6])
+    ]
     original_reference = native.JointTrajectoryPublisher.__dict__["reference"]
     native.JointTrajectoryPublisher.reference = classmethod(
         lambda _cls, seconds: targets.cached_reference(seconds)
@@ -1080,6 +1131,18 @@ def _run_session(
                     "cartesian_command_residual": targets.residual_twist.tolist(),
                     "jacobian_rank": targets.jacobian_rank,
                     "ik_mode": targets.ik_mode,
+                    'ik_status': targets.solver_status,
+                    'ik_reasons': targets.solver_reasons,
+                    'ik_solve_time_ms': targets.solve_time_ms,
+                    'operator_twist_body': targets.raw_operator_twist.tolist(),
+                    'expected_twist_body': targets.desired_twist.tolist(),
+                    'predicted_twist_body': targets.achieved_twist.tolist(),
+                    'arm_joint_limits_rad': arm_joint_limits_rad,
+                    'joint_limit_margin_rad': [
+                        float(min(q-lo, hi-q)) if np.isfinite(lo) or np.isfinite(hi) else None
+                        for q, lo, hi in zip(joint_position[:6], targets.joint_min[:6], targets.joint_max[:6])],
+                    'motion_speed_diagnostics': targets.speed_monitor.latest,
+                    'arm_actuator_diagnostics': targets.actuator_diagnostics,
                     "ik_damping": float(targets.ik_damping),
                     "ik_velocity_scale": float(targets.velocity_scale),
                     "ik_minimum_singular_value": float(targets.minimum_singular_value),
@@ -1152,6 +1215,18 @@ def _run_session(
             flush=True,
         )
         joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
+        targets.bind_joint_state_provider(lambda: np.asarray(
+            [float(joint.stateOutMsg.read().state) for joint in joints[:6]]))
+        targets.bind_joint_velocity_provider(lambda: np.asarray(
+            [float(joint.stateDotOutMsg.read().state) for joint in joints[:6]]))
+        models_by_tag = {model.ModelTag: model for model in dynamics_models}
+        pid_models = [models_by_tag[f"{name}PID"] for name in ARM_JOINT_NAMES]
+        limiter_models = [models_by_tag[f"{name}TorqueLimiter"] for name in ARM_JOINT_NAMES]
+        targets.bind_actuator_state_provider(lambda: {
+            "requested_torque_nm": [float(model.outputOutMsg.read().input) for model in pid_models],
+            "applied_torque_nm": [float(model.actuatorOutMsg.read().input) for model in limiter_models],
+            "torque_limits_nm": TELEOP_ARM_TORQUE_LIMIT.tolist(),
+        })
 
         wall_start = time.monotonic()
         processing_seconds = 0.0
@@ -1173,12 +1248,6 @@ def _run_session(
             simulation.ConfigureStopTime(macros.sec2nano(sim_seconds))
             simulation.ExecuteSimulation()
             if frame == 1:
-                targets.bind_joint_state_provider(
-                    lambda: np.asarray(
-                        [float(joint.stateOutMsg.read().state) for joint in joints[:6]],
-                        dtype=float,
-                    )
-                )
                 client.complete_reset()
             for observation_snapshot in observation_snapshots.drain():
                 client.send_observation(observation_snapshot)
@@ -1239,14 +1308,17 @@ def main() -> None:
         choices=IK_MODES,
         default=os.environ.get("SPACE_SIM_IK_MODE", IK_MODE_IK_POSE),
         help=(
-            "ik_pose (robosuite-style damped IK with nullspace posture control, default) "
-            "or strict (freeze instead of trading motion direction at a singularity)"
+            "ik_pose (default: single-pass damped differential IK); "
+            "strict (hold an infeasible Cartesian direction rather than project it)"
         ),
     )
     parser.add_argument("--scene-instance", type=Path)
     parser.add_argument("--disable-attitude-control", action="store_true",
                         help="Leave rotors installed but command zero motor torque (A/B diagnostics)")
     args = parser.parse_args()
+    if args.ik_mode not in IK_MODES:
+        parser.error("SPACE_SIM_IK_MODE must be ik_pose or strict; constrained has been removed. "
+                     "Unset the old environment override or select --ik-mode ik_pose.")
     if args.catalog is None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
         args.catalog = args.adapter_root / "Unreal" / "BskUnrealRenderer" / "Saved" / "AssetImport" / catalog_name

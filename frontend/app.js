@@ -1,3 +1,6 @@
+import { createInitialJointAngles } from "./initial_joint_angles.js";
+import { createJointAnglePanel } from "./joint_angles.js";
+import { formatMotionSpeedDiagnostics } from "./motion_diagnostics.js";
 import {
   Config,
   Flags,
@@ -52,6 +55,18 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+const initialJoints = createInitialJointAngles({
+  toggle: $("sceneCustomInitialJoints"), fields: $("sceneInitialJointFields"),
+  presetButton: $("sceneInitialJointPreset"), help: $("sceneInitialJointsHelp"),
+});
+let initialJointCatalog = null;
+function configureInitialJoints() {
+  initialJoints.configure(
+    initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value),
+    initialJointCatalog?.initial_arm_presets_deg?.[$("randomizationProfile").value],
+  );
+}
+const jointAngles = createJointAnglePanel($("jointAngleGrid"), $("jointAngleState"));
 const controlKeys = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "KeyQ", "KeyE", "KeyR", "KeyF", "ShiftLeft", "ShiftRight", "Escape"]);
 
 function setPixelStreamingInputEnabled(keyboardEnabled, mouseEnabled) {
@@ -193,6 +208,7 @@ function shutdownAuthenticatedApp() {
   state.actionTimer = null; state.stateTimer = null;
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
   disposePixelStream();
+  jointAngles.clear("已退出登录");
   state.connected = false; state.controlGranted = false;
 }
 
@@ -204,7 +220,7 @@ async function startAuthenticatedApp() {
   await loadOperators();
   updateOperationUI();
   if (!state.actionTimer) state.actionTimer = setInterval(sendAction, 33);
-  if (!state.stateTimer) state.stateTimer = setInterval(refreshState, 1500);
+  if (!state.stateTimer) state.stateTimer = setInterval(() => { jointAngles.checkFreshness(); refreshState(); }, 1500);
 }
 
 async function initialize() {
@@ -229,6 +245,8 @@ async function loadSceneCatalog() {
     const defaults = catalog.defaults || {};
     template.value = defaults.template_id || template.value;
     profile.value = defaults.randomization_profile || profile.value;
+    initialJointCatalog = catalog;
+    configureInitialJoints();
     $("sceneDatasetCapture").checked = Boolean(defaults.dataset_capture);
     $("sceneRandomizeOrbitPhase").checked = defaults.randomize_orbit_phase === true;
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
@@ -287,6 +305,8 @@ function applySceneRuntime(runtime = {}) {
     $("sceneSunlightIntensity").value = String(instanceSunlight);
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
   }
+  configureInitialJoints();
+  initialJoints.setRuntime(active, instance);
   $("sceneParameters").textContent = instance.randomization
     ? JSON.stringify({ capture_target: instance.capture_target || {}, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
@@ -307,6 +327,9 @@ async function readApiResponse(response) {
 }
 
 async function startScene() {
+  let initialAngles;
+  try { initialAngles = initialJoints.read(); }
+  catch (error) { setMessage(error.message); return; }
   const sunlightText = $("sceneSunlightIntensity").value.trim();
   const sunlightScale = Number(sunlightText);
   if (sunlightText === "" || !Number.isFinite(sunlightScale) || sunlightScale < 0 || sunlightScale > 20000) {
@@ -325,6 +348,7 @@ async function startScene() {
     ik_rate_hz: state.sceneDefaults.ik_rate_hz,
     dataset_capture: $("sceneDatasetCapture").checked,
     sunlight_intensity_scale: sunlightScale,
+    initial_arm_joint_position_deg: initialAngles,
   };
   $("startScene").disabled = true;
   setMessage("正在生成可复现场景实例…");
@@ -399,6 +423,10 @@ function connect() {
     state.controlGranted = false;
     setOnline("backendDot", false);
     $("backendState").textContent = "后端断开";
+    jointAngles.clear("连接中断，等待新遥测");
+    $("motionSpeedStatus").textContent = "连接中断，速度诊断已失效";
+    $("motionSpeedDetail").textContent = "等待新的实测遥测，不沿用断线前的速度与原因。";
+    $("motionSpeedDiagnostic").className = "motion-speed-diagnostic";
     $("controlAuthority").textContent = "只读";
     exitOperationMode("连接中断，已退出操作模式并自动归零");
     if (state.currentUser) setTimeout(connect, 1000);
@@ -428,21 +456,27 @@ function connect() {
       }
     } else if (message.type === "control_revoked") {
       state.controlGranted = false;
+      if (message.reason === "scene_reset") jointAngles.clear("场景重置中");
       state.operationRequested = false;
       $("controlAuthority").textContent = "其他页面正在操作";
       exitOperationMode(message.reason === "scene_reset" ? "场景正在重置，已撤销操控；完成后请重新点击画面" : "同一用户的其他页面已进入操作，本页面自动退出");
     } else if (message.type === "observation") {
       const obs = message.payload;
+      jointAngles.update(obs);
       setOnline("simDot", true);
       $("simState").textContent = "仿真在线";
       $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
       $("actionSequence").textContent = obs.applied_action_sequence;
       updateMotionOutputs(obs.end_effector_twist_body || [], obs.gripper_velocity_m_s?.[0] ?? obs.joint_velocity_rad_s?.[6] ?? 0);
+      const speedDiagnostic = formatMotionSpeedDiagnostics(obs.motion_speed_diagnostics);
+      $("motionSpeedStatus").textContent = speedDiagnostic.title;
+      $("motionSpeedDetail").textContent = speedDiagnostic.detail;
+      $("motionSpeedDiagnostic").className = speedDiagnostic.warning ? "motion-speed-diagnostic warning" : "motion-speed-diagnostic";
       const position = obs.end_effector_position_body_m || [];
       $("toolPosition").textContent = position.length === 3 ? position.map((value) => Number(value).toFixed(3)).join(", ") : "—";
       $("jacobianRank").textContent = `${obs.jacobian_rank ?? "—"} / 6`;
       $("ikSolver").textContent = obs.ik_mode
-        ? `${obs.ik_mode} · λ=${Number(obs.ik_damping ?? 0).toFixed(4)} · scale=${Number(obs.ik_velocity_scale ?? 1).toFixed(2)} · σmin=${Number(obs.ik_minimum_singular_value ?? 0).toExponential(1)}`
+        ? `${obs.ik_mode}${obs.ik_status ? ` / ${obs.ik_status}` : ""} · λ=${Number(obs.ik_damping ?? 0).toFixed(4)} · scale=${Number(obs.ik_velocity_scale ?? 1).toFixed(2)} · σmin=${Number(obs.ik_minimum_singular_value ?? 0).toExponential(1)} · ${Number(obs.ik_solve_time_ms ?? 0).toFixed(2)} ms`
         : "—";
       const attitude = obs.attitude_control;
       const wheels = obs.reaction_wheels;
@@ -965,6 +999,9 @@ async function refreshState() {
     state.activeEpisode = data.active_episode;
     $("episodePath").textContent = data.episode_directory || "—";
     applySceneRuntime(data.scene_runtime || {});
+    if (!state.simulationConnected || state.simulationResetting || !state.sceneReady) {
+      jointAngles.clear(state.simulationResetting ? "场景重置中" : "等待运行场景的遥测");
+    }
     if (data.simulation.reset_error) setMessage(data.simulation.reset_error);
     if (data.active_episode && data.capture_sync?.dataset_error) {
       setMessage(`LeRobot 采集已出现错误，请结束本次采集：${data.capture_sync.dataset_error}`);
@@ -1098,6 +1135,8 @@ $("linearSpeed").addEventListener("input", (event) => {
   $("linearSpeedValue").textContent = `${state.linearSpeed.toFixed(2)} m/s`;
 });
 $("startScene").addEventListener("click", startScene);
+$("sceneTemplate").addEventListener("change", configureInitialJoints);
+$("randomizationProfile").addEventListener("change", configureInitialJoints);
 $("stopScene").addEventListener("click", stopScene);
 $("resetScene").addEventListener("click", resetScene);
 $("startEpisode").addEventListener("click", startEpisode);

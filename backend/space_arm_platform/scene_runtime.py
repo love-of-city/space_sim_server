@@ -11,11 +11,13 @@ import subprocess
 import threading
 import time
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .models import SceneInstanceCreate
+from .joint_limits import JointLimits, load_joint_limits
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE
 from .control_defaults import (
     BALANCED_TELEOP_HOME,
@@ -177,6 +179,13 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             for value, span in zip(initial_arm, joint_spans, strict=True)
         ]
 
+    # Sample first, then override only the six arm axes: preserve the seed stream
+    # and the original metre-valued finger positions, including randomization.
+    if request.initial_arm_joint_position_deg is not None:
+        randomization["arm_joint_position_rad"][:6] = [
+            math.radians(value) for value in request.initial_arm_joint_position_deg
+        ]
+
     if target.hinge_joint:
         randomization["target_hinge_position_rad"] = 0.0
 
@@ -193,6 +202,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "template_id": request.template_id,
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
+        "initial_arm_joint_position_deg": request.initial_arm_joint_position_deg,
         "seed": seed,
         "capture_target": {
             "source_model": target.source_model,
@@ -243,9 +253,35 @@ class SceneRuntimeManager:
     def enabled(self) -> bool:
         return self.launch is not None
 
+    def _initial_arm_limits(self, template_id: str) -> JointLimits:
+        model_root = self.launch.model_root if self.launch else Path(__file__).resolve().parents[2] / "model/SARM/platform"
+        model_path = capture_target(template_id).resolve_model(model_root)
+        try:
+            return load_joint_limits(model_path, tuple(f"joint{i}" for i in range(1, 7)))
+        except (OSError, ValueError, ET.ParseError) as error:
+            raise ValueError(f"无法读取机械臂关节限位（{template_id}）：{error}") from error
+
     def catalog(self) -> dict[str, Any]:
+        templates = []
+        for template in SCENE_TEMPLATES:
+            item = dict(template)
+            try:
+                limits = self._initial_arm_limits(item["id"])
+                item["arm_joint_limits_deg"] = [
+                    [math.degrees(lo), math.degrees(hi)] if limited else [None, None]
+                    for lo, hi, limited in zip(limits.lower, limits.upper, limits.limited, strict=True)
+                ]
+            except ValueError as error:
+                # A missing optional template must not break the whole catalog.
+                item["initial_arm_error"] = str(error)
+            templates.append(item)
         return {
-            "templates": list(SCENE_TEMPLATES),
+            "templates": templates,
+            "initial_arm_presets_deg": {
+                profile["id"]: [math.degrees(value) for value in (
+                    BALANCED_TELEOP_HOME if profile["id"] == BALANCED_TELEOP_PROFILE else LEGACY_PREGRASP
+                )[:6]] for profile in RANDOMIZATION_PROFILES
+            },
             "randomization_profiles": list(RANDOMIZATION_PROFILES),
             "defaults": {
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
@@ -264,6 +300,14 @@ class SceneRuntimeManager:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
+        if request.initial_arm_joint_position_deg is not None:
+            limits = self._initial_arm_limits(request.template_id)
+            for index, (value, lo, hi) in enumerate(zip(
+                request.initial_arm_joint_position_deg, limits.lower, limits.upper, strict=True
+            ), start=1):
+                # Validate in the same degree coordinates exposed by the catalog.
+                if not math.degrees(lo) <= value <= math.degrees(hi):
+                    raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
         path = self.scene_root / f"{instance['instance_id']}.json"

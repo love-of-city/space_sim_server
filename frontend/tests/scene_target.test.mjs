@@ -20,7 +20,8 @@ function setup() {
     return nodes.get(id);
   };
   const requests = [];
-  const ctx = vm.createContext({ $, console, state: { currentUser: { role: "admin" } },
+  const ctx = vm.createContext({ initialJointCatalog: null, configureInitialJoints() {},
+    initialJoints: { read: () => null, setRuntime() {} }, $, console, state: { currentUser: { role: "admin" } },
     Option: function(label, value) { this.label = label; this.value = value; }, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},
     exitOperationMode() {}, refreshState: async () => {},

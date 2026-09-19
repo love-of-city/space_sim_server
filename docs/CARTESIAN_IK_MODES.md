@@ -1,3 +1,5 @@
+> 当前默认已恢复 `ik_pose`；定制 QP/纠偏/制动机制已移除。保留的限位与独立速度诊断见 [简化遥操作](teleop_control.md)。
+
 # 末端笛卡尔 IK 模式（ik_pose / strict）
 
 本文说明实时遥操作末端 IK 的两个可选内核、切换方式、可调参数和观测诊断字段。
@@ -17,7 +19,6 @@ MJScene 500 Hz 的关节 PID 完成。本文只描述“六维速度 → 关节�
 
 ```text
 dq = J.T @ solve(J @ J.T + λ² I, twist)
-dq += (I - pinv(J) @ J) @ (Kn * (q_posture - q))
 dq *= scale   # 关节速度/位置限制的统一缩放
 ```
 
@@ -25,10 +26,11 @@ dq *= scale   # 关节速度/位置限制的统一缩放
   接近 `IK_POSE_SINGULAR_VALUE_THRESHOLD = 2e-2` 线性升到
   `IK_POSE_MAXIMUM_DAMPING = 5e-2`。均衡位形下残差约为指令模的 `5e-4`，接近奇异位形
   时速度有界、平滑减速而不是直接归零。
-- **零空间姿态控制**：把姿态误差 `(q_posture - q)` 投影到雅可比零空间后叠加，参考位姿取
-  该实例的初始关节配置（与 robosuite 使用 `initial_joint` 一致）。该分量只作用于雅可比
-  无法控制的方向，不会把末端推离指令位姿；deadman 松开时不下发该分量，因此松手后关节
-  参考严格保持不动。
+- **遥操作不再启用零空间构型调整**：不传初始关节参考或构型增益，避免用户没有要求时
+  自动回初始构型。底层数值接口仍支持显式实验，但它不属于实时遥操作路径。
+- **机械臂与夹爪分离**：同一 deadman 仍授权整个数据包，机械臂只由六维末端输入启用，
+  夹爪只由开合输入启用。只动夹爪、无输入或超时均不执行机械臂 IK；两者同时输入时
+  正常并行执行。转入夹爪操作时清除残留的机械臂平滑指令。
 - **统一缩放**：关节速度或位置约束触发时，仍然对整组关节速度乘同一个 `scale`，
   这一点与 `strict` 模式一致。
 
@@ -69,7 +71,7 @@ $env:SPACE_SIM_IK_MODE = 'strict'
 | `ik_velocity_scale` | 关节速度/位置约束触发的统一缩放因子 |
 | `ik_minimum_singular_value` | 当前构型雅可比最小奇异值 |
 | `ik_condition_number` | 条件数（无界时饱和到 `1e9`，保证 JSON 有限） |
-| `ik_nullspace_correction_norm` | 零空间姿态项的模（缩放后） |
+| `ik_nullspace_correction_norm` | 兼容遥测字段；当前实时控制恒为 `0` |
 | `jacobian_rank` / `cartesian_command_residual` | 原有字段，仍表示雅可比秩与六维指令残差 |
 
 前端“仿真状态 → IK 求解”一行显示 `ik_mode`、`λ`、`scale` 和 `σmin`。
@@ -81,7 +83,7 @@ $env:SPACE_SIM_IK_MODE = 'strict'
 | `IK_POSE_BASE_DAMPING` | `simulation/teleop_grasp_unreal.py` | `1e-3` |
 | `IK_POSE_MAXIMUM_DAMPING` | 同上 | `5e-2` |
 | `IK_POSE_SINGULAR_VALUE_THRESHOLD` | 同上 | `2e-2` |
-| `IK_POSE_NULLSPACE_GAIN` | 同上 | `0.15`（1/s） |
 
-零空间增益越大，越早从奇异方向被拉回初始姿态，但会产生更多操作员未直接指令的关节运动；
-在自由漂浮基座上这会改变基座反力矩，因此默认取较小值。
+`ik_solve_count` 只在实际执行 IK 时增加；空闲/夹爪独立操作时为保持状态，
+`ik_solve_time_ms` 为零。此时参考链的雅可比秩/奇异值保留上一次采样值，不表示新求解。
+实测运动遥测与 80% 监测仍更新，不会因跳过 IK 而停止采样。

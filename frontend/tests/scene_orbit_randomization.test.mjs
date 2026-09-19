@@ -21,7 +21,8 @@ function setup() {
   const requests = [];
   const state = { sceneDefaults: { simulation_rate: 1, capture_rate_hz: 10, ik_rate_hz: 100 },
     currentUser: { role: "admin" }, scenePhase: "idle" };
-  const ctx = vm.createContext({ $, state, console, Option: function() {}, scenePhaseLabels: {},
+  const ctx = vm.createContext({ initialJointCatalog: null, configureInitialJoints() {},
+    initialJoints: { read: () => null, setRuntime() {} }, $, state, console, Option: function() {}, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},
     exitOperationMode() {}, refreshState: async () => {}, applySceneRuntime() {},
     readApiResponse: async () => ({ instance_id: "s1", seed: 42 }),

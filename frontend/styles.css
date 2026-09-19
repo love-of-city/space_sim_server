@@ -231,3 +231,30 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .gamepad-diagnostics dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .gamepad-diagnostics p { margin: 7px 0 0; line-height: 1.5; color: #526577; }
 .gamepad-diagnostics #gamepadGate { color: #254b68; }
+
+.motion-speed-diagnostic { padding: 10px 12px; margin: 10px 0; border: 1px solid #425166; border-radius: 6px; font-size: 12px; }
+.motion-speed-diagnostic p { white-space: pre-line; overflow-wrap: anywhere; margin: 6px 0 0; line-height: 1.6; }
+.motion-speed-diagnostic.warning { border-color: #e4a94b; background: rgba(228,169,75,.10); }
+.motion-speed-diagnostic.warning strong { color: #e4a94b; }
+
+/* Read-only joint telemetry; numbers stay unwrapped even for multi-turn joints. */
+.joint-angle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.joint-angle-card { min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.joint-angle-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; margin-bottom: 7px; }
+.joint-angle-head strong { font-size: 11px; }
+.joint-angle-head output { color: var(--accent); font: 600 16px ui-monospace, Consolas, monospace; }
+.joint-angle-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 4px; margin-top: 4px; font-size: 10px; }
+.joint-angle-line > span:first-child { color: var(--muted); }
+.joint-angle-line > span:last-child { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.joint-angle-note { margin: 8px 0; color: var(--muted); font-size: 10px; line-height: 1.65; }
+.joint-angle-card.warning { border-color: #ddb45b; background: #fff9e9; }
+.joint-angle-card.warning output, .joint-angle-card.warning .joint-angle-line:last-child { color: #855900; }
+.joint-angle-card.danger { border-color: #df9393; background: #fff1f1; }
+.joint-angle-card.danger output, .joint-angle-card.danger .joint-angle-line:last-child { color: #b52d2d; }
+.joint-angle-card.unknown output { color: var(--muted); }
+
+/* Scene initialization inputs are independent of the live angle telemetry. */
+.initial-joint-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.initial-joint-grid[hidden] { display: none; }
+.initial-joint-grid button { grid-column: 1 / -1; }
+.initial-joint-grid small { font-size: 10px; overflow-wrap: anywhere; }

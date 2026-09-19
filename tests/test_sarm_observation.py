@@ -19,6 +19,7 @@ def observation():
         'joint_position_rad': [0.]*6+[.01,.01], 'joint_velocity_rad_s': [0.]*8,
         'target_joint_position_rad': [0.]*6+[.01,.01],
         'arm_joint_position_rad': [0.]*6, 'arm_joint_velocity_rad_s': [0.]*6,
+        'arm_joint_limits_rad': [[-3.1416,3.1416] for _ in range(5)] + [[-6.2832,6.2832]],
         'target_arm_joint_position_rad': [0.]*6, 'gripper_position_m': [.01,.01],
         'gripper_velocity_m_s': [0.,0.], 'target_gripper_position_m': [.01,.01],
         'attitude_control': {
@@ -106,8 +107,54 @@ def test_real_hub_accepts_repeated_sarm_frames_and_records_wheels(tmp_path):
             rows = [json.loads(line) for line in (tmp_path/episode['episode_id']/'steps.jsonl').read_text().splitlines()]
             assert rows[-1]['observation']['reaction_wheels']['speed_rad_s'] == [1,2,3]
             assert rows[-1]['observation']['gripper_position_m'] == [.01,.01]
+            assert rows[-1]['observation']['arm_joint_limits_rad'][5] == [-6.2832,6.2832]
         finally:
             writer.close()
             await writer.wait_closed()
             await hub.close()
     asyncio.run(run())
+
+
+def test_speed_diagnostics_survive_observation_roundtrip_and_reject_nonfinite():
+    payload=observation()
+    payload.update(ik_mode="ik_pose",ik_status="limited",ik_solve_time_ms=.8,
+        expected_twist_body=[.05,0,0,0,0,0],predicted_twist_body=[.02,0,0,0,0,0],
+        joint_limit_margin_rad=[.1,None,.2,.001,.3,.4],
+        motion_speed_diagnostics={"enabled":True,"measurement_valid":True,
+            "linear":{"active":True,"warning":True,"expected_speed":.05,
+                "actual_speed_along_command":.02,"ratio":.4,"state":"low_speed",
+                "reasons":[{"code":"joint_position_limit","joints":[4]}]}})
+    result=SimulationObservation.model_validate(payload).model_dump(mode="json")
+    assert result["motion_speed_diagnostics"]["linear"]["ratio"] == .4
+    assert result["motion_speed_diagnostics"]["linear"]["reasons"][0]["joints"] == [4]
+    assert result["joint_limit_margin_rad"][1] is None
+    payload["motion_speed_diagnostics"]["linear"]["ratio"]=float("nan")
+    with pytest.raises(ValidationError): SimulationObservation.model_validate(payload)
+
+
+def test_actual_scene_arm_limits_roundtrip_without_angle_wrapping():
+    from space_arm_platform.joint_limits import load_joint_limits
+    model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_ground_target_self_collision.xml"
+    limits = load_joint_limits(model, tuple(f"joint{i}" for i in range(1, 7)))
+    payload = observation()
+    payload["arm_joint_limits_rad"] = [[lo, hi] for lo, hi in zip(limits.lower, limits.upper)]
+    payload["joint_position_rad"][5] = payload["arm_joint_position_rad"][5] = 5.2
+    result = SimulationObservation.model_validate(payload).model_dump(mode="json")
+    assert result["arm_joint_limits_rad"] == payload["arm_joint_limits_rad"]
+    assert result["arm_joint_limits_rad"][0] == [-3.1416, 3.1416]
+    assert result["arm_joint_limits_rad"][5] == [-6.2832, 6.2832]
+    assert result["arm_joint_position_rad"][5] == 5.2
+    payload["arm_joint_limits_rad"][5] = [None, None]
+    assert SimulationObservation.model_validate(payload).arm_joint_limits_rad[5] == (None, None)
+    del payload["arm_joint_limits_rad"]
+    assert SimulationObservation.model_validate(payload).arm_joint_limits_rad is None
+
+
+@pytest.mark.parametrize("bounds", [[], [[-1, 1]] * 5, [[-1, 1]] * 7,
+    [[-1, None]] * 6, [[None, 1]] * 6, [[1, -1]] * 6, [[0, 0]] * 6,
+    [[float("nan"), 1]] * 6, [[-1, float("inf")]] * 6, [[-1, 0, 1]] * 6])
+def test_invalid_arm_limit_metadata_is_rejected(bounds):
+    payload = observation()
+    payload["arm_joint_limits_rad"] = bounds
+    with pytest.raises(ValidationError):
+        SimulationObservation.model_validate(payload)

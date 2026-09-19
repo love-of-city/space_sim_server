@@ -41,7 +41,7 @@ uv venv .venv --python 3.13
 ```powershell
 . .\scripts\python_runtime.ps1
 $env:SPACE_SIM_PYTHON = Resolve-SpaceSimPython -RepositoryRoot $PWD.Path
-uv pip install --python $env:SPACE_SIM_PYTHON -e "../space_sim_UE_Adapter[test]" -e ".[test]"
+uv pip install --python $env:SPACE_SIM_PYTHON -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation]"
 ```
 
 uv 环境没有 pip 是正常现象；使用 `uv pip --python` 指定环境，无需激活，也不要为此运行 `ensurepip`。本项目尚无覆盖全部原生依赖的 `uv sync` 工作流。
@@ -61,7 +61,7 @@ conda create -n space-sim python=3.13 pip
 ```powershell
 conda activate space-sim
 $env:SPACE_SIM_PYTHON = Join-Path $env:CONDA_PREFIX 'python.exe'
-& $env:SPACE_SIM_PYTHON -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test]"
+& $env:SPACE_SIM_PYTHON -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation]"
 ```
 
 如果已有 Conda 环境缺少 pip，在该环境激活后用 `conda install pip` 安装。Conda 管理解释器及原生依赖，项目的 editable 包通过该解释器的 pip 安装；无需安装 uv。
@@ -78,7 +78,7 @@ py -3.13 -m venv .venv
 
 ```powershell
 $env:SPACE_SIM_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
-& $env:SPACE_SIM_PYTHON -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test]"
+& $env:SPACE_SIM_PYTHON -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation]"
 ```
 
 也可先执行 `.\.venv\Scripts\Activate.ps1` 激活。直接调用解释器无需激活，适用于激活脚本受执行策略限制的情况。若传统 pip 管理的 venv 确实缺少 pip，可用 `& $env:SPACE_SIM_PYTHON -m ensurepip --upgrade` 修复；这一步不用于 uv 管理的环境。
@@ -122,6 +122,23 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -ApiPort 18000
 
 打开 `http://127.0.0.1:18000`，登录后选择模板并点击“生成并启动场景”。平台启动成功不等于场景或视频已经就绪。全新认证数据库默认本机账号为 `admin` / `ChangeMe123!`；已有数据库使用原密码，登录后可修改。需要训练图像时先勾选“权威采集”，场景就绪后再开始 episode；只预览时保持关闭。
 
+### 机械臂初始关节角度
+
+在“场景实例”中勾选“自定义机械臂初始角度（J1～J6）”，分别输入六个关节相对于模型零位的角度，单位为 **度（°）**，然后点击“生成并启动场景”。每个输入框下方显示所选模型的有效限位；“填入当前配置基准角度”可填入当前随机化配置的基准姿态，再按需修改。
+
+- 不勾选时保留原有基准 / 随机初始化行为。
+- 勾选时六个角度精确覆盖机械臂随机初始角度，不改变夹爪开度、目标随机化、轨道或随机种子流；不自动把角度折返到 ±180°。
+- 场景运行期间不可修改初始化输入。“重置状态”恢复本次保存的初始姿态；要更换角度，请先停止场景，再修改并重新生成。
+- 前后端均校验输入；超限、空值或非有限数值会被拒绝。位置限位校验不等于碰撞检测，请避免自碰撞或与目标相交的初始姿态。
+
+`POST /api/scenes/instances` 和 `POST /api/scenes/start` 支持可选字段：
+
+```json
+{"initial_arm_joint_position_deg": [-45, -20, 25, -90, -50, 275]}
+```
+
+按 J1～J6 顺序传入六个数值；省略或传 `null` 使用原行为。实例保存这组输入，并将其转换为仿真使用的 `randomization.arm_joint_position_rad` 前六项；后两项仍是以米计的夹爪位置。旧场景文件无需迁移。
+
 检查 API：
 
 ```powershell
@@ -138,8 +155,8 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 
 ## 机械臂控制与视频配置
 
-- 机械臂默认使用 robosuite `IK_POSE` 风格的阻尼最小二乘与零空间姿态控制；仍保留原来的严格方向保持 IK 用于对照。设置 `$env:SPACE_SIM_IK_MODE = 'strict'` 可切回旧内核，设置为 `'ik_pose'` 切回新内核；需要重新启动仿真进程后生效。
-- 输入仍经过速度限制、deadman 和超时保护，真实运动由 Basilisk/MJScene 的关节控制器执行。跟踪误差用于遥测，不会把操作员指令锁死。两种 IK 的适用范围与误差取舍见[末端笛卡尔 IK 模式](docs/CARTESIAN_IK_MODES.md)。
+- 机械臂默认恢复 `ik_pose` 单步阻尼 IK，`strict` 保留作对照；已移除定制分阶段 QP 与额外纠偏/制动门槛。设置 `$env:SPACE_SIM_IK_MODE` 选择模式，重新启动仿真进程后生效。
+- 输入仍经过速度限制、deadman 和超时保护，真实运动由 Basilisk/MJScene 的关节控制器执行。实测误差与速度提示只作诊断，不干预运动。参见[简化遥操作](docs/teleop_control.md)和[末端笛卡尔 IK 模式](docs/CARTESIAN_IK_MODES.md)。
 - 操作预览默认目标为 **90 FPS**，可用 `run_platform.ps1 -PreviewRate 60` 调整；默认 `-EncoderMinQuality 60` 设置 H.264 编码质量下限（范围 0～100），不固定 WebRTC 码率。部署配置对应 `preview_fps` 和 `encoder_min_quality`。
 - 目标帧率不代表实测帧率；前端显示接收、显示帧率和平均 QP，UE 按订阅情况安排预览工作。权威训练采集的频率与预览独立，详见[视频帧率与质量](docs/VIDEO_FRAME_RATE.md)。
 
@@ -165,3 +182,17 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 
 新的录制通过官方 LeRobot writer 直接生成 v3 数据集，不需要事后转换。
 参见 [采集链路、特征语义、同步规则和验证](docs/LEROBOT_V3_CAPTURE.md)。
+
+
+### 简化机械臂控制与速度诊断
+
+默认 IK 恢复 `ik_pose`；移除分阶段 QP、双重目标领先门槛、额外加速度/制动切换、
+持续末端纠偏。未取消模型关节限位和原有安全保护，没有引入 LeRobot/Placo。
+`strict` 仍可通过 `--ik-mode` 或 `SPACE_SIM_IK_MODE` 选择。
+实时遥操作不再启用回初始关节构型的零空间项；机械臂与夹爪按各自输入启用，
+只动夹爪或无机械臂输入时跳过 IK，保持机械臂参考不变。80% 诊断仍只监测、不干预。
+
+控制面板分别显示平移/旋转沿指令方向的实测速度达成率，持续低于预期 80%
+时显示限位、阻尼残差、跟踪或力矩饱和等诊断证据；提示不参与控制。
+更新后需重新启动场景并刷新页面；如环境中仍有 `SPACE_SIM_IK_MODE=constrained`，
+需清除或改为 `ik_pose`。配置和独立验证方法见[简化遥操作说明](docs/teleop_control.md)。

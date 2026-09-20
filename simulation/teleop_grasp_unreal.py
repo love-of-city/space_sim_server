@@ -12,6 +12,7 @@ state to UE.
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import gc
 import json
 import math
@@ -47,9 +48,22 @@ from space_arm_platform.lighting import (  # noqa: E402
 
 
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
-from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 from space_arm_platform.joint_limits import load_joint_limits
 from simulation.motion_diagnostics import MotionSpeedMonitor
+from space_arm_platform.control_defaults import (
+    BALANCED_TELEOP_HOME, DEFAULT_DYNAMICS_STEP_S, MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S,
+)
+from simulation.reference_governor import JointReferenceGovernor
+from simulation.reference_recovery import ReferenceRecoverySettings
+from simulation.runtime_progress import runtime_stage
+from simulation.joint_reference_publisher import HeldJointReferencePublisher
+
+
+def validate_dynamics_step(value: float) -> float:
+    step = float(value)
+    if not math.isfinite(step) or not MIN_DYNAMICS_STEP_S <= step <= MAX_DYNAMICS_STEP_S:
+        raise ValueError(f"dynamics_step_s must be in [{MIN_DYNAMICS_STEP_S}, {MAX_DYNAMICS_STEP_S}]")
+    return step
 
 
 SARM_JOINT_NAMES = tuple(f"joint{i}" for i in range(1, 7)) + ("joint_finger1", "joint_finger2")
@@ -460,6 +474,11 @@ class CartesianTeleopTarget:
         self._actuator_state_provider = None
         self.actuator_diagnostics = None
         self._joint_state_provider: Callable[[], np.ndarray] | None = None
+        self._effort_provider: Callable[[], np.ndarray] | None = None
+        self.governor = JointReferenceGovernor()
+        self.governor_state = "holding"
+        self.governor_limited_joints: tuple[int, ...] = ()
+        self.arm_effort_ratio = np.zeros(6)
         self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(
             self.initial_position[:6]
         )
@@ -506,6 +525,11 @@ class CartesianTeleopTarget:
             raise ValueError("measured arm joint state must contain six finite values")
         return measured
 
+    def bind_effort_provider(self, provider: Callable[[], np.ndarray]) -> None:
+        """Read absolute applied effort divided by each arm actuator's limit."""
+
+        self._effort_provider = provider
+
     @staticmethod
     def _limit_vector(vector: np.ndarray, maximum_norm: float) -> np.ndarray:
         norm = float(np.linalg.norm(vector))
@@ -538,6 +562,10 @@ class CartesianTeleopTarget:
         self.solver_reasons = []
         self.solver_status = "idle"
         self.solve_time_ms = 0.
+        self.governor.reset()
+        self.governor_state = "holding"
+        self.governor_limited_joints = ()
+        self.arm_effort_ratio.fill(0.0)
         self.velocity.fill(0.0)
         self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(
             self.initial_position[:6]
@@ -602,9 +630,6 @@ class CartesianTeleopTarget:
                 MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 * dt,
             )
         else:
-            # No arm input (including gripper-only) holds the arm reference.
-            # Clear the old smoothed twist so switching to the gripper does not
-            # continue the preceding arm command. Joint PD still handles inertia.
             self.commanded_linear_velocity.fill(0.0)
             self.commanded_angular_velocity.fill(0.0)
         operator_linear = self.commanded_linear_velocity
@@ -612,11 +637,7 @@ class CartesianTeleopTarget:
 
         actual_arm = self._actual_arm_position()
         self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(actual_arm)
-        self.tracking_scale = 1.0
         self.desired_twist = np.concatenate((operator_linear, operator_angular))
-        # Restore the original single-pass velocity IK. Measured pose error is
-        # diagnostic only: no lead gates, Cartesian feedback or failure/braking
-        # state machine modifies the operator command.
         if not arm_enabled:
             # Keep measured telemetry running below, but skip reference-chain
             # Jacobian/SVD/IK work. Geometry diagnostics retain the last sample.
@@ -668,9 +689,25 @@ class CartesianTeleopTarget:
                 self.solver_reasons.append({"code": "task_residual", "joints": []})
             if self.solver_status == "tracking":
                 self.solver_status = "approximate"
-        self.velocity[:6] = result.joint_velocity_rad_s
-        self.achieved_twist = result.achieved_twist
-        self.residual_twist = result.residual_twist
+        self.arm_effort_ratio = self._effort_provider() if self._effort_provider else np.zeros(6)
+        governed = self.governor.apply(
+            self.position[:6], actual_arm, result.joint_velocity_rad_s, dt,
+            enabled=arm_enabled,
+            effort_ratio=self.arm_effort_ratio,
+            allow_recovery=(
+                action.get("allow_reference_recovery") is True and not stale
+                and not enabled and not action.get("reason")
+            ),
+        )
+        self.velocity[:6] = governed.velocity
+        self.tracking_scale = governed.scale
+        self.governor_state = governed.state
+        self.governor_limited_joints = governed.limited_joints
+        self.achieved_twist = (
+            self.kinematics.jacobian(self.position[:6]) @ governed.velocity
+            if governed.reference_rebased else result.achieved_twist * governed.scale
+        )
+        self.residual_twist = self.desired_twist - self.achieved_twist
         self.jacobian_rank = result.jacobian_rank
         self.velocity_scale = result.velocity_scale
         self.minimum_singular_value = result.minimum_singular_value
@@ -693,6 +730,10 @@ class CartesianTeleopTarget:
         at_arm_limit = joint_limited_arm != proposed_arm
         self.velocity[:6][at_arm_limit] = 0.0
         self.position[:6] = joint_limited_arm
+        if governed.reference_rebased:
+            self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(self.position[:6])
+            self.position_error = self.target_tool_position - self.actual_tool_position
+            self.orientation_error = rotation_matrix_to_vector(self.target_tool_rotation @ self.actual_tool_rotation.T)
         if self._joint_velocity_provider is not None:
             measured_velocity = np.asarray(self._joint_velocity_provider(), dtype=float)
             if measured_velocity.shape != (6,):
@@ -862,8 +903,12 @@ def run(args: argparse.Namespace) -> None:
         args.simulation_rate = float(runtime["simulation_rate"])
         args.capture_rate = float(runtime["capture_rate_hz"])
         args.ik_rate = float(runtime["ik_rate_hz"])
+    requested_step = getattr(args, "dynamics_step", None)
+    if requested_step is None:
+        requested_step = scene_instance["runtime"].get("dynamics_step_s", DEFAULT_DYNAMICS_STEP_S) if scene_instance else DEFAULT_DYNAMICS_STEP_S
+    args.dynamics_step = validate_dynamics_step(requested_step)
     if (scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True)) and args.capture_rate not in (1, 2, 5, 10):
-        raise ValueError("LeRobot capture rate must align with the 2 ms dynamics and render clocks: 1, 2, 5, 10 Hz")
+        raise ValueError("LeRobot capture rate must align with the dynamics and render clocks: 1, 2, 5, 10 Hz")
     adapter_root = args.adapter_root.resolve()
     ue_examples = adapter_root / "Unreal" / "BskUnrealRenderer" / "examples"
     sys.path.insert(0, str(adapter_root / "Adapters"))
@@ -883,13 +928,18 @@ def run(args: argparse.Namespace) -> None:
                       "runtime_warning": target_spec.runtime_warning}, ensure_ascii=True), flush=True)
     native.TARGET_POS = np.asarray(target_spec.position_m, dtype=float)
     native.TARGET_QUAT = np.asarray(target_spec.orientation_wxyz, dtype=float)
-    native.TIME_STEP = 0.002  # One authoritative 500 Hz dynamics step.
+    native.TIME_STEP = args.dynamics_step
     native.KP = np.asarray(native.KP, dtype=float).copy()
     native.KD = np.asarray(native.KD, dtype=float).copy()
     native.TORQUE_LIMITS = np.asarray(native.TORQUE_LIMITS, dtype=float).copy()
     native.KP[:6] = TELEOP_ARM_KP
     native.KD[:6] = TELEOP_ARM_KD
     native.TORQUE_LIMITS[:6] = TELEOP_ARM_TORQUE_LIMIT
+    print(json.dumps({"type": "teleop_control_configuration", "dynamics_step_s": native.TIME_STEP,
+                      "integrator": "Basilisk default RK4", "ik_rate_hz": args.ik_rate,
+                      "reference_governor": "bounded_reference_recovery_v2",
+                      "reference_governor_settings": asdict(JointReferenceGovernor().settings),
+                      "reference_recovery_settings": asdict(ReferenceRecoverySettings())}), flush=True)
 
     client = SimulationControlClient(args.control_host, args.control_port, "sarm-teleop")
     kinematics = SerialChainKinematics.from_mjcf(
@@ -913,7 +963,8 @@ def run(args: argparse.Namespace) -> None:
                 break
             # Dispose of the old native graph before creating a fresh one.
             # UE/Pixel Streaming and the backend control connection stay alive.
-            gc.collect()
+            with runtime_stage("release_previous_session"):
+                gc.collect()
     finally:
         client.close()
 
@@ -934,10 +985,7 @@ def _run_session(
         [float(lo), float(hi)] if np.isfinite(lo) and np.isfinite(hi) else [None, None]
         for lo, hi in zip(targets.joint_min[:6], targets.joint_max[:6])
     ]
-    original_reference = native.JointTrajectoryPublisher.__dict__["reference"]
-    native.JointTrajectoryPublisher.reference = classmethod(
-        lambda _cls, seconds: targets.cached_reference(seconds)
-    )
+    reference_publisher = HeldJointReferencePublisher(targets.cached_reference, len(native.JOINTS))
 
     from Basilisk.simulation import NBodyGravity, pointMassGravityModel
     from Basilisk.utilities import macros, simIncludeGravBody
@@ -947,9 +995,12 @@ def _run_session(
     gravity_factory = None
     module_registry = BasiliskModuleRegistry()
     try:
-        simulation, scene, dynamics_models, recorders = native._build_simulation(
-            attitude_control_enabled=False if getattr(args, "disable_attitude_control", False) else None
-        )
+        with runtime_stage("build_physics"):
+            simulation, scene, dynamics_models, recorders = native._build_simulation(
+                attitude_control_enabled=False if getattr(args, "disable_attitude_control", False) else None,
+                external_reference=reference_publisher,
+                record_history=False,
+            )
         print(json.dumps({
             "type": "attitude_control_configuration",
             "settings": simulation.attitude_control.settings,
@@ -968,7 +1019,8 @@ def _run_session(
         gravity_factory = simIncludeGravBody.gravBodyFactory()
         earth = gravity_factory.createEarth()
         sun = gravity_factory.createSun()
-        ephemeris = _create_ephemeris_interface(gravity_factory, ephemeris_epoch)
+        with runtime_stage("load_ephemeris"):
+            ephemeris = _create_ephemeris_interface(gravity_factory, ephemeris_epoch)
 
         # Register the environmental models with the MJScene dynamics task.
         # Basilisk computes the accelerations and MJScene performs the unified
@@ -1005,7 +1057,7 @@ def _run_session(
 
         # The MJBody overload installs Basilisk's native subscriptions to the
         # MJScene state and mass-property messages.  Keep this direct binding
-        # so the 500 Hz dynamics loop does not cross a Python bridge.
+        # so the dynamics loop does not cross a Python bridge.
         print(json.dumps({"type": "ephemeris_configuration", "epoch_utc": ephemeris_epoch, "center": SUPPORTED_EPHEMERIS_CENTER, "frame": SUPPORTED_EPHEMERIS_FRAME, "planet_fixed_frames": dict(zip(("earth", "sun"), CELESTIAL_FIXED_FRAMES)), "gravity_sources": ["earth", "sun"], "gravity_targets": gravity_target_names}, sort_keys=True), flush=True)
         control_task_name = "teleopIkTask"
         control_task = simulation.CreateNewTask(
@@ -1017,6 +1069,7 @@ def _run_session(
         grasp_process.addTask(control_task, 100)
         ik_controller = CartesianIkControlModel(targets)
         module_registry.register("teleop_ik", ik_controller, task_name=control_task_name)
+        module_registry.register("joint_reference_publisher", reference_publisher, task_name=control_task_name, priority=-1)
         keep_alive = (
             dynamics_models,
             recorders,
@@ -1153,6 +1206,14 @@ def _run_session(
                     "ik_update_count": str(targets.update_count),
                     "ik_solve_count": str(targets.ik_solve_count),
                     "tracking_scale": float(targets.tracking_scale),
+                    "reference_governor_state": targets.governor_state,
+                    "reference_controller_version": "bounded_reference_recovery_v2",
+                    "reference_joint_error_rad": (targets.position[:6] - np.asarray(joint_position[:6])).tolist(),
+                    "reference_effort_ratio": targets.arm_effort_ratio.tolist(),
+                    "reference_blocked_joints": (np.flatnonzero(getattr(targets.governor, "blocked", np.zeros(6))) + 1).tolist(),
+                    "reference_saturation_seconds": getattr(targets.governor, "saturation_seconds", np.zeros(6)).tolist(),
+                    "reference_limited_joints": list(targets.governor_limited_joints),
+                    "dynamics_step_s": native.TIME_STEP,
                     "position_tracking_error_m": float(
                         np.linalg.norm(targets.position_error)
                     ),
@@ -1168,7 +1229,8 @@ def _run_session(
 
         module_registry.register("render_state_publisher", bridge, task_name="graspTask", priority=-10_000)
         module_registry.attach(simulation)
-        native._initialize_state(simulation, scene)
+        with runtime_stage("initialize_state"):
+            native._initialize_state(simulation, scene)
         environment = scene_instance.get("environment", {}) if scene_instance else {}
         orbit = environment.get("orbit", DEFAULT_ORBIT)
         randomized = scene_instance["randomization"] if scene_instance else {
@@ -1227,6 +1289,10 @@ def _run_session(
             "applied_torque_nm": [float(model.actuatorOutMsg.read().input) for model in limiter_models],
             "torque_limits_nm": TELEOP_ARM_TORQUE_LIMIT.tolist(),
         })
+        arm_actuators = [scene.getSingleActuator(name) for name in native.ACTUATORS[:6]]
+        targets.bind_effort_provider(
+            lambda: np.asarray([abs(float(actuator.actuatorInMsg().input)) for actuator in arm_actuators]) / native.TORQUE_LIMITS[:6]
+        )
 
         wall_start = time.monotonic()
         processing_seconds = 0.0
@@ -1237,6 +1303,8 @@ def _run_session(
         while frame_count is None or frame < frame_count:
             reset_request = client.take_reset()
             if reset_request is not None:
+                print(json.dumps({"type": "reset_accepted", "request_id": reset_request,
+                                  "wall_time_ns": str(time.time_ns())}), flush=True)
                 return reset_request
             frame += 1
             sim_seconds = frame / 30.0
@@ -1273,11 +1341,12 @@ def _run_session(
             )
         _ = keep_alive
     finally:
-        native.JointTrajectoryPublisher.reference = original_reference
         if bridge:
-            bridge.close()
+            with runtime_stage("close_render_bridge"):
+                bridge.close()
         if gravity_factory is not None:
-            gravity_factory.unloadSpiceKernels()
+            with runtime_stage("unload_ephemeris"):
+                gravity_factory.unloadSpiceKernels()
 
 
 def main() -> None:
@@ -1303,6 +1372,8 @@ def main() -> None:
     parser.add_argument("--simulation-rate", type=float, default=1.0)
     parser.add_argument("--capture-rate", type=float, default=10.0)
     parser.add_argument("--ik-rate", type=float, default=100.0)
+    parser.add_argument("--dynamics-step", type=float, default=None,
+                        help="Basilisk step in seconds, 0.00025–0.001; overrides scene runtime setting")
     parser.add_argument(
         "--ik-mode",
         choices=IK_MODES,

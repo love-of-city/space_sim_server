@@ -14,6 +14,11 @@ if (!url || !user || !password) throw new Error('Set BSK_STREAM_TEST_URL/USER/PA
 const seconds = Number(process.env.BSK_STREAM_TEST_SECONDS || 60);
 const warmup = Number(process.env.BSK_STREAM_TEST_WARMUP || 15);
 const cycles = Number(process.env.BSK_STREAM_TEST_CYCLES || 1);
+const fpsTargets = (process.env.BSK_STREAM_TEST_FPS_TARGETS || '').split(',').filter(Boolean).map(Number);
+if (fpsTargets.some(value => ![30, 60, 90, 120].includes(value))) throw new Error('Invalid FPS target sequence.');
+const forceRelay = process.env.PIXEL_STREAMING_FORCE_RELAY === '1';
+const turnTransport = process.env.PIXEL_STREAMING_TURN_TRANSPORT || '';
+if (turnTransport && !['udp', 'tcp'].includes(turnTransport)) throw new Error('Invalid TURN transport.');
 if (!Number.isInteger(cycles) || cycles < 1 || cycles > 20) throw new Error('Invalid cycle count.');
 if (!Number.isFinite(seconds) || seconds < 10 || !Number.isFinite(warmup) || warmup < 0) throw new Error('Invalid test duration.');
 const output = path.resolve(process.env.BSK_STREAM_TEST_OUTPUT || 'run/stream-fps');
@@ -50,18 +55,23 @@ try {
   const installProbe = `
     window.__fpsTestConnections=[];
     const Native=window.RTCPeerConnection;
-    window.RTCPeerConnection=new Proxy(Native,{construct(Target,args){const pc=new Target(...args);window.__fpsTestConnections.push(pc);return pc;}});
+    window.RTCPeerConnection=new Proxy(Native,{construct(Target,args){
+      if(${forceRelay}) args[0]={...args[0],iceTransportPolicy:'relay',iceServers:(args[0]?.iceServers||[]).map(server=>({...server,urls:[server.urls].flat().filter(url=>!${JSON.stringify(turnTransport)}||url.includes('transport='+${JSON.stringify(turnTransport)}))})).filter(server=>server.urls.length)};
+      const pc=new Target(...args);window.__fpsTestConnections.push(pc);return pc;
+    }});
     window.__fpsTestSnapshot=async()=>{
       const pc=window.__fpsTestConnections.findLast(p=>p.connectionState==='connected');
       if(!pc)return null;
       const all=[...(await pc.getStats()).values()];
       const v=all.find(s=>s.type==='inbound-rtp'&&s.kind==='video');
       const pair=all.find(s=>s.type==='candidate-pair'&&s.state==='succeeded'&&s.nominated);
+      const local=all.find(candidate=>candidate.id===pair?.localCandidateId);
       const player=document.querySelector('#pixelStream video');
       const q=player?.getVideoPlaybackQuality();
       if(!v||!q)return null;
       return {...v,wallTime:performance.now(),displayed:q.totalVideoFrames-q.droppedVideoFrames,
         dropped:q.droppedVideoFrames,rtt:pair?.currentRoundTripTime,
+        localType:local?.candidateType,relayProtocol:local?.relayProtocol,
         visibility:document.visibilityState,dimensions:[player.videoWidth,player.videoHeight]};
     };`;
   await call('Page.enable');
@@ -81,13 +91,29 @@ try {
   result.userAgent = await evaluate('navigator.userAgent');
   const options=await evaluate("[...document.getElementById('streamSelector').options].map(o=>({id:o.value,label:o.textContent}))");
   assert.ok(options.length>0,'No selectable streams');
-  const sequence = Array.from({length:cycles}, (_,index)=>options.map(option=>({...option,cycle:index+1}))).flat();
+  result.settings = await evaluate("({maxBitrateKbps:window.__pixelStream.config.getNumericSettingValue('WebRTCMaxBitrate'),minimumQuality:window.__pixelStream.config.getNumericSettingValue('MinQuality')})");
+  const targets = fpsTargets.length ? fpsTargets.map(targetFps=>({...options[0],targetFps})) : options;
+  const sequence = Array.from({length:cycles}, (_,index)=>targets.map(option=>({...option,cycle:index+1}))).flat();
   for(const option of sequence){
     console.log(`Measuring ${option.id}: ${seconds}s after ${warmup}s warmup`);
     await evaluate(`document.getElementById('streamSelector').value=${JSON.stringify(option.id)};document.getElementById('streamSelector').dispatchEvent(new Event('change'))`);
     await sleep(warmup*1000);
+    if (option.targetFps) {
+      const selected = await evaluate(`(() => {
+        const selector=document.getElementById('videoFpsSelector');
+        if(![...selector.options].some(option=>Number(option.value)===${option.targetFps}))return false;
+        selector.value='${option.targetFps}';selector.dispatchEvent(new Event('change'));
+        return window.__pixelStream.config.getNumericSettingValue('WebRTCFPS')===${option.targetFps};
+      })()`);
+      assert.ok(selected, 'FPS selector failed to apply target');
+      await sleep(5000);
+    }
     let prev=await evaluate('window.__fpsTestSnapshot()');
-    const entry={...option,samples:[]};result.streams.push(entry);
+    const entry={...option,localType:prev?.localType,relayProtocol:prev?.relayProtocol,samples:[]};result.streams.push(entry);
+    if(forceRelay) {
+      assert.equal(prev?.localType,'relay','Expected selected TURN relay path');
+      if(turnTransport)assert.equal(prev?.relayProtocol,turnTransport,'Unexpected TURN transport');
+    }
     for(let i=0;i<seconds;i++){
       await sleep(1000);
       const now=await evaluate('window.__fpsTestSnapshot()');
@@ -106,9 +132,12 @@ try {
     const describe=key=>{const values=connected.map(s=>s[key]).filter(Number.isFinite).sort((a,b)=>a-b);return values.length?{min:values[0],p05:values[Math.floor((values.length-1)*0.05)],mean:values.reduce((a,b)=>a+b,0)/values.length,max:values.at(-1)}:null;};
     entry.received=describe('receivedFps');entry.decoded=describe('decodedFps');entry.displayed=describe('displayedFps');
     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
-    await writeFile(path.join(output,`${option.id.replace(/[^a-zA-Z0-9_-]/g,'_')}-cycle${option.cycle}.png`),Buffer.from(shot.data,'base64'));
-    entry.passed=connected.length===entry.samples.length && entry.received?.min>=60 && entry.decoded?.min>=60;
-    console.log(JSON.stringify({id:entry.id,received:entry.received,decoded:entry.decoded,displayed:entry.displayed,passed:entry.passed}));
+    await writeFile(path.join(output,`${option.id.replace(/[^a-zA-Z0-9_-]/g,'_')}-cycle${option.cycle}-fps${option.targetFps || 'default'}.png`),Buffer.from(shot.data,'base64'));
+    entry.bitrate=describe('bitrateMbps');
+    entry.minimumExpectedFps=option.targetFps ? option.targetFps * 0.8 : 60;
+    entry.passed=connected.length===entry.samples.length && entry.received?.min>=entry.minimumExpectedFps && entry.decoded?.min>=entry.minimumExpectedFps
+      && (!option.targetFps || entry.received?.mean<=option.targetFps*1.2);
+    console.log(JSON.stringify({id:entry.id,targetFps:entry.targetFps,received:entry.received,decoded:entry.decoded,displayed:entry.displayed,bitrate:entry.bitrate,passed:entry.passed}));
     await writeFile(path.join(output,'fps-results.json'),JSON.stringify(result,null,2));
   }
   result.passed=result.streams.every(s=>s.passed);

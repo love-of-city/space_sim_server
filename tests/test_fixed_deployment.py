@@ -146,10 +146,21 @@ Initialize-FixedConfig -ConfigPath (Join-Path $Root 'deploy/fixed.local.json') -
     assert not list((repo / "deploy").glob(".fixed-*"))
     assert payload["encoder_min_quality"] == 60
     payload["encoder_min_quality"] = quality
+    local_settings = {
+        "require_access_key": False,
+        "show_access_window": False,
+        "caddy_executable": "C:/tools with spaces/caddy.exe",
+        "api_port": 18000, "player_port": 18080, "streamer_port": 18888,
+        "control_port": 18766, "capture_port": 18767, "render_port": 15558,
+    }
+    payload.update(local_settings)
     path.write_text(json.dumps(payload), encoding="utf-8")
     regenerated = run_ps(harness, repo, env=env)
     assert regenerated.returncode == 0, regenerated.stdout + regenerated.stderr
     assert json.loads(path.read_text(encoding="utf-8"))["encoder_min_quality"] == quality
+    regenerated_settings = json.loads(path.read_text(encoding="utf-8"))
+    for name, value in local_settings.items():
+        assert regenerated_settings[name] == value
 
 @pytest.fixture
 def launcher_repo(tmp_path):

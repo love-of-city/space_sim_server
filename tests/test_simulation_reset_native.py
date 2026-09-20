@@ -23,6 +23,17 @@ ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = Path(os.environ.get('SPACE_SIM_RESET_ADAPTER', str(ROOT.parent / 'space_sim_UE_adapter_lerobot_v3')))
 
 
+@pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')
+@pytest.mark.parametrize('record_history', [False, True])
+def test_native_history_recording_can_be_disabled(monkeypatch, record_history):
+    monkeypatch.syspath_prepend(str(ADAPTER / 'Unreal/BskUnrealRenderer/examples'))
+    from scenario_spacecraft_arm_grasp_unreal import load_native_grasp_module
+    native = load_native_grasp_module(ROOT / 'model/SARM/platform')
+    simulation, scene, models, recorders = native._build_simulation(record_history=record_history)
+    assert len(recorders) == (9 if record_history else 0)
+    assert len(models) > 0
+
+
 def control_action(generation=''):
     return dict(protocol=teleop.CONTROL_PROTOCOL, type='action', reset_generation=generation,
                 server_sequence='9', deadman=True, end_effector_linear_velocity_body_m_s=[.03, 0, 0],

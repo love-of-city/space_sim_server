@@ -70,3 +70,17 @@ def test_timeout_emits_only_one_neutral_action(monkeypatch) -> None:
     assert not neutral.deadman
     assert neutral.reason == "input_timeout"
     assert safety.timeout_action(None) is None
+
+
+def test_reference_recovery_requires_explicit_zero_motion_and_stops_on_safety_neutral():
+    safety = SafetyController()
+    ordinary = request(1, deadman=False)
+    assert not safety.process("operator", ordinary, None).allow_reference_recovery
+    neutral = request(2, deadman=False).model_copy(update={
+        "allow_reference_recovery": True, "end_effector_linear_velocity": [0.0] * 3,
+        "end_effector_angular_velocity": [0.0] * 3, "gripper_velocity": 0.0,
+    })
+    assert safety.process("operator", neutral, None).allow_reference_recovery
+    assert not safety.neutral(None, "control_page_changed").allow_reference_recovery
+    moving = neutral.model_copy(update={"client_sequence": 3, "deadman": True})
+    assert not safety.process("operator", moving, None).allow_reference_recovery

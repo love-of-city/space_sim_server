@@ -93,6 +93,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { box-shadow: 0 
 .stream-controls select, .stream-controls button { min-height: 34px; border: 0; color: #eef4f7; background: transparent; font-size: 12px; }
 .stream-controls select { min-width: 140px; padding: 0 32px 0 10px; cursor: pointer; }
 .stream-controls select option { color: var(--text); background: #fff; }
+.stream-controls { flex-wrap: wrap; }
+#videoFpsSelector { min-width: 94px; }
 .stream-controls button { padding: 0 11px; border-left: 1px solid rgba(255, 255, 255, .15); color: #aeb9c1; cursor: pointer; }
 .stream-controls button:hover { color: #fff; }
 .frame-state { padding: 7px 10px; border: 1px solid rgba(255, 255, 255, .14); border-radius: 999px; color: #f3b2b2; background: rgba(15, 22, 28, .84); font: 10px/1.2 ui-monospace, "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; backdrop-filter: blur(12px); }

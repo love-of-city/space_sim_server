@@ -61,3 +61,27 @@ test("server-side reset also blocks duplicate requests", async () => {
   await h.ctx.resetScene();
   assert.equal(h.calls, 0);
 });
+
+test("one click restore is visible beside the viewport and has a unique ID", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.equal((html.match(/id="resetScene"/g) || []).length, 1);
+  assert.ok(html.indexOf('id="resetScene"') < html.indexOf('<aside class="control-rail"'));
+  assert.match(html, /一键复原初始位置/);
+});
+
+test("recording prevents accidental scene restore", async () => {
+  const h = harness({ok: true, payload: {status: "completed"}});
+  h.state.activeEpisode = "recording";
+  await h.ctx.resetScene();
+  assert.equal(h.calls, 0);
+  assert.match(h.messages.at(-1), /先结束当前采集/);
+});
+
+test("disconnected or unauthorized restore does not send a request", async () => {
+  for (const flag of ["canManageScene", "resetSupported", "simulationConnected"]) {
+    const h = harness({ok: true, payload: {}});
+    h.state[flag] = false;
+    await h.ctx.resetScene();
+    assert.equal(h.calls, 0);
+  }
+});

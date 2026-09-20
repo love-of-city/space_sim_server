@@ -93,14 +93,12 @@ function Write-RuntimeState([string]$Phase, [string]$ErrorMessage = '') {
     Move-Item -LiteralPath $temporaryPath -Destination $statePath -Force
 }
 
-function Test-TcpPort([int]$Port) {
-    $client = [Net.Sockets.TcpClient]::new()
-    try {
-        $async = $client.BeginConnect('127.0.0.1', $Port, $null, $null)
-        if (!$async.AsyncWaitHandle.WaitOne(300)) { return $false }
-        $client.EndConnect($async)
-        return $client.Connected
-    } catch { return $false } finally { $client.Dispose() }
+function Get-RenderListenerOwner([int]$Port) {
+    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Where-Object { $_.LocalAddress -in @('127.0.0.1', '0.0.0.0', '::') } |
+        Select-Object -First 1
+    if ($listener) { return [int]$listener.OwningProcess }
+    return 0
 }
 
 $rendererPid = 0
@@ -114,7 +112,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Ground-validation target asset preparation failed.' }
     }
 
-    if (Test-TcpPort $RenderPort) { throw "UE render receiver port $RenderPort is already occupied." }
+    $listenerOwner = Get-RenderListenerOwner $RenderPort
+    if ($listenerOwner) { throw "UE render receiver port $RenderPort is occupied by PID $listenerOwner." }
     $rendererArgs = @{
         UnrealRoot = $UnrealRoot
         Port = $RenderPort
@@ -147,18 +146,17 @@ try {
         if (!(Get-Process -Id $rendererPid -ErrorAction SilentlyContinue)) {
             throw 'UE exited before its render receiver became ready.'
         }
-        $rendererReady = Test-TcpPort $RenderPort
+        $listenerOwner = Get-RenderListenerOwner $RenderPort
+        if ($listenerOwner -and $listenerOwner -ne $rendererPid) {
+            throw "UE render port $RenderPort belongs to PID $listenerOwner, not this scene's PID $rendererPid."
+        }
+        $rendererReady = $listenerOwner -eq $rendererPid
         if (!$rendererReady) { Start-Sleep -Milliseconds 300 }
     }
     if (!$rendererReady) {
         $ueLog = Join-Path $ueProject 'Saved\Logs\BskUnrealRenderer.log'
         throw "UE receiver did not become ready on port $RenderPort within $RendererReadyTimeout seconds. Check $ueLog."
     }
-    # The readiness probe is a real TCP client. UE accepts one sender at a time,
-    # so give its receiver thread a brief moment to observe the probe disconnect
-    # before the Basilisk render bridge establishes the authoritative connection.
-    Start-Sleep -Milliseconds 250
-
     Write-RuntimeState 'starting_simulation'
     $powershellExe = (Get-Process -Id $PID).Path
     $simulationArgs = @(
@@ -170,10 +168,12 @@ try {
         '-SceneInstancePath', $SceneInstancePath
     )
     $stamp = [string]$instance.instance_id
-    $simulation = Start-Process -FilePath $powershellExe -ArgumentList $simulationArgs -PassThru -WindowStyle Hidden `
+    $quotedSimulationArgs = @($simulationArgs | ForEach-Object { '"' + ([string]$_) + '"' })
+    $simulation = Start-Process -FilePath $powershellExe -ArgumentList $quotedSimulationArgs -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logDirectory "$stamp.simulation.out.log") `
         -RedirectStandardError (Join-Path $logDirectory "$stamp.simulation.err.log")
     $runtimeState.simulation_pid = $simulation.Id
+    $null = $simulation.Handle
     $runtimeState.simulation_start = $simulation.StartTime.ToUniversalTime().Ticks
     Write-RuntimeState 'running'
 

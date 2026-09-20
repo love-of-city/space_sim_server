@@ -23,6 +23,7 @@ function Stop-RecordedProcessTree([int]$ProcessId, [long]$ExpectedStartTicks) {
         return
     }
     if ($ExpectedStartTicks -gt 0 -and $actualStart -ne $ExpectedStartTicks) { return }
+    $null = $process.Handle
     $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue)
     foreach ($child in $children) {
         # Parent IDs can be reused too; do not touch older unrelated processes.
@@ -36,6 +37,24 @@ function Stop-RecordedProcessTree([int]$ProcessId, [long]$ExpectedStartTicks) {
     $currentStart = Get-SceneProcessStartTicks $current
     if ($null -ne $currentStart -and $currentStart -eq $actualStart) {
         Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+        if (!$process.WaitForExit(15000)) {
+            throw "Scene process $ProcessId did not exit within 15 seconds; refusing to start a competing scene."
+        }
+    }
+}
+
+function Stop-ProjectRenderers([string]$AdapterRoot) {
+    if (!$AdapterRoot) { return }
+    $project = [IO.Path]::GetFullPath((Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\BskUnrealRenderer.uproject'))
+    $pattern = '(?i)(?:^|\s)"?' + [regex]::Escape($project) + '"?(?=\s|$)'
+    $renderers = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" -ErrorAction Stop)
+    foreach ($renderer in $renderers) {
+        if ($renderer.CommandLine -notmatch $pattern -or $renderer.CommandLine -notmatch '(?i)(?:^|\s)-game(?:\s|$)') { continue }
+        $process = Get-Process -Id ([int]$renderer.ProcessId) -ErrorAction SilentlyContinue
+        $startTicks = Get-SceneProcessStartTicks $process
+        if ($null -eq $startTicks) { continue }
+        if ([Math]::Abs($startTicks - $renderer.CreationDate.ToUniversalTime().Ticks) -ge 10000) { continue }
+        Stop-RecordedProcessTree ([int]$renderer.ProcessId) $startTicks
     }
 }
 

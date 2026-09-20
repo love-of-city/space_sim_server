@@ -1,5 +1,9 @@
 """Shared SARM teleoperation defaults with no simulator dependencies."""
 
+DEFAULT_DYNAMICS_STEP_S = 0.001
+MIN_DYNAMICS_STEP_S = 0.00025
+MAX_DYNAMICS_STEP_S = 0.001
+
 # Preserve the original scripted-grasp pose for historical/regression scenes.
 LEGACY_PREGRASP = (
     0.0,

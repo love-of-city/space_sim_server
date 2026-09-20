@@ -104,6 +104,11 @@
             "deadman": {
               "type": "boolean"
             },
+            "allow_reference_recovery": {
+              "type": "boolean",
+              "default": false,
+              "description": "Explicit permission for bounded reference recovery during fresh, safe, neutral input; never an emergency-stop override."
+            },
             "control_frame": {
               "const": "spacecraft_body"
             },

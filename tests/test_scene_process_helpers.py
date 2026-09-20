@@ -49,7 +49,9 @@ $ErrorActionPreference='Stop'
 . $Helpers
 function Get-Process { param($Id,$ErrorAction)
     $ticks=@{1001=20L;1002=25L;1003=10L;1004=50L}[[int]$Id]
-    [pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+    $result=[pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+    $result | Add-Member ScriptMethod WaitForExit {param($Timeout) $true}
+    $result
 }
 function Get-CimInstance { param($ClassName,$Filter,$ErrorAction)
     if($Filter -eq 'ParentProcessId=1001') { return @([pscustomobject]@{ProcessId=1002},[pscustomobject]@{ProcessId=1003}) }
@@ -122,7 +124,9 @@ function Get-Process { param($Id,$ErrorAction)
         return $p
     }
     $ticks=if($n -eq 1001){20L}else{25L}
-    return [pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+    $result=[pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+    $result | Add-Member ScriptMethod WaitForExit {param($Timeout) $true}
+    return $result
 }
 function Get-CimInstance { param($ClassName,$Filter,$ErrorAction)
     if($Stage -eq 'root'){throw 'Unverified root must not enumerate descendants'}
@@ -140,3 +144,42 @@ Stop-RecordedProcessTree 1001 20
     out=json.loads(result.stdout.strip().splitlines()[-1])
     assert out['completed']
     assert out['stops'] == {'root':[], 'child':[1001], 'recheck':[1002]}[stage]
+
+
+def test_orphan_cleanup_matches_project_game_mode_and_process_identity(tmp_path):
+    script = tmp_path / 'orphans.ps1'
+    script.write_text(r"""
+param($Helpers,$Adapter)
+$ErrorActionPreference='Stop'
+. $Helpers
+$project=Join-Path $Adapter 'Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject'
+function Get-CimInstance {param($ClassName,$Filter,$ErrorAction)
+    foreach($number in 1..5) {
+        $command=switch($number) {
+            1 {'UnrealEditor.exe "'+$project+'" -game'}
+            2 {'UnrealEditor.exe "'+$project+'" -editor'}
+            3 {'UnrealEditor.exe "'+$project+'.other" -game'}
+            4 {'UnrealEditor.exe "'+$project+'" -game'}
+            5 {'UnrealEditor.exe "'+$project+'" -game'}
+        }
+        [pscustomobject]@{ProcessId=$number;CommandLine=$command;CreationDate=[DateTime]::new(20000,[DateTimeKind]::Utc)}
+    }
+}
+function Get-Process {param($Id,$ErrorAction)
+    if($Id -eq 5){return $null}
+    $ticks=if($Id -eq 4){40000}else{20000}
+    [pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+}
+function Stop-RecordedProcessTree {param($ProcessId,$ExpectedStartTicks) "MATCH-$ProcessId"}
+Stop-ProjectRenderers $Adapter
+""", encoding='utf-8')
+    result = invoke(script, HELPERS, tmp_path / 'adapter')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.split() == ['MATCH-1']
+
+
+def test_readiness_checks_listener_owner_without_consuming_connection():
+    source = (ROOT / 'scripts/start_scene_instance.ps1').read_text(encoding='utf-8-sig')
+    assert 'Get-NetTCPConnection -LocalPort $Port -State Listen' in source
+    assert '$listenerOwner -ne $rendererPid' in source
+    assert 'BeginConnect' not in source

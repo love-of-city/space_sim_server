@@ -43,8 +43,8 @@
       <div id="pixelStream" tabindex="-1" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
       <div id="previewEmpty" class="preview-empty">
         <span class="signal-mark" aria-hidden="true"></span>
-        <strong>等待实时画面</strong>
-        <small>UE 与 BSK/MJScene 就绪后，WebRTC 视频将在此显示</small>
+        <strong id="previewEmptyTitle">等待实时画面</strong>
+        <small id="previewEmptyHint">UE 与 BSK/MJScene 就绪后，WebRTC 视频将在此显示</small>
       </div>
       <div class="viewport-toolbar">
         <div class="stream-controls">
@@ -53,15 +53,21 @@
             <option value="BskRenderer">主视口</option>
           </select>
           <button id="reconnectStream" class="quiet-button" type="button">重新连接</button>
+          <button id="resetScene" class="quiet-button" type="button" disabled title="恢复本次场景的机械臂、夹爪、目标物及仿真时间；保持原随机种子">一键复原初始位置</button>
+          <label class="sr-only" for="videoFpsSelector">视频目标帧率</label>
+          <select id="videoFpsSelector" aria-label="视频目标帧率" title="目标而非保证帧率；网络较差选 30/60，高刷屏可选 90。影响共享 UE 实例。"></select>
+          <button id="copyVideoDiagnostics" class="quiet-button" type="button">复制诊断</button>
         </div>
         <span id="frameState" class="frame-state">NO SIGNAL</span>
       </div>
       <div id="webrtcStats" class="webrtc-stats" aria-live="polite">
         <span><small>RTT</small><strong id="webrtcRtt">—</strong></span>
         <span><small>码率</small><strong id="webrtcBitrate">—</strong></span>
-        <span><small>丢包</small><strong id="webrtcLoss">—</strong></span>
+        <span title="最近采样区间的丢包率，不是整个连接的累计平均值"><small>区间丢包</small><strong id="webrtcLoss">—</strong></span>
         <span title="WebRTC 每秒收到的完整视频帧，不等于屏幕实际显示帧率"><small>接收帧率</small><strong id="webrtcReceiveFps">—</strong></span>
-        <span title="浏览器实际呈现的非丢弃视频帧率"><small>显示帧率</small><strong id="webrtcFps">—</strong></span>
+        <span title="每秒成功解码的视频帧；接收有帧但这里为零，表示视频没有继续解码"><small>解码帧率</small><strong id="webrtcDecodeFps">—</strong></span>
+        <span title="按浏览器播放质量计数估算，并非显示器刷新率；需结合解码帧率和播放状态判断"><small>显示帧率</small><strong id="webrtcFps">—</strong></span>
+        <span><small>播放状态</small><strong id="webrtcPlayback">等待视频</strong></span>
         <span title="最近采样区间内已解码帧的平均量化参数；同一编码器下一般越高压缩越强。不是最低质量百分比；不支持或无新帧时显示 —"><small>平均 QP</small><strong id="webrtcQp">—</strong></span>
         <span><small>分辨率</small><strong id="webrtcResolution">—</strong></span>
       </div>
@@ -158,7 +164,6 @@
         </div>
         <div class="scene-actions">
           <button id="startScene" class="primary" type="button">生成并启动场景</button>
-          <button id="resetScene" type="button" disabled title="恢复本次场景的初始状态，不重新随机生成">重置状态</button>
           <button id="stopScene" type="button" disabled>停止场景</button>
         </div>
         <dl class="scene-instance-summary">
@@ -236,6 +241,8 @@
           <div><dt>末端位置</dt><dd id="toolPosition">—</dd></div>
           <div><dt>雅可比秩</dt><dd id="jacobianRank">—</dd></div>
           <div><dt>IK 求解</dt><dd id="ikSolver">—</dd></div>
+          <div><dt>运动保护</dt><dd id="referenceProtection">—</dd></div>
+          <div><dt>动力学步长</dt><dd id="dynamicsTiming">—</dd></div>
           <div><dt>姿态控制</dt><dd id="attitudeMode">—</dd></div>
           <div><dt>姿态误差</dt><dd id="attitudeError">—</dd></div>
           <div><dt>本体角速度</dt><dd id="bodyRate">—</dd></div>

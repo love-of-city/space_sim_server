@@ -65,31 +65,41 @@ def test_release_holds_joint_reference_despite_large_measured_pose_error(mode,re
     actual[4] -= .8
     client.command[0] = -.02
     target.update(.61)
-    assert np.linalg.norm(target.position-held) > 0
     assert np.linalg.norm(target.position-held) < .02
+    assert target.tracking_scale < 1.0
+    actual[:] = target.position[:6]
+    target.update(.62)
+    assert np.linalg.norm(target.position-held) > 0
     assert np.linalg.norm(target.target_tool_rotation-goal[1]) < .01
 
 
 @pytest.mark.parametrize("axis", range(6))
 @pytest.mark.parametrize("direction", [-1,1])
-def test_measured_error_and_low_speed_warning_never_gate_any_axis(axis,direction):
-    cmd=np.zeros(6); cmd[axis]=direction*(.02 if axis<3 else .1)
-    free,client=target_for(cmd)
-    blocked,_=target_for(cmd)
-    measured=blocked.position[:6].copy(); measured[4] += .5
-    blocked.bind_joint_state_provider(lambda: measured.copy())
-    blocked.bind_joint_velocity_provider(lambda: np.zeros(6))
-    for i in range(1,101):
-        free.update(i*.01); blocked.update(i*.01)
-        assert np.array_equal(free.position,blocked.position)
-        assert np.array_equal(free.velocity,blocked.velocity)
-        assert np.all(blocked.position >= blocked.joint_min)
-        assert np.all(blocked.position <= blocked.joint_max)
+def test_low_speed_diagnostics_do_not_override_reference_protection(axis,direction):
+    command=np.zeros(6); command[axis]=direction*(.02 if axis<3 else .1)
+    monitored,_=target_for(command)
+    unmonitored,_=target_for(command)
+    measured=monitored.position[:6].copy(); measured[4] += .5
+    for target in (monitored,unmonitored):
+        target.bind_joint_state_provider(lambda: measured.copy())
+        target.bind_joint_velocity_provider(lambda: np.zeros(6))
+    unmonitored.speed_monitor.update=lambda *args,**kwargs: None
+    limited=False
+    for index in range(1,101):
+        previous=monitored.position[:6].copy()
+        monitored.update(index*.01); unmonitored.update(index*.01)
+        assert np.array_equal(monitored.position,unmonitored.position)
+        assert np.array_equal(monitored.velocity,unmonitored.velocity)
+        limited |= monitored.tracking_scale < 1.0
+        if abs(previous[4]-measured[4]) >= monitored.governor.hard[4]:
+            assert abs(monitored.position[4]-measured[4]) <= abs(previous[4]-measured[4])+1e-12
+        assert np.all(monitored.position >= monitored.joint_min)
+        assert np.all(monitored.position <= monitored.joint_max)
+    assert limited
     channel="linear" if axis<3 else "angular"
-    assert blocked.speed_monitor.latest[channel]["warning"]
-    assert not free.speed_monitor.latest["measurement_valid"]
-    blocked.reset(0.)
-    assert blocked.speed_monitor.latest[channel] is None
+    assert monitored.speed_monitor.latest[channel]["warning"]
+    monitored.reset(0.)
+    assert monitored.speed_monitor.latest[channel] is None
 
 
 def test_combination_and_reversal_have_no_acceleration_or_braking_state_machine():

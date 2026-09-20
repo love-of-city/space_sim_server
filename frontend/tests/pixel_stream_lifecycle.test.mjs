@@ -25,7 +25,10 @@ function harness() {
   let reconnects = 0;
   let statsUpdates = 0;
   const context = vm.createContext({
-    state, $, window: {}, PixelStreaming: Player, Config: class { constructor(options) { this.initialSettings = options.initialSettings; } },
+    state, $, window: {}, PixelStreaming: Player, Config: class {
+      constructor(options) { this.initialSettings = options.initialSettings; }
+      setNumericSetting(key, value) { this.initialSettings[key] = value; }
+    }, queueMicrotask,
     TextParameters: {}, OptionParameters: {}, NumericParameters: { WebRTCFPS: "WebRTCFPS", MinQuality: "MinQuality" }, Flags: {},
     signallingUrl: () => "ws://localhost/", setPixelStreamingInputEnabled() {},
     resetWebRtcStats() {}, updateWebRtcStats() { statsUpdates++; },
@@ -48,6 +51,29 @@ test("disconnecting a retired player cannot create an orphan reconnect timer", (
   h.players[1].emit("webRtcConnected");
   assert.equal(h.timers.size, 0);
 });
+
+test("selected FPS is reapplied after server settings and survives reconnection", async () => {
+  const harness = harnessForFps();
+  harness.context.createPixelStream();
+  harness.state.pixelConfig.initialSettings.WebRTCFPS = 90;
+  harness.players[0].emit("initialSettings");
+  await Promise.resolve();
+  assert.equal(harness.state.pixelConfig.initialSettings.WebRTCFPS, 30);
+  harness.context.createPixelStream();
+  assert.equal(harness.state.pixelConfig.initialSettings.WebRTCFPS, 30);
+  const previousConfig = harness.state.pixelConfig;
+  harness.players[1].emit("initialSettings");
+  harness.context.createPixelStream();
+  previousConfig.initialSettings.WebRTCFPS = 60;
+  await Promise.resolve();
+  assert.equal(previousConfig.initialSettings.WebRTCFPS, 60);
+});
+
+function harnessForFps() {
+  const result = harness();
+  result.state.requestedVideoFps = 30;
+  return result;
+}
 
 test("late events from an old player cannot clear LIVE state or schedule reconnects", () => {
   const h = harness();

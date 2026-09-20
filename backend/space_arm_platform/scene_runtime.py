@@ -225,6 +225,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "simulation_rate": request.simulation_rate,
             "capture_rate_hz": request.capture_rate_hz,
             "ik_rate_hz": request.ik_rate_hz,
+            "dynamics_step_s": request.dynamics_step_s,
             "dataset_capture": request.dataset_capture,
         },
         "randomization": randomization,
@@ -334,7 +335,6 @@ class SceneRuntimeManager:
                 raise RuntimeError("a scene instance is already starting or running")
             instance = self.create_instance(request, created_by)
             instance_path = Path(instance["config_path"])
-            self.state_path.unlink(missing_ok=True)
             script = launch_script
             command = [
                 str(self.launch.powershell_exe), "-NoProfile", "-ExecutionPolicy", "Bypass",
@@ -379,12 +379,17 @@ class SceneRuntimeManager:
         with self._lock:
             script = self.launch.project_root / "scripts" / "stop_scene_instance.ps1"
             flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            subprocess.run(
-                [str(self.launch.powershell_exe), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Quiet"],
-                cwd=self.launch.project_root,
-                check=False,
-                creationflags=flags,
-            )
+            try:
+                subprocess.run(
+                    [str(self.launch.powershell_exe), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+                     "-Quiet", "-AdapterRoot", str(self.launch.adapter_root)],
+                    cwd=self.launch.project_root,
+                    check=True,
+                    timeout=90,
+                    creationflags=flags,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                raise RuntimeError("场景进程未确认退出，请检查停止日志，暂勿重复启动") from error
             if self._process and self._process.poll() is None:
                 try:
                     self._process.wait(timeout=10)

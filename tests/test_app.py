@@ -109,6 +109,36 @@ def test_remote_client_config_requires_access_key_and_scopes_streamers(tmp_path)
         assert payload["pixel_streaming_signalling_url"] == "wss://example.test/stream"
 
 
+def test_remote_password_only_mode_keeps_session_and_stream_token_checks(tmp_path) -> None:
+    import pytest
+    from pathlib import Path
+    from starlette.websockets import WebSocketDisconnect
+
+    app = create_app(PlatformConfig(
+        project_root=Path(__file__).resolve().parents[1],
+        data_root=tmp_path / "episodes", simulation_port=0, capture_port=0,
+        stream_access_jwt_secret="jwt-secret", stream_access_key="",
+        pixel_streaming_streamer_id="main",
+    ))
+    with TestClient(app) as client:
+        assert client.get("/api/client-config").status_code == 401
+        with pytest.raises(WebSocketDisconnect) as rejected:
+            with client.websocket_connect("/ws/operator"):
+                pass
+        assert rejected.value.code == 4401
+        login_admin(client)
+        response = client.get("/api/client-config")
+        assert response.status_code == 200
+        claims = verify_stream_access_token("jwt-secret", response.json()["pixel_streaming_access_token"])
+        assert claims["streamer_ids"] == ["main"]
+        with client.websocket_connect("/ws/operator") as websocket:
+            message = websocket.receive_json()
+            assert message["type"] == "session"
+            assert message["user"]["username"] == "admin"
+        client.post("/api/auth/logout")
+        assert client.get("/api/client-config").status_code == 401
+
+
 def test_admin_manages_operator_accounts(tmp_path) -> None:
     project_root = __import__("pathlib").Path(__file__).resolve().parents[1]
     app = create_app(

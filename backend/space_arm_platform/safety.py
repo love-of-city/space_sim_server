@@ -127,6 +127,12 @@ class SafetyController:
             client_sequence=str(request.client_sequence),
             client_time_ns=request.client_time_ns,
             deadman=deadman,
+            allow_reference_recovery=(
+                request.allow_reference_recovery and not deadman and not reason
+                and not any(request.end_effector_linear_velocity)
+                and not any(request.end_effector_angular_velocity)
+                and request.gripper_velocity == 0.0
+            ),
             requested_end_effector_linear_velocity_normalized=[
                 float(value) for value in request.end_effector_linear_velocity
             ],

@@ -62,8 +62,8 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
 RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     {
         "id": ZERO_START_TELEOP_PROFILE,
-        "label": "全零启动 → 操作姿态准备",
-        "description": "六关节全零保持；点击到达操作姿态，关节轨迹到位后才能遥操作。",
+        "label": "指定操作姿态直接启动",
+        "description": "创建场景时直接将六个关节设置为指定操作角度，不再从全零姿态运动过去。",
     },
     {
         "id": ELBOW_UP_TELEOP_PROFILE,
@@ -200,7 +200,12 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         ]
 
     if request.randomization_profile == ZERO_START_TELEOP_PROFILE:
-        randomization["arm_joint_position_rad"][:6] = [0.0] * 6
+        # The former zero-start profile is retained as an API identifier for
+        # reproducibility, but now initializes directly at the requested
+        # operating pose. No post-start preparation trajectory is required.
+        randomization["arm_joint_position_rad"][:6] = [
+            math.radians(value) for value in request.operating_arm_joint_position_deg
+        ]
 
     if target.hinge_joint:
         randomization["target_hinge_position_rad"] = 0.0
@@ -219,7 +224,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
         "initial_arm_joint_position_deg": request.initial_arm_joint_position_deg,
-        "arm_preparation_required": request.randomization_profile == ZERO_START_TELEOP_PROFILE,
+        "arm_preparation_required": False,
         "operating_arm_joint_position_deg": list(request.operating_arm_joint_position_deg),
         "seed": seed,
         "capture_target": {
@@ -324,7 +329,7 @@ class SceneRuntimeManager:
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
         if request.randomization_profile == ZERO_START_TELEOP_PROFILE and request.initial_arm_joint_position_deg is not None:
-            raise ValueError("全零启动配置不能覆盖初始角度，请设置操作姿态")
+            raise ValueError("指定操作姿态直接启动配置使用 operating_arm_joint_position_deg，不再接受单独的初始角度")
         limits = self._initial_arm_limits(request.template_id)
         for index, (value, lo, hi) in enumerate(zip(request.operating_arm_joint_position_deg, limits.lower, limits.upper, strict=True), 1):
             if not math.degrees(lo) <= value <= math.degrees(hi):

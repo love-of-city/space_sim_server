@@ -1,0 +1,28 @@
+# 2026-09-22 机械臂直接初始化到操作姿态
+
+## 行为变更
+
+新建场景不再让机械臂从 J1～J6 全 0° 开始，再通过准备轨迹运动到操作姿态。
+场景创建时，`operating_arm_joint_position_deg` 会直接写入保存的
+`randomization.arm_joint_position_rad` 前六项；仿真启动和复位时，MuJoCo/MJScene
+直接使用这六个角度，夹爪开度保持原配置。
+
+默认兼容 profile 名仍是 `teleop-zero-prepare-v1`，这样已有 API 调用和场景选择器
+不会失效，但其语义已经改为“指定操作姿态直接启动”。`arm_preparation_required`
+对新场景为 `false`，因此启动后不需要点击“到达操作姿态”即可遥操作。
+
+仍带有 `arm_preparation_required=true` 的历史场景不会被迁移，继续使用原准备流程，
+用于保持旧数据和旧场景的可复现性。
+
+## 保持不变
+
+- 动力学 240 Hz、IK 120 Hz、RGB 采集 30 Hz。
+- 关节限位校验、直接初始化时的模型限位检查和复位流程。
+- 自定义旧 profile 的 `initial_arm_joint_position_deg` 行为。
+- RGB-only 采集、LeRobot v3 时间戳及 UE 渲染链路。
+
+## 验证
+
+- 服务端相关回归：103 passed。
+- 前端 Node 测试：132 passed。
+- 直接初始化场景检查：默认六轴等于默认操作角度（`[0, -67.6, -86.6, 143.2, -85.5, 0]`°）。

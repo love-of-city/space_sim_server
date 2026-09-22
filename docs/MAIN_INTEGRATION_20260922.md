@@ -18,8 +18,10 @@ without replacing either history or force-pushing:
   fine fixed steps do not override this online schedule: the online dynamics-step
   option accepts only `1 / 240` seconds. The standalone scripted native scenario
   is separate from this online scheduling policy.
-- Retain arm preparation, online posture preference and elbow IK together with
-  incoming joint reference governance, explicitly authorized reference recovery,
+- Retain the arm-preparation controller for legacy saved scenes, while new scenes
+  now initialize directly at their requested operating joint angles. Online posture
+  preference and elbow IK remain together with incoming joint reference governance,
+  explicitly authorized reference recovery,
   process lifecycle, authentication and streaming diagnostics fixes.
 - Publish held joint references at 120 Hz after IK, rather than changing
   references inside adaptive integration substeps. Continuous native history
@@ -53,4 +55,5 @@ The earlier `MAIN_BRANCH_VALIDATION.md` and `ZMH_V1_INTEGRATION.md` describe the
 2026-09-20 baselines, not this merged configuration. In particular, their 1 ms
 online step is superseded by the 240 Hz rational schedule above. This integration
 validation does not claim a new live UE camera recording or restart an already
-running deployment.
+running deployment. The direct-initial-pose change is documented separately in
+`DIRECT_INITIAL_POSE_20260922.md`.

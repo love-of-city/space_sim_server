@@ -11,17 +11,19 @@ from space_arm_platform.scene_runtime import SceneRuntimeManager
 from space_arm_platform.safety import SafetyController
 
 
-def test_default_persisted_zero_start_and_separate_goal(tmp_path):
+def test_default_initializes_directly_at_operating_pose(tmp_path):
     manager=SceneRuntimeManager(None,project_root=tmp_path)
     req=SceneInstanceCreate(seed=7)
     assert req.randomization_profile==ZERO_START_TELEOP_PROFILE
     instance=manager.create_instance(req)
-    assert instance['arm_preparation_required']
-    assert instance['randomization']['arm_joint_position_rad'][:6]==[0.]*6
+    assert not instance['arm_preparation_required']
+    expected = [np.deg2rad(value) for value in DEFAULT_OPERATING_JOINT_DEG]
+    np.testing.assert_allclose(instance['randomization']['arm_joint_position_rad'][:6], expected)
     assert instance['operating_arm_joint_position_deg']==list(DEFAULT_OPERATING_JOINT_DEG)
     assert instance['randomization']['arm_joint_position_rad'][6:]==[.01875]*2
     assert 'ik_initialization' not in instance
-    assert json.loads(Path(instance['config_path']).read_text(encoding='utf-8'))['arm_preparation_required']
+    stored = json.loads(Path(instance['config_path']).read_text(encoding='utf-8'))
+    assert not stored['arm_preparation_required']
     with pytest.raises(ValueError,match='操作姿态'):
         manager.create_instance(SceneInstanceCreate(initial_arm_joint_position_deg=[0.]*6))
     with pytest.raises(ValueError,match='限位'):

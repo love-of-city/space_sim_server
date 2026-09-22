@@ -109,7 +109,7 @@
           </label>
           <small id="sceneCollisionWarning">默认粗碰撞体版已启用目标内部碰撞；铰链附近采用近似间隙，接触角度不代表真实限位。旧粗盒版不计算目标内部碰撞；高精度三角网格版仅供实验，运行速度显著低于实时。</small>
           <label>随机化配置
-            <select id="randomizationProfile"><option value="teleop-zero-prepare-v1">全零启动 → 操作姿态准备</option></select>
+            <select id="randomizationProfile"><option value="teleop-zero-prepare-v1">指定操作姿态直接启动</option></select>
           </label>
           <div id="legacyInitialJointSettings">
           <label class="scene-checkbox">
@@ -146,8 +146,8 @@
           </div>
           </div>
           <section aria-label="操作姿态准备">
-            <h3>操作姿态准备</h3>
-            <p>默认六关节从 0° 启动并保持。以下角度是操作目标，修改数值不会立即运动；J6 不自动折返。</p>
+            <h3>机械臂初始操作姿态</h3>
+            <p>启动场景时直接使用以下六个关节角度，不再从 0° 逐步运动到操作姿态。修改数值只影响下一次场景初始化。</p>
             <div id="operatingJointFields" class="initial-joint-grid">
               <label>J1 操作角度（°）<input id="operatingJoint1" type="number" step="any" required></label>
               <label>J2 操作角度（°）<input id="operatingJoint2" type="number" step="any" required></label>
@@ -157,10 +157,10 @@
               <label>J6 操作角度（°）<input id="operatingJoint6" type="number" step="any" required></label>
             </div>
             <button id="operatingJointDefault" type="button">恢复默认操作角度</button>
-            <button id="prepareArm" type="button" disabled>到达操作姿态</button>
-            <button id="cancelPrepareArm" type="button" disabled>中止准备</button>
-            <p id="armPreparationStatus" role="status" aria-live="polite">等待全零场景启动</p>
-            <small>按固定两阶段顺序运动 J2–J5，J1/J6 保持原位；第二阶段实测稳定到位后即可遥操作。碰撞仅以运行中的 MuJoCo 为准；自定义目标不保证无碰撞。Esc / 急停 / 页面隐藏 / 断线会中止。</small>
+            <button id="prepareArm" type="button" disabled hidden>到达操作姿态</button>
+            <button id="cancelPrepareArm" type="button" disabled hidden>中止准备</button>
+            <p id="armPreparationStatus" role="status" aria-live="polite">场景启动时直接设置操作姿态</p>
+            <small>场景创建时直接设置目标关节角度，启动后即可遥操作；不会产生从零姿态到操作姿态的过渡运动。</small>
           </section>
           <div class="scene-form-row">
             <label>随机种子

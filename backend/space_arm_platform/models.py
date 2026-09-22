@@ -306,7 +306,7 @@ class SceneInstanceCreate(BaseModel):
     )
     operating_arm_joint_position_deg: list[Annotated[FiniteFloat, Field(strict=True)]] = Field(
         default_factory=lambda: list(DEFAULT_OPERATING_JOINT_DEG), min_length=6, max_length=6,
-        description="Operating target, not the startup state. Degrees, no angle wrapping.",
+        description="Direct startup operating joint angles in degrees; no angle wrapping.",
     )
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)

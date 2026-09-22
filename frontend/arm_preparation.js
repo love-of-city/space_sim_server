@@ -16,6 +16,10 @@ export function createArmPreparation({fields, startButton, cancelButton, default
   fill(DEFAULT_OPERATING_DEG);
   const read = () => parseOperatingAngles(inputs.map(input => input.value), limits);
   function ready() {
+    // New scenes start directly at the requested operating pose. Keep the
+    // measured readiness gate only for legacy saved scenes that still carry
+    // arm_preparation_required=true.
+    if (!required) return true;
     return !pending && !waitingControl && observation?.ready === true && performance.now()-observedAt < 1500;
   }
   function render() {
@@ -27,10 +31,10 @@ export function createArmPreparation({fields, startButton, cancelButton, default
     inputs.forEach((input, i) => {
       const held = i === 0 || i === 5;
       input.disabled = held || running || (c.sceneReady && !c.canManageScene);
-      input.title = held ? '准备阶段保持当前角度；全零启动时为 0°，不参与姿态调整' : '';
+      input.title = held ? '旧版准备流程保持当前角度；直接启动场景不会执行准备运动' : '';
     });
     defaultButton.disabled = running || (c.sceneReady && !c.canManageScene);
-    const label = waitingControl ? '正在申请控制权' : pending && observation?.request_id !== pending.request_id ? '正在请求准备' : labels[observation?.status] || (c.sceneReady ? '等待仿真关节遥测' : '等待全零场景启动');
+    const label = waitingControl ? '正在申请控制权' : pending && observation?.request_id !== pending.request_id ? '正在请求准备' : labels[observation?.status] || (required ? (c.sceneReady ? '等待仿真关节遥测' : '等待场景启动') : (c.sceneReady ? '场景已直接设置操作姿态' : '等待场景启动'));
     status.textContent = `${label}${observation?.phase_count ? ` · 阶段 ${observation.phase}/${observation.phase_count}` : ''}${observation?.progress > 0 ? ` · ${(observation.progress*100).toFixed(0)}%` : ''}${observation?.reason ? `：${observation.reason}` : ''}${observation && !fresh ? '（遥测已过期）' : ''}`;
   }
   function cancel(reason = '已中止准备') {
@@ -72,7 +76,7 @@ export function createArmPreparation({fields, startButton, cancelButton, default
       render();
     },
     setRuntime(instance, isReady) {
-      required = instance?.arm_preparation_required === true || instance?.randomization_profile === ZERO_START_PROFILE;
+      required = instance?.arm_preparation_required === true;
       if ((instance?.instance_id ?? null) !== instanceId) {
         cancel('场景已变化，已中止准备');
         instanceId = instance?.instance_id ?? null;

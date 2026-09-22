@@ -241,8 +241,10 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     if np.any(joints < np.array(scene_limits.lower)) or np.any(joints > np.array(scene_limits.upper)):
         raise ValueError("scene arm joint positions exceed the SARM joint limits")
     if document.get("arm_preparation_required", False):
+        # Backward compatibility for old saved zero-start scenes. New scenes
+        # initialize directly at their operating pose and set this flag false.
         if not np.allclose(joints[:6], 0., atol=1e-12, rtol=0):
-            raise ValueError("zero-start preparation scene must initialize six arm joints at zero")
+            raise ValueError("legacy preparation scene must initialize six arm joints at zero")
         goal = np.deg2rad(np.asarray(document.get("operating_arm_joint_position_deg", DEFAULT_OPERATING_JOINT_DEG), dtype=float))
         if goal.shape != (6,) or not np.all(np.isfinite(goal)) or np.any(goal < np.asarray(scene_limits.lower[:6])) or np.any(goal > np.asarray(scene_limits.upper[:6])):
             raise ValueError("invalid saved operating joint angles")
@@ -1059,8 +1061,10 @@ def run(args: argparse.Namespace) -> None:
         else np.asarray(BALANCED_TELEOP_HOME, dtype=float)
     )
     if scene_instance is None:
-        initial_joints = np.asarray(ZERO_TELEOP_HOME, dtype=float)
-        posture_report = {"status": "skipped", "reason": "zero_start_waiting_for_preparation"}
+        initial_joints = np.asarray([
+            *np.deg2rad(DEFAULT_OPERATING_JOINT_DEG), 0.01875, 0.01875
+        ], dtype=float)
+        posture_report = {"status": "selected", "reason": "direct_operating_pose_startup"}
     else:
         posture_report = scene_instance.get("ik_initialization", {
             "status": "skipped", "reason": "saved_initial_state",
@@ -1092,7 +1096,7 @@ def _run_session(
     targets = CartesianTeleopTarget(
         initial_joints, client, kinematics, ik_mode=args.ik_mode,
         joint_limits=load_joint_limits(native.MODEL_PATH, SARM_JOINT_NAMES),
-        preparation_required=scene_instance.get("arm_preparation_required", False) if scene_instance else True,
+        preparation_required=scene_instance.get("arm_preparation_required", False) if scene_instance else False,
         operating_joint_deg=scene_instance.get("operating_arm_joint_position_deg", DEFAULT_OPERATING_JOINT_DEG) if scene_instance else DEFAULT_OPERATING_JOINT_DEG,
     )
     # Display-only metadata, prepared once from the exact limits used by this session.

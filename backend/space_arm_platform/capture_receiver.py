@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import queue
 import socket
 import struct
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -30,6 +32,10 @@ class CaptureReceiver:
         self.on_authoritative_capture = on_authoritative_capture
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._authoritative_thread: threading.Thread | None = None
+        # Keep the transport buffer bounded to the recorder's pairing window;
+        # this prevents a slow disk/encoder from consuming unbounded RAM.
+        self._authoritative_queue: queue.Queue[tuple[dict[str, Any], dict[str, bytes]] | None] = queue.Queue(maxsize=128)
         self._listener: socket.socket | None = None
         self._condition = threading.Condition()
         self._frames: dict[str, PreviewFrame] = {}
@@ -43,6 +49,12 @@ class CaptureReceiver:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self._authoritative_thread = threading.Thread(
+            target=self._authoritative_worker,
+            name="bsk-authoritative-capture-writer",
+            daemon=True,
+        )
+        self._authoritative_thread.start()
         self._thread = threading.Thread(target=self._worker, name="bsk-capture-receiver", daemon=True)
         self._thread.start()
 
@@ -55,6 +67,22 @@ class CaptureReceiver:
                 pass
         if self._thread:
             self._thread.join(timeout=2.0)
+        writer = self._authoritative_thread
+        if writer:
+            deadline = time.monotonic() + 10.0
+            while self._authoritative_queue.unfinished_tasks and time.monotonic() < deadline:
+                time.sleep(0.01)
+            # The sentinel is queued after packets already accepted by the
+            # receiver, so the writer drains those packets before exiting.
+            while True:
+                try:
+                    self._authoritative_queue.put(None, timeout=0.1)
+                    break
+                except queue.Full:
+                    if time.monotonic() >= deadline:
+                        break
+            writer.join(timeout=max(0.0, deadline - time.monotonic()))
+        self._authoritative_thread = None
 
     def camera_ids(self) -> list[str]:
         with self._condition:
@@ -113,18 +141,55 @@ class CaptureReceiver:
                 self._condition.notify_all()
             return
         if stream_kind == "authoritative" and state_kind == "authoritative":
-            try:
-                self.on_authoritative_capture(metadata, products)
-                self.last_authoritative_error = None
-            except Exception as error:
-                self.last_authoritative_error = str(error)
-                raise
-            with self._condition:
-                self.authoritative_count += 1
+            # Keep the socket reader cheap. Image decoding, synchronization,
+            # disk writes, and LeRobot encoding run on a separate worker so a
+            # slow writer cannot make UE's reliable capture queue overflow.
+            if self._authoritative_thread and self._authoritative_thread.is_alive():
+                with self._condition:
+                    self.authoritative_count += 1
+                self._authoritative_queue.put((metadata, products), timeout=10.0)
+            else:
+                with self._condition:
+                    self.authoritative_count += 1
+                self._process_authoritative_capture(metadata, products)
             return
         raise ValueError(
             f"capture must declare preview or authoritative state, got stream={stream_kind!r}, state={state_kind!r}"
         )
+
+    def wait_for_authoritative_idle(self, timeout_s: float = 10.0) -> bool:
+        """Wait until all accepted authoritative packets finish processing."""
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        while self._authoritative_queue.unfinished_tasks:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
+        return True
+
+    def _process_authoritative_capture(self, metadata: dict[str, Any], products: dict[str, bytes]) -> None:
+        try:
+            self.on_authoritative_capture(metadata, products)
+            with self._condition:
+                self.last_authoritative_error = None
+        except Exception as error:
+            # A bad frame must be visible in status but must not tear down the
+            # TCP stream and discard all subsequent camera frames.
+            with self._condition:
+                self.last_authoritative_error = str(error)
+
+    def _authoritative_worker(self) -> None:
+        while True:
+            try:
+                item = self._authoritative_queue.get()
+            except Exception:
+                continue
+            if item is None:
+                self._authoritative_queue.task_done()
+                return
+            try:
+                self._process_authoritative_capture(*item)
+            finally:
+                self._authoritative_queue.task_done()
 
     def _worker(self) -> None:
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

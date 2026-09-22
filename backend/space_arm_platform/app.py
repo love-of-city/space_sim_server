@@ -229,6 +229,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 neutral = safety.neutral(recorder.episode_id, "backend_shutdown")
                 recorder.record_action(neutral)
                 await hub.publish_action(neutral)
+                await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
                 closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="backend shutdown"))
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
@@ -482,6 +483,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             neutral = safety.neutral(recorder.episode_id, "scene_stopped")
             recorder.record_action(neutral)
             await hub.publish_action(neutral)
+            await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
             episode_result = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="scene stopped"))
             if episode_result["dataset_status"] == "complete":
                 episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
@@ -543,6 +545,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         recorder.record_action(neutral)
         await hub.publish_action(neutral)
         try:
+            await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
             result = await asyncio.to_thread(recorder.stop, payload)
             if result["dataset_status"] == "complete":
                 result["archive_job"] = jobs.submit_archive(result["episode_id"])
@@ -606,6 +609,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         recorder.record_action(neutral)
         await hub.publish_action(neutral)
         try:
+            await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
             closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome=request.outcome, note=request.note))
             if closed["dataset_status"] != "complete":
                 return tasks.transition(task_id, {"running"}, "failed", outcome=request.outcome,

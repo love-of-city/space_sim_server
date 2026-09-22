@@ -65,6 +65,7 @@ from space_arm_platform.control_defaults import DEFAULT_DYNAMICS_STEP_S, MIN_DYN
 from simulation.reference_governor import JointReferenceGovernor
 from simulation.reference_recovery import ReferenceRecoverySettings
 from simulation.runtime_progress import runtime_stage
+from simulation.runtime_performance import RuntimePerformanceMonitor, render_transport_status
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 
 
@@ -1250,9 +1251,18 @@ def _run_session(
         )
         joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
 
+        # Cache message handles, never payloads: every read still samples the
+        # authoritative native state at its original scheduled timestamp.
+        position_readers = [joint.stateOutMsg.addSubscriber() for joint in joints]
+        velocity_readers = [joint.stateDotOutMsg.addSubscriber() for joint in joints]
+        hinge_reader = (
+            scene.getBody(target_spec.hinge_body).getScalarJoint(target_spec.hinge_joint)
+            .stateOutMsg.addSubscriber() if target_spec.hinge_joint else None
+        )
+
         def snapshot_observation(render_frame_id: int, render_sim_time_ns: int) -> dict[str, Any]:
-            joint_position = [float(joint.stateOutMsg.read().state) for joint in joints]
-            joint_velocity = [float(joint.stateDotOutMsg.read().state) for joint in joints]
+            joint_position = [float(read().state) for read in position_readers]
+            joint_velocity = [float(read().state) for read in velocity_readers]
             end_effector_position, end_effector_rotation = kinematics.forward(
                 np.asarray(joint_position[:6])
             )
@@ -1274,7 +1284,7 @@ def _run_session(
                         "collision_model": target_spec.collision_model,
                         "runtime_warning": target_spec.runtime_warning,
                         "synthetic_mass_kg": target_spec.synthetic_mass_kg,
-                        "hinge_position_rad": float(scene.getBody(target_spec.hinge_body).getScalarJoint(target_spec.hinge_joint).stateOutMsg.read().state) if target_spec.hinge_joint else None,
+                        "hinge_position_rad": float(hinge_reader().state) if hinge_reader is not None else None,
                     },
                     "scene_template_id": template_id,
                     "step_id": str(render_frame_id + 1),
@@ -1428,15 +1438,17 @@ def _run_session(
         )
         joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
         targets.bind_joint_state_provider(lambda: np.asarray(
-            [float(joint.stateOutMsg.read().state) for joint in joints[:6]]))
+            [float(read().state) for read in position_readers[:6]]))
         targets.bind_joint_velocity_provider(lambda: np.asarray(
-            [float(joint.stateDotOutMsg.read().state) for joint in joints[:6]]))
+            [float(read().state) for read in velocity_readers[:6]]))
         models_by_tag = {model.ModelTag: model for model in dynamics_models}
         pid_models = [models_by_tag[f"{name}PID"] for name in ARM_JOINT_NAMES]
         limiter_models = [models_by_tag[f"{name}TorqueLimiter"] for name in ARM_JOINT_NAMES]
+        requested_torque_readers = [model.outputOutMsg.addSubscriber() for model in pid_models]
+        applied_torque_readers = [model.actuatorOutMsg.addSubscriber() for model in limiter_models]
         targets.bind_actuator_state_provider(lambda: {
-            "requested_torque_nm": [float(model.outputOutMsg.read().input) for model in pid_models],
-            "applied_torque_nm": [float(model.actuatorOutMsg.read().input) for model in limiter_models],
+            "requested_torque_nm": [float(read().input) for read in requested_torque_readers],
+            "applied_torque_nm": [float(read().input) for read in applied_torque_readers],
             "torque_limits_nm": TELEOP_ARM_TORQUE_LIMIT.tolist(),
         })
         arm_actuators = [scene.getSingleActuator(name) for name in native.ACTUATORS[:6]]
@@ -1445,6 +1457,7 @@ def _run_session(
         )
 
         wall_start = time.monotonic()
+        performance = RuntimePerformanceMonitor(args.simulation_rate, wall_start=wall_start)
         processing_seconds = 0.0
         frame_count = int(math.ceil(args.duration * RENDER_HZ)) if args.duration > 0.0 else None
         if client.reset_generation:
@@ -1467,11 +1480,20 @@ def _run_session(
             processing_start = time.monotonic()
             simulation.ConfigureStopTime(stop_ns)
             simulation.ExecuteSimulation()
+            execute_end = time.monotonic()
             if frame == 1:
                 client.complete_reset()
             for observation_snapshot in observation_snapshots.drain():
                 client.send_observation(observation_snapshot)
-            processing_seconds += time.monotonic() - processing_start
+            processing_end = time.monotonic()
+            processing_seconds += processing_end - processing_start
+            performance_event = performance.record(
+                stop_ns, execute_end - processing_start, processing_end - execute_end,
+                now=processing_end,
+            )
+            if performance_event is not None:
+                performance_event.update(render_transport_status(bridge.publisher))
+                print(json.dumps(performance_event, sort_keys=True), flush=True)
         if args.duration > 0.0:
             wall_seconds = time.monotonic() - wall_start
             print(

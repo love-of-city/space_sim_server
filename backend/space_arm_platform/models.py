@@ -7,11 +7,19 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE, MAX_SUNLIGHT_INTENSITY_SCALE
-from .control_defaults import DEFAULT_RANDOMIZATION_PROFILE
+from .control_defaults import DEFAULT_RANDOMIZATION_PROFILE, DEFAULT_OPERATING_JOINT_DEG
 from .scene_targets import DEFAULT_TEMPLATE
+from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
 
 
 CONTROL_PROTOCOL = "space-arm-control/1"
+
+
+class ArmPreparationRequest(BaseModel):
+    """Repeated heartbeat for one explicit, cancellable preparation request."""
+    model_config = ConfigDict(extra="forbid")
+    request_id: str = Field(min_length=1, max_length=80)
+    joint_position_deg: list[Annotated[FiniteFloat, Field(strict=True)]] = Field(min_length=6, max_length=6)
 
 
 class OperatorAction(BaseModel):
@@ -23,6 +31,7 @@ class OperatorAction(BaseModel):
     client_sequence: int = Field(ge=0)
     client_time_ns: str
     deadman: bool
+    arm_preparation: ArmPreparationRequest | None = None
     end_effector_linear_speed_m_s: float = Field(default=0.05, gt=0.0)
     end_effector_linear_velocity: list[float] = Field(min_length=3, max_length=3)
     end_effector_angular_velocity: list[float] = Field(min_length=3, max_length=3)
@@ -49,6 +58,7 @@ class AppliedAction(BaseModel):
     client_sequence: str
     client_time_ns: str
     deadman: bool
+    arm_preparation: ArmPreparationRequest | None = None
     control_frame: Literal["spacecraft_body"] = "spacecraft_body"
     requested_end_effector_linear_velocity_normalized: list[float] = Field(
         default_factory=lambda: [0.0] * 3, min_length=3, max_length=3
@@ -169,6 +179,8 @@ class SimulationObservation(BaseModel):
     jacobian_rank: int = Field(default=0, ge=0, le=6)
     # Differential IK diagnostics published by the SARM simulator.
     ik_mode: str = ""
+    ik_elbow_preference: dict[str, Any] = Field(default_factory=dict)
+    arm_preparation: dict[str, Any] = Field(default_factory=dict)
     ik_status: str = ""
     ik_reasons: list[MotionLimitReason] = Field(default_factory=list)
     ik_solve_time_ms: FiniteFloat = 0.0
@@ -238,11 +250,11 @@ class SimulationObservation(BaseModel):
 
 
 class EpisodeStart(BaseModel):
-    fps: Literal[1, 2, 5, 10] = 10
+    fps: Literal[1, 2, 5, 10, 30] = DEFAULT_CAPTURE_HZ
     camera_ids: list[str] = Field(default_factory=lambda: [
         "teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"])
-    capture_products: list[Literal["rgb", "depth", "segmentation"]] = Field(
-        default_factory=lambda: ["rgb", "depth", "segmentation"])
+    capture_products: list[Literal["rgb"]] = Field(
+        default_factory=lambda: ["rgb"])
     max_frames: int = Field(default=18000, ge=1, le=108000)
 
     task_id: str | None = None
@@ -287,10 +299,14 @@ class SceneInstanceCreate(BaseModel):
         default=None, min_length=6, max_length=6,
         description="Optional J1-J6 initial angles in model-zero degrees. Overrides arm randomization only; fingers are unchanged.",
     )
+    operating_arm_joint_position_deg: list[Annotated[FiniteFloat, Field(strict=True)]] = Field(
+        default_factory=lambda: list(DEFAULT_OPERATING_JOINT_DEG), min_length=6, max_length=6,
+        description="Operating target, not the startup state. Degrees, no angle wrapping.",
+    )
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)
-    capture_rate_hz: float = Field(default=10.0, gt=0.0, le=60.0)
-    ik_rate_hz: float = Field(default=100.0, ge=1.0, le=500.0)
+    capture_rate_hz: float = Field(default=DEFAULT_CAPTURE_HZ, gt=0.0, le=60.0)
+    ik_rate_hz: float = Field(default=DEFAULT_IK_HZ, ge=1.0, le=240.0)
     dataset_capture: bool = True
     sunlight_intensity_scale: FiniteFloat = Field(
         default=DEFAULT_SUNLIGHT_INTENSITY_SCALE, strict=True,
@@ -300,7 +316,7 @@ class SceneInstanceCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dataset_sampling(self):
-        from .lerobot_capture import SUPPORTED_FPS
+        ik_step_stride(self.ik_rate_hz)
         if self.dataset_capture and self.capture_rate_hz not in SUPPORTED_FPS:
             raise ValueError(f"LeRobot capture FPS must be representable by the dynamics and render clocks: {SUPPORTED_FPS}")
         return self

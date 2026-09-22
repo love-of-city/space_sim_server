@@ -80,7 +80,7 @@ test("actual scene-start handler submits custom degrees, supports opt-out and bl
   $("sceneTemplate").value = "spacecraft-arm-teleop";
   $("randomizationProfile").value = "training-v1";
   const requests = [], messages = [];
-  const ctx = vm.createContext({$, initialJoints: p.ui, state: {sceneDefaults: {}},
+  const ctx = vm.createContext({ ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}}, $, initialJoints: p.ui, state: {sceneDefaults: {}},
     setMessage: text => messages.push(text), applySceneRuntime() {}, refreshState: async () => {},
     apiRequest: async (path, options) => {requests.push(JSON.parse(options.body)); return {ok: true};},
     readApiResponse: async () => ({instance_id: "test", seed: 1}),

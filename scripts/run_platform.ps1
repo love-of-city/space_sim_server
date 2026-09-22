@@ -19,12 +19,12 @@ param(
     [ValidateRange(90, 1080)]
     [int]$PixelStreamingCameraHeight = 360,
     [double]$SimulationRate = 1.0,
-    [double]$CaptureRate = 10.0,
+    [double]$CaptureRate = 30.0,
     # LeRobot recording needs authoritative products. Preview-only scenes may
     # explicitly opt out, in which case camera episode start is rejected.
     [switch]$EnableDatasetCapture = $true,
-    [ValidateRange(1.0, 500.0)]
-    [double]$IkRate = 100.0,
+    [ValidateRange(1.0, 240.0)]
+    [double]$IkRate = 120.0,
     [ValidateRange(1, 120)]
     [double]$PreviewRate = 90.0,
     [ValidateRange(0, 100)]

@@ -10,9 +10,8 @@ from Basilisk.architecture import sysModel
 class AuthoritativeObservationModel(sysModel.SysModel):
     """Same task/instant as the bridge; network delivery remains outside physics.
 
-    The outer 30 Hz ExecuteSimulation loop can finish *after* the last render
-    sample on a 2 ms dynamics clock. Reading joints there and labelling them
-    with the earlier render timestamp is not a synchronized observation.
+    Physics uses an absolute 240 Hz grid; every eighth step publishes a render
+    frame. Snapshot immediately after that frame, not later in the outer loop.
     """
     def __init__(self, bridge, snapshot: Callable[[int, int], dict]):
         super().__init__()

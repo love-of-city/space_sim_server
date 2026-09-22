@@ -24,6 +24,6 @@ def test_capture_receiver_separates_preview_from_authoritative_data() -> None:
         "source_frame_id": "4",
         "sim_time_ns": "5",
     }
-    receiver.route_capture(metadata, {"rgb": b"PNG", "depth": b"EXR"})
-    assert recorded == [(metadata, {"rgb": b"PNG", "depth": b"EXR"})]
+    receiver.route_capture(metadata, {"rgb": b"PNG"})
+    assert recorded == [(metadata, {"rgb": b"PNG"})]
     assert receiver.latest("overview").data == b"JPEG"

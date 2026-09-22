@@ -10,6 +10,7 @@ from pathlib import Path
 import uvicorn
 
 from .app import PlatformConfig, create_app
+from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ
 
 
 def main() -> None:
@@ -53,9 +54,9 @@ def main() -> None:
     parser.add_argument("--runtime-preview-rate", type=float, default=90.0)
     parser.add_argument("--runtime-encoder-min-quality", type=int, default=60)
     parser.add_argument("--runtime-renderer-ready-timeout", type=int, default=240)
-    parser.add_argument("--runtime-ik-rate", type=float, default=100.0)
+    parser.add_argument("--runtime-ik-rate", type=float, default=DEFAULT_IK_HZ)
     parser.add_argument("--runtime-simulation-rate", type=float, default=1.0)
-    parser.add_argument("--runtime-capture-rate", type=float, default=10.0)
+    parser.add_argument("--runtime-capture-rate", type=float, default=DEFAULT_CAPTURE_HZ)
     parser.add_argument("--runtime-default-dataset-capture", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--secure-cookies", action="store_true", default=os.environ.get("SPACE_SIM_SECURE_COOKIES") == "1")
     parser.add_argument("--allowed-origin", action="append", default=None)

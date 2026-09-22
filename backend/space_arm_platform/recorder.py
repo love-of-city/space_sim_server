@@ -116,11 +116,28 @@ class EpisodeRecorder:
                 raise RuntimeError("episode is already finalizing")
             # Freeze the observation cutoff; capture callbacks can still drain it.
             self._stopping = True
-            drained = self._write_condition.wait_for(
-                lambda: self._inflight_writes == 0 and (
-                    not self._dataset_observations or self._dataset_error is not None),
-                timeout=self._drain_timeout_s,
-            )
+            self._write_condition.notify_all()
+            # The cutoff is frozen, but a bounded RGB backlog may take more than
+            # 10 seconds to render. Apply the timeout to *lack of progress*, with
+            # a separate total cap, rather than fail while valid frames still drain.
+            now = time.monotonic()
+            idle_deadline = now + self._drain_timeout_s
+            total_deadline = now + self._drain_timeout_s * 6
+            last_progress = self._dataset.frames if self._dataset else 0
+            drained = False
+            while True:
+                if self._inflight_writes == 0 and (
+                        not self._dataset_observations or self._dataset_error is not None):
+                    drained = True
+                    break
+                remaining = min(idle_deadline, total_deadline) - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._write_condition.wait(timeout=remaining)
+                progress = self._dataset.frames if self._dataset else 0
+                if progress > last_progress:
+                    last_progress = progress
+                    idle_deadline = time.monotonic() + self._drain_timeout_s
             if not drained:
                 self._dataset_error = "timed out waiting for synchronized camera samples / disk writes"
             self._sealing = True
@@ -202,6 +219,22 @@ class EpisodeRecorder:
             if self._episode_dir is None or self._stopping:
                 return
             recording_id = self._episode_id
+            # Back-pressure the state socket while RGB catches up. Waiting releases
+            # this lock so the independent camera receiver can finish queued samples.
+            # Keep the bound at 128; a larger buffer only hides a dropped-camera bug.
+            ready = self._write_condition.wait_for(
+                lambda: self._episode_id != recording_id or self._stopping
+                or self._dataset_error is not None or len(self._dataset_observations) < 128,
+                timeout=self._drain_timeout_s,
+            )
+            if self._episode_id != recording_id or self._stopping:
+                return
+            if not ready:
+                self._dataset_error = (
+                    "timed out waiting for RGB capture backpressure to clear (128 samples); "
+                    "check UE capture/network output"
+                )
+                self._write_condition.notify_all()
             self._step_index += 1
             self._steps_by_frame[observation.render_frame_id] = (
                 observation.step_id,
@@ -241,6 +274,16 @@ class EpisodeRecorder:
             if metadata.get("stream_kind") != "authoritative" or metadata.get("state_kind") != "authoritative":
                 self._rejected_capture_count += 1
                 raise ValueError("episode recorder accepts authoritative captures only")
+            advertised = {
+                str(item.get("name")) for item in metadata.get("products", []) if isinstance(item, dict)
+            }
+            unsupported = (set(products) | advertised) - {"rgb"}
+            if unsupported:
+                self._rejected_capture_count += 1
+                self._dataset_error = (
+                    f"RGB-only capture received unsupported products: {sorted(unsupported)}; restart the UE scene"
+                )
+                raise ValueError(self._dataset_error)
             frame_id = str(metadata.get("source_frame_id", ""))
             sim_time_ns = str(metadata.get("sim_time_ns", ""))
             if not frame_id.isdecimal() or not sim_time_ns.isdecimal():

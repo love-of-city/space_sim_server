@@ -26,6 +26,7 @@ from .models import (
     PasswordChange, PasswordReset, SceneInstanceCreate, SimulationObservation, TaskComplete, TaskCreate,
 )
 from .recorder import EpisodeRecorder
+from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
 from .safety import ActionRejected, SafetyController
 from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
 from .simulation_hub import SimulationHub
@@ -62,9 +63,9 @@ class PlatformConfig:
     runtime_preview_rate: float = 90.0
     runtime_encoder_min_quality: int = 60
     runtime_renderer_ready_timeout: int = 240
-    runtime_ik_rate: float = 100.0
+    runtime_ik_rate: float = DEFAULT_IK_HZ
     runtime_simulation_rate: float = 1.0
-    runtime_capture_rate: float = 10.0
+    runtime_capture_rate: float = DEFAULT_CAPTURE_HZ
     runtime_default_dataset_capture: bool = True
     auth_database: Path | None = None
     bootstrap_admin_username: str = "admin"
@@ -74,6 +75,9 @@ class PlatformConfig:
     login_attempts_per_minute: int = 10
 
     def __post_init__(self) -> None:
+        ik_step_stride(self.runtime_ik_rate)
+        if self.runtime_default_dataset_capture and self.runtime_capture_rate not in SUPPORTED_FPS:
+            raise ValueError(f"dataset capture rate must be one of {SUPPORTED_FPS}")
         if type(self.runtime_encoder_min_quality) is not int or not 0 <= self.runtime_encoder_min_quality <= 100:
             raise ValueError("runtime_encoder_min_quality must be an integer in [0, 100]")
 
@@ -495,8 +499,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         runtime = instance.get("runtime", {})
         if payload.camera_ids and not runtime.get("dataset_capture", False):
             raise RuntimeError("当前场景未启用权威相机采集，请启用数据集采集后重新创建场景")
-        fps = runtime.get("capture_rate_hz", 10)
-        from .lerobot_capture import SUPPORTED_FPS
+        fps = runtime.get("capture_rate_hz", DEFAULT_CAPTURE_HZ)
         if fps not in SUPPORTED_FPS:
             raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{SUPPORTED_FPS}")
         if "fps" in payload.model_fields_set and payload.fps != fps:

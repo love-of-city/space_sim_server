@@ -40,6 +40,12 @@ from simulation.serial_chain_kinematics import (  # noqa: E402
 )
 from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_socket  # noqa: E402
 from simulation.observation_capture import AuthoritativeObservationModel
+from simulation.physics_clock import RationalPhysicsClock
+from simulation.native_integration import configure_scene_integrator
+from space_arm_platform.sampling import (
+    DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, RENDER_HZ, SUPPORTED_FPS,
+    ik_step_stride, tick_time_ns,
+)
 from simulation.architecture import BasiliskModuleRegistry  # noqa: E402
 from space_arm_platform.lighting import (  # noqa: E402
     DEFAULT_SUNLIGHT_INTENSITY_SCALE, validate_sunlight_intensity_scale,
@@ -47,9 +53,13 @@ from space_arm_platform.lighting import (  # noqa: E402
 
 
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
-from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
+from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG
+from simulation.arm_preparation import ArmPreparation
 from space_arm_platform.joint_limits import load_joint_limits
 from simulation.motion_diagnostics import MotionSpeedMonitor
+from simulation.online_elbow_ik import (
+    OnlineElbowPreference, ElbowStepDiagnostics, ElbowDeviationState, apply_online_elbow_preference,
+)
 
 
 SARM_JOINT_NAMES = tuple(f"joint{i}" for i in range(1, 7)) + ("joint_finger1", "joint_finger2")
@@ -179,7 +189,7 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     runtime_limits = {
         "simulation_rate": (0.0, 100.0),
         "capture_rate_hz": (0.0, 60.0),
-        "ik_rate_hz": (0.0, 500.0),
+        "ik_rate_hz": (0.0, 240.0),
     }
     for field, (minimum, maximum) in runtime_limits.items():
         try:
@@ -217,6 +227,12 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     scene_limits = load_joint_limits(scene_model, SARM_JOINT_NAMES)
     if np.any(joints < np.array(scene_limits.lower)) or np.any(joints > np.array(scene_limits.upper)):
         raise ValueError("scene arm joint positions exceed the SARM joint limits")
+    if document.get("arm_preparation_required", False):
+        if not np.allclose(joints[:6], 0., atol=1e-12, rtol=0):
+            raise ValueError("zero-start preparation scene must initialize six arm joints at zero")
+        goal = np.deg2rad(np.asarray(document.get("operating_arm_joint_position_deg", DEFAULT_OPERATING_JOINT_DEG), dtype=float))
+        if goal.shape != (6,) or not np.all(np.isfinite(goal)) or np.any(goal < np.asarray(scene_limits.lower[:6])) or np.any(goal > np.asarray(scene_limits.upper[:6])):
+            raise ValueError("invalid saved operating joint angles")
     if target.hinge_joint:
         angle = randomization.get("target_hinge_position_rad", 0.0)
         if isinstance(angle, bool) or not isinstance(angle, (int, float)) or not math.isfinite(angle) or angle != 0.0:
@@ -351,7 +367,7 @@ class SimulationControlClient:
                                 "simulation_id": self.simulation_id,
                                 "reset_generation": self.reset_generation,
                                 "capabilities": [
-                                    "scene_reset",
+                                    "scene_reset", "arm_preparation",
                                     "cartesian_twist_6d",
                                     "damped_least_squares_ik",
                                     "gripper_velocity",
@@ -390,6 +406,16 @@ class SimulationControlClient:
 
     @staticmethod
     def _valid_action(message: dict[str, Any]) -> bool:
+        preparation = message.get("arm_preparation")
+        if preparation is not None:
+            if not isinstance(preparation, dict):
+                return False
+            goal = preparation.get("joint_position_deg")
+            request_id = preparation.get("request_id")
+            if (not isinstance(request_id, str) or not 1 <= len(request_id) <= 80
+                    or not isinstance(goal, list) or len(goal) != 6
+                    or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in goal)):
+                return False
         linear = message.get("end_effector_linear_velocity_body_m_s")
         angular = message.get("end_effector_angular_velocity_body_rad_s")
         return (
@@ -436,6 +462,9 @@ class CartesianTeleopTarget:
         *,
         ik_mode: str = IK_MODE_IK_POSE,
         joint_limits=None,
+        elbow_preference: OnlineElbowPreference | None = None,
+        preparation_required: bool = False,
+        operating_joint_deg=None,
     ) -> None:
         if ik_mode not in IK_MODES:
             raise ValueError(f"unsupported IK mode {ik_mode!r}; expected one of {IK_MODES}")
@@ -445,12 +474,32 @@ class CartesianTeleopTarget:
         self.client = client
         self.kinematics = kinematics
         self.ik_mode = ik_mode
+        if elbow_preference is None:
+            elbow_mode = os.environ.get("SPACE_SIM_ONLINE_ELBOW_MODE", "prefer")
+            if elbow_mode not in {"off", "prefer"}:
+                raise ValueError("SPACE_SIM_ONLINE_ELBOW_MODE must be off or prefer")
+            wrist_mode = os.environ.get("SPACE_SIM_ONLINE_WRIST_MODE", "prefer")
+            if wrist_mode not in {"off", "prefer"}:
+                raise ValueError("SPACE_SIM_ONLINE_WRIST_MODE must be off or prefer")
+            joint3_mode = os.environ.get("SPACE_SIM_ONLINE_JOINT3_MODE", "prefer")
+            if joint3_mode not in {"off", "prefer"}:
+                raise ValueError("SPACE_SIM_ONLINE_JOINT3_MODE must be off or prefer")
+            elbow_preference = OnlineElbowPreference(
+                enabled=elbow_mode == "prefer", wrist_enabled=wrist_mode == "prefer",
+                joint3_enabled=joint3_mode == "prefer")
+        self.elbow_preference = elbow_preference
+        self.elbow_deviation = ElbowDeviationState()
+        self.elbow_diagnostics = ElbowStepDiagnostics()
         limits = joint_limits or _DEFAULT_LIMITS
         if limits.names != SARM_JOINT_NAMES:
             raise ValueError("joint limit order does not match the SARM chain")
         self.joint_min, self.joint_max = np.array(limits.lower), np.array(limits.upper)
         if np.any(self.initial_position < self.joint_min) or np.any(self.initial_position > self.joint_max):
             raise ValueError("initial joint positions exceed selected model limits")
+        self.preparation = ArmPreparation(
+            preparation_required,
+            np.deg2rad(DEFAULT_OPERATING_JOINT_DEG if operating_joint_deg is None else operating_joint_deg),
+            self.joint_min[:6], self.joint_max[:6], ARM_JOINT_VELOCITY_LIMIT)
         self.speed_monitor = MotionSpeedMonitor()
         self.solver_status = "idle"
         self.solver_reasons = []
@@ -532,6 +581,9 @@ class CartesianTeleopTarget:
         """Reset the held joint and Cartesian references at simulation start."""
 
         self.position = self.initial_position.copy()
+        self.preparation.reset()
+        self.elbow_deviation.reset()
+        self.elbow_diagnostics = ElbowStepDiagnostics()
         self.raw_operator_twist.fill(0.)
         self.actuator_diagnostics = None
         self.speed_monitor.reset()
@@ -575,6 +627,37 @@ class CartesianTeleopTarget:
             return self.position.copy(), self.velocity.copy()
 
         action, stale = self.client.latest_action()
+        if self.preparation.required:
+            try:
+                measured = self._actual_arm_position() if self._joint_state_provider is not None else np.full(6, np.nan)
+                measured_velocity = (np.asarray(self._joint_velocity_provider(), dtype=float)
+                                     if self._joint_velocity_provider is not None else np.full(6, np.nan))
+            except (ValueError, TypeError, RuntimeError):
+                measured = measured_velocity = np.full(6, np.nan)
+            preparation_reference = self.preparation.step(
+                dt, action, stale, self.position[:6], measured, measured_velocity)
+            if preparation_reference is not None:
+                self.position[:6], self.velocity[:6] = preparation_reference
+                self.velocity[6:] = 0.
+                self.commanded_linear_velocity.fill(0.)
+                self.commanded_angular_velocity.fill(0.)
+                self.raw_operator_twist.fill(0.)
+                self.desired_twist.fill(0.)
+                self.achieved_twist.fill(0.)
+                self.residual_twist.fill(0.)
+                self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(self.position[:6])
+                self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(measured) if np.all(np.isfinite(measured)) else (self.target_tool_position.copy(), self.target_tool_rotation.copy())
+                self.position_error = self.target_tool_position - self.actual_tool_position
+                self.orientation_error = rotation_matrix_to_vector(self.target_tool_rotation @ self.actual_tool_rotation.T)
+                self.elbow_deviation.reset()
+                self.elbow_diagnostics = ElbowStepDiagnostics(status="preparation")
+                self.solver_status = "preparation_" + self.preparation.status
+                self.solver_reasons = []
+                self.solve_time_ms = 0.
+                self.applied_sequence = str(action.get("server_sequence", "0"))
+                self.command_stale = stale
+                self.update_count += 1
+                return self.position.copy(), self.velocity.copy()
         enabled = bool(action.get("deadman")) and not stale
         requested_linear = np.asarray(
             action["end_effector_linear_velocity_body_m_s"], dtype=float
@@ -614,9 +697,19 @@ class CartesianTeleopTarget:
         self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(actual_arm)
         self.tracking_scale = 1.0
         self.desired_twist = np.concatenate((operator_linear, operator_angular))
-        # Restore the original single-pass velocity IK. Measured pose error is
-        # diagnostic only: no lead gates, Cartesian feedback or failure/braking
-        # state machine modifies the operator command.
+        # First solve the original bounded DLS task, then apply a bounded
+        # geometric preference (no initial/home joint reference). Measured
+        # plant error remains diagnostic; this is not plant pose feedback.
+        self.elbow_diagnostics = ElbowStepDiagnostics(
+            enabled=self.elbow_preference.enabled and self.ik_mode == IK_MODE_IK_POSE,
+            status="idle" if self.elbow_preference.enabled and self.ik_mode == IK_MODE_IK_POSE else "off",
+            wrist_enabled=self.elbow_preference.wrist_enabled and self.elbow_preference.enabled
+                and self.ik_mode == IK_MODE_IK_POSE,
+            joint3_enabled=self.elbow_preference.joint3_enabled and self.elbow_preference.enabled
+                and self.ik_mode == IK_MODE_IK_POSE,
+            position_offset_m=self.elbow_diagnostics.position_offset_m,
+            orientation_offset_rad=self.elbow_diagnostics.orientation_offset_rad,
+        )
         if not arm_enabled:
             # Keep measured telemetry running below, but skip reference-chain
             # Jacobian/SVD/IK work. Geometry diagnostics retain the last sample.
@@ -639,8 +732,7 @@ class CartesianTeleopTarget:
                     dt=dt,
                 )
             else:
-                # Damped task motion only: no automatic return-to-home posture
-                # objective is passed by the teleoperation controller.
+                # Task-only DLS is the baseline; never pass a home reference.
                 result = self.kinematics.inverse_velocity_ik_pose(
                     self.position[:6],
                     self.desired_twist,
@@ -652,6 +744,12 @@ class CartesianTeleopTarget:
                     maximum_damping=IK_POSE_MAXIMUM_DAMPING,
                     singular_value_threshold=IK_POSE_SINGULAR_VALUE_THRESHOLD,
                 )
+                result, self.elbow_diagnostics = apply_online_elbow_preference(
+                    self.kinematics, self.position[:6], self.desired_twist, result,
+                    joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
+                    joint_position_min=self.joint_min[:6], joint_position_max=self.joint_max[:6],
+                    dt=dt, preference=self.elbow_preference, deviation_state=self.elbow_deviation,
+                )
             self.solve_time_ms = (time.perf_counter() - solve_start) * 1000.0
             self.ik_solve_count += 1
         self.solver_reasons = [dict(reason) for reason in getattr(result, "limit_reasons", ())]
@@ -659,6 +757,8 @@ class CartesianTeleopTarget:
             "holding" if not arm_enabled else
             "limited" if result.velocity_scale < 1.0 - 1e-6 else "tracking"
         )
+        if self.elbow_diagnostics.status == "active":
+            self.solver_reasons.append({"code": "elbow_preference", "joints": []})
         if arm_enabled and np.linalg.norm(result.residual_twist) > 1e-5:
             if result.damping > IK_POSE_BASE_DAMPING + 1e-8:
                 self.solver_reasons.append({"code": "damped_task_error", "joints": []})
@@ -734,10 +834,12 @@ class CartesianTeleopTarget:
 class CartesianIkControlModel(sysModel.SysModel):
     """Run endpoint IK on a scheduled BSK control task, outside MJScene RK stages."""
 
-    def __init__(self, target: CartesianTeleopTarget) -> None:
+    def __init__(self, target: CartesianTeleopTarget, *, clock=None, stride: int = 1) -> None:
         super().__init__()
         self.ModelTag = "so101CartesianIkController"
         self.target = target
+        self.clock = clock
+        self.stride = stride
 
     def Reset(self, CurrentSimNanos: int) -> None:
         """Reset the held reference when the Basilisk simulation resets."""
@@ -745,9 +847,9 @@ class CartesianIkControlModel(sysModel.SysModel):
         self.target.reset(CurrentSimNanos * 1.0e-9)
 
     def UpdateState(self, CurrentSimNanos: int) -> None:
-        """Update the joint target once at the configured control-task rate."""
-
-
+        """Hold targets between integer-divided physics steps (default: every 2)."""
+        if self.clock is not None and self.clock.step_index % self.stride:
+            return
         self.target.update(CurrentSimNanos * 1.0e-9)
 
 
@@ -862,8 +964,8 @@ def run(args: argparse.Namespace) -> None:
         args.simulation_rate = float(runtime["simulation_rate"])
         args.capture_rate = float(runtime["capture_rate_hz"])
         args.ik_rate = float(runtime["ik_rate_hz"])
-    if (scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True)) and args.capture_rate not in (1, 2, 5, 10):
-        raise ValueError("LeRobot capture rate must align with the 2 ms dynamics and render clocks: 1, 2, 5, 10 Hz")
+    if (scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True)) and args.capture_rate not in SUPPORTED_FPS:
+        raise ValueError("LeRobot capture rate must align with the 240 Hz dynamics / 30 Hz render grid: 1, 2, 5, 10, 30 Hz")
     adapter_root = args.adapter_root.resolve()
     ue_examples = adapter_root / "Unreal" / "BskUnrealRenderer" / "examples"
     sys.path.insert(0, str(adapter_root / "Adapters"))
@@ -883,7 +985,8 @@ def run(args: argparse.Namespace) -> None:
                       "runtime_warning": target_spec.runtime_warning}, ensure_ascii=True), flush=True)
     native.TARGET_POS = np.asarray(target_spec.position_m, dtype=float)
     native.TARGET_QUAT = np.asarray(target_spec.orientation_wxyz, dtype=float)
-    native.TIME_STEP = 0.002  # One authoritative 500 Hz dynamics step.
+    ik_step_stride(args.ik_rate)  # Reject stale 100 Hz scene configurations.
+    native.TIME_STEP = 1.0 / DYNAMICS_HZ  # Initial period; RationalPhysicsClock drives every actual step.
     native.KP = np.asarray(native.KP, dtype=float).copy()
     native.KD = np.asarray(native.KD, dtype=float).copy()
     native.TORQUE_LIMITS = np.asarray(native.TORQUE_LIMITS, dtype=float).copy()
@@ -903,6 +1006,14 @@ def run(args: argparse.Namespace) -> None:
         if scene_instance
         else np.asarray(BALANCED_TELEOP_HOME, dtype=float)
     )
+    if scene_instance is None:
+        initial_joints = np.asarray(ZERO_TELEOP_HOME, dtype=float)
+        posture_report = {"status": "skipped", "reason": "zero_start_waiting_for_preparation"}
+    else:
+        posture_report = scene_instance.get("ik_initialization", {
+            "status": "skipped", "reason": "saved_initial_state",
+        })
+    print(json.dumps({"type": "ik_initialization", **posture_report}, ensure_ascii=True), flush=True)
     client.start()
     try:
         while True:
@@ -927,7 +1038,9 @@ def _run_session(
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     targets = CartesianTeleopTarget(
         initial_joints, client, kinematics, ik_mode=args.ik_mode,
-        joint_limits=load_joint_limits(native.MODEL_PATH, SARM_JOINT_NAMES)
+        joint_limits=load_joint_limits(native.MODEL_PATH, SARM_JOINT_NAMES),
+        preparation_required=scene_instance.get("arm_preparation_required", False) if scene_instance else True,
+        operating_joint_deg=scene_instance.get("operating_arm_joint_position_deg", DEFAULT_OPERATING_JOINT_DEG) if scene_instance else DEFAULT_OPERATING_JOINT_DEG,
     )
     # Display-only metadata, prepared once from the exact limits used by this session.
     arm_joint_limits_rad = [
@@ -950,6 +1063,9 @@ def _run_session(
         simulation, scene, dynamics_models, recorders = native._build_simulation(
             attitude_control_enabled=False if getattr(args, "disable_attitude_control", False) else None
         )
+        integration = configure_scene_integrator(scene)
+        print(json.dumps({"type": "native_integration_configuration", **integration,
+                          "dynamics_rate_hz": DYNAMICS_HZ}, sort_keys=True), flush=True)
         print(json.dumps({
             "type": "attitude_control_configuration",
             "settings": simulation.attitude_control.settings,
@@ -1005,18 +1121,14 @@ def _run_session(
 
         # The MJBody overload installs Basilisk's native subscriptions to the
         # MJScene state and mass-property messages.  Keep this direct binding
-        # so the 500 Hz dynamics loop does not cross a Python bridge.
+        # so the 240 Hz dynamics loop does not cross a Python bridge.
         print(json.dumps({"type": "ephemeris_configuration", "epoch_utc": ephemeris_epoch, "center": SUPPORTED_EPHEMERIS_CENTER, "frame": SUPPORTED_EPHEMERIS_FRAME, "planet_fixed_frames": dict(zip(("earth", "sun"), CELESTIAL_FIXED_FRAMES)), "gravity_sources": ["earth", "sun"], "gravity_targets": gravity_target_names}, sort_keys=True), flush=True)
-        control_task_name = "teleopIkTask"
-        control_task = simulation.CreateNewTask(
-            control_task_name, macros.sec2nano(1.0 / args.ik_rate)
-        )
-        grasp_process = next(
-            process for process in simulation.procList if process.Name == "graspProcess"
-        )
-        grasp_process.addTask(control_task, 100)
-        ik_controller = CartesianIkControlModel(targets)
-        module_registry.register("teleop_ik", ik_controller, task_name=control_task_name)
+        physics_task = next(task for task in simulation.TaskList if task.Name == "graspTask")
+        physics_clock = RationalPhysicsClock(physics_task)
+        module_registry.register("physics_clock", physics_clock, task_name="graspTask", priority=20_000)
+        ik_controller = CartesianIkControlModel(
+            targets, clock=physics_clock, stride=ik_step_stride(args.ik_rate))
+        module_registry.register("teleop_ik", ik_controller, task_name="graspTask", priority=10_000)
         keep_alive = (
             dynamics_models,
             recorders,
@@ -1035,7 +1147,7 @@ def _run_session(
             host=args.render_host,
             port=args.render_port,
             origin_object="teleop/cubesat_bus",
-            frame_period_ns=macros.sec2nano(1.0 / 30.0),
+            frame_rate_hz=RENDER_HZ,
         )
         bridge.add_mj_scene(
             scene,
@@ -1045,7 +1157,7 @@ def _run_session(
             semantic_label="spacecraft_robot_link",
             camera_picture_in_picture=True,
             camera_capture_rate_hz=args.capture_rate,
-            camera_capture_products=("rgb", "depth", "segmentation"),
+            camera_capture_products=("rgb",),
             camera_pip_resolution=(640, 360),
             camera_picture_in_picture_start_slot=1,
             camera_display_names={
@@ -1116,6 +1228,7 @@ def _run_session(
                     "arm_joint_position_rad": joint_position[:6],
                     "arm_joint_velocity_rad_s": joint_velocity[:6],
                     "target_arm_joint_position_rad": targets.position[:6].tolist(),
+                    "arm_preparation": targets.preparation.telemetry(),
                     "gripper_position_m": joint_position[6:],
                     "gripper_velocity_m_s": joint_velocity[6:],
                     "target_gripper_position_m": targets.position[6:].tolist(),
@@ -1131,6 +1244,34 @@ def _run_session(
                     "cartesian_command_residual": targets.residual_twist.tolist(),
                     "jacobian_rank": targets.jacobian_rank,
                     "ik_mode": targets.ik_mode,
+                    "ik_elbow_preference": {
+                        **vars(targets.elbow_diagnostics),
+                        "reference_height_m": float(kinematics.relative_joint_height(
+                            targets.position[:6], up_axis=targets.elbow_preference.up_axis,
+                            shoulder_joint=targets.elbow_preference.shoulder_joint,
+                            elbow_joint=targets.elbow_preference.elbow_joint)[0]),
+                        "measured_height_m": float(kinematics.relative_joint_height(
+                            np.asarray(joint_position[:6]), up_axis=targets.elbow_preference.up_axis,
+                            shoulder_joint=targets.elbow_preference.shoulder_joint,
+                            elbow_joint=targets.elbow_preference.elbow_joint)[0]),
+                        "preferred_height_m": targets.elbow_preference.preferred_height_m,
+                        "reference_wrist_drop_m": float(kinematics.relative_joint_height(
+                            targets.position[:6], up_axis=targets.elbow_preference.up_axis,
+                            shoulder_joint=targets.elbow_preference.wrist_lower_joint,
+                            elbow_joint=targets.elbow_preference.wrist_upper_joint)[0]),
+                        "measured_wrist_drop_m": float(kinematics.relative_joint_height(
+                            np.asarray(joint_position[:6]), up_axis=targets.elbow_preference.up_axis,
+                            shoulder_joint=targets.elbow_preference.wrist_lower_joint,
+                            elbow_joint=targets.elbow_preference.wrist_upper_joint)[0]),
+                        "preferred_wrist_drop_m": targets.elbow_preference.preferred_wrist_drop_m,
+                        "reference_joint3_rad": float(targets.position[ARM_JOINT_NAMES.index("joint3")]),
+                        "measured_joint3_rad": float(joint_position[ARM_JOINT_NAMES.index("joint3")]),
+                        "preferred_joint3_upper_rad": -targets.elbow_preference.joint3_negative_margin_rad,
+                        "joint3_angle_scale_rad": targets.elbow_preference.joint3_angle_scale_rad,
+                        "joint3_length_scale_m": targets.elbow_preference.joint3_length_scale_m,
+                        "up_frame": "cubesat_bus",
+                        "up_axis": list(targets.elbow_preference.up_axis),
+                    },
                     'ik_status': targets.solver_status,
                     'ik_reasons': targets.solver_reasons,
                     'ik_solve_time_ms': targets.solve_time_ms,
@@ -1150,6 +1291,7 @@ def _run_session(
                     "ik_nullspace_correction_norm": float(targets.nullspace_correction_norm),
                     "command_stale": targets.command_stale,
                     "ik_control_rate_hz": args.ik_rate,
+                    "dynamics_rate_hz": DYNAMICS_HZ,
                     "ik_update_count": str(targets.update_count),
                     "ik_solve_count": str(targets.ik_solve_count),
                     "tracking_scale": float(targets.tracking_scale),
@@ -1230,7 +1372,7 @@ def _run_session(
 
         wall_start = time.monotonic()
         processing_seconds = 0.0
-        frame_count = int(math.ceil(args.duration * 30.0)) if args.duration > 0.0 else None
+        frame_count = int(math.ceil(args.duration * RENDER_HZ)) if args.duration > 0.0 else None
         if client.reset_generation:
             bridge.publish_event("scene_reset", {"request_id": client.reset_generation, "sim_time_ns": "0"})
         frame = 0
@@ -1239,13 +1381,15 @@ def _run_session(
             if reset_request is not None:
                 return reset_request
             frame += 1
-            sim_seconds = frame / 30.0
+            stop_ns = tick_time_ns(frame, RENDER_HZ)
+            sim_seconds = stop_ns * 1.0e-9
             if frame_count is not None:
-                sim_seconds = min(sim_seconds, args.duration)
+                stop_ns = min(stop_ns, macros.sec2nano(args.duration))
+                sim_seconds = stop_ns * 1.0e-9
             deadline = wall_start + sim_seconds / args.simulation_rate
             time.sleep(max(0.0, deadline - time.monotonic()))
             processing_start = time.monotonic()
-            simulation.ConfigureStopTime(macros.sec2nano(sim_seconds))
+            simulation.ConfigureStopTime(stop_ns)
             simulation.ExecuteSimulation()
             if frame == 1:
                 client.complete_reset()
@@ -1264,6 +1408,7 @@ def _run_session(
                         "wall_real_time_factor": args.duration / wall_seconds,
                         "processing_real_time_factor": args.duration / processing_seconds,
                         "ik_control_rate_hz": args.ik_rate,
+                        "dynamics_rate_hz": DYNAMICS_HZ,
                         "ik_update_count": targets.update_count,
                         "ik_solve_count": targets.ik_solve_count,
                     },
@@ -1301,8 +1446,8 @@ def main() -> None:
     parser.add_argument("--render-port", type=int, default=5558)
     parser.add_argument("--duration", type=float, default=0.0, help="Optional finite runtime in seconds; 0 runs until stopped.")
     parser.add_argument("--simulation-rate", type=float, default=1.0)
-    parser.add_argument("--capture-rate", type=float, default=10.0)
-    parser.add_argument("--ik-rate", type=float, default=100.0)
+    parser.add_argument("--capture-rate", type=float, default=DEFAULT_CAPTURE_HZ)
+    parser.add_argument("--ik-rate", type=float, default=DEFAULT_IK_HZ)
     parser.add_argument(
         "--ik-mode",
         choices=IK_MODES,
@@ -1327,11 +1472,11 @@ def main() -> None:
         or args.simulation_rate <= 0
         or args.capture_rate <= 0
         or args.ik_rate <= 0
-        or args.ik_rate > 500
+        or args.ik_rate > DYNAMICS_HZ
     ):
         parser.error(
             "duration must be non-negative, simulation-rate and capture-rate must be positive; "
-            "ik-rate must be in (0, 500]"
+            "ik-rate must divide 240 Hz (default 120 Hz)"
         )
     if not args.adapter_root.is_dir() or not args.model_root.is_dir() or not args.catalog.is_file():
         parser.error("adapter-root, model-root or prepared asset catalog is missing")

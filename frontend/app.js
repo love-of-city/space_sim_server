@@ -1,3 +1,4 @@
+import { createArmPreparation, ZERO_START_PROFILE } from "./arm_preparation.js";
 import { createInitialJointAngles } from "./initial_joint_angles.js";
 import { createJointAnglePanel } from "./joint_angles.js";
 import { formatMotionSpeedDiagnostics } from "./motion_diagnostics.js";
@@ -45,7 +46,7 @@ const state = {
   simulationResetting: false,
   simulationConnected: false,
   resetSupported: false,
-  sceneDefaults: { simulation_rate: 1, capture_rate_hz: 10, ik_rate_hz: 100 },
+  sceneDefaults: { simulation_rate: 1, capture_rate_hz: 30, ik_rate_hz: 120 },
   currentUser: null,
   canManageScene: false,
   operationRequested: false,
@@ -59,8 +60,21 @@ const initialJoints = createInitialJointAngles({
   toggle: $("sceneCustomInitialJoints"), fields: $("sceneInitialJointFields"),
   presetButton: $("sceneInitialJointPreset"), help: $("sceneInitialJointsHelp"),
 });
+const armPreparation = createArmPreparation({
+  fields: $("operatingJointFields"), startButton: $("prepareArm"), cancelButton: $("cancelPrepareArm"),
+  defaultButton: $("operatingJointDefault"), status: $("armPreparationStatus"),
+  getContext: () => state,
+  send: request => transmitAction({linear:[0,0,0], angular:[0,0,0], grip:0, source:"keyboard", preparation:request}, !!request),
+  cancelMotion: () => exitOperationMode(""),
+  activateControl: () => state.ws?.send(JSON.stringify({type:"activate_control"})),
+  message: setMessage, changed: updateOperationUI,
+});
 let initialJointCatalog = null;
 function configureInitialJoints() {
+  const zeroStart = $("randomizationProfile").value === ZERO_START_PROFILE;
+  $("legacyInitialJointSettings").hidden = zeroStart;
+  if (zeroStart) $("sceneCustomInitialJoints").checked = false;
+  armPreparation.configure(initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value));
   initialJoints.configure(
     initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value),
     initialJointCatalog?.initial_arm_presets_deg?.[$("randomizationProfile").value],
@@ -252,8 +266,8 @@ async function loadSceneCatalog() {
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
-      capture_rate_hz: Number(defaults.capture_rate_hz || 10),
-      ik_rate_hz: Number(defaults.ik_rate_hz || 100),
+      capture_rate_hz: Number(defaults.capture_rate_hz || 30),
+      ik_rate_hz: Number(defaults.ik_rate_hz || 120),
     };
   } catch (error) {
     console.warn("Scene catalog is unavailable", error);
@@ -302,11 +316,13 @@ function applySceneRuntime(runtime = {}) {
   $("sceneInstanceOrbitPhase").textContent = instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
   if (active && instance.instance_id) {
     if (instance.template_id) $("sceneTemplate").value = instance.template_id;
+    if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
     $("sceneSunlightIntensity").value = String(instanceSunlight);
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
   }
   configureInitialJoints();
   initialJoints.setRuntime(active, instance);
+  armPreparation.setRuntime(instance, state.sceneReady);
   $("sceneParameters").textContent = instance.randomization
     ? JSON.stringify({ capture_target: instance.capture_target || {}, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
@@ -328,7 +344,8 @@ async function readApiResponse(response) {
 
 async function startScene() {
   let initialAngles;
-  try { initialAngles = initialJoints.read(); }
+  let operatingAngles;
+  try { initialAngles = $("randomizationProfile").value === ZERO_START_PROFILE ? null : initialJoints.read(); operatingAngles = armPreparation.read(); }
   catch (error) { setMessage(error.message); return; }
   const sunlightText = $("sceneSunlightIntensity").value.trim();
   const sunlightScale = Number(sunlightText);
@@ -349,6 +366,7 @@ async function startScene() {
     dataset_capture: $("sceneDatasetCapture").checked,
     sunlight_intensity_scale: sunlightScale,
     initial_arm_joint_position_deg: initialAngles,
+    ...($("randomizationProfile").value === ZERO_START_PROFILE ? {operating_arm_joint_position_deg: operatingAngles} : {}),
   };
   $("startScene").disabled = true;
   setMessage("正在生成可复现场景实例…");
@@ -463,6 +481,7 @@ function connect() {
     } else if (message.type === "observation") {
       const obs = message.payload;
       jointAngles.update(obs);
+      armPreparation.update(obs.arm_preparation);
       setOnline("simDot", true);
       $("simState").textContent = "仿真在线";
       $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
@@ -476,7 +495,7 @@ function connect() {
       $("toolPosition").textContent = position.length === 3 ? position.map((value) => Number(value).toFixed(3)).join(", ") : "—";
       $("jacobianRank").textContent = `${obs.jacobian_rank ?? "—"} / 6`;
       $("ikSolver").textContent = obs.ik_mode
-        ? `${obs.ik_mode}${obs.ik_status ? ` / ${obs.ik_status}` : ""} · λ=${Number(obs.ik_damping ?? 0).toFixed(4)} · scale=${Number(obs.ik_velocity_scale ?? 1).toFixed(2)} · σmin=${Number(obs.ik_minimum_singular_value ?? 0).toExponential(1)} · ${Number(obs.ik_solve_time_ms ?? 0).toFixed(2)} ms`
+        ? `${obs.ik_mode}${obs.ik_status ? ` / ${obs.ik_status}` : ""} · λ=${Number(obs.ik_damping ?? 0).toFixed(4)} · scale=${Number(obs.ik_velocity_scale ?? 1).toFixed(2)} · σmin=${Number(obs.ik_minimum_singular_value ?? 0).toExponential(1)} · ${Number(obs.ik_solve_time_ms ?? 0).toFixed(2)} ms${obs.ik_elbow_preference?.enabled ? ` · 构型偏好=${obs.ik_elbow_preference.status} · 肘高=${Number(obs.ik_elbow_preference.measured_height_m ?? 0).toFixed(3)}m${obs.ik_elbow_preference.wrist_enabled ? ` · J4−J6=${Number(obs.ik_elbow_preference.measured_wrist_drop_m ?? 0).toFixed(3)}m` : ""}${obs.ik_elbow_preference.joint3_enabled ? ` · J3负角偏好=${(Number(obs.ik_elbow_preference.measured_joint3_rad ?? 0) * 180 / Math.PI).toFixed(1)}°` : ""}` : ""}`
         : "—";
       const attitude = obs.attitude_control;
       const wheels = obs.reaction_wheels;
@@ -843,6 +862,7 @@ function transmitAction(action, deadman) {
     client_sequence: state.sequence,
     client_time_ns: String(BigInt(Date.now()) * 1000000n),
     deadman,
+    ...(action.preparation ? {arm_preparation: action.preparation} : {}),
     end_effector_linear_speed_m_s: state.linearSpeed,
     end_effector_linear_velocity: action.linear,
     end_effector_angular_velocity: action.angular,
@@ -863,7 +883,7 @@ function updateOperationUI() {
   const viewport = $("viewport");
   const hintTitle = $("operationHintTitle");
   const hintDetail = $("operationHintDetail");
-  const available = state.sceneReady && state.connected && state.canManageScene && !state.estopped;
+  const available = state.sceneReady && state.connected && state.canManageScene && !state.estopped && armPreparation.ready();
   viewport.classList.toggle("operation-active", state.operationActive);
   viewport.classList.toggle("operation-available", available && !state.operationActive);
   viewport.setAttribute("aria-pressed", String(state.operationActive));
@@ -887,6 +907,9 @@ function updateOperationUI() {
   } else if (state.estopped) {
     hintTitle.textContent = "急停已锁存";
     hintDetail.textContent = "先在右侧点击恢复控制";
+  } else if (!armPreparation.ready()) {
+    hintTitle.textContent = "请先到达操作姿态";
+    hintDetail.textContent = "使用操作姿态准备按钮；实测稳定到位后才能进入操作";
   } else if (!state.controlGranted) {
     hintTitle.textContent = "点击切换到当前操作页面";
     hintDetail.textContent = "同一用户的旧页面会自动退出操作";
@@ -917,6 +940,7 @@ function updateOperationUI() {
 }
 
 function enterOperationMode() {
+  if (!armPreparation.ready()) return setMessage("请先点击到达操作姿态，并等待实测稳定到位");
   if (!state.sceneReady) return setMessage("场景尚未运行，暂时不能进入操作模式");
   if (!state.connected) return setMessage("操作链路尚未连接");
   if (!state.canManageScene) return setMessage("只能操作自己创建的场景");
@@ -930,6 +954,7 @@ function enterOperationMode() {
 }
 
 function completeEnterOperationMode() {
+  if (!armPreparation.ready()) return setMessage("机械臂尚未准备到位");
   state.pressed.clear();
   state.operationActive = true;
   $("viewport").focus({ preventScroll: true });
@@ -938,6 +963,7 @@ function completeEnterOperationMode() {
 }
 
 function exitOperationMode(message = "已退出操作模式，点击实时画面可重新进入") {
+  armPreparation.cancel("已停止准备运动");
   const wasActive = state.operationActive;
   const wasFreeCamera = state.freeCameraMode;
   state.pressed.clear();
@@ -952,6 +978,8 @@ function exitOperationMode(message = "已退出操作模式，点击实时画面
 function sendAction() {
   // Poll diagnostics even outside operation mode; this never grants control.
   const gamepad = gamepadAction();
+  if (armPreparation.tick()) return;
+  if (state.operationActive && !armPreparation.ready()) { exitOperationMode("准备状态未就绪或遥测过期，已停止操作"); return; }
   if (!state.operationActive || state.freeCameraMode || !state.sceneReady || !state.canManageScene || state.estopped) return;
   if (!state.connected || !state.controlGranted || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
   const keyboard = keyboardAction();
@@ -1059,6 +1087,7 @@ $("viewport").addEventListener("pointerdown", (event) => {
 }, true);
 
 window.addEventListener("keydown", (event) => {
+  if (event.code === "Escape") armPreparation.cancel();
   const editing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable;
   if (editing) {
     // Typing into page forms must never reach UE keyboard shortcuts.
@@ -1106,9 +1135,11 @@ window.addEventListener("keypress", (event) => {
   }
 }, true);
 window.addEventListener("blur", () => {
+  armPreparation.cancel("页面失焦，已中止准备");
   if (state.operationActive || state.freeCameraMode) exitOperationMode("页面失去焦点，已停止输入并返回主视角");
 });
 document.addEventListener("visibilitychange", () => {
+  if (document.hidden) armPreparation.cancel("页面隐藏，已中止准备");
   if (document.hidden && (state.operationActive || state.freeCameraMode)) {
     exitOperationMode("页面已隐藏，已停止输入并返回主视角");
   }

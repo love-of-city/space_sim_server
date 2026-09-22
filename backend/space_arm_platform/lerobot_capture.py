@@ -1,8 +1,7 @@
 """Live LeRobot v3 sink. No post-hoc reader/converter of platform JSONL files.
 
 One recording produces one self-contained dataset (episode_index=0). RGB is
-video; segmentation is lossless image; original metric PFM depth is an auxiliary
-asset referenced by a string feature. All products retain authoritative IDs.
+the only visual product and is stored as video with authoritative frame IDs.
 """
 from __future__ import annotations
 
@@ -15,18 +14,12 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-SUPPORTED_FPS = (1, 2, 5, 10)
+from .sampling import SUPPORTED_FPS, sample_tick
 DEFAULT_CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
 
 
 def camera_key(camera: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]", "_", camera)
-
-
-def sample_tick(sim_time_ns: int, fps: int) -> int | None:
-    # Integer arithmetic; allow sub-microsecond integration rounding only.
-    tick = (sim_time_ns * fps + 500_000_000) // 1_000_000_000
-    return tick if abs(sim_time_ns * fps - tick * 1_000_000_000) <= fps * 1000 else None
 
 
 class LiveLeRobotWriter:
@@ -93,16 +86,6 @@ class LiveLeRobotWriter:
                 raise ValueError("camera resolution changed during recording")
             frame[f"observation.images.{key}"] = rgb
             frame[f"observation.camera_metadata.{key}"] = json.dumps(meta, ensure_ascii=False)
-            if "segmentation" in self.products:
-                segmentation = self._image(products["segmentation"])
-                if segmentation.shape != rgb.shape:
-                    raise ValueError("segmentation/RGB resolution mismatch")
-                frame[f"observation.segmentation.{key}"] = segmentation
-            if "depth" in self.products:
-                self._validate_depth(products["depth"], w, h)
-                relative = Path("auxiliary") / "depth" / key / f"frame-{self.frames:06d}.pfm"
-                # Dataset.create owns creating root, so defer asset write until below.
-                frame[f"observation.depth_path.{key}"] = relative.as_posix()
         if self.dataset is None:
             features = {}
             for name, value in frame.items():
@@ -111,7 +94,7 @@ class LiveLeRobotWriter:
                 if isinstance(value, str):
                     features[name] = {"dtype": "string", "shape": (1,), "names": None}
                 else:
-                    dtype = "video" if name.startswith("observation.images.") else "image" if name.startswith("observation.segmentation.") else str(value.dtype)
+                    dtype = "video" if name.startswith("observation.images.") else str(value.dtype)
                     features[name] = {"dtype": dtype, "shape": value.shape, "names": None}
             n = len(observation.joint_position_rad)
             names = [f"joint_{i + 1}_rad" for i in range(6)] + (["finger_1_m", "finger_2_m"] if n == 8 else [])
@@ -129,16 +112,9 @@ class LiveLeRobotWriter:
                 "schema": "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "sarm_ee",
                 "action_semantics": "joint servo target held at the observation time; six radians plus two finger metres",
                 "timestamp_semantics": "episode-relative uniform sample time; original nanoseconds in observation.sim_time_ns",
-                "depth_semantics": "relative auxiliary PFM path; float32 metres camera_z, bottom-up PFM rows",
-                "segmentation_semantics": "lossless RGB instance IDs; mapping in camera_metadata, not a lossy video",
                 "camera_keys": {c: camera_key(c) for c in self.cameras},
                 "request": self.request.model_dump(mode="json"),
             }, ensure_ascii=False, indent=2), encoding="utf-8")
-        for camera in self.cameras:
-            if "depth" in self.products:
-                path = self.root / frame[f"observation.depth_path.{camera_key(camera)}"]
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(captures[camera][1]["depth"])
         self.dataset.add_frame(frame)
         self.frames += 1
         self.last_tick = tick
@@ -147,21 +123,6 @@ class LiveLeRobotWriter:
     def _image(blob: bytes) -> np.ndarray:
         with Image.open(io.BytesIO(blob)) as image:
             return np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
-
-    @staticmethod
-    def _validate_depth(blob: bytes, width: int, height: int) -> None:
-        stream = io.BytesIO(blob)
-        if stream.readline().strip() != b"Pf":
-            raise ValueError("expected a grayscale PFM depth product")
-        if stream.readline().split() != [str(width).encode(), str(height).encode()]:
-            raise ValueError("depth/RGB resolution mismatch")
-        scale = float(stream.readline())
-        values = stream.read()
-        if scale != -1.0 or len(values) != width * height * 4:
-            raise ValueError("expected little-endian float32 metre depth payload")
-        depth = np.frombuffer(values, dtype="<f4")
-        if not np.isfinite(depth).all() or np.any(depth < 0):
-            raise ValueError("depth must contain finite, nonnegative metres")
 
     def finish(self, outcome: str = "unknown", note: str = "") -> None:
         if self.dataset is None:

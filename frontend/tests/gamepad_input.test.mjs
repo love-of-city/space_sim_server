@@ -60,7 +60,7 @@ function harness(navigatorObject) {
   const messages = [], nodes = new Map();
   const state = {operationActive: true, freeCameraMode: false, sceneReady: true, estopped: false,
     connected: true, canManageScene: true, controlGranted: true, ws: {readyState: 1}, lastAckAt: 0};
-  const context = vm.createContext({state, gamepadInput: {read: () => sampleGamepad(navigatorObject)}, gamepadControlBlockReason,
+  const context = vm.createContext({armPreparation: {tick: () => false, ready: () => true}, state, gamepadInput: {read: () => sampleGamepad(navigatorObject)}, gamepadControlBlockReason,
     $: id => {if (!nodes.has(id)) nodes.set(id, {textContent: "", classList: {toggle(){}}}); return nodes.get(id);},
     WebSocket: {OPEN: 1}, keyboardAction: () => ({linear: [1, 0, 0], angular: [0, 0, 0], grip: 0, source: "keyboard"}),
     transmitAction: (action, deadman) => messages.push({action, deadman}), highlightKeys(){}});

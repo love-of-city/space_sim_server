@@ -64,14 +64,14 @@ def test_catalog_bounds_are_enforced_before_writing(tmp_path):
             for bound, sign in zip(bounds, [-1, 1]):
                 angles = ANGLES.copy()
                 angles[i] = bound
-                instance = manager.create_instance(SceneInstanceCreate(template_id=template["id"], initial_arm_joint_position_deg=angles))
+                instance = manager.create_instance(SceneInstanceCreate(randomization_profile="teleop-balanced-v1", template_id=template["id"], initial_arm_joint_position_deg=angles))
                 assert instance["initial_arm_joint_position_deg"][i] == bound
                 from simulation.teleop_grasp_unreal import _load_scene_instance
                 _load_scene_instance(Path(instance["config_path"]))
                 before = set(manager.scene_root.iterdir())
                 angles[i] += sign * 0.001
                 with pytest.raises(ValueError, match=f"J{i+1}"):
-                    manager.create_instance(SceneInstanceCreate(template_id=template["id"], initial_arm_joint_position_deg=angles))
+                    manager.create_instance(SceneInstanceCreate(randomization_profile="teleop-balanced-v1", template_id=template["id"], initial_arm_joint_position_deg=angles))
                 assert set(manager.scene_root.iterdir()) == before
 
 
@@ -85,7 +85,7 @@ def test_selected_deployment_model_limits_not_hardcoded(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     manager.launch = SimpleNamespace(model_root=model_root)
     with pytest.raises(ValueError, match="J1"):
-        manager.create_instance(SceneInstanceCreate(template_id="spacecraft-arm-teleop", initial_arm_joint_position_deg=ANGLES))
+        manager.create_instance(SceneInstanceCreate(randomization_profile="teleop-balanced-v1", template_id="spacecraft-arm-teleop", initial_arm_joint_position_deg=ANGLES))
 
 
 def test_api_accepts_custom_angles_and_reports_invalid_input(tmp_path):
@@ -97,10 +97,10 @@ def test_api_accepts_custom_angles_and_reports_invalid_input(tmp_path):
         assert client.post("/api/auth/login", json={"username": "admin", "password": "ChangeMe123!"}).status_code == 200
         catalog = client.get("/api/scenes/catalog").json()
         assert len(catalog["initial_arm_presets_deg"]["teleop-balanced-v1"]) == 6
-        response = client.post("/api/scenes/instances", json={"seed": 123, "initial_arm_joint_position_deg": ANGLES})
+        response = client.post("/api/scenes/instances", json={"seed": 123, "randomization_profile": "teleop-balanced-v1", "initial_arm_joint_position_deg": ANGLES})
         assert response.status_code == 200
         assert response.json()["initial_arm_joint_position_deg"] == ANGLES
         for bad in ([0]*5, [True]*6, [10000]*6):
-            response = client.post("/api/scenes/instances", json={"initial_arm_joint_position_deg": bad})
+            response = client.post("/api/scenes/instances", json={"randomization_profile": "teleop-balanced-v1", "initial_arm_joint_position_deg": bad})
             assert response.status_code == 422
         assert "J1" in response.json()["detail"]

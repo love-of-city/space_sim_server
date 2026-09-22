@@ -25,9 +25,9 @@ param(
     [ValidateRange(0, 100)]
     [int]$EncoderMinQuality = 60,
     [int]$RendererReadyTimeout = 240,
-    [double]$IkRate = 100.0,
+    [double]$IkRate = 120.0,
     [double]$SimulationRate = 1.0,
-    [double]$CaptureRate = 10.0,
+    [double]$CaptureRate = 30.0,
     [switch]$DefaultDatasetCapture = $true
 )
 

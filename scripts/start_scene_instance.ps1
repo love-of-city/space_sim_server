@@ -52,8 +52,11 @@ $simulationRate = [double]$instance.runtime.simulation_rate
 $captureRate = [double]$instance.runtime.capture_rate_hz
 $ikRate = [double]$instance.runtime.ik_rate_hz
 $datasetCapture = [bool]$instance.runtime.dataset_capture
-if ($datasetCapture -and $captureRate -notin @(1, 2, 5, 10)) {
-    throw 'LeRobot capture rate must be 1, 2, 5 or 10 Hz on the native simulation clocks.'
+if ($datasetCapture -and $captureRate -notin @(1, 2, 5, 10, 30)) {
+    throw 'LeRobot capture rate must be 1, 2, 5, 10 or 30 Hz on the 240 Hz dynamics / 30 Hz render clock.'
+}
+if ($ikRate -le 0 -or $ikRate -gt 240 -or $ikRate -ne [Math]::Truncate($ikRate) -or 240 % $ikRate -ne 0) {
+    throw 'IK rate must be an integer divisor of 240 Hz (default 120 Hz); recreate scenes using the old 100 Hz configuration.'
 }
 if ($simulationRate -le 0 -or $captureRate -le 0 -or $ikRate -le 0) {
     throw 'Scene runtime rates must be positive.'
@@ -128,7 +131,7 @@ try {
         PixelStreamingCameraFps = [int][Math]::Round($PreviewRate)
     }
     if ($datasetCapture) {
-        $rendererArgs.CaptureProducts = @('rgb', 'depth', 'segmentation')
+        $rendererArgs.CaptureProducts = @('rgb')
         $rendererArgs.CaptureRate = $captureRate
         $rendererArgs.CaptureNetworkHost = '127.0.0.1'
         $rendererArgs.CaptureNetworkPort = $CapturePort
@@ -187,7 +190,15 @@ try {
     if ($outcome.component -eq 'renderer') {
         throw "UE renderer exited unexpectedly with code $($outcome.code). See $ueProject\Saved\Logs\BskUnrealRenderer.log and Saved\Crashes; the associated simulation will be stopped."
     }
-    if ($outcome.code -ne 0) { throw "Basilisk/MJScene exited with code $($outcome.code). Check logs\$stamp.simulation.err.log." }
+    if ($outcome.code -ne 0) {
+        $errorLog = Join-Path $logDirectory "$stamp.simulation.err.log"
+        $detail = ''
+        if (Test-Path -LiteralPath $errorLog) {
+            $cause = Get-Content -LiteralPath $errorLog -Tail 40 | Select-String 'BasiliskError:|ValueError:|RuntimeError:' | Select-Object -Last 1
+            if ($cause) { $detail = ' ' + $cause.Line.Trim() }
+        }
+        throw "Basilisk/MJScene exited with code $($outcome.code).$detail UE is stopped because the authoritative simulation exited. Check logs\$stamp.simulation.err.log."
+    }
     Write-RuntimeState 'completed'
 } catch {
     $message = $_.Exception.Message

@@ -6,6 +6,12 @@
 实现位置：[simulation/serial_chain_kinematics.py](../simulation/serial_chain_kinematics.py)、
 调度位置：[simulation/teleop_grasp_unreal.py](../simulation/teleop_grasp_unreal.py)。
 
+## 离线肘部抬高选解（新增）
+
+新场景默认 `teleop-elbow-up-v1` 会在初始化前进行多初值位姿 IK、精度/限位/接触筛选，
+以几何肘部高度为软偏好选取并保存关节解。实时 DLS 现在叠加有界在线几何拱形偏好（抬肘＋腕部向下＋J3负角），运行中不会跳解，
+已有场景/显式初始角度保持原样。配置、回退和边界见 [肘部抬高优先](ELBOW_PREFERRED_IK.md)。
+
 ## 背景
 
 机械臂、坐标框架、`SafetyController`、deadman/超时语义、BSK `MJJointPIDController`
@@ -26,20 +32,23 @@ dq *= scale   # 关节速度/位置限制的统一缩放
   接近 `IK_POSE_SINGULAR_VALUE_THRESHOLD = 2e-2` 线性升到
   `IK_POSE_MAXIMUM_DAMPING = 5e-2`。均衡位形下残差约为指令模的 `5e-4`，接近奇异位形
   时速度有界、平滑减速而不是直接归零。
-- **遥操作不再启用零空间构型调整**：不传初始关节参考或构型增益，避免用户没有要求时
-  自动回初始构型。底层数值接口仍支持显式实验，但它不属于实时遥操作路径。
+- **在线几何构型偏好**：默认在已限幅 DLS 后加入当前肘高、`z4-z6` 高度差与归一化 J3 负角目标共同引导的有界修正，不传
+  初始/home 参考。从零位也可主动偏向抬肘。额外速度和累计参考偏移有独立预算；
+  `SPACE_SIM_ONLINE_ELBOW_MODE=off` 恢复 task-only，
+  `SPACE_SIM_ONLINE_WRIST_MODE=off` 则只关闭腕部项，
+  `SPACE_SIM_ONLINE_JOINT3_MODE=off` 只关闭 J3 负角项（默认软目标 −5°）。详见 [预算和限制](ELBOW_PREFERRED_IK.md)。
 - **机械臂与夹爪分离**：同一 deadman 仍授权整个数据包，机械臂只由六维末端输入启用，
   夹爪只由开合输入启用。只动夹爪、无输入或超时均不执行机械臂 IK；两者同时输入时
   正常并行执行。转入夹爪操作时清除残留的机械臂平滑指令。
 - **统一缩放**：关节速度或位置约束触发时，仍然对整组关节速度乘同一个 `scale`，
-  这一点与 `strict` 模式一致。
+  此缩放作用于任务基线；新增抬肘修正在剩余限位/限速余量内缩放，不改变基线。
 
 代价：DLS 在奇异位形给出的是“最小二乘意义下最接近指令”的运动，其方向可以与操作员指令
 不一致（例如平移指令在退化方向上被替换成很小的腕部转动）。这正是 robosuite 的默认行为，
 也是它相对 `strict` 模式“不冻结”的来源。观测中的 `cartesian_command_residual`、
 `ik_minimum_singular_value`、`ik_damping` 用于判断当前处于哪种状态。
 
-## `strict`（回退）
+## `strict`（回退，不加在线肘部偏好）
 
 原实现，保持方向不变的严格六维最小二乘：
 
@@ -71,7 +80,8 @@ $env:SPACE_SIM_IK_MODE = 'strict'
 | `ik_velocity_scale` | 关节速度/位置约束触发的统一缩放因子 |
 | `ik_minimum_singular_value` | 当前构型雅可比最小奇异值 |
 | `ik_condition_number` | 条件数（无界时饱和到 `1e9`，保证 JSON 有限） |
-| `ik_nullspace_correction_norm` | 兼容遥测字段；当前实时控制恒为 `0` |
+| `ik_nullspace_correction_norm` | 兼容字段，恒为 `0`；几何抬肘并非纯零空间修正 |
+| `ik_elbow_preference` | 在线偏好状态、实测/参考高度、额外速度扰动及累计参考偏移 |
 | `jacobian_rank` / `cartesian_command_residual` | 原有字段，仍表示雅可比秩与六维指令残差 |
 
 前端“仿真状态 → IK 求解”一行显示 `ik_mode`、`λ`、`scale` 和 `σmin`。

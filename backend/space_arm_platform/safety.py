@@ -116,7 +116,7 @@ class SafetyController:
         grip = max(-1.0, min(1.0, float(request.gripper_velocity)))
         limited |= grip != request.gripper_velocity
         deadman = bool(request.deadman)
-        if not deadman:
+        if not deadman or request.arm_preparation is not None:
             normalized_linear = [0.0] * 3
             normalized_angular = [0.0] * 3
             grip = 0.0
@@ -127,6 +127,7 @@ class SafetyController:
             client_sequence=str(request.client_sequence),
             client_time_ns=request.client_time_ns,
             deadman=deadman,
+            arm_preparation=request.arm_preparation if deadman else None,
             requested_end_effector_linear_velocity_normalized=[
                 float(value) for value in request.end_effector_linear_velocity
             ],

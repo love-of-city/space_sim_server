@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import SceneInstanceCreate
+from .sampling import DYNAMICS_HZ, DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ
 from .joint_limits import JointLimits, load_joint_limits
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE
 from .control_defaults import (
@@ -24,7 +25,9 @@ from .control_defaults import (
     BALANCED_TELEOP_JOINT_SPANS,
     BALANCED_TELEOP_PROFILE,
     DEFAULT_RANDOMIZATION_PROFILE,
+    ELBOW_UP_TELEOP_PROFILE,
     LEGACY_PREGRASP,
+    ZERO_START_TELEOP_PROFILE, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG,
 )
 from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, capture_target
 
@@ -57,6 +60,16 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
 )
 
 RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
+    {
+        "id": ZERO_START_TELEOP_PROFILE,
+        "label": "全零启动 → 操作姿态准备",
+        "description": "六关节全零保持；点击到达操作姿态，关节轨迹到位后才能遥操作。",
+    },
+    {
+        "id": ELBOW_UP_TELEOP_PROFILE,
+        "label": "肘部抬高优先 v1",
+        "description": "新场景离线多初值 IK，优先肘部抬高；精度/限位/碰撞筛选后保存，实时不跳解。",
+    },
     {
         "id": BALANCED_TELEOP_PROFILE,
         "label": "均衡遥操作 v1",
@@ -142,7 +155,7 @@ def _multiply_quaternion(a: list[float], b: list[float]) -> list[float]:
 def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
     rng = random.Random(seed)
     target = capture_target(request.template_id)
-    balanced_profile = request.randomization_profile == BALANCED_TELEOP_PROFILE
+    balanced_profile = request.randomization_profile in {BALANCED_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE}
     initial_arm = BALANCED_TELEOP_HOME if balanced_profile else _NATIVE_PREGRASP
     randomization: dict[str, Any] = {
         "target_position_m": list(target.position_m),
@@ -151,7 +164,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "target_angular_velocity_rad_s": list(_NATIVE_TARGET_SPIN),
         "arm_joint_position_rad": list(initial_arm),
     }
-    if request.randomization_profile in {"training-v1", BALANCED_TELEOP_PROFILE}:
+    if request.randomization_profile in {"training-v1", BALANCED_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE}:
         randomization["target_position_m"] = [
             target.position_m[0] + rng.uniform(-0.018, 0.018),
             target.position_m[1] + rng.uniform(-0.020, 0.020),
@@ -186,6 +199,9 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             math.radians(value) for value in request.initial_arm_joint_position_deg
         ]
 
+    if request.randomization_profile == ZERO_START_TELEOP_PROFILE:
+        randomization["arm_joint_position_rad"][:6] = [0.0] * 6
+
     if target.hinge_joint:
         randomization["target_hinge_position_rad"] = 0.0
 
@@ -203,6 +219,8 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
         "initial_arm_joint_position_deg": request.initial_arm_joint_position_deg,
+        "arm_preparation_required": request.randomization_profile == ZERO_START_TELEOP_PROFILE,
+        "operating_arm_joint_position_deg": list(request.operating_arm_joint_position_deg),
         "seed": seed,
         "capture_target": {
             "source_model": target.source_model,
@@ -222,6 +240,8 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "lighting": {"sunlight_intensity_scale": request.sunlight_intensity_scale},
         },
         "runtime": {
+            "dynamics_rate_hz": DYNAMICS_HZ,
+            "clock": "absolute-rational-nanoseconds",
             "simulation_rate": request.simulation_rate,
             "capture_rate_hz": request.capture_rate_hz,
             "ik_rate_hz": request.ik_rate_hz,
@@ -237,6 +257,7 @@ class SceneRuntimeManager:
     def __init__(self, launch: SceneLaunchConfig | None, project_root: Path | None = None) -> None:
         self.launch = launch
         project_root = launch.project_root if launch else (project_root or Path.cwd())
+        self.project_root = Path(project_root)
         self.run_root = project_root / "run"
         self.scene_root = self.run_root / "scenes"
         self.state_path = self.run_root / "scene_runtime.json"
@@ -279,18 +300,19 @@ class SceneRuntimeManager:
             "templates": templates,
             "initial_arm_presets_deg": {
                 profile["id"]: [math.degrees(value) for value in (
-                    BALANCED_TELEOP_HOME if profile["id"] == BALANCED_TELEOP_PROFILE else LEGACY_PREGRASP
+                    ZERO_TELEOP_HOME if profile["id"] == ZERO_START_TELEOP_PROFILE else BALANCED_TELEOP_HOME if profile["id"] in {BALANCED_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE} else LEGACY_PREGRASP
                 )[:6]] for profile in RANDOMIZATION_PROFILES
             },
             "randomization_profiles": list(RANDOMIZATION_PROFILES),
             "defaults": {
+                "operating_arm_joint_position_deg": list(DEFAULT_OPERATING_JOINT_DEG),
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
                 "template_id": DEFAULT_TEMPLATE,
                 "randomization_profile": DEFAULT_RANDOMIZATION_PROFILE,
                 "randomize_orbit_phase": False,
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,
-                "capture_rate_hz": self.launch.capture_rate if self.launch else 10.0,
-                "ik_rate_hz": self.launch.ik_rate if self.launch else 100.0,
+                "capture_rate_hz": self.launch.capture_rate if self.launch else DEFAULT_CAPTURE_HZ,
+                "ik_rate_hz": self.launch.ik_rate if self.launch else DEFAULT_IK_HZ,
                 "dataset_capture": self.launch.default_dataset_capture if self.launch else True,
             },
         }
@@ -300,6 +322,12 @@ class SceneRuntimeManager:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
+        if request.randomization_profile == ZERO_START_TELEOP_PROFILE and request.initial_arm_joint_position_deg is not None:
+            raise ValueError("全零启动配置不能覆盖初始角度，请设置操作姿态")
+        limits = self._initial_arm_limits(request.template_id)
+        for index, (value, lo, hi) in enumerate(zip(request.operating_arm_joint_position_deg, limits.lower, limits.upper, strict=True), 1):
+            if not math.degrees(lo) <= value <= math.degrees(hi):
+                raise ValueError(f"J{index} 操作角度超出模型限位")
         if request.initial_arm_joint_position_deg is not None:
             limits = self._initial_arm_limits(request.template_id)
             for index, (value, lo, hi) in enumerate(zip(
@@ -310,6 +338,20 @@ class SceneRuntimeManager:
                     raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
+        if request.randomization_profile == ELBOW_UP_TELEOP_PROFILE:
+            from .ik_initialization import prepare_initial_posture
+            if request.initial_arm_joint_position_deg is not None:
+                report = {"mode": "prefer", "status": "skipped", "reason": "explicit_initial_joints"}
+            else:
+                model_root = self.launch.model_root if self.launch else self.project_root / "model/SARM/platform"
+                model_path = capture_target(request.template_id).resolve_model(model_root)
+                if model_path.is_file():
+                    report = prepare_initial_posture(model_path, instance["randomization"])
+                else:
+                    report = {"mode": "prefer", "status": "fallback", "reason": "model_unavailable"}
+            instance["ik_initialization"] = report
+            if report["status"] in {"selected", "kept"}:
+                instance["randomization"]["arm_joint_position_rad"][:6] = report["joint_position_rad"]
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

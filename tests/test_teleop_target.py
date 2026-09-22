@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 from simulation.serial_chain_kinematics import rotation_matrix_to_vector
+from simulation.online_elbow_ik import OnlineElbowPreference
 
 
 SCENARIO = Path(__file__).resolve().parents[1] / "simulation" / "teleop_grasp_unreal.py"
@@ -15,6 +16,13 @@ SPEC = importlib.util.spec_from_file_location("teleop_grasp_unreal_test", SCENAR
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+
+def task_only_target(*args, **kwargs):
+    # Scheduling/limiting doubles have no arm geometry. Test the unchanged
+    # baseline explicitly; online geometry is exercised on the real chain.
+    return MODULE.CartesianTeleopTarget(*args,
+        elbow_preference=OnlineElbowPreference(enabled=False), **kwargs)
 
 
 class FakeClient:
@@ -126,7 +134,7 @@ def test_target_integrates_only_fresh_deadman_command() -> None:
 def test_cached_reference_never_recomputes_ik() -> None:
     initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
     kinematics = CountingKinematics()
-    target = MODULE.CartesianTeleopTarget(initial, FakeClient(), kinematics)
+    target = task_only_target(initial, FakeClient(), kinematics)
     target.reset(0.0)
     target.update(0.01)
     assert kinematics.inverse_calls == 1
@@ -146,7 +154,7 @@ def test_cached_reference_never_recomputes_ik() -> None:
 def test_control_model_updates_only_when_scheduled() -> None:
     initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
     kinematics = CountingKinematics()
-    target = MODULE.CartesianTeleopTarget(initial, FakeClient(), kinematics)
+    target = task_only_target(initial, FakeClient(), kinematics)
     controller = MODULE.CartesianIkControlModel(target)
     controller.Reset(0)
     controller.UpdateState(10_000_000)
@@ -170,7 +178,7 @@ def test_joint5_and_both_fingers_stop_at_xml_limits() -> None:
     initial = np.zeros(8)
     initial[4] = MODULE.JOINT_MAX[4] - 0.0005
     initial[6:] = 0.00001
-    target = MODULE.CartesianTeleopTarget(
+    target = task_only_target(
         initial, FakeClient(), CountingKinematics(constant_velocity=True)
     )
     target.reset(0.0)
@@ -184,7 +192,7 @@ def test_joint5_and_both_fingers_stop_at_xml_limits() -> None:
 @pytest.mark.parametrize("reason", ["stale", "deadman"])
 def test_release_or_timeout_holds_last_target_for_arm_and_both_fingers(reason) -> None:
     client = FakeClient()
-    target = MODULE.CartesianTeleopTarget(
+    target = task_only_target(
         np.array([0, -0.1, 0.2, 0, 0, 0, 0.01875, 0.01875]), client, CountingKinematics()
     )
     target.reset(0.0)
@@ -261,7 +269,8 @@ class MutableClient:
         }, False)
 
 
-def test_balanced_home_tracks_each_translation_axis_without_attitude_drift() -> None:
+@pytest.mark.parametrize("elbow_enabled", [False, True])
+def test_balanced_home_tracks_translation_with_declared_preference_budget(elbow_enabled) -> None:
     model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_platform.xml"
     kinematics = MODULE.SerialChainKinematics.from_mjcf(
         model,
@@ -273,7 +282,8 @@ def test_balanced_home_tracks_each_translation_axis_without_attitude_drift() -> 
     for axis in range(3):
         command = [0.0, 0.0, 0.0]
         command[axis] = 0.05
-        target = MODULE.CartesianTeleopTarget(initial, MutableClient(linear=command), kinematics)
+        target = MODULE.CartesianTeleopTarget(initial, MutableClient(linear=command), kinematics,
+            elbow_preference=OnlineElbowPreference(enabled=elbow_enabled))
         target.reset(0.0)
         start_position, start_rotation = kinematics.forward(initial[:6])
         for step in range(1, 101):
@@ -283,9 +293,9 @@ def test_balanced_home_tracks_each_translation_axis_without_attitude_drift() -> 
         target_displacement = target.target_tool_position - start_position
         assert displacement[axis] == pytest.approx(target_displacement[axis], abs=8.0e-4)
         assert displacement[axis] > 0.04
-        assert np.linalg.norm(np.delete(displacement, axis)) < 2.5e-4
+        assert np.linalg.norm(np.delete(displacement, axis)) < 2.5e-4 + (.002 if elbow_enabled else 0)
         attitude_error = rotation_matrix_to_vector(end_rotation @ start_rotation.T)
-        assert np.linalg.norm(attitude_error) < np.deg2rad(0.02)
+        assert np.linalg.norm(attitude_error) < np.deg2rad(0.02 + (1 if elbow_enabled else 0))
         assert target.velocity_scale == pytest.approx(1.0)
 
 
@@ -322,9 +332,12 @@ def test_large_tracking_error_never_freezes_the_operator_command() -> None:
         atol=1.0e-12,
     )
     assert np.linalg.norm(undisturbed_advance) > 1.0e-5
-    # Damped least squares leaks a small angular component (~2e-7 rad/s here)
-    # instead of exactly zero, so the tolerance matches the solver now running.
-    assert np.allclose(target.achieved_twist[3:], 0.0, atol=1.0e-5)
+    # Online preference is independent of measured error too, and its added
+    # angular motion must stay inside the reported task disturbance budget.
+    base = kinematics.inverse_velocity_ik_pose(initial[:6],target.desired_twist,
+        joint_velocity_limits=MODULE.ARM_JOINT_VELOCITY_LIMIT,
+        joint_position_min=target.joint_min[:6],joint_position_max=target.joint_max[:6],dt=.01)
+    assert np.linalg.norm(target.achieved_twist[3:]-base.achieved_twist[3:]) <= target.elbow_diagnostics.angular_budget_rad_s+1e-12
 
 
 def test_ik_mode_selects_the_solver_kernel() -> None:
@@ -334,7 +347,7 @@ def test_ik_mode_selects_the_solver_kernel() -> None:
         ("strict", "inverse_bounded_calls", "inverse_ik_pose_calls"),
     ):
         kinematics = CountingKinematics()
-        target = MODULE.CartesianTeleopTarget(
+        target = task_only_target(
             initial, FakeClient(), kinematics, ik_mode=mode
         )
         target.reset(0.0)
@@ -345,7 +358,7 @@ def test_ik_mode_selects_the_solver_kernel() -> None:
         assert kinematics.inverse_calls == 1
 
     with pytest.raises(ValueError):
-        MODULE.CartesianTeleopTarget(
+        task_only_target(
             initial, FakeClient(), CountingKinematics(), ik_mode="unsupported"
         )
 
@@ -354,7 +367,7 @@ def test_ik_pose_never_supplies_an_automatic_posture_reference() -> None:
     initial = np.array([0.0, -0.1, 0.2, 0.0, 0.0, 0.4, 0.01875, 0.01875])
     kinematics = CountingKinematics()
     client = FakeClient()
-    target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
+    target = task_only_target(initial, client, kinematics)
     target.reset(0.0)
     target.update(0.01)
     assert kinematics.last_nullspace_reference is None

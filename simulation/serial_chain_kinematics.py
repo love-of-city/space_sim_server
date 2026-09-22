@@ -155,6 +155,59 @@ class SerialChainKinematics:
                 )
         return transform[:3, 3].copy(), transform[:3, :3].copy()
 
+    def joint_origins(self, joint_position_rad: np.ndarray) -> np.ndarray:
+        """Joint centres in the same base-body frame as :meth:`forward`."""
+        return self.joint_geometry(joint_position_rad)[0]
+
+    def joint_geometry(self, joint_position_rad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Joint centres and unit rotation axes, ordered along the serial chain."""
+        q = np.asarray(joint_position_rad, dtype=float)
+        if q.shape != (len(self.joint_names),) or not np.all(np.isfinite(q)):
+            raise ValueError("expected finite joint positions matching the chain")
+        transform = np.eye(4)
+        origins = np.zeros((len(self.joint_names), 3))
+        axes = np.zeros_like(origins)
+        for segment in self.segments:
+            transform = transform @ _transform(segment.position, segment.rotation)
+            if segment.joint_index is not None:
+                assert segment.joint_position is not None and segment.joint_axis is not None
+                origins[segment.joint_index] = (
+                    transform @ np.array([*segment.joint_position, 1.0])
+                )[:3]
+                axes[segment.joint_index] = transform[:3, :3] @ segment.joint_axis
+                transform = (
+                    transform @ _translation(segment.joint_position)
+                    @ _transform(np.zeros(3), axis_angle_to_matrix(
+                        segment.joint_axis, q[segment.joint_index]))
+                    @ _translation(-segment.joint_position)
+                )
+        return origins, axes
+
+    def relative_joint_height(
+        self, joint_position_rad: np.ndarray, *, shoulder_joint: str = "joint2",
+        elbow_joint: str = "joint3", up_axis=(0.0, 0.0, 1.0),
+    ) -> tuple[float, np.ndarray]:
+        """Geometric elbow height AND its analytic joint-space gradient.
+
+        Up is defined in the base-body frame, independent of world attitude.
+        Uses joint centres/axes, not a robot-specific joint-angle sign rule.
+        """
+        axis = np.asarray(up_axis, dtype=float)
+        if axis.shape != (3,) or not np.all(np.isfinite(axis)) or np.linalg.norm(axis) < 1e-12:
+            raise ValueError("up_axis must be a finite nonzero 3-vector")
+        axis = axis / np.linalg.norm(axis)
+        shoulder = self.joint_names.index(shoulder_joint)
+        elbow = self.joint_names.index(elbow_joint)
+        origins, axes = self.joint_geometry(joint_position_rad)
+        gradient = np.zeros(len(self.joint_names))
+        for index in range(len(self.joint_names)):
+            # Each joint origin is affected only by its ancestors, not itself.
+            if index < elbow:
+                gradient[index] += axis @ np.cross(axes[index], origins[elbow] - origins[index])
+            if index < shoulder:
+                gradient[index] -= axis @ np.cross(axes[index], origins[shoulder] - origins[index])
+        return float(axis @ (origins[elbow] - origins[shoulder])), gradient
+
     def jacobian(self, joint_position_rad: np.ndarray) -> np.ndarray:
         q = np.asarray(joint_position_rad, dtype=float)
         if q.shape != (len(self.joint_names),):
@@ -331,8 +384,8 @@ class SerialChainKinematics:
         * joint speed and position limits rescale the whole step by one factor,
           which preserves the Cartesian direction of the command;
         * ``nullspace_reference`` is optional and used only by explicit
-          numerical experiments. Live teleoperation does not supply a posture
-          objective; arm-idle and gripper-only commands skip IK entirely.
+          numerical experiments. Live elbow preference is applied separately,
+          without a home reference; idle/gripper-only commands skip IK entirely.
         """
 
         base = float(base_damping)

@@ -18,6 +18,8 @@ dependencies = [
 [project.optional-dependencies]
 test = ["httpx>=0.27", "pytest>=8.0"]
 simulation = ["numpy>=1.24"]
+# Offline posture worker only; never import Python MuJoCo into live Basilisk.
+posture = ["numpy>=1.24", "mujoco==3.7.0"]
 
 [project.scripts]
 space-arm-platform = "space_arm_platform.main:main"

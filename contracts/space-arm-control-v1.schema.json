@@ -142,6 +142,16 @@
               "type": "string",
               "maxLength": 64,
               "description": "Reset request ID; empty in the initial session."
+            },
+            "arm_preparation": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/armPreparationRequest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         }
@@ -255,6 +265,11 @@
               "default": "",
               "title": "Ik Mode",
               "type": "string"
+            },
+            "ik_elbow_preference": {
+              "additionalProperties": true,
+              "title": "Ik Elbow Preference",
+              "type": "object"
             },
             "ik_damping": {
               "default": 0.0,
@@ -559,6 +574,9 @@
               ],
               "default": null,
               "title": "Arm Joint Limits Rad"
+            },
+            "arm_preparation": {
+              "type": "object"
             }
           }
         },
@@ -970,6 +988,29 @@
       },
       "title": "MotionSpeedDiagnostics",
       "type": "object"
+    },
+    "armPreparationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "joint_position_deg"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "joint_position_deg": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
     }
   }
 }

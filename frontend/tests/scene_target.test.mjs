@@ -20,7 +20,7 @@ function setup() {
     return nodes.get(id);
   };
   const requests = [];
-  const ctx = vm.createContext({ initialJointCatalog: null, configureInitialJoints() {},
+  const ctx = vm.createContext({ ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {},
     initialJoints: { read: () => null, setRuntime() {} }, $, console, state: { currentUser: { role: "admin" } },
     Option: function(label, value) { this.label = label; this.value = value; }, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},

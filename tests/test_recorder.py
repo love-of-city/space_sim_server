@@ -80,9 +80,9 @@ def test_capture_before_observation_is_paired_without_interpolated_state(tmp_pat
             "sim_time_ns": "100",
             "stream_kind": "authoritative",
             "state_kind": "authoritative",
-            "products": [{"name": "depth", "file_name": "depth.exr"}],
+            "products": [{"name": "rgb", "file_name": "rgb.png"}],
         },
-        {"depth": b"EXR"},
+        {"rgb": b"PNG"},
     )
     assert recorder.sync_status()["pending_capture_count"] == 1
     observation = SimulationObservation(

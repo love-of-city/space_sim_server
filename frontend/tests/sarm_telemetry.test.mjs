@@ -17,6 +17,7 @@ function observe(payload) {
     return nodes.get(id);
   };
   vm.runInNewContext(observationHandler, {
+    armPreparation: { update() {} },
     message: { payload }, $, setOnline() {}, formatMotionSpeedDiagnostics,
     jointAngles: { update(obs) { jointObservation = obs; } },
     updateMotionOutputs(twist, grip) { output = { twist, grip }; },
@@ -60,4 +61,40 @@ test("actual observation is forwarded unchanged to the joint-angle panel", () =>
   const payload = {sim_time_ns: "0", arm_joint_position_rad: [0,0,0,0,0,5.2],
     target_arm_joint_position_rad: [1,1,1,1,1,1], arm_joint_limits_rad: Array(6).fill([-6.28,6.28])};
   assert.equal(observe(payload).jointObservation, payload);
+});
+
+test("arch preference displays measured wrist drop with sign, not predicted height", () => {
+  const h = observe({sim_time_ns: "0", ik_mode: "ik_pose", ik_elbow_preference: {
+    enabled: true, wrist_enabled: true, status: "active", measured_height_m: .123,
+    reference_height_m: .456, measured_wrist_drop_m: -.012, reference_wrist_drop_m: .05,
+  }});
+  assert.match(h.$("ikSolver").textContent, /构型偏好=active/);
+  assert.match(h.$("ikSolver").textContent, /肘高=0\.123m/);
+  assert.match(h.$("ikSolver").textContent, /J4−J6=-0\.012m/);
+  assert.doesNotMatch(h.$("ikSolver").textContent, /0\.456/);
+});
+
+test("old/off wrist telemetry remains compatible and does not claim wrist control", () => {
+  const old = observe({sim_time_ns: "0", ik_mode: "ik_pose"});
+  assert.doesNotMatch(old.$("ikSolver").textContent, /J4−J6/);
+  const onlyElbow = observe({sim_time_ns: "0", ik_mode: "ik_pose", ik_elbow_preference: {
+    enabled: true, wrist_enabled: false, status: "active", measured_height_m: .2,
+    measured_wrist_drop_m: .1,
+  }});
+  assert.match(onlyElbow.$("ikSolver").textContent, /肘高=0\.200m/);
+  assert.doesNotMatch(onlyElbow.$("ikSolver").textContent, /J4−J6/);
+});
+
+test("joint3 negative-angle preference uses measured degrees and preserves positive/zero signs", () => {
+  for (const [radians, label] of [[0, "0.0"], [Math.PI / 6, "30.0"], [-Math.PI / 18, "-10.0"]]) {
+    const h = observe({sim_time_ns: "0", ik_mode: "ik_pose", ik_elbow_preference: {
+      enabled: true, status: "active", joint3_enabled: true,
+      measured_joint3_rad: radians, reference_joint3_rad: -1,
+    }});
+    assert.ok(h.$("ikSolver").textContent.includes(`J3负角偏好=${label}°`));
+  }
+  const off = observe({sim_time_ns: "0", ik_mode: "ik_pose", ik_elbow_preference: {
+    enabled: true, status: "active", joint3_enabled: false, measured_joint3_rad: .5,
+  }});
+  assert.doesNotMatch(off.$("ikSolver").textContent, /J3负角偏好/);
 });

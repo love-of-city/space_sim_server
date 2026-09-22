@@ -47,7 +47,12 @@ def test_rate_plumbed_through_both_deployment_modes():
 
 def test_no_change_to_physics_or_camera_resolution():
     text = (ROOT / "simulation/teleop_grasp_unreal.py").read_text(encoding="utf-8")
-    assert "frame_period_ns=macros.sec2nano(1.0 / 30.0)" in text
+    from space_arm_platform.sampling import DYNAMICS_HZ, RENDER_HZ
+    # The rational clock replaced the old rounded frame_period_ns literal.
+    # Preview tuning must still leave native scheduling and output rates intact.
+    assert (DYNAMICS_HZ, RENDER_HZ) == (240, 30)
+    assert "frame_rate_hz=RENDER_HZ" in text
+    assert "native.TIME_STEP = 1.0 / DYNAMICS_HZ" in text
     assert "camera_pip_resolution=(640, 360)" in text
     text = (ROOT / "scripts/start_scene_instance.ps1").read_text(encoding="utf-8")
     assert "if ($datasetCapture)" in text
@@ -155,7 +160,7 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
     overrides = {} if quality is None else {"runtime_encoder_min_quality": quality}
     app = create_app(PlatformConfig(
         project_root=project, data_root=tmp_path / "episodes", simulation_port=0, capture_port=0,
-        runtime_adapter_root=project, runtime_model_root=project, runtime_unreal_root=project,
+        runtime_adapter_root=project, runtime_model_root=ROOT / "model/SARM/platform", runtime_unreal_root=project,
         runtime_powershell_exe=powershell, **overrides,
     ))
     expected = 60 if quality is None else quality

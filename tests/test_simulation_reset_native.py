@@ -52,7 +52,7 @@ def test_client_reset_barrier_and_duplicate_delivery():
 
 
 @pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')
-@pytest.mark.parametrize("initial_angles", [None, [-45., -20., 25., -90., -50., 275.]])
+@pytest.mark.parametrize("initial_angles", [None, [-45., -20., 25., -90., -50., 275.], [0.] * 6])
 def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, initial_angles):
     monkeypatch.syspath_prepend(str(ADAPTER / 'Adapters'))
     monkeypatch.syspath_prepend(str(ADAPTER / 'Unreal/BskUnrealRenderer/examples'))
@@ -69,13 +69,17 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
             super().__init__(**kwargs, publisher=RecordingOnlyPublisher())
             self.initial = None
             self.last = None
+            self.physics_stamps = []
             bridges.append(self)
         def add_mj_scene(self, scene, **kwargs):
             self.scene = scene
+            self.state_reader = scene.stateOutMsg.addSubscriber()
             scene_refs.append(weakref.ref(scene))
             kwargs['mesh_asset_catalog'] = None  # no UE asset import needed for state transport
             return super().add_mj_scene(scene, **kwargs)
         def UpdateState(self, nanos):
+            self.physics_stamps.append(int(nanos))
+            assert int(self.state_reader.timeWritten()) == int(nanos)
             super().UpdateState(nanos)
             if self.last_published_sim_time_ns == int(nanos):
                 authoritative_joint_samples[(self.session_id, str(self.last_published_frame_id))] = (
@@ -95,7 +99,8 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
             # Keep only snapshots, not the native graph, so the real run-loop
             # garbage collection/destructor path is exercised between resets.
             bridges[bridges.index(self)] = SimpleNamespace(
-                session_id=self.session_id, initial=self.initial, last=self.last)
+                session_id=self.session_id, initial=self.initial, last=self.last,
+                physics_stamps=self.physics_stamps)
         def publish_event(self, kind, payload=None):
             events.append((self.session_id, kind, payload))
             return super().publish_event(kind, payload)
@@ -132,13 +137,13 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
     monkeypatch.setattr(bsk_render_adapter, 'BasiliskRenderBridge', ProbeBridge)
     monkeypatch.setattr(teleop, 'SimulationControlClient', OfflineClient)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
-    instance = manager.create_instance(SceneInstanceCreate(seed=123, randomize_orbit_phase=True, initial_arm_joint_position_deg=initial_angles))
+    instance = manager.create_instance(SceneInstanceCreate(seed=123, randomize_orbit_phase=True, randomization_profile="teleop-balanced-v1" if initial_angles is not None else "teleop-zero-prepare-v1", initial_arm_joint_position_deg=initial_angles))
     config_path = Path(instance['config_path'])
     before = config_path.read_bytes()
     args = SimpleNamespace(adapter_root=ADAPTER, model_root=ROOT / 'model/SARM/platform',
                            scene_instance=config_path, catalog=tmp_path / 'unused.json',
                            control_host='127.0.0.1', control_port=0, render_host='127.0.0.1', render_port=0,
-                           duration=.2, simulation_rate=1., capture_rate=10., ik_rate=100.,
+                           duration=.2, simulation_rate=1., capture_rate=30., ik_rate=120.,
                            ik_mode=teleop.IK_MODE_IK_POSE,
                            disable_attitude_control=False)
     teleop.run(args)
@@ -163,6 +168,16 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
         assert observation['observation_source'] == 'authoritative_render_snapshot'
         assert observation['sim_time_ns'] == stamp
         np.testing.assert_array_equal(observation['joint_position_rad'], joints)
+    from space_arm_platform.sampling import tick_time_ns, sample_tick
+    for bridge in bridges:
+        assert bridge.physics_stamps == [tick_time_ns(n, 240) for n in range(len(bridge.physics_stamps))]
+        rows = [o for o in observations if o['render_session_id'] == bridge.session_id]
+        assert [int(o['sim_time_ns']) for o in rows] == [tick_time_ns(n, 30) for n in range(len(rows))]
+        for index, obs in enumerate(rows):
+            assert sample_tick(int(obs['sim_time_ns']), 30) == index
+            assert obs['dynamics_rate_hz'] == 240
+            assert obs['ik_control_rate_hz'] == 120
+            assert int(obs['ik_update_count']) == index * 4
     first = [o for o in observations if o['step_id'] == '1']
     assert [o['reset_generation'] for o in first] == ['', 'reset-1', 'reset-2']
     assert len({o['sim_time_ns'] for o in first}) == 1

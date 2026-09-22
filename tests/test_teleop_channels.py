@@ -10,6 +10,7 @@ from simulation.teleop_grasp_unreal import (
     IK_MODES, SerialChainKinematics,
 )
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
+from simulation.online_elbow_ik import OnlineElbowPreference
 
 MODEL = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_ground_target_self_collision.xml"
 SINGULAR = np.array([0., -.1790243, .2159404, -.0368382, 0., 0.])
@@ -27,10 +28,10 @@ class Client:
                 "gripper_velocity_m_s": self.grip}, self.stale
 
 
-def make_target(client, mode="ik_pose"):
+def make_target(client, mode="ik_pose", elbow_preference=None):
     kinematics = SerialChainKinematics.from_mjcf(MODEL, base_body="cubesat_bus",
         joint_names=ARM_JOINT_NAMES, tool_site="sarm_ee")
-    target = CartesianTeleopTarget(np.array(BALANCED_TELEOP_HOME), client, kinematics, ik_mode=mode)
+    target = CartesianTeleopTarget(np.array(BALANCED_TELEOP_HOME), client, kinematics, ik_mode=mode, elbow_preference=elbow_preference)
     target.reset(0.)
     return target, kinematics
 
@@ -123,9 +124,10 @@ def test_switch_to_gripper_clears_smoothed_arm_motion_and_resumes_cleanly(mode):
     assert target.speed_monitor.latest["command_stale"]
 
 
-def test_live_ik_at_singularity_is_task_only_not_home_posture():
+@pytest.mark.parametrize("enabled", [False, True])
+def test_live_ik_at_singularity_adds_geometry_only_when_enabled_never_home(enabled):
     client = Client([.02,0,0,0,0,0])
-    target, kin = make_target(client)
+    target, kin = make_target(client, elbow_preference=OnlineElbowPreference(enabled=enabled))
     target.position[:6] = SINGULAR
     target.target_tool_position, target.target_tool_rotation = kin.forward(SINGULAR)
     with patch.object(kin,"inverse_velocity_ik_pose", wraps=kin.inverse_velocity_ik_pose) as solve:
@@ -136,7 +138,14 @@ def test_live_ik_at_singularity_is_task_only_not_home_posture():
     expected = kin.inverse_velocity_ik_pose(SINGULAR, target.desired_twist,
         joint_velocity_limits=ARM_JOINT_VELOCITY_LIMIT,
         joint_position_min=target.joint_min[:6], joint_position_max=target.joint_max[:6], dt=.01)
-    assert np.array_equal(target.velocity[:6],expected.joint_velocity_rad_s)
+    if enabled:
+        assert target.elbow_diagnostics.status == "active"
+        assert not np.array_equal(target.velocity[:6], expected.joint_velocity_rad_s)
+        gradient = kin.relative_joint_height(SINGULAR)[1]
+        assert gradient @ (target.velocity[:6] - expected.joint_velocity_rad_s) > 0
+    else:
+        assert np.array_equal(target.velocity[:6], expected.joint_velocity_rad_s)
+    # It is not misreported as a pure nullspace correction.
     assert target.nullspace_correction_norm == 0.
 
 

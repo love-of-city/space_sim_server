@@ -7,6 +7,7 @@ module converts a Cartesian teleoperation command into PID joint references.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import math
 from pathlib import Path
@@ -90,6 +91,52 @@ class SerialChainKinematics:
     def __init__(self, segments: list[Segment], joint_names: tuple[str, ...]) -> None:
         self.segments = segments
         self.joint_names = joint_names
+        # MJCF geometry is constant for the lifetime of a chain. Precompute
+        # only its fixed transforms; poses remain keyed by joint VALUES, never
+        # the identity of the mutable controller arrays.
+        self._fixed_transforms = tuple(_transform(s.position, s.rotation) for s in segments)
+        self._joint_offsets = tuple(
+            (_translation(s.joint_position), _translation(-s.joint_position))
+            if s.joint_index is not None else None for s in segments
+        )
+        self._geometry_cache: OrderedDict[tuple[float, ...], tuple[np.ndarray, ...]] = OrderedDict()
+
+    def _geometry(self, joint_position_rad: np.ndarray) -> tuple[np.ndarray, ...]:
+        """One exact chain traversal shared by FK, Jacobian and posture queries.
+
+        A small bounded cache covers measured/reference/line-search poses. It
+        stores geometry, NOT native physics state or IK results; changing any
+        joint invalidates the key. Public methods always return independent
+        arrays so callers cannot corrupt a later query.
+        """
+        q = np.asarray(joint_position_rad, dtype=float)
+        if q.shape != (len(self.joint_names),) or not np.all(np.isfinite(q)):
+            raise ValueError("expected finite joint positions matching the chain")
+        key = tuple(q)
+        cached = self._geometry_cache.get(key)
+        if cached is not None:
+            self._geometry_cache.move_to_end(key)
+            return cached
+        transform = np.eye(4)
+        origins = np.zeros((len(self.joint_names), 3))
+        axes = np.zeros_like(origins)
+        for segment, fixed, offsets in zip(self.segments, self._fixed_transforms, self._joint_offsets):
+            transform = transform @ fixed
+            if segment.joint_index is not None:
+                index = segment.joint_index
+                origins[index] = (transform @ np.array([*segment.joint_position, 1.0]))[:3]
+                axes[index] = transform[:3, :3] @ segment.joint_axis
+                transform = (transform @ offsets[0]
+                    @ _transform(np.zeros(3), axis_angle_to_matrix(segment.joint_axis, q[index]))
+                    @ offsets[1])
+        jacobian = np.empty((6, len(self.joint_names)))
+        jacobian[:3] = np.cross(axes, transform[:3, 3] - origins).T
+        jacobian[3:] = axes.T
+        result = (transform, origins, axes, jacobian)
+        self._geometry_cache[key] = result
+        if len(self._geometry_cache) > 8:
+            self._geometry_cache.popitem(last=False)
+        return result
 
     @classmethod
     def from_mjcf(
@@ -139,49 +186,17 @@ class SerialChainKinematics:
         return cls(segments, joint_names)
 
     def forward(self, joint_position_rad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        q = np.asarray(joint_position_rad, dtype=float)
-        if q.shape != (len(self.joint_names),):
-            raise ValueError(f"expected {len(self.joint_names)} joint positions, got {q.shape}")
-        transform = np.eye(4)
-        for segment in self.segments:
-            transform = transform @ _transform(segment.position, segment.rotation)
-            if segment.joint_index is not None:
-                assert segment.joint_position is not None and segment.joint_axis is not None
-                transform = (
-                    transform
-                    @ _translation(segment.joint_position)
-                    @ _transform(np.zeros(3), axis_angle_to_matrix(segment.joint_axis, q[segment.joint_index]))
-                    @ _translation(-segment.joint_position)
-                )
+        transform = self._geometry(joint_position_rad)[0]
         return transform[:3, 3].copy(), transform[:3, :3].copy()
 
     def joint_origins(self, joint_position_rad: np.ndarray) -> np.ndarray:
         """Joint centres in the same base-body frame as :meth:`forward`."""
-        return self.joint_geometry(joint_position_rad)[0]
+        return self._geometry(joint_position_rad)[1].copy()
 
     def joint_geometry(self, joint_position_rad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Joint centres and unit rotation axes, ordered along the serial chain."""
-        q = np.asarray(joint_position_rad, dtype=float)
-        if q.shape != (len(self.joint_names),) or not np.all(np.isfinite(q)):
-            raise ValueError("expected finite joint positions matching the chain")
-        transform = np.eye(4)
-        origins = np.zeros((len(self.joint_names), 3))
-        axes = np.zeros_like(origins)
-        for segment in self.segments:
-            transform = transform @ _transform(segment.position, segment.rotation)
-            if segment.joint_index is not None:
-                assert segment.joint_position is not None and segment.joint_axis is not None
-                origins[segment.joint_index] = (
-                    transform @ np.array([*segment.joint_position, 1.0])
-                )[:3]
-                axes[segment.joint_index] = transform[:3, :3] @ segment.joint_axis
-                transform = (
-                    transform @ _translation(segment.joint_position)
-                    @ _transform(np.zeros(3), axis_angle_to_matrix(
-                        segment.joint_axis, q[segment.joint_index]))
-                    @ _translation(-segment.joint_position)
-                )
-        return origins, axes
+        _, origins, axes, _ = self._geometry(joint_position_rad)
+        return origins.copy(), axes.copy()
 
     def relative_joint_height(
         self, joint_position_rad: np.ndarray, *, shoulder_joint: str = "joint2",
@@ -209,32 +224,7 @@ class SerialChainKinematics:
         return float(axis @ (origins[elbow] - origins[shoulder])), gradient
 
     def jacobian(self, joint_position_rad: np.ndarray) -> np.ndarray:
-        q = np.asarray(joint_position_rad, dtype=float)
-        if q.shape != (len(self.joint_names),):
-            raise ValueError(f"expected {len(self.joint_names)} joint positions, got {q.shape}")
-        transform = np.eye(4)
-        axes = np.zeros((len(self.joint_names), 3))
-        origins = np.zeros((len(self.joint_names), 3))
-        for segment in self.segments:
-            transform = transform @ _transform(segment.position, segment.rotation)
-            if segment.joint_index is not None:
-                assert segment.joint_position is not None and segment.joint_axis is not None
-                origins[segment.joint_index] = (
-                    transform @ np.array([*segment.joint_position, 1.0])
-                )[:3]
-                axes[segment.joint_index] = transform[:3, :3] @ segment.joint_axis
-                transform = (
-                    transform
-                    @ _translation(segment.joint_position)
-                    @ _transform(np.zeros(3), axis_angle_to_matrix(segment.joint_axis, q[segment.joint_index]))
-                    @ _translation(-segment.joint_position)
-                )
-        tool_position = transform[:3, 3]
-        jacobian = np.zeros((6, len(self.joint_names)))
-        for index in range(len(self.joint_names)):
-            jacobian[:3, index] = np.cross(axes[index], tool_position - origins[index])
-            jacobian[3:, index] = axes[index]
-        return jacobian
+        return self._geometry(joint_position_rad)[3].copy()
 
     def inverse_velocity(
         self,

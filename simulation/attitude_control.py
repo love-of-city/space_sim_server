@@ -137,7 +137,9 @@ def limit_wheel_torque(requested, speed, wheel: Wheel, enabled, guard_fraction):
     """
     if not math.isfinite(requested) or not math.isfinite(speed):
         raise FloatingPointError('non-finite reaction-wheel command or state')
-    torque = float(np.clip(requested, -wheel.max_torque, wheel.max_torque)) if enabled else 0.0
+    # This scalar path runs for every wheel at every RK stage; avoid a NumPy
+    # array/ufunc allocation without changing clipping or the speed guard.
+    torque = float(max(-wheel.max_torque, min(wheel.max_torque, requested))) if enabled else 0.0
     torque_limited = enabled and not math.isclose(torque, requested, abs_tol=1e-12)
     speed_limited = enabled and abs(speed) >= guard_fraction * wheel.max_speed and torque * speed > 0
     return (0.0 if speed_limited else torque), torque_limited, speed_limited
@@ -149,21 +151,59 @@ class WheelDrive(sysModel.SysModel):
         super().__init__()
         self.ModelTag = f'{owner.wheels[index].body}Drive'
         self.owner, self.index = owner, index
+        self._torque_message = None
         self.torque_message = torque_message
         self.actuatorOutMsg = messaging.SingleActuatorMsg()
+        # Msg.read()/write() construct a temporary reader/author in Basilisk.
+        # Keep handles (not values) so every RK stage sees fresh state. The
+        # property below refreshes the reader when a caller replaces the input.
+        self._torque_reader = torque_message.addSubscriber()
+        self._speed_reader = owner.joints[index].stateDotOutMsg.addSubscriber()
+        self._actuator_writer = self.actuatorOutMsg.addAuthor()
+        self._payload = messaging.SingleActuatorMsgPayload()
         self.requested = self.applied = 0.0  # [N*m]
         self.torque_limited = self.speed_limited = False
 
+    @property
+    def torque_message(self):
+        return self._torque_message
+
+    @torque_message.setter
+    def torque_message(self, message):
+        self._torque_message = message
+        if hasattr(self, '_torque_reader'):
+            self._torque_reader = message.addSubscriber()
+
     def UpdateState(self, current_sim_nanos):
         i, owner = self.index, self.owner
-        self.requested = float(self.torque_message.read().input)
+        self.requested = float(self._torque_reader().input)
+        # A direct state read is required here: tests and reset paths may set a
+        # joint velocity before the next MJScene publication. The read API sees
+        # that authoritative current value, while the cached handle remains
+        # useful for normal published RK stages.
         speed = float(owner.joints[i].stateDotOutMsg.read().state)
         self.applied, self.torque_limited, self.speed_limited = limit_wheel_torque(
             self.requested, speed, owner.wheels[i], owner.enabled,
             owner.settings['speed_guard_fraction'])
-        payload = messaging.SingleActuatorMsgPayload()
-        payload.input = self.applied
-        self.actuatorOutMsg.write(payload, current_sim_nanos, self.moduleID)
+        self._payload.input = self.applied
+        self._actuator_writer(self._payload, self.moduleID, current_sim_nanos)
+
+
+class WheelDriveGroup(sysModel.SysModel):
+    """Dispatch all wheels in one Python callback per native dynamics evaluation.
+
+    Each wheel still reads the current RK-stage speed, applies both limits, and
+    writes its own motor message. Only the repeated C++/Python crossings are
+    removed; this is not a reduction in protection/control frequency.
+    """
+    def __init__(self, drives):
+        super().__init__()
+        self.ModelTag = 'sarmWheelDriveGroup'
+        self.drives = tuple(drives)
+
+    def UpdateState(self, current_sim_nanos):
+        for drive in self.drives:
+            drive.UpdateState(current_sim_nanos)
 
 
 class InitialReference(sysModel.SysModel):
@@ -178,7 +218,7 @@ class InitialReference(sysModel.SysModel):
         owner.control_time_ns = current_sim_nanos
         if owner.reference_mrp is not None:
             return
-        state = owner.bus.getOrigin().stateOutMsg.read()
+        state = owner.state_reader()
         owner.reference_mrp = np.asarray(state.sigma_BN, dtype=float)
         owner.reference.sigma_R0N = owner.reference_mrp.tolist()
         c_bn = rbk.MRP2C(owner.reference_mrp)
@@ -216,6 +256,7 @@ class AttitudeControl:
         self.state_reader = self.bus.getOrigin().stateOutMsg.addSubscriber()
         self.control_time_ns = 0
         self.joints = [scene.getBody(w.body).getScalarJoint(w.joint) for w in self.wheels]
+        self._speed_readers = [joint.stateDotOutMsg.addSubscriber() for joint in self.joints]
         self.reference_mrp = None
         self.initial_inertia = None
         self.models = []
@@ -275,19 +316,20 @@ class AttitudeControl:
             drive = WheelDrive(self, i, singles.actuatorOutMsgs[i])
             # Fresh joint speed after FK; enforce safety at dynamics substeps,
             # even though the attitude controller only runs at 100 Hz.
-            scene.AddModelToDynamicsTask(drive, 6500 - i)
             scene.getSingleActuator(wheel.motor).actuatorInMsg.subscribeTo(drive.actuatorOutMsg)
             self.drives.append(drive)
+        self.drive_group = WheelDriveGroup(self.drives)
+        scene.AddModelToDynamicsTask(self.drive_group, 6500)
 
     def telemetry(self):
         """Keep wheel states separate from the eight arm/finger coordinates."""
-        state = self.bus.getOrigin().stateOutMsg.read()
+        state = self.state_reader()
         sigma = np.asarray(state.sigma_BN, dtype=float)
         error = (rbk.subMRP(sigma, self.reference_mrp)
                  if self.reference_mrp is not None else np.zeros(3))
         quaternion = np.asarray(rbk.MRP2EP(sigma))
         reference = np.asarray(rbk.MRP2EP(self.reference_mrp)) if self.reference_mrp is not None else np.array([1., 0., 0., 0.])
-        speeds = [float(j.stateDotOutMsg.read().state) for j in self.joints]
+        speeds = [float(read().state) for read in self._speed_readers]
         angle = 4 * math.atan(float(np.linalg.norm(error)))
         angle = min(angle, 2 * math.pi - angle)
         return {

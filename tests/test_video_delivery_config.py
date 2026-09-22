@@ -58,10 +58,21 @@ def test_no_change_to_physics_or_camera_resolution():
     assert "if ($datasetCapture)" in text
 
 
+def test_project_caps_adaptive_video_bitrate_without_forcing_a_high_floor():
+    config = ROOT.parent / "space_sim_UE_Adapter/Unreal/BskUnrealRenderer/Config/DefaultEngine.ini"
+    if not config.is_file():
+        pytest.skip("Sibling UE adapter is not checked out")
+    text = config.read_text(encoding="utf-8-sig")
+    settings = text.split("[SystemSettings]", 1)[1].split("[", 1)[0]
+    assert "PixelStreaming2.WebRTC.MaxBitrate=8000000" in settings
+    assert "PixelStreaming2.Encoder.TargetBitrate=" not in settings
+    assert "PixelStreaming2.WebRTC.MinBitrate=" not in settings
+
+
 @pytest.mark.skipif(os.name != "nt" or not PWSH, reason="Windows PowerShell required")
 @pytest.mark.parametrize("quality", [None, 0, 60, 75, 100, -1, 101])
 def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality):
-    adapter = ROOT.parent.parent / "space_sim_UE_adapter" / "space_sim_UE_Adapter"
+    adapter = ROOT.parent / "space_sim_UE_Adapter"
     source = adapter / "Unreal/BskUnrealRenderer/scripts/start_renderer.ps1"
     if not source.is_file():
         pytest.skip("Paired UE adapter checkout not present")

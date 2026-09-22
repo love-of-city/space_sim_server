@@ -1,5 +1,12 @@
 """Shared SARM teleoperation defaults with no simulator dependencies."""
 
+from .sampling import DYNAMICS_HZ
+
+# The online scene uses a rational 240 Hz task; RKF45 handles integration substeps.
+DEFAULT_DYNAMICS_STEP_S = 1.0 / DYNAMICS_HZ
+MIN_DYNAMICS_STEP_S = DEFAULT_DYNAMICS_STEP_S
+MAX_DYNAMICS_STEP_S = DEFAULT_DYNAMICS_STEP_S
+
 # Preserve the original scripted-grasp pose for historical/regression scenes.
 LEGACY_PREGRASP = (
     0.0,

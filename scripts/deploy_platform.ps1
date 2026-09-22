@@ -98,7 +98,11 @@ try {
     }
     Write-Output "Deployment processes started: $($settings.PublicUrl)"
     Write-Output 'Certificate issuance and remote WebRTC connectivity still require verification from your LOCAL browser.'
-    Write-Output 'Open the HTTPS origin with /?access_key=<your SPACE_SIM_STREAM_ACCESS_KEY>, then log in.'
+    if ($settings.RequireAccessKey) {
+        Write-Output 'Open the HTTPS origin with /?access_key=<your SPACE_SIM_STREAM_ACCESS_KEY>, then log in.'
+    } else {
+        Write-Output 'Open the HTTPS origin directly and log in; no access_key parameter is required.'
+    }
     Write-Output 'Secrets are intentionally not printed. Stop with scripts/stop_platform.ps1.'
 } catch {
     # Also clean up our own child if writing its PID record failed.

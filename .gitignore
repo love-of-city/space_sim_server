@@ -30,3 +30,6 @@ deploy/secrets/
 .env.local
 
 **/*.egg-info/
+data/visualization-test-auth.sqlite3*
+/run-signalling.pid
+/signalling/*.log

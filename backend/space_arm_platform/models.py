@@ -7,7 +7,10 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE, MAX_SUNLIGHT_INTENSITY_SCALE
-from .control_defaults import DEFAULT_RANDOMIZATION_PROFILE, DEFAULT_OPERATING_JOINT_DEG
+from .control_defaults import (
+    DEFAULT_RANDOMIZATION_PROFILE, DEFAULT_OPERATING_JOINT_DEG, DEFAULT_DYNAMICS_STEP_S,
+    MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S,
+)
 from .scene_targets import DEFAULT_TEMPLATE
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
 
@@ -32,6 +35,7 @@ class OperatorAction(BaseModel):
     client_time_ns: str
     deadman: bool
     arm_preparation: ArmPreparationRequest | None = None
+    allow_reference_recovery: bool = Field(default=False, strict=True)
     end_effector_linear_speed_m_s: float = Field(default=0.05, gt=0.0)
     end_effector_linear_velocity: list[float] = Field(min_length=3, max_length=3)
     end_effector_angular_velocity: list[float] = Field(min_length=3, max_length=3)
@@ -59,6 +63,7 @@ class AppliedAction(BaseModel):
     client_time_ns: str
     deadman: bool
     arm_preparation: ArmPreparationRequest | None = None
+    allow_reference_recovery: bool = False
     control_frame: Literal["spacecraft_body"] = "spacecraft_body"
     requested_end_effector_linear_velocity_normalized: list[float] = Field(
         default_factory=lambda: [0.0] * 3, min_length=3, max_length=3
@@ -307,6 +312,9 @@ class SceneInstanceCreate(BaseModel):
     simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)
     capture_rate_hz: float = Field(default=DEFAULT_CAPTURE_HZ, gt=0.0, le=60.0)
     ik_rate_hz: float = Field(default=DEFAULT_IK_HZ, ge=1.0, le=240.0)
+    dynamics_step_s: FiniteFloat = Field(
+        default=DEFAULT_DYNAMICS_STEP_S, ge=MIN_DYNAMICS_STEP_S, le=MAX_DYNAMICS_STEP_S,
+    )
     dataset_capture: bool = True
     sunlight_intensity_scale: FiniteFloat = Field(
         default=DEFAULT_SUNLIGHT_INTENSITY_SCALE, strict=True,

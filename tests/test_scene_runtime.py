@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import inspect
 
 from fastapi.testclient import TestClient
 
@@ -102,3 +103,14 @@ def test_balanced_teleop_profile_stays_near_validated_home(tmp_path: Path) -> No
     joints = instance["randomization"]["arm_joint_position_rad"]
     for actual, home, span in zip(joints, BALANCED_TELEOP_HOME, BALANCED_TELEOP_JOINT_SPANS, strict=True):
         assert home - span <= actual <= home + span
+
+
+def test_start_keeps_previous_identity_until_launcher_cleanup():
+    assert 'self.state_path.unlink' not in inspect.getsource(SceneRuntimeManager.start)
+
+
+def test_stop_requires_success_and_supplies_adapter_for_orphan_cleanup():
+    source = inspect.getsource(SceneRuntimeManager.stop)
+    assert 'check=True' in source
+    assert '"-AdapterRoot"' in source
+    assert 'timeout=90' in source

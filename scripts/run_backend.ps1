@@ -59,6 +59,7 @@ $arguments = @('-m', 'space_arm_platform.main', '--host', $ApiHost, '--port', $A
     '--capture-port', $CapturePort, '--pixel-streaming-player-port', $PixelStreamingPlayerPort,
     '--pixel-streaming-streamer-id', $PixelStreamingId, '--data-root', ([IO.Path]::GetFullPath($DataRoot)),
     '--runtime-encoder-min-quality', $EncoderMinQuality)
+if ($env:SPACE_SIM_NO_ACCESS_LOG -eq '1') { $arguments += @('--no-access-log', '--log-level', 'warning') }
 if ($PixelStreamingSignallingUrl) { $arguments += @('--pixel-streaming-signalling-url', $PixelStreamingSignallingUrl) }
 # Secrets reach Python through its environment, not process command lines.
 if ($StreamAccessJwtSecret) { $env:SPACE_SIM_STREAM_JWT_SECRET = $StreamAccessJwtSecret }

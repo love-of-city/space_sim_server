@@ -85,7 +85,13 @@ def test_selected_deployment_model_limits_not_hardcoded(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     manager.launch = SimpleNamespace(model_root=model_root)
     with pytest.raises(ValueError, match="J1"):
-        manager.create_instance(SceneInstanceCreate(randomization_profile="teleop-balanced-v1", template_id="spacecraft-arm-teleop", initial_arm_joint_position_deg=ANGLES))
+        manager.create_instance(SceneInstanceCreate(
+            randomization_profile="teleop-balanced-v1",
+            template_id="spacecraft-arm-teleop",
+            initial_arm_joint_position_deg=ANGLES,
+            # Keep the operating pose valid so this tests the initial pose limits.
+            operating_arm_joint_position_deg=[0.0] * 6,
+        ))
 
 
 def test_api_accepts_custom_angles_and_reports_invalid_input(tmp_path):

@@ -16,7 +16,7 @@
 
 机械臂、坐标框架、`SafetyController`、deadman/超时语义、BSK `MJJointPIDController`
 都没有改变：操作员仍然只发送六维末端速度，服务端把它转成关节位置参考，物理跟踪仍由
-MJScene 500 Hz 的关节 PID 完成。本文只描述“六维速度 → 关节速度”这一步的内核选择。
+MJScene 的原生关节 PID 完成；`zmh_v1` 默认动力学步长为 1 ms，IK 为 100 Hz。本文描述“六维速度 → 关节速度”的内核选择，之后仍有独立的关节参考保护；其统一缩放与明确许可的卸载见 [遥操作控制](teleop_control.md)。
 
 ## `ik_pose`（默认）
 

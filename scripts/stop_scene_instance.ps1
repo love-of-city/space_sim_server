@@ -44,12 +44,9 @@ if ($state) {
 }
 
 if ($AdapterRoot) {
+    Stop-ProjectRenderers $AdapterRoot
     $pidFile = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\BskRenderer.pid'
     if (Test-Path -LiteralPath $pidFile) {
-        try {
-            $rendererPid = [int](Get-Content -Raw -LiteralPath $pidFile)
-            Stop-RecordedProcessTree $rendererPid 0
-        } catch { }
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
     }
 }

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { referenceProtectionLabel, dynamicsTimingLabel } from "../control_status.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const start = source.indexOf('const obs = message.payload;', source.indexOf('message.type === "observation"'));
@@ -18,6 +19,7 @@ function observe(payload) {
   };
   vm.runInNewContext(observationHandler, {
     armPreparation: { update() {} },
+    referenceProtectionLabel, dynamicsTimingLabel,
     message: { payload }, $, setOnline() {}, formatMotionSpeedDiagnostics,
     jointAngles: { update(obs) { jointObservation = obs; } },
     updateMotionOutputs(twist, grip) { output = { twist, grip }; },
@@ -39,6 +41,14 @@ test("missing SARM telemetry remains safe before the first full observation", ()
   const h = observe({ sim_time_ns: "0" });
   assert.equal(h.output.grip, 0);
   assert.equal(h.$("jacobianRank").textContent, "— / 6");
+  assert.match(h.$("referenceProtection").textContent, /未上报/);
+});
+
+test("observation renders control protection independently of IK scale", () => {
+  const output = observe({ sim_time_ns: "0", reference_governor_state: "saturation_limited",
+    reference_limited_joints: [2], tracking_scale: 0, dynamics_step_s: 0.001, ik_control_rate_hz: 100 });
+  assert.match(output.$("referenceProtection").textContent, /J2/);
+  assert.equal(output.$("dynamicsTiming").textContent, "1.00 ms · IK 100 Hz");
 });
 
 test("explicit SI slider telemetry takes precedence over the legacy alias", () => {

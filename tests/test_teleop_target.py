@@ -299,7 +299,7 @@ def test_balanced_home_tracks_translation_with_declared_preference_budget(elbow_
         assert target.velocity_scale == pytest.approx(1.0)
 
 
-def test_large_tracking_error_never_freezes_the_operator_command() -> None:
+def test_large_tracking_error_stops_outward_motion_but_allows_reversal() -> None:
     model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_platform.xml"
     kinematics = MODULE.SerialChainKinematics.from_mjcf(
         model,
@@ -323,14 +323,8 @@ def test_large_tracking_error_never_freezes_the_operator_command() -> None:
 
     target = one_update(np.deg2rad(20.0))
     assert np.linalg.norm(target.orientation_error) > np.deg2rad(10.0)
-    assert target.tracking_scale == pytest.approx(1.0)
-    # The reference advances by exactly the same amount as with zero measured
-    # error: the operator command is no longer a function of tracking error.
-    assert np.allclose(
-        target.target_tool_position - kinematics.forward(initial[:6])[0],
-        undisturbed_advance,
-        atol=1.0e-12,
-    )
+    assert target.tracking_scale == 0.0
+    np.testing.assert_allclose(target.target_tool_position, kinematics.forward(initial[:6])[0])
     assert np.linalg.norm(undisturbed_advance) > 1.0e-5
     # Online preference is independent of measured error too, and its added
     # angular motion must stay inside the reported task disturbance budget.
@@ -338,6 +332,23 @@ def test_large_tracking_error_never_freezes_the_operator_command() -> None:
         joint_velocity_limits=MODULE.ARM_JOINT_VELOCITY_LIMIT,
         joint_position_min=target.joint_min[:6],joint_position_max=target.joint_max[:6],dt=.01)
     assert np.linalg.norm(target.achieved_twist[3:]-base.achieved_twist[3:]) <= target.elbow_diagnostics.angular_budget_rad_s+1e-12
+    target.client.linear[0] = -0.05
+    for seconds in (0.02, 0.03, 0.04):
+        target.update(seconds)
+    assert target.tracking_scale == 1.0
+    assert target.achieved_twist[0] < 0
+    assert target.target_tool_position[0] < kinematics.forward(initial[:6])[0][0]
+
+
+@pytest.mark.parametrize("step", [0, -0.001, 0.00025, 0.0005, 0.001, 0.002, float("nan"), float("inf")])
+def test_unsafe_dynamics_steps_are_rejected(step):
+    with pytest.raises(ValueError):
+        MODULE.validate_dynamics_step(step)
+
+
+@pytest.mark.parametrize("step", [1.0 / 240])
+def test_validated_dynamics_steps_are_accepted(step):
+    assert MODULE.validate_dynamics_step(step) == step
 
 
 def test_ik_mode_selects_the_solver_kernel() -> None:
@@ -361,6 +372,47 @@ def test_ik_mode_selects_the_solver_kernel() -> None:
         task_only_target(
             initial, FakeClient(), CountingKinematics(), ik_mode="unsupported"
         )
+
+
+@pytest.mark.parametrize("stale,reason,permission", [
+    (True, "", True), (False, "input_timeout", True), (False, "control_page_changed", True),
+    (False, "", False),
+])
+def test_reference_recovery_cannot_bypass_safety_stop(stale, reason, permission):
+    initial = np.array([0, 0.06733, -0.06232, 0, 0, 0, 0.01875, 0.01875])
+    client = MutableClient(deadman=False)
+    action, _ = client.latest_action()
+    action.update(allow_reference_recovery=permission, reason=reason)
+    client.latest_action = lambda: (action, stale)
+    target = MODULE.CartesianTeleopTarget(initial, client, CountingKinematics())
+    target.bind_joint_state_provider(lambda: np.zeros(6))
+    target.reset(0)
+    for index in range(1, 101):
+        target.update(index * 0.01)
+    np.testing.assert_array_equal(target.position, initial)
+    assert target.governor_state == "holding"
+
+
+def test_recovery_rebases_cartesian_reference_without_moving_finger_targets():
+    initial = np.array([0, 0.06733, -0.06232, 0, 0, 0, 0.01875, 0.01875])
+    client = MutableClient(deadman=False)
+    action, _ = client.latest_action()
+    action["allow_reference_recovery"] = True
+    client.latest_action = lambda: (action, False)
+    kinematics = CountingKinematics()
+    target = MODULE.CartesianTeleopTarget(initial, client, kinematics)
+    target.bind_joint_state_provider(lambda: np.zeros(6))
+    target.reset(0)
+    for index in range(1, 251):
+        target.update(index * 0.01)
+    assert np.max(np.abs(target.position[:6])) < 0.010001
+    position, rotation = kinematics.forward(target.position[:6])
+    np.testing.assert_allclose(target.target_tool_position, position)
+    np.testing.assert_allclose(target.target_tool_rotation, rotation)
+    np.testing.assert_array_equal(target.position[6:], initial[6:])
+    target.reset(3)
+    np.testing.assert_array_equal(target.position, initial)
+    assert target.governor.recovery.destination is None
 
 
 def test_ik_pose_never_supplies_an_automatic_posture_reference() -> None:

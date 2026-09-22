@@ -13,6 +13,7 @@ import {
 import "./styles.css";
 import { FreeCameraController } from "./free_camera.js";
 import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
+import { referenceProtectionLabel, dynamicsTimingLabel } from "./control_status.js";
 
 const gamepadInput = new GamepadInput();
 
@@ -158,6 +159,8 @@ function showLogin(message = "") {
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, options);
   if (response.status === 401 && url !== "/api/auth/login") {
+    const error = await response.clone().json().catch(() => ({}));
+    if (error.detail === "a valid stream access key is required" || !state.currentUser) return response;
     shutdownAuthenticatedApp();
     showLogin("登录已过期，请重新登录");
   }
@@ -227,11 +230,13 @@ function shutdownAuthenticatedApp() {
 }
 
 async function startAuthenticatedApp() {
-  connect();
   await loadSceneCatalog();
-  connectPixelStreaming();
+  await connectPixelStreaming();
+  if (!state.currentUser) return;
+  if (state.streamConfig) connect();
   await refreshState();
   await loadOperators();
+  if (!state.currentUser) return;
   updateOperationUI();
   if (!state.actionTimer) state.actionTimer = setInterval(sendAction, 33);
   if (!state.stateTimer) state.stateTimer = setInterval(() => { jointAngles.checkFreshness(); refreshState(); }, 1500);
@@ -297,9 +302,9 @@ function applySceneRuntime(runtime = {}) {
   $("stopScene").disabled = !active || !state.canManageScene;
   $("resetScene").disabled = !state.sceneReady || !state.simulationConnected
     || !state.resetSupported || !state.canManageScene || Boolean(state.activeEpisode);
-  $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在重置…" : "重置状态";
+  $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在复原…" : "一键复原初始位置";
   $("resetScene").title = state.activeEpisode ? "请先结束当前采集，再重置状态"
-    : "恢复本次场景的初始状态，不重新随机生成";
+    : "恢复机械臂、夹爪、目标物和仿真时间到本次场景初态；不是规划机械臂返航轨迹";
   ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity"].forEach((id) => {
     $(id).disabled = active;
   });
@@ -386,12 +391,16 @@ async function startScene() {
 
 async function resetScene() {
   if (state.resetPending || state.simulationResetting || !state.sceneReady) return;
+  if (state.activeEpisode) return setMessage("请先结束当前采集，再复原初始位置");
+  if (state.canManageScene === false || state.resetSupported === false || state.simulationConnected === false) {
+    return setMessage("当前无法复原：请检查场景权限及仿真连接");
+  }
   state.resetPending = true;
   state.sceneReady = false;
   state.operationRequested = false;
   exitOperationMode("正在重置场景，已停止操控输入");
   $("resetScene").disabled = true;
-  $("resetScene").textContent = "正在重置…";
+  $("resetScene").textContent = "正在复原…";
   updateEpisodeUI();
   try {
     const response = await apiRequest("/api/scenes/reset", { method: "POST" });
@@ -498,6 +507,8 @@ function connect() {
         ? `${obs.ik_mode}${obs.ik_status ? ` / ${obs.ik_status}` : ""} · λ=${Number(obs.ik_damping ?? 0).toFixed(4)} · scale=${Number(obs.ik_velocity_scale ?? 1).toFixed(2)} · σmin=${Number(obs.ik_minimum_singular_value ?? 0).toExponential(1)} · ${Number(obs.ik_solve_time_ms ?? 0).toFixed(2)} ms${obs.ik_elbow_preference?.enabled ? ` · 构型偏好=${obs.ik_elbow_preference.status} · 肘高=${Number(obs.ik_elbow_preference.measured_height_m ?? 0).toFixed(3)}m${obs.ik_elbow_preference.wrist_enabled ? ` · J4−J6=${Number(obs.ik_elbow_preference.measured_wrist_drop_m ?? 0).toFixed(3)}m` : ""}${obs.ik_elbow_preference.joint3_enabled ? ` · J3负角偏好=${(Number(obs.ik_elbow_preference.measured_joint3_rad ?? 0) * 180 / Math.PI).toFixed(1)}°` : ""}` : ""}`
         : "—";
       const attitude = obs.attitude_control;
+      $("referenceProtection").textContent = referenceProtectionLabel(obs);
+      $("dynamicsTiming").textContent = dynamicsTimingLabel(obs);
       const wheels = obs.reaction_wheels;
       $("attitudeMode").textContent = !attitude ? "—" : !attitude.enabled ? "控制关闭" :
         !attitude.reference_initialized ? "初始化" : attitude.saturated ? "惯性保持 · 饱和" : "惯性保持";
@@ -517,6 +528,7 @@ function connect() {
 }
 
 async function connectPixelStreaming() {
+  if (!state.currentUser) return;
   // Reconnect callbacks, the 10-second startup watchdog, and manual reconnect
   // can otherwise overlap.  That creates two Pixel Streaming players for the
   // main viewport and makes the displayed stream flash while old participants
@@ -530,9 +542,21 @@ async function connectPixelStreaming() {
       cache: "no-store",
       headers: accessKey ? { "X-Space-Arm-Access-Key": accessKey } : {},
     });
+    if (!state.currentUser) return;
+    if (response.status === 401) {
+      disposePixelStream();
+      state.streamConfig = null;
+      $("previewEmpty").style.display = "grid";
+      $("previewEmptyTitle").textContent = "访问链接缺少密钥或密钥无效";
+      $("previewEmptyHint").textContent = "账号已登录。请从服务器访问窗口复制完整链接，包含 access_key，再在本机浏览器打开。";
+      $("frameState").textContent = "ACCESS KEY REQUIRED";
+      setMessage("登录成功，但视频和控制需要有效访问密钥。这不是密码错误，请使用包含 access_key 的完整访问链接。");
+      return;
+    }
     if (!response.ok) throw new Error(`config ${response.status}`);
     const config = await response.json();
     state.streamConfig = config;
+    configureVideoFps();
     const selector = $("streamSelector");
     const previousStreamerId = state.selectedStreamerId;
     selector.replaceChildren();
@@ -553,7 +577,7 @@ async function connectPixelStreaming() {
     } catch (error) {
       console.warn("Pixel Streaming configuration is unavailable", error);
       $("frameState").textContent = "WEBRTC OFFLINE";
-      schedulePixelStreamingReconnect();
+    if (state.currentUser) schedulePixelStreamingReconnect();
     }
   })().finally(() => {
     if (state.pixelConnectPromise === pending) state.pixelConnectPromise = null;
@@ -575,6 +599,15 @@ function signallingUrl() {
 }
 
 function resetWebRtcStats() {
+  state.playbackSample = null;
+  state.playbackHealth = "unknown";
+  state.playbackAlert = false;
+  state.keyframeRecoveryAttempts = 0;
+  state.lastKeyframeRequestAt = null;
+  $("webrtcDecodeFps").textContent = "—";
+  $("webrtcPlayback").textContent = "等待视频";
+  state.lastPacketSample = null;
+  state.videoDiagnostics = [];
   state.lastReceivedFrames = null;
   state.lastReceivedTimestamp = null;
   $("webrtcReceiveFps").textContent = "—";
@@ -587,6 +620,53 @@ function resetWebRtcStats() {
   $("webrtcLoss").textContent = "—";
   $("webrtcFps").textContent = "—";
   $("webrtcResolution").textContent = "—";
+}
+
+function videoFpsOptions() {
+  const maximum = Number(state.streamConfig?.pixel_streaming_fps ?? 90);
+  return [...new Set([30, 60, 90, 120, maximum])]
+    .filter(value => Number.isFinite(value) && value > 0 && value <= maximum)
+    .sort((left, right) => left - right);
+}
+
+function configureVideoFps() {
+  const options = videoFpsOptions();
+  if (!options.includes(state.requestedVideoFps)) state.requestedVideoFps = options.at(-1);
+  const selector = $("videoFpsSelector");
+  selector.replaceChildren();
+  for (const fps of options) {
+    const option = document.createElement("option");
+    option.value = String(fps);
+    option.textContent = `${fps} FPS`;
+    selector.append(option);
+  }
+  selector.value = String(state.requestedVideoFps);
+}
+
+function selectVideoFps(value) {
+  const fps = Number(value);
+  if (!videoFpsOptions().includes(fps)) return false;
+  state.requestedVideoFps = fps;
+  state.pixelConfig?.setNumericSetting(NumericParameters.WebRTCFPS, fps);
+  return true;
+}
+
+function samplePacketLoss(video) {
+  const sample = {
+    received: video.packetsReceived, lost: video.packetsLost, timestamp: video.timestamp,
+    id: video.id, ssrc: video.ssrc,
+  };
+  const previous = state.lastPacketSample;
+  if (![sample.received, sample.lost, sample.timestamp].every(Number.isFinite)) {
+    state.lastPacketSample = null;
+    return null;
+  }
+  state.lastPacketSample = sample;
+  if (!previous || sample.id !== previous.id || sample.ssrc !== previous.ssrc
+      || sample.timestamp <= previous.timestamp || sample.received < previous.received) return null;
+  const lost = Math.max(0, sample.lost - previous.lost);
+  const total = sample.received - previous.received + lost;
+  return total > 0 ? lost * 100 / total : null;
 }
 
 // qpSum is cumulative across decoded frames. Difference consecutive samples so
@@ -611,15 +691,59 @@ function sampleAverageQp(video) {
   return Number.isFinite(average) ? average : null;
 }
 
+function samplePlayback(video, player, now) {
+  const sample = {
+    id: video.id, ssrc: video.ssrc, timestamp: video.timestamp,
+    decoded: video.framesDecoded, received: video.framesReceived, currentTime: player?.currentTime,
+  };
+  const previous = state.playbackSample;
+  state.playbackSample = sample;
+  const validInterval = previous && Number.isFinite(sample.timestamp) && Number.isFinite(previous.timestamp)
+    && sample.timestamp > previous.timestamp && sample.id === previous.id && sample.ssrc === previous.ssrc;
+  let decodedFps = null;
+  if (validInterval && Number.isFinite(sample.decoded) && Number.isFinite(previous.decoded)
+      && sample.decoded >= previous.decoded) {
+    decodedFps = (sample.decoded - previous.decoded) * 1000 / (sample.timestamp - previous.timestamp);
+  }
+  if (!validInterval || decodedFps == null || document.hidden) {
+    state.lastDecodeProgressAt = now;
+    state.lastMediaProgressAt = now;
+    state.keyframeRecoveryAttempts = 0;
+    state.lastKeyframeRequestAt = null;
+  }
+  if (decodedFps > 0) state.lastDecodeProgressAt = now;
+  const hasMediaClock = Number.isFinite(sample.currentTime) && Number.isFinite(previous?.currentTime);
+  if (!hasMediaClock || sample.currentTime !== previous.currentTime) state.lastMediaProgressAt = now;
+  const receiving = validInterval && Number.isFinite(sample.received) && Number.isFinite(previous.received)
+    && sample.received > previous.received;
+  let health = "waiting";
+  if (document.hidden) health = "hidden";
+  else if (player?.error) health = "media-error";
+  else if (player?.paused === true) health = "paused";
+  else if (receiving && decodedFps === 0 && now - state.lastDecodeProgressAt >= 5000) health = "decode-stalled";
+  else if (decodedFps > 0 && hasMediaClock && now - state.lastMediaProgressAt >= 5000) health = "playback-stalled";
+  else if (decodedFps > 0) health = "playing";
+  if (health === "playing") {
+    state.keyframeRecoveryAttempts = 0;
+    state.lastKeyframeRequestAt = null;
+  }
+  if (health === "decode-stalled" && state.streamLive && state.keyframeRecoveryAttempts < 2
+      && (state.lastKeyframeRequestAt == null || now - state.lastKeyframeRequestAt >= 15000)) {
+    state.lastKeyframeRequestAt = now;
+    state.keyframeRecoveryAttempts++;
+    try { state.pixelStreaming?.requestIframe?.(); } catch (_) { }
+  }
+  state.playbackHealth = health;
+  return { decodedFps, health };
+}
+
 function updateWebRtcStats(aggregatedStats) {
   const pair = aggregatedStats?.getActiveCandidatePair?.();
   const video = aggregatedStats?.inboundVideoStats;
   const averageQp = sampleAverageQp(video);
   $("webrtcQp").textContent = averageQp == null ? "—" : averageQp.toFixed(1);
   if (!video) return;
-  const packetsReceived = Number(video.packetsReceived || 0);
-  const packetsLost = Number(video.packetsLost || 0);
-  const totalPackets = packetsReceived + packetsLost;
+  const packetLoss = samplePacketLoss(video);
   // Received frames and displayed frames are different counters. A 60 Hz client
   // can receive 90 FPS without presenting 90 unique frames on its screen.
   const receivedFrames = Number(video.framesReceived);
@@ -644,6 +768,25 @@ function updateWebRtcStats(aggregatedStats) {
   const droppedVideoFrames = Number(quality?.droppedVideoFrames ?? player?.webkitDroppedFrameCount ?? 0);
   const presentedFrames = totalVideoFrames - droppedVideoFrames;
   const presentedTimestamp = performance.now();
+  const playback = samplePlayback(video, player, presentedTimestamp);
+  $("webrtcDecodeFps").textContent = playback.decodedFps == null ? "—" : playback.decodedFps.toFixed(0);
+  const playbackLabels = {
+    waiting: "等待新帧", hidden: "页面在后台", playing: "播放中", paused: "已暂停，请播放",
+    "decode-stalled": "接收正常，解码停滞", "playback-stalled": "解码正常，播放停滞",
+    "media-error": "播放器错误，请重连",
+  };
+  $("webrtcPlayback").textContent = playbackLabels[playback.health];
+  const playbackFault = ["paused", "decode-stalled", "playback-stalled", "media-error"].includes(playback.health);
+  if (playbackFault) {
+    $("playStream").textContent = playback.health === "paused" ? "继续播放实时画面" : "重新连接恢复画面";
+    $("playStream").hidden = false;
+    $("frameState").textContent = "VIDEO PAUSED / STALLED";
+    state.playbackAlert = true;
+  } else if (playback.health === "playing" && state.playbackAlert) {
+    $("playStream").hidden = true;
+    if (state.streamLive) $("frameState").textContent = "LIVE WEBRTC";
+    state.playbackAlert = false;
+  }
   let fps = null;
   if (Number.isFinite(presentedFrames) && presentedFrames >= 0) {
     if (state.lastPresentedTimestamp != null
@@ -659,11 +802,28 @@ function updateWebRtcStats(aggregatedStats) {
     ? `${(pair.currentRoundTripTime * 1000).toFixed(0)} ms` : "—";
   $("webrtcBitrate").textContent = video.bitrate != null
     ? `${Number(video.bitrate).toFixed(0)} kbps` : "—";
-  $("webrtcLoss").textContent = totalPackets > 0
-    ? `${(packetsLost * 100 / totalPackets).toFixed(1)}%` : "—";
+  $("webrtcLoss").textContent = packetLoss == null ? "—" : `${packetLoss.toFixed(1)}%`;
   $("webrtcFps").textContent = fps == null ? "—" : fps.toFixed(0);
   $("webrtcResolution").textContent = video.frameWidth && video.frameHeight
     ? `${video.frameWidth}×${video.frameHeight}` : "—";
+  const local = aggregatedStats.localCandidates?.find(candidate => candidate.id === pair?.localCandidateId);
+  const remote = aggregatedStats.remoteCandidates?.find(candidate => candidate.id === pair?.remoteCandidateId);
+  state.videoDiagnostics ??= [];
+  state.videoDiagnostics.push({
+    time: new Date().toISOString(), targetFps: state.requestedVideoFps ?? null,
+    receivedFps, decodedFps: playback.decodedFps, displayedFps: fps, bitrateKbps: video.bitrate ?? null,
+    playbackHealth: playback.health, paused: player?.paused ?? null, readyState: player?.readyState ?? null,
+    mediaTime: player?.currentTime ?? null, mediaErrorCode: player?.error?.code ?? null,
+    visibility: document.hidden ? "hidden" : "visible", keyFramesDecoded: video.keyFramesDecoded ?? null,
+    pliCount: video.pliCount ?? null, decoderImplementation: video.decoderImplementation ?? null,
+    keyframeRecoveryAttempts: state.keyframeRecoveryAttempts,
+    rttMs: pair?.currentRoundTripTime == null ? null : pair.currentRoundTripTime * 1000,
+    lossPercent: packetLoss, averageQp, jitterMs: video.jitter == null ? null : video.jitter * 1000,
+    localCandidateType: local?.candidateType ?? null, remoteCandidateType: remote?.candidateType ?? null,
+    protocol: local?.protocol ?? null, relayProtocol: local?.relayProtocol ?? null,
+    width: video.frameWidth ?? null, height: video.frameHeight ?? null,
+  });
+  if (state.videoDiagnostics.length > 60) state.videoDiagnostics.shift();
 }
 
 function disposePixelStream() {
@@ -711,12 +871,14 @@ function createPixelStream() {
   $("frameState").textContent = "CONNECTING";
   $("frameState").style.color = "var(--danger)";
   $("previewEmpty").style.display = "grid";
+  $("previewEmptyTitle").textContent = "等待实时画面";
+  $("previewEmptyHint").textContent = "UE 与 BSK/MJScene 就绪后，WebRTC 视频将在此显示";
   $("playStream").hidden = true;
   const config = new Config({
     initialSettings: {
       [TextParameters.SignallingServerUrl]: signallingUrl(),
       [OptionParameters.StreamerId]: state.selectedStreamerId,
-      [NumericParameters.WebRTCFPS]: state.streamConfig?.pixel_streaming_fps ?? 90,
+      [NumericParameters.WebRTCFPS]: state.requestedVideoFps ?? state.streamConfig?.pixel_streaming_fps ?? 90,
       // Match the UE launch setting; nullish fallback must preserve an explicit 0.
       [NumericParameters.MinQuality]: state.streamConfig?.pixel_streaming_encoder_min_quality ?? 60,
       [Flags.AutoConnect]: true,
@@ -735,6 +897,13 @@ function createPixelStream() {
   const stream = new PixelStreaming(config, { videoElementParent: $("pixelStream") });
   state.pixelConfig = config;
   state.pixelStreaming = stream;
+  stream.addEventListener("initialSettings", () => {
+    queueMicrotask(() => {
+      if (state.pixelStreaming === stream && state.requestedVideoFps != null) {
+        config.setNumericSetting(NumericParameters.WebRTCFPS, state.requestedVideoFps);
+      }
+    });
+  });
   window.__pixelStream = stream;
   stream.addEventListener("webRtcConnecting", () => {
     if (state.pixelStreaming !== stream) return;
@@ -852,7 +1021,7 @@ function gamepadAction() {
   return snapshot.action;
 }
 
-function transmitAction(action, deadman) {
+function transmitAction(action, deadman, allowReferenceRecovery = false) {
   if (!state.connected || !state.controlGranted || !state.ws || state.ws.readyState !== WebSocket.OPEN) {
     return false;
   }
@@ -863,6 +1032,7 @@ function transmitAction(action, deadman) {
     client_time_ns: String(BigInt(Date.now()) * 1000000n),
     deadman,
     ...(action.preparation ? {arm_preparation: action.preparation} : {}),
+    allow_reference_recovery: allowReferenceRecovery && !deadman,
     end_effector_linear_speed_m_s: state.linearSpeed,
     end_effector_linear_velocity: action.linear,
     end_effector_angular_velocity: action.angular,
@@ -986,11 +1156,11 @@ function sendAction() {
   const gamepadActive = gamepad && [...gamepad.linear, ...gamepad.angular, gamepad.grip].some((value) => Math.abs(value) > 0.01);
   const action = gamepadActive ? gamepad : keyboard;
   const motionActive = [...action.linear, ...action.angular, action.grip].some((value) => Math.abs(value) > 0.01);
-  transmitAction(action, motionActive);
+  transmitAction(action, motionActive, !motionActive);
   $("directControl").classList.toggle("active", motionActive);
   $("directControl").textContent = motionActive
     ? "操作模式：正在运动（Esc 退出）"
-    : "操作模式：等待输入（Esc 退出）";
+    : "操作模式：松键可卸除卡滞目标；Esc 停止并退出";
   $("inputSource").textContent = action.source === "gamepad" ? "手柄" : "键盘";
   highlightKeys();
   const elapsed = state.lastAckAt ? performance.now() - state.lastAckAt : 0;
@@ -1180,7 +1350,28 @@ $("streamSelector").addEventListener("change", (event) => {
 $("reconnectStream").addEventListener("click", () => {
   connectPixelStreaming();
 });
+$("videoFpsSelector").addEventListener("change", (event) => {
+  if (selectVideoFps(event.target.value)) {
+    setMessage(`视频目标 ${state.requestedVideoFps} FPS；实际帧率取决于网络、渲染和屏幕刷新率。此设置会影响共享 UE 实例。`);
+  }
+});
+$("copyVideoDiagnostics").addEventListener("click", async () => {
+  if (!state.videoDiagnostics?.length) {
+    setMessage("视频连接后等待几秒，再复制诊断。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(JSON.stringify({ samples: state.videoDiagnostics }, null, 2));
+    setMessage("已复制最近 60 次视频采样（不含账号、令牌和 IP 地址），可用于排查卡顿。");
+  } catch (_) {
+    setMessage("浏览器未允许复制，请允许此 HTTPS 网站访问剪贴板后重试。");
+  }
+});
 $("playStream").addEventListener("click", () => {
+  if (["decode-stalled", "playback-stalled", "media-error"].includes(state.playbackHealth)) {
+    connectPixelStreaming();
+    return;
+  }
   state.pixelStreaming?.play();
   $("playStream").hidden = true;
 });

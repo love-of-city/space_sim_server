@@ -190,8 +190,15 @@ def _load_scene() -> mujoco.MJScene:
     return mujoco.MJScene.fromFile(str(MODEL_PATH), files=mesh_files)
 
 
-def _build_simulation(*, attitude_control_enabled: bool | None = None) -> tuple[Any, Any, list[Any], list[Any]]:
-    """Create the Basilisk scene, controller chain, and recorders."""
+def _build_simulation(
+    *, attitude_control_enabled: bool | None = None, external_reference: Any | None = None,
+    record_history: bool = True,
+) -> tuple[Any, Any, list[Any], list[Any]]:
+    """Create the native controller chain; the caller schedules an external reference.
+
+    Without an external reference, the scripted trajectory retains its original
+    dynamics-substage scheduling.
+    """
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("graspProcess")
     process.addTask(simulation.CreateNewTask("graspTask", macros.sec2nano(TIME_STEP)))
@@ -200,8 +207,9 @@ def _build_simulation(*, attitude_control_enabled: bool | None = None) -> tuple[
     scene.ModelTag = "sarmSatelliteGraspScene"
     simulation.AddModelToTask("graspTask", scene)
 
-    trajectory = JointTrajectoryPublisher()
-    scene.AddModelToDynamicsTask(trajectory, 9000)
+    trajectory = external_reference if external_reference is not None else JointTrajectoryPublisher()
+    if external_reference is None:
+        scene.AddModelToDynamicsTask(trajectory, 9000)
     dynamics_models: list[Any] = [trajectory]
     command_recorders = []
     for index, ((body_name, joint_name), actuator_name) in enumerate(
@@ -230,8 +238,9 @@ def _build_simulation(*, attitude_control_enabled: bool | None = None) -> tuple[
         scene.getSingleActuator(actuator_name).actuatorInMsg.subscribeTo(
             limiter.actuatorOutMsg
         )
-        command_recorders.append(limiter.actuatorOutMsg.recorder())
-        simulation.AddModelToTask("graspTask", command_recorders[-1])
+        if record_history:
+            command_recorders.append(limiter.actuatorOutMsg.recorder())
+            simulation.AddModelToTask("graspTask", command_recorders[-1])
 
     # The server-side BSK chain drives physical MJCF rotors, not a second hub.
     repository_root = Path(__file__).resolve().parents[4]
@@ -242,9 +251,12 @@ def _build_simulation(*, attitude_control_enabled: bool | None = None) -> tuple[
         simulation, process, scene, MODEL_PATH, enabled=attitude_control_enabled
     )
 
-    state_recorder = scene.stateOutMsg.recorder()
-    simulation.AddModelToTask("graspTask", state_recorder)
-    return simulation, scene, dynamics_models, [state_recorder, *command_recorders]
+    recorders = []
+    if record_history:
+        state_recorder = scene.stateOutMsg.recorder()
+        simulation.AddModelToTask("graspTask", state_recorder)
+        recorders = [state_recorder, *command_recorders]
+    return simulation, scene, dynamics_models, recorders
 
 
 def _initialize_state(simulation: Any, scene: Any) -> None:

@@ -49,24 +49,90 @@ def test_reference_finishes_but_measured_lag_never_marks_ready():
     assert not controller.ready
 
 
-def test_cancel_brakes_and_cannot_replay_or_resume_from_unchecked_pose():
+@pytest.mark.parametrize('interruption', ['neutral', 'deadman-released', 'stale-heartbeat'])
+def test_cancel_brakes_and_requires_fresh_request_without_controller_reset(interruption):
+    """Restoring measured zero alone preserves the controller's seen request IDs."""
     controller, action, _ = setup()
     position = velocity = np.zeros(6)
     for _ in range(150):
         position, velocity = controller.step(.01, action, False, position, position, velocity)
     assert np.max(np.abs(velocity)) > .01
     previous = velocity.copy()
-    position, velocity = controller.step(.01, {}, True, position, position, velocity)
+    interrupted = copy.deepcopy(action)
+    if interruption == 'neutral':
+        interrupted = {'deadman': False}
+    elif interruption == 'deadman-released':
+        interrupted['deadman'] = False
+    position, velocity = controller.step(
+        .01, interrupted, interruption == 'stale-heartbeat', position, position, velocity)
     assert controller.status == 'pausing'
     assert np.max(np.abs(velocity - previous) / .01 - controller.acceleration_limits) < 1e-6
     for _ in range(200):
+        previous = velocity.copy()
         position, velocity = controller.step(.01, action, False, position, position, velocity)
+        assert controller.status in {'pausing', 'cancelled'}
+        assert not controller.ready
+        assert np.max(np.abs(velocity - previous) / .01 - controller.acceleration_limits) < 1e-6
+        assert np.all(np.abs(velocity) <= np.abs(previous) + 1e-10)
     assert controller.status == 'cancelled'
+    np.testing.assert_allclose(velocity, np.zeros(6), atol=1e-10)
+    assert np.max(np.abs(position)) > controller.POSITION_TOLERANCE
+    held = position.copy()
+    for recovered_action in ({}, action):
+        position, velocity = controller.step(.01, recovered_action, False, position, position, velocity)
+        np.testing.assert_allclose(position, held, atol=1e-10)
+        assert controller.status == 'cancelled'
     retry = copy.deepcopy(action)
     retry['arm_preparation']['request_id'] = 'retry'
     controller.step(.01, retry, False, position, position, velocity)
     assert controller.status == 'failed'
     assert '零位' in controller.reason
+    position = np.zeros(6)
+    velocity = np.zeros(6)
+    for recovered_action in ({}, action, retry):
+        for _ in range(50):
+            position, velocity = controller.step(.01, recovered_action, False, position, position, velocity)
+            assert controller.status == 'failed'
+            assert not controller.ready
+            np.testing.assert_array_equal(position, np.zeros(6))
+            np.testing.assert_array_equal(velocity, np.zeros(6))
+    fresh = copy.deepcopy(action)
+    fresh['arm_preparation']['request_id'] = 'restored-explicit-request'
+    position, velocity = controller.step(.01, fresh, False, position, position, velocity)
+    assert controller.status == 'arming'
+    assert controller.request_id == fresh['arm_preparation']['request_id']
+    assert not controller.ready
+    for _ in range(4000):
+        position, velocity = controller.step(.01, fresh, False, position, position, velocity)
+        if controller.ready:
+            break
+    assert controller.ready
+    np.testing.assert_allclose(position, controller.default_goal, atol=1e-10)
+
+
+def test_controller_reset_clears_local_replay_history_and_accepts_reused_id():
+    """The outer transport owns the reset-generation barrier, not ArmPreparation."""
+    controller, action, _ = setup()
+    position = velocity = np.zeros(6)
+    controller.step(.01, action, False, position, position, velocity)
+    controller.step(.01, {}, False, position, position, velocity)
+    assert controller.status == 'cancelled'
+    assert controller.seen_ids == {action['arm_preparation']['request_id']}
+
+    controller.reset()
+    assert controller.seen_ids == set()
+    assert controller.request_id == ''
+    for _ in range(50):
+        position, velocity = controller.step(.01, {}, False, position, position, velocity)
+        assert controller.status == 'waiting'
+        assert not controller.ready
+        np.testing.assert_array_equal(position, np.zeros(6))
+        np.testing.assert_array_equal(velocity, np.zeros(6))
+
+    controller.step(.01, action, False, position, position, velocity)
+    assert controller.status == 'arming'
+    assert controller.request_id == action['arm_preparation']['request_id']
+    assert controller.seen_ids == {action['arm_preparation']['request_id']}
 
 
 def test_changed_goal_and_invalid_saved_plan_are_rejected():

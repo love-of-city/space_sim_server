@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import {createArmPreparation, parseOperatingAngles, DEFAULT_OPERATING_DEG} from '../arm_preparation.js';
 
 globalThis.crypto ??= webcrypto;
@@ -141,37 +143,129 @@ test('v2 preserves non-zero J1/J6 target and locks edits after creation',()=>{
  assert.equal(p.inputs[5].value,'23');
 });
 
-test('v2 cancellation and disconnect never revive an automatic request',()=>{
- for (const cause of ['cancel','disconnect']) {
-  const p=setupAuto();
-  p.ui.armAutoStart('auto');
-  p.ui.tick();
-  const sentBefore = p.sent.filter(Boolean).length;
-  if (cause==='cancel') p.cancelButton.click();
-  else p.context.connected=false;
-  p.ui.tick();
-  p.context.connected=true;
-  p.context.controlGranted=true;
-  p.ui.update({status:'waiting',strategy:'validated-waypoints-v1',ready:false}, {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
-  p.ui.tick();
-  assert.equal(p.sent.filter(Boolean).length,sentBefore);
- }
-});
+const appSource=readFileSync(new URL('../app.js',import.meta.url),'utf8');
+function appSection(start,end) {
+ const first=appSource.indexOf(start),last=appSource.indexOf(end,first+start.length);
+ assert.ok(first>=0 && last>first,`missing app callback section: ${start}`);
+ return appSource.slice(first,last);
+}
 
-test('v2 explicit retry stays disabled away from zero and reopens after measured restore',()=>{
- const p=setupAuto();
- p.ui.armAutoStart('auto');
- p.ui.tick();
- p.cancelButton.click();
- p.ui.update({status:'cancelled',strategy:'validated-waypoints-v1',ready:false},
-   {scene_instance_id:'auto',arm_joint_position_rad:[0.2,0,0,0,0,0]});
- assert.equal(p.startButton.disabled,true);
- p.ui.update({status:'cancelled',strategy:'validated-waypoints-v1',ready:false},
-   {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
- assert.equal(p.startButton.disabled,false);
- p.startButton.click();
- assert.equal(p.sent.filter(Boolean).length,2);
-});
+function setupApp(testContext,controlGranted) {
+ const originalDocument=globalThis.document;
+ const listeners=new Map(),nodes=new Map(),packets=[];
+ const doc={hidden:false,addEventListener(name,callback){listeners.set(name,callback);}};
+ globalThis.document=doc;
+ testContext.after(()=>{globalThis.document=originalDocument;});
+ const inputs=Array.from({length:6},node);
+ const $=id=>{
+  if(!nodes.has(id))nodes.set(id,node());
+  return nodes.get(id);
+ };
+ $('operatingJointFields').querySelectorAll=()=>inputs;
+ const state={sceneReady:true,connected:true,canManageScene:true,controlGranted,estopped:false,
+  operationActive:false,operationRequested:false,freeCameraMode:false,pressed:new Set(),sequence:0};
+ const instance={instance_id:'auto',randomization_profile:'teleop-zero-prepare-v2',arm_preparation_required:true,
+  operating_arm_joint_position_deg:[17,-61,-82,135,-72,23]};
+ class Socket {
+  static OPEN=1;
+  readyState=Socket.OPEN;
+  send(packet){packets.push(JSON.parse(packet));}
+ }
+ let ui;
+ const context=vm.createContext({state,$,document:doc,createArmPreparation,WebSocket:Socket,URL,URLSearchParams,
+  location:{protocol:'http:',host:'test.invalid',search:''},
+  setOnline(){},setMessage(){},updateOperationUI(){},updateEpisodeUI(){},highlightKeys(){},
+  jointAngles:{clear(){}},
+  async apiRequest(path,options){
+   assert.equal(path,'/api/scenes/reset');assert.equal(options.method,'POST');
+   return {ok:true};
+  },
+  async readApiResponse(){return {status:'completed'};},
+  async refreshState(){
+   state.sceneReady=true;
+   ui.setRuntime(instance,true);
+   ui.update({status:'waiting',ready:false,strategy:'validated-waypoints-v1'},
+    {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
+  },
+ });
+ vm.runInContext([
+  appSection('const armPreparation = createArmPreparation(', 'let initialJointCatalog'),
+  appSection('function connect() {','async function connectPixelStreaming()'),
+  appSection('function transmitAction(', 'function sendNeutralAction('),
+  appSection('function exitOperationMode(', 'function sendAction()'),
+  appSection('document.addEventListener("visibilitychange"', 'document.addEventListener("focusin"'),
+  appSection('$("estop").addEventListener("click"', '$("linearSpeed").addEventListener'),
+  appSection('async function resetScene()', 'async function stopScene()'),
+ ].join('\n'),context);
+ ui=vm.runInContext('armPreparation',context);
+ context.connect();
+ ui.configure({arm_joint_limits_deg:limits});ui.setRuntime(instance,true);
+ ui.update({status:'waiting',ready:false,strategy:'validated-waypoints-v1'},
+  {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
+ const message=type=>state.ws.onmessage({data:JSON.stringify({type})});
+ return {ui,state,$,packets,context,doc,message,listeners,
+  requests:()=>packets.filter(packet=>packet.arm_preparation)};
+}
+
+for(const phase of ['waiting-control','moving']) {
+ for(const cause of ['cancel','hidden','disconnect','revoke','estop']) {
+  test(`v2 frontend ${cause} callback during ${phase} never auto-rearms after restore`,async testContext=>{
+   const app=setupApp(testContext,phase==='moving');
+   app.ui.armAutoStart('auto');assert.equal(app.ui.tick(),true);
+   const original=app.requests()[0]?.arm_preparation;
+   if(phase==='moving') {
+    assert.ok(original);
+    app.ui.update({request_id:original.request_id,status:'moving',ready:false},
+     {scene_instance_id:'auto',arm_joint_position_rad:[0.2,0,0,0,0,0]});
+   } else {
+    assert.equal(app.requests().length,0);
+    assert.equal(app.packets.filter(packet=>packet.type==='activate_control').length,1);
+   }
+   const requestCount=app.requests().length,packetCount=app.packets.length;
+   if(cause==='cancel')app.$('cancelPrepareArm').click();
+   if(cause==='hidden'){app.doc.hidden=true;app.listeners.get('visibilitychange')();}
+   if(cause==='disconnect')app.state.ws.onclose();
+   if(cause==='revoke')app.message('control_revoked');
+   if(cause==='estop')app.$('estop').click();
+   assert.equal(app.ui.ready(),false);
+   if(phase==='moving' && ['cancel','hidden','estop'].includes(cause)) {
+    assert.equal(app.packets.length,packetCount+1);
+    assert.equal(app.packets.at(-1).deadman,false);
+    assert.equal(app.packets.at(-1).arm_preparation,undefined);
+   }
+   if(cause==='hidden'){app.doc.hidden=false;app.listeners.get('visibilitychange')();}
+   if(cause==='disconnect'){app.context.connect();app.state.ws.onopen();}
+   if(cause==='estop')app.$('estop').click();
+   app.message('control_granted');
+   assert.equal(app.ui.tick(),false,'recovery before the next heartbeat must not revive intent');
+   app.ui.update({request_id:original?.request_id,status:'cancelled',ready:false},
+    {scene_instance_id:'auto',arm_joint_position_rad:[0.2,0,0,0,0,0]});
+   assert.equal(app.$('prepareArm').disabled,true);
+   app.$('prepareArm').click();assert.equal(app.requests().length,requestCount);
+   await app.context.resetScene();
+   assert.equal(app.$('prepareArm').disabled,false);
+   app.ui.armAutoStart('auto');
+   for(let heartbeat=0;heartbeat<3;heartbeat++)assert.equal(app.ui.tick(),false);
+   assert.equal(app.requests().length,requestCount,'zero restoration must not authorize motion');
+   assert.equal(app.ui.ready(),false);
+   app.$('prepareArm').click();
+   assert.equal(app.requests().length,requestCount+1);
+   const retry=app.requests().at(-1).arm_preparation;
+   assert.ok(retry.request_id);assert.notEqual(retry.request_id,original?.request_id);
+   assert.deepEqual(retry.joint_position_deg,[17,-61,-82,135,-72,23]);
+   assert.equal(app.requests().at(-1).deadman,true);
+   assert.equal(app.ui.ready(),false);
+   app.ui.update({request_id:retry.request_id,status:'moving',ready:false,progress:1},
+    {scene_instance_id:'auto',arm_joint_position_rad:retry.joint_position_deg.map(value=>value*Math.PI/180)});
+   assert.equal(app.ui.ready(),false);assert.equal(app.ui.tick(),true);
+   assert.equal(app.requests().at(-1).arm_preparation.request_id,retry.request_id);
+   app.ui.update({request_id:retry.request_id,status:'ready',ready:true},
+    {scene_instance_id:'auto',arm_joint_position_rad:retry.joint_position_deg.map(value=>value*Math.PI/180)});
+   assert.equal(app.ui.ready(),true);assert.equal(app.ui.tick(),false);
+   assert.equal(app.packets.at(-1).deadman,false);
+  });
+ }
+}
 
 test('v2 requires matching scene telemetry before consuming auto-start intent',()=>{
  for (const sceneId of [undefined, null, 'old']) {

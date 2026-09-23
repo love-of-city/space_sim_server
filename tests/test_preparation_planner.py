@@ -87,3 +87,21 @@ def test_cli_failure_is_nonzero_and_has_explicit_reason(tmp_path):
     result = json.loads(process.stdout)
     assert result["status"] == "failed"
     assert result["reason"]
+
+
+@pytest.mark.parametrize('goal_deg,reason', [
+    ([0, -60, -75, 130, -75, 0], 'goal_contact'),
+    ([0, -65, -85, 141, -85, 0], 'no_valid_candidate_in_finite_search'),
+])
+def test_rejected_custom_targets_do_not_create_scene_files(tmp_path, goal_deg, reason):
+    from space_arm_platform.models import SceneInstanceCreate
+    from space_arm_platform.scene_runtime import SceneRuntimeManager
+
+    manager = SceneRuntimeManager(None, project_root=Path(__file__).resolve().parents[1])
+    manager.scene_root = tmp_path
+    with pytest.raises(ValueError, match=reason):
+        manager.create_instance(SceneInstanceCreate(
+            seed=123, randomization_profile='teleop-zero-prepare-v2',
+            operating_arm_joint_position_deg=goal_deg,
+        ))
+    assert list(tmp_path.iterdir()) == []

@@ -64,7 +64,7 @@ jobs:
           if-no-files-found: warn
   web:
     name: server-web
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

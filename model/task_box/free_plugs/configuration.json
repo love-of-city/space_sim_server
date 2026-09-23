@@ -1,0 +1,8 @@
+{
+  "schema": "task-box-free-plugs/1",
+  "mass_note": "Provisional density 1000 kg/m3 for dynamics testing only; not measured mass. Existing upstream bus inertia has not been recalibrated.",
+  "plugs": [
+    {"id": 9, "name": "guide_plug", "initial_lift_m": 0.080, "provisional_density_kg_m3": 1000, "friction": [0.6, 0.005, 0.0001]},
+    {"id": 13, "name": "aviation_plug", "initial_lift_m": 0.065, "provisional_density_kg_m3": 1000, "friction": [0.6, 0.005, 0.0001]}
+  ]
+}

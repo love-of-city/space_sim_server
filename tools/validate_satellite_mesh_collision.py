@@ -26,7 +26,8 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
 
 
-def native_probe(folder, output, model_name="sarm_mesh_collision.xml"):
+def native_probe(folder, output, model_name="sarm_mesh_collision.xml", duration=.01,
+                 expected_bodies=15, expected_qpos=26):
     # Import only Basilisk's MuJoCo in this interpreter.
     import numpy as np
     import Basilisk
@@ -61,23 +62,25 @@ def native_probe(folder, output, model_name="sarm_mesh_collision.xml"):
     sim, scene, models, recorders = native._build_simulation()
     compile_seconds = time.perf_counter() - start
     native._initialize_state(sim, scene)
+    from space_arm_platform.task_box import initialize_free_plugs
+    initialize_free_plugs(scene, model_path, [0, 0, 0], native.COMMON_VELOCITY)
     hinge = scene.getBody("satellite_outer_panel").getScalarJoint("outer_panel_hinge")
     hinge.setVelocity(.1)
-    sim.ConfigureStopTime(native.macros.sec2nano(.01))
+    sim.ConfigureStopTime(native.macros.sec2nano(duration))
     start = time.perf_counter()
     sim.ExecuteSimulation()
     wall = time.perf_counter() - start
     qpos = np.asarray(scene.stateOutMsg.read().qpos).reshape(-1)
     report = {"mujoco_version": version, "model": model_path.name,
-              "compile_and_build_wall_s": compile_seconds, "simulation_duration_s": .01,
-              "step_wall_s": wall, "measured_real_time_factor": .01 / wall,
+              "compile_and_build_wall_s": compile_seconds, "simulation_duration_s": duration,
+              "step_wall_s": wall, "measured_real_time_factor": duration / wall,
               "bodies": list(scene.getBodyNames()), "body_count": len(list(scene.getBodyNames())),
               "qpos_size": len(qpos), "qpos_finite": bool(np.isfinite(qpos).all()),
               "arm_control_channels": len(native.ACTUATORS), "attitude_control_enabled": sim.attitude_control.enabled,
               "hinge_initial_rate_rad_s": .1, "hinge_final_rate_rad_s": float(hinge.stateDotOutMsg.read().state),
               "hinge_final_angle_rad": float(hinge.stateOutMsg.read().state),
               "scope": "Native SARM+target MJScene + existing arm/attitude controller smoke, NOT orbital/UE/browser acceptance"}
-    assert report["body_count"] == 15 and report["qpos_size"] == 26 and report["qpos_finite"]
+    assert report["body_count"] == expected_bodies and report["qpos_size"] == expected_qpos and report["qpos_finite"]
     assert report["arm_control_channels"] == 8 and report["attitude_control_enabled"]
     write_json(output, report)
     print(json.dumps(report), flush=True)

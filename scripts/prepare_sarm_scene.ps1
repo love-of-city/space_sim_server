@@ -23,6 +23,10 @@ if ($TemplateId -eq 'sarm-task-box-contacts') {
     $catalogName = 'sarm_task_box.catalog.json'
     $destination = '/Game/BSK/Generated/TaskBox'
 }
+if ($TemplateId -eq 'sarm-task-box-free-plugs') {
+    $catalogName = 'sarm_task_box_plugs.catalog.json'
+    $destination = '/Game/BSK/Generated/TaskBoxPlugs'
+}
 if (!(Test-Path -LiteralPath $scene -PathType Leaf)) { throw "Selected scene is missing: $scene" }
 & (Join-Path $ueProject 'scripts\prepare_mjcf_assets.ps1') `
     -MjcfPath $scene -Destination $destination `

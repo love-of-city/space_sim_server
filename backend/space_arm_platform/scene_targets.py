@@ -13,6 +13,7 @@ GROUND_TARGET_TEMPLATE = "sarm-ground-validation-grasp"
 MESH_TARGET_TEMPLATE = "sarm-ground-validation-mesh-grasp"
 SELF_COLLISION_TEMPLATE = "sarm-ground-validation-self-collision-grasp"
 TASK_BOX_TEMPLATE = "sarm-task-box-contacts"
+FREE_PLUG_TEMPLATE = "sarm-task-box-free-plugs"
 # Keep old scene identities/artifacts reproducible; triangle contact remains opt-in.
 DEFAULT_TEMPLATE = SELF_COLLISION_TEMPLATE
 
@@ -75,6 +76,13 @@ TARGETS[TASK_BOX_TEMPLATE] = replace(
     model_file="sarm_task_box_module.xml",
     collision_model="local_task_box_triangle_contacts",
     runtime_warning="本地任务盒接触验证：保留上游机械臂与抓夹；任务盒操作件暂保持 CAD 装配位姿，尚无拔出释放逻辑。质量未标定，实际插拔尚未验收。",
+)
+
+TARGETS[FREE_PLUG_TEMPLATE] = replace(
+    TARGETS[TASK_BOX_TEMPLATE],
+    model_file="sarm_task_box_plugs.xml",
+    collision_model="local_task_box_free_plugs",
+    runtime_warning="两个无卡扣插头为自由刚体，初始抬离存放孔以避免 CAD 干涉；质量为临时假设。精细孔槽接触，实际整臂插拔尚需验收。",
 )
 
 

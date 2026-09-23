@@ -39,6 +39,9 @@ if ($SceneInstancePath) {
     if ($selectedInstance.template_id -eq 'sarm-task-box-contacts') {
         $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_task_box.catalog.json'
     }
+    if ($selectedInstance.template_id -eq 'sarm-task-box-free-plugs') {
+        $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_task_box_plugs.catalog.json'
+    }
 }
 $scenario = Join-Path $projectRoot 'simulation\teleop_grasp_unreal.py'
 $env:PYTHONPATH = @(

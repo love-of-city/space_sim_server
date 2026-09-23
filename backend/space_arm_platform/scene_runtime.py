@@ -29,7 +29,7 @@ from .control_defaults import (
     LEGACY_PREGRASP,
     ZERO_START_TELEOP_PROFILE, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG,
 )
-from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, capture_target
+from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
 
 
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -43,6 +43,12 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
         "id": TASK_BOX_TEMPLATE,
         "label": "本地任务盒（接触验证·固定装配）",
         "description": capture_target(TASK_BOX_TEMPLATE).runtime_warning,
+        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
+    },
+    {
+        "id": FREE_PLUG_TEMPLATE,
+        "label": "本地任务盒（两个活动插头·实验）",
+        "description": capture_target(FREE_PLUG_TEMPLATE).runtime_warning,
         "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
     },
     {

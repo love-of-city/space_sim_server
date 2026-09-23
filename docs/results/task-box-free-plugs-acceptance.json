@@ -1,0 +1,332 @@
+{
+  "model_sha256": "415ca88f259d69663046100b979e3c90464910d803b569b38419ce9186fcd5e5",
+  "status": "Experimental: guide alignment/insertion and bilateral grip verified; aviation seating failed at pin-hole entrance.",
+  "mass": "Provisional density1000kg/m3, not calibrated; no CAD clearance modified.",
+  "initial_contacts": 0,
+  "cases": {
+    "guide_plug/aligned_above": {
+      "contacts": 0,
+      "minimum_distance_m": null,
+      "peak_force_N": 0,
+      "sample": []
+    },
+    "guide_plug/aligned_partial": {
+      "contacts": 0,
+      "minimum_distance_m": null,
+      "peak_force_N": 0,
+      "sample": []
+    },
+    "guide_plug/aligned_seated": {
+      "contacts": 0,
+      "minimum_distance_m": null,
+      "peak_force_N": 0,
+      "sample": []
+    },
+    "guide_plug/wrong_angle": {
+      "contacts": 35,
+      "minimum_distance_m": -0.003030163369766265,
+      "peak_force_N": 83.62092545965572,
+      "sample": [
+        {
+          "distance_m": -0.0011263428315927667,
+          "force_N": 26.22762378914732,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_009_contact"
+          ]
+        },
+        {
+          "distance_m": -5.205594570347255e-08,
+          "force_N": 0.0,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_009_contact"
+          ]
+        }
+      ]
+    },
+    "guide_plug/wrong_position": {
+      "contacts": 50,
+      "minimum_distance_m": -0.0035143383306094848,
+      "peak_force_N": 90.51151861935757,
+      "sample": [
+        {
+          "distance_m": -0.00012000372723476714,
+          "force_N": 1.7049752566794634,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_009_contact"
+          ]
+        },
+        {
+          "distance_m": -6.994281337940466e-05,
+          "force_N": 0.0,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_009_contact"
+          ]
+        }
+      ]
+    },
+    "aviation_plug/aligned_above": {
+      "contacts": 0,
+      "minimum_distance_m": null,
+      "peak_force_N": 0,
+      "sample": []
+    },
+    "aviation_plug/aligned_partial": {
+      "contacts": 0,
+      "minimum_distance_m": null,
+      "peak_force_N": 0,
+      "sample": []
+    },
+    "aviation_plug/aligned_seated": {
+      "contacts": 50,
+      "minimum_distance_m": -2.0025761188913044e-05,
+      "peak_force_N": 0.19533603361230917,
+      "sample": [
+        {
+          "distance_m": -1.9211253919164777e-05,
+          "force_N": 0.17763552379715142,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_013_contact"
+          ]
+        },
+        {
+          "distance_m": -1.9054148605228916e-05,
+          "force_N": 0.17523375579514927,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_013_contact"
+          ]
+        }
+      ]
+    },
+    "aviation_plug/wrong_angle": {
+      "contacts": 50,
+      "minimum_distance_m": -0.0002499587452583385,
+      "peak_force_N": 2.4296237993515852,
+      "sample": [
+        {
+          "distance_m": -5.052681743176339e-06,
+          "force_N": 0.235051419580522,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_013_contact"
+          ]
+        },
+        {
+          "distance_m": -0.0001199834431262661,
+          "force_N": 0.7585464087643083,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_013_contact"
+          ]
+        }
+      ]
+    },
+    "aviation_plug/wrong_position": {
+      "contacts": 50,
+      "minimum_distance_m": -0.0004228642478571617,
+      "peak_force_N": 4.625762607623473,
+      "sample": [
+        {
+          "distance_m": -5.792795239694075e-05,
+          "force_N": 0.6650012297949325,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_013_contact"
+          ]
+        },
+        {
+          "distance_m": -4.612751480429029e-05,
+          "force_N": 0.5945577577131872,
+          "pair": [
+            "task_box_001_contact",
+            "task_box_013_contact"
+          ]
+        }
+      ]
+    }
+  },
+  "dynamic_insertion": {
+    "guide_plug/aligned": {
+      "simulated_s": 3.999999999999781,
+      "wall_s": 4.527801699994598,
+      "rtf": 0.8834309152727589,
+      "physics_step_wall_s": 4.234322298492771,
+      "physics_only_rtf": 0.9446612038539443,
+      "diagnostics_and_loop_wall_s": 0.29347940150182694,
+      "first_contact": {
+        "time_s": 2.701999999999924,
+        "center_z_m": -0.01898209999883714
+      },
+      "peak_normal_force_N": 0.9741421131146233,
+      "max_contacts": 50,
+      "final_center_m": [
+        0.5351150646507404,
+        0.27474493405046563,
+        -0.018877618123059235
+      ],
+      "warnings": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "finite": true,
+      "seating_depth_reached": true,
+      "method": "Initial approach velocity 0.03 m/s, no pose overwrite or insertion force; not gripper-driven insertion."
+    },
+    "guide_plug/misaligned": {
+      "simulated_s": 3.999999999999781,
+      "wall_s": 3.187430799996946,
+      "rtf": 1.2549292050524246,
+      "physics_step_wall_s": 2.9435874014743604,
+      "physics_only_rtf": 1.3588860986415057,
+      "diagnostics_and_loop_wall_s": 0.24384339852258563,
+      "first_contact": {
+        "time_s": 0.3700000000000003,
+        "center_z_m": 0.050979436054464956
+      },
+      "peak_normal_force_N": 20.113683194002903,
+      "max_contacts": 29,
+      "final_center_m": [
+        0.48238897114957835,
+        0.2823744146997201,
+        0.19739834224720287
+      ],
+      "warnings": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "finite": true,
+      "seating_depth_reached": false,
+      "method": "Initial approach velocity 0.03 m/s, no pose overwrite or insertion force; not gripper-driven insertion."
+    },
+    "aviation_plug/aligned": {
+      "simulated_s": 3.999999999999781,
+      "wall_s": 9.529864299984183,
+      "rtf": 0.41973315401840716,
+      "physics_step_wall_s": 8.786152200424112,
+      "physics_only_rtf": 0.455261860795753,
+      "diagnostics_and_loop_wall_s": 0.7437120995600708,
+      "first_contact": {
+        "time_s": 2.201999999999979,
+        "center_z_m": 0.010005431393967123
+      },
+      "peak_normal_force_N": 15.63139861754043,
+      "max_contacts": 50,
+      "final_center_m": [
+        0.5348610350424633,
+        0.19517620403848987,
+        0.010671686437550386
+      ],
+      "warnings": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "finite": true,
+      "seating_depth_reached": false,
+      "method": "Initial approach velocity 0.03 m/s, no pose overwrite or insertion force; not gripper-driven insertion."
+    },
+    "aviation_plug/misaligned": {
+      "simulated_s": 3.999999999999781,
+      "wall_s": 7.250121699995361,
+      "rtf": 0.5517148767312886,
+      "physics_step_wall_s": 6.854906200198457,
+      "physics_only_rtf": 0.5835236665797086,
+      "diagnostics_and_loop_wall_s": 0.3952154997969046,
+      "first_contact": {
+        "time_s": 2.201999999999979,
+        "center_z_m": 0.010005917530255943
+      },
+      "peak_normal_force_N": 2.3018795604833695,
+      "max_contacts": 50,
+      "final_center_m": [
+        0.5348039860036201,
+        0.19487983560398606,
+        0.010732568249157932
+      ],
+      "warnings": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "finite": true,
+      "seating_depth_reached": false,
+      "method": "Initial approach velocity 0.03 m/s, no pose overwrite or insertion force; not gripper-driven insertion."
+    }
+  },
+  "grip_bench": {
+    "scope": "Contact load bench using unchanged upstream wrist/finger meshes and motors.\n\nWrist is bolted to a test stand; this is NOT a full-arm reach/IK/platform test.\nNo grasp welds, pose playback, or artificial plug position constraints.\n",
+    "cases": {
+      "guide_plug": {
+        "simulated_s": 2.999999999999891,
+        "wall_s": 0.16231020004488528,
+        "rtf": 18.483126748474653,
+        "physics_step_wall_s": 0.0644942008657381,
+        "physics_only_rtf": 46.5158100996583,
+        "diagnostics_and_loop_wall_s": 0.09781599917914718,
+        "both_fingers_contact_fraction": 1.0,
+        "peak_contact_count": 6,
+        "peak_normal_force_N": 0.12040671070973594,
+        "displacement_m": 0.0002175517679822236,
+        "warnings": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "finite": true,
+        "finger_command_N": -0.1,
+        "third_second_axial_load_N": 0.05
+      },
+      "aviation_plug": {
+        "simulated_s": 2.999999999999891,
+        "wall_s": 0.25581309996778145,
+        "rtf": 11.727311855326127,
+        "physics_step_wall_s": 0.11874760052887723,
+        "physics_only_rtf": 25.263668374253562,
+        "diagnostics_and_loop_wall_s": 0.13706549943890423,
+        "both_fingers_contact_fraction": 1.0,
+        "peak_contact_count": 6,
+        "peak_normal_force_N": 0.11997468259324431,
+        "displacement_m": 0.00020436940333144575,
+        "warnings": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "finite": true,
+        "finger_command_N": -0.1,
+        "third_second_axial_load_N": 0.05
+      }
+    }
+  }
+}

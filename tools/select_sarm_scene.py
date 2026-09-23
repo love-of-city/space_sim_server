@@ -14,7 +14,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
-from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, MESH_TARGET_TEMPLATE, TASK_BOX_TEMPLATE, capture_target
+from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, MESH_TARGET_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
 
 
 def fingerprint(path: Path) -> str:
@@ -66,10 +66,11 @@ def selected_scene(model_root: Path, template_id: str = DEFAULT_TEMPLATE, check:
         raise FileNotFoundError(f"Selected runtime XML is missing: {path}")
     if check:
         repository = model_root.parents[2]
-        if template_id == TASK_BOX_TEMPLATE:
+        if template_id in (TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE):
             manifest_path = path.with_suffix('.manifest.json')
             manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-            if manifest.get('schema') != 'task-box-module/1' or not manifest.get('sources'):
+            schema = 'task-box-free-plugs/1' if template_id == FREE_PLUG_TEMPLATE else 'task-box-module/1'
+            if manifest.get('schema') != schema or not manifest.get('sources'):
                 raise ValueError('Missing/unsupported task-box source manifest; rebuild and validate')
         if template_id == MESH_TARGET_TEMPLATE:
             manifest = json.loads(path.with_name("manifest.json").read_text(encoding="utf-8"))

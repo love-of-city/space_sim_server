@@ -53,6 +53,8 @@ const state = {
   operationRequested: false,
   actionTimer: null,
   stateTimer: null,
+  stateRequestSequence: 0,
+  sceneTransitionPending: false,
   gamepadSnapshot: null,
 };
 
@@ -68,14 +70,14 @@ const armPreparation = createArmPreparation({
   send: request => transmitAction({linear:[0,0,0], angular:[0,0,0], grip:0, source:"keyboard", preparation:request}, !!request),
   cancelMotion: () => exitOperationMode(""),
   activateControl: () => state.ws?.send(JSON.stringify({type:"activate_control"})),
-  message: setMessage, changed: updateOperationUI,
+  message: setMessage, changed: () => { updateOperationUI(); updateEpisodeUI(); },
 });
 let initialJointCatalog = null;
 function configureInitialJoints() {
-  const zeroStart = $("randomizationProfile").value === ZERO_START_PROFILE;
+  const zeroStart = [ZERO_START_PROFILE, "teleop-zero-prepare-v2"].includes($("randomizationProfile").value);
   $("legacyInitialJointSettings").hidden = zeroStart;
   if (zeroStart) $("sceneCustomInitialJoints").checked = false;
-  armPreparation.configure(initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value));
+  armPreparation.configure(initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value), $("randomizationProfile").value);
   initialJoints.configure(
     initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value),
     initialJointCatalog?.initial_arm_presets_deg?.[$("randomizationProfile").value],
@@ -327,13 +329,14 @@ function applySceneRuntime(runtime = {}) {
   }
   configureInitialJoints();
   initialJoints.setRuntime(active, instance);
-  armPreparation.setRuntime(instance, state.sceneReady);
+  armPreparation.setRuntime(active ? instance : null, state.sceneReady);
+  if (["failed", "stopping", "stopped"].includes(phase)) armPreparation.cancel("场景停止或失败，请显式重试");
   $("sceneParameters").textContent = instance.randomization
     ? JSON.stringify({ capture_target: instance.capture_target || {}, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
   if (runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
-    setMessage(`场景 ${instance.instance_id || ""} 已运行，可开始遥操作或采集`);
+    setMessage(`场景 ${instance.instance_id || ""} 已运行，等待机械臂准备实测到位后操作或采集`);
     // The waiting player may have subscribed milliseconds ago. Moving from
     // launcher startup to running is not a reason to destroy its RTC handshake.
     if (!state.pixelStreaming && !state.pixelConnectPromise) connectPixelStreaming();
@@ -348,9 +351,11 @@ async function readApiResponse(response) {
 }
 
 async function startScene() {
+  if (state.sceneTransitionPending) return;
   let initialAngles;
   let operatingAngles;
-  try { initialAngles = $("randomizationProfile").value === ZERO_START_PROFILE ? null : initialJoints.read(); operatingAngles = armPreparation.read(); }
+  const operatingProfile = [ZERO_START_PROFILE, "teleop-zero-prepare-v2"].includes($("randomizationProfile").value);
+  try { initialAngles = operatingProfile ? null : initialJoints.read(); operatingAngles = armPreparation.read(); }
   catch (error) { setMessage(error.message); return; }
   const sunlightText = $("sceneSunlightIntensity").value.trim();
   const sunlightScale = Number(sunlightText);
@@ -371,10 +376,12 @@ async function startScene() {
     dataset_capture: $("sceneDatasetCapture").checked,
     sunlight_intensity_scale: sunlightScale,
     initial_arm_joint_position_deg: initialAngles,
-    ...($("randomizationProfile").value === ZERO_START_PROFILE ? {operating_arm_joint_position_deg: operatingAngles} : {}),
+    ...(operatingProfile ? {operating_arm_joint_position_deg: operatingAngles} : {}),
   };
   $("startScene").disabled = true;
   setMessage("正在生成可复现场景实例…");
+  state.sceneTransitionPending = true;
+  state.stateRequestSequence += 1;
   try {
     const response = await apiRequest("/api/scenes/start", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request),
@@ -382,9 +389,12 @@ async function startScene() {
     const data = await readApiResponse(response);
     if (!response.ok) throw new Error(data.detail || `无法启动场景（HTTP ${response.status}）`);
     applySceneRuntime({ ...data, active: true, instance: data });
+    armPreparation.armAutoStart?.(data.instance_id);
     setMessage(`已生成场景 ${data.instance_id}，Seed ${data.seed}，正在启动 UE`);
   } catch (error) {
     setMessage(error.message || "无法启动场景");
+  } finally {
+    state.sceneTransitionPending = false;
     await refreshState();
   }
 }
@@ -418,8 +428,11 @@ async function resetScene() {
 }
 
 async function stopScene() {
+  if (state.sceneTransitionPending) return;
   $("stopScene").disabled = true;
   setMessage("正在停止场景…");
+  state.sceneTransitionPending = true;
+  state.stateRequestSequence += 1;
   try {
     const response = await apiRequest("/api/scenes/stop", { method: "POST" });
     const data = await readApiResponse(response);
@@ -428,6 +441,8 @@ async function stopScene() {
     setMessage("场景已停止，控制平台仍保持运行");
   } catch (error) {
     setMessage(error.message || "无法停止场景");
+  } finally {
+    state.sceneTransitionPending = false;
     await refreshState();
   }
 }
@@ -490,7 +505,7 @@ function connect() {
     } else if (message.type === "observation") {
       const obs = message.payload;
       jointAngles.update(obs);
-      armPreparation.update(obs.arm_preparation);
+      armPreparation.update(obs.arm_preparation, obs);
       setOnline("simDot", true);
       $("simState").textContent = "仿真在线";
       $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
@@ -1079,7 +1094,7 @@ function updateOperationUI() {
     hintDetail.textContent = "先在右侧点击恢复控制";
   } else if (!armPreparation.ready()) {
     hintTitle.textContent = "请先到达操作姿态";
-    hintDetail.textContent = "使用操作姿态准备按钮；实测稳定到位后才能进入操作";
+    hintDetail.textContent = "等待准备进度；中止后先复原场景再显式重试，实测稳定到位后才能操作与采集";
   } else if (!state.controlGranted) {
     hintTitle.textContent = "点击切换到当前操作页面";
     hintDetail.textContent = "同一用户的旧页面会自动退出操作";
@@ -1110,7 +1125,7 @@ function updateOperationUI() {
 }
 
 function enterOperationMode() {
-  if (!armPreparation.ready()) return setMessage("请先点击到达操作姿态，并等待实测稳定到位");
+  if (!armPreparation.ready()) return setMessage("请等待机械臂实测稳定到位；准备已中止时，请先复原场景再显式重试");
   if (!state.sceneReady) return setMessage("场景尚未运行，暂时不能进入操作模式");
   if (!state.connected) return setMessage("操作链路尚未连接");
   if (!state.canManageScene) return setMessage("只能操作自己创建的场景");
@@ -1186,9 +1201,12 @@ function highlightKeys() {
 }
 
 async function refreshState() {
+  if (state.sceneTransitionPending) return;
+  const sequence = ++state.stateRequestSequence;
   try {
     const response = await apiRequest("/api/state", { cache: "no-store" });
     const data = await response.json();
+    if (sequence !== state.stateRequestSequence) return;
     state.simulationConnected = data.simulation.connected;
     state.simulationResetting = data.simulation.resetting === true;
     state.resetSupported = data.simulation.reset_supported === true;
@@ -1207,6 +1225,7 @@ async function refreshState() {
       setMessage("正在等待末帧、编码视频并封口 LeRobot v3 数据集，请勿关闭服务");
     }
   } catch (_) {
+    if (sequence !== state.stateRequestSequence) return;
     setOnline("backendDot", false);
   }
 }
@@ -1215,12 +1234,15 @@ function updateEpisodeUI() {
   const active = Boolean(state.activeEpisode);
   $("episodeBadge").textContent = active ? "● 正在采集" : "未采集";
   $("episodeBadge").classList.toggle("recording", active);
-  $("startEpisode").disabled = active || !state.sceneReady || !state.canManageScene;
+  $("startEpisode").disabled = active || !state.sceneReady || !state.connected || !state.canManageScene || !armPreparation.ready();
   $("successEpisode").disabled = !active;
   $("failureEpisode").disabled = !active;
 }
 
 async function startEpisode() {
+  if (!state.sceneReady || !state.connected || !state.canManageScene || !armPreparation.ready()) {
+    return setMessage("场景或机械臂尚未准备到位，不能开始采集");
+  }
   const response = await apiRequest("/api/episodes/start", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ instruction: $("instruction").value }),

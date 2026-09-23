@@ -109,7 +109,7 @@
           </label>
           <small id="sceneCollisionWarning">默认粗碰撞体版已启用目标内部碰撞；铰链附近采用近似间隙，接触角度不代表真实限位。旧粗盒版不计算目标内部碰撞；高精度三角网格版仅供实验，运行速度显著低于实时。</small>
           <label>随机化配置
-            <select id="randomizationProfile"><option value="teleop-zero-prepare-v1">指定操作姿态直接启动</option></select>
+            <select id="randomizationProfile"><option value="teleop-zero-prepare-v2">六轴零位自动展开</option></select>
           </label>
           <div id="legacyInitialJointSettings">
           <label class="scene-checkbox">
@@ -146,8 +146,8 @@
           </div>
           </div>
           <section aria-label="操作姿态准备">
-            <h3>机械臂初始操作姿态</h3>
-            <p>启动场景时直接使用以下六个关节角度，不再从 0° 逐步运动到操作姿态。修改数值只影响下一次场景初始化。</p>
+            <h3>六轴零位 → 操作目标</h3>
+            <p>新模式（v2）只需点击一次启动：场景、遥测和控制权就绪后，沿已验证路点自动展开。六轴目标创建后锁定；请结束场景后修改，用于下次启动。旧模式（v1）仍按操作角度初始化，无展开运动；旧 required 实例继续保持 J1/J6。</p>
             <div id="operatingJointFields" class="initial-joint-grid">
               <label>J1 操作角度（°）<input id="operatingJoint1" type="number" step="any" required></label>
               <label>J2 操作角度（°）<input id="operatingJoint2" type="number" step="any" required></label>
@@ -157,10 +157,10 @@
               <label>J6 操作角度（°）<input id="operatingJoint6" type="number" step="any" required></label>
             </div>
             <button id="operatingJointDefault" type="button">恢复默认操作角度</button>
-            <button id="prepareArm" type="button" disabled hidden>到达操作姿态</button>
-            <button id="cancelPrepareArm" type="button" disabled hidden>中止准备</button>
-            <p id="armPreparationStatus" role="status" aria-live="polite">场景启动时直接设置操作姿态</p>
-            <small>场景创建时直接设置目标关节角度，启动后即可遥操作；不会产生从零姿态到操作姿态的过渡运动。</small>
+            <button id="prepareArm" type="button" disabled>重试零位展开</button>
+            <button id="cancelPrepareArm" type="button" disabled>取消准备</button>
+            <p id="armPreparationStatus" role="status" aria-live="polite">六轴零位 → 操作目标 · 等待场景启动</p>
+            <small>实测稳定到位前禁止操作与采集。取消、失败、撤权、页面隐藏或断线后不会自动重试。新模式仅在实测六轴仍在零位（各轴 ±0.1° 内）时允许显式重试；中途停止请先一键复原场景，再重试展开。刷新或旁观不会自动开始准备。</small>
           </section>
           <div class="scene-form-row">
             <label>随机种子

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import inspect
+import json
+from unittest.mock import Mock
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -12,9 +16,11 @@ from space_arm_platform.control_defaults import (
     BALANCED_TELEOP_JOINT_SPANS,
     BALANCED_TELEOP_PROFILE,
     DEFAULT_RANDOMIZATION_PROFILE,
+    AUTO_PREPARE_TELEOP_PROFILE,
 )
 from space_arm_platform.scene_runtime import (
     SceneRuntimeManager,
+    SceneLaunchConfig,
     _NATIVE_COMMON_VELOCITY,
     _NATIVE_PREGRASP,
     _NATIVE_TARGET_POSITION,
@@ -84,7 +90,7 @@ def test_scene_api_catalog_and_instance_generation_without_launcher(tmp_path: Pa
         assert login.status_code == 200
         catalog = client.get("/api/scenes/catalog")
         assert catalog.status_code == 200
-        assert catalog.json()["defaults"]["randomization_profile"] == DEFAULT_RANDOMIZATION_PROFILE
+        assert catalog.json()["defaults"]["randomization_profile"] == AUTO_PREPARE_TELEOP_PROFILE
 
         created = client.post("/api/scenes/instances", json={"seed": 99})
         assert created.status_code == 200
@@ -114,3 +120,56 @@ def test_stop_requires_success_and_supplies_adapter_for_orphan_cleanup():
     assert 'check=True' in source
     assert '"-AdapterRoot"' in source
     assert 'timeout=90' in source
+
+
+@pytest.mark.parametrize("old_phase", ["stopped", "completed", "failed"])
+def test_start_reports_new_instance_without_overwriting_cleanup_state(tmp_path, monkeypatch, old_phase):
+    script = tmp_path / "scripts" / "start_scene_instance.ps1"
+    script.parent.mkdir()
+    script.touch()
+    launch = SceneLaunchConfig(
+        project_root=tmp_path, adapter_root=tmp_path,
+        model_root=Path(__file__).resolve().parents[1] / "model/SARM/platform",
+        unreal_root=tmp_path, powershell_exe=script, control_port=1, capture_port=2,
+        render_port=3, pixel_streamer_port=4, pixel_streaming_id="test",
+        pixel_streaming_camera_ids=(), pixel_streaming_camera_width=64,
+        pixel_streaming_camera_height=64, preview_rate=30, renderer_ready_timeout=30,
+        ik_rate=120, simulation_rate=1, capture_rate=30, default_dataset_capture=False,
+    )
+    manager = SceneRuntimeManager(launch)
+    old_state = {"phase": old_phase, "instance": {"instance_id": "old"},
+                 "renderer_pid": 123, "error": "old error"}
+    manager.state_path.write_text(json.dumps(old_state), encoding="utf-8")
+    process = Mock(pid=456, returncode=None)
+    process.poll.return_value = None
+    monkeypatch.setattr("space_arm_platform.scene_runtime.subprocess.Popen", lambda *args, **kwargs: process)
+    try:
+        instance = manager.start(request(7, "none"))
+        status = manager.status()
+        assert status["phase"] == "launching"
+        assert status["active"] is True
+        assert status["instance"]["instance_id"] == instance["instance_id"]
+        assert "error" not in status
+        assert "renderer_pid" not in status
+        assert json.loads(manager.state_path.read_text(encoding="utf-8")) == old_state
+        manager.create_instance(request(8, "none"))
+        assert manager.status()["instance"]["instance_id"] == instance["instance_id"]
+        current_state = {"phase": "starting_renderer", "instance": instance, "renderer_pid": 789}
+        manager.state_path.write_text(json.dumps(current_state), encoding="utf-8")
+        assert manager.status()["phase"] == "starting_renderer"
+        assert manager.status()["renderer_pid"] == 789
+    finally:
+        manager._close_logs()
+
+
+def test_launcher_failure_before_state_handoff_keeps_new_identity(tmp_path):
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    manager.state_path.write_text(json.dumps({"phase": "stopped", "instance": {"instance_id": "old"}}))
+    manager._launched_instance = {"instance_id": "new"}
+    manager._process = Mock(pid=456, returncode=1)
+    manager._process.poll.return_value = 1
+    status = manager.status()
+    assert status["phase"] == "failed"
+    assert status["active"] is False
+    assert status["launcher_exit_code"] == 1
+    assert status["instance"]["instance_id"] == "new"

@@ -33,3 +33,4 @@ deploy/secrets/
 data/visualization-test-auth.sqlite3*
 /run-signalling.pid
 /signalling/*.log
+/reports/

@@ -1,0 +1,31 @@
+{
+  "files": {
+    "tests/test_attitude_control.py": "Basilisk attitude-control integration",
+    "tests/test_celestial_alignment.py": "Basilisk celestial-state integration",
+    "tests/test_ground_capture_native.py": "Basilisk MJScene integration",
+    "tests/test_joint_reference_publisher.py": "Basilisk messaging",
+    "tests/test_orbital_initial_state.py": "Basilisk orbital-state integration",
+    "tests/test_physics_clock_native.py": "Basilisk scheduler",
+    "tests/test_scene_lighting.py": "Basilisk runtime imports",
+    "tests/test_simplified_teleop.py": "Basilisk teleoperation runtime",
+    "tests/test_teleop_target.py": "Basilisk teleoperation runtime",
+    "tests/test_teleop_channels.py": "Basilisk teleoperation runtime",
+    "tests/test_native_integration.py": "Basilisk native integrator",
+    "tests/test_simulation_reset_native.py": "Basilisk MJScene reset",
+    "tests/test_arm_preparation_native.py": "Opt-in Basilisk MJScene preparation",
+    "tests/test_glb_to_mjcf.py": "Optional DracoPy and generated GLB assets",
+    "tests/test_step_to_mjcf.py": "Optional OCP/numba CAD toolchain",
+    "tests/test_satellite_component_review.py": "Generated CAD review artifacts",
+    "tests/test_satellite_wing_joint.py": "Generated CAD wing artifacts",
+    "tests/test_public_gateway_integration.py": "External Caddy binary"
+  },
+  "nodes": {
+    "tests/test_arm_preparation.py::test_live_target_waits_and_resets_with_real_chain": "Basilisk live runtime",
+    "tests/test_initial_joint_angles.py::test_only_six_arm_axes_overridden_and_persisted": "Basilisk scene loader",
+    "tests/test_initial_joint_angles.py::test_catalog_bounds_are_enforced_before_writing": "Basilisk scene loader",
+    "tests/test_online_elbow_ik.py::test_live_zero_start_release_resume_keeps_budget_and_reset_clears_it": "Basilisk live runtime",
+    "tests/test_online_elbow_ik.py::test_live_policy_switch_and_strict_bypass": "Basilisk live runtime",
+    "tests/test_online_elbow_ik.py::test_wrist_only_switch_does_not_disable_elbow_and_invalid_value_fails": "Basilisk live runtime",
+    "tests/test_online_elbow_ik.py::test_joint3_switch_and_manual_positive_initialization": "Basilisk live runtime"
+  }
+}

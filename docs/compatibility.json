@@ -1,0 +1,18 @@
+{
+  "status": "candidate",
+  "server": {
+    "repository": "love-of-city/space_sim_server",
+    "sha": "98a8c3a521f420d69e60d693d51b27881439d57c"
+  },
+  "adapter": {
+    "repository": "love-of-city/space_sim_UE_Adapter",
+    "sha": "411b85e82e75241a4124b916093eb9d1a271a11e"
+  },
+  "protocols": {
+    "control": "space-arm-control/1",
+    "render": "bsk-render/2",
+    "capture": "bsk-capture/1"
+  },
+  "validation": "Candidate only; basic CI is not full simulation/render/capture acceptance."
+}
+

@@ -1,12 +1,14 @@
 # 太空机械臂遥操作与数据采集平台
 
+团队开发请先阅读[贡献指南](CONTRIBUTING.md)、[环境与兼容记录](docs/COMPATIBILITY.md)和[GitHub 保护规则](docs/REPOSITORY_SETTINGS.md)。基础 CI 不替代完整仿真、UE 和采集验收。
+
 浏览器操作台、用户与场景管理、训练数据记录。Basilisk/MJScene 负责权威动力学，[UE 适配器](https://github.com/love-of-city/space_sim_UE_Adapter)负责渲染。WebRTC 用于操作预览；训练图像通过独立的 `bsk-capture/1` 通道采集。
 
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。
 
-Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实仿真必须安装**包含 MJScene 的 Basilisk**；普通 Python `mujoco` 包不能替代 `Basilisk.simulation.mujoco`。按照团队使用的 Basilisk 源码版本及其[安装文档](https://hanspeterschaub.info/basilisk/Install.html)准备并启用 MuJoCo 支持。以下命令不会安装 UE、编译器或 Basilisk。
+Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实仿真必须安装**包含 MJScene 及项目所需控制、积分和消息 API 的 Basilisk**；普通 Python `mujoco` 包不能替代 `Basilisk.simulation.mujoco`。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装发行包，也可参考其[安装文档](https://hanspeterschaub.info/basilisk/Install.html)自行编译；不限定源码版本或安装方式。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py` 检查功能。以下项目安装命令不会安装 UE、编译器或 Basilisk。
 
 ## 1. 获取仓库
 
@@ -121,6 +123,20 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -ApiPort 18000
 首次启动准备 Pixel Streaming、构建缺少的 UE 模块，并按本机路径生成资产映射。需要访问 GitHub/npm；不要复制别人 `Saved/AssetImport` 中的本机 catalog。
 
 打开 `http://127.0.0.1:18000`，登录后选择模板并点击“生成并启动场景”。平台启动成功不等于场景或视频已经就绪。全新认证数据库默认本机账号为 `admin` / `ChangeMe123!`；已有数据库使用原密码，登录后可修改。需要训练图像时先勾选“权威采集”，场景就绪后再开始 episode；只预览时保持关闭。
+
+### 拉取代码后的 UE 运行时构建
+
+`run_platform.ps1` 不会在每次启动时重新链接 `BskUnrealRuntime`。如果拉取更新同时修改了适配器的 `Plugins/BskUnrealRuntime/Source/`（尤其是 `.cpp`、`.h` 或 `.cs`），必须在启动平台前执行一次完整的 UE 构建。
+
+```powershell
+# 当前目录为 space_sim_server 仓库根目录
+$env:UE56_ROOT = 'D:\UE\UE_5.6'
+pwsh -NoProfile -File ..\space_sim_UE_Adapter\Unreal\BskUnrealRenderer\scripts\build.ps1 `
+  -UnrealRoot $env:UE56_ROOT
+```
+
+适配器运行时源码发生变化、运行时 DLL 缺失，或场景启动报 `Capture runtime DLL is stale` 时需要重新执行。构建成功后再运行 `run_platform.ps1`，并重新生成场景。该步骤要求 UE 5.6、Visual Studio C++ 游戏开发工作负载和 Windows SDK 可用。
+
 
 ### 指定操作姿态直接启动
 

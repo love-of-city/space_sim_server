@@ -1,0 +1,85 @@
+name: Basic CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  python:
+    name: server-python
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: space_sim_server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: space_sim_server
+          lfs: true
+          persist-credentials: false
+      - name: Read compatible adapter
+        id: companion
+        run: |
+          $pair = Get-Content docs/compatibility.json -Raw | ConvertFrom-Json
+          if ($pair.adapter.repository -ne 'love-of-city/space_sim_UE_Adapter' -or $pair.adapter.sha -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid adapter pin' }
+          "sha=$($pair.adapter.sha)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: love-of-city/space_sim_UE_Adapter
+          ref: ${{ steps.companion.outputs.sha }}
+          path: space_sim_UE_Adapter
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install declared dependencies
+        run: |
+          python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+      - name: Python syntax and undefined names
+        run: python -m ruff check .
+      - name: Verify CI failure guards
+        run: python scripts/verify_ci_guards.py
+      - name: Basic Python tests
+        run: |
+          $env:PYTHONPATH = "$PWD/scripts;$PWD"
+          $env:SPACE_SIM_RESET_ADAPTER = (Resolve-Path ../space_sim_UE_Adapter).Path
+          $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic --junitxml=reports/python.xml'
+          python -m pytest -ra
+      - name: Test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-python-report
+          path: space_sim_server/reports/
+          if-no-files-found: warn
+  web:
+    name: server-web
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            signalling/package-lock.json
+      - run: npm --prefix frontend ci --no-audit --no-fund
+      - run: npm --prefix frontend test
+      - run: npm --prefix frontend run build
+      - run: npm --prefix signalling ci --no-audit --no-fund
+      - run: npm --prefix signalling test
+      - run: npm --prefix signalling run check

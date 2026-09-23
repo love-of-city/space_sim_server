@@ -111,7 +111,7 @@ function setupAuto({controlGranted = true} = {}) {
  p.ui.setRuntime({instance_id:'auto',randomization_profile:'teleop-zero-prepare-v2',arm_preparation_required:true,
    operating_arm_joint_position_deg:[17,-61,-82,135,-72,23]},true);
  p.ui.update({status:'waiting',strategy:'validated-waypoints-v1',ready:false},
-   {arm_joint_position_rad:[0,0,0,0,0,0]});
+   {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
  return p;
 }
 
@@ -152,7 +152,7 @@ test('v2 cancellation and disconnect never revive an automatic request',()=>{
   p.ui.tick();
   p.context.connected=true;
   p.context.controlGranted=true;
-  p.ui.update({status:'waiting',strategy:'validated-waypoints-v1',ready:false}, {arm_joint_position_rad:[0,0,0,0,0,0]});
+  p.ui.update({status:'waiting',strategy:'validated-waypoints-v1',ready:false}, {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
   p.ui.tick();
   assert.equal(p.sent.filter(Boolean).length,sentBefore);
  }
@@ -164,11 +164,65 @@ test('v2 explicit retry stays disabled away from zero and reopens after measured
  p.ui.tick();
  p.cancelButton.click();
  p.ui.update({status:'cancelled',strategy:'validated-waypoints-v1',ready:false},
-   {arm_joint_position_rad:[0.2,0,0,0,0,0]});
+   {scene_instance_id:'auto',arm_joint_position_rad:[0.2,0,0,0,0,0]});
  assert.equal(p.startButton.disabled,true);
  p.ui.update({status:'cancelled',strategy:'validated-waypoints-v1',ready:false},
-   {arm_joint_position_rad:[0,0,0,0,0,0]});
+   {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
  assert.equal(p.startButton.disabled,false);
  p.startButton.click();
  assert.equal(p.sent.filter(Boolean).length,2);
+});
+
+test('v2 requires matching scene telemetry before consuming auto-start intent',()=>{
+ for (const sceneId of [undefined, null, 'old']) {
+  for (const status of ['waiting', 'ready', 'failed', 'cancelled', 'moving']) {
+   const p=setupAuto();
+   const instance={instance_id:'auto',randomization_profile:'teleop-zero-prepare-v2',arm_preparation_required:true};
+   p.ui.setRuntime(instance,false);
+   p.ui.setRuntime(instance,true);
+   p.ui.armAutoStart('auto');
+   p.ui.update({status,ready:status==='ready',strategy:'validated-waypoints-v1'},
+    {scene_instance_id:sceneId,arm_joint_position_rad:[0,0,0,0,0,0]});
+   assert.equal(p.ui.ready(),false);
+   assert.equal(p.ui.tick(),true);
+   assert.equal(p.sent.filter(Boolean).length,0);
+   p.ui.update({status:'waiting',ready:false,strategy:'validated-waypoints-v1'},
+    {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
+   p.ui.tick();
+   assert.equal(p.sent.filter(Boolean).length,1);
+  }
+ }
+});
+
+test('v2 ignores foreign completion and failure without clearing its pending request',()=>{
+ const p=setupAuto();
+ p.ui.armAutoStart('auto');
+ p.ui.tick();
+ const request=p.sent.find(Boolean);
+ for (const sceneId of [undefined, 'old']) {
+  for (const status of ['ready', 'failed', 'cancelled']) {
+   p.ui.update({request_id:request.request_id,status,ready:status==='ready'},
+    {scene_instance_id:sceneId,arm_joint_position_rad:[1,1,1,1,1,1]});
+   assert.equal(p.ui.ready(),false);
+   assert.equal(p.ui.tick(),true);
+   assert.strictEqual(p.sent.at(-1),request);
+  }
+ }
+ p.ui.update({request_id:request.request_id,status:'ready',ready:true},
+  {scene_instance_id:'auto',arm_joint_position_rad:[1,1,1,1,1,1]});
+ assert.equal(p.ui.ready(),true);
+ assert.equal(p.sent.at(-1),null);
+ assert.equal(p.ui.tick(),false);
+});
+
+test('v2 runtime refresh and reconnect do not arm a request',()=>{
+ const p=setupAuto();
+ p.context.connected=false;
+ p.ui.tick();
+ p.context.connected=true;
+ p.ui.setRuntime({instance_id:'auto',randomization_profile:'teleop-zero-prepare-v2',arm_preparation_required:true},true);
+ p.ui.update({status:'waiting',ready:false},
+  {scene_instance_id:'auto',arm_joint_position_rad:[0,0,0,0,0,0]});
+ assert.equal(p.ui.tick(),false);
+ assert.equal(p.sent.filter(Boolean).length,0);
 });

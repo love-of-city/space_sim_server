@@ -53,6 +53,8 @@ const state = {
   operationRequested: false,
   actionTimer: null,
   stateTimer: null,
+  stateRequestSequence: 0,
+  sceneTransitionPending: false,
   gamepadSnapshot: null,
 };
 
@@ -349,6 +351,7 @@ async function readApiResponse(response) {
 }
 
 async function startScene() {
+  if (state.sceneTransitionPending) return;
   let initialAngles;
   let operatingAngles;
   const operatingProfile = [ZERO_START_PROFILE, "teleop-zero-prepare-v2"].includes($("randomizationProfile").value);
@@ -377,6 +380,8 @@ async function startScene() {
   };
   $("startScene").disabled = true;
   setMessage("正在生成可复现场景实例…");
+  state.sceneTransitionPending = true;
+  state.stateRequestSequence += 1;
   try {
     const response = await apiRequest("/api/scenes/start", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request),
@@ -388,6 +393,8 @@ async function startScene() {
     setMessage(`已生成场景 ${data.instance_id}，Seed ${data.seed}，正在启动 UE`);
   } catch (error) {
     setMessage(error.message || "无法启动场景");
+  } finally {
+    state.sceneTransitionPending = false;
     await refreshState();
   }
 }
@@ -421,8 +428,11 @@ async function resetScene() {
 }
 
 async function stopScene() {
+  if (state.sceneTransitionPending) return;
   $("stopScene").disabled = true;
   setMessage("正在停止场景…");
+  state.sceneTransitionPending = true;
+  state.stateRequestSequence += 1;
   try {
     const response = await apiRequest("/api/scenes/stop", { method: "POST" });
     const data = await readApiResponse(response);
@@ -431,6 +441,8 @@ async function stopScene() {
     setMessage("场景已停止，控制平台仍保持运行");
   } catch (error) {
     setMessage(error.message || "无法停止场景");
+  } finally {
+    state.sceneTransitionPending = false;
     await refreshState();
   }
 }
@@ -1189,9 +1201,12 @@ function highlightKeys() {
 }
 
 async function refreshState() {
+  if (state.sceneTransitionPending) return;
+  const sequence = ++state.stateRequestSequence;
   try {
     const response = await apiRequest("/api/state", { cache: "no-store" });
     const data = await response.json();
+    if (sequence !== state.stateRequestSequence) return;
     state.simulationConnected = data.simulation.connected;
     state.simulationResetting = data.simulation.resetting === true;
     state.resetSupported = data.simulation.reset_supported === true;
@@ -1210,6 +1225,7 @@ async function refreshState() {
       setMessage("正在等待末帧、编码视频并封口 LeRobot v3 数据集，请勿关闭服务");
     }
   } catch (_) {
+    if (sequence !== state.stateRequestSequence) return;
     setOnline("backendDot", false);
   }
 }

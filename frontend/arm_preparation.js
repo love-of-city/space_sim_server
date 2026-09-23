@@ -135,6 +135,7 @@ export function createArmPreparation({fields, startButton, cancelButton, default
     },
     update(value, telemetry = {}) {
       if (!getContext().sceneReady || !getContext().connected) return;
+      if (autoMode() && (!instanceId || telemetry.scene_instance_id !== instanceId)) return;
       const previous = observation;
       observation = value ?? (required ? null : {status:'legacy', ready:true}); observedAt = performance.now();
       measured = telemetry.arm_joint_position_rad

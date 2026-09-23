@@ -281,6 +281,7 @@ class SceneRuntimeManager:
         self._stderr = None
         self._lock = threading.RLock()
         self._last_instance: dict[str, Any] | None = None
+        self._launched_instance: dict[str, Any] | None = None
         self.scene_root.mkdir(parents=True, exist_ok=True)
         self.log_root.mkdir(parents=True, exist_ok=True)
 
@@ -432,6 +433,7 @@ class SceneRuntimeManager:
                 self._close_logs()
                 self._process = None
                 raise RuntimeError(f"unable to launch scene supervisor: {error}") from error
+            self._launched_instance = instance
             return {**instance, "phase": "launching", "launcher_pid": self._process.pid}
 
     def stop(self) -> dict[str, Any]:
@@ -458,6 +460,7 @@ class SceneRuntimeManager:
                     self._process.kill()
             self._close_logs()
             self._process = None
+            self._launched_instance = None
             return self.status()
 
     def status(self) -> dict[str, Any]:
@@ -469,6 +472,14 @@ class SceneRuntimeManager:
                 except (OSError, ValueError):
                     state = {"phase": "unknown", "error": "scene runtime state is unreadable"}
             process_running = self._process is not None and self._process.poll() is None
+            if self._process is not None and self._launched_instance is not None:
+                reported_id = (state.get("instance") or {}).get("instance_id")
+                if reported_id != self._launched_instance["instance_id"]:
+                    state = {
+                        "phase": "launching",
+                        "instance": self._launched_instance,
+                        "launcher_pid": self._process.pid,
+                    }
             if self._process is not None and not process_running:
                 state.setdefault("launcher_exit_code", self._process.returncode)
                 if state.get("phase") in {"launching", "starting_renderer", "starting_simulation", "running"}:

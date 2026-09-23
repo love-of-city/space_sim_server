@@ -19,7 +19,7 @@ function setup(value = "1") {
   $("sceneTemplate").value = "spacecraft-arm-teleop";
   $("randomizationProfile").value = "none";
   const requests=[], messages=[];
-  const state={sceneDefaults:{simulation_rate:1,capture_rate_hz:30,ik_rate_hz:120}, currentUser:{role:"admin",user_id:"admin"}, scenePhase:"idle"};
+  const state={stateRequestSequence:0,sceneDefaults:{simulation_rate:1,capture_rate_hz:30,ik_rate_hz:120}, currentUser:{role:"admin",user_id:"admin"}, scenePhase:"idle"};
   const ctx=vm.createContext({ ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {},
     initialJoints: { read: () => null, setRuntime() {} },$,state,console,Option:function(){}, scenePhaseLabels:{running:"运行中"},
     setMessage:m=>messages.push(m), updateOperationUI(){},updateEpisodeUI(){},connectPixelStreaming(){},exitOperationMode(){},refreshState:async()=>{},

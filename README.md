@@ -1,6 +1,6 @@
 # 太空机械臂遥操作与数据采集平台
 
-团队开发请先阅读[贡献指南](CONTRIBUTING.md)、[环境与兼容记录](docs/COMPATIBILITY.md)和[GitHub 保护规则](docs/REPOSITORY_SETTINGS.md)。基础 CI 不替代完整仿真、UE 和采集验收。
+团队开发请先阅读[贡献指南](CONTRIBUTING.md)。基础 CI 不替代完整仿真、UE 和采集验收。
 
 浏览器操作台、用户与场景管理、训练数据记录。Basilisk/MJScene 负责权威动力学，[UE 适配器](https://github.com/love-of-city/space_sim_UE_Adapter)负责渲染。WebRTC 用于操作预览；训练图像通过独立的 `bsk-capture/1` 通道采集。
 

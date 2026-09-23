@@ -2,7 +2,7 @@
 
 Cycles rotate through goals; first cancels/retries, second reloads/retries.
 Each holds ready, exercises teleop, records, and inspects local artifacts.
-FPS measures this browser, not a remote-network guarantee. No media decoding.
+FPS measures this browser, not a remote-network guarantee. Videos are fully decoded.
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def delta(first, second):
 
 
 PROBE = r"""(() => {
-  const trace = window.__acceptance = {first:{},latest:null,start:null,reset:null,open:false,
+  const trace = window.__acceptance = {first:{},latest:null,start:null,reset:null,open:false,operatorId:null,
     documentId:Math.random().toString(36)};
   const original = window.fetch;
   window.fetch = async (...args) => {
@@ -89,6 +89,7 @@ PROBE = r"""(() => {
       this.addEventListener('close',()=>trace.open=false);
       this.addEventListener('message',event=>{
         const message=JSON.parse(event.data);
+        if(message.type==='session') trace.operatorId=message.operator_id;
         if(message.type!=='observation') return;
         const observation=message.payload;
         const key=JSON.stringify([observation.scene_instance_id,observation.reset_generation]);
@@ -321,6 +322,7 @@ class Tester:
     def interrupt(self, moving, reload_page):
         started = time.monotonic()
         old_document = self.browser.evaluate('window.__acceptance.documentId')
+        old_operator = self.browser.evaluate('window.__acceptance.operatorId')
         old_sockets = self.browser.sockets - self.browser.closed
         if reload_page:
             check(old_sockets, 'No operator WebSocket before reload')
@@ -343,9 +345,13 @@ class Tester:
         if reload_page:
             self.browser.page_ready()
             check(self.browser.evaluate('window.__acceptance.documentId') != old_document, 'Reload did not replace document')
-            wait('actual operator disconnect/reconnect', lambda: self.browser.evaluate('true')
-                 and old_sockets <= self.browser.closed
-                 and bool(self.browser.sockets - old_sockets - self.browser.closed), 10)
+            new_operator = wait('new server operator session', lambda: (
+                current if (current := self.browser.evaluate('window.__acceptance.operatorId'))
+                and current != old_operator else None), 10)
+            check(old_operator and self.browser.sockets - old_sockets - self.browser.closed,
+                  'Reload did not establish a new operator connection')
+            self.cycle['disconnect'] = {'old_operator': old_operator, 'new_operator': new_operator,
+                'document_replaced': True, 'close_event_observed': old_sockets <= self.browser.closed}
         self.no_replay(stopped_sample, 'cancelled')
         self.gate()
         self.browser.evaluate('window.__acceptance.reset=null')
@@ -402,6 +408,9 @@ class Tester:
                                'sim_time_delta_ns': after['sim_time_ns'] - before['sim_time_ns']}
 
     def record(self):
+        import av
+        import pyarrow.parquet as parquet
+
         check(not self.state().get('active_episode'), 'Existing recording must not be interrupted')
         self.pending_recording = True
         episode = self.api('POST', '/api/episodes/start', self.payload())
@@ -430,13 +439,31 @@ class Tester:
         cameras = platform.get('camera_keys', {})
         check(len(cameras) == 2 and set(cameras) == set(metadata.get('dataset_camera_ids', [])), 'Expected two RGB cameras')
         videos = []
+        decoded_counts = {}
         for key in cameras.values():
             check(isinstance(key, str) and key.replace('_', '').isalnum(), 'Unsafe camera key')
             files = list((directory / 'lerobot/videos' / ('observation.images.' + key)).rglob('*.mp4'))
             check(files and all(path.stat().st_size > 0 for path in files), 'Missing/empty camera RGB video')
+            decoded = 0
+            for path in files:
+                with av.open(str(path)) as media:
+                    for frame in media.decode(video=0):
+                        check(frame.width > 0 and frame.height > 0, 'Empty decoded frame')
+                        decoded += 1
+            check(decoded == frames, 'Decoded RGB frame count differs from metadata')
+            decoded_counts[key] = decoded
             videos.extend(str(path.relative_to(directory)) for path in files)
-        check(any((directory / 'lerobot/data').rglob('*.parquet')), 'No dataset Parquet')
-        self.cycle['episode'].update(validation='passed', dataset_status='complete', frame_count=frames, videos=videos)
+        rows = []
+        for path in sorted((directory / 'lerobot/data').rglob('*.parquet')):
+            rows.extend(parquet.read_table(path, columns=[
+                'frame_index', 'timestamp', 'observation.sim_time_ns']).to_pylist())
+        check(len(rows) == frames, 'Parquet row count differs from metadata')
+        check(all(row['frame_index'] == index and abs(row['timestamp'] - index / info['fps']) < 1e-5
+                  for index, row in enumerate(rows)), 'Dataset index/timestamp discontinuity')
+        check(all(int(current['observation.sim_time_ns']) > int(previous['observation.sim_time_ns'])
+                  for previous, current in zip(rows, rows[1:])), 'Dataset simulation time regressed')
+        self.cycle['episode'].update(validation='passed', dataset_status='complete', frame_count=frames,
+                                    videos=videos, decoded_frames=decoded_counts, parquet_rows=len(rows))
         wait('browser recording finished', lambda: self.browser.evaluate(
             "!document.getElementById('startEpisode').disabled"), 10)
         print(f"Cycle {self.cycle['cycle']}: dataset complete, {frames} frames", flush=True)
@@ -538,7 +565,7 @@ def main():
         parser.error(str(error))
     args.output.mkdir(parents=True, exist_ok=False)
     report = {'status': 'failed', 'cycles': [], 'cleanup_errors': [], 'origin': args.origin,
-              'limitations': ['Local browser FPS only; no remote-network guarantee.', 'Metadata/file presence only; no full per-frame decoding.'],
+              'limitations': ['Local browser FPS only; no remote-network guarantee.', 'Finite goal set and bounded soak, not an all-pose or all-day guarantee.'],
               'skipped_assertions': ['Not all default scenarios/goals exercised'] if args.cycles < max(3, len(args.goals)) else []}
     auth = client = browser = tester = token = None
     success = False

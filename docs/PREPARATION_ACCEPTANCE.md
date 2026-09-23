@@ -53,6 +53,27 @@ Remove-Item Env:SPACE_SIM_RUN_PREPARATION_NATIVE
 
 网页验收会替换当前场景，但不允许中断已有采集。验收数据应标注为基础设施测试，不混入抓取示范训练集；日志、浏览器配置、登录会话和数据集均不提交 Git。
 
+### 网页循环验收命令
+
+先启动平台，再在服务端电脑执行。工具使用现有账号数据库创建短期测试会话，结束时撤销，不修改密码或创建管理员。执行期间不要在其他页面手动控制该测试场景。
+
+```powershell
+$origin = (Get-Content deploy/ip.local.json -Raw | ConvertFrom-Json).public_url
+& ./.venv/Scripts/python.exe tools/verify_arm_preparation.py `
+    --origin $origin --auth-database data/auth.sqlite3 `
+    --output "run/arm-acceptance-$(Get-Date -Format yyyyMMdd-HHmmss)" `
+    --cycles 3 --hold-seconds 600 --record-seconds 5 --allow-replace-scene
+```
+
+- 第一轮：默认目标，运动中取消，检查制动和不自动重启，复原后显式重试。
+- 第二轮：J1/J6 正向目标，运动中真实刷新页面，依据新文档、服务器新 operator ID 和新 WebSocket 确认断线重连，再验证停止、不自动恢复与复原重试。浏览器刷新未必发送 CDP 的旧连接关闭事件，不能把该事件缺失等同于未断线。
+- 第三轮：J1/J6 反向目标，连续观察 600 秒；同时检查后端及浏览器仿真时钟、视频帧计数，超过 5 秒停滞即失败。帧计数速率不是远端客户端显示帧率保证。
+- 每轮到位前采集应返回 409；到位后执行短暂真实键盘遥操作并确认实测关节发生变化，再采集至少 5 秒。
+- 采集结束检查 LeRobot 元数据、Parquet 行数、连续帧号与时间戳，逐帧解码两路 RGB 视频并核对帧数一致。网页按钮状态按实际异步轮询完成后再检查，不把瞬时 UI 更新延迟误报为采集失败。
+- 只有以上检查成功才输出 `status=passed`；失败保留截图、JSON 和数据，并只清理可确认属于本次测试的场景/采集。另有 6 项工具安全测试保证不会中断已有或身份不明的采集。
+
+工具允许 `--goals` 指定 JSON 格式的多组六轴角度。报告、截图保存在指定的 `run/` 子目录，采集数据保存在 `data/episodes/<episode_id>/`。正常结束时保留最后一轮场景运行，测试浏览器与临时会话会关闭。
+
 ## 限制
 
 五组姿态通过不代表任意目标可达。短期连续运行不等于小时级或全天稳定性证明；本机浏览器经过部署入口的帧率也不代表其他网络客户端的表现。规划仍是有限候选加静态接触采样，不是连续动态无碰撞证明。

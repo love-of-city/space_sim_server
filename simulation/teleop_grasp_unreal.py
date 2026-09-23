@@ -1376,6 +1376,10 @@ def main() -> None:
                      "Unset the old environment override or select --ik-mode ik_pose.")
     if args.catalog is None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
+        if args.scene_instance and args.scene_instance.is_file():
+            selected_instance = json.loads(args.scene_instance.read_text(encoding="utf-8"))
+            if selected_instance.get("template_id") == "sarm-task-box-contacts":
+                catalog_name = "sarm_task_box.catalog.json"
         args.catalog = args.adapter_root / "Unreal" / "BskUnrealRenderer" / "Saved" / "AssetImport" / catalog_name
     if (
         args.duration < 0

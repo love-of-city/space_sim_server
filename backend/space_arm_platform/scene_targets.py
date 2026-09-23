@@ -12,6 +12,7 @@ LEGACY_TEMPLATE = "spacecraft-arm-teleop"
 GROUND_TARGET_TEMPLATE = "sarm-ground-validation-grasp"
 MESH_TARGET_TEMPLATE = "sarm-ground-validation-mesh-grasp"
 SELF_COLLISION_TEMPLATE = "sarm-ground-validation-self-collision-grasp"
+TASK_BOX_TEMPLATE = "sarm-task-box-contacts"
 # Keep old scene identities/artifacts reproducible; triangle contact remains opt-in.
 DEFAULT_TEMPLATE = SELF_COLLISION_TEMPLATE
 
@@ -66,6 +67,14 @@ TARGETS[SELF_COLLISION_TEMPLATE] = replace(
     model_file="sarm_ground_target_self_collision.xml",
     collision_model="coarse_boxes_with_target_self_collision",
     runtime_warning="内部接触使用粗碰撞体，铰链附近留有近似间隙；接触角度不代表真实机构限位。",
+)
+
+
+TARGETS[TASK_BOX_TEMPLATE] = replace(
+    TARGETS[SELF_COLLISION_TEMPLATE],
+    model_file="sarm_task_box_module.xml",
+    collision_model="local_task_box_triangle_contacts",
+    runtime_warning="本地任务盒接触验证：保留上游机械臂与抓夹；任务盒操作件暂保持 CAD 装配位姿，尚无拔出释放逻辑。质量未标定，实际插拔尚未验收。",
 )
 
 

@@ -26,7 +26,7 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
 
 
-def native_probe(folder, output):
+def native_probe(folder, output, model_name="sarm_mesh_collision.xml"):
     # Import only Basilisk's MuJoCo in this interpreter.
     import numpy as np
     import Basilisk
@@ -36,7 +36,7 @@ def native_probe(folder, output):
     version = lib.mj_versionString().decode()
     if version != "3.7.0":
         raise RuntimeError(f"Expected runtime-matched MuJoCo 3.7.0; got {version}")
-    model_path = folder / "sarm_mesh_collision.xml"
+    model_path = folder / model_name
     xml = ET.parse(model_path).getroot()
     files = sorted({str((folder / e.get("file")).resolve()) for selector in
                     ("./asset/mesh[@file]", ".//flexcomp[@file]") for e in xml.findall(selector)})

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import contextlib
 import hmac
 import time
@@ -177,6 +178,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         config.capture_host,
         config.capture_port,
         record_current_capture,
+        recorder.fail,
     )
     launch_config = None
     if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root, config.runtime_powershell_exe)):
@@ -203,18 +205,23 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         await asyncio.to_thread(recorder.record_observation, observation, safety.last_action)
 
     hub.on_observation = record_observation
+    hub.on_transport_error = recorder.fail
 
     async def watchdog() -> None:
         while True:
             await asyncio.sleep(0.05)
             action = safety.timeout_action(recorder.episode_id)
             if action:
-                recorder.record_action(action)
+                await asyncio.to_thread(recorder.record_action, action)
                 await hub.publish_action(action)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         nonlocal timeout_task
+        try:
+            await asyncio.to_thread(recorder.prepare)
+        except Exception:
+            logging.getLogger(__name__).exception("Dataset writer preparation failed; recording remains unavailable until preparation succeeds")
         await hub.start(config.simulation_host, config.simulation_port)
         captures.start()
         timeout_task = asyncio.create_task(watchdog(), name="deadman-watchdog")
@@ -227,14 +234,14 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                     await timeout_task
             if recorder.episode_id and not recorder.sync_status()["finalizing"]:
                 neutral = safety.neutral(recorder.episode_id, "backend_shutdown")
-                recorder.record_action(neutral)
+                await asyncio.to_thread(recorder.record_action, neutral)
                 await hub.publish_action(neutral)
-                await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
                 closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="backend shutdown"))
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
             await asyncio.to_thread(scenes.close)
-            captures.close()
+            await asyncio.to_thread(captures.close)
+            await asyncio.to_thread(recorder.close)
             await hub.close()
             jobs.close()
             auth.close()
@@ -373,7 +380,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     async def health() -> dict[str, Any]:
         # Kept public for the process launcher; operational state is available
         # only from authenticated endpoints.
-        return {"ok": True, "server_time_ns": str(time.time_ns()), "authentication": "required"}
+        from .protocol import RUNTIME_CAPABILITIES
+        return {"ok": True, "server_time_ns": str(time.time_ns()), "authentication": "required",
+                "runtime_capabilities": list(RUNTIME_CAPABILITIES)}
 
     def authorize_access_key(candidate: str | None) -> None:
         if config.stream_access_key and not hmac.compare_digest(candidate or "", config.stream_access_key):
@@ -481,9 +490,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         episode_result = None
         if recorder.episode_id:
             neutral = safety.neutral(recorder.episode_id, "scene_stopped")
-            recorder.record_action(neutral)
+            await asyncio.to_thread(recorder.record_action, neutral)
             await hub.publish_action(neutral)
-            await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
             episode_result = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="scene stopped"))
             if episode_result["dataset_status"] == "complete":
                 episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
@@ -542,10 +550,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if scene_status.get("instance") and not can_manage_scene(user, scene_status):
             raise HTTPException(status_code=403, detail="只能结束自己场景的数据采集")
         neutral = safety.neutral(recorder.episode_id, "episode_stopped")
-        recorder.record_action(neutral)
+        await asyncio.to_thread(recorder.record_action, neutral)
         await hub.publish_action(neutral)
         try:
-            await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
             result = await asyncio.to_thread(recorder.stop, payload)
             if result["dataset_status"] == "complete":
                 result["archive_job"] = jobs.submit_archive(result["episode_id"])
@@ -606,10 +613,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if recorder.episode_id != task.get("episode_id"):
             raise HTTPException(status_code=409, detail="task does not own the active episode")
         neutral = safety.neutral(recorder.episode_id, "task_completed")
-        recorder.record_action(neutral)
+        await asyncio.to_thread(recorder.record_action, neutral)
         await hub.publish_action(neutral)
         try:
-            await asyncio.to_thread(captures.wait_for_authoritative_idle, 15.0)
             closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome=request.outcome, note=request.note))
             if closed["dataset_status"] != "complete":
                 return tasks.transition(task_id, {"running"}, "failed", outcome=request.outcome,
@@ -728,7 +734,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                     previous = await sessions.activate(identifier)
                     if previous:
                         neutral = safety.neutral(recorder.episode_id, "control_page_changed")
-                        recorder.record_action(neutral)
+                        await asyncio.to_thread(recorder.record_action, neutral)
                         await hub.publish_action(neutral)
                         _, previous_socket = previous
                         with contextlib.suppress(RuntimeError, WebSocketDisconnect):
@@ -751,7 +757,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 except (ValidationError, ActionRejected) as error:
                     await websocket.send_json({"type": "action_rejected", "reason": str(error)})
                     continue
-                recorder.record_action(action)
+                await asyncio.to_thread(recorder.record_action, action)
                 delivered = await hub.publish_action(action)
                 await websocket.send_json(
                     {
@@ -771,7 +777,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             released = await sessions.disconnect(identifier)
             if released:
                 neutral = safety.neutral(recorder.episode_id, "operator_disconnected")
-                recorder.record_action(neutral)
+                await asyncio.to_thread(recorder.record_action, neutral)
                 await hub.publish_action(neutral)
 
     return app

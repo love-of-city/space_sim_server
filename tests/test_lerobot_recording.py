@@ -50,6 +50,7 @@ def test_live_v3_roundtrip_rgb_only_and_two_cameras(tmp_path):
         recorder.record_authoritative_capture(*packet(index, "wrist"))
         recorder.record_observation(observation(index), None)
         recorder.record_authoritative_capture(*packet(index, "overview"))
+    assert recorder.wait_for_writes()
     assert recorder.sync_status()["dataset_frame_count"] == 3
     result = recorder.stop(EpisodeStop(outcome="success"))
     assert result["dataset_status"] == "complete", result
@@ -179,6 +180,7 @@ def test_encoder_failure_cannot_be_marked_complete(tmp_path, monkeypatch):
     recorder.record_observation(observation(), None)
     def fail():
         raise OSError("disk full")
+    assert recorder.wait_for_writes()
     monkeypatch.setattr(recorder._dataset.dataset, "save_episode", fail)
     result = recorder.stop(EpisodeStop(outcome="success"))
     assert result["outcome"] == "success"  # operator outcome is independent
@@ -325,6 +327,7 @@ def test_full_sync_buffer_waits_for_rgb_instead_of_losing_state(tmp_path):
     recorder.record_authoritative_capture(*packet(1))
     worker.join(timeout=10)
     assert not worker.is_alive()
+    assert recorder.wait_for_writes()
     sync = recorder.sync_status()
     assert sync["dataset_frame_count"] == 1
     assert sync["pending_dataset_samples"] == 128

@@ -32,6 +32,7 @@ $runDirectory = Join-Path $projectRoot 'run'
 $logDirectory = Join-Path $projectRoot 'logs'
 $statePath = Join-Path $runDirectory 'scene_runtime.json'
 . (Join-Path $PSScriptRoot 'scene_process_helpers.ps1')
+. (Join-Path $PSScriptRoot 'python_runtime.ps1')
 $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
 $ueScripts = Join-Path $ueProject 'scripts'
 New-Item -ItemType Directory -Path $runDirectory,$logDirectory -Force | Out-Null
@@ -108,6 +109,12 @@ $rendererPid = 0
 $simulation = $null
 try {
     & (Join-Path $PSScriptRoot 'stop_scene_instance.ps1') -Quiet -PreserveState -AdapterRoot $AdapterRoot
+    Write-RuntimeState 'launching'
+    $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot
+    & $pythonExe (Join-Path $projectRoot 'tools/check_runtime_backend.py') --port $ControlPort
+    if ($LASTEXITCODE -ne 0) {
+        throw '后端协议检查失败：请完整重启仿真平台（后端与 UE），不能只重新启动场景。已阻止不兼容的仿真启动。'
+    }
     Write-RuntimeState 'starting_renderer'
     if ((Split-Path -Leaf $ModelRoot) -eq 'platform') {
         & (Join-Path $PSScriptRoot 'prepare_sarm_scene.ps1') `

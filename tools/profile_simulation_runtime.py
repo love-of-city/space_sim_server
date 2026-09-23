@@ -136,6 +136,9 @@ def benchmark(args) -> dict:
         def start(self):
             pass
 
+        def wait_until_ready(self, timeout=10.0):
+            pass  # Deliberately no live backend in this compute-only benchmark.
+
         def close(self):
             pass
 

@@ -34,7 +34,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'python_runtime.ps1')
-$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn', 'lerobot.datasets.lerobot_dataset')
+$pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn', 'lerobot')
 $env:SPACE_SIM_PYTHON = $pythonExe
 if (!$AdapterRoot) { $AdapterRoot = $env:SPACE_SIM_RUNTIME_ADAPTER_ROOT }
 if (!$ModelRoot) { $ModelRoot = $env:SPACE_SIM_RUNTIME_MODEL_ROOT }

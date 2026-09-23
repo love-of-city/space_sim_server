@@ -15,6 +15,15 @@
     },
     {
       "$ref": "#/$defs/reset"
+    },
+    {
+      "$ref": "#/$defs/observationAck"
+    },
+    {
+      "$ref": "#/$defs/capabilitiesProbe"
+    },
+    {
+      "$ref": "#/$defs/backendCapabilities"
     }
   ],
   "$defs": {
@@ -63,6 +72,15 @@
               "type": "string",
               "maxLength": 64,
               "description": "Reset request ID; empty in the initial session."
+            },
+            "observation_stream_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "observation_resume_after": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
             }
           }
         }
@@ -582,6 +600,15 @@
             },
             "arm_preparation": {
               "type": "object"
+            },
+            "observation_stream_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "observation_sequence": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
             }
           }
         },
@@ -1016,6 +1043,77 @@
           }
         }
       }
+    },
+    "observationAck": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "observation_stream_id",
+            "observation_sequence"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "observation_ready",
+                "observation_ack"
+              ]
+            },
+            "observation_stream_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "observation_sequence": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          }
+        }
+      ]
+    },
+    "capabilitiesProbe": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "space-arm-control/1"
+        },
+        "type": {
+          "const": "capabilities_probe"
+        }
+      },
+      "required": [
+        "protocol",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "backendCapabilities": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "space-arm-control/1"
+        },
+        "type": {
+          "const": "backend_capabilities"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "protocol",
+        "type",
+        "capabilities"
+      ],
+      "additionalProperties": false
     }
   }
 }

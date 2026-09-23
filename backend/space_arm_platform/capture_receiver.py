@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import json
 import queue
 import socket
@@ -10,6 +11,8 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from .protocol import FramedSocketReader
 
 
 HEADER = struct.Struct("!I")
@@ -26,10 +29,13 @@ class PreviewFrame:
 
 
 class CaptureReceiver:
-    def __init__(self, host: str, port: int, on_authoritative_capture: Callable[[dict[str, Any], dict[str, bytes]], None]) -> None:
+    def __init__(self, host: str, port: int, on_authoritative_capture: Callable[[dict[str, Any], dict[str, bytes]], None],
+                 on_authoritative_error: Callable[[str], None] | None = None) -> None:
         self.host = host
         self.port = int(port)
         self.on_authoritative_capture = on_authoritative_capture
+        self.on_authoritative_error = on_authoritative_error
+        self._accepted_packets = OrderedDict()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._authoritative_thread: threading.Thread | None = None
@@ -141,17 +147,35 @@ class CaptureReceiver:
                 self._condition.notify_all()
             return
         if stream_kind == "authoritative" and state_kind == "authoritative":
+            key = None
+            if metadata.get("ack_required"):
+                key = tuple(str(metadata.get(k, "")) for k in ("session_id", "camera_id", "capture_sequence"))
+                if not all(key):
+                    raise ValueError("acknowledged capture needs session, camera and sequence")
+                if key in self._accepted_packets:
+                    return  # Lost ACK: accepted packet is not recorded twice.
             # Keep the socket reader cheap. Image decoding, synchronization,
             # disk writes, and LeRobot encoding run on a separate worker so a
             # slow writer cannot make UE's reliable capture queue overflow.
             if self._authoritative_thread and self._authoritative_thread.is_alive():
                 with self._condition:
                     self.authoritative_count += 1
-                self._authoritative_queue.put((metadata, products), timeout=10.0)
+                # Preserve the packet across temporary stalls; do not crash the
+                # receiver thread with queue.Full or abandon a partial TCP packet.
+                while not self._stop.is_set():
+                    try:
+                        self._authoritative_queue.put((metadata, products), timeout=.1)
+                        break
+                    except queue.Full:
+                        continue
             else:
                 with self._condition:
                     self.authoritative_count += 1
                 self._process_authoritative_capture(metadata, products)
+            if key is not None:
+                self._accepted_packets[key] = None
+                while len(self._accepted_packets) > 1024:
+                    self._accepted_packets.popitem(last=False)
             return
         raise ValueError(
             f"capture must declare preview or authoritative state, got stream={stream_kind!r}, state={state_kind!r}"
@@ -176,6 +200,8 @@ class CaptureReceiver:
             # TCP stream and discard all subsequent camera frames.
             with self._condition:
                 self.last_authoritative_error = str(error)
+            if self.on_authoritative_error:
+                self.on_authoritative_error(str(error))
 
     def _authoritative_worker(self) -> None:
         while True:
@@ -207,10 +233,15 @@ class CaptureReceiver:
                 break
             with connection:
                 connection.settimeout(2.0)
+                reader = FramedSocketReader(MAX_CAPTURE_BYTES)
                 while not self._stop.is_set():
                     try:
-                        metadata, products = self._receive(connection)
+                        metadata, products = self._receive(connection, reader)
                         self.route_capture(metadata, products)
+                        if metadata.get("ack_required"):
+                            # One packet in flight at UE. ACK only after bounded
+                            # receiver admission, including idempotent retries.
+                            connection.sendall(b"\x01")
                         self.last_error = None
                     except socket.timeout:
                         continue
@@ -223,11 +254,10 @@ class CaptureReceiver:
             pass
 
     @staticmethod
-    def _receive(connection: socket.socket) -> tuple[dict[str, Any], dict[str, bytes]]:
-        (length,) = HEADER.unpack(_recv_exact(connection, HEADER.size))
-        if length < HEADER.size or length > MAX_CAPTURE_BYTES:
-            raise ValueError(f"invalid capture packet size: {length}")
-        payload = _recv_exact(connection, length)
+    def _receive(connection: socket.socket, reader=None) -> tuple[dict[str, Any], dict[str, bytes]]:
+        payload = (reader or FramedSocketReader(MAX_CAPTURE_BYTES)).receive_payload(connection)
+        if len(payload) < HEADER.size:
+            raise ValueError("invalid capture packet size")
         (metadata_length,) = HEADER.unpack_from(payload)
         if metadata_length == 0 or metadata_length > len(payload) - HEADER.size:
             raise ValueError("invalid capture metadata length")

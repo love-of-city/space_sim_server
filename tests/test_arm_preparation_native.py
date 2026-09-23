@@ -33,6 +33,9 @@ def test_zero_start_fixed_sequence_real_joint_controllers(tmp_path, monkeypatch)
     observations=[]
     class Finished(Exception):pass
     class Client(teleop.SimulationControlClient):
+        def wait_until_ready(self, timeout=10.0):
+            pass  # Offline native test: no real network transport.
+
         def start(self):pass
         def close(self):pass
         def latest_action(self):

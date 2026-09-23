@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
+from collections import OrderedDict
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -11,7 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .models import AppliedAction, CONTROL_PROTOCOL, SimulationHello, SimulationObservation
-from .protocol import read_async, write_async
+from .protocol import RUNTIME_CAPABILITIES, read_async, write_async
 
 
 ObservationCallback = Callable[[SimulationObservation], Awaitable[None]]
@@ -36,6 +38,11 @@ class SimulationHub:
         self._reset_sent = False
         self._condition = asyncio.Condition()
         self.on_observation: ObservationCallback | None = None
+        self.on_transport_error = None
+        self._observation_lock = asyncio.Lock()
+        self._stream_acks = OrderedDict()
+        self._transport_error = None
+        self._duplicates = 0
 
     @property
     def connected(self) -> bool:
@@ -139,26 +146,76 @@ class SimulationHub:
             observation = self.latest_observation
             return self._revision, observation
 
-    async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        try:
-            hello = SimulationHello.model_validate(await asyncio.wait_for(read_async(reader), timeout=3.0))
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError, ValueError, ValidationError):
-            writer.close()
-            await writer.wait_closed()
+    async def _ack(self, writer, stream_id, sequence, kind="observation_ack"):
+        async with self._writer_lock:
+            if writer is self._writer:
+                await write_async(writer, {"protocol": CONTROL_PROTOCOL, "type": kind,
+                    "observation_stream_id": stream_id, "observation_sequence": str(sequence)})
+
+    async def _accept_observation(self, observation):
+        if self.resetting:
+            if observation.reset_generation != self._reset_request_id or not observation.render_session_id:
+                return
+            self._generation = observation.reset_generation
+            result = {"status": "completed", "request_id": self._reset_request_id,
+                      "render_session_id": observation.render_session_id, "sim_time_ns": observation.sim_time_ns}
+            self._reset_request_id = None
+            self._reset_sent = False
+            self._reset_error = None
+            if self._reset_future and not self._reset_future.done():
+                self._reset_future.set_result(result)
+            self._reset_future = None
+        elif observation.reset_generation != self._generation:
             return
-        previous: asyncio.StreamWriter | None = None
+        self._latest_observation = observation
+        async with self._condition:
+            self._revision += 1
+            self._condition.notify_all()
+        if self.on_observation:
+            await self.on_observation(observation)
+
+    async def _handle_connection(self, reader, writer):
+        try:
+            raw_hello = await asyncio.wait_for(read_async(reader), timeout=3.)
+            if raw_hello.get("protocol") == CONTROL_PROTOCOL and raw_hello.get("type") == "capabilities_probe":
+                # Do not claim the active writer, reset generation or observation stream.
+                try:
+                    await write_async(writer, {"protocol": CONTROL_PROTOCOL, "type": "backend_capabilities",
+                                              "capabilities": list(RUNTIME_CAPABILITIES)})
+                finally:
+                    writer.close()
+                    with contextlib.suppress(Exception):
+                        await writer.wait_closed()
+                return
+            hello = SimulationHello.model_validate(raw_hello)
+            reliable = "reliable_observations_v1" in hello.capabilities
+            stream_id = str(getattr(hello, "observation_stream_id", "")) if reliable else ""
+            resume_after = int(getattr(hello, "observation_resume_after", "0")) if reliable else 0
+            if reliable and (not 1 <= len(stream_id) <= 128 or resume_after < 0):
+                raise ValueError("invalid reliable observation handshake")
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError, OSError, ValueError, ValidationError):
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+            return
         async with self._writer_lock:
             previous = self._writer
             self._writer = writer
             self._simulation_id = hello.simulation_id
             self._capabilities = set(hello.capabilities)
             self._generation = hello.reset_generation
-            # Never replay a held action after a transport reconnect.
             self._latest_action = None
             self._latest_observation = None
         if previous and previous is not writer:
             previous.close()
         try:
+            if reliable:
+                async with self._observation_lock:
+                    self._stream_acks.setdefault(stream_id, resume_after)
+                    self._stream_acks.move_to_end(stream_id)
+                    while len(self._stream_acks) > 8:
+                        self._stream_acks.popitem(last=False)
+                    await self._ack(writer, stream_id, self._stream_acks[stream_id], "observation_ready")
             async with self._writer_lock:
                 if writer is self._writer and self.resetting and self._reset_sent:
                     await write_async(writer, self._reset_packet())
@@ -166,30 +223,32 @@ class SimulationHub:
                 raw = await read_async(reader)
                 if writer is not self._writer or raw.get("protocol") != CONTROL_PROTOCOL or raw.get("type") != "observation":
                     continue
-                observation = SimulationObservation.model_validate(raw)
-                if self.resetting:
-                    if observation.reset_generation != self._reset_request_id or not observation.render_session_id:
+                async with self._observation_lock:
+                    if writer is not self._writer:
                         continue
-                    self._generation = observation.reset_generation
-                    result = {"status": "completed", "request_id": self._reset_request_id,
-                              "render_session_id": observation.render_session_id,
-                              "sim_time_ns": observation.sim_time_ns}
-                    self._reset_request_id = None
-                    self._reset_sent = False
-                    self._reset_error = None
-                    if self._reset_future and not self._reset_future.done():
-                        self._reset_future.set_result(result)
-                    self._reset_future = None
-                elif observation.reset_generation != self._generation:
-                    continue
-                self._latest_observation = observation
-                async with self._condition:
-                    self._revision += 1
-                    self._condition.notify_all()
-                if self.on_observation:
-                    await self.on_observation(observation)
-        except (asyncio.IncompleteReadError, ConnectionError, OSError, ValueError, ValidationError):
-            pass
+                    if reliable:
+                        if raw.get("observation_stream_id") != stream_id:
+                            raise ValueError("observation stream changed inside connection")
+                        sequence = int(raw.get("observation_sequence", "-1"))
+                        last = self._stream_acks[stream_id]
+                        if sequence <= last and sequence > 0:
+                            self._duplicates += 1
+                            await self._ack(writer, stream_id, last)
+                            continue
+                        if sequence != last + 1:
+                            raise ValueError(f"authoritative state sequence gap: expected={last + 1}, received={sequence}")
+                    observation = SimulationObservation.model_validate(raw)
+                    await self._accept_observation(observation)
+                    if reliable:
+                        # Remember BEFORE ACK: reconnect after a lost ACK replays safely.
+                        self._stream_acks[stream_id] = sequence
+                        await self._ack(writer, stream_id, sequence)
+                    self._transport_error = None
+        except (asyncio.IncompleteReadError, ConnectionError, OSError, ValueError, ValidationError) as error:
+            self._transport_error = f"{type(error).__name__}: {error}"
+            logging.getLogger(__name__).warning("Simulation transport interrupted (replay enabled=%s): %s", reliable, error)
+            if isinstance(error, ValueError) and self.on_transport_error:
+                self.on_transport_error(self._transport_error)
         finally:
             async with self._writer_lock:
                 if self._writer is writer:
@@ -204,6 +263,9 @@ class SimulationHub:
         observation = self.latest_observation
         return {
             "connected": self.connected,
+            "reliable_observations": "reliable_observations_v1" in self._capabilities,
+            "observation_transport_error": self._transport_error,
+            "observation_replays_deduplicated": self._duplicates,
             "resetting": self.resetting,
             "reset_supported": "scene_reset" in self._capabilities,
             "reset_error": self._reset_error,

@@ -316,7 +316,8 @@ $backend = Start-Process -FilePath $powershellExe -ArgumentList $backendArgs -Pa
     -RedirectStandardError (Join-Path $logDirectory 'backend.err.log')
 
 try {
-    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    # The isolated LeRobot worker is prewarmed before the API advertises readiness.
+    $deadline = [DateTime]::UtcNow.AddSeconds(180)
     $backendReady = $false
     while (!$backendReady -and [DateTime]::UtcNow -lt $deadline) {
         if ($backend.HasExited) { throw 'Backend exited during startup. Check logs\backend.err.log.' }

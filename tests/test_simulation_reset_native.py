@@ -117,6 +117,9 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
             return super().publish_event(kind, payload)
 
     class OfflineClient(teleop.SimulationControlClient):
+        def wait_until_ready(self, timeout=10.0):
+            pass  # Offline native test: no real network transport.
+
         def start(self):
             pass
         def close(self):

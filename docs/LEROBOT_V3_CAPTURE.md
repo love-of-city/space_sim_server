@@ -1,5 +1,8 @@
 # LeRobot v3 原生采集链路
 
+> 2026-09-23：主分支已采用独立 writer、状态/RGB ACK 和有界 I/O；
+> 运行及重启要求见 `REALTIME_CAPTURE_ARCHITECTURE.md`。下面的分支路径是最初实现的历史说明。
+
 本分支不是历史数据转换器。`EpisodeRecorder` 在收到完整的实时权威样本后调用
 官方 `LeRobotDataset.add_frame()`；结束时调用 `save_episode()` / `finalize()`，完成
 Parquet、视频、任务、统计及 episode 索引。没有读取 `steps.jsonl` 再转换的阶段。

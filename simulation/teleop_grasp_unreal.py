@@ -257,214 +257,7 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     return document
 
 
-class SimulationControlClient:
-    """Reconnectable latest-action client; its receive thread never touches BSK."""
-
-    def __init__(self, host: str, port: int, simulation_id: str) -> None:
-        self.host = host
-        self.port = int(port)
-        self.simulation_id = simulation_id
-        self._lock = threading.RLock()
-        self._send_lock = threading.Lock()
-        self._action: dict[str, Any] = self._neutral_action()
-        self._received_monotonic = 0.0
-        self._reset_generation = ""
-        self._pending_reset: str | None = None
-        self._resetting = False
-        self._socket: socket.socket | None = None
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
-
-    @property
-    def connected(self) -> bool:
-        with self._lock:
-            return self._socket is not None
-
-    def start(self) -> None:
-        self._thread = threading.Thread(target=self._worker, name="teleop-action-receiver", daemon=True)
-        self._thread.start()
-
-    def close(self) -> None:
-        self._stop.set()
-        with self._lock:
-            connection = self._socket
-            self._socket = None
-        if connection:
-            try:
-                connection.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            connection.close()
-        if self._thread:
-            self._thread.join(timeout=2.0)
-
-    def latest_action(self) -> tuple[dict[str, Any], bool]:
-        with self._lock:
-            action = dict(self._action)
-            action["end_effector_linear_velocity_body_m_s"] = list(
-                self._action["end_effector_linear_velocity_body_m_s"]
-            )
-            action["end_effector_angular_velocity_body_rad_s"] = list(
-                self._action["end_effector_angular_velocity_body_rad_s"]
-            )
-            stale = self._resetting or time.monotonic() - self._received_monotonic > 0.25
-        if stale:
-            action["deadman"] = False
-            action["end_effector_linear_velocity_body_m_s"] = [0.0] * 3
-            action["end_effector_angular_velocity_body_rad_s"] = [0.0] * 3
-            action["gripper_velocity_m_s"] = 0.0
-            action["gripper_velocity_rad_s"] = 0.0
-        return action, stale
-
-    @property
-    def reset_generation(self) -> str:
-        with self._lock:
-            return self._reset_generation
-
-    def take_reset(self) -> str | None:
-        """Only the simulation thread may consume a reset, between advances."""
-        with self._lock:
-            request_id = self._pending_reset
-            if request_id is not None:
-                self._pending_reset = None
-                self._reset_generation = request_id
-            return request_id
-
-    def complete_reset(self) -> None:
-        with self._lock:
-            # A reset received during initialization must stay pending.
-            if self._pending_reset is None:
-                self._resetting = False
-            self._action = self._neutral_action()
-            self._received_monotonic = 0.0
-
-    def _accept_message(self, message: dict[str, Any]) -> None:
-        with self._lock:
-            if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") == "reset":
-                request_id = message.get("request_id")
-                if not isinstance(request_id, str) or not 1 <= len(request_id) <= 64:
-                    return
-                if request_id == self._reset_generation or self._resetting:
-                    return  # Reconnect/retry cannot reset an already applied generation twice.
-                self._pending_reset = request_id
-                self._resetting = True
-                self._action = self._neutral_action()
-                self._received_monotonic = 0.0
-            elif (not self._resetting and self._valid_action(message)
-                  and message.get("reset_generation", "") == self._reset_generation):
-                self._action = message
-                self._received_monotonic = time.monotonic()
-
-    def send_observation(self, message: dict[str, Any]) -> bool:
-        with self._lock:
-            connection = self._socket
-        if connection is None:
-            return False
-        try:
-            with self._send_lock:
-                connection.sendall(encode_packet(message))
-            return True
-        except OSError:
-            self._drop(connection)
-            return False
-
-    def _worker(self) -> None:
-        while not self._stop.is_set():
-            connection: socket.socket | None = None
-            try:
-                connection = socket.create_connection((self.host, self.port), timeout=1.0)
-                connection.settimeout(1.0)
-                with self._send_lock:
-                    connection.sendall(
-                        encode_packet(
-                            {
-                                "protocol": CONTROL_PROTOCOL,
-                                "type": "sim_hello",
-                                "simulation_id": self.simulation_id,
-                                "reset_generation": self.reset_generation,
-                                "capabilities": [
-                                    "scene_reset", "arm_preparation",
-                                    "cartesian_twist_6d",
-                                    "damped_least_squares_ik",
-                                    "gripper_velocity",
-                                    "joint_observation",
-                                    "cartesian_observation",
-                                    "sarm_si_joint_observation", "reaction_wheel_attitude_control",
-                                ],
-                            }
-                        )
-                    )
-                with self._lock:
-                    self._socket = connection
-                while not self._stop.is_set():
-                    try:
-                        message = recv_socket(connection)
-                    except socket.timeout:
-                        continue
-                    self._accept_message(message)
-            except (OSError, EOFError, ValueError):
-                pass
-            finally:
-                if connection:
-                    self._drop(connection)
-            self._stop.wait(0.5)
-
-    def _drop(self, connection: socket.socket) -> None:
-        with self._lock:
-            if self._socket is connection:
-                self._socket = None
-                self._action = self._neutral_action()
-                self._received_monotonic = 0.0
-        try:
-            connection.close()
-        except OSError:
-            pass
-
-    @staticmethod
-    def _valid_action(message: dict[str, Any]) -> bool:
-        preparation = message.get("arm_preparation")
-        if preparation is not None:
-            if not isinstance(preparation, dict):
-                return False
-            goal = preparation.get("joint_position_deg")
-            request_id = preparation.get("request_id")
-            if (not isinstance(request_id, str) or not 1 <= len(request_id) <= 80
-                    or not isinstance(goal, list) or len(goal) != 6
-                    or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in goal)):
-                return False
-        linear = message.get("end_effector_linear_velocity_body_m_s")
-        angular = message.get("end_effector_angular_velocity_body_rad_s")
-        return (
-            message.get("protocol") == CONTROL_PROTOCOL
-            and message.get("type") == "action"
-            and message.get("control_frame", "spacecraft_body") == "spacecraft_body"
-            and isinstance(linear, list)
-            and len(linear) == 3
-            and isinstance(angular, list)
-            and len(angular) == 3
-            and all(
-                isinstance(value, (int, float)) and math.isfinite(value)
-                for value in [*linear, *angular]
-            )
-            and (
-                isinstance(message.get("gripper_velocity_m_s"), (int, float))
-                or isinstance(message.get("gripper_velocity_rad_s"), (int, float))
-            )
-        )
-
-    @staticmethod
-    def _neutral_action() -> dict[str, Any]:
-        return {
-            "protocol": CONTROL_PROTOCOL,
-            "type": "action",
-            "server_sequence": "0",
-            "deadman": False,
-            "control_frame": "spacecraft_body",
-            "end_effector_linear_velocity_body_m_s": [0.0] * 3,
-            "end_effector_angular_velocity_body_rad_s": [0.0] * 3,
-            "gripper_velocity_m_s": 0.0,
-            "gripper_velocity_rad_s": 0.0,
-        }
+from simulation.control_client import SimulationControlClient
 
 
 class CartesianTeleopTarget:
@@ -1080,6 +873,8 @@ def run(args: argparse.Namespace) -> None:
     print(json.dumps({"type": "ik_initialization", **posture_report}, ensure_ascii=True), flush=True)
     client.start()
     try:
+        with runtime_stage("check_backend_protocol"):
+            client.wait_until_ready()
         while True:
             reset_request = _run_session(
                 args, native, scene_instance, target_spec, initial_joints, kinematics, client
@@ -1506,6 +1301,7 @@ def _run_session(
             )
             if performance_event is not None:
                 performance_event.update(render_transport_status(bridge.publisher))
+                performance_event.update(client.observation_transport_status())
                 print(json.dumps(performance_event, sort_keys=True), flush=True)
         if args.duration > 0.0:
             wall_seconds = time.monotonic() - wall_start

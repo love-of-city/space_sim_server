@@ -121,6 +121,9 @@ def main() -> None:
                 self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(self.position[:6])
 
     class OfflineClient(teleop.SimulationControlClient):
+        def wait_until_ready(self, timeout=10.0):
+            pass  # Offline native test: no real network transport.
+
         def start(self):
             pass
 

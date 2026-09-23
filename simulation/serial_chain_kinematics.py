@@ -99,6 +99,17 @@ class SerialChainKinematics:
             (_translation(s.joint_position), _translation(-s.joint_position))
             if s.joint_index is not None else None for s in segments
         )
+        self._identity3 = np.eye(3)
+        self._hinge_terms = []
+        for segment in segments:
+            if segment.joint_index is None:
+                self._hinge_terms.append(None)
+                continue
+            # Axes are model constants. Preserve Rodrigues' formula exactly,
+            # without repeating normalization and skew-matrix construction per pose.
+            x, y, z = segment.joint_axis / np.linalg.norm(segment.joint_axis)
+            skew = np.array([[0., -z, y], [z, 0., -x], [-y, x, 0.]])
+            self._hinge_terms.append((skew, skew @ skew))
         self._geometry_cache: OrderedDict[tuple[float, ...], tuple[np.ndarray, ...]] = OrderedDict()
 
     def _geometry(self, joint_position_rad: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -120,15 +131,18 @@ class SerialChainKinematics:
         transform = np.eye(4)
         origins = np.zeros((len(self.joint_names), 3))
         axes = np.zeros_like(origins)
-        for segment, fixed, offsets in zip(self.segments, self._fixed_transforms, self._joint_offsets):
+        for segment, fixed, offsets, terms in zip(
+                self.segments, self._fixed_transforms, self._joint_offsets, self._hinge_terms):
             transform = transform @ fixed
             if segment.joint_index is not None:
                 index = segment.joint_index
                 origins[index] = (transform @ np.array([*segment.joint_position, 1.0]))[:3]
                 axes[index] = transform[:3, :3] @ segment.joint_axis
-                transform = (transform @ offsets[0]
-                    @ _transform(np.zeros(3), axis_angle_to_matrix(segment.joint_axis, q[index]))
-                    @ offsets[1])
+                skew, skew_squared = terms
+                rotation = np.eye(4)
+                rotation[:3, :3] = (self._identity3 + math.sin(q[index]) * skew
+                                    + (1.0 - math.cos(q[index])) * skew_squared)
+                transform = transform @ offsets[0] @ rotation @ offsets[1]
         jacobian = np.empty((6, len(self.joint_names)))
         jacobian[:3] = np.cross(axes, transform[:3, 3] - origins).T
         jacobian[3:] = axes.T
@@ -213,14 +227,15 @@ class SerialChainKinematics:
         axis = axis / np.linalg.norm(axis)
         shoulder = self.joint_names.index(shoulder_joint)
         elbow = self.joint_names.index(elbow_joint)
-        origins, axes = self.joint_geometry(joint_position_rad)
+        # Internal read-only use avoids copies; public geometry APIs still return copies.
+        _, origins, axes, _ = self._geometry(joint_position_rad)
         gradient = np.zeros(len(self.joint_names))
-        for index in range(len(self.joint_names)):
-            # Each joint origin is affected only by its ancestors, not itself.
-            if index < elbow:
-                gradient[index] += axis @ np.cross(axes[index], origins[elbow] - origins[index])
-            if index < shoulder:
-                gradient[index] -= axis @ np.cross(axes[index], origins[shoulder] - origins[index])
+        # Same analytic cross products, batched over ancestors instead of many
+        # tiny np.cross dispatches. Never approximate or reuse another pose's gradient.
+        for endpoint, sign in ((elbow, 1.), (shoulder, -1.)):
+            if endpoint:
+                gradient[:endpoint] += sign * (np.cross(
+                    axes[:endpoint], origins[endpoint] - origins[:endpoint]) @ axis)
         return float(axis @ (origins[elbow] - origins[shoulder])), gradient
 
     def jacobian(self, joint_position_rad: np.ndarray) -> np.ndarray:

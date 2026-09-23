@@ -104,3 +104,71 @@ test('J1 and J6 are held fields and old saved defaults cannot restore stage thre
  p.ui.update({status:'waiting',ready:false});p.startButton.click();
  assert.deepEqual(p.sent.at(-1).joint_position_deg,DEFAULT_OPERATING_DEG);
 });
+
+function setupAuto({controlGranted = true} = {}) {
+ const p=setup();
+ p.context.controlGranted=controlGranted;
+ p.ui.setRuntime({instance_id:'auto',randomization_profile:'teleop-zero-prepare-v2',arm_preparation_required:true,
+   operating_arm_joint_position_deg:[17,-61,-82,135,-72,23]},true);
+ p.ui.update({status:'waiting',strategy:'validated-waypoints-v1',ready:false},
+   {arm_joint_position_rad:[0,0,0,0,0,0]});
+ return p;
+}
+
+test('v2 auto-starts once after fresh telemetry and delayed control grant',()=>{
+ const p=setupAuto({controlGranted:false});
+ assert.deepEqual(p.ui.read(),[17,-61,-82,135,-72,23]);
+ p.ui.armAutoStart('auto');
+ assert.equal(p.ui.tick(),true);
+ assert.equal(p.activated,1);
+ assert.equal(p.sent.filter(Boolean).length,0);
+ p.context.controlGranted=true;
+ p.ui.tick();
+ assert.equal(p.sent.filter(Boolean).length,1);
+ const request=p.sent.find(Boolean);
+ assert.deepEqual(request.joint_position_deg,[17,-61,-82,135,-72,23]);
+ p.ui.armAutoStart('auto');
+ p.ui.tick();
+ assert.equal(p.sent.filter(Boolean).length,2);
+});
+
+test('v2 preserves non-zero J1/J6 target and locks edits after creation',()=>{
+ const p=setupAuto();
+ assert.deepEqual(p.ui.read(),[17,-61,-82,135,-72,23]);
+ assert.equal(p.inputs[0].disabled,true);
+ assert.equal(p.inputs[5].disabled,true);
+ assert.equal(p.inputs[0].value,'17');
+ assert.equal(p.inputs[5].value,'23');
+});
+
+test('v2 cancellation and disconnect never revive an automatic request',()=>{
+ for (const cause of ['cancel','disconnect']) {
+  const p=setupAuto();
+  p.ui.armAutoStart('auto');
+  p.ui.tick();
+  const sentBefore = p.sent.filter(Boolean).length;
+  if (cause==='cancel') p.cancelButton.click();
+  else p.context.connected=false;
+  p.ui.tick();
+  p.context.connected=true;
+  p.context.controlGranted=true;
+  p.ui.update({status:'waiting',strategy:'validated-waypoints-v1',ready:false}, {arm_joint_position_rad:[0,0,0,0,0,0]});
+  p.ui.tick();
+  assert.equal(p.sent.filter(Boolean).length,sentBefore);
+ }
+});
+
+test('v2 explicit retry stays disabled away from zero and reopens after measured restore',()=>{
+ const p=setupAuto();
+ p.ui.armAutoStart('auto');
+ p.ui.tick();
+ p.cancelButton.click();
+ p.ui.update({status:'cancelled',strategy:'validated-waypoints-v1',ready:false},
+   {arm_joint_position_rad:[0.2,0,0,0,0,0]});
+ assert.equal(p.startButton.disabled,true);
+ p.ui.update({status:'cancelled',strategy:'validated-waypoints-v1',ready:false},
+   {arm_joint_position_rad:[0,0,0,0,0,0]});
+ assert.equal(p.startButton.disabled,false);
+ p.startButton.click();
+ assert.equal(p.sent.filter(Boolean).length,2);
+});

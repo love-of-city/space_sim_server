@@ -11,6 +11,7 @@ pytest.importorskip('Basilisk')
 from simulation import teleop_grasp_unreal as teleop
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager
+from space_arm_platform.control_defaults import AUTO_PREPARE_TELEOP_PROFILE
 
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = Path(os.environ.get('SPACE_SIM_RESET_ADAPTER', str(ROOT.parents[1] / 'space_sim_UE_adapter/space_sim_UE_Adapter')))
@@ -61,8 +62,9 @@ def test_zero_start_fixed_sequence_real_joint_controllers(tmp_path, monkeypatch)
             return True
     monkeypatch.setattr(bsk_render_adapter,'BasiliskRenderBridge',ProbeBridge)
     monkeypatch.setattr(teleop,'SimulationControlClient',Client)
-    manager=SceneRuntimeManager(None,project_root=tmp_path)
-    instance=manager.create_instance(SceneInstanceCreate(seed=123))
+    manager=SceneRuntimeManager(None,project_root=ROOT)
+    manager.scene_root=tmp_path
+    instance=manager.create_instance(SceneInstanceCreate(seed=123, randomization_profile=AUTO_PREPARE_TELEOP_PROFILE))
     args=SimpleNamespace(adapter_root=ADAPTER,model_root=ROOT/'model/SARM/platform',scene_instance=Path(instance['config_path']),
         catalog=tmp_path/'unused.json',control_host='127.0.0.1',control_port=0,render_host='127.0.0.1',render_port=0,
         duration=180.,simulation_rate=1.,capture_rate=30.,ik_rate=120.,ik_mode=teleop.IK_MODE_IK_POSE,disable_attitude_control=False)

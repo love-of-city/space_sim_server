@@ -12,6 +12,7 @@ from space_arm_platform.control_defaults import (
     BALANCED_TELEOP_JOINT_SPANS,
     BALANCED_TELEOP_PROFILE,
     DEFAULT_RANDOMIZATION_PROFILE,
+    AUTO_PREPARE_TELEOP_PROFILE,
 )
 from space_arm_platform.scene_runtime import (
     SceneRuntimeManager,
@@ -84,7 +85,7 @@ def test_scene_api_catalog_and_instance_generation_without_launcher(tmp_path: Pa
         assert login.status_code == 200
         catalog = client.get("/api/scenes/catalog")
         assert catalog.status_code == 200
-        assert catalog.json()["defaults"]["randomization_profile"] == DEFAULT_RANDOMIZATION_PROFILE
+        assert catalog.json()["defaults"]["randomization_profile"] == AUTO_PREPARE_TELEOP_PROFILE
 
         created = client.post("/api/scenes/instances", json={"seed": 99})
         assert created.status_code == 200

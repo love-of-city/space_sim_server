@@ -122,6 +122,20 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -ApiPort 18000
 
 打开 `http://127.0.0.1:18000`，登录后选择模板并点击“生成并启动场景”。平台启动成功不等于场景或视频已经就绪。全新认证数据库默认本机账号为 `admin` / `ChangeMe123!`；已有数据库使用原密码，登录后可修改。需要训练图像时先勾选“权威采集”，场景就绪后再开始 episode；只预览时保持关闭。
 
+### 拉取代码后的 UE 运行时构建
+
+`run_platform.ps1` 不会在每次启动时重新链接 `BskUnrealRuntime`。如果拉取更新同时修改了适配器的 `Plugins/BskUnrealRuntime/Source/`（尤其是 `.cpp`、`.h` 或 `.cs`），必须在启动平台前执行一次完整的 UE 构建。
+
+```powershell
+# 当前目录为 space_sim_server 仓库根目录
+$env:UE56_ROOT = 'D:\UE\UE_5.6'
+pwsh -NoProfile -File ..\space_sim_UE_Adapter\Unreal\BskUnrealRenderer\scripts\build.ps1 `
+  -UnrealRoot $env:UE56_ROOT
+```
+
+适配器运行时源码发生变化、运行时 DLL 缺失，或场景启动报 `Capture runtime DLL is stale` 时需要重新执行。构建成功后再运行 `run_platform.ps1`，并重新生成场景。该步骤要求 UE 5.6、Visual Studio C++ 游戏开发工作负载和 Windows SDK 可用。
+
+
 ### 指定操作姿态直接启动
 
 默认新场景使用兼容标识 `teleop-zero-prepare-v1`，但六个旋转关节会在初始化时直接设置为指定的操作角度；不再从 0° 运动到操作姿态，场景启动后即可遥操作。

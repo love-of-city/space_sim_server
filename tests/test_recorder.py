@@ -157,3 +157,30 @@ def test_old_render_session_cannot_pair_with_reused_frame_and_time(tmp_path, cap
     recorder.record_authoritative_capture({**old_capture, "session_id":"new-session"}, {"rgb": b"new"})
     assert recorder.sync_status()["matched_capture_count"] == 1
     recorder.stop(EpisodeStop())
+
+
+def test_pre_episode_authoritative_backlog_is_discarded_at_first_observation(tmp_path) -> None:
+    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.01)
+    recorder.start(EpisodeStart(camera_ids=["wrist"]))
+    stale = {
+        "protocol": "bsk-capture/1", "camera_id": "wrist", "session_id": "same",
+        "capture_sequence": "1", "source_frame_id": "3", "sim_time_ns": "100",
+        "stream_kind": "authoritative", "state_kind": "authoritative",
+        "products": [{"name": "rgb", "file_name": "rgb.png"}],
+    }
+    recorder.record_authoritative_capture(stale, {"rgb": b"old"})
+    assert recorder.sync_status()["pending_capture_count"] == 1
+    observation = SimulationObservation(
+        protocol="space-arm-control/1", type="observation", simulation_id="test",
+        render_session_id="same", step_id="10", render_frame_id="10", sim_time_ns="1000",
+        wall_time_ns="1001", applied_action_sequence="0", joint_position_rad=[0.0] * 6,
+        joint_velocity_rad_s=[0.0] * 6, target_joint_position_rad=[0.0] * 6,
+    )
+    recorder.record_observation(observation, None)
+    sync = recorder.sync_status()
+    assert sync["pending_capture_count"] == 0
+    assert sync["stale_capture_count"] == 1
+    current = {**stale, "capture_sequence": "2", "source_frame_id": "10", "sim_time_ns": "1000"}
+    recorder.record_authoritative_capture(current, {"rgb": b"current"})
+    assert recorder.sync_status()["matched_capture_count"] == 1
+    recorder.stop(EpisodeStop(outcome="aborted"))

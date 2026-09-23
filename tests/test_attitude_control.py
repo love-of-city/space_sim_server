@@ -195,3 +195,34 @@ def test_native_rate_disturbance_is_damped_without_losing_reference(native):
     assert result['attitude_control']['attitude_error_angle_rad'] < .002
     np.testing.assert_array_equal(sim.attitude_control.reference_mrp, np.zeros(3))
     assert max(abs(v) for v in result['reaction_wheels']['relative_momentum_nms']) > .05
+
+
+def test_cached_wheel_handles_still_read_fresh_rk_stage_state():
+    from types import SimpleNamespace
+    from simulation.attitude_control import WheelDrive, WheelDriveGroup
+
+    wheel = load_hardware(MODEL)[0][0]
+    torque = messaging.SingleActuatorMsg().write(messaging.SingleActuatorMsgPayload(input=.1))
+    speed = messaging.ScalarJointStateMsg().write(messaging.ScalarJointStateMsgPayload(state=0.))
+    owner = SimpleNamespace(wheels=[wheel], joints=[SimpleNamespace(stateDotOutMsg=speed)],
+                            enabled=True, settings={"speed_guard_fraction": .98})
+    drive = WheelDrive(owner, 0, torque)
+    group = WheelDriveGroup([drive])
+    reader = drive.actuatorOutMsg.addSubscriber()
+    group.UpdateState(10)
+    assert reader().input == pytest.approx(.1)
+    assert reader.timeWritten() == 10
+    # Changing speed without re-creating the driver MUST engage the guard on
+    # the very next substage, even if it shares the outer physics timestamp.
+    speed.write(messaging.ScalarJointStateMsgPayload(state=wheel.max_speed))
+    group.UpdateState(10)
+    assert reader().input == 0.
+    assert drive.speed_limited
+    torque.write(messaging.SingleActuatorMsgPayload(input=-1.))
+    group.UpdateState(11)
+    assert reader().input == pytest.approx(-wheel.max_torque)
+    assert drive.torque_limited and not drive.speed_limited  # braking preserved
+    assert reader.timeWritten() == 11
+    owner.enabled = False
+    group.UpdateState(12)
+    assert reader().input == 0.

@@ -27,11 +27,21 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--adapter-root", type=Path, required=True)
     result.add_argument("--scene-instance", type=Path, required=True)
+    result.add_argument("--model-path", type=Path, help="Optional MJCF override for controlled collision-cost comparison")
     result.add_argument("--output", type=Path, required=True, help="New JSON summary path; sidecars use the same stem")
     result.add_argument("--duration", type=float, default=6.0)
     result.add_argument("--motion", choices=MOTIONS, default="hold")
     result.add_argument("--speed", type=float, help="m/s for translation, rad/s for rotation (defaults .02 / .1)")
     result.add_argument("--initial-state", choices=("saved", "operating"), default="saved")
+    result.add_argument("--ik-mode", choices=("ik_pose", "strict"), default="ik_pose")
+    result.add_argument("--elbow-mode", choices=("default", "off"), default="default")
+    result.add_argument("--wrist-mode", choices=("default", "off"), default="default")
+    result.add_argument("--joint3-mode", choices=("default", "off"), default="default")
+    result.add_argument("--disable-attitude", action="store_true")
+    result.add_argument("--enable-extra-eom-call", action="store_true")
+    result.add_argument("--disable-extra-eom-call", action="store_true", help=argparse.SUPPRESS)
+    result.add_argument("--rkf-relative-tol", type=float, default=1.0e-4)
+    result.add_argument("--rkf-absolute-tol", type=float, default=1.0e-4)
     result.add_argument("--profile", action="store_true", help="Profile Python callback bodies; adds overhead")
     result.add_argument("--native-timers", action="store_true", help="Bracket SPICE/gravity/MJScene; adds callbacks/overhead")
     return result
@@ -66,12 +76,34 @@ def benchmark(args) -> dict:
     scene_path = out.with_suffix(".scene.json")
     scene_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     sys.path[:0] = [str(ROOT), str(ROOT / "backend"), str(adapter / "Adapters"), str(examples)]
+    import os
+    if args.enable_extra_eom_call and args.disable_extra_eom_call:
+        raise ValueError("enable/disable extra EOM flags are mutually exclusive")
+    if args.enable_extra_eom_call:
+        os.environ["SPACE_SIM_EXTRA_EOM_CALL"] = "1"
+    elif args.disable_extra_eom_call:
+        os.environ["SPACE_SIM_EXTRA_EOM_CALL"] = "0"
+    if args.elbow_mode == "off": os.environ["SPACE_SIM_ONLINE_ELBOW_MODE"] = "off"
+    if args.wrist_mode == "off": os.environ["SPACE_SIM_ONLINE_WRIST_MODE"] = "off"
+    if args.joint3_mode == "off": os.environ["SPACE_SIM_ONLINE_JOINT3_MODE"] = "off"
     import scenario_spacecraft_arm_grasp_unreal as loader
     native = loader.load_native_grasp_module(ROOT / "model/SARM/platform")
+    if args.model_path is not None:
+        model_path = args.model_path.resolve()
+        if not model_path.is_file():
+            raise ValueError(f"model-path does not exist: {model_path}")
+        native.MODEL_PATH = model_path
     import bsk_render_adapter
     from bsk_render_adapter.protocol import RecordingOnlyPublisher, encode_packet
     from simulation import teleop_grasp_unreal as teleop
     from simulation import attitude_control
+    from simulation import native_integration
+    if not math.isfinite(args.rkf_relative_tol) or args.rkf_relative_tol <= 0:
+        raise ValueError("rkf-relative-tol must be positive and finite")
+    if not math.isfinite(args.rkf_absolute_tol) or args.rkf_absolute_tol <= 0:
+        raise ValueError("rkf-absolute-tol must be positive and finite")
+    native_integration.RELATIVE_TOLERANCE = args.rkf_relative_tol
+    native_integration.ABSOLUTE_TOLERANCE = args.rkf_absolute_tol
     from simulation.physics_clock import RationalPhysicsClock
     from simulation.observation_capture import AuthoritativeObservationModel
     from simulation.joint_reference_publisher import HeldJointReferencePublisher
@@ -174,10 +206,11 @@ def benchmark(args) -> dict:
 
     runtime = SimpleNamespace(
         adapter_root=adapter, model_root=ROOT / "model/SARM/platform", scene_instance=scene_path,
+        model_path=args.model_path,
         catalog=out.with_suffix(".unused"), control_host="127.0.0.1", control_port=0,
         render_host="127.0.0.1", render_port=0, duration=args.duration,
-        simulation_rate=100.0, capture_rate=30.0, ik_rate=120.0, ik_mode="ik_pose",
-        disable_attitude_control=False,
+        simulation_rate=100.0, capture_rate=30.0, ik_rate=120.0, ik_mode=args.ik_mode,
+        disable_attitude_control=args.disable_attitude,
     )
     with ExitStack() as stack:
         for obj, name, value in (
@@ -211,8 +244,15 @@ def benchmark(args) -> dict:
         sample.pop("start")
     result = {
         "schema": "space-arm-runtime-benchmark/1",
-        "scene_instance": str(args.scene_instance.resolve()), "initial_state": args.initial_state,
+        "scene_instance": str(args.scene_instance.resolve()),
+        "model_path": str(native.MODEL_PATH.resolve()), "initial_state": args.initial_state,
         "duration_sim_s": args.duration, "motion": args.motion, "speed": args.speed,
+        "ik_mode": args.ik_mode, "elbow_mode": args.elbow_mode,
+        "wrist_mode": args.wrist_mode, "joint3_mode": args.joint3_mode,
+        "disable_attitude": args.disable_attitude,
+        "extra_eom_call": args.enable_extra_eom_call and not args.disable_extra_eom_call,
+        "rkf_relative_tolerance": args.rkf_relative_tol,
+        "rkf_absolute_tolerance": args.rkf_absolute_tol,
         "profiled": args.profile, "native_timers_enabled": args.native_timers,
         "execute_wall_s": sum(execute_wall), "execute_cpu_s": sum(execute_cpu),
         "compute_real_time_factor": args.duration / sum(execute_wall),

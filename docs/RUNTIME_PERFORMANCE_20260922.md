@@ -1,0 +1,246 @@
+# 运行时性能与采集拥堵诊断（2026-09-22）
+
+## 结论
+
+当前“仿真跟不上实际时间”不是单一 FPS 问题，而是两条链路叠加：
+
+1. **原生动力学自身在运动时变慢。** RKF45 在原来的 `1e-5 / 1e-6`
+   容差下，对移动中的小惯量腕部和接触模型进行了大量内部拒绝/重算；
+   MJScene 原生积分占隔离测试绝大多数时间。
+2. **录制时 UE 权威采集会反向形成背压。** 每个 30 Hz 权威帧会在 UE Game Thread
+   同步 `ReadPixels`、PNG 压缩并送入可靠队列；下游捕获/网络/后端 writer 变慢后，
+   Python `RenderPublisher` 的可靠帧队列最终满，原实现抛出
+   `authoritative render queue full`，从而把整个 Basilisk 进程退出。
+
+## 实际证据
+
+- `data/episodes/episode-20260921-182938-bd1b1fc3/metadata.json`：
+  2026-09-21 录制，`dataset_status=failed`，`dataset_frame_count=0`，
+  `incomplete_sample_count=128`，错误为 RGB backpressure 超时。
+- `data/episodes/episode-20260922-165610-5bcd6007/metadata.json`：
+  2026-09-22 录制同样失败，`capture_count=0`、待配对 128 项。
+- `logs/scene-20260922-165429-4cd68ad6.simulation.err.log`：
+  明确为 `queue.Full` → `authoritative render queue full`，不是 UE 先崩溃。
+- 隔离当前 SARM 链路、不连接 UE、不写 LeRobot 的测量：
+  - 原优化前保持测试约 `0.72x`，平移约 `0.26x`；
+  - 缓存 Basilisk 消息读写器、合并轮驱动 Python callback、共享串联链几何后，
+    保持测试约 `1.05x`；
+  - 默认姿态偏好、移动、容差和最终 FK 配置一起测得约 `0.84x`；
+    20 秒、0.05 m/s 运动测试保持有限状态；
+  - 这些是**隔离计算倍率**，不包含 UE 渲染、网络等待和磁盘/LeRobot 写入。
+
+## 已落地的修复
+
+### 物理链路
+
+- `simulation/attitude_control.py`
+  - 轮驱动消息 reader/writer/payload 复用；
+  - 三个轮驱动合并为一个 Python `WheelDriveGroup` callback；
+  - 标量力矩限幅不再为每个 RK stage 创建 NumPy ufunc 临时对象。
+- `simulation/serial_chain_kinematics.py`
+  - 固定几何变换预计算；
+  - FK、Jacobian、肘/腕高度查询共享有界值缓存；
+  - 缓存按关节数值而非数组对象 identity 建 key，避免复用错误姿态。
+- `simulation/teleop_grasp_unreal.py`
+  - 权威状态快照和姿控/执行器遥测复用 Basilisk message handles；
+  - `MJScene.extraEoMCall` 默认关闭，最终状态仍执行 FK；需要诊断时设置
+    `SPACE_SIM_EXTRA_EOM_CALL=1`。
+- `simulation/native_integration.py`
+  - RKF45 默认容差改为相对/绝对 `1e-4`，并保留环境变量覆盖：
+    `SPACE_SIM_RKF45_RELATIVE_TOLERANCE`、
+    `SPACE_SIM_RKF45_ABSOLUTE_TOLERANCE`。
+  - 如果要恢复旧的严格值：
+
+    ```powershell
+    $env:SPACE_SIM_RKF45_RELATIVE_TOLERANCE = '1e-5'
+    $env:SPACE_SIM_RKF45_ABSOLUTE_TOLERANCE = '1e-6'
+    ```
+
+### 录制配对链路
+
+- `EpisodeRecorder` 现在在每次录制的第一个观测帧建立 frame boundary。
+- UE 在录制开始前已经排队的旧权威图片，即使 render session 相同，也会按
+  `source_frame_id` 丢弃，不再填满 128 项 future-pairing buffer。
+- 新增 `stale_capture_count` 到实时同步状态和 episode metadata，便于区分
+  “录制前旧帧”与“当前帧真的没有相机数据”。
+
+## 仍需做的生产验证/后续优化
+
+当前失败路径还表明，UE 端权威 RGB 采集仍是系统尾部瓶颈：
+
+- `BskSceneController.cpp` 的权威 capture 在 Game Thread 同步做 `ReadPixels`、
+  PNG 压缩和可靠网络入队；
+- `CaptureNetworkSender` 的可靠队列满时会让 UE 停顿；
+- Python 侧即使异步接收，LeRobot writer/原始图片写盘仍可能低于双相机 30 FPS。
+
+因此，下一次实际 UE 验证必须：
+
+1. 停止当前失败场景和录制；
+2. 重新完整链接 UE 插件（不能只 `-NoLink`），因为 UE 源码/ DLL 必须一致；
+3. 重启后端、UE 和场景；
+4. 先录制一个 10–20 秒短 episode，确认 `stale_capture_count` 只统计旧帧，
+   `dataset_frame_count > 0`，`incomplete_sample_count=0`；
+5. 再做长时间压测，观察 `runtime_performance` 中的
+   `render_backlog_frames`、`render_transport_error` 和 `schedule_lag_s`。
+
+如果短录制仍在新首帧边界后持续积压，下一步应把 UE 权威图片的压缩/网络发送移出
+Game Thread（或为训练采集使用独立异步 readback 通道），而不是继续增大 128/256
+缓存；增大缓存只能延迟失败并放大延迟。
+
+## 验证工具
+
+隔离性能工具（不连接生产端口、不写生产 episode）：
+
+```powershell
+$python = 'C:\Users\LYH\miniconda3\envs\mujoco-dev\python.exe'
+$adapter = 'C:\Users\LYH\space_sim_UE_adapter\space_sim_UE_Adapter'
+& $python tools/profile_simulation_runtime.py `
+  --adapter-root $adapter `
+  --scene-instance run/scenes/scene-20260921-182717-a313fce8.json `
+  --initial-state operating --duration 6 --motion linear_x `
+  --output run/runtime-performance-20260922/check.json
+```
+
+这个工具会输出隔离计算倍率，不把它冒充为浏览器 FPS 或完整端到端实时率。
+生产场景启动后，仿真 stdout 的 `runtime_performance` 事件同时报告：
+
+- `simulation_execute_s`：Basilisk/MJScene/控制/桥快照耗时；
+- `observation_send_s`：观测发送耗时；
+- `render_backlog_frames`：可靠渲染发送队列积压；
+- `schedule_lag_s`：相对目标仿真倍率的墙钟落后量。
+
+## 追加诊断（2026-09-22 晚，带 UE 端计时）
+
+在 UE 插件里临时加入 `DiagPerf`/`VideoDiagnostics` 计时后，瓶颈已经可以逐项归因。
+
+### 1. UE Game Thread 被同步 GPU 回读吃满（首要原因）
+
+`ABskSceneController::Tick` 的实测（双相机、640x360、权威采集 30 Hz）：
+
+| 指标 | 空闲（未接仿真） | 权威采集进行中 |
+| --- | --- | --- |
+| `tick_fps` | 88.3 – 90.0 | **25.7 – 28.5** |
+| `scene_tick_ms` | 0.04 | **33 – 36** |
+
+单次 capture 的耗时分解（`DiagPerf`）：
+
+```text
+capture_calls=258..286 / 5s   (≈ 52 – 57 captures/s)
+total_ms_per_capture ≈ 16.2 – 17.7 ms
+  scene_ms    (CaptureScene)        ≈ 0.36 – 0.41 ms
+  readback_ms (ReadPixels)          ≈ 14.4 – 16.1 ms   ← 91%
+  jpeg_ms     (CompressJpeg)        ≈ 0.92 – 0.95 ms
+auth_capture_ms_per_tick ≈ 32.8 – 35.8 ms
+apply_ms_per_tick        ≈ 0.26 – 0.64 ms
+```
+
+根因在 UE 引擎源码里是明确的：`FRenderTarget::ReadPixels()`
+（`Engine/Source/Runtime/Engine/Private/UnrealClient.cpp:54`）每次都执行
+
+```cpp
+ENQUEUE_RENDER_COMMAND(ReadSurfaceCommand)(...);
+FlushRenderingCommands();   // 阻塞 Game Thread 直到渲染线程排空
+```
+
+也就是**每个相机、每个权威帧都会强制一次渲染线程/GPU 同步**。
+2 相机 x 30 Hz = 60 次/s x ~15 ms ≈ **0.85 – 0.9 s/s 的 Game Thread 时间**，
+所以 UE 只能跑到 26 – 28 FPS，低于仿真要求的 30 帧/s。
+JPEG 替换 PNG 之后 `jpeg_ms` 已经降到 <1 ms，`readback_ms` 成为唯一大头。
+
+### 2. 有损缓冲把 UE 的帧率缺口变成物理时钟的硬停顿
+
+`RenderPublisher(reliable_frames=True)` 使用 256 深队列且 `publish_frame`
+在队满时阻塞（10 s 超时），UE 侧 `FBskTcpReceiver` 还有 128 深 FIFO。
+整条链路 `frames_dropped` 恒为 0，因此 UE 每少消费 1 帧就永久积压。
+实测（`logs/scene-20260922-165429-4cd68ad6.simulation.out.log`）：
+
+```text
+sim=119.87  rtf=0.973  backlog=147  err=timed out
+sim=123.83  rtf=0.793  max_execute_frame_ms=953
+sim=136.60  rtf=0.520  max_execute_frame_ms=2469
+sim=147.43  rtf=0.166  max_execute_frame_ms=4172  backlog=0
+sim=160.20  rtf=0.609  max_execute_frame_ms=2000
+...
+sim=241.23  rtf=0.359  max_execute_frame_ms=3812  backlog=255
+```
+
+每 ~11 s 仿真时间出现一次 2 – 4.4 s 的 `ExecuteSimulation()` 停顿，
+`schedule_lag_s` 只增不减：0.05 → 3.7 → 7.9 → 13.4 → 18.9 → 24.4 → 28.7 → 35.2 s。
+因为隔离计算倍率只有 ~1.0，这些丢失的墙钟时间**永远补不回来**。
+
+### 3. 仿真自身没有余量
+
+当前生产运行的实测（`logs/scene-20260922-183955-a7310a63.simulation.out.log`）：
+
+```text
+wall=235.4s  sim=231.6s  overall RTF=0.984
+ExecuteSimulation 占墙钟 96.4%，observation send 占 2.6%，sleep 1.0%
+实际产出 29.52 帧/墙钟秒（目标 30）
+最终 schedule_lag_s=3.79s
+```
+
+隔离计时显示 `MJScene` 占 `ExecuteSimulation` 的 55% – 75%，
+其余是 Basilisk 控制链（PID/限幅/IK/姿控/桥快照）。
+RKF45 容差扫描表明 `1e-4 / 1e-4` 已接近最优；再收紧绝对容差会急剧变慢
+（`abs=3e-5` → 0.71x，`abs=1e-5` → 0.59x）。
+碰撞网格诊断显示关掉机械臂网格碰撞、目标碰撞只带来 ~5% – 10% 提升，
+所以**模型碰撞不是主要成本**。
+
+### 4. 录制配对链路会因为“一帧丢失”而整段卡死
+
+`LiveLeRobotWriter.append()` 要求数据集 tick 严格连续
+（`tick == last_tick + 1`，禁止空洞），而
+`EpisodeRecorder._flush_dataset_samples()` 会在第一个缺相机的帧上永久 `break`。
+于是只要丢 1 帧：
+
+1. `_dataset_observations` 涨到 128 → `record_observation` 阻塞观测 socket；
+2. 仿真侧 `SimulationControlClient.send_observation()` 的 `sendall` 1 s 超时
+   → 掉连接 → 观测丢更多（实测 `observation_send_s` 出现 1.0 s / 1.5 s 尖峰）；
+3. 这些帧的 capture 进不了配对，`_pending_captures` 涨到 128；
+4. 之后每个 capture 都按 `authoritative capture pairing buffer overflow` 被拒。
+
+实测后果：
+
+```text
+episode-20260922-182327-4b5dc2ff  6096 steps  857 captures   frame_count=0      rejected=10971
+episode-20260922-183529-7b1bcae4  5970 steps 5912 captures   frame_count=2716   rejected=5848
+episode-20260922-184019-2a5e777c  6543 steps 9970 captures   frame_count=4642   rejected=3112
+```
+
+三者都是 `incomplete_sample_count=128` + RGB backpressure 超时。
+注意：当前运行的后端进程启动于 16:46，**早于** `recorder.py` 的首帧边界修复，
+所以这些失败 episode 还没有带上 `stale_capture_count` 字段。
+
+### 5. 当前状态（已验证恢复实时）
+
+改用 JPEG 并让 UE 采集不再堵死后，最新运行已回到严格实时：
+
+```text
+scene-20260922-184906-9036db18   (观察窗口 490.9 s 墙钟)
+wall=490.9s  sim=490.9s  RTF=1.0000
+ExecuteSimulation 占 95.8%，observation send 占 1.7%
+产出 30.00 帧/墙钟秒，schedule_lag_s 稳定在 0.02 – 0.08 s
+render_backlog_frames 0 – 1，render_transport_error = null
+```
+
+同一配置下的数据集录制也第一次完整成功：
+
+```text
+data/episodes/episode-20260922-184947-55fe45a6/metadata.json
+status=complete  dataset_status=complete
+step_count=5978   dataset_frame_count=5978   capture_count=11956
+incomplete_sample_count=0  rejected_capture_count=0
+```
+
+### 6. 仍然建议的收尾动作
+
+1. **UE 端把权威 RGB 的 readback 改成异步**：用 `FRHIGPUTextureReadback`
+   在渲染线程 `EnqueueCopy`，在 worker 线程 `IsReady()`/`Lock()` 后再 JPEG
+   编码和发送，避免 `FlushRenderingCommands()`。这是唯一能把
+   `auth_capture_ms_per_tick` 从 ~35 ms 降到 ~1 ms 的办法。
+2. 若暂时不改 readback，则至少**同一帧的两个相机合并成一次 flush**，
+   或把权威采集从 30 Hz 降到 10 Hz / 只采一台相机 / 降低分辨率。
+3. **后端重启**，让 `recorder.py` 的首帧边界与 `stale_capture_count` 生效。
+4. 录制配对链路增加“缺帧确定性处理”：在 `_dataset_observations` 达到上限前
+   就明确判定该帧不可配对并给出可诊断的失败原因，避免 5848/10971 次无意义拒绝。
+5. 保留 `DiagPerf`/`VideoDiagnostics` 计时开关（而不是常开），便于回归验证。

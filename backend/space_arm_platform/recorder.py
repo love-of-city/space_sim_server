@@ -37,6 +37,8 @@ class EpisodeRecorder:
         self._pending_captures: dict[str, list[tuple[dict[str, Any], dict[str, bytes]]]] = {}
         self._pending_capture_count = 0
         self._rejected_capture_count = 0
+        self._stale_capture_count = 0
+        self._first_observation_frame_id: int | None = None
         self._inflight_writes = 0
 
     @property
@@ -95,6 +97,8 @@ class EpisodeRecorder:
             self._dataset_captures.clear()
             self._dataset_error = None
             self._dataset_session = None
+            self._first_observation_frame_id = None
+            self._stale_capture_count = 0
             self._stopping = False
             self._sealing = False
             self._episode_id = episode_id
@@ -170,6 +174,7 @@ class EpisodeRecorder:
                 "step_count": self._step_index, "capture_count": self._capture_index,
                 "unmatched_capture_count": self._pending_capture_count,
                 "rejected_capture_count": self._rejected_capture_count,
+                "stale_capture_count": self._stale_capture_count,
                 "capture_sync": "complete" if not self._dataset_error else "incomplete",
             })
             self._write_json(metadata_path, metadata)
@@ -181,6 +186,7 @@ class EpisodeRecorder:
             self._steps_by_frame.clear()
             self._pending_captures.clear()
             self._pending_capture_count = 0
+            self._first_observation_frame_id = None
             return metadata
 
     def sync_status(self) -> dict[str, Any]:
@@ -189,6 +195,7 @@ class EpisodeRecorder:
                 "matched_capture_count": self._capture_index,
                 "pending_capture_count": self._pending_capture_count,
                 "rejected_capture_count": self._rejected_capture_count,
+                "stale_capture_count": self._stale_capture_count,
                 "inflight_write_count": self._inflight_writes,
                 "dataset_format": "lerobot-v3",
                 "dataset_frame_count": self._dataset.frames if self._dataset else 0,
@@ -208,6 +215,31 @@ class EpisodeRecorder:
                 self._episode_dir / "actions.jsonl",
                 {"record_wall_time_ns": str(time.time_ns()), **action.model_dump(mode="json")},
             )
+
+    def _discard_stale_captures_locked(self, minimum_frame_id: int) -> None:
+        """Drop captures that predate this recording's observation boundary.
+
+        UE can still be draining authoritative packets produced before an
+        episode starts. They share the same render session, but their frame IDs
+        cannot be paired with this episode's steps. Keeping them in the bounded
+        future-pairing map consumes the entire 128-entry window and falsely
+        reports RGB backpressure.
+        """
+        stale_keys = []
+        stale_count = 0
+        for frame_id, packets in self._pending_captures.items():
+            try:
+                is_stale = int(frame_id) < minimum_frame_id
+            except (TypeError, ValueError):
+                is_stale = False
+            if is_stale:
+                stale_keys.append(frame_id)
+                stale_count += len(packets)
+        for frame_id in stale_keys:
+            del self._pending_captures[frame_id]
+        if stale_count:
+            self._pending_capture_count -= stale_count
+            self._stale_capture_count += stale_count
 
     def record_observation(
         self,
@@ -235,6 +267,13 @@ class EpisodeRecorder:
                     "check UE capture/network output"
                 )
                 self._write_condition.notify_all()
+            try:
+                observation_frame_id = int(observation.render_frame_id)
+            except (TypeError, ValueError):
+                observation_frame_id = None
+            if observation_frame_id is not None and self._first_observation_frame_id is None:
+                self._first_observation_frame_id = observation_frame_id
+                self._discard_stale_captures_locked(observation_frame_id)
             self._step_index += 1
             self._steps_by_frame[observation.render_frame_id] = (
                 observation.step_id,
@@ -259,6 +298,13 @@ class EpisodeRecorder:
             # Bounded transport pairing window, separate from the selected samples.
             while len(self._steps_by_frame) > 512:
                 self._steps_by_frame.pop(next(iter(self._steps_by_frame)))
+            if self._steps_by_frame:
+                try:
+                    oldest_frame_id = min(int(frame_id) for frame_id in self._steps_by_frame)
+                except (TypeError, ValueError):
+                    oldest_frame_id = None
+                if oldest_frame_id is not None:
+                    self._discard_stale_captures_locked(oldest_frame_id)
             pending = self._pending_captures.pop(observation.render_frame_id, [])
             self._pending_capture_count -= len(pending)
         for metadata, products in pending:
@@ -289,6 +335,18 @@ class EpisodeRecorder:
             if not frame_id.isdecimal() or not sim_time_ns.isdecimal():
                 self._rejected_capture_count += 1
                 raise ValueError("authoritative capture is missing decimal source_frame_id/sim_time_ns")
+            frame_number = int(frame_id)
+            if self._first_observation_frame_id is not None and frame_number < self._first_observation_frame_id:
+                self._stale_capture_count += 1
+                return
+            if self._steps_by_frame:
+                try:
+                    oldest_frame_id = min(int(value) for value in self._steps_by_frame)
+                except (TypeError, ValueError):
+                    oldest_frame_id = None
+                if oldest_frame_id is not None and frame_number < oldest_frame_id:
+                    self._stale_capture_count += 1
+                    return
             step = self._steps_by_frame.get(frame_id)
             if step is not None:
                 matched_step = step

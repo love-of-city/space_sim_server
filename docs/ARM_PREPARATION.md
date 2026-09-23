@@ -38,7 +38,9 @@
 
 两次用户运行日志的直接错误为 `BasiliskError: Encountered NaN acceleration`，分别在仿真时间 72.341667 s 和 37.277083 s。随后启动器清理对应 UE 进程，外观容易误判为 UE 先崩溃。
 
-- 默认固定步长积分在当前 240 Hz 时钟下会出现 J6 数值发散，原生隔离测试可重现。正式运行改用 Basilisk `svIntegratorRKF45`，相对容差 1e-5、绝对容差 1e-6，在每个对外时间步内部控制积分误差。
+- 默认固定步长积分在当前 240 Hz 时钟下会出现 J6 数值发散，原生隔离测试可重现。正式运行改用 Basilisk `svIntegratorRKF45`，默认相对/绝对容差 1e-4，在每个对外时间步内部控制积分误差；如需更严格数值验收，
+可通过 `SPACE_SIM_RKF45_RELATIVE_TOLERANCE` 和
+`SPACE_SIM_RKF45_ABSOLUTE_TOLERANCE` 覆盖。
 - 保持 240 Hz 外层动力学/观测时钟、120 Hz 默认 IK、30 Hz 渲染/采样网格；不改变质量、惯量、阻尼、摩擦、PID、力矩限制或碰撞过滤，不裁剪实测状态来掩盖异常。
 - 更严格积分需要额外计算；到位时间报告为仿真时间，不保证等于墙钟时间，也不承诺 10 s。
 - UE 较早启动失败存在 `InstalledDerivedDataBackendGraph ... no writable nodes`。适配器项目将 Local 文件缓存改为可写，启动脚本预检查写权限并传给 UE 子进程；保留 Zen 快速路径及已有缓存，不用纯内存缓存、也不强制绕开 Zen 导致全量着色器重编译。

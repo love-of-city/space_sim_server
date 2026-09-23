@@ -1027,12 +1027,19 @@ def run(args: argparse.Namespace) -> None:
     native = load_native_grasp_module(args.model_root.resolve())
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     target_spec = capture_target(template_id)
-    native.MODEL_PATH = target_spec.resolve_model(args.model_root)
+    model_override = getattr(args, "model_path", None)
+    native.MODEL_PATH = (
+        Path(model_override).resolve()
+        if model_override is not None
+        else target_spec.resolve_model(args.model_root)
+    )
     if not native.MODEL_PATH.is_file():
         raise FileNotFoundError(f"Selected target scene is missing: {native.MODEL_PATH}")
     print(json.dumps({"type": "capture_target_configuration", "template_id": template_id,
                       "runtime_model": target_spec.runtime_model, "collision_model": target_spec.collision_model,
-                      "runtime_warning": target_spec.runtime_warning}, ensure_ascii=True), flush=True)
+                      "runtime_warning": target_spec.runtime_warning,
+                      "model_path": str(native.MODEL_PATH),
+                      "model_override": model_override is not None}, ensure_ascii=True), flush=True)
     native.TARGET_POS = np.asarray(target_spec.position_m, dtype=float)
     native.TARGET_QUAT = np.asarray(target_spec.orientation_wxyz, dtype=float)
     ik_step_stride(args.ik_rate)  # Reject stale 100 Hz scene configurations.
@@ -1148,7 +1155,13 @@ def _run_session(
         # Register the environmental models with the MJScene dynamics task.
         # Basilisk computes the accelerations and MJScene performs the unified
         # multibody integration together with joints and contact.
-        scene.extraEoMCall = True
+        # MJScene already performs the final forward-kinematics pass after an
+        # adaptive integration step. A second full equations-of-motion pass
+        # repeats gravity, controllers and contact work; forces are recomputed
+        # at the next integration stage. Keep it opt-in for diagnostics.
+        extra_eom_call = os.environ.get("SPACE_SIM_EXTRA_EOM_CALL", "0").strip().lower() not in {"0", "false", "off", "no"}
+        scene.extraEoMCall = extra_eom_call
+        print(json.dumps({"type": "native_extra_eom_configuration", "enabled": extra_eom_call}, sort_keys=True), flush=True)
         scene.AddModelToDynamicsTask(ephemeris, 20_000)
         gravity = NBodyGravity.NBodyGravity()
         gravity.ModelTag = "earthSunGravity"

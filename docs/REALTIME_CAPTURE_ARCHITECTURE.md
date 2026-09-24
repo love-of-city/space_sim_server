@@ -102,4 +102,5 @@ python tools/verify_realtime_capture.py `
 `run/realtime-capture-integrity-20260923.json`。这些是诊断数据，不是训练示范。
 本轮未修改生产认证数据库、未自动替换旧后台服务；更新生效需要完整重启平台。
 
-启动兼容性保护与后续计算优化见 `STARTUP_AND_RUNTIME_PERFORMANCE.md`。
+启动兼容性保护与后续计算优化的历史记录见
+[`2026_09_23_场景启动协议检查与计算优化.md`](../archive/2026_09_23_场景启动协议检查与计算优化.md)。

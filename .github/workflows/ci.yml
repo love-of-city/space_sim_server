@@ -24,16 +24,10 @@ jobs:
           path: space_sim_server
           lfs: true
           persist-credentials: false
-      - name: Read compatible adapter
-        id: companion
-        run: |
-          $pair = Get-Content docs/compatibility.json -Raw | ConvertFrom-Json
-          if ($pair.adapter.repository -ne 'love-of-city/space_sim_UE_Adapter' -or $pair.adapter.sha -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid adapter pin' }
-          "sha=$($pair.adapter.sha)" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@v4
         with:
           repository: love-of-city/space_sim_UE_Adapter
-          ref: ${{ steps.companion.outputs.sha }}
+          ref: main
           path: space_sim_UE_Adapter
           lfs: true
           persist-credentials: false

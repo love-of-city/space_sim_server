@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { once } from "node:events";
 import { PeerDeparture } from "./peer_departure.mjs";
 import { parseAllowedOrigins, isAllowedOrigin } from "./origin.mjs";
 import { URL } from "node:url";
@@ -259,6 +260,8 @@ playerServer.on("connection", (ws, request) => {
   }
 });
 
+// Construction starts asynchronous binds; ready must mean both peers can connect.
+await Promise.all([once(playerServer, "listening"), once(streamerServer, "listening")]);
 console.log(JSON.stringify({ event: "ready", playerHost, playerPort, streamerHost, streamerPort, secure: true }));
 const close = async () => {
   await Promise.all([

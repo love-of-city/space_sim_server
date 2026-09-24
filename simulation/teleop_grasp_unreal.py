@@ -770,6 +770,8 @@ def _apply_orbital_initial_state(
     target = scene.getBody("capture_target")
     bus.setPosition(orbital_position)
     bus.setVelocity(bus_velocity)
+    from space_arm_platform.task_box import initialize_free_plugs
+    initialize_free_plugs(scene, native.MODEL_PATH, orbital_position, bus_velocity)
     target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
     # Both free bodies use the same inertial frame.  The randomized
     # target velocity is only a local offset, not its full orbital speed.
@@ -1389,6 +1391,12 @@ def main() -> None:
                      "Unset the old environment override or select --ik-mode ik_pose.")
     if args.catalog is None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
+        if args.scene_instance and args.scene_instance.is_file():
+            selected_instance = json.loads(args.scene_instance.read_text(encoding="utf-8"))
+            if selected_instance.get("template_id") == "sarm-task-box-contacts":
+                catalog_name = "sarm_task_box.catalog.json"
+            elif selected_instance.get("template_id") == "sarm-task-box-free-plugs":
+                catalog_name = "sarm_task_box_plugs.catalog.json"
         args.catalog = args.adapter_root / "Unreal" / "BskUnrealRenderer" / "Saved" / "AssetImport" / catalog_name
     if (
         args.duration < 0

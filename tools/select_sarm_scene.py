@@ -14,7 +14,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
-from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, MESH_TARGET_TEMPLATE, capture_target
+from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, MESH_TARGET_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
 
 
 def fingerprint(path: Path) -> str:
@@ -35,6 +35,30 @@ def check_fingerprints(root: Path, entries: dict[str, str]):
             raise ValueError(f"Stale/modified scene dependency: {path}. Rebuild and validate the model; no template fallback is used.")
 
 
+def verified_source_tree(repository: Path, scene: Path) -> dict[str, str]:
+    """Flatten and validate generated scene provenance before composing modules."""
+    entries = {}
+
+    def visit(path: Path):
+        key = path.relative_to(repository).as_posix()
+        if key in entries:
+            return
+        entries[key] = fingerprint(path)
+        manifest_path = path.with_suffix('.manifest.json')
+        if path.suffix == '.xml' and manifest_path.is_file():
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            check_fingerprints(path.parent, {path.name: manifest['sha256']})
+            check_fingerprints(repository, manifest['sources'])
+            entries[manifest_path.relative_to(repository).as_posix()] = fingerprint(manifest_path)
+            for source in manifest['sources']:
+                visit((repository / source).resolve())
+
+    if not scene.with_suffix('.manifest.json').is_file():
+        raise FileNotFoundError(f'Missing upstream scene provenance: {scene}')
+    visit(scene)
+    return entries
+
+
 def selected_scene(model_root: Path, template_id: str = DEFAULT_TEMPLATE, check: bool = False) -> Path:
     model_root = model_root.resolve()
     path = capture_target(template_id).resolve_model(model_root)
@@ -42,6 +66,12 @@ def selected_scene(model_root: Path, template_id: str = DEFAULT_TEMPLATE, check:
         raise FileNotFoundError(f"Selected runtime XML is missing: {path}")
     if check:
         repository = model_root.parents[2]
+        if template_id in (TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE):
+            manifest_path = path.with_suffix('.manifest.json')
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            schema = 'task-box-free-plugs/1' if template_id == FREE_PLUG_TEMPLATE else 'task-box-module/1'
+            if manifest.get('schema') != schema or not manifest.get('sources'):
+                raise ValueError('Missing/unsupported task-box source manifest; rebuild and validate')
         if template_id == MESH_TARGET_TEMPLATE:
             manifest = json.loads(path.with_name("manifest.json").read_text(encoding="utf-8"))
             if manifest.get("schema") != "original-triangle-collision-trial/1":

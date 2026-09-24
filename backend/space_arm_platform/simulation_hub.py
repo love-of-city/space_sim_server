@@ -43,6 +43,9 @@ class SimulationHub:
         self._stream_acks = OrderedDict()
         self._transport_error = None
         self._duplicates = 0
+        self._capture_peer_id: str | None = None
+        self._capture_request: dict[str, Any] | None = None
+        self._capture_error: str | None = None
 
     @property
     def connected(self) -> bool:
@@ -128,6 +131,32 @@ class SimulationHub:
         self._latest_action = None
         self._latest_observation = None
 
+    @property
+    def capture_on_demand_supported(self) -> bool:
+        return "capture_on_demand_v1" in self._capabilities
+
+    async def set_capture_episode(self, episode_id: str, timeout: float = 15.0) -> None:
+        """Retain/replay the desired mode; acknowledge only at a render-frame boundary."""
+        if episode_id and (not self.connected or not self.capture_on_demand_supported):
+            raise RuntimeError("仿真未连接或不支持按需采集，请更新并重启场景")
+        packet = {"protocol": CONTROL_PROTOCOL, "type": "capture_control",
+                  "episode_id": episode_id, "request_id": uuid.uuid4().hex}
+        self._capture_request = packet
+        self._capture_error = None
+        try:
+            async with self._writer_lock:
+                if not self.connected or not self.capture_on_demand_supported:
+                    raise ConnectionError("仿真连接已断开，停止采集指令将在重连后重发")
+                await write_async(self._writer, packet)
+            async with self._condition:
+                await asyncio.wait_for(self._condition.wait_for(lambda:
+                    self._latest_observation is not None
+                    and self._latest_observation.capture_request_id == packet["request_id"]
+                    and self._latest_observation.capture_episode_id == episode_id), timeout)
+        except (TimeoutError, ConnectionError, OSError) as error:
+            self._capture_error = f"采集模式切换尚未确认: {error}"
+            raise RuntimeError(self._capture_error) from error
+
     async def publish_action(self, action: AppliedAction) -> bool:
         async with self._writer_lock:
             if self.resetting or not self.connected:
@@ -168,6 +197,10 @@ class SimulationHub:
         elif observation.reset_generation != self._generation:
             return
         self._latest_observation = observation
+        if (self._capture_request
+                and observation.capture_request_id == self._capture_request["request_id"]
+                and observation.capture_episode_id == self._capture_request["episode_id"]):
+            self._capture_error = None
         async with self._condition:
             self._revision += 1
             self._condition.notify_all()
@@ -201,6 +234,13 @@ class SimulationHub:
         async with self._writer_lock:
             previous = self._writer
             self._writer = writer
+            if self._capture_peer_id != (stream_id or hello.simulation_id) and self._capture_request:
+                # A different simulator must never inherit a live episode.
+                if self._capture_request["episode_id"] and self.on_transport_error:
+                    self.on_transport_error("simulation peer changed during strict capture")
+                self._capture_request = {"protocol": CONTROL_PROTOCOL, "type": "capture_control",
+                                         "episode_id": "", "request_id": uuid.uuid4().hex}
+            self._capture_peer_id = stream_id or hello.simulation_id
             self._simulation_id = hello.simulation_id
             self._capabilities = set(hello.capabilities)
             self._generation = hello.reset_generation
@@ -217,6 +257,11 @@ class SimulationHub:
                         self._stream_acks.popitem(last=False)
                     await self._ack(writer, stream_id, self._stream_acks[stream_id], "observation_ready")
             async with self._writer_lock:
+                if writer is self._writer and self.capture_on_demand_supported:
+                    if self._capture_request is None:
+                        self._capture_request = {"protocol": CONTROL_PROTOCOL, "type": "capture_control",
+                                                 "episode_id": "", "request_id": uuid.uuid4().hex}
+                    await write_async(writer, self._capture_request)
                 if writer is self._writer and self.resetting and self._reset_sent:
                     await write_async(writer, self._reset_packet())
             while True:
@@ -263,6 +308,9 @@ class SimulationHub:
         observation = self.latest_observation
         return {
             "connected": self.connected,
+            "capture_on_demand_supported": self.capture_on_demand_supported,
+            "capture_episode_id": observation.capture_episode_id if observation else "",
+            "capture_control_error": self._capture_error,
             "reliable_observations": "reliable_observations_v1" in self._capabilities,
             "observation_transport_error": self._transport_error,
             "observation_replays_deduplicated": self._duplicates,

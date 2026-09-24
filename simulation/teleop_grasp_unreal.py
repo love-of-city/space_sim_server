@@ -1028,7 +1028,9 @@ def _run_session(
         )
         dataset_capture = bool(scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True))
         bridge = BasiliskRenderBridge(
-            reliable_frames=dataset_capture,
+            reliable_frames=False,
+            capture_state_provider=(client.capture_state if dataset_capture else
+                                    lambda: {"capture_episode_id": "", "capture_request_id": ""}),
             host=args.render_host,
             port=args.render_port,
             origin_object="teleop/cubesat_bus",
@@ -1099,6 +1101,7 @@ def _run_session(
                     "simulation_id": "sarm-teleop",
                     "reset_generation": client.reset_generation,
                     "render_session_id": bridge.session_id,
+                    **bridge.last_capture_state,
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
                     "scene_seed": scene_instance.get("seed") if scene_instance else None,
                     "capture_target": {

@@ -28,7 +28,14 @@ def test_health_and_episode_lifecycle(tmp_path) -> None:
     with TestClient(app) as client:
         login_admin(client)
         assert client.get("/api/health").json()["ok"] is True
-        started = client.post("/api/episodes/start", json={"instruction": "test"})
+        # Camera capture now requires a connected on-demand-capable simulator.
+        rejected = client.post("/api/episodes/start", json={"instruction": "test"})
+        assert rejected.status_code == 409
+        assert client.get("/api/state").json()["active_episode"] is None
+        assert app.state.recorder.episode_id is None
+        assert not list(tmp_path.glob("episode-*"))
+        # This isolated API fixture records only state, without a UE peer.
+        started = client.post("/api/episodes/start", json={"instruction": "test", "camera_ids": []})
         assert started.status_code == 200
         assert client.get("/api/state").json()["active_episode"]
         stopped = client.post("/api/episodes/stop", json={"outcome": "success"})

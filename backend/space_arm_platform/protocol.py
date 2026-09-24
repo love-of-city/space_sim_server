@@ -12,7 +12,7 @@ from typing import Any
 HEADER = struct.Struct("!I")
 MAX_PACKET_BYTES = 8 * 1024 * 1024
 CONTROL_PROTOCOL = "space-arm-control/1"
-RUNTIME_CAPABILITIES = ("reliable_observations_v1", "capture_ack_v1")
+RUNTIME_CAPABILITIES = ("reliable_observations_v1", "capture_ack_v1", "capture_on_demand_v1")
 
 
 def encode_packet(message: dict[str, Any]) -> bytes:

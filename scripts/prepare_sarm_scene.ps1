@@ -17,9 +17,19 @@ $selected = @(& $pythonExe @selectionArgs)
 if ($LASTEXITCODE -ne 0 -or $selected.Count -ne 1) { throw 'Selected SARM scene/assets failed validation; see the model diagnostic above.' }
 $scene = [string]$selected[0]
 $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
+$catalogName = 'sarm_platform.catalog.json'
+$destination = '/Game/BSK/Generated/SARM'
+if ($TemplateId -eq 'sarm-task-box-contacts') {
+    $catalogName = 'sarm_task_box.catalog.json'
+    $destination = '/Game/BSK/Generated/TaskBox'
+}
+if ($TemplateId -eq 'sarm-task-box-free-plugs') {
+    $catalogName = 'sarm_task_box_plugs.catalog.json'
+    $destination = '/Game/BSK/Generated/TaskBoxPlugs'
+}
 if (!(Test-Path -LiteralPath $scene -PathType Leaf)) { throw "Selected scene is missing: $scene" }
 & (Join-Path $ueProject 'scripts\prepare_mjcf_assets.ps1') `
-    -MjcfPath $scene -Destination '/Game/BSK/Generated/SARM' `
-    -CatalogPath (Join-Path $ueProject 'Saved\AssetImport\sarm_platform.catalog.json') `
+    -MjcfPath $scene -Destination $destination `
+    -CatalogPath (Join-Path $ueProject "Saved\AssetImport\$catalogName") `
     -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$Force
 if ($LASTEXITCODE -ne 0) { throw 'SARM and articulated capture-target asset preparation failed.' }

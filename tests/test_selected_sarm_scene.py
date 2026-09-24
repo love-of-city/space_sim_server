@@ -10,7 +10,7 @@ from space_arm_platform.control_defaults import BALANCED_TELEOP_PROFILE
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 from space_arm_platform.scene_targets import (
     DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, LEGACY_TEMPLATE,
-    MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, capture_target,
+    MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +21,8 @@ spec.loader.exec_module(selector)
 
 
 @pytest.mark.parametrize("template,relative,collision", [
+    (FREE_PLUG_TEMPLATE, "model/SARM/platform/sarm_task_box_plugs.xml", "local_task_box_free_plugs"),
+    (TASK_BOX_TEMPLATE, "model/SARM/platform/sarm_task_box_module.xml", "local_task_box_triangle_contacts"),
     (SELF_COLLISION_TEMPLATE, "model/SARM/platform/sarm_ground_target_self_collision.xml", "coarse_boxes_with_target_self_collision"),
     (MESH_TARGET_TEMPLATE, "model/ground_validation_satellite/mesh_collision_trial/sarm_mesh_collision.xml",
      "original_triangle_rigid_flex"),
@@ -37,7 +39,7 @@ def test_template_resolves_exact_existing_model_and_persists_collision_identity(
     metadata = instance["capture_target"]
     assert metadata["runtime_model"] == relative
     assert metadata["collision_model"] == collision
-    assert bool(metadata["runtime_warning"]) == (template in (MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE))
+    assert bool(metadata["runtime_warning"]) == (template in (MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE))
     saved = json.loads(Path(instance["config_path"]).read_text(encoding="utf-8"))
     assert saved["capture_target"] == metadata
     assert saved["template_id"] == template
@@ -48,7 +50,7 @@ def test_default_changes_collision_only_not_seeded_layout_or_saved_compatibility
     catalog = manager.catalog()
     assert catalog["defaults"]["template_id"] == DEFAULT_TEMPLATE == SELF_COLLISION_TEMPLATE
     assert catalog["templates"][0]["id"] == DEFAULT_TEMPLATE
-    assert {t["id"] for t in catalog["templates"]} == {SELF_COLLISION_TEMPLATE, MESH_TARGET_TEMPLATE, GROUND_TARGET_TEMPLATE, LEGACY_TEMPLATE}
+    assert {t["id"] for t in catalog["templates"]} == {SELF_COLLISION_TEMPLATE, MESH_TARGET_TEMPLATE, GROUND_TARGET_TEMPLATE, LEGACY_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE}
     assert "内部碰撞" in catalog["templates"][0]["label"]
     for randomization_profile in ("none", "training-v1", BALANCED_TELEOP_PROFILE):
         args = dict(seed=42, randomize_orbit_phase=True, randomization_profile=randomization_profile)

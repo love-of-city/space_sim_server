@@ -506,6 +506,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     def recording_request(payload: EpisodeStart, instance: dict | None) -> EpisodeStart:
         if instance is None:
             return payload
+        if instance.get("arm_preparation_required"):
+            from .preparation_planning import preparation_ready_for_recording
+            if not preparation_ready_for_recording(instance, hub.status()):
+                raise RuntimeError("机械臂尚未实测稳定到达操作姿态，不能开始任务采集")
         runtime = instance.get("runtime", {})
         if payload.camera_ids and not runtime.get("dataset_capture", False):
             raise RuntimeError("当前场景未启用权威相机采集，请启用数据集采集后重新创建场景")

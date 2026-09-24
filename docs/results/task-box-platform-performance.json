@@ -1,0 +1,108 @@
+{
+  "scope": "Two rounds, same saved initial configuration. First short warm-up, second after simulation time >=60s. Background load not fully isolated; not input-to-photon latency.",
+  "configuration": {
+    "dynamics_hz": 240,
+    "ik_hz": 120,
+    "capture_hz": 30,
+    "camera_resolution": [
+      640,
+      360
+    ],
+    "camera_count": 2
+  },
+  "hardware": {
+    "cpu": "Intel Core Ultra 9 285H",
+    "gpu": "NVIDIA RTX 5060 Laptop"
+  },
+  "short_warmup_results": {
+    "baseline": {
+      "log": "benchmark-taskbox-baseline.simulation.out.log",
+      "recorded_at_unix_s": 1790188551.1372092,
+      "wall_s": 30.15700000000652,
+      "simulated_s": 20.0,
+      "wall_real_time_factor": 0.6631959412406963,
+      "render_dispatch_hz": 19.895878237220888,
+      "max_execute_frame_ms": 79.00000002700835,
+      "max_render_backlog": 1,
+      "rtf_window_range": [
+        0.6491785904204627,
+        0.68
+      ],
+      "simulation_execute_fraction": 0.9936996385581361,
+      "window_count": 6
+    },
+    "fixed": {
+      "log": "benchmark-taskbox-fixed.simulation.out.log",
+      "recorded_at_unix_s": 1790188666.1304603,
+      "wall_s": 30.18699999997625,
+      "simulated_s": 12.466666667000002,
+      "wall_real_time_factor": 0.4129813054298145,
+      "render_dispatch_hz": 12.389439162563164,
+      "max_execute_frame_ms": 155.9999999590218,
+      "max_render_backlog": 1,
+      "rtf_window_range": [
+        0.3379049890666226,
+        0.4800000000000001
+      ],
+      "simulation_execute_fraction": 0.9876436876813361,
+      "window_count": 6
+    },
+    "plugs": {
+      "log": "benchmark-taskbox-plugs.simulation.out.log",
+      "recorded_at_unix_s": 1790188783.401219,
+      "wall_s": 30.26600000000326,
+      "simulated_s": 13.866666667,
+      "wall_real_time_factor": 0.45815987137376946,
+      "render_dispatch_hz": 13.74479614088268,
+      "max_execute_frame_ms": 157.00000000651926,
+      "max_render_backlog": 1,
+      "rtf_window_range": [
+        0.2857522595691923,
+        0.5812033552581914
+      ],
+      "simulation_execute_fraction": 0.9979514967278645,
+      "window_count": 6
+    }
+  },
+  "long_warmup_results": {
+    "baseline": {
+      "scope": "Record fresh platform runtime windows, excluding previous/startup samples.\n\nStart only after asset import and warm-up finish. This is simulation/render\ndispatch throughput, not browser input-to-photon latency or decoded video FPS.\n",
+      "log": "scene-20260923-202707-67714049.simulation.out.log",
+      "recorded_at_unix_s": 1790189031.9279304,
+      "wall_s": 30.04700000002049,
+      "simulated_s": 31.466666667000002,
+      "wall_real_time_factor": 1.0472482000525358,
+      "render_dispatch_hz": 31.417446001243263,
+      "max_execute_frame_ms": 78.00000003771856,
+      "max_render_backlog": 1,
+      "processing_real_time_factor": 1.0576319799328144,
+      "window_count": 6
+    },
+    "fixed": {
+      "scope": "Record fresh platform runtime windows, excluding previous/startup samples.\n\nStart only after asset import and warm-up finish. This is simulation/render\ndispatch throughput, not browser input-to-photon latency or decoded video FPS.\n",
+      "log": "benchmark-taskbox-fixed-warm.simulation.out.log",
+      "recorded_at_unix_s": 1790189200.1938276,
+      "wall_s": 30.18700000003446,
+      "simulated_s": 18.500000000000004,
+      "wall_real_time_factor": 0.6128465895908466,
+      "processing_real_time_factor": 0.6141282698178671,
+      "render_dispatch_hz": 18.385397687725394,
+      "max_execute_frame_ms": 157.00000000651926,
+      "max_render_backlog": 1,
+      "window_count": 6
+    },
+    "plugs": {
+      "scope": "Record fresh platform runtime windows, excluding previous/startup samples.\n\nStart only after asset import and warm-up finish. This is simulation/render\ndispatch throughput, not browser input-to-photon latency or decoded video FPS.\n",
+      "log": "benchmark-taskbox-plugs-warm.simulation.out.log",
+      "recorded_at_unix_s": 1790189466.5035715,
+      "wall_s": 30.35999999998603,
+      "simulated_s": 10.266666667,
+      "wall_real_time_factor": 0.33816425121886445,
+      "processing_real_time_factor": 0.338521058658894,
+      "render_dispatch_hz": 10.144927536236553,
+      "max_execute_frame_ms": 172.0000000204891,
+      "max_render_backlog": 1,
+      "window_count": 6
+    }
+  }
+}

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import gc
+import hashlib
 import json
 import math
 import os
@@ -54,7 +55,7 @@ from space_arm_platform.lighting import (  # noqa: E402
 
 
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
-from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG
+from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG, AUTO_PREPARE_TELEOP_PROFILE
 from simulation.arm_preparation import ArmPreparation
 from space_arm_platform.joint_limits import load_joint_limits
 from simulation.motion_diagnostics import MotionSpeedMonitor
@@ -249,6 +250,14 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
         goal = np.deg2rad(np.asarray(document.get("operating_arm_joint_position_deg", DEFAULT_OPERATING_JOINT_DEG), dtype=float))
         if goal.shape != (6,) or not np.all(np.isfinite(goal)) or np.any(goal < np.asarray(scene_limits.lower[:6])) or np.any(goal > np.asarray(scene_limits.upper[:6])):
             raise ValueError("invalid saved operating joint angles")
+    if document.get("randomization_profile") == AUTO_PREPARE_TELEOP_PROFILE:
+        from simulation.preparation_contract import validate_preparation_plan
+        if document.get("arm_preparation_required") is not True:
+            raise ValueError("automatic preparation cannot bypass the ready gate")
+        plan = document.get("arm_preparation_plan")
+        validate_preparation_plan(plan, document["operating_arm_joint_position_deg"])
+        if plan.get("model_sha256") != hashlib.sha256(scene_model.read_bytes()).hexdigest():
+            raise ValueError("preparation model changed; recreate the scene and validate its path")
     if target.hinge_joint:
         angle = randomization.get("target_hinge_position_rad", 0.0)
         if isinstance(angle, bool) or not isinstance(angle, (int, float)) or not math.isfinite(angle) or angle != 0.0:
@@ -274,6 +283,7 @@ class CartesianTeleopTarget:
         elbow_preference: OnlineElbowPreference | None = None,
         preparation_required: bool = False,
         operating_joint_deg=None,
+        preparation_plan=None,
     ) -> None:
         if ik_mode not in IK_MODES:
             raise ValueError(f"unsupported IK mode {ik_mode!r}; expected one of {IK_MODES}")
@@ -308,7 +318,8 @@ class CartesianTeleopTarget:
         self.preparation = ArmPreparation(
             preparation_required,
             np.deg2rad(DEFAULT_OPERATING_JOINT_DEG if operating_joint_deg is None else operating_joint_deg),
-            self.joint_min[:6], self.joint_max[:6], ARM_JOINT_VELOCITY_LIMIT)
+            self.joint_min[:6], self.joint_max[:6], ARM_JOINT_VELOCITY_LIMIT,
+            plan=preparation_plan)
         self.speed_monitor = MotionSpeedMonitor()
         self.solver_status = "idle"
         self.solver_reasons = []
@@ -458,7 +469,8 @@ class CartesianTeleopTarget:
             except (ValueError, TypeError, RuntimeError):
                 measured = measured_velocity = np.full(6, np.nan)
             preparation_reference = self.preparation.step(
-                dt, action, stale, self.position[:6], measured, measured_velocity)
+                dt, action, stale, self.position[:6], measured, measured_velocity,
+                snapshot={"effort_ratio": self._effort_provider() if self._effort_provider else np.zeros(6)})
             if preparation_reference is not None:
                 self.position[:6], self.velocity[:6] = preparation_reference
                 self.velocity[6:] = 0.
@@ -758,6 +770,8 @@ def _apply_orbital_initial_state(
     target = scene.getBody("capture_target")
     bus.setPosition(orbital_position)
     bus.setVelocity(bus_velocity)
+    from space_arm_platform.task_box import initialize_free_plugs
+    initialize_free_plugs(scene, native.MODEL_PATH, orbital_position, bus_velocity)
     target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
     # Both free bodies use the same inertial frame.  The randomized
     # target velocity is only a local offset, not its full orbital speed.
@@ -901,6 +915,7 @@ def _run_session(
         joint_limits=load_joint_limits(native.MODEL_PATH, SARM_JOINT_NAMES),
         preparation_required=scene_instance.get("arm_preparation_required", False) if scene_instance else False,
         operating_joint_deg=scene_instance.get("operating_arm_joint_position_deg", DEFAULT_OPERATING_JOINT_DEG) if scene_instance else DEFAULT_OPERATING_JOINT_DEG,
+        preparation_plan=scene_instance.get("arm_preparation_plan") if scene_instance else None,
     )
     # Display-only metadata, prepared once from the exact limits used by this session.
     arm_joint_limits_rad = [
@@ -1376,6 +1391,12 @@ def main() -> None:
                      "Unset the old environment override or select --ik-mode ik_pose.")
     if args.catalog is None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
+        if args.scene_instance and args.scene_instance.is_file():
+            selected_instance = json.loads(args.scene_instance.read_text(encoding="utf-8"))
+            if selected_instance.get("template_id") == "sarm-task-box-contacts":
+                catalog_name = "sarm_task_box.catalog.json"
+            elif selected_instance.get("template_id") == "sarm-task-box-free-plugs":
+                catalog_name = "sarm_task_box_plugs.catalog.json"
         args.catalog = args.adapter_root / "Unreal" / "BskUnrealRenderer" / "Saved" / "AssetImport" / catalog_name
     if (
         args.duration < 0

@@ -46,7 +46,7 @@ test("actual isolated signalling server enforces player Origin and gives both pe
   const secret = "isolated-test-jwt-secret";
   const childEnvironment = {...process.env};
   delete childEnvironment.NODE_TEST_CONTEXT; // A service child is not a Node test worker.
-  const child = spawn(process.execPath, ["server.mjs"], {
+  const child = spawn(process.execPath, ["--import", "./tests/fixtures/delayed-listen.mjs", "server.mjs"], {
     cwd: fileURLToPath(new URL("..", import.meta.url)), windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
     env: {...childEnvironment, PS_PLAYER_HOST: "127.0.0.1", PS_PLAYER_PORT: String(playerPort),

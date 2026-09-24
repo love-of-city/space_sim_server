@@ -199,10 +199,11 @@ def test_joint_layout_change_fails_recording(tmp_path):
 
 
 def test_api_finishes_native_dataset_and_schedules_only_valid_archive(tmp_path):
-    from pathlib import Path
     from fastapi.testclient import TestClient
     from space_arm_platform.app import PlatformConfig, create_app
-    app = create_app(PlatformConfig(project_root=Path(__file__).resolve().parents[1],
+    project_root = tmp_path / 'project'
+    (project_root / 'frontend').mkdir(parents=True)
+    app = create_app(PlatformConfig(project_root=project_root,
                                    data_root=tmp_path / "episodes", simulation_port=0, capture_port=0))
     with TestClient(app) as client:
         assert client.post("/api/auth/login", json={"username": "admin", "password": "ChangeMe123!"}).status_code == 200

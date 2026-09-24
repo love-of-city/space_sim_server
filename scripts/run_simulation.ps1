@@ -34,6 +34,15 @@ if (!$ModelRoot) {
     throw 'SARM model was not found in this repository or the legacy workspace/adapter locations. Pass -ModelRoot explicitly.'
 }
 $catalog = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_platform.catalog.json' } else { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\cubesat_so101.catalog.json' }
+if ($SceneInstancePath) {
+    $selectedInstance = Get-Content -Raw -LiteralPath $SceneInstancePath | ConvertFrom-Json
+    if ($selectedInstance.template_id -eq 'sarm-task-box-contacts') {
+        $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_task_box.catalog.json'
+    }
+    if ($selectedInstance.template_id -eq 'sarm-task-box-free-plugs') {
+        $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_task_box_plugs.catalog.json'
+    }
+}
 $scenario = Join-Path $projectRoot 'simulation\teleop_grasp_unreal.py'
 $env:PYTHONPATH = @(
     (Join-Path $projectRoot 'backend'),

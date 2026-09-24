@@ -24,12 +24,12 @@ from .control_defaults import (
     BALANCED_TELEOP_HOME,
     BALANCED_TELEOP_JOINT_SPANS,
     BALANCED_TELEOP_PROFILE,
-    DEFAULT_RANDOMIZATION_PROFILE,
+    AUTO_PREPARE_TELEOP_PROFILE,
     ELBOW_UP_TELEOP_PROFILE,
     LEGACY_PREGRASP,
     ZERO_START_TELEOP_PROFILE, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG,
 )
-from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, capture_target
+from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
 
 
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -37,6 +37,18 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
         "id": SELF_COLLISION_TEMPLATE,
         "label": "SARM + 地面验证星（粗碰撞体·内部碰撞）",
         "description": "默认启用外侧板与本体/内侧板接触；" + capture_target(SELF_COLLISION_TEMPLATE).runtime_warning,
+        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
+    },
+    {
+        "id": TASK_BOX_TEMPLATE,
+        "label": "本地任务盒（接触验证·固定装配）",
+        "description": capture_target(TASK_BOX_TEMPLATE).runtime_warning,
+        "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
+    },
+    {
+        "id": FREE_PLUG_TEMPLATE,
+        "label": "本地任务盒（两个活动插头·实验）",
+        "description": capture_target(FREE_PLUG_TEMPLATE).runtime_warning,
         "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
     },
     {
@@ -60,6 +72,11 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
 )
 
 RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
+    {
+        "id": AUTO_PREPARE_TELEOP_PROFILE,
+        "label": "零位启动并自动展开",
+        "description": "六轴从零位沿检查后的路径运动到操作姿态，实测稳定后开放遥操作。",
+    },
     {
         "id": ZERO_START_TELEOP_PROFILE,
         "label": "指定操作姿态直接启动",
@@ -207,6 +224,9 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             math.radians(value) for value in request.operating_arm_joint_position_deg
         ]
 
+    if request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE:
+        randomization["arm_joint_position_rad"] = list(ZERO_TELEOP_HOME)
+
     if target.hinge_joint:
         randomization["target_hinge_position_rad"] = 0.0
 
@@ -224,7 +244,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
         "initial_arm_joint_position_deg": request.initial_arm_joint_position_deg,
-        "arm_preparation_required": False,
+        "arm_preparation_required": request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE,
         "operating_arm_joint_position_deg": list(request.operating_arm_joint_position_deg),
         "seed": seed,
         "capture_target": {
@@ -273,6 +293,7 @@ class SceneRuntimeManager:
         self._stderr = None
         self._lock = threading.RLock()
         self._last_instance: dict[str, Any] | None = None
+        self._launched_instance: dict[str, Any] | None = None
         self.scene_root.mkdir(parents=True, exist_ok=True)
         self.log_root.mkdir(parents=True, exist_ok=True)
 
@@ -306,7 +327,7 @@ class SceneRuntimeManager:
             "templates": templates,
             "initial_arm_presets_deg": {
                 profile["id"]: [math.degrees(value) for value in (
-                    ZERO_TELEOP_HOME if profile["id"] == ZERO_START_TELEOP_PROFILE else BALANCED_TELEOP_HOME if profile["id"] in {BALANCED_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE} else LEGACY_PREGRASP
+                    ZERO_TELEOP_HOME if profile["id"] in {ZERO_START_TELEOP_PROFILE, AUTO_PREPARE_TELEOP_PROFILE} else BALANCED_TELEOP_HOME if profile["id"] in {BALANCED_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE} else LEGACY_PREGRASP
                 )[:6]] for profile in RANDOMIZATION_PROFILES
             },
             "randomization_profiles": list(RANDOMIZATION_PROFILES),
@@ -314,7 +335,7 @@ class SceneRuntimeManager:
                 "operating_arm_joint_position_deg": list(DEFAULT_OPERATING_JOINT_DEG),
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
                 "template_id": DEFAULT_TEMPLATE,
-                "randomization_profile": DEFAULT_RANDOMIZATION_PROFILE,
+                "randomization_profile": AUTO_PREPARE_TELEOP_PROFILE,
                 "randomize_orbit_phase": False,
                 "simulation_rate": self.launch.simulation_rate if self.launch else 1.0,
                 "capture_rate_hz": self.launch.capture_rate if self.launch else DEFAULT_CAPTURE_HZ,
@@ -328,7 +349,7 @@ class SceneRuntimeManager:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
-        if request.randomization_profile == ZERO_START_TELEOP_PROFILE and request.initial_arm_joint_position_deg is not None:
+        if request.randomization_profile in {ZERO_START_TELEOP_PROFILE, AUTO_PREPARE_TELEOP_PROFILE} and request.initial_arm_joint_position_deg is not None:
             raise ValueError("指定操作姿态直接启动配置使用 operating_arm_joint_position_deg，不再接受单独的初始角度")
         limits = self._initial_arm_limits(request.template_id)
         for index, (value, lo, hi) in enumerate(zip(request.operating_arm_joint_position_deg, limits.lower, limits.upper, strict=True), 1):
@@ -344,6 +365,12 @@ class SceneRuntimeManager:
                     raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
+        if request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE:
+            from .preparation_planning import prepare_arm_plan
+            model_root = self.launch.model_root if self.launch else self.project_root / "model/SARM/platform"
+            model_path = capture_target(request.template_id).resolve_model(model_root)
+            instance["arm_preparation_plan"] = prepare_arm_plan(
+                model_path, instance["randomization"], instance["operating_arm_joint_position_deg"])
         if request.randomization_profile == ELBOW_UP_TELEOP_PROFILE:
             from .ik_initialization import prepare_initial_posture
             if request.initial_arm_joint_position_deg is not None:
@@ -418,6 +445,7 @@ class SceneRuntimeManager:
                 self._close_logs()
                 self._process = None
                 raise RuntimeError(f"unable to launch scene supervisor: {error}") from error
+            self._launched_instance = instance
             return {**instance, "phase": "launching", "launcher_pid": self._process.pid}
 
     def stop(self) -> dict[str, Any]:
@@ -444,6 +472,7 @@ class SceneRuntimeManager:
                     self._process.kill()
             self._close_logs()
             self._process = None
+            self._launched_instance = None
             return self.status()
 
     def status(self) -> dict[str, Any]:
@@ -455,6 +484,14 @@ class SceneRuntimeManager:
                 except (OSError, ValueError):
                     state = {"phase": "unknown", "error": "scene runtime state is unreadable"}
             process_running = self._process is not None and self._process.poll() is None
+            if self._process is not None and self._launched_instance is not None:
+                reported_id = (state.get("instance") or {}).get("instance_id")
+                if reported_id != self._launched_instance["instance_id"]:
+                    state = {
+                        "phase": "launching",
+                        "instance": self._launched_instance,
+                        "launcher_pid": self._process.pid,
+                    }
             if self._process is not None and not process_running:
                 state.setdefault("launcher_exit_code", self._process.returncode)
                 if state.get("phase") in {"launching", "starting_renderer", "starting_simulation", "running"}:

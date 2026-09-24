@@ -177,9 +177,10 @@
           </label>
           <small id="sceneSunlightHelp">0～20,000 倍；约 12,500 倍对应 100,000 lux 参考照度，1 保持当前标定，0 关闭太阳直接照明。仅影响渲染，不改变轨道与动力学。</small>
           <label class="scene-checkbox">
-            <input id="sceneDatasetCapture" type="checkbox">
-            <span>启用 LeRobot v3 权威 RGB / 深度 / 分割采集</span>
+            <input id="sceneDatasetCapture" type="checkbox" aria-describedby="sceneDatasetCaptureHelp">
+            <span>启用 LeRobot v3 权威 RGB 采集能力</span>
           </label>
+          <small id="sceneDatasetCaptureHelp">未开始采集时仅预览；点击“开始采集”后才开启严格截图与记录，结束后恢复预览。</small>
         </div>
         <div class="scene-actions">
           <button id="startScene" class="primary" type="button">生成并启动场景</button>

@@ -39,6 +39,7 @@ class SimulationControlClient:
         self._peer_ready = False
         self._transport_error = None
         self._reconnects = 0
+        self._capture_state = {"capture_episode_id": "", "capture_request_id": ""}
 
 
     @property
@@ -76,6 +77,11 @@ class SimulationControlClient:
             connection.close()
         if self._thread:
             self._thread.join(timeout=2.0)
+
+    def capture_state(self) -> dict[str, str]:
+        """Sampled once by the render bridge, then shared with its observation."""
+        with self._lock:
+            return dict(self._capture_state)
 
     def latest_action(self) -> tuple[dict[str, Any], bool]:
         with self._lock:
@@ -119,6 +125,13 @@ class SimulationControlClient:
 
     def _accept_message(self, message: dict[str, Any]) -> None:
         with self._lock:
+            if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") == "capture_control":
+                episode = message.get("episode_id")
+                request = message.get("request_id")
+                if (isinstance(episode, str) and len(episode) <= 128
+                        and isinstance(request, str) and 1 <= len(request) <= 64):
+                    self._capture_state = {"capture_episode_id": episode, "capture_request_id": request}
+                return
             if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") in {"observation_ack", "observation_ready"}:
                 if message.get("observation_stream_id") != self._stream_id:
                     raise ValueError("observation ACK belongs to another stream")
@@ -187,7 +200,7 @@ class SimulationControlClient:
                     hello = {"protocol": CONTROL_PROTOCOL, "type": "sim_hello", "simulation_id": self.simulation_id,
                              "reset_generation": self._reset_generation, "observation_stream_id": self._stream_id,
                              "observation_resume_after": str(self._acked_sequence),
-                             "capabilities": ["reliable_observations_v1", "scene_reset", "arm_preparation",
+                             "capabilities": ["reliable_observations_v1", "capture_on_demand_v1", "scene_reset", "arm_preparation",
                                  "cartesian_twist_6d", "damped_least_squares_ik", "gripper_velocity",
                                  "joint_observation", "cartesian_observation", "sarm_si_joint_observation",
                                  "reaction_wheel_attitude_control"]}

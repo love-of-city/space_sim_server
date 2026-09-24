@@ -17,7 +17,8 @@
     "tests/test_step_to_mjcf.py": "Optional OCP/numba CAD toolchain",
     "tests/test_satellite_component_review.py": "Generated CAD review artifacts",
     "tests/test_satellite_wing_joint.py": "Generated CAD wing artifacts",
-    "tests/test_public_gateway_integration.py": "External Caddy binary"
+    "tests/test_public_gateway_integration.py": "External Caddy binary",
+    "tests/test_capture_on_demand_renderer.py": "Opt-in real UE 5.6/GPU RGB smoke test requiring SPACE_SIM_UE_CAPTURE_SMOKE=1 and UE56_ROOT; basic CI does not install Unreal. Run separately for renderer acceptance."
   },
   "nodes": {
     "tests/test_arm_preparation.py::test_live_target_waits_and_resets_with_real_chain": "Basilisk live runtime",

@@ -24,6 +24,9 @@
     },
     {
       "$ref": "#/$defs/backendCapabilities"
+    },
+    {
+      "$ref": "#/$defs/captureControl"
     }
   ],
   "$defs": {
@@ -609,6 +612,14 @@
             "observation_sequence": {
               "type": "string",
               "pattern": "^[0-9]+$"
+            },
+            "capture_episode_id": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "capture_request_id": {
+              "type": "string",
+              "maxLength": 64
             }
           }
         },
@@ -1114,6 +1125,35 @@
         "capabilities"
       ],
       "additionalProperties": false
+    },
+    "captureControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "episode_id",
+            "request_id"
+          ],
+          "properties": {
+            "type": {
+              "const": "capture_control"
+            },
+            "episode_id": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "Empty disables strict capture; nonempty labels every strict render frame and RGB product."
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      ]
     }
   }
 }

@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from .capture_lifecycle import CaptureLifecycle
 from .auth import AuthError, AuthStore, SESSION_COOKIE
 from .capture_receiver import CaptureReceiver
 from .jobs import JobManager
@@ -161,6 +162,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     tasks = TaskStore(config.data_root.parent / "tasks")
     safety = SafetyController(config.deadman_timeout_s)
     hub = SimulationHub()
+    capture_lifecycle = CaptureLifecycle(hub, recorder)
     sessions = OperatorSessions()
 
     def record_current_capture(metadata: dict[str, Any], products: dict[str, bytes]) -> None:
@@ -236,7 +238,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 neutral = safety.neutral(recorder.episode_id, "backend_shutdown")
                 await asyncio.to_thread(recorder.record_action, neutral)
                 await hub.publish_action(neutral)
-                closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="backend shutdown"))
+                closed = await capture_lifecycle.stop(EpisodeStop(outcome="aborted", note="backend shutdown"))
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
             await asyncio.to_thread(scenes.close)
@@ -250,6 +252,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     app.state.config = config
     app.state.auth = auth
     app.state.recorder = recorder
+    app.state.capture_lifecycle = capture_lifecycle
     app.state.safety = safety
     app.state.hub = hub
     app.state.captures = captures
@@ -449,7 +452,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     @app.post("/api/scenes/start")
     async def start_scene(payload: SceneInstanceCreate, request: Request) -> dict[str, Any]:
         user = current_user(request)
-        if recorder.episode_id:
+        if recorder.episode_id or capture_lifecycle.busy:
             raise HTTPException(status_code=409, detail="stop the active episode before starting another scene")
         creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
         try:
@@ -467,7 +470,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="只能重置自己创建的场景")
         if status.get("phase") != "running":
             raise HTTPException(status_code=409, detail="场景尚未运行")
-        if recorder.episode_id:
+        if recorder.episode_id or capture_lifecycle.busy:
             raise HTTPException(status_code=409, detail="请先结束当前采集，再重置状态")
         try:
             request_id = hub.begin_reset()
@@ -486,13 +489,15 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         status = scenes.status()
         if status.get("instance") and not can_manage_scene(user, status):
             raise HTTPException(status_code=403, detail="只能关闭自己创建的场景")
+        if capture_lifecycle.busy:
+            raise HTTPException(status_code=409, detail="采集正在启动或收尾，请稍后停止场景")
         hub.cancel_reset()
         episode_result = None
         if recorder.episode_id:
             neutral = safety.neutral(recorder.episode_id, "scene_stopped")
             await asyncio.to_thread(recorder.record_action, neutral)
             await hub.publish_action(neutral)
-            episode_result = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome="aborted", note="scene stopped"))
+            episode_result = await capture_lifecycle.stop(EpisodeStop(outcome="aborted", note="scene stopped"))
             if episode_result["dataset_status"] == "complete":
                 episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
         try:
@@ -543,7 +548,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 }
             )
         try:
-            return await asyncio.to_thread(recorder.start, recording_request(payload, scene_instance))
+            return await capture_lifecycle.start(recording_request(payload, scene_instance))
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -557,7 +562,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         await asyncio.to_thread(recorder.record_action, neutral)
         await hub.publish_action(neutral)
         try:
-            result = await asyncio.to_thread(recorder.stop, payload)
+            result = await capture_lifecycle.stop(payload)
             if result["dataset_status"] == "complete":
                 result["archive_job"] = jobs.submit_archive(result["episode_id"])
             return result
@@ -597,7 +602,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if task["status"] != "queued":
             raise HTTPException(status_code=409, detail=f"task {task_id} is {task['status']}, expected queued")
         try:
-            episode = await asyncio.to_thread(recorder.start, recording_request(EpisodeStart(
+            episode = await capture_lifecycle.start(recording_request(EpisodeStart(
                 task_id=task_id,
                 task="scheduled space manipulator task",
                 instruction=task["instruction"],
@@ -620,7 +625,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         await asyncio.to_thread(recorder.record_action, neutral)
         await hub.publish_action(neutral)
         try:
-            closed = await asyncio.to_thread(recorder.stop, EpisodeStop(outcome=request.outcome, note=request.note))
+            closed = await capture_lifecycle.stop(EpisodeStop(outcome=request.outcome, note=request.note))
             if closed["dataset_status"] != "complete":
                 return tasks.transition(task_id, {"running"}, "failed", outcome=request.outcome,
                                         dataset_status=closed["dataset_status"], dataset_error=closed["dataset_error"])

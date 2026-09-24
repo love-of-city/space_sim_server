@@ -168,6 +168,8 @@ class SimulationObservation(BaseModel):
     type: Literal["observation"]
     reset_generation: str = ""
     render_session_id: str = ""
+    capture_episode_id: str = ""
+    capture_request_id: str = ""
     simulation_id: str
     step_id: str
     render_frame_id: str

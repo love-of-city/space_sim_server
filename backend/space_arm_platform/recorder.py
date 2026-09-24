@@ -59,6 +59,8 @@ class EpisodeRecorder:
         self._inflight_writes = 0
         self._io_progress = 0
         self._worker_stop = False
+        self._capture_on_demand = False
+        self._capture_cutoff = False
 
     @property
     def episode_id(self):
@@ -85,7 +87,7 @@ class EpisodeRecorder:
                     self._preparation_error = str(error)
                 raise
 
-    def start(self, request: EpisodeStart):
+    def start(self, request: EpisodeStart, *, capture_on_demand: bool = False):
         with self._lock:
             if self._starting or self._episode_id is not None:
                 raise RuntimeError("an episode is already preparing, recording or finalizing")
@@ -103,6 +105,7 @@ class EpisodeRecorder:
             metadata = {
                 "schema": "space-arm-episode/2", "dataset_format": "lerobot-v3", "dataset_path": "lerobot",
                 "dataset_fps": request.fps, "dataset_camera_ids": request.camera_ids,
+                "capture_on_demand": capture_on_demand,
                 "dataset_capture_products": request.capture_products, "dataset_status": "recording",
                 "episode_id": episode_id, "status": "recording", "created_wall_time_ns": str(time.time_ns()),
                 **{k: getattr(request, k) for k in ("task", "task_id", "instruction", "operator",
@@ -112,6 +115,7 @@ class EpisodeRecorder:
             self._write_json(directory / "metadata.json", metadata)
             with self._lock:
                 self._reset_buffers()
+                self._capture_on_demand = capture_on_demand
                 self._dataset = dataset
                 self._metadata = metadata
                 self._stopping = self._sealing = False
@@ -202,6 +206,19 @@ class EpisodeRecorder:
         with self._lock:
             return self._write_condition.wait_for(lambda: not self._jobs and not self._inflight_writes, timeout_s)
 
+    def freeze_observations(self):
+        """Freeze the stop boundary before disabling capture; keep accepting its RGB."""
+        with self._lock:
+            if self._episode_id is None:
+                raise RuntimeError("no episode is active")
+            self._capture_cutoff = True
+            # Captures without an accepted observation are outside the frozen
+            # boundary. Already paired/inflight samples are deliberately retained.
+            self._stale_capture_count += self._pending_capture_count
+            self._pending_captures.clear()
+            self._pending_capture_count = 0
+            self._write_condition.notify_all()
+
     def stop(self, request: EpisodeStop):
         with self._lock:
             if self._episode_id is None:
@@ -286,14 +303,16 @@ class EpisodeRecorder:
                 "pending_dataset_samples": len(self._dataset_observations), "dataset_error": self._dataset_error,
                 "writer_ready": self._ready and (self._service is None or self._service.ready),
                 "writer_preparation_error": self._preparation_error, "preparing": self._starting,
-                "finalizing": self._stopping and self._episode_id is not None}
+                "capture_on_demand": self._capture_on_demand,
+                "capture_boundary_frozen": self._capture_cutoff,
+                "finalizing": (self._stopping or self._capture_cutoff) and self._episode_id is not None}
 
     def record_action(self, action: AppliedAction):
         with self._lock:
             self._actions[action.server_sequence] = action
             while len(self._actions) > 4096:
                 self._actions.pop(next(iter(self._actions)))
-            if self._episode_dir is not None and not self._stopping:
+            if self._episode_dir is not None and not self._stopping and not self._capture_cutoff:
                 self._enqueue_locked("jsonl", (self._episode_dir / "actions.jsonl",
                     {"record_wall_time_ns": str(time.time_ns()), **action.model_dump(mode="json")}))
 
@@ -306,13 +325,15 @@ class EpisodeRecorder:
 
     def record_observation(self, observation: SimulationObservation, action):
         with self._lock:
-            if self._episode_dir is None or self._stopping:
+            if self._episode_dir is None or self._stopping or self._capture_cutoff:
+                return
+            if self._capture_on_demand and observation.capture_episode_id != self._episode_id:
                 return
             recording_id = self._episode_id
-            ready = self._write_condition.wait_for(lambda: self._episode_id != recording_id or self._stopping
+            ready = self._write_condition.wait_for(lambda: self._episode_id != recording_id or self._stopping or self._capture_cutoff
                 or self._dataset_error or len(self._dataset_observations) < self.MAX_PENDING_SAMPLES,
                 timeout=self._drain_timeout_s)
-            if self._episode_id != recording_id or self._stopping:
+            if self._episode_id != recording_id or self._stopping or self._capture_cutoff:
                 return
             if not ready:
                 first = next(iter(self._dataset_observations), "unknown")
@@ -349,6 +370,9 @@ class EpisodeRecorder:
         with self._lock:
             if self._episode_dir is None or self._sealing:
                 return
+            if self._capture_on_demand and metadata.get("capture_episode_id") != self._episode_id:
+                self._stale_capture_count += 1
+                return
             if metadata.get("stream_kind") != "authoritative" or metadata.get("state_kind") != "authoritative":
                 self._rejected_capture_count += 1
                 raise ValueError("episode recorder accepts authoritative captures only")
@@ -371,13 +395,13 @@ class EpisodeRecorder:
             if frame_id in self._steps_by_frame:
                 self._write_matched_capture(metadata, products, *self._steps_by_frame[frame_id])
                 return
-            if self._stopping or self._dataset_error:
+            if self._stopping or self._capture_cutoff or self._dataset_error:
                 return
             recording_id = self._episode_id
-            ready = self._write_condition.wait_for(lambda: self._episode_id != recording_id or self._stopping
+            ready = self._write_condition.wait_for(lambda: self._episode_id != recording_id or self._stopping or self._capture_cutoff
                 or self._dataset_error or frame_id in self._steps_by_frame or self._pending_capture_count < 128,
                 timeout=self._drain_timeout_s)
-            if self._episode_id != recording_id or self._stopping or self._dataset_error:
+            if self._episode_id != recording_id or self._stopping or self._capture_cutoff or self._dataset_error:
                 return
             if not ready:
                 self._fail_locked(f"authoritative capture pairing stalled waiting for state frame={frame_id}; no packet was silently dropped")

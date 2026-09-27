@@ -38,7 +38,17 @@ def test_sarm_camera_mounts_and_framing(relative, base):
 def test_source_and_runtime_xml_use_identical_camera_calibration():
     def cameras(relative):
         return {c.get("name"): c.attrib for c in ET.parse(MODEL_ROOT / relative).iter("camera")}
-    assert cameras("mjcf/SARM.xml") == cameras("platform/sarm_platform.xml")
+    expected = cameras("mjcf/SARM.xml")
+    for relative in (
+        "platform/sarm_platform.xml",
+        "platform/sarm_ground_target.xml",
+        "platform/sarm_ground_target_all1_trial.xml",
+        "platform/sarm_ground_target_self_collision.xml",
+        "platform/sarm_task_box_module.xml",
+        "platform/sarm_task_box_plugs.xml",
+        "../ground_validation_satellite/mesh_collision_trial/sarm_mesh_collision.xml",
+    ):
+        assert cameras(relative) == expected, relative
 
 
 def test_stream_ids_match_model_and_no_python_camera_override():
@@ -54,7 +64,7 @@ def test_stream_ids_match_model_and_no_python_camera_override():
     assert any(set(template["camera_ids"]) == expected for template in SCENE_TEMPLATES)
 
 
-def test_wrist_view_contains_gripper_and_nominal_capture_target():
+def test_wrist_view_contains_horizontal_fingers_entering_from_below():
     path = MODEL_ROOT / "platform/sarm_platform.xml"
     root = ET.parse(path).getroot()
     camera = root.find('.//camera[@name="sarm_wrist_cam"]')
@@ -74,11 +84,21 @@ def test_wrist_view_contains_gripper_and_nominal_capture_target():
         tool_position,
         tool_position + body_rotation @ np.array([0, -0.0375, -0.02]),
         tool_position + body_rotation @ np.array([0, 0.0375, -0.02]),
-        np.array([0.38754456, -0.00109359, 0.42397138]),
     ]
+    projected = []
     for point in points:
         right, up, back = camera_rotation.T @ (point - camera_position)
         depth = -back
         assert depth > 0.01
         assert abs(right / depth) < half_width
         assert abs(up / depth) < half_height
+        projected.append(np.array([right, up]) / depth)
+
+    center, finger1, finger2 = projected
+    assert finger1[0] < center[0] < finger2[0]
+    assert finger1[1] == pytest.approx(finger2[1], abs=1e-9)
+    # The wrist lies behind the fingertips along the tool's local Z axis.
+    wrist = tool_position + body_rotation @ np.array([0., 0., -0.10])
+    right, up, back = camera_rotation.T @ (wrist - camera_position)
+    assert -back > 0.01
+    assert up / -back < min(finger1[1], finger2[1], center[1])

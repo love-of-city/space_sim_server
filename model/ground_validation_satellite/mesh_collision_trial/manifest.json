@@ -13,7 +13,7 @@
   "hinge_split_surfaces_included_in_collision": true,
   "source_hashes": {
     "model/ground_validation_satellite/ground_validation_satellite_articulated.xml": "2d2fbc9af5b6e9357e6bc35b4eb6e1a687e89b050543cf3c47b667a1d3f37988",
-    "model/SARM/platform/sarm_ground_target.xml": "a386ea78baa5c4b49ec67a6f4585d40db5f985b23133b34466dfab9e5e0e7e95",
+    "model/SARM/platform/sarm_ground_target.xml": "56dd88a71e5c0693c355690546381bb65d9597c089c86dc52fd244f9caf7c5fc",
     "model/SARM/platform/attitude_control.json": "afe911500e22c6171a42f5a654a26f21148b22e859f8521d7213f5ac119f6db2"
   },
   "surface_count": 208,
@@ -216,7 +216,7 @@
       "retained_triangles": 99584,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.2375449268570636,
+      "source_area_m2": 0.23754492685706358,
       "max_import_coordinate_error_m": 1.0340969172270916e-08
     },
     {
@@ -306,7 +306,7 @@
       "retained_triangles": 91114,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.10952341296687963,
+      "source_area_m2": 0.10952341296687965,
       "max_import_coordinate_error_m": 7.64849167147173e-09
     },
     {
@@ -342,7 +342,7 @@
       "retained_triangles": 70824,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.09878425085345366,
+      "source_area_m2": 0.09878425085345369,
       "max_import_coordinate_error_m": 7.659304321781525e-09
     },
     {
@@ -396,7 +396,7 @@
       "retained_triangles": 9097,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.00914944636749556,
+      "source_area_m2": 0.009149446367495562,
       "max_import_coordinate_error_m": 1.8714960127459524e-09
     },
     {
@@ -450,7 +450,7 @@
       "retained_triangles": 59109,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.014741724333816373,
+      "source_area_m2": 0.014741724333816372,
       "max_import_coordinate_error_m": 1.7841337218583758e-09
     },
     {
@@ -540,7 +540,7 @@
       "retained_triangles": 9352,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.02007012848705721,
+      "source_area_m2": 0.020070128487057214,
       "max_import_coordinate_error_m": 2.1572067910118e-09
     },
     {
@@ -576,7 +576,7 @@
       "retained_triangles": 52884,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.04248697338977972,
+      "source_area_m2": 0.04248697338977973,
       "max_import_coordinate_error_m": 2.0223967253936372e-09
     },
     {
@@ -630,7 +630,7 @@
       "retained_triangles": 12472,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.0036294561612252706,
+      "source_area_m2": 0.0036294561612252715,
       "max_import_coordinate_error_m": 1.076478602148859e-09
     },
     {
@@ -648,7 +648,7 @@
       "retained_triangles": 68718,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.0031486861336431117,
+      "source_area_m2": 0.0031486861336431126,
       "max_import_coordinate_error_m": 9.52662753318879e-10
     },
     {
@@ -702,7 +702,7 @@
       "retained_triangles": 12472,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.0036294561612252706,
+      "source_area_m2": 0.0036294561612252715,
       "max_import_coordinate_error_m": 1.076478602148859e-09
     },
     {
@@ -720,7 +720,7 @@
       "retained_triangles": 68718,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.0031486861336431117,
+      "source_area_m2": 0.0031486861336431126,
       "max_import_coordinate_error_m": 9.52662753318879e-10
     },
     {
@@ -1134,7 +1134,7 @@
       "retained_triangles": 93092,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.019530099030075937,
+      "source_area_m2": 0.01953009903007594,
       "max_import_coordinate_error_m": 2.5219077505509243e-09
     },
     {
@@ -1602,7 +1602,7 @@
       "retained_triangles": 14432,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.0014573596633658441,
+      "source_area_m2": 0.0014573596633658443,
       "max_import_coordinate_error_m": 4.207225602717022e-09
     },
     {
@@ -2027,7 +2027,7 @@
         149573
       ],
       "removed_original_area_m2": 3.592329589059968e-16,
-      "source_area_m2": 0.3708245894796355,
+      "source_area_m2": 0.37082458947963554,
       "max_import_coordinate_error_m": 7.696586511353742e-09
     },
     {
@@ -3526,7 +3526,7 @@
         7536
       ],
       "removed_original_area_m2": 3.1864434039002243e-19,
-      "source_area_m2": 0.0021712930130715798,
+      "source_area_m2": 0.0021712930130715793,
       "max_import_coordinate_error_m": 1.7908790314454625e-09
     },
     {
@@ -3585,7 +3585,7 @@
         7536
       ],
       "removed_original_area_m2": 3.1864434039002243e-19,
-      "source_area_m2": 0.0021712930130715798,
+      "source_area_m2": 0.0021712930130715793,
       "max_import_coordinate_error_m": 1.7908790314454625e-09
     },
     {
@@ -3967,7 +3967,7 @@
       "retained_triangles": 9568,
       "removed_float32_zero_area_face_indices": [],
       "removed_original_area_m2": 0.0,
-      "source_area_m2": 0.0016514402908599176,
+      "source_area_m2": 0.0016514402908599174,
       "max_import_coordinate_error_m": 5.977729767064524e-10
     }
   ],
@@ -3976,7 +3976,7 @@
     "cleaned_meshes/hinge_fixed_visual_ba26433f42.obj": "eae00993fec4f2b5e92b0edfd11cbde6348d2fed90a2bf7ba0ff429dcfcc000d",
     "cleaned_meshes/hinge_moving_visual_aade77d1b2.obj": "d1d992264fb3a02e9f35457ad8273d8193a9e0ff5798ae61a292f6b3d104efa5",
     "attitude_control.json": "afe911500e22c6171a42f5a654a26f21148b22e859f8521d7213f5ac119f6db2",
-    "sarm_mesh_collision.xml": "a335769646a3c1048b34501d703421dd9ad09f0220b5a5c12197272b9445168f",
+    "sarm_mesh_collision.xml": "a79d742bcbcb4fa7fca418267959b95cfa1b4ed70f6915d9fff2b3c3c39a0e49",
     "satellite_mesh_collision.xml": "4c41f3c3cd9285e51143636bb4d1b4439098f38984a22265770ab0c7dbb90f5f"
   }
 }

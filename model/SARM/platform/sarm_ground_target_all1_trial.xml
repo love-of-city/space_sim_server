@@ -176,7 +176,7 @@
         <geom type="mesh" rgba="0.43922 0.43922 0.43922 1" mesh="link5" />
         <body name="link6" pos="0 0 0.135" quat="0.707105 0.707108 0 0">
          <!-- Wrist frame: metres; side-offset oblique view toward (0.08, 0, 0.29), clear of the wrist housing. -->
-         <camera name="sarm_wrist_cam" mode="fixed" pos="0.22 0 0.12" quat="0.3376905124 0.0000000000 0.9412572007 0.0000000000" fovy="60" resolution="640 360" />
+         <camera name="sarm_wrist_cam" mode="fixed" pos="0.22 0 0.12" quat="0.2387832513 0.6655693494 0.6655693494 0.2387832513" fovy="60" resolution="640 360" />
          <inertial pos="0 0 0.14576" mass="0.44938" diaginertia="0.00055493 0.00053894 0.00032719" />
          <joint name="joint6" range="-6.2832 6.2832" actuatorfrcrange="-100 100" limited="true" />
          <geom type="mesh" rgba="0.41176 0.41176 0.41176 1" mesh="link6" />

@@ -160,6 +160,30 @@
             "gripper_velocity_rad_s": {
               "type": "number"
             },
+            "angular_control_frame": {
+              "enum": ["spacecraft_body", "end_effector"],
+              "default": "spacecraft_body",
+              "description": "Frame of the requested normalized angular input. Body/tool SI vectors below always retain their named frames."
+            },
+            "end_effector_angular_velocity_tool_rad_s": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {"type": "number", "minimum": -0.5, "maximum": 0.5},
+              "default": [0, 0, 0],
+              "description": "Angular velocity in sarm_ee local axes (+Z along wrist). Converted using measured tool orientation in the simulator; added to the body-frame angular command."
+            },
+            "joint6_velocity_rad_s": {
+              "type": "number",
+              "minimum": -0.5,
+              "maximum": 0.5,
+              "default": 0,
+              "description": "Direct J6 reference velocity. Alone bypasses IK and posture correction; combined with Cartesian input is added before speed/position/tracking protection. Deadman and timeout apply."
+            },
+            "requested_joint6_velocity_normalized": {
+              "type": "number",
+              "default": 0
+            },
             "gripper_velocity_m_s": {
               "type": "number",
               "description": "SARM slider command in metres/second; prefer over legacy angular field."

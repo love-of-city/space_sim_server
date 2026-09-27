@@ -187,6 +187,7 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 - 平移 W/S、A/D、Q/E；Shift 配合上述按键旋转；F/R 闭合/张开夹爪。
 - Esc 归零并退出操作；页面急停锁存停止。C 切换自由相机，Home/Esc 返回。
 - 手柄需正常识别并回中，映射与诊断见操作台。
+- 右摇杆按夹爪自身方向俯仰/偏航，A/B 直接控制第六关节反转/正转；左杆与扳机仍在卫星本体系平移。详见[手柄末端相对操作](docs/GAMEPAD_TOOL_CONTROL.md)。
 - `data/auth.sqlite3` 保存账号，`data/episodes/` 保存数据，`data/archives/` 保存归档。
 - `logs/` 为日志，`run/scenes/` 为可复现实例；PID、资源映射和虚拟环境均为本机文件。
 - 不提交密钥、账号数据库、日志和录制；模型与二进制资产使用 LFS。改动后执行相应测试。

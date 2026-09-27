@@ -92,11 +92,16 @@ class SimulationControlClient:
             action["end_effector_angular_velocity_body_rad_s"] = list(
                 self._action["end_effector_angular_velocity_body_rad_s"]
             )
+            action["end_effector_angular_velocity_tool_rad_s"] = list(
+                self._action.get("end_effector_angular_velocity_tool_rad_s", [0.0] * 3)
+            )
             stale = self._resetting or time.monotonic() - self._received_monotonic > 0.25
         if stale:
             action["deadman"] = False
             action["end_effector_linear_velocity_body_m_s"] = [0.0] * 3
             action["end_effector_angular_velocity_body_rad_s"] = [0.0] * 3
+            action["end_effector_angular_velocity_tool_rad_s"] = [0.0] * 3
+            action["joint6_velocity_rad_s"] = 0.0
             action["gripper_velocity_m_s"] = 0.0
             action["gripper_velocity_rad_s"] = 0.0
         return action, stale
@@ -258,6 +263,8 @@ class SimulationControlClient:
                 return False
         linear = message.get("end_effector_linear_velocity_body_m_s")
         angular = message.get("end_effector_angular_velocity_body_rad_s")
+        tool_angular = message.get("end_effector_angular_velocity_tool_rad_s", [0.0] * 3)
+        joint6 = message.get("joint6_velocity_rad_s", 0.0)
         return (
             message.get("protocol") == CONTROL_PROTOCOL
             and message.get("type") == "action"
@@ -266,6 +273,11 @@ class SimulationControlClient:
             and len(linear) == 3
             and isinstance(angular, list)
             and len(angular) == 3
+            and isinstance(tool_angular, list) and len(tool_angular) == 3
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and math.isfinite(v) and abs(v) <= 0.5 for v in tool_angular)
+            and isinstance(joint6, (int, float)) and not isinstance(joint6, bool)
+            and math.isfinite(joint6) and abs(joint6) <= 0.5
             and all(
                 isinstance(value, (int, float)) and math.isfinite(value)
                 for value in [*linear, *angular]
@@ -286,6 +298,8 @@ class SimulationControlClient:
             "control_frame": "spacecraft_body",
             "end_effector_linear_velocity_body_m_s": [0.0] * 3,
             "end_effector_angular_velocity_body_rad_s": [0.0] * 3,
+            "end_effector_angular_velocity_tool_rad_s": [0.0] * 3,
+            "joint6_velocity_rad_s": 0.0,
             "gripper_velocity_m_s": 0.0,
             "gripper_velocity_rad_s": 0.0,
         }

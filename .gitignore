@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+/.space-sim-python
 data/episodes/
 logs/
 run/

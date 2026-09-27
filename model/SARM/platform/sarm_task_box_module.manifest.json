@@ -1,12 +1,12 @@
 {
   "schema": "task-box-module/1",
-  "sha256": "185796b176e84abe4473038197f56adf8793d10e83de0efab0dc6a292e6b9982",
+  "sha256": "f9e6992af795e34a6934ded2a68df3ff70dd49ef5b9d41e8a7c22ac8cb30aa03",
   "sources": {
-    "model/SARM/platform/sarm_ground_target_self_collision.xml": "2f0e302bb34a6c3abe25c3c801b16979c790aa2025b4d0d11ab1001493d38a29",
+    "model/SARM/platform/sarm_ground_target_self_collision.xml": "c1e89575321fbae6c34896b94935e8d6b31891e613953ed2d52af41182d1c70d",
     "model/SARM/meshes/base_link.obj": "955368ff505612ff34ae8b50c93120029d7188d051410ace415409e8736ef94a",
     "model/task_box/module/assembly.json": "b805c8587a90f8133a6458a7279a2cef2522fe9866fec32720bdb01c6b377b16",
-    "model/SARM/platform/sarm_ground_target_self_collision.manifest.json": "49196bf8190877b2d1ea4192ca2e180cbab9f4d7beb9068d636da44a888c0dad",
-    "model/SARM/platform/sarm_platform.xml": "e3b22cf621b3e28a5ac4b133e62f4328fbea9573adc3aa29a1f5c357bb34e534",
+    "model/SARM/platform/sarm_ground_target_self_collision.manifest.json": "ee8ee49e06324ed9bb16e1be534786871c9b448f3aafb5109286c120142d3e76",
+    "model/SARM/platform/sarm_platform.xml": "79012baf7aefec24a37e741cac109f143b71a856b0de2440862c9c43b2448053",
     "model/ground_validation_satellite/ground_validation_satellite_articulated.xml": "2d2fbc9af5b6e9357e6bc35b4eb6e1a687e89b050543cf3c47b667a1d3f37988",
     "model/SARM/meshes/link1.STL": "8745e15bffeb49e4caa5702f855581f8b3f2f86f6f3bce01169dbe8a77831238",
     "model/SARM/meshes/link2.STL": "bd9fd608c034a2d69bfd0b0b5ece6dbe4555b16db070347d9e0d4f117dc98d4e",

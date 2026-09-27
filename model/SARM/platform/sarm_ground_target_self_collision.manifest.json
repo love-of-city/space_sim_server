@@ -2,11 +2,11 @@
   "schema": "sarm-ground-capture/1",
   "template_id": "sarm-ground-validation-self-collision-grasp",
   "sources": {
-    "model/SARM/platform/sarm_platform.xml": "e3b22cf621b3e28a5ac4b133e62f4328fbea9573adc3aa29a1f5c357bb34e534",
+    "model/SARM/platform/sarm_platform.xml": "79012baf7aefec24a37e741cac109f143b71a856b0de2440862c9c43b2448053",
     "model/ground_validation_satellite/ground_validation_satellite_articulated.xml": "2d2fbc9af5b6e9357e6bc35b4eb6e1a687e89b050543cf3c47b667a1d3f37988"
   },
   "output": "model/SARM/platform/sarm_ground_target_self_collision.xml",
-  "sha256": "2f0e302bb34a6c3abe25c3c801b16979c790aa2025b4d0d11ab1001493d38a29",
+  "sha256": "c1e89575321fbae6c34896b94935e8d6b31891e613953ed2d52af41182d1c70d",
   "source_visual_geoms": 208,
   "synthetic_physics": true,
   "target_mass_kg": 10.0,

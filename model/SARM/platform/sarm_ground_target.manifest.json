@@ -2,11 +2,11 @@
   "schema": "sarm-ground-capture/1",
   "template_id": "sarm-ground-validation-grasp",
   "sources": {
-    "model/SARM/platform/sarm_platform.xml": "e3b22cf621b3e28a5ac4b133e62f4328fbea9573adc3aa29a1f5c357bb34e534",
+    "model/SARM/platform/sarm_platform.xml": "79012baf7aefec24a37e741cac109f143b71a856b0de2440862c9c43b2448053",
     "model/ground_validation_satellite/ground_validation_satellite_articulated.xml": "2d2fbc9af5b6e9357e6bc35b4eb6e1a687e89b050543cf3c47b667a1d3f37988"
   },
   "output": "model/SARM/platform/sarm_ground_target.xml",
-  "sha256": "a386ea78baa5c4b49ec67a6f4585d40db5f985b23133b34466dfab9e5e0e7e95",
+  "sha256": "56dd88a71e5c0693c355690546381bb65d9597c089c86dc52fd244f9caf7c5fc",
   "source_visual_geoms": 208,
   "synthetic_physics": true,
   "target_mass_kg": 10.0,

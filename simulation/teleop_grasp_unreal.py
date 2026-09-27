@@ -64,6 +64,7 @@ from simulation.online_elbow_ik import (
 )
 from space_arm_platform.control_defaults import DEFAULT_DYNAMICS_STEP_S, MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S
 from simulation.reference_governor import JointReferenceGovernor
+from simulation.gamepad_control import add_joint6_command
 from simulation.reference_recovery import ReferenceRecoverySettings
 from simulation.runtime_progress import runtime_stage
 from simulation.runtime_performance import RuntimePerformanceMonitor, render_transport_status
@@ -343,6 +344,7 @@ class CartesianTeleopTarget:
         self.orientation_error = np.zeros(3)
         self.commanded_linear_velocity = np.zeros(3)
         self.commanded_angular_velocity = np.zeros(3)
+        self.commanded_joint6_velocity = 0.0
         self.tracking_scale = 1.0
         self.velocity_scale = 1.0
         self.minimum_singular_value = 0.0
@@ -434,6 +436,7 @@ class CartesianTeleopTarget:
         self.orientation_error.fill(0.0)
         self.commanded_linear_velocity.fill(0.0)
         self.commanded_angular_velocity.fill(0.0)
+        self.commanded_joint6_velocity = 0.0
         self.tracking_scale = 1.0
         self.velocity_scale = 1.0
         self.minimum_singular_value = 0.0
@@ -476,6 +479,7 @@ class CartesianTeleopTarget:
                 self.velocity[6:] = 0.
                 self.commanded_linear_velocity.fill(0.)
                 self.commanded_angular_velocity.fill(0.)
+                self.commanded_joint6_velocity = 0.0
                 self.raw_operator_twist.fill(0.)
                 self.desired_twist.fill(0.)
                 self.achieved_twist.fill(0.)
@@ -500,15 +504,23 @@ class CartesianTeleopTarget:
         requested_angular = np.asarray(
             action["end_effector_angular_velocity_body_rad_s"], dtype=float
         )
+        actual_arm = self._actual_arm_position()
+        self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(actual_arm)
+        requested_angular = requested_angular + self.actual_tool_rotation @ np.asarray(
+            action.get("end_effector_angular_velocity_tool_rad_s", [0.0] * 3), dtype=float
+        )
+        requested_joint6 = float(action.get("joint6_velocity_rad_s", 0.0))
         self.raw_operator_twist = np.concatenate((requested_linear, requested_angular))
         requested_gripper = float(
             action.get("gripper_velocity_m_s", action.get("gripper_velocity_rad_s", 0.0))
         )
         # The packet deadman authorizes both channels, but a gripper action must
         # never enable arm IK. Numerical zero only: not a new joystick dead zone.
-        arm_enabled = enabled and bool(np.any(np.abs(self.raw_operator_twist) > 1.0e-14))
+        cartesian_enabled = enabled and bool(np.any(np.abs(self.raw_operator_twist) > 1.0e-14))
+        joint6_enabled = enabled and abs(requested_joint6) > 1.0e-14
+        arm_enabled = cartesian_enabled or joint6_enabled
         gripper_enabled = enabled and abs(requested_gripper) > 1.0e-14
-        if arm_enabled:
+        if cartesian_enabled:
             self.commanded_linear_velocity = self._approach_vector(
                 self.commanded_linear_velocity,
                 requested_linear,
@@ -522,11 +534,19 @@ class CartesianTeleopTarget:
         else:
             self.commanded_linear_velocity.fill(0.0)
             self.commanded_angular_velocity.fill(0.0)
+        if joint6_enabled:
+            if requested_joint6 * self.commanded_joint6_velocity < 0.0:
+                self.commanded_joint6_velocity = 0.0
+            self.commanded_joint6_velocity += float(np.clip(
+                requested_joint6 - self.commanded_joint6_velocity,
+                -MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 * dt,
+                MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 * dt,
+            ))
+        else:
+            self.commanded_joint6_velocity = 0.0
         operator_linear = self.commanded_linear_velocity
         operator_angular = self.commanded_angular_velocity
 
-        actual_arm = self._actual_arm_position()
-        self.actual_tool_position, self.actual_tool_rotation = self.kinematics.forward(actual_arm)
         self.desired_twist = np.concatenate((operator_linear, operator_angular))
         # First solve the original bounded DLS task, then apply a bounded
         # geometric preference (no initial/home joint reference). Measured
@@ -541,7 +561,7 @@ class CartesianTeleopTarget:
             position_offset_m=self.elbow_diagnostics.position_offset_m,
             orientation_offset_rad=self.elbow_diagnostics.orientation_offset_rad,
         )
-        if not arm_enabled:
+        if not cartesian_enabled:
             # Keep measured telemetry running below, but skip reference-chain
             # Jacobian/SVD/IK work. Geometry diagnostics retain the last sample.
             result = IkResult(
@@ -583,6 +603,15 @@ class CartesianTeleopTarget:
                 )
             self.solve_time_ms = (time.perf_counter() - solve_start) * 1000.0
             self.ik_solve_count += 1
+        if joint6_enabled:
+            jacobian = self.kinematics.jacobian(self.position[:6])
+            self.raw_operator_twist += jacobian[:, 5] * requested_joint6
+            self.desired_twist += jacobian[:, 5] * self.commanded_joint6_velocity
+            result = add_joint6_command(
+                result, jacobian, self.desired_twist, self.commanded_joint6_velocity,
+                self.position[:6], ARM_JOINT_VELOCITY_LIMIT,
+                self.joint_min[:6], self.joint_max[:6], dt,
+            )
         self.solver_reasons = [dict(reason) for reason in getattr(result, "limit_reasons", ())]
         self.solver_status = (
             "holding" if not arm_enabled else
@@ -593,7 +622,7 @@ class CartesianTeleopTarget:
         if arm_enabled and np.linalg.norm(result.residual_twist) > 1e-5:
             if result.damping > IK_POSE_BASE_DAMPING + 1e-8:
                 self.solver_reasons.append({"code": "damped_task_error", "joints": []})
-            if result.minimum_singular_value < IK_POSE_SINGULAR_VALUE_THRESHOLD:
+            if cartesian_enabled and result.minimum_singular_value < IK_POSE_SINGULAR_VALUE_THRESHOLD:
                 self.solver_reasons.append({"code": "singularity_nearby", "joints": []})
             if not self.solver_reasons:
                 self.solver_reasons.append({"code": "task_residual", "joints": []})
@@ -607,6 +636,7 @@ class CartesianTeleopTarget:
             allow_recovery=(
                 action.get("allow_reference_recovery") is True and not stale
                 and not enabled and not action.get("reason")
+                and requested_joint6 == 0.0
             ),
         )
         self.velocity[:6] = governed.velocity

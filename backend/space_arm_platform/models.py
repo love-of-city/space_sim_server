@@ -39,6 +39,8 @@ class OperatorAction(BaseModel):
     end_effector_linear_speed_m_s: float = Field(default=0.05, gt=0.0)
     end_effector_linear_velocity: list[float] = Field(min_length=3, max_length=3)
     end_effector_angular_velocity: list[float] = Field(min_length=3, max_length=3)
+    angular_control_frame: Literal["spacecraft_body", "end_effector"] = "spacecraft_body"
+    joint6_velocity: float = 0.0
     gripper_velocity: float = 0.0
     input_source: Literal["keyboard", "gamepad", "unknown"] = "unknown"
 
@@ -76,6 +78,12 @@ class AppliedAction(BaseModel):
     applied_end_effector_linear_speed_m_s: float = 0.05
     end_effector_linear_velocity_body_m_s: list[float] = Field(min_length=3, max_length=3)
     end_effector_angular_velocity_body_rad_s: list[float] = Field(min_length=3, max_length=3)
+    end_effector_angular_velocity_tool_rad_s: list[FiniteFloat] = Field(
+        default_factory=lambda: [0.0] * 3, min_length=3, max_length=3
+    )
+    joint6_velocity_rad_s: FiniteFloat = 0.0
+    requested_joint6_velocity_normalized: float = 0.0
+    angular_control_frame: Literal["spacecraft_body", "end_effector"] = "spacecraft_body"
     gripper_velocity_rad_s: float
     gripper_velocity_m_s: float = 0.0
     input_source: str

@@ -1051,6 +1051,8 @@ function transmitAction(action, deadman, allowReferenceRecovery = false) {
     end_effector_linear_speed_m_s: state.linearSpeed,
     end_effector_linear_velocity: action.linear,
     end_effector_angular_velocity: action.angular,
+    angular_control_frame: action.angularFrame || "spacecraft_body",
+    joint6_velocity: action.joint6 || 0,
     gripper_velocity: action.grip,
     input_source: action.source,
   }));
@@ -1168,9 +1170,9 @@ function sendAction() {
   if (!state.operationActive || state.freeCameraMode || !state.sceneReady || !state.canManageScene || state.estopped) return;
   if (!state.connected || !state.controlGranted || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
   const keyboard = keyboardAction();
-  const gamepadActive = gamepad && [...gamepad.linear, ...gamepad.angular, gamepad.grip].some((value) => Math.abs(value) > 0.01);
+  const gamepadActive = gamepad && [...gamepad.linear, ...gamepad.angular, gamepad.joint6 || 0, gamepad.grip].some((value) => Math.abs(value) > 0.01);
   const action = gamepadActive ? gamepad : keyboard;
-  const motionActive = [...action.linear, ...action.angular, action.grip].some((value) => Math.abs(value) > 0.01);
+  const motionActive = [...action.linear, ...action.angular, action.joint6 || 0, action.grip].some((value) => Math.abs(value) > 0.01);
   transmitAction(action, motionActive, !motionActive);
   $("directControl").classList.toggle("active", motionActive);
   $("directControl").textContent = motionActive

@@ -21,6 +21,11 @@
     "tests/test_capture_on_demand_renderer.py": "Opt-in real UE 5.6/GPU RGB smoke test requiring SPACE_SIM_UE_CAPTURE_SMOKE=1 and UE56_ROOT; basic CI does not install Unreal. Run separately for renderer acceptance."
   },
   "nodes": {
+    "tests/test_gamepad_tool_control.py::test_ab_only_changes_j6_target_even_with_posture_preferences_enabled": "Basilisk teleoperation runtime; run gamepad tests separately with the native environment",
+    "tests/test_gamepad_tool_control.py::test_right_stick_aims_in_current_tool_frame_after_wrist_rotation": "Basilisk teleoperation runtime",
+    "tests/test_gamepad_tool_control.py::test_direct_joint_limit_stops_outward_motion_and_allows_reverse": "Basilisk teleoperation runtime",
+    "tests/test_gamepad_tool_control.py::test_direct_joint_still_obeys_tracking_protection": "Basilisk teleoperation runtime",
+    "tests/test_gamepad_tool_control.py::test_mixed_tool_and_joint_commands_stop_together_and_reset": "Basilisk teleoperation runtime",
     "tests/test_arm_preparation.py::test_live_target_waits_and_resets_with_real_chain": "Basilisk live runtime",
     "tests/test_initial_joint_angles.py::test_only_six_arm_axes_overridden_and_persisted": "Basilisk scene loader",
     "tests/test_initial_joint_angles.py::test_catalog_bounds_are_enforced_before_writing": "Basilisk scene loader",

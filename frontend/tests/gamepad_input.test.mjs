@@ -17,15 +17,33 @@ test("missing API, policy rejection and absent device are explicit and do not th
   assert.equal(sampleGamepad(nav(pad({connected: false}))).status, "disconnected");
 });
 
-test("standard axes/buttons preserve XYZ, RPY and gripper mapping", () => {
+test("standard mapping separates tool aim, direct J6, translation and gripper", () => {
   const device = pad({axes: [-0.5, -0.75, 0.4, -0.3]});
   for (const [i, value] of [[7, 0.9], [6, 0.2], [1, 1], [3, 0.5]]) device.buttons[i].value = value;
   const result = sampleGamepad(nav(null, device));
   assert.deepEqual(result.action.linear, [0.75, 0.5, 0.7]);
-  assert.deepEqual(result.action.angular, [1, 0.3, -0.4]);
+  assert.deepEqual(result.action.angular, [-0.4, 0.3, 0]);
+  assert.equal(result.action.angularFrame, "end_effector");
+  assert.equal(result.action.joint6, 1);
   assert.equal(result.action.grip, 0.5);
   assert.equal(result.action.source, "gamepad");
   assert.equal(result.active, true);
+});
+
+test("A/B alone activates direct J6 with no Cartesian rotation; together they cancel", () => {
+  for (const [button, sign] of [[0, -1], [1, 1]]) {
+    const device = pad(); device.buttons[button].value = 1;
+    const sample = sampleGamepad(nav(device));
+    assert.equal(sample.active, true);
+    assert.equal(sample.action.joint6, sign);
+    assert.deepEqual(sample.action.angular, [0, 0, 0]);
+    const input = new GamepadInput();
+    assert.equal(input.read(nav(device)).status, "centering");
+    input.read(nav(pad()));
+    assert.equal(input.read(nav(device)).action.joint6, sign);
+  }
+  const device = pad(); device.buttons[0].value = device.buttons[1].value = 1;
+  assert.equal(sampleGamepad(nav(device)).active, false);
 });
 
 test("deadzone and finite-number checks prevent drift and invalid commands", () => {
@@ -75,6 +93,31 @@ test("Gamepad API failure cannot break keyboard command processing", () => {
     assert.equal(h.messages.at(-1).action.source, "keyboard");
     assert.ok(h.nodes.get("gamepadStatus").textContent);
   }
+});
+
+test("A/B-only input wins input selection and keeps deadman enabled", () => {
+  const device = pad(); device.buttons[0].value = 1;
+  const h = harness(nav(device)); h.context.sendAction();
+  assert.equal(h.messages.at(-1).action.source, "gamepad");
+  assert.equal(h.messages.at(-1).action.joint6, -1);
+  assert.equal(h.messages.at(-1).deadman, true);
+});
+
+test("wire action carries tool frame and direct J6 and neutral clears both", () => {
+  const messages = [];
+  const context = vm.createContext({WebSocket: {OPEN: 1}, Date, BigInt,
+    state: {connected: true, controlGranted: true, sequence: 0, linearSpeed: .05,
+      ws: {readyState: 1, send: value => messages.push(JSON.parse(value))}}});
+  vm.runInContext(source.slice(source.indexOf("function transmitAction("),
+    source.indexOf("function updateOperationUI(")), context);
+  const device = pad({axes: [0, 0, .5, -.5]}); device.buttons[1].value = 1;
+  context.transmitAction(sampleGamepad(nav(device)).action, true);
+  assert.equal(messages.at(-1).angular_control_frame, "end_effector");
+  assert.equal(messages.at(-1).joint6_velocity, 1);
+  context.sendNeutralAction();
+  assert.equal(messages.at(-1).deadman, false);
+  assert.equal(messages.at(-1).joint6_velocity, 0);
+  assert.equal(messages.at(-1).angular_control_frame, "spacecraft_body");
 });
 
 test("diagnostics poll while all existing motion guards still block transmission", () => {

@@ -20,6 +20,7 @@ class SafetyController:
     LINEAR_SPEED_DEFAULT_M_S = 0.05
     LINEAR_SPEED_MAX_M_S = 0.20
     ANGULAR_MAX_RAD_S = 0.50
+    JOINT6_MAX_RAD_S = 0.50
     GRIPPER_MAX_M_S = 0.01
 
     def __init__(self, timeout_s: float = 0.25) -> None:
@@ -41,6 +42,7 @@ class SafetyController:
             *request.end_effector_linear_velocity,
             *request.end_effector_angular_velocity,
             request.gripper_velocity,
+            request.joint6_velocity,
         ]
         if not all(math.isfinite(value) for value in values):
             raise ActionRejected("action contains a non-finite number")
@@ -115,11 +117,14 @@ class SafetyController:
             normalized_angular.append(clipped)
         grip = max(-1.0, min(1.0, float(request.gripper_velocity)))
         limited |= grip != request.gripper_velocity
+        joint6 = max(-1.0, min(1.0, float(request.joint6_velocity)))
+        limited |= joint6 != request.joint6_velocity
         deadman = bool(request.deadman)
         if not deadman or request.arm_preparation is not None:
             normalized_linear = [0.0] * 3
             normalized_angular = [0.0] * 3
             grip = 0.0
+            joint6 = 0.0
         return AppliedAction(
             episode_id=episode_id,
             server_sequence=str(self._server_sequence),
@@ -133,6 +138,7 @@ class SafetyController:
                 and not any(request.end_effector_linear_velocity)
                 and not any(request.end_effector_angular_velocity)
                 and request.gripper_velocity == 0.0
+                and request.joint6_velocity == 0.0
             ),
             requested_end_effector_linear_velocity_normalized=[
                 float(value) for value in request.end_effector_linear_velocity
@@ -141,6 +147,8 @@ class SafetyController:
                 float(value) for value in request.end_effector_angular_velocity
             ],
             requested_gripper_velocity_normalized=float(request.gripper_velocity),
+            requested_joint6_velocity_normalized=float(request.joint6_velocity),
+            angular_control_frame=request.angular_control_frame,
             requested_end_effector_linear_speed_m_s=requested_linear_speed,
             applied_end_effector_linear_speed_m_s=linear_speed,
             end_effector_linear_velocity_body_m_s=[
@@ -148,7 +156,11 @@ class SafetyController:
             ],
             end_effector_angular_velocity_body_rad_s=[
                 value * self.ANGULAR_MAX_RAD_S for value in normalized_angular
-            ],
+            ] if request.angular_control_frame == "spacecraft_body" else [0.0] * 3,
+            end_effector_angular_velocity_tool_rad_s=[
+                value * self.ANGULAR_MAX_RAD_S for value in normalized_angular
+            ] if request.angular_control_frame == "end_effector" else [0.0] * 3,
+            joint6_velocity_rad_s=joint6 * self.JOINT6_MAX_RAD_S,
             gripper_velocity_rad_s=grip * self.GRIPPER_MAX_M_S,
             gripper_velocity_m_s=grip * self.GRIPPER_MAX_M_S,
             input_source=request.input_source,

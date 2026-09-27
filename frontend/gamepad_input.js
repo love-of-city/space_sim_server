@@ -28,11 +28,13 @@ export function sampleGamepad(navigatorObject = globalThis.navigator) {
   const dz = value => Math.abs(value) < DEADZONE ? 0 : -value;
   const action = {
     linear: [dz(axes[1]), dz(axes[0]), buttons[7] - buttons[6]],
-    angular: [buttons[1] - buttons[0], dz(axes[3]), dz(axes[2])],
+    // sarm_ee points along local +Z: pitch about Y, yaw about X.
+    angular: [dz(axes[2]), dz(axes[3]), 0], angularFrame: "end_effector",
+    joint6: buttons[1] - buttons[0],
     grip: buttons[3] - buttons[2], source: "gamepad",
   };
-  const active = [...action.linear, ...action.angular, action.grip].some(value => Math.abs(value) > 0.01);
-  return {status: "connected", hint: "左杆 XY，LT/RT Z；右杆 Pitch/Yaw，A/B Roll，X/Y 夹爪。", device, axes, buttons, action, active};
+  const active = [...action.linear, ...action.angular, action.joint6, action.grip].some(value => Math.abs(value) > 0.01);
+  return {status: "connected", hint: "左杆 XY，LT/RT Z（卫星本体系）；右杆按夹爪自身方向俯仰/偏航，A/B 第六关节反转/正转，X/Y 夹爪。", device, axes, buttons, action, active};
 }
 
 export class GamepadInput {

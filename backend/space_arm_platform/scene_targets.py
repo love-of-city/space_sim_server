@@ -82,7 +82,7 @@ TARGETS[FREE_PLUG_TEMPLATE] = replace(
     TARGETS[TASK_BOX_TEMPLATE],
     model_file="sarm_task_box_plugs.xml",
     collision_model="local_task_box_free_plugs",
-    runtime_warning="两个无卡扣插头为自由刚体，初始抬离存放孔以避免 CAD 干涉；质量为临时假设。精细孔槽接触，实际整臂插拔尚需验收。",
+    runtime_warning="两个无卡扣插头为自由刚体，初始位于存放孔内，轴向留 0.05 mm 数值接触间隙；质量为临时假设。无固定约束，实际整臂插拔尚需验收。",
 )
 
 

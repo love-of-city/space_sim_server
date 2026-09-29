@@ -1,6 +1,7 @@
 """Opt-in basic CI selection; default pytest discovery remains unchanged."""
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -9,6 +10,23 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUSIONS = json.loads((Path(__file__).with_name("ci-exclusions.json")).read_text(encoding="utf-8"))
 _skipped = []
+
+
+def _node_exists(node_id: str) -> bool:
+    relative, separator, test_name = node_id.partition("::")
+    if not separator or not test_name:
+        return False
+    path = ROOT / relative
+    if not path.is_file() or path.suffix != ".py":
+        return False
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return False
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == test_name
+        for node in ast.walk(tree)
+    )
 
 
 def pytest_addoption(parser):
@@ -38,6 +56,10 @@ def pytest_collection_modifyitems(config, items):
     missing = [name for name in EXCLUSIONS["files"] if not (ROOT / name).is_file()]
     if missing:
         raise pytest.UsageError(f"Stale CI exclusions: {missing}")
+    # Refuse stale node exclusions; renamed tests must update the reviewed manifest.
+    missing_nodes = sorted(node for node in EXCLUSIONS["nodes"] if not _node_exists(node))
+    if missing_nodes:
+        raise pytest.UsageError(f"Stale CI node exclusions: {missing_nodes}")
     kept, excluded = [], []
     for item in items:
         relative = item.path.relative_to(ROOT).as_posix()

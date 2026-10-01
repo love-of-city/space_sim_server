@@ -759,9 +759,9 @@ def _register_celestial_bodies(bridge: Any, earth: Any, sun: Any) -> None:
                 "visual_role": "star",
                 "luminous": True,
                 "drives_directional_light": True,
-                "light_color_rgb": (1.0, 0.98, 0.92),
-                # Keep the current exposure calibration; UE applies the 1/r^2 correction.
-                "light_illuminance_lux_at_reference_distance": 8.0,
+                "light_color_rgb": (1.0, 0.8876306, 0.8572326),
+                # Experimental solar illuminance baseline at reference distance; UE applies 1/r^2.
+                "light_illuminance_lux_at_reference_distance": 132821.5,
                 "light_reference_distance_m": SUN_REFERENCE_DISTANCE_M,
             }
         },

@@ -1,6 +1,6 @@
 """Derive an unlatched two-free-body scene from the validated fixed module.
 
-Offline geometry only. Preserves CAD surfaces and upstream robot controls.
+Offline geometry only. Preserves CAD visuals and upstream robot controls.
 Density is an explicit provisional assumption, NOT calibrated CAD mass.
 """
 import copy
@@ -14,6 +14,7 @@ import trimesh
 
 from build_task_box_module import digest, fmt, save_json
 from select_sarm_scene import verified_source_tree
+from task_box_proxy_experiment import simplify_plugs
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'model/SARM/platform/sarm_task_box_module.xml'
@@ -114,6 +115,15 @@ def build():
         bus.remove(surface)
         metadata.append(dict(name=name, bus_center_m=center.tolist(), initial_center_m=initial_center.tolist(), mass_kg=mass,
                              mass_is_provisional=True, original_bounds_m=(mesh.bounds + center).tolist()))
+    # Preserve the CAD visual and computed inertia; replace only plug contact geometry.
+    simplify_plugs(root, FOLDER, metadata, mesh_source=lambda name: FOLDER / (name + '.obj'))
+    for item in metadata:
+        name = item['name']
+        surface = root.find(f'./worldbody/body[@name="{name}"]/flexcomp')
+        surface.set('name', f'task_box_{9 if name == "guide_plug" else 13:03}_contact')
+        head = FOLDER / (name + '_head.obj')
+        surface.set('file', '../../task_box/free_plugs/' + head.name)
+        sources[head.relative_to(ROOT).as_posix()] = digest(head)
     # New world bodies are appended, so existing joint state indices stay stable.
     for keyframe in root.findall('./keyframe/key'):
         if keyframe.get('qpos') is not None:
@@ -137,7 +147,8 @@ def build():
         sha256=digest(OUTPUT), sources=sources, plugs=metadata,
         limitations=['Uncalibrated plug density; bus inertia retained from upstream, mass redistribution pending.',
                      'No latch or weld; motion depends on actual contact.',
-                     'Full gripper insertion acceptance is reported separately.']))
+                     'Full gripper insertion acceptance is reported separately.',
+                     'Trial collision proxy: CAD heads/key with cylindrical shafts/pins; contact forces are not CAD-equivalent.']))
     print(json.dumps(metadata, indent=2))
 
 

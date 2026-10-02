@@ -13,7 +13,7 @@
 | 文件 | 负责内容 |
 | --- | --- |
 | [sarm_platform.xml](../model/SARM/platform/sarm_platform.xml) | 三个轮的安装位置、质量、惯量、轴向、自由转动关节、电机限矩和最大轮速 |
-| [attitude_control.json](../model/SARM/platform/attitude_control.json) | 默认开关、姿态模式、100 Hz 控制频率、PD 增益、轮速保护裕量 |
+| [attitude_control.json](../model/SARM/platform/attitude_control.json) | 默认开关、姿态模式、120 Hz 控制频率、PD 增益、轮速保护裕量 |
 | [attitude_control.py](../simulation/attitude_control.py) | BSK 导航/参考/误差/控制/分配/消息转换/驱动保护与独立遥测 |
 | [scenario_sarm_grasp.py](../model/SARM/platform/scenarios/scenario_sarm_grasp.py) | 创建并保留姿态链对象，安装到原生 simulation/process/scene |
 | [teleop_grasp_unreal.py](../simulation/teleop_grasp_unreal.py) | 保留原生姿态闭环、给全部轮体接重力、发布 SI 关节及姿态/轮遥测 |
@@ -60,9 +60,9 @@ MJScene 卫星状态 → SimpleNav（无噪声真值）
 ```
 
 - 保留 `MJScene` 为唯一积分器，没有独立 `spacecraft` hub，没有直接设置姿态来实现闭环，也没有额外施加第二份本体反力矩。
-- `sarmAttitudeTask` 默认 100 Hz，process 内 task 优先级 `-10`：与动力学同时刻时先执行动力学，再算控制，新指令在下一次动力学评价中被使用。
+- 本地动力学后端（默认）下，控制链运行在物理任务的 120 Hz 分频上（`control_rate_hz`），相位与状态发布对齐：导航读到的本体状态固定是一步前的，而不是 0–6.7 ms 之间的任意值。`--dynamics-backend basilisk` 时仍在独立的 `sarmAttitudeTask` 中按同一频率运行。
 - task 内顺序：初始参考/惯量锁存 1000、真值导航 900、惯性参考 800、误差 700、轮速转换 600、PD 500、分配 400、数组转换 300。
-- 三个 `WheelDrive` 在 MJScene 动力学子任务中以 `6500-i` 执行，在正向运动学/机械臂控制之后读取当前轮速，故安全保护不只依赖 100 Hz 的控制更新。
+- 三个 `WheelDrive` 在物理任务中以 2000 执行（basilisk 后端为 MJScene 动力学子任务的 `6500-i`），在正向运动学/机械臂控制之后读取当前轮速，故安全保护不只依赖控制链的更新频率。
 - 初次有效状态时锁存非零或零初始姿态；不会强制初始姿态为单位四元数。参考不会在后续周期重新追随实测姿态。
 - 根据初始机械臂姿态、各 body 的真值位姿及 XML 的局部中心惯量组装整星锁定惯量：包含机械臂/转子，排除自由目标，以整星质心为参考点并表达在本体系。发布后再次 Reset `mrpFeedback`，使其读取而非继续使用初始化占位惯量。
 - 控制器使用初始锁定惯量近似；不是完整柔性/多体逆动力学补偿。机械臂运动引起的惯量和内部动量变化主要作为闭环扰动处理。
@@ -91,7 +91,7 @@ MJScene 卫星状态 → SimpleNav（无噪声真值）
 - `attitude_control`：开关/模式、参考系、当前与参考四元数、角速度、角度误差、饱和、状态和控制时间。
 - `reaction_wheels`：三轮名称、相对转速/动量、请求/实际电机力矩、额定限制及每轮限矩/限速/超速标记。**轮状态绝不附加到机械臂 8 项数组中。**
 - 新遥测随 Observation 经 Hub/WS/Recorder 传递。前端优先使用明确的夹爪 m/s 字段。
-- 100 Hz 控制输出采用零阶保持。`state_time_ns` 是读取的本体原生状态时间，`control_time_ns` 是最近控制计算时间；记录的实际力矩是最近驱动评价值。它们不承诺与外层旧 `sim_time_ns` 标签完全一致。
+- 控制输出采用零阶保持。`state_time_ns` 是读取的本体原生状态时间，`control_time_ns` 是最近控制计算时间；记录的实际力矩是最近驱动评价值。它们不承诺与外层旧 `sim_time_ns` 标签完全一致。
 
 原生输出与渲染帧的采样并非每次重合：已有 30 Hz/2 ms 快照标签边界仍保留在总体架构的待验证事项中。新字段不能被误解成修复了所有权威采集时序问题。
 

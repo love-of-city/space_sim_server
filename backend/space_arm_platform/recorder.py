@@ -7,7 +7,6 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
 
 from .dataset_worker import DatasetWriterService
 from .sampling import sample_tick
@@ -54,6 +53,8 @@ class EpisodeRecorder:
         self._step_index = self._capture_index = 0
         self._rejected_capture_count = self._stale_capture_count = 0
         self._completed_frames = 0
+        self._last_written_frame_id = -1
+        self._sample_arrival_times = {}
         self._jobs = deque()
         self._queued_bytes = 0
         self._inflight_writes = 0
@@ -190,6 +191,8 @@ class EpisodeRecorder:
                     self._dataset.append(*payload)
                     with self._lock:
                         self._completed_frames = self._dataset.frames
+                        self._last_written_frame_id = int(payload[0].render_frame_id)
+                        self._sample_arrival_times.pop(payload[0].render_frame_id, None)
             except Exception as error:
                 with self._lock:
                     self._fail_locked(f"{type(error).__name__}: {error}")
@@ -282,6 +285,7 @@ class EpisodeRecorder:
             self._steps_by_frame.clear()
             self._pending_captures.clear()
             self._pending_capture_count = 0
+            self._sample_arrival_times.clear()
             self._write_condition.notify_all()
         return metadata
 
@@ -301,11 +305,39 @@ class EpisodeRecorder:
                 "pending_write_bytes": self._queued_bytes, "dataset_format": "lerobot-v3",
                 "dataset_frame_count": self._completed_frames if self._dataset else 0,
                 "pending_dataset_samples": len(self._dataset_observations), "dataset_error": self._dataset_error,
+                "oldest_unwritten_sample_age_s": max(0., time.monotonic() - min(self._sample_arrival_times.values())) if self._sample_arrival_times else 0.,
+                "last_written_frame_id": str(self._last_written_frame_id),
                 "writer_ready": self._ready and (self._service is None or self._service.ready),
                 "writer_preparation_error": self._preparation_error, "preparing": self._starting,
                 "capture_on_demand": self._capture_on_demand,
                 "capture_boundary_frozen": self._capture_cutoff,
                 "finalizing": (self._stopping or self._capture_cutoff) and self._episode_id is not None}
+
+    def wait_for_capture_pair(self, observation):
+        """ACK active samples after pairing AND writer append, not state receipt.
+
+        No disk/codec work under this lock. STOP/failure releases the waiter;
+        normal STOP still drains every accepted sample via stop(). Old peers
+        must not use this without bounded sender look-ahead negotiation.
+        """
+        with self._write_condition:
+            episode = self._episode_id
+            if not self._capture_on_demand or observation.capture_episode_id != episode:
+                return
+            frame = observation.render_frame_id
+            if self._dataset is None or sample_tick(int(observation.sim_time_ns), self._dataset.fps) is None:
+                return
+            ready = self._write_condition.wait_for(
+                lambda: self._episode_id != episode or self._dataset_error
+                or self._capture_cutoff or self._stopping or self._last_written_frame_id >= int(frame),
+                timeout=self._drain_timeout_s)
+            if not ready:
+                cameras = self._dataset_captures.get(frame, {})
+                waiting_for_images = frame in self._dataset_observations
+                missing = [c for c in self._dataset.cameras if c not in cameras] if waiting_for_images else []
+                stage = 'camera_pairing' if missing else 'dataset_writer'
+                self._fail_locked(f"capture progress stalled: frame={frame}, stage={stage}, missing_cameras={missing}; "
+                                  "recording failed without terminating physics")
 
     def record_action(self, action: AppliedAction):
         with self._lock:
@@ -372,6 +404,13 @@ class EpisodeRecorder:
                 return
             if self._capture_on_demand and metadata.get("capture_episode_id") != self._episode_id:
                 self._stale_capture_count += 1
+                return
+            if metadata.get('type') == 'capture_error':
+                if self._dataset_session and metadata.get('session_id') != self._dataset_session:
+                    self._rejected_capture_count += 1
+                    return
+                self._fail_locked(f"UE capture failed: frame={metadata.get('source_frame_id')}, "
+                                  f"camera={metadata.get('camera_id')}: {metadata.get('error')}")
                 return
             if metadata.get("stream_kind") != "authoritative" or metadata.get("state_kind") != "authoritative":
                 self._rejected_capture_count += 1
@@ -464,6 +503,7 @@ class EpisodeRecorder:
             return
         self._last_observation_tick = tick
         self._dataset_observations[observation.render_frame_id] = observation
+        self._sample_arrival_times[observation.render_frame_id] = time.monotonic()
         self._flush_dataset_samples()
 
     def _flush_dataset_samples(self):

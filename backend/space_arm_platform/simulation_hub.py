@@ -135,6 +135,10 @@ class SimulationHub:
     def capture_on_demand_supported(self) -> bool:
         return "capture_on_demand_v1" in self._capabilities
 
+    @property
+    def capture_pair_ack_supported(self) -> bool:
+        return "capture_pair_ack_v1" in self._capabilities
+
     async def set_capture_episode(self, episode_id: str, timeout: float = 15.0) -> None:
         """Retain/replay the desired mode; acknowledge only at a render-frame boundary."""
         if episode_id and (not self.connected or not self.capture_on_demand_supported):

@@ -50,6 +50,7 @@ class CaptureReceiver:
         self.last_authoritative_error: str | None = None
         self.preview_count = 0
         self.authoritative_count = 0
+        self._pipeline_status = {}
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -121,6 +122,9 @@ class CaptureReceiver:
                 "authoritative_count": self.authoritative_count,
                 "last_error": self.last_error,
                 "last_authoritative_error": self.last_authoritative_error,
+                "pending_authoritative_packets": self._authoritative_queue.qsize(),
+                "unfinished_authoritative_packets": self._authoritative_queue.unfinished_tasks,
+                "pipeline": dict(self._pipeline_status),
             }
 
     def route_capture(self, metadata: dict[str, Any], products: dict[str, bytes]) -> None:
@@ -147,6 +151,15 @@ class CaptureReceiver:
                 self._condition.notify_all()
             return
         if stream_kind == "authoritative" and state_kind == "authoritative":
+            with self._condition:
+                self._pipeline_status = {key: metadata.get(key) for key in (
+                    'capture_episode_id', 'source_frame_id', 'camera_id', 'render_queue_frames',
+                    'image_send_queue_packets', 'capture_pending_jobs', 'capture_pipeline_ms')}
+                try:
+                    self._pipeline_status['source_to_capture_ms'] = (
+                        int(metadata['capture_wall_time_ns']) - int(metadata['source_wall_time_ns'])) / 1e6
+                except (KeyError, TypeError, ValueError):
+                    pass
             key = None
             if metadata.get("ack_required"):
                 key = tuple(str(metadata.get(k, "")) for k in ("session_id", "camera_id", "capture_sequence"))

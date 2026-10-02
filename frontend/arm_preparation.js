@@ -1,6 +1,6 @@
 import { parseInitialJointAngles } from './initial_joint_angles.js';
 
-export const DEFAULT_OPERATING_DEG = [0, -67.6, -86.6, 143.2, -85.5, 0];
+export const DEFAULT_OPERATING_DEG = [90, -60, 60, 0, -90, 0];
 export const ZERO_START_PROFILE = 'teleop-zero-prepare-v1';
 export const AUTO_PREPARE_PROFILE = 'teleop-zero-prepare-v2';
 export function parseOperatingAngles(values, limits) {

@@ -4,6 +4,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 /.space-sim-python
+/.space-sim-posture-python
 data/episodes/
 logs/
 run/

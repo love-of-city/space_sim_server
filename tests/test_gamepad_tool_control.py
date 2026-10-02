@@ -1,4 +1,5 @@
 """Exercise gamepad commands through safety scaling and the real SARM IK chain."""
+import ast
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -47,6 +48,21 @@ def target_for(command, mode='ik_pose', preference=True):
                                    elbow_preference=OnlineElbowPreference(enabled=preference))
     target.reset(0.)
     return target, client, kin
+
+
+def test_joint6_torque_trial_preserves_other_limits_and_pid_gains():
+    # Keep this configuration regression available in CI without native Basilisk.
+    source = Path(__file__).resolve().parents[1] / 'simulation/teleop_grasp_unreal.py'
+    settings = {
+        node.targets[0].id: ast.literal_eval(node.value.args[0])
+        for node in ast.parse(source.read_text(encoding='utf-8')).body
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {'TELEOP_ARM_KP', 'TELEOP_ARM_KD', 'TELEOP_ARM_TORQUE_LIMIT'}
+    }
+    assert settings['TELEOP_ARM_TORQUE_LIMIT'] == [2., 2., 2., 1., 1., .70]
+    assert settings['TELEOP_ARM_KP'] == [32., 32., 32., 30., 30., 15.]
+    assert settings['TELEOP_ARM_KD'] == [2., 2., 2., .7, .5, .25]
+    assert SafetyController.JOINT6_MAX_RAD_S == .50
 
 
 def test_safety_scales_tool_channel_separately_and_clears_all_on_neutral():

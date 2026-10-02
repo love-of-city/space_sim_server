@@ -106,6 +106,16 @@ class SimulationControlClient:
             action["gripper_velocity_rad_s"] = 0.0
         return action, stale
 
+    def has_observation_capacity(self, reserve: int = 2) -> bool:
+        """Bound look-ahead before physics. New backends ACK after RGB pairing.
+
+        Sixteen in-flight states fit below all camera/pairing queue capacities.
+        STOP remains receivable by the independent worker while physics waits.
+        """
+        with self._lock:
+            limit = min(16, self._max_pending) if self._capture_state['capture_episode_id'] else self._max_pending
+            return not self._stop.is_set() and len(self._pending_observations) + reserve <= limit
+
     @property
     def reset_generation(self) -> str:
         with self._lock:
@@ -205,7 +215,7 @@ class SimulationControlClient:
                     hello = {"protocol": CONTROL_PROTOCOL, "type": "sim_hello", "simulation_id": self.simulation_id,
                              "reset_generation": self._reset_generation, "observation_stream_id": self._stream_id,
                              "observation_resume_after": str(self._acked_sequence),
-                             "capabilities": ["reliable_observations_v1", "capture_on_demand_v1", "scene_reset", "arm_preparation",
+                             "capabilities": ["reliable_observations_v1", "capture_on_demand_v1", "capture_pair_ack_v1", "scene_reset", "arm_preparation",
                                  "cartesian_twist_6d", "damped_least_squares_ik", "gripper_velocity",
                                  "joint_observation", "cartesian_observation", "sarm_si_joint_observation",
                                  "reaction_wheel_attitude_control"]}

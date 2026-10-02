@@ -36,6 +36,12 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'python_runtime.ps1')
 $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('fastapi', 'pydantic', 'uvicorn', 'lerobot')
 $env:SPACE_SIM_PYTHON = $pythonExe
+. (Join-Path $PSScriptRoot 'posture_runtime.ps1')
+$posturePython = Resolve-SpaceSimPosturePython -RepositoryRoot $projectRoot -ValidateRuntime
+if ($posturePython) {
+    $env:SPACE_SIM_POSTURE_PYTHON = $posturePython
+    Write-Output "Offline posture Python: $posturePython (MuJoCo 3.7.0)"
+}
 if (!$AdapterRoot) { $AdapterRoot = $env:SPACE_SIM_RUNTIME_ADAPTER_ROOT }
 if (!$ModelRoot) { $ModelRoot = $env:SPACE_SIM_RUNTIME_MODEL_ROOT }
 if (!$UnrealRoot) { $UnrealRoot = $env:SPACE_SIM_RUNTIME_UNREAL_ROOT }

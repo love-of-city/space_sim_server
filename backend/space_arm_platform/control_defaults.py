@@ -42,7 +42,7 @@ ELBOW_UP_TELEOP_PROFILE = "teleop-elbow-up-v1"
 ZERO_START_TELEOP_PROFILE = "teleop-zero-prepare-v1"
 AUTO_PREPARE_TELEOP_PROFILE = "teleop-zero-prepare-v2"
 DEFAULT_RANDOMIZATION_PROFILE = ZERO_START_TELEOP_PROFILE
-DEFAULT_OPERATING_JOINT_DEG = (0.0, -67.6, -86.6, 143.2, -85.5, 0.0)
+DEFAULT_OPERATING_JOINT_DEG = (90.0, -60.0, 60.0, 0.0, -90.0, 0.0)
 ZERO_TELEOP_HOME = (0.0,) * 6 + (0.01875, 0.01875)
 
 # Keep randomized starts inside the validated well-conditioned neighborhood.

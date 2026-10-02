@@ -2,11 +2,12 @@ import copy
 import numpy as np
 import pytest
 from simulation.arm_preparation import ArmPreparation, SmoothJointSegment
-from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
+
+LEGACY_TWO_STAGE_GOAL_DEG = (0.0, -67.6, -86.6, 143.2, -85.5, 0.0)
 
 
 def setup(goal=None):
-    goal = np.deg2rad(DEFAULT_OPERATING_JOINT_DEG) if goal is None else np.asarray(goal)
+    goal = np.deg2rad(LEGACY_TWO_STAGE_GOAL_DEG) if goal is None else np.asarray(goal)
     c = ArmPreparation(True, goal, [-np.pi]*5+[-2*np.pi], [np.pi]*5+[2*np.pi], [.7,.7,.7,.9,1.,1.])
     q = np.zeros(6)
     a = dict(deadman=True, arm_preparation=dict(request_id='one', joint_position_deg=np.rad2deg(goal).tolist()))
@@ -33,7 +34,7 @@ def test_waiting_gates_input_and_no_idle_motion_or_planner():
 def test_fixed_order_literal_angles_speed_and_measured_arrival():
     c,q,a=setup(); start(c,q,a)
     np.testing.assert_allclose(np.rad2deg(c.waypoints), [
-        [0,-67.6,30,143.2,0,0], DEFAULT_OPERATING_JOINT_DEG])
+        [0,-67.6,30,143.2,0,0], LEGACY_TWO_STAGE_GOAL_DEG])
     previous_velocity=np.zeros(6)
     for _ in range(6000):
         ref,vel=step(c,q,a,velocity=previous_velocity)
@@ -44,7 +45,7 @@ def test_fixed_order_literal_angles_speed_and_measured_arrival():
         q=ref;previous_velocity=vel
         if c.ready:break
     assert c.ready
-    np.testing.assert_allclose(q,np.deg2rad(DEFAULT_OPERATING_JOINT_DEG),atol=1e-8)
+    np.testing.assert_allclose(q,np.deg2rad(LEGACY_TWO_STAGE_GOAL_DEG),atol=1e-8)
     assert q[5] == 0. and q[0] == 0.
     assert len(c.phase_times)==2
     assert step(c,q,{'deadman':True}) is None

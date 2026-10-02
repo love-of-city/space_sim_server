@@ -1,6 +1,5 @@
 """Read-only STEP analytic-surface evidence; NOT a kinematic-joint detector."""
 import argparse, collections, hashlib, json, pathlib
-import numpy as np
 from OCP.STEPCAFControl import STEPCAFControl_Reader
 from OCP.IFSelect import IFSelect_RetDone
 from OCP.Interface import Interface_Static

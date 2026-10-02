@@ -15,6 +15,7 @@
     "tests/test_assembly.py": "Basilisk tool set graph and the locally built local_mujoco_stepper helper",
     "tests/test_momentum_acceptance.py": "Loads the native SARM scenario module (Basilisk imports)",
     "tests/test_atmospheric_drag.py": "Basilisk atmosphere model and the locally built local_mujoco_stepper helper",
+    "tests/test_native_posture.py": "Equivalence to the Python policy requires the locally built native posture helper; basic CI compiles nothing and fails on skips",
     "tests/test_simulation_reset_native.py": "Basilisk MJScene reset",
     "tests/test_arm_preparation_native.py": "Opt-in Basilisk MJScene preparation",
     "tests/test_glb_to_mjcf.py": "Optional DracoPy and generated GLB assets",

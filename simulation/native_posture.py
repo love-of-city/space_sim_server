@@ -54,9 +54,15 @@ def _function():
 
 
 def available() -> bool:
+    """True when a current, ABI-compatible native helper is installed.
+
+    A stale or mismatched build is "not available" rather than an error: callers
+    only ask so they can skip optional real-helper tests, and the load path still
+    raises loudly for real callers.
+    """
     try:
         _function()
-    except FileNotFoundError:
+    except (FileNotFoundError, RuntimeError):
         return False
     return True
 

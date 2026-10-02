@@ -16,6 +16,10 @@ class HeldJointReferencePublisher(sysModel.SysModel):
         self.joint_count = joint_count
         self.positionOutMsgs = [messaging.ScalarJointStateMsg() for _ in range(joint_count)]
         self.velocityOutMsgs = [messaging.ScalarJointStateMsg() for _ in range(joint_count)]
+        # Msg.write() creates a new author per call; keep one per message.
+        self._position_writers = [message.addAuthor() for message in self.positionOutMsgs]
+        self._velocity_writers = [message.addAuthor() for message in self.velocityOutMsgs]
+        self._payload = messaging.ScalarJointStateMsgPayload()
 
     def Reset(self, current_sim_nanos: int) -> None:
         self.UpdateState(current_sim_nanos)
@@ -28,10 +32,9 @@ class HeldJointReferencePublisher(sysModel.SysModel):
             raise ValueError("joint reference dimensions must match the actuator chain")
         if not np.all(np.isfinite(position)) or not np.all(np.isfinite(velocity)):
             raise ValueError("joint references must be finite")
+        payload = self._payload
         for index in range(self.joint_count):
-            self.positionOutMsgs[index].write(
-                messaging.ScalarJointStateMsgPayload(state=float(position[index])), current_sim_nanos, self.moduleID,
-            )
-            self.velocityOutMsgs[index].write(
-                messaging.ScalarJointStateMsgPayload(state=float(velocity[index])), current_sim_nanos, self.moduleID,
-            )
+            payload.state = float(position[index])
+            self._position_writers[index](payload, self.moduleID, current_sim_nanos)
+            payload.state = float(velocity[index])
+            self._velocity_writers[index](payload, self.moduleID, current_sim_nanos)

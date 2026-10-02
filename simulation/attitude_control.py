@@ -109,7 +109,7 @@ def load_hardware(model_path: Path):
     return wheels, parts
 
 
-def load_settings(path: Path):
+def load_settings(path: Path, *, grid_hz: float = 240.0):
     settings = json.loads(path.read_text(encoding='utf-8-sig'))
     expected = {'mode', 'enabled', 'control_rate_hz', 'mrp_proportional_gain_nm',
                 'rate_derivative_gain_nm_s', 'speed_guard_fraction'}
@@ -122,8 +122,11 @@ def load_settings(path: Path):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             raise ValueError(f'{key} must be finite and positive')
     rate = settings['control_rate_hz']
-    if rate > 500 or not math.isclose(500 / rate, round(500 / rate)):
-        raise ValueError('attitude control rate must divide the 500 Hz dynamics rate')
+    # The control chain runs on the physics grid, never on an independently
+    # rounded clock, so its rate must divide the grid (240 Hz -> 120/80/60/...).
+    # This used to be validated against the retired 500 Hz dynamics rate.
+    if rate > grid_hz or not math.isclose(grid_hz / rate, round(grid_hz / rate)):
+        raise ValueError(f'attitude control rate must divide the {grid_hz:g} Hz physics grid')
     if settings['speed_guard_fraction'] >= 1:
         raise ValueError('speed_guard_fraction must be below one')
     return settings
@@ -180,8 +183,11 @@ class WheelDrive(sysModel.SysModel):
         # A direct state read is required here: tests and reset paths may set a
         # joint velocity before the next MJScene publication. The read API sees
         # that authoritative current value, while the cached handle remains
-        # useful for normal published RK stages.
-        speed = float(owner.joints[i].stateDotOutMsg.read().state)
+        # useful for normal published RK stages. The local backend publishes
+        # joint states after every step and adopts external writes itself, so
+        # the cached handle is exact there.
+        speed = float(self._speed_reader().state if getattr(owner, 'cached_speed_reads', False)
+                      else owner.joints[i].stateDotOutMsg.read().state)
         self.applied, self.torque_limited, self.speed_limited = limit_wheel_torque(
             self.requested, speed, owner.wheels[i], owner.enabled,
             owner.settings['speed_guard_fraction'])
@@ -247,11 +253,23 @@ class InitialReference(sysModel.SysModel):
 
 class AttitudeControl:
     """Own the BSK guidance/control chain and the three native wheel drives."""
-    def __init__(self, simulation, process, scene, model_path: Path, *, enabled=None):
+    def __init__(self, simulation, process, scene, model_path: Path, *, enabled=None,
+                 drive_task=None, physics_grid=None):
+        """``drive_task=(task_name, priority)`` schedules the wheel drives on a
+        fixed-rate task (local dynamics backend) instead of every MJScene stage.
+
+        ``physics_grid=(task_name, base_priority, every, clock)`` runs the
+        guidance/control chain on the physics task at a fixed division of the
+        240 Hz grid, phase-aligned with state publication, instead of in its own
+        independent 100 Hz task. The chain then sees states whose age is exactly
+        one physics step instead of anywhere between 0 and 6.7 ms, and its message
+        timestamps correspond to the state it actually used.
+        """
         self.scene = scene
         self.wheels, self.parts = load_hardware(model_path)
         self.settings = load_settings(model_path.with_name('attitude_control.json'))
         self.enabled = self.settings['enabled'] if enabled is None else bool(enabled)
+        self.cached_speed_reads = drive_task is not None
         self.bus = scene.getBody('cubesat_bus')
         self.state_reader = self.bus.getOrigin().stateOutMsg.addSubscriber()
         self.control_time_ns = 0
@@ -261,15 +279,38 @@ class AttitudeControl:
         self.initial_inertia = None
         self.models = []
         self.drives = []
+        self.dividers = []
+        # Every module this chain puts into a task, as (scheduled model, task,
+        # priority, every, phase). The session's schedule dump reads this, so a
+        # chain installed directly by a component is still visible in review
+        # instead of silently missing from the reported execution order.
+        self.scheduled: list[tuple[Any, str, int, int, int]] = []
         task = 'sarmAttitudeTask'
-        # Dynamics runs first at coincident ticks; FSW commands are held until
-        # the next dynamics evaluation.  IK retains its independent task.
-        process.addTask(simulation.CreateNewTask(task, macros.sec2nano(
-            1.0 / self.settings['control_rate_hz'])), -10)
+        if physics_grid is None:
+            # Dynamics runs first at coincident ticks; FSW commands are held until
+            # the next dynamics evaluation.  IK retains its independent task.
+            process.addTask(simulation.CreateNewTask(task, macros.sec2nano(
+                1.0 / self.settings['control_rate_hz'])), -10)
+            grid = None
+        else:
+            task, base_priority, every, clock = physics_grid
+            grid = (base_priority, every, clock)
 
         def add(model, tag, priority):
             model.ModelTag = tag
-            simulation.AddModelToTask(task, model, priority)
+            if grid is None:
+                simulation.AddModelToTask(task, model, priority)
+                self.scheduled.append((model, task, int(priority), 0, 0))
+            else:
+                # Same chain, same relative order, but on the physics task at a
+                # division of its grid. RateDivider forwards the child's lifecycle.
+                from simulation.assembly import RateDivider
+                base_priority, every, clock = grid
+                scheduled_priority = base_priority - (1000 - priority)
+                divider = RateDivider(model, every=every, phase=1, clock=clock)
+                simulation.AddModelToTask(task, divider, scheduled_priority)
+                self.dividers.append(divider)
+                self.scheduled.append((divider, task, int(scheduled_priority), int(every), 1))
             self.models.append(model)
             return model
 
@@ -319,7 +360,12 @@ class AttitudeControl:
             scene.getSingleActuator(wheel.motor).actuatorInMsg.subscribeTo(drive.actuatorOutMsg)
             self.drives.append(drive)
         self.drive_group = WheelDriveGroup(self.drives)
-        scene.AddModelToDynamicsTask(self.drive_group, 6500)
+        if drive_task is None:
+            scene.AddModelToDynamicsTask(self.drive_group, 6500)
+        else:
+            # Local backend: MuJoCo holds the motor command for the physics
+            # step, so the drive limits run once per step on fresh wheel speed.
+            simulation.AddModelToTask(drive_task[0], self.drive_group, drive_task[1])
 
     def telemetry(self):
         """Keep wheel states separate from the eight arm/finger coordinates."""

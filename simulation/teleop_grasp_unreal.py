@@ -994,7 +994,7 @@ def _run_session(
     from simulation.components.teleop_ik import TeleopIkComponent
     from simulation.physics_ports import PhysicsPorts
 
-    bridge: BasiliskRenderBridge | None = None
+    bridge: Any = None  # BasiliskRenderBridge, created by RenderComponent
     simulation = None
     gravity_factory = None
     orbit_origin = None

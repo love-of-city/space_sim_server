@@ -121,6 +121,9 @@ class EpisodeRecorder:
                 self._metadata = metadata
                 self._stopping = self._sealing = False
                 self._episode_id, self._episode_dir = episode_id, directory
+                # Publish the episode and leave "preparing" in one locked step, so
+                # status never reports an active episode that is still preparing.
+                self._starting = False
                 self._worker = threading.Thread(target=self._write_loop, name="episode-serial-io", daemon=True)
                 self._worker.start()
                 self._write_condition.notify_all()

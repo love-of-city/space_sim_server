@@ -20,13 +20,14 @@ function setup() {
  return {ui,inputs,startButton,cancelButton,defaultButton,status,context,sent,messages,get exited(){return exited;},get activated(){return activated;}};
 }
 test('literal screenshot defaults and validation',()=>{
+ assert.deepEqual(DEFAULT_OPERATING_DEG,[90,-60,60,0,-90,0]);
  assert.deepEqual(parseOperatingAngles(DEFAULT_OPERATING_DEG,limits),DEFAULT_OPERATING_DEG);
  assert.equal(parseOperatingAngles(DEFAULT_OPERATING_DEG,limits)[5],0);
  assert.throws(()=>parseOperatingAngles(['',0,0,0,0,0],limits),/操作角度/);
  assert.throws(()=>parseOperatingAngles([0,0,0,0,0,361],limits),/J6/);
 });
 test('editing does not move, button latches one heartbeat, measured ready gates operation',()=>{
- const p=setup();assert.deepEqual(p.ui.read(),DEFAULT_OPERATING_DEG);assert.equal(p.ui.ready(),false);
+ const p=setup();assert.deepEqual(p.ui.read(),[0,...DEFAULT_OPERATING_DEG.slice(1)]);assert.equal(p.ui.ready(),false);
  p.inputs[1].value='-61';assert.equal(p.sent.length,0);
  p.startButton.click();const request=p.sent.at(-1);
  assert.equal(p.exited,1);assert.equal(request.joint_position_deg[1],-61);assert.ok(request.request_id);
@@ -102,9 +103,18 @@ test('simulation hello alone does not enable preparation before first measured t
 test('J1 and J6 are held fields and old saved defaults cannot restore stage three',()=>{
  const p=setup();assert.equal(p.inputs[0].disabled,true);assert.equal(p.inputs[5].disabled,true);
  p.ui.setRuntime({instance_id:'old',arm_preparation_required:true,operating_arm_joint_position_deg:[-30.2,-67.6,-86.6,143.2,-85.5,337.4]},true);
- assert.deepEqual(p.ui.read(),DEFAULT_OPERATING_DEG);
+ assert.deepEqual(p.ui.read(),[0,-67.6,-86.6,143.2,-85.5,0]);
  p.ui.update({status:'waiting',ready:false});p.startButton.click();
- assert.deepEqual(p.sent.at(-1).joint_position_deg,DEFAULT_OPERATING_DEG);
+ assert.deepEqual(p.sent.at(-1).joint_position_deg,[0,-67.6,-86.6,143.2,-85.5,0]);
+});
+
+test('direct-start scene uses and restores the new default across all six joints',()=>{
+ const p=setup();
+ p.ui.setRuntime({instance_id:'direct',randomization_profile:'teleop-zero-prepare-v1',arm_preparation_required:false},true);
+ assert.deepEqual(p.ui.read(),DEFAULT_OPERATING_DEG);
+ assert.equal(p.inputs[0].disabled,false);
+ p.inputs[0].value='12';p.inputs[4].value='-75';p.defaultButton.click();
+ assert.deepEqual(p.ui.read(),DEFAULT_OPERATING_DEG);
 });
 
 function setupAuto({controlGranted = true} = {}) {

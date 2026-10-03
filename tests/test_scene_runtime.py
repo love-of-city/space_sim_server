@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import inspect
 import json
+import math
 from unittest.mock import Mock
 
 import pytest
@@ -17,6 +18,7 @@ from space_arm_platform.control_defaults import (
     BALANCED_TELEOP_PROFILE,
     DEFAULT_RANDOMIZATION_PROFILE,
     AUTO_PREPARE_TELEOP_PROFILE,
+    ZERO_START_TELEOP_PROFILE,
 )
 from space_arm_platform.scene_runtime import (
     SceneRuntimeManager,
@@ -31,6 +33,7 @@ from space_arm_platform.scene_runtime import (
     _DEFAULT_EPHEMERIS_FRAME,
     _DEFAULT_ORBIT,
 )
+from space_arm_platform.scene_targets import FREE_PLUG_TEMPLATE
 
 
 def request(seed: int | None, profile: str = "training-v1") -> SceneInstanceCreate:
@@ -109,6 +112,59 @@ def test_balanced_teleop_profile_stays_near_validated_home(tmp_path: Path) -> No
     joints = instance["randomization"]["arm_joint_position_rad"]
     for actual, home, span in zip(joints, BALANCED_TELEOP_HOME, BALANCED_TELEOP_JOINT_SPANS, strict=True):
         assert home - span <= actual <= home + span
+
+
+def test_free_plug_template_uses_direct_start_and_rejects_auto_prepare(tmp_path: Path, monkeypatch) -> None:
+    planner = Mock(side_effect=AssertionError("free-plug scenes must not call the offline planner"))
+    monkeypatch.setattr("space_arm_platform.preparation_planning.prepare_arm_plan", planner)
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    instance = manager.create_instance(SceneInstanceCreate(
+        template_id=FREE_PLUG_TEMPLATE, seed=123,
+    ))
+
+    assert instance["randomization_profile"] == ZERO_START_TELEOP_PROFILE
+    assert instance["arm_preparation_required"] is False
+    assert "arm_preparation_plan" not in instance
+    assert instance["operating_arm_joint_position_deg"] == [90.0, -60.0, 60.0, 0.0, -90.0, 0.0]
+    assert instance["randomization"]["arm_joint_position_rad"][:6] == pytest.approx(
+        [math.radians(value) for value in instance["operating_arm_joint_position_deg"]],
+        abs=1e-12,
+    )
+
+    catalog = manager.catalog()
+    template = next(item for item in catalog["templates"] if item["id"] == FREE_PLUG_TEMPLATE)
+    assert template["default_randomization_profile"] == ZERO_START_TELEOP_PROFILE
+    assert AUTO_PREPARE_TELEOP_PROFILE in template["unsupported_randomization_profiles"]
+
+    before = set(manager.scene_root.iterdir())
+    with pytest.raises(ValueError, match="flexcomp.*teleop-zero-prepare-v2"):
+        manager.create_instance(SceneInstanceCreate(
+            template_id=FREE_PLUG_TEMPLATE,
+            randomization_profile=AUTO_PREPARE_TELEOP_PROFILE,
+            seed=123,
+        ))
+    assert set(manager.scene_root.iterdir()) == before
+    planner.assert_not_called()
+
+
+@pytest.mark.parametrize("angles", [
+    [0.0] * 6,
+    [12.0, -65.0, -84.0, 140.0, -80.0, 35.0],
+])
+def test_free_plug_direct_start_preserves_custom_operating_angles(tmp_path: Path, angles) -> None:
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    instance = manager.create_instance(SceneInstanceCreate(
+        template_id=FREE_PLUG_TEMPLATE,
+        randomization_profile=ZERO_START_TELEOP_PROFILE,
+        operating_arm_joint_position_deg=angles,
+        seed=123,
+    ))
+    assert instance["operating_arm_joint_position_deg"] == angles
+    assert instance["randomization"]["arm_joint_position_rad"][:6] == pytest.approx(
+        [math.radians(value) for value in angles], abs=1e-12,
+    )
+    assert instance["arm_preparation_required"] is False
+    assert "arm_preparation_plan" not in instance
 
 
 def test_start_keeps_previous_identity_until_launcher_cleanup():

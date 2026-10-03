@@ -72,6 +72,9 @@ def test_client_config_selects_pixel_streaming_without_changing_capture_channel(
             "authoritative_count": 0,
             "last_error": None,
             "last_authoritative_error": None,
+            "pending_authoritative_packets": 0,
+            "unfinished_authoritative_packets": 0,
+            "pipeline": {},
         }
         index = client.get("/").text
         frontend = (project_root / "frontend" / "app.js").read_text(encoding="utf-8")

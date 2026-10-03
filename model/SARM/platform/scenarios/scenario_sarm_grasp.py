@@ -65,6 +65,46 @@ ALIGNED = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01875, 0.01875])
 CLOSED = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 WITHDRAW = np.array([0.0, -0.10, 0.12, -0.02, 0.0, 0.0, 0.0, 0.0])
 
+# Momentum acceptance thresholds, per dynamics backend.  Both sets are regression
+# bounds, not physical requirements.
+#
+# * basilisk (MJScene + adaptive RKF45) keeps the original strict values.  It is
+#   the accuracy reference, and it conserves momentum to about 1e-9.
+# * local integrates implicitfast at a fixed 240 Hz, which conserves momentum only
+#   to first order while the arm moves: the scripted maneuver measures 1.9e-4
+#   (linear), 9.0e-5 (COM angular) and 2.8e-5 kg m^2/s (origin angular) at one
+#   substep, halving per extra substep.  The bounds below are about 2.5x those
+#   one-substep values, so a regression fails loudly while the expected
+#   discretization error passes.  Substep counts are an offline accuracy knob
+#   (SPACE_SIM_LOCAL_SUBSTEPS); the default 1 keeps real time.
+#
+# The companion guard is that the error must not *accumulate*: once the reference
+# stops moving, the drift over the final hold must stay negligible.  That is what
+# rules out long-horizon divergence, so it is checked separately below.
+MOMENTUM_THRESHOLDS = {
+    "basilisk": {
+        "linear_kg_m_s": 5e-5,
+        "com_angular_kg_m2_s": 1e-5,
+        "origin_angular_kg_m2_s": 1e-5,
+        "com_uniform_motion_m": 5e-5,
+        "post_motion_linear_kg_m_s": 5e-5,
+        "post_motion_origin_angular_kg_m2_s": 1e-5,
+    },
+    "local": {
+        "linear_kg_m_s": 5e-4,
+        "com_angular_kg_m2_s": 2.5e-4,
+        "origin_angular_kg_m2_s": 1e-4,
+        "com_uniform_motion_m": 5e-6,
+        # Measured residual drift over the 0.5 s hold is 1.1e-6 / 3e-7; a real
+        # accumulation at the peak rate would reach ~1e-4 over the same window.
+        "post_motion_linear_kg_m_s": 1e-5,
+        "post_motion_origin_angular_kg_m2_s": 3e-6,
+    },
+}
+# The scripted reference is constant after this time, so the tail is the window
+# where momentum must not keep drifting.
+POST_MOTION_START_S = 9.5
+
 
 @dataclass(frozen=True)
 class GraspMetrics:
@@ -74,6 +114,8 @@ class GraspMetrics:
     max_com_angular_momentum_error: float
     max_origin_angular_momentum_error: float
     max_com_uniform_motion_error: float
+    post_motion_linear_momentum_drift: float
+    post_motion_origin_angular_momentum_drift: float
     initial_mechanical_energy: float
     final_mechanical_energy: float
     max_mechanical_energy_change: float
@@ -173,8 +215,16 @@ def _quaternion_to_mrp(quaternion: np.ndarray) -> np.ndarray:
     return quaternion[1:] / (1.0 + quaternion[0])
 
 
-def _load_scene() -> mujoco.MJScene:
-    """Load visual AND rigid-flex collision meshes through the MuJoCo VFS."""
+def _load_scene(kinematics_only: bool = False) -> mujoco.MJScene:
+    """Load visual AND rigid-flex collision meshes through the MuJoCo VFS.
+
+    ``kinematics_only`` is for the local dynamics backend, where this MJScene
+    only publishes state: contact and constraint assembly are disabled in its
+    copy and the collision-only rigid flexcomps are dropped (all of this runs
+    in the stepper's own model). That removes collision detection and flex
+    updates from every forward-kinematics publication. The qpos/qvel layout,
+    body masses/inertias, geoms and sites are unchanged.
+    """
     root = ET.parse(MODEL_PATH).getroot()
     compiler = root.find("compiler")
     meshdir = compiler.get("meshdir", "") if compiler is not None else ""
@@ -187,27 +237,76 @@ def _load_scene() -> mujoco.MJScene:
         with open(path, "rb") as stream:
             if stream.read(128).startswith(b"version https://git-lfs.github.com/spec/v1"):
                 raise ValueError(f"Mesh is still an LFS pointer: {path}. Run git lfs pull.")
-    return mujoco.MJScene.fromFile(str(MODEL_PATH), files=mesh_files)
+    if not kinematics_only:
+        return mujoco.MJScene.fromFile(str(MODEL_PATH), files=mesh_files)
+    option = root.find("option")
+    if option is None:
+        option = ET.SubElement(root, "option")
+    flag = option.find("flag")
+    if flag is None:
+        flag = ET.SubElement(option, "flag")
+    flag.set("contact", "disable")
+    flag.set("constraint", "disable")
+    for parent in root.iter():
+        for child in list(parent):
+            if child.tag == "flexcomp" and child.get("rigid", "false").lower() == "true":
+                parent.remove(child)
+    return mujoco.MJScene(ET.tostring(root, encoding="unicode"), mesh_files)
 
 
 def _build_simulation(
     *, attitude_control_enabled: bool | None = None, external_reference: Any | None = None,
-    record_history: bool = True,
+    record_history: bool = True, dynamics_backend: str = "basilisk", local_substeps: int | None = None,
+    defer_attitude_control: bool = False,
 ) -> tuple[Any, Any, list[Any], list[Any]]:
     """Create the native controller chain; the caller schedules an external reference.
 
     Without an external reference, the scripted trajectory retains its original
     dynamics-substage scheduling.
+
+    ``dynamics_backend`` is explicit here: this is the internal graph builder, and
+    callers state their intent (entry points pass the resolved platform default,
+    tests build the MJScene path on purpose).
+
+    ``defer_attitude_control=True`` leaves `simulation.attitude_control` unset so the
+    session's AttitudeComponent can install the chain exactly once, with its own task
+    placement. Callers that build the graph directly (tests, offline tools) keep the
+    default and get the chain built here. Installing it in both places would schedule
+    the whole 100 Hz chain twice and leave one copy spinning without effect.
+
+    ``dynamics_backend="local"`` keeps the same MJScene, bodies and messages but
+    integrates them with fixed-step MuJoCo (see simulation/local_mujoco_stepper.py):
+    the joint PD runs as MuJoCo position servos and the scene only publishes.
     """
+    repository_root = Path(__file__).resolve().parents[4]
+    if str(repository_root) not in sys.path:
+        sys.path.insert(0, str(repository_root))
+    if dynamics_backend not in ("basilisk", "local"):
+        raise ValueError(f"unknown dynamics backend: {dynamics_backend!r}")
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("graspProcess")
     process.addTask(simulation.CreateNewTask("graspTask", macros.sec2nano(TIME_STEP)))
 
-    scene = _load_scene()
+    scene = _load_scene(kinematics_only=dynamics_backend == "local")
     scene.ModelTag = "sarmSatelliteGraspScene"
-    simulation.AddModelToTask("graspTask", scene)
+    if dynamics_backend == "local":
+        # The stepper writes every scene message itself, on its publication
+        # schedule, so each message carries the time its state was computed.
+        # This task only lets InitializeSimulation reset the scene and write
+        # its t=0 messages; its period is never reached.
+        process.addTask(simulation.CreateNewTask(LOCAL_SCENE_INIT_TASK, LOCAL_SCENE_INIT_PERIOD_NS))
+        simulation.AddModelToTask(LOCAL_SCENE_INIT_TASK, scene)
+    else:
+        simulation.AddModelToTask("graspTask", scene)
+    simulation.dynamics_backend = dynamics_backend
 
     trajectory = external_reference if external_reference is not None else JointTrajectoryPublisher()
+    if dynamics_backend == "local":
+        return _build_local_simulation(
+            simulation, process, scene, trajectory, external_reference is None,
+            attitude_control_enabled=attitude_control_enabled, record_history=record_history,
+            local_substeps=local_substeps, defer_attitude_control=defer_attitude_control,
+        )
     if external_reference is None:
         scene.AddModelToDynamicsTask(trajectory, 9000)
     dynamics_models: list[Any] = [trajectory]
@@ -243,13 +342,11 @@ def _build_simulation(
             simulation.AddModelToTask("graspTask", command_recorders[-1])
 
     # The server-side BSK chain drives physical MJCF rotors, not a second hub.
-    repository_root = Path(__file__).resolve().parents[4]
-    if str(repository_root) not in sys.path:
-        sys.path.insert(0, str(repository_root))
-    from simulation.attitude_control import AttitudeControl
-    simulation.attitude_control = AttitudeControl(
-        simulation, process, scene, MODEL_PATH, enabled=attitude_control_enabled
-    )
+    if not defer_attitude_control:
+        from simulation.attitude_control import AttitudeControl
+        simulation.attitude_control = AttitudeControl(
+            simulation, process, scene, MODEL_PATH, enabled=attitude_control_enabled
+        )
 
     recorders = []
     if record_history:
@@ -257,6 +354,44 @@ def _build_simulation(
         simulation.AddModelToTask("graspTask", state_recorder)
         recorders = [state_recorder, *command_recorders]
     return simulation, scene, dynamics_models, recorders
+
+
+# graspTask priorities of the local backend (higher runs first).
+LOCAL_TRAJECTORY_PRIORITY = 9000
+LOCAL_WHEEL_DRIVE_PRIORITY = 2000
+LOCAL_STEPPER_PRIORITY = 1000
+LOCAL_SCENE_INIT_TASK = "localScenePublication"
+LOCAL_SCENE_INIT_PERIOD_NS = 10**18  # ~31 years: runs at t=0 only
+
+
+def _build_local_simulation(
+    simulation: Any, process: Any, scene: Any, trajectory: Any, scripted: bool, *,
+    attitude_control_enabled: bool | None, record_history: bool, local_substeps: int | None,
+    defer_attitude_control: bool = False,
+) -> tuple[Any, Any, list[Any], list[Any]]:
+    """Fixed-step MuJoCo servos replace the PID -> limiter -> motor chain."""
+    from simulation.local_mujoco_stepper import LocalMujocoStepper, servo_specs
+
+    if scripted:
+        simulation.AddModelToTask("graspTask", trajectory, LOCAL_TRAJECTORY_PRIORITY)
+    servos = servo_specs(ACTUATORS, [joint for _, joint in JOINTS], KP, KD, TORQUE_LIMITS, trajectory)
+    stepper = LocalMujocoStepper(scene, MODEL_PATH, servos, substeps=local_substeps)
+    simulation.AddModelToTask("graspTask", stepper, LOCAL_STEPPER_PRIORITY)
+    simulation.local_stepper = stepper
+    if not defer_attitude_control:
+        from simulation.attitude_control import AttitudeControl
+        simulation.attitude_control = AttitudeControl(
+            simulation, process, scene, MODEL_PATH, enabled=attitude_control_enabled,
+            drive_task=("graspTask", LOCAL_WHEEL_DRIVE_PRIORITY),
+        )
+    recorders = []
+    if record_history:
+        command_recorders = [message.recorder() for message in stepper.appliedOutMsgs]
+        state_recorder = scene.stateOutMsg.recorder()
+        for recorder in (state_recorder, *command_recorders):
+            simulation.AddModelToTask("graspTask", recorder)
+        recorders = [state_recorder, *command_recorders]
+    return simulation, scene, [trajectory, stepper], recorders
 
 
 def _initialize_state(simulation: Any, scene: Any) -> None:
@@ -391,6 +526,11 @@ def _analyze(
 
     elapsed = times - times[0]
     predicted_com = system_com[0] + elapsed[:, None] * (linear_momentum[0] / total_mass)
+    # No reference motion after POST_MOTION_START_S: any further momentum drift is
+    # accumulation, not first-order discretization error.
+    tail = times >= POST_MOTION_START_S
+    if int(np.count_nonzero(tail)) < 2:
+        raise ValueError("the recorded maneuver does not span the post-motion hold")
     return GraspMetrics(
         max_linear_momentum_error=float(
             np.max(np.linalg.norm(linear_momentum - linear_momentum[0], axis=1))
@@ -409,6 +549,21 @@ def _analyze(
         ),
         max_com_uniform_motion_error=float(
             np.max(np.linalg.norm(system_com - predicted_com, axis=1))
+        ),
+        post_motion_linear_momentum_drift=float(
+            np.max(
+                np.linalg.norm(
+                    linear_momentum[tail] - linear_momentum[tail][0], axis=1
+                )
+            )
+        ),
+        post_motion_origin_angular_momentum_drift=float(
+            np.max(
+                np.linalg.norm(
+                    origin_angular_momentum[tail] - origin_angular_momentum[tail][0],
+                    axis=1,
+                )
+            )
         ),
         initial_mechanical_energy=float(mechanical_energy[0]),
         final_mechanical_energy=float(mechanical_energy[-1]),
@@ -431,8 +586,15 @@ def _analyze(
     )
 
 
-def acceptance_failures(metrics: GraspMetrics) -> list[str]:
-    """Return all failed task-level acceptance conditions."""
+def acceptance_failures(metrics: GraspMetrics, backend: str = "basilisk") -> list[str]:
+    """Return all failed task-level acceptance conditions for one backend.
+
+    Grasp geometry criteria are shared; the momentum bounds differ per backend
+    (see MOMENTUM_THRESHOLDS).
+    """
+    if backend not in MOMENTUM_THRESHOLDS:
+        raise ValueError(f"no momentum thresholds for backend {backend!r}")
+    bounds = MOMENTUM_THRESHOLDS[backend]
     checks = (
         (
             metrics.first_contact_time is not None,
@@ -467,28 +629,49 @@ def acceptance_failures(metrics: GraspMetrics) -> list[str]:
             "final relative angular speed exceeds 0.05 rad/s",
         ),
         (
-            metrics.max_linear_momentum_error <= 5e-5,
-            "linear momentum error exceeds 5e-5 kg*m/s",
+            metrics.max_linear_momentum_error <= bounds["linear_kg_m_s"],
+            f"linear momentum error exceeds {bounds['linear_kg_m_s']:g} kg*m/s ({backend})",
         ),
         (
-            metrics.max_com_angular_momentum_error <= 1e-5,
-            "COM angular momentum error exceeds 1e-5 kg*m^2/s",
+            metrics.max_com_angular_momentum_error <= bounds["com_angular_kg_m2_s"],
+            f"COM angular momentum error exceeds {bounds['com_angular_kg_m2_s']:g} "
+            f"kg*m^2/s ({backend})",
         ),
         (
-            metrics.max_origin_angular_momentum_error <= 1e-5,
-            "origin angular momentum error exceeds 1e-5 kg*m^2/s",
+            metrics.max_origin_angular_momentum_error
+            <= bounds["origin_angular_kg_m2_s"],
+            f"origin angular momentum error exceeds {bounds['origin_angular_kg_m2_s']:g} "
+            f"kg*m^2/s ({backend})",
         ),
         (
-            metrics.max_com_uniform_motion_error <= 5e-5,
-            "system COM uniform-motion error exceeds 5e-5 m",
+            metrics.max_com_uniform_motion_error <= bounds["com_uniform_motion_m"],
+            f"system COM uniform-motion error exceeds {bounds['com_uniform_motion_m']:g} m "
+            f"({backend})",
+        ),
+        (
+            # After the reference stops, an implicit fixed-step scheme may keep a
+            # constant offset but must not keep integrating error into momentum.
+            metrics.post_motion_linear_momentum_drift
+            <= bounds["post_motion_linear_kg_m_s"],
+            "momentum error keeps accumulating after the reference stops "
+            f"(linear drift exceeds {bounds['post_motion_linear_kg_m_s']:g} kg*m/s, {backend})",
+        ),
+        (
+            metrics.post_motion_origin_angular_momentum_drift
+            <= bounds["post_motion_origin_angular_kg_m2_s"],
+            "momentum error keeps accumulating after the reference stops "
+            f"(origin angular drift exceeds "
+            f"{bounds['post_motion_origin_angular_kg_m2_s']:g} kg*m^2/s, {backend})",
         ),
     )
     return [message for passed, message in checks if not passed]
 
 
-def _run_recorded() -> SimulationRecord:
+def _run_recorded(dynamics_backend: str = "basilisk") -> SimulationRecord:
     """Run the maneuver and return its recorded generalized state history."""
-    simulation, scene, _dynamics_models, recorders = _build_simulation()
+    simulation, scene, _dynamics_models, recorders = _build_simulation(
+        dynamics_backend=dynamics_backend
+    )
     _initialize_state(simulation, scene)
     simulation.ConfigureStopTime(macros.sec2nano(STOP_TIME))
     simulation.ExecuteSimulation()
@@ -605,9 +788,18 @@ def run(
     video_path: Path | None = None,
     fps: int = 30,
     contact_debug: bool = False,
+    dynamics_backend: str | None = None,
 ) -> GraspMetrics:
-    """Run the maneuver, optionally render it, and return grasp metrics."""
-    record = _run_recorded()
+    """Run the maneuver, optionally render it, and return grasp metrics.
+
+    ``dynamics_backend`` selects both the integrator and the matching momentum
+    acceptance bounds; ``None`` resolves the platform default
+    (SPACE_SIM_DYNAMICS_BACKEND, else local).
+    """
+    from simulation.local_mujoco_stepper import dynamics_backend as resolve_backend
+
+    selected = resolve_backend(dynamics_backend)
+    record = _run_recorded(selected)
     metrics = _analyze(record.times, record.qpos, record.qvel, record.commands)
     if video_path is not None:
         render_video(record, video_path, fps=fps, contact_debug=contact_debug)
@@ -638,6 +830,13 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="draw MuJoCo contact-force glyphs; these can obscure the handle",
     )
+    parser.add_argument(
+        "--dynamics-backend",
+        choices=("basilisk", "local"),
+        default=None,
+        help="integrator and its matching momentum acceptance bounds; "
+             "defaults to SPACE_SIM_DYNAMICS_BACKEND, else local",
+    )
     return parser.parse_args()
 
 
@@ -650,9 +849,10 @@ def main() -> int:
         video_path=args.video,
         fps=args.fps,
         contact_debug=args.contact_debug,
+        dynamics_backend=args.dynamics_backend,
     )
     print(json.dumps(asdict(metrics), indent=2))
-    failures = acceptance_failures(metrics)
+    failures = acceptance_failures(metrics, args.dynamics_backend)
     if failures:
         print("Acceptance failures:", file=sys.stderr)
         for failure in failures:

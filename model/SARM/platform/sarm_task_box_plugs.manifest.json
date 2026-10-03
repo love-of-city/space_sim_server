@@ -1,6 +1,6 @@
 {
   "schema": "task-box-free-plugs/1",
-  "sha256": "72f8c96c96078d0386dabccea6d3d821b01687f89b77f76ff52ccbef1fc3e5d4",
+  "sha256": "c97aca28d3938e99db95f74bbc2bf8a6632ca783a33d012f8ab50ba4b7364ea6",
   "sources": {
     "model/SARM/platform/sarm_task_box_module.xml": "f9e6992af795e34a6934ded2a68df3ff70dd49ef5b9d41e8a7c22ac8cb30aa03",
     "model/SARM/platform/sarm_task_box_module.manifest.json": "f438c144327b9c16867996c0deef37f9fd97035a9536fffe176985f24cdafe44",
@@ -178,10 +178,12 @@
     "model/task_box/module/task_box_014_contact.obj": "369cd9a2efc04c42491b725947cebf3770096c66cd4fb1053e4874504596f117",
     "model/task_box/module/task_box_015.obj": "2fa67f9ad990e237459f5ebc0cdb0137bfa02d6de7d492b1e36e744ee59d6061",
     "model/task_box/module/task_box_015_contact.obj": "9bc40b1159c7ca185e3acda4fc72f18a9459c1e332b1356d9765e7bc26a17b31",
-    "model/task_box/free_plugs/configuration.json": "db7eb1a2ad2c16f814c87495927052306517e3e5c5ec4fa44f9ed865adc1cd22",
+    "model/task_box/free_plugs/configuration.json": "a39541f54a403eac2add53d40b509a6a07d8cdf7aed80323dd3ed68717c96ac7",
     "model/task_box/free_plugs/task_box_interface_hull_22_surface.obj": "60bf6c916040833a5686f4c44cf38092cea4ce673b5b216f84df11445238f5c3",
     "model/task_box/free_plugs/guide_plug.obj": "c09a92f2782ac53fd407600cdc4e5f6f88c7340c2d458d6ba46a7f7cfde23857",
-    "model/task_box/free_plugs/aviation_plug.obj": "ad883cb4428d32873bf3bbce631b0dac484781e558d3182bb3027b5ac2d8f79d"
+    "model/task_box/free_plugs/aviation_plug.obj": "ad883cb4428d32873bf3bbce631b0dac484781e558d3182bb3027b5ac2d8f79d",
+    "model/task_box/free_plugs/guide_plug_head.obj": "4a00920f82f120f4e8e226f50cfc3364a5fc7039d19af9ac322f913858e6cd67",
+    "model/task_box/free_plugs/aviation_plug_head.obj": "b0fc61da328c88518d54a3f2d4ea8bcc5c47d2443967f89392b4e085fb6b852e"
   },
   "plugs": [
     {
@@ -194,7 +196,7 @@
       "initial_center_m": [
         0.2798949079530859,
         0.27483835617269464,
-        0.06105198357159145
+        -0.01889801642840855
       ],
       "mass_kg": 0.1355088238599514,
       "mass_is_provisional": true,
@@ -221,7 +223,7 @@
       "initial_center_m": [
         0.3700004634032971,
         0.21999969572859976,
-        0.06004018248202672
+        -0.0049098175179732775
       ],
       "mass_kg": 0.0979850420019301,
       "mass_is_provisional": true,
@@ -242,6 +244,7 @@
   "limitations": [
     "Uncalibrated plug density; bus inertia retained from upstream, mass redistribution pending.",
     "No latch or weld; motion depends on actual contact.",
-    "Full gripper insertion acceptance is reported separately."
+    "Full gripper insertion acceptance is reported separately.",
+    "Trial collision proxy: CAD heads/key with cylindrical shafts/pins; contact forces are not CAD-equivalent."
   ]
 }

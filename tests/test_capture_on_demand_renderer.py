@@ -16,6 +16,8 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
     from space_arm_platform.capture_receiver import CaptureReceiver
     from PIL import Image
     import io
+    import numpy as np
+    import uuid
 
     root = Path(__file__).resolve().parents[1]
     adapter = Path(os.environ.get("SPACE_SIM_RESET_ADAPTER", str(root.parents[1]/"space_sim_UE_adapter/space_sim_UE_Adapter")))
@@ -46,6 +48,8 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
             "-BskListen=127.0.0.1", f"-BskPort={render_port}", "-BskCaptureProducts=rgb", "-BskCaptureRate=30",
             "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={capture_port}", "-ExecCmds=t.MaxFPS 60,r.VSync 0",
             f"-AbsLog={tmp_path/'ue.log'}"]
+        if os.environ.get('SPACE_SIM_SYNCHRONOUS_CAPTURE') == '1':
+            args.append('-BskSynchronousCapture')
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 0
@@ -62,19 +66,28 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
         mode = {"capture_episode_id": "", "capture_request_id": "idle"}
         bridge = BasiliskRenderBridge(port=render_port, origin_object="smoke/body", capture_state_provider=lambda: dict(mode))
         message = messaging.SCStatesMsg().write(messaging.SCStatesMsgPayload())
+        # An empty geometry list intentionally creates a large UE placeholder;
+        # use a tiny explicit origin marker so it cannot occlude the test box.
         bridge.add_object("smoke/body", message,
-            geometries=[GeometryVisual("smoke/box", "box", (.3, .3, .3))])
+            geometries=[GeometryVisual('smoke/origin', 'box', (.001, .001, .001))])
+        marker = messaging.SCStatesMsg()
+        bridge.add_object('smoke/marker', marker,
+            geometries=[GeometryVisual('smoke/box', 'box', (.3, .3, .3),
+                color_rgba=(1., 0., 0., 1.), material_emission=1.)])
         for camera in ("overview", "wrist"):
-            bridge.add_camera(CameraVisual(camera_id=camera, parent_id="smoke/body", position_body_m=(0, 0, 2),
+            bridge.add_camera(CameraVisual(camera_id=camera, parent_id="smoke/body", position_body_m=(-2, 0, 0),
                 resolution=(160, 90), capture_rate_hz=30, capture_products=("rgb",)))
         bridge.Reset(0)
         frame = 0
-        def publish(count):
+        def publish(count, delay=.04):
             nonlocal frame
             for _ in range(count):
+                pose = messaging.SCStatesMsgPayload()
+                pose.r_BN_N = [0., .45 if frame % 2 == 0 else -.45, .25]
+                marker.write(pose)
                 bridge.UpdateState((frame * 1_000_000_000 + 15)//30)
                 frame += 1
-                time.sleep(.04)
+                time.sleep(delay)
         publish(30)
         time.sleep(.5)
         assert not received, "capture-capable idle scene unexpectedly produced dataset RGB"
@@ -99,10 +112,44 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
             for camera in ("overview", "wrist"):
                 rows = [m for m, _ in received if m["capture_episode_id"] == episode and m["camera_id"] == camera]
                 assert [int(m["source_frame_id"]) for m in rows] == sorted(frames)
+        # Reset with GPU/codec jobs still in flight, then prove the new session
+        # can capture without inheriting the cancelled episode's images.
+        mode.update(capture_episode_id='aborted-before-reset', capture_request_id='abort')
+        publish(8, delay=.001)
+        time.sleep(.04)
+        bridge.session_id = uuid.uuid4().hex
+        mode.update(capture_episode_id='', capture_request_id='reset-idle')
+        bridge.Reset(0)
+        frame = 0
+        publish(20)
+        mode.update(capture_episode_id='episode-after-reset', capture_request_id='new')
+        frames = set(range(frame, frame + 6))
+        publish(6)
+        mode.update(capture_episode_id='', capture_request_id='stop-new')
+        publish(15)
+        deadline = time.monotonic() + 15
+        while sum(m['capture_episode_id'] == 'episode-after-reset' for m, _ in received) < 12:
+            assert process.poll() is None and time.monotonic() < deadline
+            time.sleep(.02)
+        for camera in ('overview', 'wrist'):
+            rows = [m for m, _ in received if m['capture_episode_id'] == 'episode-after-reset' and m['camera_id'] == camera]
+            assert [int(m['source_frame_id']) for m in rows] == sorted(frames)
+            assert all(m['session_id'] == bridge.session_id for m in rows)
         for metadata, products in received:
             assert metadata["state_kind"] == "authoritative"
-            assert Image.open(io.BytesIO(products["rgb"])).size == (160, 90)
-        print("UE on-demand smoke: idle=0 images; episode-A=12; stopped=0 new; episode-B=6; stopped=0 new")
+            image = Image.open(io.BytesIO(products['rgb']))
+            assert image.size == (160, 90)
+            image.save(tmp_path / f"{metadata['capture_episode_id']}-{metadata['source_frame_id']}-{metadata['camera_id']}.png")
+            rgb = np.asarray(image.convert('RGB'), dtype=np.int16)
+            yy, xx = np.nonzero((rgb[:, :, 0] > 80) & (rgb[:, :, 0] > rgb[:, :, 1] + 40)
+                               & (rgb[:, :, 0] > rgb[:, :, 2] + 40))
+            assert len(xx) > 25, 'missing/red-blue-swapped marker'
+            assert yy.mean() < 40, 'image was vertically flipped'
+            # Protocol mirrors body Y into UE Y: positive Y is image-left.
+            if int(metadata['source_frame_id']) % 2 == 0: assert xx.mean() < 70
+            else: assert xx.mean() > 90
+        assert not errors
+        print('UE capture: idle/STOP boundaries, two episodes, in-flight reset, moving-frame identity and RGB orientation passed')
     finally:
         if bridge: bridge.close()
         if process and process.poll() is None:

@@ -111,6 +111,17 @@ class SerialChainKinematics:
             skew = np.array([[0., -z, y], [z, 0., -x], [-y, x, 0.]])
             self._hinge_terms.append((skew, skew @ skew))
         self._geometry_cache: OrderedDict[tuple[float, ...], tuple[np.ndarray, ...]] = OrderedDict()
+        self._native_geometry = None
+
+    def enable_native_geometry(self) -> None:
+        """Opt-in implementation swap only; same value-keyed cache/public copies."""
+        if len(self.joint_names) != 6:
+            raise ValueError("Native geometry supports six-axis chains only.")
+        from simulation.native_posture import native_geometry
+        # Validate the build immediately, before changing a running chain.
+        native_geometry(self, np.zeros(6))
+        self._native_geometry = native_geometry
+        self._geometry_cache.clear()
 
     def _geometry(self, joint_position_rad: np.ndarray) -> tuple[np.ndarray, ...]:
         """One exact chain traversal shared by FK, Jacobian and posture queries.
@@ -128,6 +139,12 @@ class SerialChainKinematics:
         if cached is not None:
             self._geometry_cache.move_to_end(key)
             return cached
+        if self._native_geometry is not None:
+            result = self._native_geometry(self, q)
+            self._geometry_cache[key] = result
+            if len(self._geometry_cache) > 8:
+                self._geometry_cache.popitem(last=False)
+            return result
         transform = np.eye(4)
         origins = np.zeros((len(self.joint_names), 3))
         axes = np.zeros_like(origins)

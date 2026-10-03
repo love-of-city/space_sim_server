@@ -46,14 +46,18 @@ def test_rate_plumbed_through_both_deployment_modes():
 
 
 def test_no_change_to_physics_or_camera_resolution():
-    text = (ROOT / "simulation/teleop_grasp_unreal.py").read_text(encoding="utf-8")
+    runtime = (ROOT / "simulation/teleop_grasp_unreal.py").read_text(encoding="utf-8")
+    # The render bridge is created by the render component now; the rates and the
+    # camera resolution are still plumbed through unchanged.
+    render = (ROOT / "simulation/components/render.py").read_text(encoding="utf-8")
     from space_arm_platform.sampling import DYNAMICS_HZ, RENDER_HZ
     # The rational clock replaced the old rounded frame_period_ns literal.
     # Preview tuning must still leave native scheduling and output rates intact.
     assert (DYNAMICS_HZ, RENDER_HZ) == (240, 30)
-    assert "frame_rate_hz=RENDER_HZ" in text
-    assert "native.TIME_STEP = 1.0 / DYNAMICS_HZ" in text
-    assert "camera_pip_resolution=(640, 360)" in text
+    assert "render_rate_hz=RENDER_HZ" in runtime
+    assert "frame_rate_hz=self.render_rate_hz" in render
+    assert "native.TIME_STEP = 1.0 / DYNAMICS_HZ" in runtime
+    assert "camera_pip_resolution=(640, 360)" in render
     text = (ROOT / "scripts/start_scene_instance.ps1").read_text(encoding="utf-8")
     assert "if ($datasetCapture)" in text
 

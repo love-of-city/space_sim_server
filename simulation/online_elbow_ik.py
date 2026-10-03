@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
+import os
 
 import numpy as np
 
@@ -147,7 +148,39 @@ def _ball_step_scale(offset, increment, radius):
     return max(0., min(1., (-b + math.sqrt(b*b + a*remaining))/a))
 
 
+def posture_backend() -> str:
+    """Select the online posture implementation (SPACE_SIM_POSTURE_BACKEND).
+
+    Defaults to "native": the C++ implementation has equivalence tests against the
+    Python one, and the pure-Python posture preference is what keeps the
+    production plug model below real time (see docs/LOCAL_DYNAMICS_BACKEND.md).
+    A missing or stale DLL raises at load time; it never falls back to Python.
+    """
+    mode = os.environ.get("SPACE_SIM_POSTURE_BACKEND", "native").strip().lower()
+    if mode not in {"python", "native"}:
+        raise ValueError("SPACE_SIM_POSTURE_BACKEND must be python or native")
+    return mode
+
+
 def apply_online_elbow_preference(
+    chain: SerialChainKinematics, q: np.ndarray, desired_twist: np.ndarray, base: IkResult,
+    *, joint_velocity_limits: np.ndarray, joint_position_min: np.ndarray,
+    joint_position_max: np.ndarray, dt: float,
+    preference: OnlineElbowPreference = OnlineElbowPreference(),
+    deviation_state: ElbowDeviationState | None = None,
+) -> tuple[IkResult, ElbowStepDiagnostics]:
+    implementation = _apply_online_elbow_preference_python
+    if posture_backend() == "native":
+        from simulation.native_posture import apply_native
+        implementation = apply_native
+    return implementation(
+        chain, q, desired_twist, base, joint_velocity_limits=joint_velocity_limits,
+        joint_position_min=joint_position_min, joint_position_max=joint_position_max,
+        dt=dt, preference=preference, deviation_state=deviation_state,
+    )
+
+
+def _apply_online_elbow_preference_python(
     chain: SerialChainKinematics, q: np.ndarray, desired_twist: np.ndarray, base: IkResult,
     *, joint_velocity_limits: np.ndarray, joint_position_min: np.ndarray,
     joint_position_max: np.ndarray, dt: float,

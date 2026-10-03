@@ -45,30 +45,24 @@ BSK 负责调度、环境模型、IK/PID、姿态反馈/轮矩分配和指令处
 
 同一任务内较高优先级先执行，不同层级的数字不可直接比较。动力学子任务可在积分子步多次执行；IK 只更新缓存目标，轨迹发布器读取缓存，不重复求解。实时 IK 保存末端目标位置和姿态；默认内核是 robosuite `IK_POSE` 风格的阻尼最小二乘加零空间姿态控制，回退内核是方向保持的严格受限 IK（`--ik-mode strict`，也可用 `SPACE_SIM_IK_MODE` 覆盖）。两种内核都通过整组关节速度统一缩放处理关节约束，详见[末端笛卡尔 IK 模式](CARTESIAN_IK_MODES.md)。新实例默认使用 `teleop-balanced-v1` 均衡初态。参考推进只取决于 deadman 与指令是否新鲜，不再被实际跟踪误差限速或暂停；跟踪误差仅作为遥测发布。
 
-## 通用架构抽象（不等于已全部接入默认场景）
+## 当前架构：物理核心 + 组件装配
 
-[simulation/architecture.py](../simulation/architecture.py) 定义的扩展流程是：
+本地后端（默认）下，MuJoCo 用固定步长 `implicitfast` 积分全部多体动力学；Basilisk 只推进轨道参考点 O，并提供星历、引力和 GNC/敏感器/执行器组件。会话由图里的组件清单装配，执行顺序由槽位决定并可导出。完整说明见 [MuJoCo 物理核心架构](MUJOCO_CORE_ARCHITECTURE.md)。
 
 ```text
-SceneBackend.read_state()
-  → SceneState / 状态发布
-  → EphemerisProvider.update(sim_time_s)
-  → BasiliskModule.update(state, environment, dt)
-  → ControlOutput.combine()
-  → SceneBackend.apply_control() / step()
-  → 新的 SceneState / 状态发布
+组件清单 → AssemblyContext.install()
+  → 各组件经 PhysicsPorts 接线（读端口任意多读者，写端口独占或按来源叠加）
+  → ctx.add(model, Slot.X, every=N, phase=P) 决定任务/优先级/频率/相位
+  → describe() 输出最终执行顺序（启动日志 type=module_schedule）
 ```
 
 主要边界：
 
-- `SceneState`：刚体、质量属性、关节及反作用轮/推进器等状态抽象。
-- `EnvironmentState`：环境状态。
-- `ControlOutput`：力、力矩及执行器输出；力/力矩可组合，竞争的关节目标不能无声覆盖。
-- `SceneBackend`、`EphemerisProvider`、`BasiliskModule`、`StatePublisher`：接口约定。
-- `SimulationOrchestrator`：实现上述通用闭环，有测试，但当前 SARM 入口没有实例化它，也没有通过其 `SceneBackend.step()` 推进。
-- `BasiliskModuleRegistry`：原生 `SysModel` 的 task/priority 注册器；当前实际用于 `teleop_ik`、`render_state_publisher`。
+- [simulation/physics_ports.py](../simulation/physics_ports.py) `PhysicsPorts`：按 MJCF 名称索引的物理端口表；刚体/site/关节/场景状态、伺服出力、行星状态与轨道参考点为读端口，执行器命令与伺服为独占写端口，刚体外力按来源叠加。
+- [simulation/assembly.py](../simulation/assembly.py) `Slot` / `AssemblyContext` / `RateDivider`：槽位、频率分频与相位对齐、执行顺序导出。
+- [simulation/components/](../simulation/components/)：`clock`、`orbit`、`dynamics_core`、`teleop_ik`、`arm_reference`、`attitude`、`render`、`observation`、`drag`。
 
-姿态任务由原生场景中的 `AttitudeControl` 直接安装，未经过 registry。当前 SPICE、重力和原生关节/轮驱动控制链仍直接通过 `scene.AddModelToDynamicsTask(...)` 接入。不能再将它们描述为均已迁入 registry。`space-sim-state/1` 是通用状态序列化接口，不是现有 `space-arm-control/1` 观测或 UE `bsk-render/2` 的替代协议。
+旧的通用编排抽象（`simulation/architecture.py` 中的 `SceneState`、`ControlOutput`、`SceneBackend`、`SimulationOrchestrator` 以及 `space-sim-state/1` 状态序列化接口）从未被默认路径使用，已于 2026-10-02 连同其测试一起删除。本平台的主循环始终由 Basilisk 调度器驱动。
 
 ## 新增模块约定
 

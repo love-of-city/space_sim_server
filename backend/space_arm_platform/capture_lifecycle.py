@@ -56,17 +56,23 @@ class CaptureLifecycle:
                 raise
             return metadata
 
-    async def stop(self, request: EpisodeStop):
+    async def stop(self, request: EpisodeStop, *, failed_episode_id: str | None = None):
         # Drain and OFF must finish even if the HTTP client disconnects.
-        task = asyncio.create_task(self._stop(request))
+        task = asyncio.create_task(self._stop(request, failed_episode_id=failed_episode_id))
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
             await task
             raise
 
-    async def _stop(self, request: EpisodeStop):
+    async def _stop(self, request: EpisodeStop, *, failed_episode_id: str | None = None):
         async with self._lock:
+            # A delayed watchdog task must never stop a newer/healthy episode
+            # after the user already completed the failed one and started again.
+            if failed_episode_id is not None and (
+                    self.recorder.episode_id != failed_episode_id
+                    or not self.recorder.sync_status()['dataset_error']):
+                return None
             await asyncio.to_thread(self.recorder.freeze_observations)
             if self._gated_episode:
                 try:

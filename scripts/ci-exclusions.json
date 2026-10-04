@@ -5,6 +5,7 @@
     "tests/test_ground_capture_native.py": "Basilisk MJScene integration",
     "tests/test_joint_reference_publisher.py": "Basilisk messaging",
     "tests/test_orbital_initial_state.py": "Basilisk orbital-state integration",
+    "tests/test_orbital_environment.py": "Native BSK field models, spacecraft propagation and locally built MuJoCo helper; run in the simulation environment",
     "tests/test_physics_clock_native.py": "Basilisk scheduler",
     "tests/test_scene_lighting.py": "Basilisk runtime imports",
     "tests/test_simplified_teleop.py": "Basilisk teleoperation runtime",

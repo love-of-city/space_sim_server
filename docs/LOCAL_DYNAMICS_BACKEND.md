@@ -23,8 +23,9 @@ sits on top of this backend are described in [MUJOCO_CORE_ARCHITECTURE.md](MUJOC
 * `LocalMujocoStepper` (`simulation/local_mujoco_stepper.py`, `graspTask` priority 1000) integrates
   all bodies in the local frame L (origin O, axes parallel to N, zero gravity) with an independent
   `mjModel` from the same MJCF (`native/local_mujoco_stepper.cpp`: a C ABI bound to the
-  `mujoco.dll` Basilisk already loaded; the Python `mujoco` module is never imported). The Earth
-  tidal term about O is applied as `xfrc_applied`.
+  `mujoco.dll` Basilisk already loaded; the Python `mujoco` module is never imported). By default,
+  shared BSK gravity models supply Earth/Sun differential COM forces at each substep through
+  `xfrc_applied`. The old analytic Earth tide is an explicit regression mode only.
 * `MJScene` stays as the state container and message publisher, so the render bridge, IK, attitude
   control and observations are unchanged. It never integrates in this mode (`isDynamicsSynced`),
   and it is not in `graspTask`; its publish-only copy has contact/constraints disabled and rigid
@@ -45,6 +46,7 @@ sits on top of this backend are described in [MUJOCO_CORE_ARCHITECTURE.md](MUJOC
 | Setting | Values | Meaning |
 |---|---|---|
 | `SPACE_SIM_DYNAMICS_BACKEND` / `--dynamics-backend` | `local` (default), `basilisk` | backend |
+| `SPACE_SIM_ORBITAL_MODE` / `--orbital-mode` | `bsk` (default), `linear_tidal` | local orbital force provider |
 | `SPACE_SIM_LOCAL_SUBSTEPS` / `--local-substeps` | 1-16 (default 1) | MuJoCo substeps per 240 Hz step |
 | `SPACE_SIM_LOCAL_PUBLISH_STRIDE` | 1, 2, 4, 8 (default 2) | body/site kinematics publication stride |
 | `SPACE_SIM_POSTURE_BACKEND` | `native` (default), `python` | IK geometry/posture implementation |

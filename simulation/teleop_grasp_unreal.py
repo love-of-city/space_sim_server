@@ -905,6 +905,8 @@ def run(args: argparse.Namespace) -> None:
         if not available():
             raise RuntimeError("Native posture backend was requested but is not built; run tools/build_native_acceleration.py.")
     args.dynamics_backend = dynamics_backend(getattr(args, "dynamics_backend", None))
+    from simulation.orbital_environment import orbital_mode
+    args.orbital_mode = orbital_mode(getattr(args, "orbital_mode", None))
     args.local_substeps = (local_substeps(getattr(args, "local_substeps", None))
                            if args.dynamics_backend == BACKEND_LOCAL else None)
     print(json.dumps({"type": "teleop_control_configuration", "dynamics_step_s": native.TIME_STEP,
@@ -912,6 +914,7 @@ def run(args: argparse.Namespace) -> None:
                       "integrator": ("RKF45" if args.dynamics_backend == BACKEND_BASILISK
                                      else "mujoco_implicitfast_fixed_step"),
                       "local_substeps": args.local_substeps, "ik_rate_hz": args.ik_rate,
+                      "orbital_mode": args.orbital_mode if args.dynamics_backend == BACKEND_LOCAL else "basilisk",
                       "online_posture_backend": selected_posture_backend,
                       "arm_torque_limits_nm": native.TORQUE_LIMITS[:6].tolist(),
                       "reference_governor": "bounded_reference_recovery_v2",
@@ -990,6 +993,7 @@ def _run_session(
     from simulation.components.dynamics_core import DynamicsCoreComponent
     from simulation.components.observation import ObservationComponent
     from simulation.components.orbit import OrbitComponent
+    from simulation.components.orbital_gravity import OrbitalGravityComponent
     from simulation.components.render import RenderComponent
     from simulation.components.teleop_ik import TeleopIkComponent
     from simulation.physics_ports import PhysicsPorts
@@ -1072,6 +1076,7 @@ def _run_session(
             ClockComponent(),
             orbit_component,
             DynamicsCoreComponent(native.MODEL_PATH, substeps=args.local_substeps),
+            OrbitalGravityComponent(mode=getattr(args, "orbital_mode", None)),
             TeleopIkComponent(targets, ik_rate_hz=args.ik_rate),
             # The scenario builder already created the reference publisher and wired
             # the local servos from it, so this component only schedules it (and, on
@@ -1138,6 +1143,10 @@ def _run_session(
                     **bridge.last_capture_state,
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
                     "scene_seed": scene_instance.get("seed") if scene_instance else None,
+                    "orbital_dynamics": (
+                        simulation.local_stepper.orbital_environment.telemetry()
+                        if local_backend and simulation.local_stepper.orbital_environment is not None
+                        else {"mode": "linear_tidal" if local_backend else "basilisk"}),
                     "capture_target": {
                         "model_file": target_spec.model_file,
                         "runtime_model": target_spec.runtime_model,
@@ -1280,10 +1289,13 @@ def _run_session(
             json.dumps(
                 {
                     "type": "gravity_configuration",
-                    "sources": ["earth", "sun"],
+                    "sources": ([s["name"] for s in simulation.local_stepper.orbital_environment.telemetry().get("sources", [])]
+                                if local_backend and simulation.local_stepper.orbital_environment is not None
+                                else ["earth", "sun"]),
                     "central_body": "earth",
                     "gravity_targets": gravity_target_names,
-                    "local_tidal_source": "earth" if local_backend else None,
+                    "local_tidal_source": "earth" if local_backend and args.orbital_mode == "linear_tidal" else None,
+                    "orbital_mode": args.orbital_mode if local_backend else "basilisk",
                     "orbit": orbit,
                     "randomize_orbit_phase": bool(scene_instance and scene_instance["randomize_orbit_phase"]),
                     **orbit_state,
@@ -1470,6 +1482,9 @@ def main() -> None:
     parser.add_argument("--local-substeps", type=int, choices=range(1, MAX_SUBSTEPS + 1), default=None,
                         metavar=f"1..{MAX_SUBSTEPS}",
                         help="MuJoCo substeps per 240 Hz step for the local backend (SPACE_SIM_LOCAL_SUBSTEPS)")
+    parser.add_argument("--orbital-mode", choices=("bsk", "linear_tidal"), default=None,
+                        help="Local gravity: BSK field models (default) or legacy Earth tidal baseline. "
+                             "Defaults to SPACE_SIM_ORBITAL_MODE, else bsk.")
     parser.add_argument("--atmospheric-drag", action="store_true",
                         help="Add the exponential-atmosphere drag component (local backend only). "
                              "Off by default so the physics is unchanged unless a scenario asks for it.")

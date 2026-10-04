@@ -114,8 +114,10 @@ def test_body_and_joint_setters_receive_matching_phase_and_preserve_local_state(
         instance["environment"]["orbit"]["true_anomaly_deg"] = angle
     loaded = _load_scene_instance(save_instance(tmp_path, instance))
     bodies = {name: StateSink() for name in ["cubesat_bus", "capture_target", *(f"joint_body{i}" for i in range(8))]}
-    scene = SimpleNamespace(getBody=bodies.__getitem__)
+    scene = SimpleNamespace(getBody=bodies.__getitem__, getBodyNames=lambda: list(bodies))
     native = SimpleNamespace(
+        # The initializer now probes optional free plugs; this mock has none.
+        MODEL_PATH=tmp_path / "unused_no_free_plugs.xml",
         COMMON_VELOCITY=[0.01, -0.004, 0.002],
         JOINTS=[(f"joint_body{i}", f"joint{i}") for i in range(8)],
         _quaternion_to_mrp=lambda q: rbk.EP2MRP(q / np.linalg.norm(q)),

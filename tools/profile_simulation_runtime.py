@@ -1,6 +1,6 @@
 """Profile the CURRENT SARM teleop path without connecting to a live platform.
 
-Uses production RKF45, 240/120/30 Hz scheduling, contact, gravity, wheel safety,
+Uses the production selectable dynamics backend, 240/120/30 Hz scheduling, contact, gravity, wheel safety,
 IK, render serialization and authoritative observations. No UE/GPU, sockets,
 LeRobot writer or disk I/O are included in timed simulation intervals. Run each
 case in a fresh Basilisk-enabled Python process (never preload Python MuJoCo).
@@ -71,6 +71,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--dynamics-backend", choices=("basilisk", "local"), default=None,
                         help="Defaults to SPACE_SIM_DYNAMICS_BACKEND, else local. "
                              "basilisk: MJScene + RKF45 (reference); local: fixed-step MuJoCo")
+    result.add_argument("--orbital-mode", choices=("bsk", "linear_tidal"), default=None,
+                        help="Native BSK orbital components or legacy tidal baseline (local only)")
     result.add_argument("--local-substeps", type=int, default=None, help="MuJoCo substeps per 240 Hz step (local)")
     result.add_argument("--local-publish-stride", type=int, default=None,
                         help="Body/site kinematics publication stride (local; SPACE_SIM_LOCAL_PUBLISH_STRIDE)")
@@ -325,7 +327,7 @@ def benchmark(args) -> dict:
         simulation_rate=100.0, capture_rate=30.0, ik_rate=120.0, ik_mode=args.ik_mode,
         disable_attitude_control=args.disable_attitude,
         dynamics_backend=args.dynamics_backend, local_substeps=args.local_substeps,
-        atmospheric_drag=args.atmospheric_drag,
+        atmospheric_drag=args.atmospheric_drag, orbital_mode=args.orbital_mode,
     )
     with ExitStack() as stack:
         for obj, name, value in (

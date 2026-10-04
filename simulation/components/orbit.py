@@ -50,14 +50,16 @@ class OrbitComponent:
         self.gravity_factory, self.earth, self.sun, self.ephemeris = (
             gravity_factory, earth, sun, ephemeris)
         ctx.ports.set_ephemeris(ephemeris)
+        ctx.ports.set_gravity_factory(gravity_factory)
         # The renderer draws the same Earth/Sun state messages gravity uses, so it
         # reads them from here rather than creating a second ephemeris.
         ctx.extra.setdefault("celestial", (earth, sun))
 
         if ctx.config.dynamics_backend == "local":
             # Basilisk propagates only O under the same SPICE Earth/Sun field; the
-            # physics core carries every body relative to O and applies the tidal
-            # term about it. SPICE and O run at the physics rate, before IK.
+            # physics core carries every body relative to O. OrbitalGravityComponent
+            # shares these BSK sources and supplies differential forces per substep.
+            # SPICE and O run at the physics rate, before IK.
             ctx.add(ephemeris, Slot.ORBIT, every=1)
             orbit_reference = spacecraft.Spacecraft()
             orbit_reference.ModelTag = "localFrameOrigin"
@@ -69,8 +71,8 @@ class OrbitComponent:
             self.gravity_targets = [orbit_reference.ModelTag]
             from simulation.local_mujoco_stepper import SpacecraftOrbitOrigin
             self.origin = SpacecraftOrbitOrigin(orbit_reference, float(earth.mu))
-            # The physics core integrates every body relative to O and applies the
-            # tidal term about it; hand O over through the port so the core never
+            # The physics core integrates every body relative to O; hand O over
+            # through the port so the core never
             # falls back to its static, gravity-free default origin.
             ctx.ports.set_orbit_origin(self.origin)
             ctx.keep_alive(self.origin)

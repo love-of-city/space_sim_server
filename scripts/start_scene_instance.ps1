@@ -22,7 +22,9 @@ param(
     [ValidateRange(0, 100)]
     [int]$EncoderMinQuality = 60,
     [ValidateRange(30, 600)]
-    [int]$RendererReadyTimeout = 240
+    [int]$RendererReadyTimeout = 240,
+    [ValidateSet('bsk', 'linear_tidal')]
+    [string]$OrbitalMode = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -178,6 +180,7 @@ try {
         '-SceneInstancePath', $SceneInstancePath
     )
     $stamp = [string]$instance.instance_id
+    if ($OrbitalMode) { $simulationArgs += @('-OrbitalMode', $OrbitalMode) }
     $quotedSimulationArgs = @($simulationArgs | ForEach-Object { '"' + ([string]$_) + '"' })
     $simulation = Start-Process -FilePath $powershellExe -ArgumentList $quotedSimulationArgs -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logDirectory "$stamp.simulation.out.log") `

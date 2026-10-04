@@ -14,7 +14,8 @@ Division of labour (one integrator per state):
   ``Spacecraft`` under the Earth/Sun field and SPICE ephemeris).
 * This module integrates every MJCF body in the local frame L (origin O, axes
   parallel to N, zero gravity) with an independent mjModel compiled from the
-  same MJCF. The Earth tidal term about O is applied as a body force.
+  same MJCF. Native BSK gravity components supply differential body forces;
+  the old analytic Earth tide remains an explicit regression mode.
 * The MJScene stays in the task as the authoritative *state container and
   message publisher*: after each step the inertial state ``O + x_L`` is written
   to its bulk qpos/qvel states and published through its normal body, site and
@@ -49,6 +50,7 @@ import numpy as np
 from Basilisk.architecture import messaging, sysModel
 
 from simulation.native_acceleration import load_native_library
+from simulation.orbital_frames import OrbitalForceProvider, interpolate_origin
 
 BACKEND_BASILISK = "basilisk"
 BACKEND_LOCAL = "local"
@@ -140,6 +142,8 @@ def _library():
     lib.lms_get_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
     lib.lms_step.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_double, ctypes.c_int, _DOUBLE_P, ctypes.c_double,
                              _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P]
+    lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
+    lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
     if lib.lms_abi() != 1 or lib.lms_header_version() != 3007000:
@@ -262,6 +266,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         self.ModelTag = "localMujocoStepper"
         self.scene = scene
         self.origin = origin or OrbitOrigin()
+        self.orbital_environment: OrbitalForceProvider | None = None
+        self._previous_origin = None
         self.substeps = local_substeps(substeps)
         self.publish_every = publish_stride(publish_every)
         self.rebase_distance_m = float(rebase_distance_m)
@@ -314,6 +320,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         self.actuator_force = np.zeros(self.nu)
         self.stats = np.zeros(6)
         self._origin_buffer = np.zeros(3)
+        self._body_coms = np.zeros((self.nbody, 3))
+        self._body_masses = np.zeros(self.nbody)
         self._pointers = tuple(_pointer(a) for a in (self.ctrl, self._origin_buffer, self.qpos, self.qvel,
                                                      self.qacc, self.actuator_force, self.stats))
         self._last_nanos: int | None = None
@@ -332,6 +340,40 @@ class LocalMujocoStepper(sysModel.SysModel):
         for spec in servos:
             self.connect_servo(spec)
         self._refresh_actuators()
+
+    def set_orbital_environment(self, environment: OrbitalForceProvider) -> None:
+        if self.orbital_environment is not None or self._last_nanos is not None:
+            raise ValueError("orbital environment must be installed exactly once before stepping")
+        self.orbital_environment = environment
+
+    def _step_with_orbital_environment(self, now, dt, r_o, v_o) -> int:
+        environment = self.orbital_environment
+        environment.begin_interval()
+        r0, v0 = self._previous_origin
+        maxima = np.zeros(3)
+        status = 0
+        for substep in range(self.substeps):
+            nanos = self._last_nanos + ((now - self._last_nanos) * substep // self.substeps)
+            end_nanos = self._last_nanos + ((now - self._last_nanos) * (substep + 1) // self.substeps)
+            origin = interpolate_origin(r0, v0, r_o, v_o, dt,
+                                        (nanos - self._last_nanos) / (now - self._last_nanos))
+            self._check(self._lib.lms_body_coms(self._handle, _pointer(self._body_coms),
+                                               _pointer(self._body_masses)), "fresh COM kinematics")
+            forces = np.ascontiguousarray(
+                environment.forces(self._body_coms, self._body_masses, origin, nanos), dtype=np.float64)
+            if forces.shape != (self.nbody, 3) or not np.isfinite(forces).all():
+                raise ValueError("orbital provider must return finite (nbody, 3) COM forces")
+            self._check(self._lib.lms_set_orbital_forces(self._handle, _pointer(forces)), "BSK orbital force")
+            # mu=0 disables the old analytic tide: never apply gravity twice.
+            status = self._lib.lms_step(self._handle, self._pointers[0], (end_nanos - nanos) * 1e-9, 1,
+                                        self._pointers[1], 0.0, *self._pointers[2:])
+            maxima = np.maximum(maxima, self.stats[:3])
+            if status < 0:
+                self.stats[5] = substep + 1
+                return status
+        self.stats[:3] = maxima
+        self.stats[5] = self.substeps
+        return status
 
     # --- actuators ------------------------------------------------------------------
     def _refresh_actuators(self) -> None:
@@ -578,7 +620,10 @@ class LocalMujocoStepper(sysModel.SysModel):
     # --- Basilisk interface -------------------------------------------------------
     def Reset(self, current_sim_nanos: int) -> None:
         self._last_nanos = None
+        self._previous_origin = None
         self._published_q = self._published_v = None
+        if self.orbital_environment is not None:
+            self.orbital_environment.reset()
 
     def UpdateState(self, current_sim_nanos: int) -> None:
         now = int(current_sim_nanos)
@@ -594,6 +639,7 @@ class LocalMujocoStepper(sysModel.SysModel):
             if self._last_nanos is not None:
                 self.external_writes += 1
             self._adopt_scene_state(r_o, v_o)
+            self._previous_origin = (r_o.copy(), v_o.copy())
             if self._last_nanos is None:
                 self._last_nanos = now
                 self._publish(now, r_o, v_o)
@@ -612,8 +658,11 @@ class LocalMujocoStepper(sysModel.SysModel):
             self._apply_wrench_inputs()
         self._origin_buffer[:] = r_o
         ctrl, origin, qpos, qvel, qacc, force, stats = self._pointers
-        status = self._lib.lms_step(self._handle, ctrl, dt, self.substeps, origin, self.origin.mu,
-                                    qpos, qvel, qacc, force, stats)
+        if self.orbital_environment is None:
+            status = self._lib.lms_step(self._handle, ctrl, dt, self.substeps, origin, self.origin.mu,
+                                       qpos, qvel, qacc, force, stats)
+        else:
+            status = self._step_with_orbital_environment(now, dt, r_o, v_o)
         if status < 0:
             raise FloatingPointError(
                 f"local MuJoCo dynamics diverged at t={now * 1e-9:.6f}s (status {status}, "
@@ -625,6 +674,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._last_nanos = now
         if self.step_count % REBASE_CHECK_STEPS == 0 and self._rebase_if_needed(now_s):
             r_o, v_o = self.origin.state(now_s)
+        self._previous_origin = (r_o.copy(), v_o.copy())
         self._publish(now, r_o, v_o, kinematics=(self.step_count % self.publish_every == 0
                                                  or self.step_count % SYNC_STEPS == 0))
         self._publish_effort(now)
@@ -668,7 +718,9 @@ class LocalMujocoStepper(sysModel.SysModel):
                 "max_constraint_rows": self.max_constraint_rows,
                 "max_solver_iterations": self.max_solver_iterations,
                 "external_state_writes": self.external_writes, "rebases": self.rebase_count,
-                "tidal_mu_m3_s2": self.origin.mu}
+                "tidal_mu_m3_s2": self.origin.mu if self.orbital_environment is None else 0.0,
+                "orbital_environment": (self.orbital_environment.telemetry() if self.orbital_environment
+                                        else {"mode": "linear_tidal"})}
 
     def close(self) -> None:
         if getattr(self, "_handle", None):

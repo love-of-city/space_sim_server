@@ -47,6 +47,8 @@ struct Api {
     void (*resetData)(const mjModel*, mjData*);
     void (*forward)(const mjModel*, mjData*);
     void (*step)(const mjModel*, mjData*);
+    void (*kinematics)(const mjModel*, mjData*);
+    void (*comPos)(const mjModel*, mjData*);
     int (*name2id)(const mjModel*, int, const char*);
     const char* (*id2name)(const mjModel*, int, int);
 };
@@ -61,6 +63,8 @@ struct Stepper {
     // CmdTorqueBody conventions). Rotated with the body at every substep.
     std::vector<double> force_world;
     std::vector<double> torque_body;
+    std::vector<double> orbital_force;  // BSK-computed differential force, inertial axes
+    bool orbital_forces_enabled = false;
 };
 
 void copy_error(char* out, int size, const char* text) {
@@ -112,6 +116,7 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
               resolve(module, "mj_deleteModel", a.deleteModel) && resolve(module, "mj_makeData", a.makeData) &&
               resolve(module, "mj_deleteData", a.deleteData) && resolve(module, "mj_resetData", a.resetData) &&
               resolve(module, "mj_forward", a.forward) && resolve(module, "mj_step", a.step) &&
+              resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
               resolve(module, "mj_name2id", a.name2id) &&
               resolve(module, "mj_id2name", a.id2name);
     if (!ok) {
@@ -154,6 +159,7 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
     }
     s->force_world.assign(3 * s->m->nbody, 0.0);
     s->torque_body.assign(3 * s->m->nbody, 0.0);
+    s->orbital_force.assign(3 * s->m->nbody, 0.0);
     s->api.resetData(s->m, s->d);
     s->api.forward(s->m, s->d);
     return s;
@@ -277,9 +283,29 @@ API int lms_set_body_wrench(void* handle, int body, const double* force_world, c
     return OK;
 }
 
-// External wrenches plus the Earth tidal body force about O:
-// F_i = m_i * G * x_i with G = mu/r^3 (3 rhat rhat^T - I), x_i the body COM
-// in L. Pass mu = 0 to disable the tidal term.
+// Refresh only kinematics, never collision/constraint solving. Export all COMs
+// from the authoritative local model, independent of MJScene publication stride.
+API int lms_body_coms(void* handle, double* positions, double* masses) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !positions || !masses) return ERR_ARGUMENT;
+    s->api.kinematics(s->m, s->d);
+    s->api.comPos(s->m, s->d);
+    std::memcpy(positions, s->d->xipos, 3 * s->m->nbody * sizeof(double));
+    std::memcpy(masses, s->m->body_mass, s->m->nbody * sizeof(double));
+    return OK;
+}
+
+// Separate from user wrenches: BSK gravity must not overwrite thrust/drag.
+API int lms_set_orbital_forces(void* handle, const double* forces) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !forces || !finite(forces, 3 * s->m->nbody)) return ERR_ARGUMENT;
+    std::memcpy(s->orbital_force.data(), forces, 3 * s->m->nbody * sizeof(double));
+    s->orbital_forces_enabled = true;
+    return OK;
+}
+
+// Sum user wrenches and provider gravity; mu>0 is ONLY the legacy regression
+// path: F_i = m_i * mu/r^3 * (3 rhat rhat^T - I) * x_i.
 static void apply_tidal(Stepper* s, const double* origin, double mu) {
     mjModel* m = s->m;
     mjData* d = s->d;
@@ -288,7 +314,7 @@ static void apply_tidal(Stepper* s, const double* origin, double mu) {
         const double* f = &s->force_world[3 * b];
         const double* t = &s->torque_body[3 * b];
         mjtNum* out = d->xfrc_applied + 6 * b;
-        out[0] = f[0]; out[1] = f[1]; out[2] = f[2];
+        for (int c = 0; c < 3; ++c) out[c] = f[c] + s->orbital_force[3 * b + c];
         out[3] = R[0] * t[0] + R[1] * t[1] + R[2] * t[2];
         out[4] = R[3] * t[0] + R[4] * t[1] + R[5] * t[2];
         out[5] = R[6] * t[0] + R[7] * t[1] + R[8] * t[2];
@@ -314,6 +340,7 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
                  double* stats) {
     auto* s = static_cast<Stepper*>(handle);
     if (!s || !ctrl || !origin || substeps < 1 || !(dt > 0) || !std::isfinite(dt)) return ERR_ARGUMENT;
+    if (s->orbital_forces_enabled && mu != 0.0) return ERR_ARGUMENT;  // never double gravity
     mjModel* m = s->m;
     mjData* d = s->d;
     if (!finite(ctrl, m->nu)) return ERR_ARGUMENT;

@@ -60,7 +60,8 @@ BSK 负责调度、环境模型、IK/PID、姿态反馈/轮矩分配和指令处
 
 - [simulation/physics_ports.py](../simulation/physics_ports.py) `PhysicsPorts`：按 MJCF 名称索引的物理端口表；刚体/site/关节/场景状态、伺服出力、行星状态与轨道参考点为读端口，执行器命令与伺服为独占写端口，刚体外力按来源叠加。
 - [simulation/assembly.py](../simulation/assembly.py) `Slot` / `AssemblyContext` / `RateDivider`：槽位、频率分频与相位对齐、执行顺序导出。
-- [simulation/components/](../simulation/components/)：`clock`、`orbit`、`dynamics_core`、`teleop_ik`、`arm_reference`、`attitude`、`render`、`observation`、`drag`。
+- [simulation/components/](../simulation/components/)：`clock`、`orbit`、`dynamics_core`、`orbital_gravity`、`teleop_ik`、`arm_reference`、`attitude`、`render`、`observation`、`drag`。
+- [BSK 在轨组件](BSK_ORBITAL_COMPONENTS.md)：默认 local 使用共享 BSK 引力模型，在每个物理子步的实际 COM 处求差分力；扩展通过 `BskGravitySourceComponent` 与采样器接口完成，不把重力公式写进 MuJoCo core，也不恢复 MJScene 的积分。
 
 旧的通用编排抽象（`simulation/architecture.py` 中的 `SceneState`、`ControlOutput`、`SceneBackend`、`SimulationOrchestrator` 以及 `space-sim-state/1` 状态序列化接口）从未被默认路径使用，已于 2026-10-02 连同其测试一起删除。本平台的主循环始终由 Basilisk 调度器驱动。
 

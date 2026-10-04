@@ -46,6 +46,8 @@ class PhysicsPorts:
         self._ephemeris: Any = None
         self._orbit_reference: Any = None
         self._orbit_origin: Any = None
+        self._gravity_factory: Any = None
+        self._orbital_environment: Any = None
         self._actuator_owners: dict[str, str] = {}
         self._servo_owners: dict[str, str] = {}
         self._wrench_sources: dict[str, set[str]] = {}
@@ -66,8 +68,8 @@ class PhysicsPorts:
     def set_orbit_origin(self, origin: Any) -> None:
         """Attach the propagated reference point O to the physics core.
 
-        The core integrates every body relative to O and applies the tidal term
-        about it, so without this it would fall back to its own static,
+        The core integrates every body relative to O and applies differential
+        gravity about it, so without this it would fall back to its own static,
         gravity-free origin and the whole system would drift in free space.
         """
         if self._orbit_origin is not None and self._orbit_origin is not origin:
@@ -83,6 +85,30 @@ class PhysicsPorts:
         self.stepper = stepper
         if self._orbit_origin is not None:
             stepper.origin = self._orbit_origin
+
+    def set_gravity_factory(self, factory: Any) -> None:
+        if self._gravity_factory is not None:
+            raise PortError("a gravity factory is already registered")
+        self._gravity_factory = factory
+
+    def orbital_providers(self) -> tuple[Any, Any]:
+        if self._orbit_reference is None or self._gravity_factory is None:
+            raise PortError("install the local orbit component before orbital gravity")
+        return self._orbit_reference, self._gravity_factory
+
+    def set_orbital_environment(self, environment: Any) -> None:
+        if self._orbital_environment is not None:
+            raise PortError("an orbital environment is already registered")
+        if self.stepper is None:
+            raise PortError("install the local physics core before orbital gravity")
+        self.stepper.set_orbital_environment(environment)
+        self._orbital_environment = environment
+
+    def orbital_environment(self) -> Any:
+        """Extension components register native BSK sources before initialization."""
+        if self._orbital_environment is None:
+            raise PortError("the BSK orbital environment is not installed")
+        return self._orbital_environment
 
     # --- read ports --------------------------------------------------------------
     @property

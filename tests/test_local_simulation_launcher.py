@@ -33,7 +33,8 @@ def make_workspace(tmp_path):
     return root
 
 
-def test_explicit_python_preserves_model_paths_and_control_port(tmp_path):
+@pytest.mark.parametrize("orbital_mode", [None, "bsk", "linear_tidal"])
+def test_explicit_python_preserves_model_paths_and_control_port(tmp_path, orbital_mode):
     root = make_workspace(tmp_path)
     environment = os.environ.copy()
     environment["SPACE_SIM_PYTHON"] = sys.executable
@@ -42,7 +43,8 @@ def test_explicit_python_preserves_model_paths_and_control_port(tmp_path):
     adapter = root / "adapter with spaces"
     result = subprocess.run(
         [SHELL, "-NoProfile", "-File", str(root / "scripts/run_simulation.ps1"),
-         "-ModelRoot", str(model), "-AdapterRoot", str(adapter), "-ControlPort", "18766"],
+         "-ModelRoot", str(model), "-AdapterRoot", str(adapter), "-ControlPort", "18766"]
+        + (["-OrbitalMode", orbital_mode] if orbital_mode else []),
         capture_output=True, text=True, env=environment, timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -51,6 +53,10 @@ def test_explicit_python_preserves_model_paths_and_control_port(tmp_path):
     assert arguments[arguments.index("--control-port") + 1] == "18766"
     assert arguments[arguments.index("--duration") + 1] == "0"
     assert arguments[arguments.index("--catalog") + 1].endswith("sarm_platform.catalog.json")
+    if orbital_mode:
+        assert arguments[arguments.index("--orbital-mode") + 1] == orbital_mode
+    else:
+        assert "--orbital-mode" not in arguments  # retain environment/default selection
 
 
 def test_invalid_explicit_python_fails_without_conda_fallback(tmp_path):

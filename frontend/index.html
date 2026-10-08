@@ -175,7 +175,7 @@
           <label for="sceneSunlightIntensity">太阳光照强度（倍率）
             <input id="sceneSunlightIntensity" type="number" min="0" max="20000" step="any" value="1" required aria-describedby="sceneSunlightHelp">
           </label>
-          <small id="sceneSunlightHelp">0～20,000 倍；约 12,500 倍对应 100,000 lux 参考照度，1 保持当前标定，0 关闭太阳直接照明。仅影响渲染，不改变轨道与动力学。</small>
+          <small id="sceneSunlightHelp">0～20,000 倍；1 倍采用 1 AU 处约 132,821.5 lux 的太阳参考照度，实际照度随日地距离及遮挡变化。0 关闭太阳直接照明。仅影响渲染，不改变轨道与动力学。</small>
           <label class="scene-checkbox">
             <input id="sceneDatasetCapture" type="checkbox" aria-describedby="sceneDatasetCaptureHelp">
             <span>启用 LeRobot v3 权威 RGB 采集能力</span>

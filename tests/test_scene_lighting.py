@@ -87,4 +87,5 @@ def test_reference_solar_illumination_and_body_readers_are_unchanged():
     bridge = SimpleNamespace(add_celestial_bodies=lambda bodies, **kwargs: calls.append((bodies,kwargs)))
     _register_celestial_bodies(bridge, earth, sun)
     assert calls[0][0] == [earth, sun]
-    assert calls[0][1]['visual_overrides']['sun']['light_illuminance_lux_at_reference_distance'] == 8
+    assert calls[0][1]['visual_overrides']['sun']['light_illuminance_lux_at_reference_distance'] == 132821.5
+    assert calls[0][1]['visual_overrides']['sun']['light_color_rgb'] == (1.0, 0.8876306, 0.8572326)

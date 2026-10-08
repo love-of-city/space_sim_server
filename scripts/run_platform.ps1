@@ -186,6 +186,15 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Backend Python dependencies are missing. Run: python -m pip install -e ".[test]"'
 }
 
+. (Join-Path $PSScriptRoot 'posture_runtime.ps1')
+$posturePython = Resolve-SpaceSimPosturePython -RepositoryRoot $projectRoot -ValidateRuntime
+if ($posturePython) { $env:SPACE_SIM_POSTURE_PYTHON = $posturePython }
+
+# The local dynamics backend and the native posture backend load source-hash-named
+# DLLs; build them if missing or stale instead of failing at session start.
+. (Join-Path $PSScriptRoot 'native_acceleration_runtime.ps1')
+Ensure-SpaceSimNativeAcceleration -RepositoryRoot $projectRoot -Python $pythonExe
+
 # Stop only PIDs previously recorded by this project before binding fixed ports.
 & (Join-Path $PSScriptRoot 'stop_platform.ps1') -Quiet -KeepPendingPublic:$KeepPendingPublic
 $cleanupOnStartupFailure = $true

@@ -15,6 +15,7 @@ def test_default_initializes_directly_at_operating_pose(tmp_path):
     manager=SceneRuntimeManager(None,project_root=tmp_path)
     req=SceneInstanceCreate(seed=7)
     assert req.randomization_profile==ZERO_START_TELEOP_PROFILE
+    assert req.operating_arm_joint_position_deg == [90.0, -60.0, 60.0, 0.0, -90.0, 0.0]
     instance=manager.create_instance(req)
     assert not instance['arm_preparation_required']
     expected = [np.deg2rad(value) for value in DEFAULT_OPERATING_JOINT_DEG]

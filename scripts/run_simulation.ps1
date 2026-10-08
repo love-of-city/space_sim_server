@@ -8,6 +8,8 @@ param(
     [double]$SimulationRate = 1.0,
     [double]$CaptureRate = 30.0,
     [string]$SceneInstancePath = '',
+    [ValidateSet('bsk', 'linear_tidal')]
+    [string]$OrbitalMode = '',
     [ValidateRange(1.0, 240.0)]
     [double]$IkRate = 120.0,
     [switch]$DisableAttitudeControl
@@ -62,6 +64,7 @@ if ($SceneInstancePath) {
     $arguments += @('--scene-instance', ([IO.Path]::GetFullPath($SceneInstancePath)))
 }
 if ($DisableAttitudeControl) { $arguments += '--disable-attitude-control' }
+if ($OrbitalMode) { $arguments += @('--orbital-mode', $OrbitalMode) }
 & $pythonExe @arguments
 $exitCode = $LASTEXITCODE
 exit $exitCode

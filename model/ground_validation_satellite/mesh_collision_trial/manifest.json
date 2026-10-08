@@ -14,7 +14,7 @@
   "source_hashes": {
     "model/ground_validation_satellite/ground_validation_satellite_articulated.xml": "2d2fbc9af5b6e9357e6bc35b4eb6e1a687e89b050543cf3c47b667a1d3f37988",
     "model/SARM/platform/sarm_ground_target.xml": "56dd88a71e5c0693c355690546381bb65d9597c089c86dc52fd244f9caf7c5fc",
-    "model/SARM/platform/attitude_control.json": "afe911500e22c6171a42f5a654a26f21148b22e859f8521d7213f5ac119f6db2"
+    "model/SARM/platform/attitude_control.json": "73407cf0cb6fa63014d13dcea95db927927506c49364ae98afd0868f84558b27"
   },
   "surface_count": 208,
   "unique_source_meshes": 104,
@@ -3975,7 +3975,7 @@
     "cleaned_meshes/part_050_color_00_a91584ed0a.obj": "3d5a58ab14fff5c24c290767d99e8bd67cac9b3ac113c94394ff61266c7f27e1",
     "cleaned_meshes/hinge_fixed_visual_ba26433f42.obj": "eae00993fec4f2b5e92b0edfd11cbde6348d2fed90a2bf7ba0ff429dcfcc000d",
     "cleaned_meshes/hinge_moving_visual_aade77d1b2.obj": "d1d992264fb3a02e9f35457ad8273d8193a9e0ff5798ae61a292f6b3d104efa5",
-    "attitude_control.json": "afe911500e22c6171a42f5a654a26f21148b22e859f8521d7213f5ac119f6db2",
+    "attitude_control.json": "73407cf0cb6fa63014d13dcea95db927927506c49364ae98afd0868f84558b27",
     "sarm_mesh_collision.xml": "a79d742bcbcb4fa7fca418267959b95cfa1b4ed70f6915d9fff2b3c3c39a0e49",
     "satellite_mesh_collision.xml": "4c41f3c3cd9285e51143636bb4d1b4439098f38984a22265770ab0c7dbb90f5f"
   }

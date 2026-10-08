@@ -13,6 +13,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
 from space_arm_platform.capture_receiver import CaptureReceiver
+from space_arm_platform.capture_lifecycle import CaptureLifecycle
 from space_arm_platform.models import AppliedAction, EpisodeStart, EpisodeStop
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.simulation_hub import SimulationHub
@@ -26,13 +27,24 @@ async def run(args):
     scene = json.loads(args.scene.read_text(encoding="utf-8-sig"))
     scene["runtime"] = {**scene.get("runtime", {}), "dataset_capture": True,
                         "dynamics_rate_hz": 240, "ik_rate_hz": 120, "capture_rate_hz": 30}
+    if args.operating_pose:
+        import math
+        scene['randomization']['arm_joint_position_rad'][:6] = [
+            math.radians(v) for v in scene['operating_arm_joint_position_deg']]
+        scene['arm_preparation_required'] = False
+        if scene.get('randomization_profile') == 'teleop-zero-prepare-v2':
+            scene['randomization_profile'] = 'teleop-zero-prepare-v1'
+            scene.pop('arm_preparation_plan', None)
     validation_scene = out / "validation.scene.json"
     validation_scene.write_text(json.dumps(scene, indent=2, ensure_ascii=False), encoding="utf-8")
     recorder = EpisodeRecorder(out / "episodes")
     hub = SimulationHub()
+    lifecycle = CaptureLifecycle(hub, recorder)
     latest_action = None
     async def observation(obs):
         await asyncio.to_thread(recorder.record_observation, obs, latest_action)
+        if hub.capture_pair_ack_supported:
+            await asyncio.to_thread(recorder.wait_for_capture_pair, obs)
     hub.on_observation = observation
     hub.on_transport_error = recorder.fail
     receiver = CaptureReceiver("127.0.0.1", args.capture_port, recorder.record_authoritative_capture, recorder.fail)
@@ -61,7 +73,7 @@ async def run(args):
         await hub.start("127.0.0.1", args.control_port)
         receiver.start()
         project = args.adapter / "Unreal/BskUnrealRenderer"
-        editor = args.unreal / "Engine/Binaries/Win64/UnrealEditor.exe"
+        editor = args.unreal / "Engine/Binaries/Win64/UnrealEditor-Cmd.exe"
         env = os.environ.copy()
         env["UE-LocalDataCachePath"] = str(project / "Saved/DerivedDataCache")
         command = [str(editor),str(project / "BskUnrealRenderer.uproject"),"-game","-RenderOffscreen","-ForceRes",
@@ -69,8 +81,8 @@ async def run(args):
                    "-BskCaptureHost=127.0.0.1",f"-BskCapturePort={args.capture_port}","-BskCaptureRate=30",
                    "-BskCaptureProducts=rgb",'-ExecCmds=t.MaxFPS 90,r.VSync 0',
                    "-DDC=InstalledDerivedDataBackendGraph",f"-abslog={out / 'renderer.log'}",
-                   "-PixelStreamingConnectionURL=ws://127.0.0.1:8888","-PixelStreamingID=BskValidation",
-                   "-BskPixelStreamingURL=ws://127.0.0.1:8888","-BskPixelStreamingBaseId=BskValidation",
+                   f"-PixelStreamingConnectionURL=ws://127.0.0.1:{args.signalling_port}","-PixelStreamingID=BskValidation",
+                   f"-BskPixelStreamingURL=ws://127.0.0.1:{args.signalling_port}","-BskPixelStreamingBaseId=BskValidation",
                    "-BskPixelStreamingCameras=teleop/camera/spacecraft_overview+teleop/camera/sarm_wrist_cam",
                    "-BskPixelStreamingCameraWidth=640","-BskPixelStreamingCameraHeight=360",
                    "-BskPixelStreamingCameraFps=90","-PixelStreamingWebRTCFps=90",
@@ -92,15 +104,18 @@ async def run(args):
         env["PYTHONPATH"] = os.pathsep.join([str(ROOT/'backend'),str(args.adapter/'Adapters')])
         simulation = launch(command,"simulation",env)
         deadline=time.monotonic()+180
-        while hub.latest_observation is None or receiver.authoritative_count<4:
+        while hub.latest_observation is None:
             if simulation.poll() is not None:raise RuntimeError("simulation exited during initialization")
-            if time.monotonic()>deadline:raise TimeoutError("no state/RGB from simulation")
+            if time.monotonic()>deadline:raise TimeoutError("no state from simulation")
             await asyncio.sleep(.1)
+        assert hub.capture_pair_ack_supported, 'simulator did not advertise completion-based capture flow control'
+        assert receiver.authoritative_count == 0, 'idle must not produce dataset images'
         sequence=1
         for episode in range(args.episodes):
-            info=await asyncio.to_thread(recorder.start,EpisodeStart(tags=["diagnostic","not-demonstration"],instruction="实时采集架构回归测试"))
+            info=await lifecycle.start(EpisodeStart(tags=["diagnostic","not-demonstration"],instruction="实时采集架构回归测试"))
             print(json.dumps({"stage":"recording","episode_id":info['episode_id']}),flush=True)
             start_sim=int(hub.latest_observation.sim_time_ns)
+            start_wall=time.monotonic()
             interrupted=False
             last_report=0
             deadline=time.monotonic()+max(120,args.seconds*4)
@@ -120,6 +135,7 @@ async def run(args):
                     client_sequence=str(sequence),client_time_ns=str(time.time_ns()),deadman=True,
                     end_effector_linear_velocity_body_m_s=[linear,0.,0.],end_effector_angular_velocity_body_rad_s=[0.,0.,0.],
                     gripper_velocity_rad_s=0.,gripper_velocity_m_s=0.,input_source="keyboard")
+                await asyncio.to_thread(recorder.record_action, latest_action)
                 await hub.publish_action(latest_action);sequence+=1
                 if args.reconnect and not interrupted and elapsed>3:
                     interrupted=True
@@ -129,7 +145,11 @@ async def run(args):
                 if elapsed-last_report>=5:
                     last_report=elapsed;print(json.dumps({"sim_elapsed":elapsed,"sync":status}),flush=True)
                 await asyncio.sleep(.05)
-            result=await asyncio.to_thread(recorder.stop,EpisodeStop(outcome="unknown",note="isolated architecture regression; not a grasp demonstration"))
+            capture_wall=time.monotonic()-start_wall
+            simulated=(int(hub.latest_observation.sim_time_ns)-start_sim)/1e9
+            result=await lifecycle.stop(EpisodeStop(outcome="unknown",note="isolated architecture regression; not a grasp demonstration"))
+            result.update(validation_capture_wall_s=capture_wall, validation_simulated_s=simulated,
+                          validation_rtf=simulated/capture_wall)
             results.append(result)
             print(json.dumps({k:result[k] for k in ['episode_id','dataset_status','dataset_frame_count','capture_count','step_count','dataset_error']}),flush=True)
             assert result['dataset_status']=='complete',result
@@ -141,7 +161,7 @@ async def run(args):
         (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf8')
     finally:
         if recorder.episode_id:
-            try:await asyncio.to_thread(recorder.stop,EpisodeStop(outcome="aborted",note="validation interrupted"))
+            try:await lifecycle.stop(EpisodeStop(outcome="aborted",note="validation interrupted"))
             except Exception:pass
         for p in reversed(processes):
             if p.poll() is None:
@@ -166,10 +186,12 @@ def main():
     p.add_argument('--control-port',type=int,default=18766)
     p.add_argument('--capture-port',type=int,default=18767)
     p.add_argument('--render-port',type=int,default=15558)
+    p.add_argument('--signalling-port',type=int,default=18888,help='isolated unused signalling port; never production 8888')
+    p.add_argument('--operating-pose',action='store_true',help='start the diagnostic scene copy at its saved operating pose')
     p.add_argument('--reconnect',action='store_true')
     args=p.parse_args()
     # Fail before launching anything if a chosen port is already in use.
-    for port in [args.control_port,args.capture_port,args.render_port]:
+    for port in [args.control_port,args.capture_port,args.render_port,args.signalling_port]:
         with socket.socket() as s:s.bind(('127.0.0.1',port))
     asyncio.run(run(args))
 

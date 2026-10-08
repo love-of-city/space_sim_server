@@ -54,13 +54,15 @@ def test_source_and_runtime_xml_use_identical_camera_calibration():
 def test_stream_ids_match_model_and_no_python_camera_override():
     project = Path(__file__).resolve().parents[1]
     script = (project / "scripts/run_platform.ps1").read_text(encoding="utf-8-sig")
-    runtime = (project / "simulation/teleop_grasp_unreal.py").read_text(encoding="utf-8")
+    # The camera wiring and scene settings moved into the render component during
+    # the component refactor; assert the same facts at their new home.
+    render = (project / "simulation/components/render.py").read_text(encoding="utf-8")
     expected = {f"teleop/camera/{name}" for name in CAMERAS}
     assert all(f"'{name}'" in script for name in expected)
     assert "teleop/camera/so101_wrist_cam" not in script
-    assert 'default_camera_target="teleop/cubesat_bus"' in runtime
-    assert "bridge.add_camera(" not in runtime
-    assert "camera_picture_in_picture_start_slot=1" in runtime
+    assert 'default_camera_target="teleop/cubesat_bus"' in render
+    assert "bridge.add_camera(" not in render
+    assert "camera_picture_in_picture_start_slot=1" in render
     assert any(set(template["camera_ids"]) == expected for template in SCENE_TEMPLATES)
 
 

@@ -14,7 +14,7 @@ import mujoco
 import numpy as np
 from PIL import Image
 from cpu_mjcf_preview import rasterize
-from build_satellite_wing_joint import OUTPUT_XML, OUTER_BODY, JOINT
+from build_satellite_wing_joint import OUTPUT_XML, OUTER_BODY
 
 
 def geometry(model, data):

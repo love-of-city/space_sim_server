@@ -40,6 +40,22 @@ def test_capture_retry_after_lost_ack_is_idempotent():
     assert receiver.authoritative_count==1
 
 
+def test_capture_error_and_pipeline_metrics_survive_receiver_dispatch():
+    received = []
+    receiver = CaptureReceiver('127.0.0.1', 0, lambda m, p: received.append((m, p)))
+    metadata = dict(protocol='bsk-capture/1', type='capture_error', stream_kind='authoritative',
+        state_kind='authoritative', session_id='s', camera_id='wrist', capture_sequence='1',
+        source_frame_id='5', source_wall_time_ns='1000000000', capture_wall_time_ns='1250000000',
+        render_queue_frames=3, capture_pending_jobs=4, image_send_queue_packets=2,
+        capture_pipeline_ms=20., error='readback failed', products=[], ack_required=True)
+    receiver.route_capture(metadata, {})
+    assert received == [(metadata, {})]
+    status = receiver.status()
+    assert status['pipeline']['source_to_capture_ms'] == 250
+    assert status['pipeline']['render_queue_frames'] == 3
+    assert status['pending_authoritative_packets'] == 0
+
+
 def test_network_ack_and_replay_with_real_socket():
     import json, socket, struct, time
     received=[]

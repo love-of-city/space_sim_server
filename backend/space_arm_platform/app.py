@@ -202,16 +202,38 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     timeout_task: asyncio.Task[None] | None = None
+    capture_failure_task: asyncio.Task | None = None
 
     async def record_observation(observation: SimulationObservation) -> None:
         await asyncio.to_thread(recorder.record_observation, observation, safety.last_action)
+        if hub.capture_pair_ack_supported:
+            await asyncio.to_thread(recorder.wait_for_capture_pair, observation)
 
     hub.on_observation = record_observation
     hub.on_transport_error = recorder.fail
 
     async def watchdog() -> None:
+        nonlocal capture_failure_task
         while True:
             await asyncio.sleep(0.05)
+            status = recorder.sync_status()
+            if (recorder.episode_id and status['dataset_error'] and not status['finalizing']
+                    and not capture_lifecycle.busy
+                    and (capture_failure_task is None or capture_failure_task.done())):
+                # Do not leave a failed recorder asking UE to generate strict
+                # images forever. Freeze cutoff, send OFF, drain accepted work.
+                # Run independently so the safety/control watchdog never waits
+                # for disk finalization. A failed episode is never published as valid.
+                async def stop_failed_capture(failed_episode_id=recorder.episode_id):
+                    if not failed_episode_id:
+                        return
+                    try:
+                        await capture_lifecycle.stop(EpisodeStop(
+                            outcome='aborted', note='capture pipeline failed; simulation preserved'),
+                            failed_episode_id=failed_episode_id)
+                    except Exception:
+                        logging.getLogger(__name__).exception('Failed capture shutdown')
+                capture_failure_task = asyncio.create_task(stop_failed_capture())
             action = safety.timeout_action(recorder.episode_id)
             if action:
                 await asyncio.to_thread(recorder.record_action, action)
@@ -234,6 +256,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 timeout_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await timeout_task
+            if capture_failure_task:
+                await capture_failure_task
             if recorder.episode_id and not recorder.sync_status()["finalizing"]:
                 neutral = safety.neutral(recorder.episode_id, "backend_shutdown")
                 await asyncio.to_thread(recorder.record_action, neutral)

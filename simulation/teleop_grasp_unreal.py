@@ -19,9 +19,7 @@ import json
 import math
 import os
 from pathlib import Path
-import socket
 import sys
-import threading
 import time
 from typing import Any, Callable
 
@@ -40,27 +38,25 @@ from simulation.serial_chain_kinematics import (  # noqa: E402
     matrix_to_quaternion_wxyz,
     rotation_matrix_to_vector,
 )
-from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, recv_socket  # noqa: E402
-from simulation.observation_capture import AuthoritativeObservationModel
-from simulation.physics_clock import RationalPhysicsClock
+from space_arm_platform.protocol import CONTROL_PROTOCOL  # noqa: E402
 from simulation.native_integration import configure_scene_integrator
 from space_arm_platform.sampling import (
     DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, RENDER_HZ, SUPPORTED_FPS,
     ik_step_stride, tick_time_ns,
 )
-from simulation.architecture import BasiliskModuleRegistry  # noqa: E402
 from space_arm_platform.lighting import (  # noqa: E402
     DEFAULT_SUNLIGHT_INTENSITY_SCALE, validate_sunlight_intensity_scale,
 )
 
 
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
-from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG, AUTO_PREPARE_TELEOP_PROFILE
+from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG, AUTO_PREPARE_TELEOP_PROFILE
 from simulation.arm_preparation import ArmPreparation
 from space_arm_platform.joint_limits import load_joint_limits
 from simulation.motion_diagnostics import MotionSpeedMonitor
 from simulation.online_elbow_ik import (
     OnlineElbowPreference, ElbowStepDiagnostics, ElbowDeviationState, apply_online_elbow_preference,
+    posture_backend,
 )
 from space_arm_platform.control_defaults import DEFAULT_DYNAMICS_STEP_S, MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S
 from simulation.reference_governor import JointReferenceGovernor
@@ -69,6 +65,10 @@ from simulation.reference_recovery import ReferenceRecoverySettings
 from simulation.runtime_progress import runtime_stage
 from simulation.runtime_performance import RuntimePerformanceMonitor, render_transport_status
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
+from simulation.local_mujoco_stepper import (
+    BACKEND_BASILISK, BACKEND_LOCAL, DYNAMICS_BACKENDS, MAX_SUBSTEPS,
+    dynamics_backend, local_substeps,
+)
 
 
 def validate_dynamics_step(value: float) -> float:
@@ -98,7 +98,14 @@ MAX_LINEAR_COMMAND_ACCELERATION_M_S2 = 0.20
 MAX_ANGULAR_COMMAND_ACCELERATION_RAD_S2 = 2.0
 TELEOP_ARM_KP = np.array([32.0, 32.0, 32.0, 30.0, 30.0, 15.0])
 TELEOP_ARM_KD = np.array([2.0, 2.0, 2.0, 0.7, 0.5, 0.25])
-TELEOP_ARM_TORQUE_LIMIT = np.array([2.0, 2.0, 2.0, 1.0, 1.0, 0.35])
+# J6 torque-headroom trial (previously 0.35 N*m). Keep gains, input speed,
+# reference protection and the authoritative dynamics unchanged.
+TELEOP_ARM_TORQUE_LIMIT = np.array([2.0, 2.0, 2.0, 1.0, 1.0, 0.70])
+# Local dynamics backend: SPICE and the orbital origin O advance at the start
+# of each physics tick (after the rational clock, before IK and the stepper).
+# graspTask priorities for the local backend live in the component slots
+# (simulation/assembly.py, Slot). The orbit component owns the ephemeris/origin
+# priorities; nothing in this entry point picks a task priority any more.
 DEFAULT_EPHEMERIS_EPOCH_UTC = "2026 SEPTEMBER 02 00:00:00.000"
 SUPPORTED_EPHEMERIS_CENTER = "Earth"
 SUPPORTED_EPHEMERIS_FRAME = "J2000"
@@ -775,12 +782,15 @@ def _apply_orbital_initial_state(
     orbit: dict[str, float],
     randomized: dict[str, Any],
     initial_joints: np.ndarray,
+    orbit_origin: Any | None = None,
 ) -> dict[str, Any]:
     """Apply one saved orbital phase to the authoritative MJScene bodies.
 
     The render bridge reads these same bodies. Local grasp offsets, joint
     states and the legacy common drift are retained, while both free bodies
     receive the orbital position AND velocity for the selected phase.
+    With the local dynamics backend, ``orbit_origin`` (the Basilisk point that
+    carries the orbit) starts on the same orbital state.
     """
     from Basilisk.utilities import orbitalMotion
 
@@ -796,6 +806,8 @@ def _apply_orbital_initial_state(
     orbital_velocity = np.asarray(orbital_velocity, dtype=float)
     common_velocity = np.asarray(native.COMMON_VELOCITY, dtype=float)
     bus_velocity = orbital_velocity + common_velocity
+    if orbit_origin is not None:
+        orbit_origin.set_state(orbital_position, orbital_velocity)
     bus = scene.getBody("cubesat_bus")
     target = scene.getBody("capture_target")
     bus.setPosition(orbital_position)
@@ -887,8 +899,24 @@ def run(args: argparse.Namespace) -> None:
     native.KP[:6] = TELEOP_ARM_KP
     native.KD[:6] = TELEOP_ARM_KD
     native.TORQUE_LIMITS[:6] = TELEOP_ARM_TORQUE_LIMIT
+    selected_posture_backend = posture_backend()
+    if selected_posture_backend == "native":
+        from simulation.native_posture import available
+        if not available():
+            raise RuntimeError("Native posture backend was requested but is not built; run tools/build_native_acceleration.py.")
+    args.dynamics_backend = dynamics_backend(getattr(args, "dynamics_backend", None))
+    from simulation.orbital_environment import orbital_mode
+    args.orbital_mode = orbital_mode(getattr(args, "orbital_mode", None))
+    args.local_substeps = (local_substeps(getattr(args, "local_substeps", None))
+                           if args.dynamics_backend == BACKEND_LOCAL else None)
     print(json.dumps({"type": "teleop_control_configuration", "dynamics_step_s": native.TIME_STEP,
-                      "integrator": "RKF45", "ik_rate_hz": args.ik_rate,
+                      "dynamics_backend": args.dynamics_backend,
+                      "integrator": ("RKF45" if args.dynamics_backend == BACKEND_BASILISK
+                                     else "mujoco_implicitfast_fixed_step"),
+                      "local_substeps": args.local_substeps, "ik_rate_hz": args.ik_rate,
+                      "orbital_mode": args.orbital_mode if args.dynamics_backend == BACKEND_LOCAL else "basilisk",
+                      "online_posture_backend": selected_posture_backend,
+                      "arm_torque_limits_nm": native.TORQUE_LIMITS[:6].tolist(),
                       "reference_governor": "bounded_reference_recovery_v2",
                       "reference_governor_settings": asdict(JointReferenceGovernor().settings),
                       "reference_recovery_settings": asdict(ReferenceRecoverySettings())}), flush=True)
@@ -900,6 +928,8 @@ def run(args: argparse.Namespace) -> None:
         joint_names=ARM_JOINT_NAMES,
         tool_site="sarm_ee",
     )
+    if selected_posture_backend == "native":
+        kinematics.enable_native_geometry()
     initial_joints = (
         np.asarray(scene_instance["randomization"]["arm_joint_position_rad"], dtype=float)
         if scene_instance
@@ -954,156 +984,135 @@ def _run_session(
     ]
     reference_publisher = HeldJointReferencePublisher(targets.cached_reference, len(native.JOINTS))
 
-    from Basilisk.simulation import NBodyGravity, pointMassGravityModel
     from Basilisk.utilities import macros, simIncludeGravBody
-    from bsk_render_adapter import BasiliskRenderBridge, SceneSettings
 
-    bridge: BasiliskRenderBridge | None = None
+    from simulation.assembly import AssemblyContext, SessionConfig
+    from simulation.components.arm_reference import JointReferenceComponent
+    from simulation.components.attitude import AttitudeComponent
+    from simulation.components.clock import ClockComponent
+    from simulation.components.dynamics_core import DynamicsCoreComponent
+    from simulation.components.observation import ObservationComponent
+    from simulation.components.orbit import OrbitComponent
+    from simulation.components.orbital_gravity import OrbitalGravityComponent
+    from simulation.components.render import RenderComponent
+    from simulation.components.teleop_ik import TeleopIkComponent
+    from simulation.physics_ports import PhysicsPorts
+
+    bridge: Any = None  # BasiliskRenderBridge, created by RenderComponent
+    simulation = None
     gravity_factory = None
-    module_registry = BasiliskModuleRegistry()
+    orbit_origin = None
+    assembly: AssemblyContext | None = None
     try:
         with runtime_stage("build_physics"):
             simulation, scene, dynamics_models, recorders = native._build_simulation(
-                attitude_control_enabled=False if getattr(args, "disable_attitude_control", False) else None,
                 external_reference=reference_publisher,
                 record_history=False,
+                dynamics_backend=args.dynamics_backend,
+                local_substeps=args.local_substeps,
+                # The AttitudeComponent installs the chain exactly once, below.
+                # Letting the builder create it too would schedule the whole
+                # 100 Hz chain twice, with one copy spinning without effect.
+                defer_attitude_control=True,
             )
-        integration = configure_scene_integrator(scene)
+        local_backend = args.dynamics_backend == BACKEND_LOCAL
+        if local_backend:
+            integration = {"backend": BACKEND_LOCAL, "integrator": "mujoco_implicitfast_fixed_step",
+                           "substeps": simulation.local_stepper.substeps,
+                           "note": "MJScene publishes only; MuJoCo servos replace the PID/limiter chain"}
+        else:
+            integration = configure_scene_integrator(scene)
         print(json.dumps({"type": "native_integration_configuration", **integration,
                           "dynamics_rate_hz": DYNAMICS_HZ}, sort_keys=True), flush=True)
-        print(json.dumps({
-            "type": "attitude_control_configuration",
-            "settings": simulation.attitude_control.settings,
-            "enabled": simulation.attitude_control.enabled,
-            "hardware_source": str(native.MODEL_PATH),
-            "settings_source": str(native.MODEL_PATH.with_name("attitude_control.json")),
-            "wheel_axes_body": [list(w.axis) for w in simulation.attitude_control.wheels],
-            "spin_inertia_kg_m2": [w.spin_inertia for w in simulation.attitude_control.wheels],
-            "max_torque_nm": [w.max_torque for w in simulation.attitude_control.wheels],
-            "max_speed_rad_s": [w.max_speed for w in simulation.attitude_control.wheels],
-        }, sort_keys=True), flush=True)
         ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
         ephemeris_epoch = str(
             ephemeris_environment.get("ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC)
         )
-        gravity_factory = simIncludeGravBody.gravBodyFactory()
-        earth = gravity_factory.createEarth()
-        sun = gravity_factory.createSun()
-        with runtime_stage("load_ephemeris"):
-            ephemeris = _create_ephemeris_interface(gravity_factory, ephemeris_epoch)
-
-        # Register the environmental models with the MJScene dynamics task.
-        # Basilisk computes the accelerations and MJScene performs the unified
-        # multibody integration together with joints and contact.
-        # MJScene already performs the final forward-kinematics pass after an
-        # adaptive integration step. A second full equations-of-motion pass
-        # repeats gravity, controllers and contact work; forces are recomputed
-        # at the next integration stage. Keep it opt-in for diagnostics.
-        extra_eom_call = os.environ.get("SPACE_SIM_EXTRA_EOM_CALL", "0").strip().lower() not in {"0", "false", "off", "no"}
-        scene.extraEoMCall = extra_eom_call
-        print(json.dumps({"type": "native_extra_eom_configuration", "enabled": extra_eom_call}, sort_keys=True), flush=True)
-        scene.AddModelToDynamicsTask(ephemeris, 20_000)
-        gravity = NBodyGravity.NBodyGravity()
-        gravity.ModelTag = "earthSunGravity"
-        # Higher priorities run first.  MJScene forward kinematics (10_000)
-        # must publish this substep's body states before gravity reads them;
-        # trajectory/controllers (9_000 and below) then consume the fresh state.
-        scene.AddModelToDynamicsTask(gravity, 9_500)
-
-        earth.isCentralBody = True
-        # Keep the source strengths disabled until after the initial MJScene
-        # state has been assigned below.  Gravity targets remain natively bound
-        # to MJScene; no Python per-step state forwarding is required.
-        earth_gravity_model = pointMassGravityModel.PointMassGravityModel()
-        earth_gravity_model.muBody = 0.0
-        gravity.addGravitySource("earth", earth_gravity_model, True)
-        gravity.getGravitySource("earth").stateInMsg.subscribeTo(
-            ephemeris.planetStateOutMsgs[0]
-        )
-
-        sun_gravity_model = pointMassGravityModel.PointMassGravityModel()
-        sun_gravity_model.muBody = 0.0
-        gravity.addGravitySource("sun", sun_gravity_model, False)
-        gravity.getGravitySource("sun").stateInMsg.subscribeTo(
-            ephemeris.planetStateOutMsgs[1]
-        )
-        gravity_target_names = list(scene.getBodyNames())
-        for body_name in gravity_target_names:
-            gravity.addGravityTarget(body_name, scene.getBody(body_name))
-
-        # The MJBody overload installs Basilisk's native subscriptions to the
-        # MJScene state and mass-property messages.  Keep this direct binding
-        # so the 240 Hz dynamics loop does not cross a Python bridge.
-        print(json.dumps({"type": "ephemeris_configuration", "epoch_utc": ephemeris_epoch, "center": SUPPORTED_EPHEMERIS_CENTER, "frame": SUPPORTED_EPHEMERIS_FRAME, "planet_fixed_frames": dict(zip(("earth", "sun"), CELESTIAL_FIXED_FRAMES)), "gravity_sources": ["earth", "sun"], "gravity_targets": gravity_target_names}, sort_keys=True), flush=True)
-        physics_task = next(task for task in simulation.TaskList if task.Name == "graspTask")
-        physics_clock = RationalPhysicsClock(physics_task)
-        module_registry.register("physics_clock", physics_clock, task_name="graspTask", priority=20_000)
-        ik_controller = CartesianIkControlModel(
-            targets, clock=physics_clock, stride=ik_step_stride(args.ik_rate))
-        module_registry.register("teleop_ik", ik_controller, task_name="graspTask", priority=10_000)
-        reference_publisher.clock = physics_clock
-        reference_publisher.stride = ik_step_stride(args.ik_rate)
-        module_registry.register("joint_reference_publisher", reference_publisher, task_name="graspTask", priority=9_999)
-        keep_alive = (
-            dynamics_models,
-            recorders,
-            module_registry,
-            gravity_factory,
-            earth_gravity_model,
-            sun_gravity_model,
-            gravity,
-            earth,
-            sun,
-            ephemeris,
-        )
         dataset_capture = bool(scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True))
-        bridge = BasiliskRenderBridge(
-            reliable_frames=False,
-            capture_state_provider=(client.capture_state if dataset_capture else
-                                    lambda: {"capture_episode_id": "", "capture_request_id": ""}),
+        if not local_backend:
+            # MJScene already performs the final forward-kinematics pass after an
+            # adaptive integration step. A second full equations-of-motion pass
+            # repeats gravity, controllers and contact work; forces are recomputed
+            # at the next integration stage. Keep it opt-in for diagnostics.
+            extra_eom_call = os.environ.get("SPACE_SIM_EXTRA_EOM_CALL", "0").strip().lower() not in {"0", "false", "off", "no"}
+            scene.extraEoMCall = extra_eom_call
+            print(json.dumps({"type": "native_extra_eom_configuration", "enabled": extra_eom_call},
+                             sort_keys=True), flush=True)
+
+        # One assembly pass describes the whole session: components create modules,
+        # wire them through the physics ports, and place them in a slot. Nothing
+        # below picks a task priority or reaches into the scene by hand.
+        ports = PhysicsPorts(scene, stepper=getattr(simulation, "local_stepper", None))
+        assembly = AssemblyContext(
+            simulation, scene, config=SessionConfig(
+                model_path=native.MODEL_PATH, dynamics_backend=args.dynamics_backend,
+                local_substeps=args.local_substeps,
+                publish_stride=(simulation.local_stepper.publish_every if local_backend
+                                else getattr(scene, "publishStride", 1)),
+                ik_rate_hz=args.ik_rate, render_rate_hz=RENDER_HZ),
+            physics_ports=ports)
+        assembly.extra.update({
+            "targets": targets, "kinematics": kinematics, "client": client, "args": args,
+            "native": native, "scene_instance": scene_instance, "target_spec": target_spec,
+            "template_id": template_id, "already_installed": [reference_publisher],
+        })
+        orbit_component = OrbitComponent(epoch_utc=ephemeris_epoch)
+        render = RenderComponent(
+            model_path=native.MODEL_PATH,
+            catalog=args.catalog.resolve(),
             host=args.render_host,
             port=args.render_port,
-            origin_object="teleop/cubesat_bus",
-            frame_rate_hz=RENDER_HZ,
-        )
-        bridge.add_mj_scene(
-            scene,
-            namespace="teleop",
-            source_path=native.MODEL_PATH,
-            mesh_asset_catalog=args.catalog.resolve(),
-            semantic_label="spacecraft_robot_link",
-            camera_picture_in_picture=True,
-            camera_capture_rate_hz=args.capture_rate,
-            camera_capture_products=("rgb",),
-            camera_pip_resolution=(640, 360),
-            camera_picture_in_picture_start_slot=1,
+            render_rate_hz=RENDER_HZ,
+            capture_rate_hz=args.capture_rate,
+            capture_state_provider=(client.capture_state if dataset_capture else
+                                    lambda: {"capture_episode_id": "", "capture_request_id": ""}),
+            sunlight_intensity_scale=ephemeris_environment.get("lighting", {}).get(
+                "sunlight_intensity_scale", DEFAULT_SUNLIGHT_INTENSITY_SCALE),
             camera_display_names={
                 "spacecraft_overview": "Spacecraft Overview",
                 "sarm_wrist_cam": "SARM Wrist Camera",
-            },
-        )
-        _register_celestial_bodies(bridge, earth, sun)
-        sunlight_scale = ephemeris_environment.get("lighting", {}).get(
-            "sunlight_intensity_scale", DEFAULT_SUNLIGHT_INTENSITY_SCALE
-        )
+            })
+        assembly.install([
+            ClockComponent(),
+            orbit_component,
+            DynamicsCoreComponent(native.MODEL_PATH, substeps=args.local_substeps),
+            OrbitalGravityComponent(mode=getattr(args, "orbital_mode", None)),
+            TeleopIkComponent(targets, ik_rate_hz=args.ik_rate),
+            # The scenario builder already created the reference publisher and wired
+            # the local servos from it, so this component only schedules it (and, on
+            # the basilisk path, declares the PID/limiter chain's consumer).
+            JointReferenceComponent(
+                reference_publisher, joints=tuple(j for _, j in native.JOINTS),
+                actuators=tuple(native.ACTUATORS), kp=native.KP, kd=native.KD,
+                limits=native.TORQUE_LIMITS, ik_rate_hz=args.ik_rate,
+                wire_servos=not local_backend),
+            AttitudeComponent(
+                native.MODEL_PATH,
+                enabled=False if getattr(args, "disable_attitude_control", False) else None),
+            render,
+        ])
+        if getattr(args, "atmospheric_drag", False):
+            # Extension sample (docs/MUJOCO_CORE_ARCHITECTURE.md §8.2): one extra
+            # component line, no core change. Opt-in only, so the default physics
+            # is bit-identical with and without it.
+            from simulation.components.drag import AtmosphericDragComponent
+
+            assembly.install([AtmosphericDragComponent()])
+        gravity_factory, earth, sun = orbit_component.gravity_factory, orbit_component.earth, orbit_component.sun
+        bridge = render.bridge
+        ephemeris = orbit_component.ephemeris
+        orbit_origin = orbit_component.origin
+        gravity_target_names = orbit_component.gravity_targets
+        keep_alive = tuple(assembly._kept) + (dynamics_models, recorders)
+        print(json.dumps({"type": "ephemeris_configuration", "epoch_utc": ephemeris_epoch,
+                          "center": SUPPORTED_EPHEMERIS_CENTER, "frame": SUPPORTED_EPHEMERIS_FRAME,
+                          "planet_fixed_frames": dict(zip(("earth", "sun"), CELESTIAL_FIXED_FRAMES)),
+                          "gravity_sources": ["earth", "sun"],
+                          "gravity_targets": gravity_target_names}, sort_keys=True), flush=True)
         print(json.dumps({"type": "lighting_configuration",
-                          "sunlight_intensity_scale": sunlight_scale,
+                          "sunlight_intensity_scale": render.sunlight_intensity_scale,
                           "scope": "rendering_only"}, sort_keys=True), flush=True)
-        bridge.set_scene_settings(
-            SceneSettings(
-                sunlight_intensity_scale=sunlight_scale,
-                origin_object_id="teleop/cubesat_bus",
-                # Focus targets must be registered body IDs, not MJCF sites.
-                default_camera_target="teleop/cubesat_bus",
-                default_camera_distance_m=2.8,
-                orbit_lines=False,
-                trajectory_history=False,
-                # 预览通道只保留很短的插值缓冲，并允许最多 50 ms 的视觉外推；
-                # 训练采集由 UE 在权威帧上单独完成，不会记录这些平滑后的姿态。
-                interpolation_delay_ms=15.0,
-                max_extrapolation_ms=50.0,
-            )
-        )
+        _ = simIncludeGravBody
         joints = [scene.getBody(body).getScalarJoint(joint) for body, joint in native.JOINTS]
 
         # Cache message handles, never payloads: every read still samples the
@@ -1134,6 +1143,10 @@ def _run_session(
                     **bridge.last_capture_state,
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
                     "scene_seed": scene_instance.get("seed") if scene_instance else None,
+                    "orbital_dynamics": (
+                        simulation.local_stepper.orbital_environment.telemetry()
+                        if local_backend and simulation.local_stepper.orbital_environment is not None
+                        else {"mode": "linear_tidal" if local_backend else "basilisk"}),
                     "capture_target": {
                         "model_file": target_spec.model_file,
                         "runtime_model": target_spec.runtime_model,
@@ -1239,12 +1252,24 @@ def _run_session(
                 }
             )
 
-        observation_snapshots = AuthoritativeObservationModel(bridge, snapshot_observation)
-        module_registry.register("authoritative_observation_snapshot", observation_snapshots,
-                                 task_name="graspTask", priority=-10_001)
-
-        module_registry.register("render_state_publisher", bridge, task_name="graspTask", priority=-10_000)
-        module_registry.attach(simulation)
+        observation = ObservationComponent(bridge, snapshot_observation)
+        assembly.install([observation])
+        observation_snapshots = observation.model
+        # The attitude chain is created by its component during assembly, so this
+        # report has to come after it (the builder defers the chain).
+        attitude = simulation.attitude_control
+        print(json.dumps({
+            "type": "attitude_control_configuration",
+            "settings": attitude.settings,
+            "enabled": attitude.enabled,
+            "hardware_source": str(native.MODEL_PATH),
+            "settings_source": str(native.MODEL_PATH.with_name("attitude_control.json")),
+            "wheel_axes_body": [list(w.axis) for w in attitude.wheels],
+            "spin_inertia_kg_m2": [w.spin_inertia for w in attitude.wheels],
+            "max_torque_nm": [w.max_torque for w in attitude.wheels],
+            "max_speed_rad_s": [w.max_speed for w in attitude.wheels],
+        }, sort_keys=True), flush=True)
+        print(json.dumps(assembly.summary(), sort_keys=True), flush=True)
         with runtime_stage("initialize_state"):
             native._initialize_state(simulation, scene)
         environment = scene_instance.get("environment", {}) if scene_instance else {}
@@ -1258,15 +1283,19 @@ def _run_session(
         if target_spec.hinge_joint:
             randomized.setdefault("target_hinge_position_rad", 0.0)
         orbit_state = _apply_orbital_initial_state(
-            scene, native, earth, orbit, randomized, initial_joints
+            scene, native, earth, orbit, randomized, initial_joints, orbit_origin
         )
         print(
             json.dumps(
                 {
                     "type": "gravity_configuration",
-                    "sources": ["earth", "sun"],
+                    "sources": ([s["name"] for s in simulation.local_stepper.orbital_environment.telemetry().get("sources", [])]
+                                if local_backend and simulation.local_stepper.orbital_environment is not None
+                                else ["earth", "sun"]),
                     "central_body": "earth",
                     "gravity_targets": gravity_target_names,
+                    "local_tidal_source": "earth" if local_backend and args.orbital_mode == "linear_tidal" else None,
+                    "orbital_mode": args.orbital_mode if local_backend else "basilisk",
                     "orbit": orbit,
                     "randomize_orbit_phase": bool(scene_instance and scene_instance["randomize_orbit_phase"]),
                     **orbit_state,
@@ -1278,9 +1307,10 @@ def _run_session(
 
         # Enable the physical Earth/Sun fields after the explicit initial
         # MJScene state has been assigned.  NBodyGravity now reads the native
-        # MJScene messages at each integration/substep.
-        earth_gravity_model.muBody = float(earth.mu)
-        sun_gravity_model.muBody = float(sun.mu)
+        # MJScene messages at each integration/substep. The local backend's
+        # origin O is a separate point that was assigned its orbit above.
+        if not local_backend:
+            orbit_component.enable_gravity()
         print(
             json.dumps(
                 {
@@ -1297,11 +1327,17 @@ def _run_session(
             [float(read().state) for read in position_readers[:6]]))
         targets.bind_joint_velocity_provider(lambda: np.asarray(
             [float(read().state) for read in velocity_readers[:6]]))
-        models_by_tag = {model.ModelTag: model for model in dynamics_models}
-        pid_models = [models_by_tag[f"{name}PID"] for name in ARM_JOINT_NAMES]
-        limiter_models = [models_by_tag[f"{name}TorqueLimiter"] for name in ARM_JOINT_NAMES]
-        requested_torque_readers = [model.outputOutMsg.addSubscriber() for model in pid_models]
-        applied_torque_readers = [model.actuatorOutMsg.addSubscriber() for model in limiter_models]
+        if local_backend:
+            # The MuJoCo servos publish the same requested/applied efforts.
+            stepper = simulation.local_stepper
+            requested_torque_readers = [msg.addSubscriber() for msg in stepper.requestedOutMsgs[:6]]
+            applied_torque_readers = [msg.addSubscriber() for msg in stepper.appliedOutMsgs[:6]]
+        else:
+            models_by_tag = {model.ModelTag: model for model in dynamics_models}
+            pid_models = [models_by_tag[f"{name}PID"] for name in ARM_JOINT_NAMES]
+            limiter_models = [models_by_tag[f"{name}TorqueLimiter"] for name in ARM_JOINT_NAMES]
+            requested_torque_readers = [model.outputOutMsg.addSubscriber() for model in pid_models]
+            applied_torque_readers = [model.actuatorOutMsg.addSubscriber() for model in limiter_models]
         targets.bind_actuator_state_provider(lambda: {
             "requested_torque_nm": [float(read().input) for read in requested_torque_readers],
             "applied_torque_nm": [float(read().input) for read in applied_torque_readers],
@@ -1319,12 +1355,28 @@ def _run_session(
         if client.reset_generation:
             bridge.publish_event("scene_reset", {"request_id": client.reset_generation, "sim_time_ns": "0"})
         frame = 0
+        next_backpressure_log = 0.0
         while frame_count is None or frame < frame_count:
             reset_request = client.take_reset()
             if reset_request is not None:
                 print(json.dumps({"type": "reset_accepted", "request_id": reset_request,
                                   "wall_time_ns": str(time.time_ns())}), flush=True)
                 return reset_request
+            # Flow control belongs outside ExecuteSimulation/UpdateState. Both
+            # network workers remain alive, so STOP/reset/control stay responsive.
+            # At most two render snapshots are emitted by one outer advance.
+            # Check even during preview: START can arrive on the network worker
+            # after preflight but before the render callback samples its mode.
+            if (not client.has_observation_capacity()
+                    or not bridge.publisher.has_frame_capacity()):
+                now = time.monotonic()
+                if now >= next_backpressure_log:
+                    print(json.dumps({"type": "capture_backpressure", "sim_frame": frame,
+                                      **render_transport_status(bridge.publisher),
+                                      **client.observation_transport_status()}), flush=True)
+                    next_backpressure_log = now + 2.0
+                time.sleep(.01)
+                continue
             frame += 1
             stop_ns = tick_time_ns(frame, RENDER_HZ)
             sim_seconds = stop_ns * 1.0e-9
@@ -1366,6 +1418,8 @@ def _run_session(
                         "dynamics_rate_hz": DYNAMICS_HZ,
                         "ik_update_count": targets.update_count,
                         "ik_solve_count": targets.ik_solve_count,
+                        "dynamics_backend": args.dynamics_backend,
+                        "local_dynamics": simulation.local_stepper.telemetry() if local_backend else None,
                     },
                     sort_keys=True,
                 ),
@@ -1373,6 +1427,9 @@ def _run_session(
             )
         _ = keep_alive
     finally:
+        stepper = getattr(simulation, "local_stepper", None)
+        if stepper is not None:
+            stepper.close()
         if bridge:
             with runtime_stage("close_render_bridge"):
                 bridge.close()
@@ -1418,6 +1475,19 @@ def main() -> None:
     parser.add_argument("--scene-instance", type=Path)
     parser.add_argument("--disable-attitude-control", action="store_true",
                         help="Leave rotors installed but command zero motor torque (A/B diagnostics)")
+    parser.add_argument("--dynamics-backend", choices=DYNAMICS_BACKENDS, default=None,
+                        help="local (default): fixed-step MuJoCo implicitfast in the orbital frame. "
+                             "basilisk: MJScene + RKF45, kept as the accuracy reference. "
+                             "Defaults to SPACE_SIM_DYNAMICS_BACKEND, else local.")
+    parser.add_argument("--local-substeps", type=int, choices=range(1, MAX_SUBSTEPS + 1), default=None,
+                        metavar=f"1..{MAX_SUBSTEPS}",
+                        help="MuJoCo substeps per 240 Hz step for the local backend (SPACE_SIM_LOCAL_SUBSTEPS)")
+    parser.add_argument("--orbital-mode", choices=("bsk", "linear_tidal"), default=None,
+                        help="Local gravity: BSK field models (default) or legacy Earth tidal baseline. "
+                             "Defaults to SPACE_SIM_ORBITAL_MODE, else bsk.")
+    parser.add_argument("--atmospheric-drag", action="store_true",
+                        help="Add the exponential-atmosphere drag component (local backend only). "
+                             "Off by default so the physics is unchanged unless a scenario asks for it.")
     args = parser.parse_args()
     if args.ik_mode not in IK_MODES:
         parser.error("SPACE_SIM_IK_MODE must be ik_pose or strict; constrained has been removed. "

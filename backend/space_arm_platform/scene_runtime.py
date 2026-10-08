@@ -104,6 +104,23 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     },
 )
 
+# Free-plug contact is represented by MuJoCo flexcomp meshes.  The
+# offline zero-start planner deliberately refuses those models until it can
+# validate flex contacts without ignoring the experiment's core collision.
+TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES: dict[str, str] = {
+    FREE_PLUG_TEMPLATE: ZERO_START_TELEOP_PROFILE,
+}
+TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
+    FREE_PLUG_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE,),
+}
+
+
+def template_default_randomization_profile(template_id: str) -> str:
+    return TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES.get(
+        template_id, AUTO_PREPARE_TELEOP_PROFILE
+    )
+
+
 _NATIVE_TARGET_POSITION = (0.38754456, -0.00109359, 0.42397138)
 _NATIVE_TARGET_QUATERNION = (0.99967109, 0.02433362, -0.00809494, 0.00024763)
 _NATIVE_TARGET_SPIN = (0.0, 0.0, 0.0)
@@ -313,6 +330,10 @@ class SceneRuntimeManager:
         templates = []
         for template in SCENE_TEMPLATES:
             item = dict(template)
+            item["default_randomization_profile"] = template_default_randomization_profile(item["id"])
+            unsupported_profiles = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES.get(item["id"], ())
+            if unsupported_profiles:
+                item["unsupported_randomization_profiles"] = list(unsupported_profiles)
             try:
                 limits = self._initial_arm_limits(item["id"])
                 item["arm_joint_limits_deg"] = [
@@ -349,6 +370,13 @@ class SceneRuntimeManager:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
+        unsupported_profiles = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES.get(request.template_id, ())
+        if request.randomization_profile in unsupported_profiles:
+            raise ValueError(
+                "本地任务盒（两个活动插头·实验）包含 flexcomp 接触网格，"
+                "当前不支持“零位启动并自动展开”（teleop-zero-prepare-v2）；"
+                "请选择“指定操作姿态直接启动”（teleop-zero-prepare-v1）"
+            )
         if request.randomization_profile in {ZERO_START_TELEOP_PROFILE, AUTO_PREPARE_TELEOP_PROFILE} and request.initial_arm_joint_position_deg is not None:
             raise ValueError("指定操作姿态直接启动配置使用 operating_arm_joint_position_deg，不再接受单独的初始角度")
         limits = self._initial_arm_limits(request.template_id)

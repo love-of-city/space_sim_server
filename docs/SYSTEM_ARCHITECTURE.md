@@ -156,7 +156,7 @@ flowchart TB
 | 原生仿真入口 | [teleop_grasp_unreal.py](../simulation/teleop_grasp_unreal.py) | 实例加载、IK、星历/重力接入、初始轨道、桥接、观测发送 |
 | 机械臂运动学 | [serial_chain_kinematics.py](../simulation/serial_chain_kinematics.py) | MJCF 串联链解析、正运动学、雅可比、历史阻尼参考解、robosuite `IK_POSE` 风格阻尼 IK（默认）与严格六维方向保持受限 IK（回退） |
 | 物理模型与原生构建 | [sarm_ground_target_self_collision.xml](../model/SARM/platform/sarm_ground_target_self_collision.xml)（粗盒内部接触默认；旧粗盒、高精度实验与小方块入口保留）、[scenario_sarm_grasp.py](../model/SARM/platform/scenarios/scenario_sarm_grasp.py) | 刚体、惯量、关节、接触、执行器、原生 PID/限幅与初态 |
-| 通用架构基础 | [architecture.py](../simulation/architecture.py) | 状态/控制抽象、接口、模块注册器、通用编排器；接入程度见第 7 节 |
+| 会话装配 | [physics_ports.py](../simulation/physics_ports.py)、[assembly.py](../simulation/assembly.py)、[components/](../simulation/components/) | 物理端口表、槽位与装配上下文、各组件；见第 7 节 |
 | 身份与会话 | [auth.py](../backend/space_arm_platform/auth.py) | 两种用户角色、密码摘要、SQLite 会话 |
 | 图像接收与配对 | [capture_receiver.py](../backend/space_arm_platform/capture_receiver.py)、[recorder.py](../backend/space_arm_platform/recorder.py) | 产品解包、预览分流、权威帧配对和落盘 |
 | 任务与后台工作 | [tasks.py](../backend/space_arm_platform/tasks.py)、[jobs.py](../backend/space_arm_platform/jobs.py) | 持久化任务状态、Episode 归档，不负责自动控制策略 |
@@ -306,15 +306,14 @@ running → stopped / completed / failed
 
 ### 7.3 架构抽象与已接入部分
 
-[architecture.py](../simulation/architecture.py) 定义了 `SceneState`、`EnvironmentState`、`ControlOutput`、`SceneBackend`、`EphemerisProvider`、`SimulationOrchestrator` 和 `BasiliskModuleRegistry`。
+旧的通用编排抽象（`simulation/architecture.py`：`SceneState`、`EnvironmentState`、`ControlOutput`、`SceneBackend`、`EphemerisProvider`、`SimulationOrchestrator`、`BasiliskModuleRegistry`）从未被默认路径使用，已于 2026-10-02 连同其测试一起删除。默认会话由 `simulation/physics_ports.py`（`PhysicsPorts` 端口表）和 `simulation/assembly.py`（`Slot`、`AssemblyContext`、`RateDivider`）装配，执行顺序由 `describe()` 导出；详见 [MuJoCo 物理核心架构](MUJOCO_CORE_ARCHITECTURE.md)。
 
 当前接入事实：
 
-- `BasiliskModuleRegistry` 已在 SARM 路径中用于 `teleop_ik`、`render_state_publisher`。
-- 姿态控制由原生 `AttitudeControl` 直接安装到 process/task；未迁入 registry。
-- SPICE、重力、原生 PID 等通过 `scene.AddModelToDynamicsTask(...)` 直接接入，不是统一由 registry 挂载。
-- `SimulationOrchestrator` 有通用接口和测试，但 **SARM 入口没有实例化它**；实际推进仍是 `ConfigureStopTime()` / `ExecuteSimulation()`。
-- `space-sim-state/1` 是通用状态抽象的序列化契约，不是当前浏览器或 UE 正在接收的网络协议。
+- 会话由图中的组件清单装配：`clock`、`orbit`、`dynamics_core`、`teleop_ik`、`joint_reference`、`attitude`、`render`、`observation`；每个组件经 `PhysicsPorts` 接线，经 `Slot` 决定优先级/频率/相位。
+- 姿态控制链默认在本地后端的 120 Hz 物理网格上运行（`SPACE_SIM_DYNAMICS_BACKEND=basilisk` 时仍在独立的 `sarmAttitudeTask`）。
+- basilisk 后端下 SPICE、重力、原生 PID 仍通过 `scene.AddModelToDynamicsTask(...)` 直接接入。
+- 主循环始终是 `ConfigureStopTime()` / `ExecuteSimulation()`。
 
 通用设计可作为后续扩展约定，但不能将这套抽象图当作已经替换了所有原生消息连接的实现。
 
@@ -437,7 +436,6 @@ SPICE 的同一组 Earth/Sun 状态同时用于引力与渲染。地球不是 XM
 - `bsk-render/2`：`hello → scene_manifest → frame/event`。manifest 包含对象、资产、相机、天体等定义；frame 只承载动态状态。重连重发保留的 hello/manifest。
 - 渲染发送/接收采用 latest-frame-wins；事件和指令有有界队列。丢弃过时动态帧是低延迟设计，**不是每个物理步可靠传输的消息总线**。
 - `bsk-capture/1`：JSON 中声明产品名称、文件名、二进制偏移和长度；图像不按普通 JSON 数组传送。
-- `space-sim-state/1`：`architecture.py` 使用的通用状态契约，目前不另开网络端口，未替代 `observation` 和 `bsk-render/2`。
 
 协议文件：[控制 Schema](../contracts/space-arm-control-v1.schema.json)、[通用状态 Schema](../contracts/simulation-state-v1.schema.json)、[控制封包](../backend/space_arm_platform/protocol.py)。UE 详细协议位于 `UE:Unreal/BskUnrealRenderer/docs/PROTOCOL.md`。
 
@@ -641,8 +639,8 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -AdapterRoot 'D:\workspace\spac
 | Earth/Sun 星历、引力和 UE 显示对齐 | 已接入，有专题验证 | 不是所有天体、摄动、辐射和成像模型均已支持 |
 | 双模型相机及 WebRTC 预览 | 已接入，播放器/相机有独立测试 | 不代表每帧完整无丢失，也不等于权威数据已匹配 |
 | CaptureReceiver / EpisodeRecorder / 归档 | 组件和配对测试已实现 | 合法遥测问题已修复；GPU 图像与时序配对仍需实际验收 |
-| `BasiliskModuleRegistry` | 默认路径部分接入 | 不代表全部 BSK 模块已统一注册 |
-| `SimulationOrchestrator` / `space-sim-state/1` | 通用接口及测试 | 尚非默认 SARM 调度入口或实际网络状态流 |
+| 物理核心（MuJoCo 固定步长） | 默认后端；接触工况 RTF ≥ 1.0 | 逐帧硬实时仍不保证（5–30% 的 30 Hz 帧超过 33 ms） |
+| 组件装配层（`PhysicsPorts` / `AssemblyContext`） | 已接入默认路径，执行顺序可由 `describe()` 导出 | 姿态链和物理核心仍由场景构建器创建后交给组件接管，尚未完全由组件自建 |
 | 三轴反作用轮与惯性姿态保持 | 已接入并有原生/链路验证 | 无动量卸载、冗余、功耗或实物精度保证 |
 | 推进器、CSS 可视化适配 | UE 适配器已有基础能力 | 默认 SARM 尚未安装这些器件 |
 | Task / Job 持久化 | 已有 API 与存储 | 不是多实例任务调度器；Task 路由检查仍需统一 |

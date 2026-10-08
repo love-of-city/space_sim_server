@@ -18,6 +18,18 @@ NAMES = tuple(f'joint{i}' for i in range(1, 7))
 SPEEDS = np.array([.7,.7,.7,.9,1,1])
 
 
+@pytest.fixture(autouse=True)
+def python_posture_backend(monkeypatch):
+    """Unit-test the reference policy, not whichever optional backend is installed.
+
+    The platform default is the native kernel, which is an optional build. This
+    module pins the Python reference so the policy is exercised identically on a
+    machine with the helper built and in CI, where nothing is compiled. Native
+    equivalence is covered separately in test_native_posture.py.
+    """
+    monkeypatch.setenv('SPACE_SIM_POSTURE_BACKEND', 'python')
+
+
 @pytest.fixture(scope='module')
 def chain():
     return SerialChainKinematics.from_mjcf(MODEL, base_body='cubesat_bus', joint_names=NAMES, tool_site='sarm_ee')

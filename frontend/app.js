@@ -1,4 +1,4 @@
-import { createArmPreparation, ZERO_START_PROFILE } from "./arm_preparation.js";
+import { createArmPreparation, AUTO_PREPARE_PROFILE, ZERO_START_PROFILE } from "./arm_preparation.js";
 import { createInitialJointAngles } from "./initial_joint_angles.js";
 import { createJointAnglePanel } from "./joint_angles.js";
 import { formatMotionSpeedDiagnostics } from "./motion_diagnostics.js";
@@ -82,6 +82,17 @@ function configureInitialJoints() {
     initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value),
     initialJointCatalog?.initial_arm_presets_deg?.[$("randomizationProfile").value],
   );
+}
+function configureSceneSelection() {
+  const template = initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value);
+  const fallbackTemplate = template?.id === "sarm-task-box-free-plugs";
+  const unsupported = template?.unsupported_randomization_profiles
+    ?? (fallbackTemplate ? [AUTO_PREPARE_PROFILE] : []);
+  if (unsupported.includes($("randomizationProfile").value)) {
+    $("randomizationProfile").value = template?.default_randomization_profile
+      ?? (fallbackTemplate ? ZERO_START_PROFILE : $("randomizationProfile").value);
+  }
+  configureInitialJoints();
 }
 const jointAngles = createJointAnglePanel($("jointAngleGrid"), $("jointAngleState"));
 const controlKeys = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "KeyQ", "KeyE", "KeyR", "KeyF", "ShiftLeft", "ShiftRight", "Escape"]);
@@ -267,7 +278,7 @@ async function loadSceneCatalog() {
     template.value = defaults.template_id || template.value;
     profile.value = defaults.randomization_profile || profile.value;
     initialJointCatalog = catalog;
-    configureInitialJoints();
+    configureSceneSelection();
     $("sceneDatasetCapture").checked = Boolean(defaults.dataset_capture);
     $("sceneRandomizeOrbitPhase").checked = defaults.randomize_orbit_phase === true;
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
@@ -1360,8 +1371,8 @@ $("linearSpeed").addEventListener("input", (event) => {
   $("linearSpeedValue").textContent = `${state.linearSpeed.toFixed(2)} m/s`;
 });
 $("startScene").addEventListener("click", startScene);
-$("sceneTemplate").addEventListener("change", configureInitialJoints);
-$("randomizationProfile").addEventListener("change", configureInitialJoints);
+$("sceneTemplate").addEventListener("change", configureSceneSelection);
+$("randomizationProfile").addEventListener("change", configureSceneSelection);
 $("stopScene").addEventListener("click", stopScene);
 $("resetScene").addEventListener("click", resetScene);
 $("startEpisode").addEventListener("click", startEpisode);

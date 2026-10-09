@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  pull-requests: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -32,22 +33,85 @@ jobs:
           lfs: true
           persist-credentials: false
       - uses: actions/setup-python@v5
+        id: python
         with:
           python-version: '3.11'
+      # The week in the key re-resolves unpinned dependencies at least weekly.
+      - name: Dependency cache week
+        id: week
+        run: '"value=$(Get-Date -UFormat %Y-%V)" >> $env:GITHUB_OUTPUT'
+      - name: Restore Python environment
+        id: venv
+        uses: actions/cache/restore@v4
+        with:
+          path: .venv-ci
+          key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('space_sim_server/pyproject.toml', 'space_sim_UE_Adapter/pyproject.toml') }}-${{ steps.week.outputs.value }}
       - name: Install declared dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
-          python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
+          python -m venv ../.venv-ci
+          ../.venv-ci/Scripts/python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Save right after installing so a failing test run still warms the cache.
+      - name: Save Python environment
+        if: steps.venv.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .venv-ci
+          key: ${{ steps.venv.outputs.cache-primary-key }}
+      - name: Activate Python environment
+        run: (Resolve-Path ../.venv-ci/Scripts).Path >> $env:GITHUB_PATH
+      - name: Check installed dependencies
+        run: |
+          python -c "import sys; assert sys.prefix != sys.base_prefix, sys.prefix"
           python -m pip check
       - name: Python syntax and undefined names
         run: python -m ruff check .
       - name: Verify CI failure guards
         run: python scripts/verify_ci_guards.py
+      # Pull requests skip the deployment group unless they touch what it tests;
+      # pushes to main and manual runs always run everything.
+      - name: Detect deployment changes
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          working-directory: space_sim_server
+          filters: |
+            deploy:
+              - 'scripts/deploy*.ps1'
+              - 'scripts/public_deployment*.ps1'
+              - 'scripts/fixed_deployment_helpers.ps1'
+              - 'scripts/show_public_access.ps1'
+              - 'scripts/run_platform.ps1'
+              - 'scripts/stop_platform.ps1'
+              - 'scripts/python_runtime.ps1'
+              - 'scripts/platform_paths.ps1'
+              - 'scripts/posture_runtime.ps1'
+              - 'scripts/native_acceleration_runtime.ps1'
+              - 'scripts/ci*'
+              - 'scripts/verify_ci_guards.py'
+              - 'deploy/**'
+              - 'tools/check_deployment_auth.py'
+              - 'tools/prepare_public_auth.py'
+              - '*_deployment.cmd'
+              - 'tests/test_deployment_launcher.py'
+              - 'tests/test_public_deployment.py'
+              - 'tests/test_fixed_deployment.py'
+              - 'tests/test_deployment_scripts.py'
+              - '.github/**'
+              - 'pyproject.toml'
       - name: Basic Python tests
+        env:
+          SKIP_DEPLOY: ${{ github.event_name == 'pull_request' && steps.changes.outputs.deploy != 'true' }}
         run: |
           $env:PYTHONPATH = "$PWD/scripts;$PWD"
           $env:SPACE_SIM_RESET_ADAPTER = (Resolve-Path ../space_sim_UE_Adapter).Path
-          $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic --junitxml=reports/python.xml'
+          $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic -n 4 --junitxml=reports/python.xml'
+          if ($env:SKIP_DEPLOY -eq 'true') {
+            Write-Host '::notice::Deployment tests skipped: this pull request changes no deployment paths. Pushes to main run them.'
+            $env:PYTEST_ADDOPTS += ' --ci-skip-group deploy'
+          }
           python -m pytest -ra
       - name: Test evidence
         if: always()

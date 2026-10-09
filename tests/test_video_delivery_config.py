@@ -8,31 +8,69 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PWSH = shutil.which("pwsh")
+FPS_CASES = [None, 60, 90, 120, 0, 121, True, "90", 90.5]
+QUALITY_CASES = ["absent", 0, 60, 75, 100, -1, 101, True, False, "60", 60.5, None]
+
+
+def validate_deployment_settings(directory, key, cases, absent, setting):
+    """Validate every case in one PowerShell process; a cold pwsh start dominates each check."""
+    base = json.loads((ROOT / "deploy/deployment.example.json").read_text(encoding="utf-8"))
+    base["public_url"] = "https://sim.test"
+    paths = []
+    for index, value in enumerate(cases):
+        config = dict(base)
+        if type(value) is type(absent) and value == absent:
+            config.pop(key, None)
+        else:
+            config[key] = value
+        path = directory / f"settings-{index}.json"
+        path.write_text(json.dumps(config), encoding="utf-8")
+        paths.append(str(path))
+    listing = directory / "settings.txt"
+    listing.write_text("\n".join(paths), encoding="utf-8")
+    helper = directory / "check.ps1"
+    helper.write_text("param($Root,$List)\n$ErrorActionPreference='Stop'\n"
+        ". (Join-Path $Root 'scripts/deployment_config.ps1')\n"
+        "$results = foreach ($path in Get-Content -LiteralPath $List) {\n"
+        f"    try {{ @{{ ok = $true; value = (Get-DeploymentSettings $path $Root).{setting} }} }}\n"
+        "    catch { @{ ok = $false; error = \"$_\" } }\n"
+        "}\n"
+        "ConvertTo-Json -InputObject @($results) -Compress\n", encoding="utf-8")
+    result = subprocess.run([PWSH, "-NoProfile", "-File", str(helper), str(ROOT), str(listing)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    assert result.returncode == 0, result.stderr
+    outcomes = json.loads(result.stdout)
+    assert len(outcomes) == len(cases)
+    return outcomes
+
+
+def outcome_for(outcomes, cases, value):
+    # Identity, not equality: 0 == False, yet both are separate cases.
+    return outcomes[next(index for index, case in enumerate(cases) if case is value)]
+
+
+@pytest.fixture(scope="module")
+def fps_outcomes(tmp_path_factory):
+    return validate_deployment_settings(tmp_path_factory.mktemp("fps"), "preview_fps", FPS_CASES, None, "PreviewFps")
+
+
+@pytest.fixture(scope="module")
+def quality_outcomes(tmp_path_factory):
+    return validate_deployment_settings(tmp_path_factory.mktemp("quality"), "encoder_min_quality",
+                                        QUALITY_CASES, "absent", "EncoderMinQuality")
+
 
 @pytest.mark.skipif(not PWSH, reason="PowerShell 7 required")
-@pytest.mark.parametrize("fps", [None, 60, 90, 120, 0, 121, True, "90", 90.5])
-def test_deployment_preview_fps_validation(tmp_path, fps):
-    config = json.loads((ROOT / "deploy/deployment.example.json").read_text(encoding="utf-8"))
-    config["public_url"] = "https://sim.test"
-    if fps is None:
-        config.pop("preview_fps", None)
-    else:
-        config["preview_fps"] = fps
-    path = tmp_path / "settings.json"
-    path.write_text(json.dumps(config))
-    helper = tmp_path / "check.ps1"
-    helper.write_text("param($Root,$Config)\n$ErrorActionPreference='Stop'\n"
-        ". (Join-Path $Root 'scripts/deployment_config.ps1')\n"
-        "(Get-DeploymentSettings $Config $Root).PreviewFps\n")
-    result = subprocess.run([PWSH, "-NoProfile", "-File", str(helper), str(ROOT), str(path)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+@pytest.mark.parametrize("fps", FPS_CASES)
+def test_deployment_preview_fps_validation(fps_outcomes, fps):
+    outcome = outcome_for(fps_outcomes, FPS_CASES, fps)
     valid = fps is None or type(fps) is int and 1 <= fps <= 120
     if valid:
-        assert result.returncode == 0, result.stderr
-        assert int(result.stdout.strip()) == (90 if fps is None else fps)
+        assert outcome["ok"], outcome.get("error")
+        assert outcome["value"] == (90 if fps is None else fps)
     else:
-        assert result.returncode != 0
-        assert "preview_fps" in result.stderr
+        assert not outcome["ok"]
+        assert "preview_fps" in outcome["error"]
 
 
 def test_rate_plumbed_through_both_deployment_modes():
@@ -74,7 +112,8 @@ def test_project_caps_adaptive_video_bitrate_without_forcing_a_high_floor():
 
 
 @pytest.mark.skipif(os.name != "nt" or not PWSH, reason="Windows PowerShell required")
-@pytest.mark.parametrize("quality", [None, 0, 60, 75, 100, -1, 101])
+# Default, both bounds and both out-of-range sides; each case costs a cold pwsh start.
+@pytest.mark.parametrize("quality", [None, 0, 100, -1, 101])
 def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality):
     adapter = ROOT.parent / "space_sim_UE_Adapter"
     source = adapter / "Unreal/BskUnrealRenderer/scripts/start_renderer.ps1"
@@ -111,29 +150,16 @@ def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality):
 
 
 @pytest.mark.skipif(not PWSH, reason="PowerShell 7 required")
-@pytest.mark.parametrize("quality", ["absent", 0, 60, 75, 100, -1, 101, True, False, "60", 60.5, None])
-def test_deployment_encoder_min_quality_validation(tmp_path, quality):
-    config = json.loads((ROOT / "deploy/deployment.example.json").read_text(encoding="utf-8"))
-    config["public_url"] = "https://sim.test"
-    if quality == "absent":
-        config.pop("encoder_min_quality", None)
-    else:
-        config["encoder_min_quality"] = quality
-    path = tmp_path / "settings.json"
-    path.write_text(json.dumps(config), encoding="utf-8")
-    helper = tmp_path / "check.ps1"
-    helper.write_text("param($Root,$Config)\n$ErrorActionPreference='Stop'\n"
-        ". (Join-Path $Root 'scripts/deployment_config.ps1')\n"
-        "(Get-DeploymentSettings $Config $Root).EncoderMinQuality\n", encoding="utf-8")
-    result = subprocess.run([PWSH, "-NoProfile", "-File", str(helper), str(ROOT), str(path)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+@pytest.mark.parametrize("quality", QUALITY_CASES)
+def test_deployment_encoder_min_quality_validation(quality_outcomes, quality):
+    outcome = outcome_for(quality_outcomes, QUALITY_CASES, quality)
     valid = quality == "absent" or type(quality) is int and 0 <= quality <= 100
     if valid:
-        assert result.returncode == 0, result.stderr
-        assert int(result.stdout.strip()) == (60 if quality == "absent" else quality)
+        assert outcome["ok"], outcome.get("error")
+        assert outcome["value"] == (60 if quality == "absent" else quality)
     else:
-        assert result.returncode != 0
-        assert "encoder_min_quality" in result.stderr
+        assert not outcome["ok"]
+        assert "encoder_min_quality" in outcome["error"]
 
 
 def test_quality_plumbed_through_all_launch_scripts():

@@ -39,5 +39,16 @@
     "tests/test_online_elbow_ik.py::test_live_policy_switch_and_strict_bypass": "Basilisk live runtime",
     "tests/test_online_elbow_ik.py::test_wrist_only_switch_does_not_disable_elbow_and_invalid_value_fails": "Basilisk live runtime",
     "tests/test_online_elbow_ik.py::test_joint3_switch_and_manual_positive_initialization": "Basilisk live runtime"
+  },
+  "groups": {
+    "deploy": {
+      "reason": "PowerShell deployment launchers that only depend on scripts/, deploy/, tools/ and the root *_deployment.cmd files. Pull requests that change none of those paths skip this group; pushes to main always run it.",
+      "files": [
+        "tests/test_deployment_launcher.py",
+        "tests/test_public_deployment.py",
+        "tests/test_fixed_deployment.py",
+        "tests/test_deployment_scripts.py"
+      ]
+    }
   }
 }

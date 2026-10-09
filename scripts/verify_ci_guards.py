@@ -28,6 +28,17 @@ with tempfile.TemporaryDirectory(dir=cache) as directory:
         if result.returncode != expected:
             raise SystemExit(f"{name}: expected {expected}, got {result.returncode}\n{result.stdout}\n{result.stderr}")
         print(f"{name}: exit {result.returncode}, correct")
+    # CI runs under xdist; skips reported by workers must still fail the controller.
+    for name in ("skip", "collection_skip"):
+        source, expected = cases[name]
+        probe.write_text(source, encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-p", "ci_pytest", "--ci-basic", "-n", "2", str(probe), "-q"],
+            cwd=root, env=environment, capture_output=True, text=True,
+        )
+        if result.returncode != expected:
+            raise SystemExit(f"xdist {name}: expected {expected}, got {result.returncode}\n{result.stdout}\n{result.stderr}")
+        print(f"xdist {name}: exit {result.returncode}, correct")
     # Optional adapter guard: verify mismatch is rejected without modifying the checkout.
     if (root / "scripts/check_versions.py").exists():
         sandbox = Path(directory) / "version-probe"

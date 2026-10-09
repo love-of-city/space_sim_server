@@ -47,7 +47,7 @@ jobs:
         run: |
           $env:PYTHONPATH = "$PWD/scripts;$PWD"
           $env:SPACE_SIM_RESET_ADAPTER = (Resolve-Path ../space_sim_UE_Adapter).Path
-          $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic --junitxml=reports/python.xml'
+          $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic -n 4 --junitxml=reports/python.xml'
           python -m pytest -ra
       - name: Test evidence
         if: always()

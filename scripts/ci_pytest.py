@@ -68,6 +68,9 @@ def pytest_collection_modifyitems(config, items):
     items[:] = kept
     if excluded:
         config.hook.pytest_deselected(items=excluded)
+    # Under xdist every worker collects; only one may write the shared report.
+    if getattr(config, "workerinput", {}).get("workerid", "gw0") != "gw0":
+        return
     report = ROOT / "reports" / "coverage-scope.json"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps({

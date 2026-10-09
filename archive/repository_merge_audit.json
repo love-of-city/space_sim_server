@@ -79,6 +79,14 @@
       },
       "stop_and_api_health": true
     },
-    "fresh_remote_clone": "pending"
+    "fresh_remote_clone": {
+      "passed": true,
+      "lfs_files": 711,
+      "lfs_files_checked_out": 711,
+      "independent_install_and_imports": true,
+      "path_tests_passed": 13,
+      "both_baselines_are_ancestors": true,
+      "contains_gitlinks": false
+    }
   }
 }

@@ -1,0 +1,319 @@
+{
+  "schema": "bsk-visual-blanket-mesh/1",
+  "obj_length_unit": "cm",
+  "source_sha256": "955368ff505612ff34ae8b50c93120029d7188d051410ace415409e8736ef94a",
+  "recipe_sha256": "bc5f058420caafd2e6f0fd3b682f32037cb8656eaa0b39f5c00ac81594cd662b",
+  "mesh_sha256": "6b95b65d3ce839652de00cf53622a96e9ab0caaa9e3dd3dd0f6491ed3a6fc27a",
+  "vertices": 59322,
+  "triangles": 118632,
+  "front_uv_islands": 10,
+  "bounds_m": [
+    [
+      -0.2053994112942438,
+      -0.11539889709780937,
+      -0.6953993030637379
+    ],
+    [
+      0.605398625159785,
+      0.6453991490138967,
+      0.0
+    ]
+  ],
+  "material_triangles": {
+    "MliHem": 12326,
+    "MliFace": 49946,
+    "MliBacking": 56360
+  },
+  "physics": "none",
+  "pieces": [
+    {
+      "name": "minus_x",
+      "face": "minus_x",
+      "bounds_uv_m": [
+        -0.113,
+        0.643,
+        -0.493,
+        0
+      ],
+      "vertex_start": 0,
+      "front_vertex_count": 5790,
+      "face_start": 0,
+      "front_triangle_count": 11054,
+      "triangle_count": 23176,
+      "keepouts_m": [
+        [
+          0.15,
+          0.23,
+          -0.38,
+          -0.27999999999999997
+        ],
+        [
+          0.15,
+          0.23,
+          -0.21000000000000002,
+          -0.11
+        ],
+        [
+          0.22499999999999998,
+          0.305,
+          -0.47400000000000003,
+          -0.384
+        ],
+        [
+          0.22499999999999998,
+          0.305,
+          -0.106,
+          -0.026
+        ],
+        [
+          0.33699999999999997,
+          0.399,
+          -0.276,
+          -0.214
+        ]
+      ],
+      "uv_island": 0
+    },
+    {
+      "name": "plus_x",
+      "face": "plus_x",
+      "bounds_uv_m": [
+        -0.113,
+        0.643,
+        -0.493,
+        0
+      ],
+      "vertex_start": 11580,
+      "front_vertex_count": 4489,
+      "face_start": 23176,
+      "front_triangle_count": 8612,
+      "triangle_count": 17956,
+      "keepouts_m": [
+        [
+          -0.122,
+          -0.004,
+          -0.28500000000000003,
+          -0.19499999999999998
+        ],
+        [
+          0.384,
+          0.446,
+          -0.361,
+          -0.29
+        ],
+        [
+          0.534,
+          0.652,
+          -0.295,
+          -0.205
+        ]
+      ],
+      "uv_island": 1
+    },
+    {
+      "name": "minus_y",
+      "face": "minus_y",
+      "bounds_uv_m": [
+        -0.203,
+        0.603,
+        -0.493,
+        0
+      ],
+      "vertex_start": 20558,
+      "front_vertex_count": 5478,
+      "face_start": 41132,
+      "front_triangle_count": 10442,
+      "triangle_count": 21908,
+      "keepouts_m": [
+        [
+          -0.21200000000000002,
+          -0.108,
+          -0.266,
+          -0.16699999999999998
+        ],
+        [
+          -0.21200000000000002,
+          -0.08800000000000001,
+          -0.14400000000000002,
+          -0.035
+        ],
+        [
+          -0.162,
+          -0.05800000000000001,
+          -0.502,
+          -0.356
+        ],
+        [
+          -0.062,
+          0.022,
+          -0.483,
+          -0.356
+        ],
+        [
+          0.158,
+          0.24200000000000002,
+          -0.502,
+          -0.384
+        ],
+        [
+          0.158,
+          0.252,
+          -0.106,
+          0.012
+        ]
+      ],
+      "uv_island": 2
+    },
+    {
+      "name": "plus_y",
+      "face": "plus_y",
+      "bounds_uv_m": [
+        -0.203,
+        0.603,
+        -0.493,
+        0
+      ],
+      "vertex_start": 31514,
+      "front_vertex_count": 4448,
+      "face_start": 63040,
+      "front_triangle_count": 8520,
+      "triangle_count": 17788,
+      "keepouts_m": [
+        [
+          -0.21200000000000002,
+          -0.108,
+          -0.078,
+          0.012
+        ],
+        [
+          -0.162,
+          -0.068,
+          -0.493,
+          -0.365
+        ],
+        [
+          0.158,
+          0.252,
+          -0.502,
+          -0.384
+        ],
+        [
+          0.158,
+          0.24200000000000002,
+          -0.106,
+          0.012
+        ]
+      ],
+      "uv_island": 3
+    },
+    {
+      "name": "bus_bottom",
+      "face": "bus_bottom",
+      "bounds_uv_m": [
+        -0.203,
+        0.603,
+        -0.113,
+        0.643
+      ],
+      "vertex_start": 40410,
+      "front_vertex_count": 3636,
+      "face_start": 80828,
+      "front_triangle_count": 6796,
+      "triangle_count": 14544,
+      "keepouts_m": [
+        [
+          -0.1518,
+          0.45180000000000003,
+          0.0632,
+          0.46680000000000005
+        ]
+      ],
+      "uv_island": 4
+    },
+    {
+      "name": "lower_minus_x",
+      "face": "lower_minus_x",
+      "bounds_uv_m": [
+        0.062,
+        0.468,
+        -0.693,
+        -0.487
+      ],
+      "vertex_start": 47682,
+      "front_vertex_count": 777,
+      "face_start": 95372,
+      "front_triangle_count": 1440,
+      "triangle_count": 3104,
+      "keepouts_m": [],
+      "uv_island": 5
+    },
+    {
+      "name": "lower_plus_x",
+      "face": "lower_plus_x",
+      "bounds_uv_m": [
+        0.062,
+        0.468,
+        -0.693,
+        -0.487
+      ],
+      "vertex_start": 49236,
+      "front_vertex_count": 777,
+      "face_start": 98476,
+      "front_triangle_count": 1440,
+      "triangle_count": 3104,
+      "keepouts_m": [],
+      "uv_island": 6
+    },
+    {
+      "name": "lower_minus_y",
+      "face": "lower_minus_y",
+      "bounds_uv_m": [
+        -0.153,
+        0.453,
+        -0.693,
+        -0.487
+      ],
+      "vertex_start": 50790,
+      "front_vertex_count": 1134,
+      "face_start": 101580,
+      "front_triangle_count": 2120,
+      "triangle_count": 4532,
+      "keepouts_m": [],
+      "uv_island": 7
+    },
+    {
+      "name": "lower_plus_y",
+      "face": "lower_plus_y",
+      "bounds_uv_m": [
+        -0.153,
+        0.453,
+        -0.693,
+        -0.487
+      ],
+      "vertex_start": 53058,
+      "front_vertex_count": 1134,
+      "face_start": 106112,
+      "front_triangle_count": 2120,
+      "triangle_count": 4532,
+      "keepouts_m": [],
+      "uv_island": 8
+    },
+    {
+      "name": "lower_bottom",
+      "face": "lower_bottom",
+      "bounds_uv_m": [
+        -0.153,
+        0.453,
+        0.062,
+        0.468
+      ],
+      "vertex_start": 55326,
+      "front_vertex_count": 1998,
+      "face_start": 110644,
+      "front_triangle_count": 3816,
+      "triangle_count": 7988,
+      "keepouts_m": [],
+      "uv_island": 9
+    }
+  ]
+}

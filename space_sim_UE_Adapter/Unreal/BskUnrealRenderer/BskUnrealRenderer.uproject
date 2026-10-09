@@ -1,0 +1,35 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.6",
+  "Category": "Simulation",
+  "Description": "Runtime renderer for Basilisk spacecraft state streams.",
+  "Modules": [
+    {
+      "Name": "BskUnrealRenderer",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "Fab",
+      "Enabled": false
+    },
+    {
+      "Name": "BskUnrealRuntime",
+      "Enabled": true
+    },
+    {
+      "Name": "CelestialVault",
+      "Enabled": true
+    },
+    {
+      "Name": "PixelStreaming2",
+      "Enabled": true
+    },
+    {
+      "Name": "EditorScriptingUtilities",
+      "Enabled": true
+    }
+  ]
+}

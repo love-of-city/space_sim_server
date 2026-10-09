@@ -1,0 +1,52 @@
+name: Basic CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  python:
+    name: adapter-python
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: space_sim_UE_Adapter
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: space_sim_UE_Adapter
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install declared dependencies
+        run: |
+          python -m pip install -e ".[test]" "ruff==0.15.7"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+      - name: Python syntax and undefined names
+        run: python -m ruff check .
+      - name: Verify CI failure guards
+        run: python scripts/verify_ci_guards.py
+      - name: Release version consistency
+        run: python scripts/check_versions.py
+      - name: Basic Python tests
+        run: |
+          $env:PYTHONPATH = "$PWD/scripts;$PWD"
+          $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic --junitxml=reports/python.xml'
+          ./scripts/test.ps1 -SkipUnreal -Python (Get-Command python).Source
+      - name: Test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adapter-python-report
+          path: space_sim_UE_Adapter/reports/
+          if-no-files-found: warn

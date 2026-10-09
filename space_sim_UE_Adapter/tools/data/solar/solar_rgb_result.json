@@ -1,0 +1,38 @@
+{
+  "source": "PySpectral E490-00a AM0 + CIE 1931 2 degree",
+  "sources": {
+    "AM0": "https://github.com/pytroll/pyspectral/blob/4bf06825780d5814bf3615637a0b6818756ddc88/pyspectral/data/e490_00a.dat",
+    "CIE": "https://doi.org/10.25039/CIE.DS.xvudnb9b",
+    "nominal_TSI": "https://arxiv.org/abs/1510.07674"
+  },
+  "input_sha256": {
+    "CIE_xyz_1931_2deg.csv": "fa663e3535a7e0763a745993a1f0a192eb0275ac46ad2d1befd7626841e713c1",
+    "e490_00a.dat": "5af00a781b4bbd7b7ce57efa8487cecf4d09831629770128e2692cf82d9884ef"
+  },
+  "method": "linear interpolation to CIE grid, trapezoidal integration",
+  "cie_range_nm": [
+    360.0,
+    830.0
+  ],
+  "raw_irradiance_W_m2": 1366.090796839,
+  "raw_XYZ_weighted_integrals_W_m2": [
+    189.87908545286655,
+    195.19517054324632,
+    201.76395946957507
+  ],
+  "raw_illuminance_lux_at_1_AU": 133318.30148103723,
+  "target_irradiance_W_m2": 1361.0,
+  "spectrum_scale": 0.9962734564563501,
+  "reference_illuminance_lux_at_1_AU": 132821.4850254027,
+  "linear_sRGB_normalized": [
+    1.0,
+    0.8876306345045802,
+    0.857232603561386
+  ],
+  "chromaticity_xy": [
+    0.32356291810714344,
+    0.33262177785805647
+  ],
+  "assumptions": "1 AU; normal incidence; no atmosphere or occultation",
+  "note": "E490 spectral shape rescaled to 1361 W/m2; not unmodified ASTM data. RGB is peak-normalized. UE photometric output requires separate validation."
+}

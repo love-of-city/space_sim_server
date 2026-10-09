@@ -1,0 +1,73 @@
+# This repository tracks only the BSK -> UE renderer. Other experiments that
+# happen to live beside it in this workspace are intentionally excluded.
+/Isaac/
+/basilisk/
+/demo_outputs/
+/learning_mjscene/
+/output/
+/simple_rl_code/
+/spacemind/
+/space_sim/
+/tmp/
+/run_vizard_demo.ps1
+/*.log
+
+# Keep the redistributable model fixtures required by the runnable demos;
+# ignore other local tests.
+/test/*
+!/test/model/
+/test/model/*
+!/test/model/arm/
+/test/model/arm/*
+!/test/model/arm/universal_robots_ur5e/
+!/test/model/arm/universal_robots_ur5e/**
+!/test/model/spacecraft_and_arm/
+!/test/model/spacecraft_and_arm/**
+
+# Unreal Engine generated state.
+**/.vs/
+**/Binaries/
+**/DerivedDataCache/
+**/Intermediate/
+**/Saved/
+**/Dist/
+**/Plugins/*/Binaries/
+**/Plugins/*/Intermediate/
+**/Content/Developers/
+**/Content/Collections/
+# Generated from the externally supplied CubeSat + SO-101 STL model.  Rebuild
+# locally with scripts/prepare_spacecraft_arm_assets.ps1.
+**/Content/BSK/Generated/CubeSatSO101/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# Python and test caches.
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+/.space-sim-python
+venv/
+
+# Editors and operating systems.
+.idea/
+.vscode/
+*.user
+*.userprefs
+.DS_Store
+Thumbs.db
+
+# PBR0110 source and runtime assets are tracked; preserve source license notices.
+/Unreal/BskUnrealRenderer/Samples/PixelStreaming2/WebServers/
+/reports/

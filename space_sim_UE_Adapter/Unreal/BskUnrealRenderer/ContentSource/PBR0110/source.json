@@ -1,0 +1,154 @@
+{
+  "schema": "bsk-pbr0110-preview/1",
+  "asset": "Textures.com Space Blanket Folds PBR0110",
+  "source_page": "https://www.textures.com/download/free-material-space-blanket-folds-pbr0110/133187",
+  "license_note": "Not CC0. Keep evaluation separate from training-data capture; verify applicable Textures.com terms before use.",
+  "purpose": "Local visual evaluation only; not licensed here for ML/dataset use or asset redistribution.",
+  "textures": [
+    {
+      "role": "albedo",
+      "file": "maps/TCom_Plastic_SpaceBlanketFolds_2K_albedo.tif",
+      "format": "TIFF",
+      "width": 2048,
+      "height": 2048,
+      "bits_per_sample": [
+        8,
+        8,
+        8
+      ],
+      "pillow_mode": "RGB",
+      "bytes": 6052208,
+      "sha256": "9b8b5447409100759bb707b7b2f71adceb7730886f7d6349538619fb8ea5b644",
+      "credits": 0,
+      "thumbnail": "thumbnails/albedo.jpg"
+    },
+    {
+      "role": "normal",
+      "file": "maps/TCom_Plastic_SpaceBlanketFolds_2K_normal.tif",
+      "format": "TIFF",
+      "width": 2048,
+      "height": 2048,
+      "bits_per_sample": [
+        16,
+        16,
+        16
+      ],
+      "pillow_mode": "RGB",
+      "bytes": 25166140,
+      "sha256": "999d75938d685d92aae75df60f3ff28755ae18f40321568ab2475e3d321c16cf",
+      "credits": 0,
+      "thumbnail": "thumbnails/normal.jpg"
+    },
+    {
+      "role": "roughness",
+      "file": "maps/TCom_Plastic_SpaceBlanketFolds_2K_roughness.tif",
+      "format": "TIFF",
+      "width": 2048,
+      "height": 2048,
+      "bits_per_sample": [
+        8,
+        8,
+        8
+      ],
+      "pillow_mode": "RGB",
+      "bytes": 1107151,
+      "sha256": "7626a54c61e6eeeb516468b95b94f51e9a2914d32f54f972c890dc88624f0edf",
+      "credits": 0,
+      "thumbnail": "thumbnails/roughness.jpg"
+    },
+    {
+      "role": "metallic",
+      "file": "maps/TCom_Plastic_SpaceBlanketFolds_2K_metallic.tif",
+      "format": "TIFF",
+      "width": 2048,
+      "height": 2048,
+      "bits_per_sample": [
+        8,
+        8,
+        8
+      ],
+      "pillow_mode": "RGB",
+      "bytes": 38577,
+      "sha256": "f51bc08b3232e7225d243c65d7544357f4fdcb1d4cd16378053c074ded80f082",
+      "credits": 0,
+      "thumbnail": "thumbnails/metallic.jpg"
+    },
+    {
+      "role": "ao",
+      "file": "maps/TCom_Plastic_SpaceBlanketFolds_2K_ao.tif",
+      "format": "TIFF",
+      "width": 2048,
+      "height": 2048,
+      "bits_per_sample": [
+        8,
+        8,
+        8
+      ],
+      "pillow_mode": "RGB",
+      "bytes": 1567297,
+      "sha256": "ce3bc82e82ed09ad5c65d26b60a1bc66fbc7f2cb0e0fd12975a99419c3fd3b10",
+      "credits": 0,
+      "thumbnail": "thumbnails/ao.jpg"
+    },
+    {
+      "role": "height",
+      "file": "maps/TCom_Plastic_SpaceBlanketFolds_2K_height.tif",
+      "format": "TIFF",
+      "width": 2048,
+      "height": 2048,
+      "bits_per_sample": [
+        16
+      ],
+      "pillow_mode": "I;16",
+      "bytes": 8409802,
+      "sha256": "7cb89374e6b187e8ded17be155438ab0c4bfd4879a238faeee7a63b2bb358d00",
+      "credits": 0,
+      "thumbnail": "thumbnails/height.jpg"
+    }
+  ],
+  "normal_flip_green": true,
+  "normal_orientation_evidence": {
+    "method": "Height-gradient cross-check against existing Foil002 DirectX/OpenGL maps; imported PBR0110 matches OpenGL sign convention.",
+    "pbr0110_nx_vs_height_dx": -0.462514,
+    "pbr0110_ny_vs_height_dy": 0.504312,
+    "foil002_dx_ny_vs_height_dy": -0.980122,
+    "foil002_gl_ny_vs_height_dy": 0.980122
+  },
+  "height_usage": "Height texture is not used for displacement. Continuous visual wrap is generated separately; original physics and Foil002 assets remain unchanged.",
+  "instances": {
+    "MliFace": {
+      "TextureTiling": 3.0,
+      "NormalStrength": 0.85,
+      "RoughnessBias": 0.1,
+      "FoilTint": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "MliHem": {
+      "TextureTiling": 3.0,
+      "NormalStrength": 0.85,
+      "RoughnessBias": 0.1,
+      "FoilTint": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "MliBacking": {
+      "TextureTiling": 3.0,
+      "NormalStrength": 0.08,
+      "RoughnessBias": 0.65,
+      "FoilTint": [
+        0.055,
+        0.06,
+        0.07,
+        1
+      ]
+    }
+  },
+  "geometry": "Continuous/SM_SarmMLI_PBR0110.obj"
+}

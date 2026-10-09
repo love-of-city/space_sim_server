@@ -1,4 +1,4 @@
-# Side-effect-free discovery for a normal checkout or an extra enclosing folder.
+# Side-effect-free discovery; a monorepo always uses its bundled renderer.
 function Resolve-PlatformAdapterRoot([string]$RequestedRoot, [string]$ProjectRoot) {
     if ($RequestedRoot) {
         $root = [IO.Path]::GetFullPath($RequestedRoot, $ProjectRoot)
@@ -6,6 +6,16 @@ function Resolve-PlatformAdapterRoot([string]$RequestedRoot, [string]$ProjectRoo
             throw "The configured adapter is not a UE adapter checkout: $root"
         }
         return $root
+    }
+    $workspace = Split-Path -Parent $ProjectRoot
+    $bundled = Join-Path $workspace 'space_sim_UE_Adapter'
+    $unifiedWorkflow = Join-Path $workspace '.github/workflows/ci.yml'
+    if ((Test-Path -LiteralPath $unifiedWorkflow -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $workspace 'space_sim_server/pyproject.toml') -PathType Leaf)) {
+        if (!(Test-Path -LiteralPath (Join-Path $bundled 'Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject') -PathType Leaf)) {
+            throw 'Bundled UE adapter checkout was not found. Restore space_sim_UE_Adapter in this repository, or set AdapterRoot explicitly.'
+        }
+        return (Resolve-Path -LiteralPath $bundled).Path
     }
     # Keep the dataset worktree paired with its UE worktree, never silently use
     # the original main renderer binary for the new capture protocol.
@@ -16,11 +26,10 @@ function Resolve-PlatformAdapterRoot([string]$RequestedRoot, [string]$ProjectRoo
         }
         throw 'Paired LeRobot UE worktree is missing; set AdapterRoot explicitly.'
     }
-    $workspace = Split-Path -Parent $ProjectRoot
     $parent = Split-Path -Parent $workspace
     $candidates = @()
     foreach ($base in @($workspace, $parent) | Where-Object { $_ } | Select-Object -Unique) {
-        $sibling = Join-Path $base 'space_sim_UE_adapter'
+        $sibling = Join-Path $base 'space_sim_UE_Adapter'
         $candidates += $sibling
         $candidates += Join-Path $sibling 'space_sim_UE_Adapter'
     }
@@ -29,5 +38,5 @@ function Resolve-PlatformAdapterRoot([string]$RequestedRoot, [string]$ProjectRoo
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
-    throw 'UE adapter checkout was not found beside the server checkout or its enclosing folder. Place space_sim_UE_adapter there, or set adapter_root in the deployment configuration.'
+    throw 'UE adapter checkout was not found beside the server checkout or its enclosing folder. Place space_sim_UE_Adapter there, or set adapter_root in the deployment configuration.'
 }

@@ -1,0 +1,11 @@
+.venv*/
+venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/*.egg-info/
+**/node_modules/
+/.space-sim-python
+/.space-sim-posture-python
+/reports/
+/tmp/

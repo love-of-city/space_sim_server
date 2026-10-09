@@ -154,7 +154,7 @@ foreach ($command in @('npm.cmd')) {
 }
 $meshProbe = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Get-Item -LiteralPath (Join-Path (Split-Path -Parent $ModelRoot) 'meshes\base_link.obj') -ErrorAction SilentlyContinue } else { Get-ChildItem -LiteralPath (Join-Path $ModelRoot 'assets\robotstudio_so101\assets') -File -Filter '*.stl' -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if (!$meshProbe -or $meshProbe.Length -lt 1024) {
-    throw 'Model mesh assets are missing or still Git LFS pointers. Run git lfs install and git lfs pull in the server repository (SARM), or in space_sim_UE_adapter for legacy models.'
+    throw 'Model mesh assets are missing or still Git LFS pointers. Run git lfs install and git lfs pull in the unified repository.'
 }
 $environmentAssetRoot = Join-Path $ueProject 'Content\Planets'
 $environmentAssetFiles = @(
@@ -173,13 +173,13 @@ foreach ($relativeAsset in $environmentAssetFiles) {
     $assetPath = Join-Path $environmentAssetRoot $relativeAsset
     $asset = Get-Item -LiteralPath $assetPath -ErrorAction SilentlyContinue
     if (!$asset -or $asset.Length -lt 1024) {
-        throw "Earth/star environment asset is missing or still a Git LFS pointer: $assetPath. Run git lfs pull in space_sim_UE_adapter."
+        throw "Earth/star environment asset is missing or still a Git LFS pointer: $assetPath. Run git lfs pull in the unified repository."
     }
 }
 $environmentSpherePath = Join-Path $ueProject 'Content\_GENERATED\Hyperlovimia\Sphere_732702C4.uasset'
 $environmentSphere = Get-Item -LiteralPath $environmentSpherePath -ErrorAction SilentlyContinue
 if (!$environmentSphere -or $environmentSphere.Length -lt 1024) {
-    throw "MyProject2 environment Sphere is missing or still a Git LFS pointer: $environmentSpherePath. Run git lfs pull in space_sim_UE_adapter."
+    throw "MyProject2 environment Sphere is missing or still a Git LFS pointer: $environmentSpherePath. Run git lfs pull in the unified repository."
 }
 & $pythonExe -c 'import fastapi, pydantic, uvicorn' 2>$null
 if ($LASTEXITCODE -ne 0) {

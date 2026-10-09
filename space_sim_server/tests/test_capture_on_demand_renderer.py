@@ -20,7 +20,7 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
     import uuid
 
     root = Path(__file__).resolve().parents[1]
-    adapter = Path(os.environ.get("SPACE_SIM_RESET_ADAPTER", str(root.parents[1]/"space_sim_UE_adapter/space_sim_UE_Adapter")))
+    adapter = Path(os.environ.get("SPACE_SIM_RESET_ADAPTER", str(root.parent/"space_sim_UE_Adapter")))
     sys.path.insert(0, str(adapter/"Adapters"))
     from Basilisk.architecture import messaging
     from bsk_render_adapter import BasiliskRenderBridge, CameraVisual, GeometryVisual

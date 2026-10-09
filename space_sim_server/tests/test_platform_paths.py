@@ -105,3 +105,38 @@ def test_dataset_worktree_fails_closed_without_paired_ue(tmp_path):
     result = resolve(tmp_path, project)
     assert result.returncode != 0
     assert "Paired LeRobot UE worktree is missing" in result.stderr
+
+
+def make_monorepo(root):
+    project = root / "space_sim_server"
+    project.mkdir(parents=True)
+    (project / "pyproject.toml").write_text("", encoding="utf-8")
+    workflow = root / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("", encoding="utf-8")
+    return project
+
+
+def test_monorepo_prefers_bundled_adapter_over_external_checkout(tmp_path):
+    project = make_monorepo(tmp_path / "unified with spaces")
+    bundled = make_adapter(project.parent / "space_sim_UE_Adapter")
+    make_adapter(project.parent.parent / "space_sim_UE_Adapter")
+    result = resolve(tmp_path, project)
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()) == bundled
+
+
+def test_monorepo_missing_bundle_never_falls_back_to_external_checkout(tmp_path):
+    project = make_monorepo(tmp_path / "unified")
+    make_adapter(project.parent.parent / "space_sim_UE_Adapter")
+    result = resolve(tmp_path, project)
+    assert result.returncode != 0
+    assert "Bundled UE adapter checkout was not found" in result.stderr
+
+
+def test_monorepo_allows_explicit_external_adapter(tmp_path):
+    project = make_monorepo(tmp_path / "unified")
+    external = make_adapter(tmp_path / "custom adapter")
+    result = resolve(tmp_path, project, str(external))
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()) == external

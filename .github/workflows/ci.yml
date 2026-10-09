@@ -22,14 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: space_sim_server
-          lfs: true
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: love-of-city/space_sim_UE_Adapter
-          ref: main
-          path: space_sim_UE_Adapter
           lfs: true
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -45,7 +37,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .venv-ci
-          key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('space_sim_server/pyproject.toml', 'space_sim_UE_Adapter/pyproject.toml') }}-${{ steps.week.outputs.value }}
+          key: monorepo-venv-v1-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('space_sim_server/pyproject.toml', 'space_sim_UE_Adapter/pyproject.toml') }}-${{ steps.week.outputs.value }}
       - name: Install declared dependencies
         if: steps.venv.outputs.cache-hit != 'true'
         run: |
@@ -76,31 +68,36 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
-          working-directory: space_sim_server
           filters: |
             deploy:
-              - 'scripts/deploy*.ps1'
-              - 'scripts/public_deployment*.ps1'
-              - 'scripts/fixed_deployment_helpers.ps1'
-              - 'scripts/show_public_access.ps1'
-              - 'scripts/run_platform.ps1'
-              - 'scripts/stop_platform.ps1'
-              - 'scripts/python_runtime.ps1'
-              - 'scripts/platform_paths.ps1'
-              - 'scripts/posture_runtime.ps1'
-              - 'scripts/native_acceleration_runtime.ps1'
-              - 'scripts/ci*'
-              - 'scripts/verify_ci_guards.py'
-              - 'deploy/**'
-              - 'tools/check_deployment_auth.py'
-              - 'tools/prepare_public_auth.py'
-              - '*_deployment.cmd'
-              - 'tests/test_deployment_launcher.py'
-              - 'tests/test_public_deployment.py'
-              - 'tests/test_fixed_deployment.py'
-              - 'tests/test_deployment_scripts.py'
+              - 'space_sim_server/scripts/deploy*.ps1'
+              - 'space_sim_server/scripts/public_deployment*.ps1'
+              - 'space_sim_server/scripts/fixed_deployment_helpers.ps1'
+              - 'space_sim_server/scripts/show_public_access.ps1'
+              - 'space_sim_server/scripts/run_platform.ps1'
+              - 'space_sim_server/scripts/stop_platform.ps1'
+              - 'space_sim_server/scripts/python_runtime.ps1'
+              - 'space_sim_server/scripts/platform_paths.ps1'
+              - 'space_sim_server/scripts/posture_runtime.ps1'
+              - 'space_sim_server/scripts/native_acceleration_runtime.ps1'
+              - 'space_sim_server/scripts/ci*'
+              - 'space_sim_server/scripts/verify_ci_guards.py'
+              - 'space_sim_server/deploy/**'
+              - 'space_sim_server/tools/check_deployment_auth.py'
+              - 'space_sim_server/tools/prepare_public_auth.py'
+              - 'space_sim_server/*_deployment.cmd'
+              - 'space_sim_server/tests/test_deployment_launcher.py'
+              - 'space_sim_server/tests/test_public_deployment.py'
+              - 'space_sim_server/tests/test_fixed_deployment.py'
+              - 'space_sim_server/tests/test_deployment_scripts.py'
               - '.github/**'
-              - 'pyproject.toml'
+              - 'space_sim_server/pyproject.toml'
+              - '.gitattributes'
+              - 'space_sim_server/.gitattributes'
+              - 'space_sim_UE_Adapter/.gitattributes'
+              - 'space_sim_UE_Adapter/pyproject.toml'
+              - 'space_sim_UE_Adapter/scripts/**'
+              - 'space_sim_UE_Adapter/Unreal/BskUnrealRenderer/scripts/**'
       - name: Basic Python tests
         env:
           SKIP_DEPLOY: ${{ github.event_name == 'pull_request' && steps.changes.outputs.deploy != 'true' }}
@@ -124,6 +121,10 @@ jobs:
     name: server-web
     runs-on: windows-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: space_sim_server
     steps:
       - uses: actions/checkout@v4
         with:
@@ -133,11 +134,50 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: |
-            frontend/package-lock.json
-            signalling/package-lock.json
+            space_sim_server/frontend/package-lock.json
+            space_sim_server/signalling/package-lock.json
       - run: npm --prefix frontend ci --no-audit --no-fund
       - run: npm --prefix frontend test
       - run: npm --prefix frontend run build
       - run: npm --prefix signalling ci --no-audit --no-fund
       - run: npm --prefix signalling test
       - run: npm --prefix signalling run check
+  adapter:
+    name: adapter-python
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: space_sim_UE_Adapter
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install declared dependencies
+        run: |
+          python -m pip install -e ".[test]" "ruff==0.15.7"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+      - name: Python syntax and undefined names
+        run: python -m ruff check .
+      - name: Verify CI failure guards
+        run: python scripts/verify_ci_guards.py
+      - name: Release version consistency
+        run: python scripts/check_versions.py
+      - name: Basic Python tests
+        run: |
+          $env:PYTHONPATH = "$PWD/scripts;$PWD"
+          $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic --junitxml=reports/python.xml'
+          ./scripts/test.ps1 -SkipUnreal -Python (Get-Command python).Source
+      - name: Test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adapter-python-report
+          path: space_sim_UE_Adapter/reports/
+          if-no-files-found: warn

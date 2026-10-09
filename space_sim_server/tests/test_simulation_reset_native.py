@@ -20,7 +20,7 @@ from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 
 ROOT = Path(__file__).resolve().parents[1]
-ADAPTER = Path(os.environ.get('SPACE_SIM_RESET_ADAPTER', str(ROOT.parent / 'space_sim_UE_adapter_lerobot_v3')))
+ADAPTER = Path(os.environ.get('SPACE_SIM_RESET_ADAPTER', str(ROOT.parent / 'space_sim_UE_Adapter')))
 
 
 @pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')

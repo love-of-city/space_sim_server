@@ -11,13 +11,13 @@ Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真�
 | `scripts/` | 仓库级入口 |
 | `test/model/` | 独立 Demo 模型 |
 
-完整遥操作平台按[服务端 README](https://github.com/love-of-city/space_sim_server#readme)安装两个同级仓库。本页是适配器独立构建与验证流程。
+完整遥操作平台按[统一仓库 README](../README.md)获取一次代码，再按[服务端 README](../space_sim_server/README.md)安装。本页是适配器子目录内的构建与验证流程。
 
 ## 1. 环境与安装
 
 Windows x64、PowerShell 7、Git LFS、UE 5.6、Visual Studio 2022 C++ 游戏开发工具及 Windows SDK。图形运行需要支持 UE 的 GPU/驱动。Python 3.11+；真实仿真需匹配解释器且具备所需 API 的 Basilisk/MJScene。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装，源码编译只是可选方式，不限定源码版本。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py`。mock 与基础线协议测试不依赖 Basilisk，桥接及真实设备协议测试仍需 Basilisk。
 
-所有命令从**本仓库根目录**执行。可复用服务端的仿真环境。
+所有命令从统一仓库中的 **space_sim_UE_Adapter 子目录**执行。可复用仓库根目录或服务端的仿真环境。
 
 ```powershell
 git lfs install --local

@@ -2,7 +2,7 @@
 
 团队开发请先阅读[贡献指南](CONTRIBUTING.md)。基础 CI 不替代完整仿真、UE 和采集验收。
 
-浏览器操作台、用户与场景管理、训练数据记录。Basilisk 在轨组件与本地 MuJoCo 负责权威动力学，[UE 适配器](https://github.com/love-of-city/space_sim_UE_Adapter)负责渲染。WebRTC 用于操作预览；训练图像通过独立的 `bsk-capture/1` 通道采集。
+浏览器操作台、用户与场景管理、训练数据记录。Basilisk 在轨组件与本地 MuJoCo 负责权威动力学，[UE 适配器](../space_sim_UE_Adapter/README.md)负责渲染。WebRTC 用于操作预览；训练图像通过独立的 `bsk-capture/1` 通道采集。
 
 默认 `local` 场景采用 BSK 引力模型逐刚体计算差分力，保留 MuJoCo 刚体/接触/伺服与局部坐标。扩展引力源、球谐模型和子步采样的方法见 [BSK 在轨组件](docs/BSK_ORBITAL_COMPONENTS.md)。旧线性潮汐仅通过 `SPACE_SIM_ORBITAL_MODE=linear_tidal` 显式选择用于回归。
 
@@ -17,16 +17,14 @@ Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实
 在选定的工作区父目录执行；已有仓库跳过 clone。
 
 ```powershell
-git clone https://github.com/love-of-city/space_sim_UE_Adapter.git
 git clone https://github.com/love-of-city/space_sim_server.git
-git -C .\space_sim_UE_Adapter lfs install --local
-git -C .\space_sim_UE_Adapter lfs pull
-git -C .\space_sim_server lfs install --local
-git -C .\space_sim_server lfs pull
+Set-Location .\space_sim_server
+git lfs install --local
+git lfs pull
 Set-Location .\space_sim_server
 ```
 
-后续命令均从 **space_sim_server 仓库根目录**执行，不要再次进入同名子目录。两个仓库应同级；SARM 模型已经包含在本仓库 `model/` 中。
+最后一步进入统一仓库中的 **space_sim_server 服务端子目录**。后续命令均从该目录执行。适配器位于同级 ../space_sim_UE_Adapter/，SARM 模型位于本子目录 model/ 中。
 
 ## 2. Python 环境与安装
 
@@ -131,7 +129,7 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -ApiPort 18000
 `run_platform.ps1` 不会在每次启动时重新链接 `BskUnrealRuntime`。如果拉取更新同时修改了适配器的 `Plugins/BskUnrealRuntime/Source/`（尤其是 `.cpp`、`.h` 或 `.cs`），必须在启动平台前执行一次完整的 UE 构建。
 
 ```powershell
-# 当前目录为 space_sim_server 仓库根目录
+# 当前目录为统一仓库中的 space_sim_server 服务端子目录
 $env:UE56_ROOT = 'D:\UE\UE_5.6'
 pwsh -NoProfile -File ..\space_sim_UE_Adapter\Unreal\BskUnrealRenderer\scripts\build.ps1 `
   -UnrealRoot $env:UE56_ROOT

@@ -186,7 +186,7 @@ if __name__ == '__main__':
     parser.add_argument('--write-dataset', action='store_true')
     parser.add_argument('--flow-control', action='store_true')
     parser.add_argument('--synchronous', action='store_true')
-    parser.add_argument('--adapter-root', type=Path, default=ROOT.parents[1]/'space_sim_UE_adapter/space_sim_UE_Adapter')
+    parser.add_argument('--adapter-root', type=Path, default=ROOT.parent/'space_sim_UE_Adapter')
     parser.add_argument('--ue-root', type=Path, default=Path(r'C:\Program Files\Epic Games\UE_5.6'))
     args = parser.parse_args()
     if not 0 < args.seconds <= 3600: parser.error('seconds must be in (0, 3600]')

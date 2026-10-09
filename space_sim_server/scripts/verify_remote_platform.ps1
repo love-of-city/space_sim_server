@@ -1,9 +1,8 @@
 param([string]$Python)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-if (!$Python) {
-    $Python = Join-Path ([Environment]::GetFolderPath('Desktop')) 'space_sim_workspace\space_sim_server\.venv\Scripts\python.exe'
-}
+. (Join-Path $PSScriptRoot 'python_runtime.ps1')
+$Python = Resolve-SpaceSimPython -RepositoryRoot $root -RequestedPython $Python
 $report = Get-Content -LiteralPath (Join-Path $root 'run/public-access.json') -Raw | ConvertFrom-Json
 $hash = [Security.Cryptography.SHA256]::Create()
 try { $identifier = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes(([string]$report.config_path).ToLowerInvariant()))).Replace('-', '') }

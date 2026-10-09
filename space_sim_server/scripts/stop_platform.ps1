@@ -75,10 +75,10 @@ $adapterCandidates = @()
 if ($state -and $state.PSObject.Properties.Name -contains 'adapter_root') {
     $adapterCandidates += [string]$state.adapter_root
 }
-$adapterCandidates += @(
-    (Join-Path $workspaceRoot 'space_sim_UE_adapter'),
-    (Join-Path (Split-Path -Parent $workspaceRoot) 'space_sim_UE_adapter\space_sim_UE_Adapter')
-)
+$adapterCandidates += Join-Path $workspaceRoot 'space_sim_UE_Adapter'
+if (!(Test-Path -LiteralPath (Join-Path $workspaceRoot '.github/workflows/ci.yml') -PathType Leaf)) {
+    $adapterCandidates += Join-Path (Split-Path -Parent $workspaceRoot) 'space_sim_UE_Adapter\space_sim_UE_Adapter'
+}
 $adapterRoot = $adapterCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
 if ($adapterRoot) {
     $stopRenderer = Join-Path $adapterRoot 'Unreal\BskUnrealRenderer\scripts\stop_renderer.ps1'

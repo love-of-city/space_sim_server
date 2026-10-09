@@ -455,13 +455,13 @@ def main() -> int:
     parser.add_argument("--render-host", default="127.0.0.1")
     parser.add_argument("--render-port", type=int, default=5558)
     parser.add_argument(
-        "--adapter-root", type=Path, default=WORKSPACE_ROOT / "space_sim_UE_adapter"
+        "--adapter-root", type=Path, default=WORKSPACE_ROOT / "space_sim_UE_Adapter"
     )
     parser.add_argument(
         "--model-root",
         type=Path,
         default=WORKSPACE_ROOT
-        / "space_sim_UE_adapter"
+        / "space_sim_UE_Adapter"
         / "test"
         / "model"
         / "spacecraft_and_arm",
@@ -470,7 +470,7 @@ def main() -> int:
         "--catalog",
         type=Path,
         default=WORKSPACE_ROOT
-        / "space_sim_UE_adapter"
+        / "space_sim_UE_Adapter"
         / "Unreal"
         / "BskUnrealRenderer"
         / "Saved"

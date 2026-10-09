@@ -3,7 +3,8 @@
     "strict": true,
     "contexts": [
       "server-python",
-      "server-web"
+      "server-web",
+      "adapter-python"
     ]
   },
   "enforce_admins": true,
@@ -17,4 +18,3 @@
   "allow_force_pushes": false,
   "allow_deletions": false
 }
-

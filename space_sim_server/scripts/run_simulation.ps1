@@ -21,7 +21,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('numpy', 'Basilisk.simulation.mujoco')
 $env:SPACE_SIM_PYTHON = $pythonExe
 $workspaceRoot = Split-Path -Parent $projectRoot
-if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_adapter' }
+if (!$AdapterRoot) { $AdapterRoot = Join-Path $workspaceRoot 'space_sim_UE_Adapter' }
 if (!$ModelRoot) {
     $modelCandidates = @(
         (Join-Path $projectRoot 'model\SARM\platform'),

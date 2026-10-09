@@ -108,13 +108,10 @@ try {
             if (Test-RecordedProcess $record) { throw 'A previous component is still running. Run stop_local_visualization.cmd first.' }
         }
     }
-    if (!$AdapterRoot) { $AdapterRoot = Join-Path (Split-Path $root -Parent) 'space_sim_UE_Adapter' }
-    if (!$BackendPython) {
-        $BackendPython = Join-Path $root '.venv\Scripts\python.exe'
-        if (!(Test-Path -LiteralPath $BackendPython)) {
-            $BackendPython = Join-Path ([Environment]::GetFolderPath('Desktop')) 'space_sim_workspace\space_sim_server\.venv\Scripts\python.exe'
-        }
-    }
+    . (Join-Path $PSScriptRoot 'platform_paths.ps1')
+    $AdapterRoot = Resolve-PlatformAdapterRoot $AdapterRoot $root
+    . (Join-Path $PSScriptRoot 'python_runtime.ps1')
+    $BackendPython = Resolve-SpaceSimPython -RepositoryRoot $root -RequestedPython $BackendPython
     if (!$AuthDatabase) {
         $AuthDatabase = Join-Path $root 'data\auth.sqlite3'
         if (!(Test-Path -LiteralPath $AuthDatabase)) { $AuthDatabase = Join-Path $root 'data\visualization-test-auth.sqlite3' }

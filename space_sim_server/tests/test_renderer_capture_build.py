@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-ADAPTER = Path(os.environ.get("SPACE_SIM_RESET_ADAPTER", str(ROOT.parents[1] / "space_sim_UE_adapter/space_sim_UE_Adapter")))
+ADAPTER = Path(os.environ.get("SPACE_SIM_RESET_ADAPTER", str(ROOT.parent / "space_sim_UE_Adapter")))
 SCRIPTS = ADAPTER / "Unreal/BskUnrealRenderer/scripts"
 PWSH = shutil.which("pwsh")
 pytestmark = pytest.mark.skipif(not PWSH or not (SCRIPTS / "runtime_build.ps1").exists(), reason="matching UE adapter and PowerShell required")

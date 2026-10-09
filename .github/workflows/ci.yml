@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  pull-requests: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -68,11 +69,49 @@ jobs:
         run: python -m ruff check .
       - name: Verify CI failure guards
         run: python scripts/verify_ci_guards.py
+      # Pull requests skip the deployment group unless they touch what it tests;
+      # pushes to main and manual runs always run everything.
+      - name: Detect deployment changes
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          working-directory: space_sim_server
+          filters: |
+            deploy:
+              - 'scripts/deploy*.ps1'
+              - 'scripts/public_deployment*.ps1'
+              - 'scripts/fixed_deployment_helpers.ps1'
+              - 'scripts/show_public_access.ps1'
+              - 'scripts/run_platform.ps1'
+              - 'scripts/stop_platform.ps1'
+              - 'scripts/python_runtime.ps1'
+              - 'scripts/platform_paths.ps1'
+              - 'scripts/posture_runtime.ps1'
+              - 'scripts/native_acceleration_runtime.ps1'
+              - 'scripts/ci*'
+              - 'scripts/verify_ci_guards.py'
+              - 'deploy/**'
+              - 'tools/check_deployment_auth.py'
+              - 'tools/prepare_public_auth.py'
+              - '*_deployment.cmd'
+              - 'tests/test_deployment_launcher.py'
+              - 'tests/test_public_deployment.py'
+              - 'tests/test_fixed_deployment.py'
+              - 'tests/test_deployment_scripts.py'
+              - '.github/**'
+              - 'pyproject.toml'
       - name: Basic Python tests
+        env:
+          SKIP_DEPLOY: ${{ github.event_name == 'pull_request' && steps.changes.outputs.deploy != 'true' }}
         run: |
           $env:PYTHONPATH = "$PWD/scripts;$PWD"
           $env:SPACE_SIM_RESET_ADAPTER = (Resolve-Path ../space_sim_UE_Adapter).Path
           $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic -n 4 --junitxml=reports/python.xml'
+          if ($env:SKIP_DEPLOY -eq 'true') {
+            Write-Host '::notice::Deployment tests skipped: this pull request changes no deployment paths. Pushes to main run them.'
+            $env:PYTEST_ADDOPTS += ' --ci-skip-group deploy'
+          }
           python -m pytest -ra
       - name: Test evidence
         if: always()

@@ -31,10 +31,20 @@ def _node_exists(node_id: str) -> bool:
 
 def pytest_addoption(parser):
     parser.addoption("--ci-basic", action="store_true", help="Exclude documented specialized tests; fail on skips")
+    parser.addoption("--ci-skip-group", action="append", default=[], metavar="NAME",
+                     help="With --ci-basic, also exclude a documented group from ci-exclusions.json")
+
+
+def _skipped_group_files(config):
+    groups = EXCLUSIONS.get("groups", {})
+    return {name for group in config.getoption("--ci-skip-group") for name in groups[group]["files"]}
 
 
 def pytest_configure(config):
     _skipped.clear()
+    unknown = sorted(set(config.getoption("--ci-skip-group")) - set(EXCLUSIONS.get("groups", {})))
+    if unknown:
+        raise pytest.UsageError(f"Unknown CI groups: {unknown}")
 
 
 def pytest_ignore_collect(collection_path, config):
@@ -44,7 +54,7 @@ def pytest_ignore_collect(collection_path, config):
         relative = collection_path.relative_to(ROOT).as_posix()
     except ValueError:
         return None
-    if relative in EXCLUSIONS["files"]:
+    if relative in EXCLUSIONS["files"] or relative in _skipped_group_files(config):
         return True
     return None
 
@@ -53,7 +63,8 @@ def pytest_collection_modifyitems(config, items):
     if not config.getoption("--ci-basic"):
         return
     # Refuse stale file exclusions; renames must update the reviewed manifest.
-    missing = [name for name in EXCLUSIONS["files"] if not (ROOT / name).is_file()]
+    group_files = [name for group in EXCLUSIONS.get("groups", {}).values() for name in group["files"]]
+    missing = [name for name in [*EXCLUSIONS["files"], *group_files] if not (ROOT / name).is_file()]
     if missing:
         raise pytest.UsageError(f"Stale CI exclusions: {missing}")
     # Refuse stale node exclusions; renamed tests must update the reviewed manifest.
@@ -77,6 +88,7 @@ def pytest_collection_modifyitems(config, items):
         "profile": "basic", "selected": len(kept),
         "excluded_files": EXCLUSIONS["files"],
         "excluded_nodes": EXCLUSIONS["nodes"],
+        "skipped_groups": {name: EXCLUSIONS["groups"][name] for name in config.getoption("--ci-skip-group")},
         "not_validated": ["UE C++/GPU/WebRTC", "real Basilisk dynamics", "full end-to-end capture"],
     }, indent=2, ensure_ascii=False), encoding="utf-8")
 

@@ -1,0 +1,370 @@
+{
+  "schema": "bsk-continuous-visual-blanket/1",
+  "source_mesh": "SARM/meshes/base_link.obj",
+  "source_sha256": "955368ff505612ff34ae8b50c93120029d7188d051410ace415409e8736ef94a",
+  "notes": "Continuous visual wrap: one uninterrupted sheet per face, no artificial center gaps or exposed perimeter strips. Corners meet; hardware cutouts and open arm platform retained. No physics changes.",
+  "units": "m",
+  "grid_spacing": 0.012,
+  "outer_inset": 0,
+  "seam_gap": 0,
+  "keepout_clearance": 0.012,
+  "hem_width": 0.003,
+  "standoff": 0.003,
+  "visual_thickness": 0.0006,
+  "atlas_scale_per_m": 0.45,
+  "faces": [
+    {
+      "name": "minus_x",
+      "axis": 0,
+      "sign": -1,
+      "plane": -0.2,
+      "uaxis": 1,
+      "vaxis": 2,
+      "urange": [
+        -0.113,
+        0.643
+      ],
+      "vrange": [
+        -0.493,
+        0
+      ],
+      "hardware_bounds": [
+        [
+          0.162,
+          0.218,
+          -0.368,
+          -0.292
+        ],
+        [
+          0.162,
+          0.218,
+          -0.198,
+          -0.122
+        ],
+        [
+          0.237,
+          0.293,
+          -0.462,
+          -0.396
+        ],
+        [
+          0.237,
+          0.293,
+          -0.094,
+          -0.038
+        ],
+        [
+          0.349,
+          0.387,
+          -0.264,
+          -0.226
+        ]
+      ],
+      "outer_inset": 0,
+      "uv_wrap": {
+        "offset_m": 2.3680000000000003,
+        "u_sign": -1,
+        "u_origin_m": 0.643,
+        "v_origin_m": -0.493
+      }
+    },
+    {
+      "name": "plus_x",
+      "axis": 0,
+      "sign": 1,
+      "plane": 0.6,
+      "uaxis": 1,
+      "vaxis": 2,
+      "urange": [
+        -0.113,
+        0.643
+      ],
+      "vrange": [
+        -0.493,
+        0
+      ],
+      "hardware_bounds": [
+        [
+          -0.11,
+          -0.016,
+          -0.273,
+          -0.207
+        ],
+        [
+          0.396,
+          0.434,
+          -0.349,
+          -0.302
+        ],
+        [
+          0.546,
+          0.64,
+          -0.283,
+          -0.217
+        ]
+      ],
+      "outer_inset": 0,
+      "uv_wrap": {
+        "offset_m": 0.806,
+        "u_sign": 1,
+        "u_origin_m": -0.113,
+        "v_origin_m": -0.493
+      }
+    },
+    {
+      "name": "minus_y",
+      "axis": 1,
+      "sign": -1,
+      "plane": -0.11,
+      "uaxis": 0,
+      "vaxis": 2,
+      "urange": [
+        -0.203,
+        0.603
+      ],
+      "vrange": [
+        -0.493,
+        0
+      ],
+      "hardware_bounds": [
+        [
+          -0.2,
+          -0.12,
+          -0.254,
+          -0.179
+        ],
+        [
+          -0.2,
+          -0.1,
+          -0.132,
+          -0.047
+        ],
+        [
+          -0.15,
+          -0.07,
+          -0.49,
+          -0.368
+        ],
+        [
+          -0.05,
+          0.01,
+          -0.471,
+          -0.368
+        ],
+        [
+          0.17,
+          0.23,
+          -0.49,
+          -0.396
+        ],
+        [
+          0.17,
+          0.24,
+          -0.094,
+          0
+        ]
+      ],
+      "outer_inset": 0,
+      "uv_wrap": {
+        "offset_m": 0,
+        "u_sign": 1,
+        "u_origin_m": -0.203,
+        "v_origin_m": -0.493
+      }
+    },
+    {
+      "name": "plus_y",
+      "axis": 1,
+      "sign": 1,
+      "plane": 0.64,
+      "uaxis": 0,
+      "vaxis": 2,
+      "urange": [
+        -0.203,
+        0.603
+      ],
+      "vrange": [
+        -0.493,
+        0
+      ],
+      "hardware_bounds": [
+        [
+          -0.2,
+          -0.12,
+          -0.066,
+          0
+        ],
+        [
+          -0.15,
+          -0.08,
+          -0.481,
+          -0.377
+        ],
+        [
+          0.17,
+          0.24,
+          -0.49,
+          -0.396
+        ],
+        [
+          0.17,
+          0.23,
+          -0.094,
+          0
+        ]
+      ],
+      "outer_inset": 0,
+      "uv_wrap": {
+        "offset_m": 1.562,
+        "u_sign": -1,
+        "u_origin_m": 0.603,
+        "v_origin_m": -0.493
+      }
+    },
+    {
+      "name": "bus_bottom",
+      "axis": 2,
+      "sign": -1,
+      "plane": -0.49,
+      "uaxis": 0,
+      "vaxis": 1,
+      "urange": [
+        -0.203,
+        0.603
+      ],
+      "vrange": [
+        -0.113,
+        0.643
+      ],
+      "hardware_bounds": [
+        [
+          -0.15,
+          0.45,
+          0.065,
+          0.465
+        ]
+      ],
+      "outer_inset": 0,
+      "keepout_clearance": 0.0018000000000000002
+    },
+    {
+      "name": "lower_minus_x",
+      "axis": 0,
+      "sign": -1,
+      "plane": -0.15,
+      "uaxis": 1,
+      "vaxis": 2,
+      "urange": [
+        0.062,
+        0.468
+      ],
+      "vrange": [
+        -0.693,
+        -0.487
+      ],
+      "hardware_bounds": [],
+      "outer_inset": 0,
+      "keepout_clearance": 0.008,
+      "uv_wrap": {
+        "offset_m": 1.6179999999999999,
+        "u_sign": -1,
+        "u_origin_m": 0.468,
+        "v_origin_m": -0.693
+      }
+    },
+    {
+      "name": "lower_plus_x",
+      "axis": 0,
+      "sign": 1,
+      "plane": 0.45,
+      "uaxis": 1,
+      "vaxis": 2,
+      "urange": [
+        0.062,
+        0.468
+      ],
+      "vrange": [
+        -0.693,
+        -0.487
+      ],
+      "hardware_bounds": [],
+      "outer_inset": 0,
+      "keepout_clearance": 0.008,
+      "uv_wrap": {
+        "offset_m": 0.606,
+        "u_sign": 1,
+        "u_origin_m": 0.062,
+        "v_origin_m": -0.693
+      }
+    },
+    {
+      "name": "lower_minus_y",
+      "axis": 1,
+      "sign": -1,
+      "plane": 0.065,
+      "uaxis": 0,
+      "vaxis": 2,
+      "urange": [
+        -0.153,
+        0.453
+      ],
+      "vrange": [
+        -0.693,
+        -0.487
+      ],
+      "hardware_bounds": [],
+      "outer_inset": 0,
+      "keepout_clearance": 0.008,
+      "uv_wrap": {
+        "offset_m": 0,
+        "u_sign": 1,
+        "u_origin_m": -0.153,
+        "v_origin_m": -0.693
+      }
+    },
+    {
+      "name": "lower_plus_y",
+      "axis": 1,
+      "sign": 1,
+      "plane": 0.465,
+      "uaxis": 0,
+      "vaxis": 2,
+      "urange": [
+        -0.153,
+        0.453
+      ],
+      "vrange": [
+        -0.693,
+        -0.487
+      ],
+      "hardware_bounds": [],
+      "outer_inset": 0,
+      "keepout_clearance": 0.008,
+      "uv_wrap": {
+        "offset_m": 1.012,
+        "u_sign": -1,
+        "u_origin_m": 0.453,
+        "v_origin_m": -0.693
+      }
+    },
+    {
+      "name": "lower_bottom",
+      "axis": 2,
+      "sign": -1,
+      "plane": -0.69,
+      "uaxis": 0,
+      "vaxis": 1,
+      "urange": [
+        -0.153,
+        0.453
+      ],
+      "vrange": [
+        0.062,
+        0.468
+      ],
+      "hardware_bounds": [],
+      "outer_inset": 0,
+      "keepout_clearance": 0.008
+    }
+  ]
+}

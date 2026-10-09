@@ -1,0 +1,127 @@
+{
+  "network": {
+    "listen_address": "127.0.0.1",
+    "port": 5558,
+    "max_packet_bytes": 33554432
+  },
+  "replay": {
+    "path": "",
+    "rate": 1.0
+  },
+  "capture": {
+    "output_directory": "",
+    "network_address": "127.0.0.1",
+    "network_port": 0,
+    "rate_override_hz": 0.0,
+    "products_override": []
+  },
+  "assets": {
+    "allow_external_files": false
+  },
+  "coordinates": {
+    "centimeters_per_meter": 100.0,
+    "mirror_local_y_for_unreal": true
+  },
+  "visuals": {
+    "visibility_by_kind": {
+      "css": false,
+      "generic_sensor": false,
+      "transceiver": false
+    }
+  },
+  "scene": {
+    "use_official_celestial_assets": true,
+    "use_earth_sky_atmosphere": true,
+    "celestial_vault_radius_km": 500000.0,
+    "celestial_background_intensity": 0.12,
+    "sun_intensity_lux": 132821.5,
+    "fill_light_intensity_lux": 0.0,
+    "material_exposure_bias": 0.0,
+    "sun_rotation_deg": [
+      -25.0,
+      -35.0,
+      15.0
+    ],
+    "sun_visual_enabled": true,
+    "sun_visual_distance_m": 10000.0,
+    "sun_visual_angular_diameter_deg": 2.0,
+    "sun_visual_emissive_strength": 1.5,
+    "sun_visual_effects_enabled": true,
+    "sun_visual_effect_scale": 1.0,
+    "sun_visual_mesh": "/Game/SpaceFX/Meshes/SM_PlanetSphere.SM_PlanetSphere",
+    "sun_visual_material": "/Game/SpaceFX/Materials/M_Star.M_Star",
+    "sun_burst_particle": "/Game/SpaceFX/Particles/P_Sun_Bursts.P_Sun_Bursts",
+    "sun_halo_particle": "/Game/SpaceFX/Particles/P_Sun_Halo.P_Sun_Halo",
+    "sun_lines_particle": "/Game/SpaceFX/Particles/P_Sun_Lines.P_Sun_Lines",
+    "star_count": 0,
+    "star_radius_m": 250.0,
+    "camera_position_m": [
+      10.0,
+      -16.0,
+      8.0
+    ],
+    "camera_look_at_m": [
+      0.0,
+      3.0,
+      0.0
+    ],
+    "time_mode": "interpolated",
+    "interpolation_delay_ms": 100.0,
+    "max_extrapolation_ms": 100.0,
+    "use_textured_star_sphere": true,
+    "textured_star_material": "/Game/Planets/Stars/M_Stars.M_Stars",
+    "earth_surface_material": "/Game/Planets/Earth/M_Earth.M_Earth",
+    "earth_cloud_material": "/Game/Planets/Earth/M_Clouds.M_Clouds",
+    "earth_atmosphere_material": "/Game/Planets/Earth/M_Atmosphere.M_Atmosphere",
+    "earth_cloud_scale": 1.001,
+    "earth_atmosphere_scale": 1.001,
+    "decorative_earth_enabled": false,
+    "decorative_earth_radius_m": 6371000.0,
+    "decorative_earth_position_m": [
+      20000000.0,
+      14000000.0,
+      5000000.0
+    ],
+    "decorative_earth_rotation_deg": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "use_manual_exposure": true,
+    "textured_star_mesh": "/Game/_GENERATED/Hyperlovimia/Sphere_732702C4.Sphere_732702C4",
+    "earth_sphere_mesh": "/Game/_GENERATED/Hyperlovimia/Sphere_732702C4.Sphere_732702C4",
+    "sun_illuminance_scale": 1.0
+  },
+  "objects": {
+    "chaser": {
+      "asset_type": "placeholder",
+      "placeholder_shape": "cube",
+      "size_m": [
+        2.0,
+        1.4,
+        1.0
+      ],
+      "color": [
+        0.08,
+        0.32,
+        0.95,
+        1.0
+      ]
+    },
+    "target": {
+      "asset_type": "placeholder",
+      "placeholder_shape": "sphere",
+      "size_m": [
+        2.2,
+        1.6,
+        1.2
+      ],
+      "color": [
+        0.95,
+        0.18,
+        0.05,
+        1.0
+      ]
+    }
+  }
+}

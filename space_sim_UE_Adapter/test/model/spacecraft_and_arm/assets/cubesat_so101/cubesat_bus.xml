@@ -1,0 +1,24 @@
+<mujoco model="cubesat_so101">
+  <compiler angle="radian" autolimits="true"/>
+
+  <!-- Match the SO-101 contact solver while disabling terrestrial gravity. -->
+  <option gravity="0 0 0" integrator="implicitfast" timestep="0.005" cone="elliptic"
+    iterations="10" ls_iterations="20" impratio="10"/>
+
+  <worldbody>
+    <body name="cubesat_bus">
+      <!-- Placeholder 12U bus: 24 kg, 0.2263 x 0.2263 x 0.3405 m. -->
+      <freejoint name="cubesat_free"/>
+      <inertial pos="0 0 0" mass="24"
+        fullinertia="0.33430388 0.33430388 0.20484676 0 0 0"/>
+
+      <!-- Visual and contact geometry are separate so either can be refined independently. -->
+      <geom name="cubesat_visual" type="box" size="0.11315 0.11315 0.17025"
+        mass="0" contype="0" conaffinity="0" group="2" rgba="0.18 0.32 0.58 1"/>
+      <geom name="cubesat_collision" type="box" size="0.11315 0.11315 0.17025"
+        mass="0" group="3" rgba="0.18 0.32 0.58 0"/>
+
+      <site name="cubesat_origin" pos="0 0 0" size="0.003" group="4" rgba="1 1 1 1"/>
+    </body>
+  </worldbody>
+</mujoco>

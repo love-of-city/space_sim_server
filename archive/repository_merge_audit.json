@@ -1,0 +1,92 @@
+{
+  "server_baseline": "82d896963cd4b742d4d52600fbf689f0fa9b57a4",
+  "adapter_baseline": "bf6d3f3892abd66bb892e188463eee3428dce93f",
+  "pure_import_commit": "a0347691e8406ec5e7862a85f75a71ae17eda418",
+  "pure_import_source_files": 1445,
+  "pure_import_blobs_and_modes_identical": true,
+  "both_baselines_are_ancestors": true,
+  "integration": {
+    "modified_source_files": [
+      ".github/branch-protection.json",
+      ".github/workflows/ci.yml",
+      "space_sim_UE_Adapter/CONTRIBUTING.md",
+      "space_sim_UE_Adapter/README.md",
+      "space_sim_server/CONTRIBUTING.md",
+      "space_sim_server/README.md",
+      "space_sim_server/scripts/local_visualization.ps1",
+      "space_sim_server/scripts/platform_paths.ps1",
+      "space_sim_server/scripts/run_platform.ps1",
+      "space_sim_server/scripts/run_simulation.ps1",
+      "space_sim_server/scripts/stop_platform.ps1",
+      "space_sim_server/scripts/verify_remote_platform.ps1",
+      "space_sim_server/tests/test_capture_on_demand_renderer.py",
+      "space_sim_server/tests/test_platform_paths.py",
+      "space_sim_server/tests/test_renderer_cache_startup.py",
+      "space_sim_server/tests/test_renderer_capture_build.py",
+      "space_sim_server/tests/test_simulation_reset_native.py",
+      "space_sim_server/tools/benchmark_runtime_layers.py",
+      "space_sim_server/tools/validate_capture_pipeline.py"
+    ],
+    "removed_source_files": [
+      "space_sim_UE_Adapter/.github/CODEOWNERS",
+      "space_sim_UE_Adapter/.github/branch-protection.json",
+      "space_sim_UE_Adapter/.github/pull_request_template.md",
+      "space_sim_UE_Adapter/.github/repository-settings.json",
+      "space_sim_UE_Adapter/.github/workflows/ci.yml"
+    ],
+    "added_files": [
+      ".gitattributes",
+      ".gitignore",
+      "AGENTS.md",
+      "CONTRIBUTING.md",
+      "README.md",
+      "archive/2026_10_09_repository_merge.md",
+      "archive/repository_merge_audit.json"
+    ],
+    "unchanged_source_files": 1421,
+    "all_711_lfs_pointer_blobs_unchanged": true
+  },
+  "validation": {
+    "server_python_passed": 707,
+    "adapter_python_passed": 71,
+    "frontend_passed": 166,
+    "signalling_passed": 8,
+    "ue_automation_passed": 27,
+    "native_reset_passed": 6,
+    "deployment_filter_scenarios": 10,
+    "ue_reconnect_sessions": 2,
+    "gpu_rgb_smoke_passed": true,
+    "platform": {
+      "scene_id": "scene-20261009-170637-32179392",
+      "control": {
+        "delivered_commands": 20,
+        "acknowledged_observations": 30,
+        "max_target_joint_delta_rad": 0.004277644859042251
+      },
+      "browser_video": true,
+      "episode_id": "episode-20261009-170925-0c291ac7",
+      "dataset": {
+        "dataset_status": "complete",
+        "dataset_frame_count": 90,
+        "capture_count": 180,
+        "step_count": 90
+      },
+      "reset": {
+        "status": "completed",
+        "request_id": "94fe2574f540411eb264f56024100c3f",
+        "render_session_id": "9c3dd72c-0e82-4409-b9c2-2b59f59ce945",
+        "sim_time_ns": "0"
+      },
+      "stop_and_api_health": true
+    },
+    "fresh_remote_clone": {
+      "passed": true,
+      "lfs_files": 711,
+      "lfs_files_checked_out": 711,
+      "independent_install_and_imports": true,
+      "path_tests_passed": 13,
+      "both_baselines_are_ancestors": true,
+      "contains_gitlinks": false
+    }
+  }
+}

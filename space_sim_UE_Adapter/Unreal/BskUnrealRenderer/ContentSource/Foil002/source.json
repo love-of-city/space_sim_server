@@ -1,0 +1,14 @@
+{
+  "asset": "Foil002",
+  "source": "https://ambientcg.com/view?id=Foil002",
+  "download": "https://ambientcg.com/get?file=Foil002_2K-PNG.zip",
+  "license": "CC0-1.0",
+  "license_reference": "https://docs.ambientcg.com/license/",
+  "sha256": {
+    "Foil002_2K-PNG_AmbientOcclusion.png": "6bde42ab56a176395a018d0b88b63d54e9087ab994ae5a3a45790fd4547a8a9c",
+    "Foil002_2K-PNG_Color.png": "90d359b8418cc732d0fc60f08d794d4afb732b700f5eaf7bb311e2acb799ebb9",
+    "Foil002_2K-PNG_Metalness.png": "3587a7f941a62818a668514ee75b87e9c766410dc08978dc2eb6c9ab3c0beeaa",
+    "Foil002_2K-PNG_NormalDX.png": "fc6f860fdeaa1468831c02500595b959c1ad72fb179722fff586891b4f4fe89a",
+    "Foil002_2K-PNG_Roughness.png": "44730c203973ececd355a91bb2b438f4e425e6302305eb8069779012fcd88444"
+  }
+}

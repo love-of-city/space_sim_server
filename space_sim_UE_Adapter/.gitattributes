@@ -1,0 +1,30 @@
+* text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
+VERSION text eol=lf
+*.uproject text eol=lf
+*.uplugin text eol=lf
+.gitkeep text eol=lf
+
+*.py text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.ini text eol=crlf
+*.cs text eol=crlf
+*.h text eol=crlf
+*.cpp text eol=crlf
+*.ps1 text eol=crlf
+
+# Unreal and source-model assets are binary and are stored through Git LFS.
+*.uasset filter=lfs diff=lfs merge=lfs -text
+*.umap filter=lfs diff=lfs merge=lfs -text
+*.fbx filter=lfs diff=lfs merge=lfs -text
+*.obj filter=lfs diff=lfs merge=lfs -text
+*.stl filter=lfs diff=lfs merge=lfs -text
+*.png filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.exr filter=lfs diff=lfs merge=lfs -text
+*.tif filter=lfs diff=lfs merge=lfs -text
+*.tiff filter=lfs diff=lfs merge=lfs -text

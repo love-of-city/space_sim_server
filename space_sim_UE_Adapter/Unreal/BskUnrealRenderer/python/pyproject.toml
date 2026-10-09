@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bsk-unreal-render-adapter"
+version = "0.2.0"
+description = "UE compatibility naming layer over the renderer-neutral BSK transport"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24"]
+
+[tool.setuptools]
+packages = ["bsk_unreal_adapter"]

@@ -1,0 +1,11 @@
+{
+  "files": {
+    "Unreal/BskUnrealRenderer/tests/test_ur5e_motion.py": "Basilisk UR5e scenario import",
+    "Unreal/BskUnrealRenderer/tests/test_basilisk_devices.py": "Real Basilisk devices/messages",
+    "Unreal/BskUnrealRenderer/tests/test_protocol_v2.py": "Real Basilisk message/bridge integration (basic wire tests run separately)"
+  },
+  "nodes": {
+    "Unreal/BskUnrealRenderer/tests/test_capture_on_demand_transport.py::test_bridge_freezes_capture_mode_once_per_frame_for_observation_pairing": "Real Basilisk SysModel bridge; run in the native simulation environment. Pure queue/socket tests in this file remain in basic CI.",
+    "Unreal/BskUnrealRenderer/tests/test_capture_on_demand_transport.py::test_capture_hook_cannot_override_authoritative_payload": "Real Basilisk SysModel bridge; run in the native simulation environment. Pure queue/socket tests in this file remain in basic CI."
+  }
+}

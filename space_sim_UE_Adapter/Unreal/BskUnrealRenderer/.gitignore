@@ -1,0 +1,10 @@
+.vs/
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+Dist/
+__pycache__/
+*.py[cod]

@@ -1,0 +1,287 @@
+{
+  "schema": "bsk-render-asset-catalog/1",
+  "source_mjcf": "scene.xml",
+  "assets": {
+    "assets\\base_0.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/base_0.base_0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\base_1.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/base_1.base_1",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\forearm_0.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/forearm_0.forearm_0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\forearm_1.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/forearm_1.forearm_1",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\forearm_2.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/forearm_2.forearm_2",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\forearm_3.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/forearm_3.forearm_3",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\shoulder_0.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/shoulder_0.shoulder_0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\shoulder_1.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/shoulder_1.shoulder_1",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\shoulder_2.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/shoulder_2.shoulder_2",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\upperarm_0.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/upperarm_0.upperarm_0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\upperarm_1.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/upperarm_1.upperarm_1",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\upperarm_2.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/upperarm_2.upperarm_2",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\upperarm_3.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/upperarm_3.upperarm_3",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\wrist1_0.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/wrist1_0.wrist1_0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\wrist1_1.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/wrist1_1.wrist1_1",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\wrist1_2.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/wrist1_2.wrist1_2",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\wrist2_0.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/wrist2_0.wrist2_0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\wrist2_1.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/wrist2_1.wrist2_1",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\wrist2_2.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/wrist2_2.wrist2_2",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "assets\\wrist3.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/UR5e/wrist3.wrist3",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  },
+  "textures": {}
+}

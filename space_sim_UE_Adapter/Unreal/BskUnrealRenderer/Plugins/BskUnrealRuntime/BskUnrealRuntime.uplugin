@@ -1,0 +1,29 @@
+{
+  "FileVersion": 3,
+  "Version": 2,
+  "VersionName": "0.2.0",
+  "FriendlyName": "BSK Unreal Runtime",
+  "Description": "Non-blocking Basilisk/MJScene manifest, state, replay, and runtime visualization adapter.",
+  "Category": "Simulation",
+  "CreatedBy": "BSK Unreal Renderer",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Installed": false,
+  "Modules": [
+    {
+      "Name": "BskUnrealRuntime",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "PixelStreaming2",
+      "Enabled": true
+    },
+    {
+      "Name": "PixelCapture",
+      "Enabled": true
+    }
+  ]
+}

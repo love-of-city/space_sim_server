@@ -32,12 +32,37 @@ jobs:
           lfs: true
           persist-credentials: false
       - uses: actions/setup-python@v5
+        id: python
         with:
           python-version: '3.11'
+      # The week in the key re-resolves unpinned dependencies at least weekly.
+      - name: Dependency cache week
+        id: week
+        run: '"value=$(Get-Date -UFormat %Y-%V)" >> $env:GITHUB_OUTPUT'
+      - name: Restore Python environment
+        id: venv
+        uses: actions/cache/restore@v4
+        with:
+          path: .venv-ci
+          key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('space_sim_server/pyproject.toml', 'space_sim_UE_Adapter/pyproject.toml') }}-${{ steps.week.outputs.value }}
       - name: Install declared dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
-          python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
+          python -m venv ../.venv-ci
+          ../.venv-ci/Scripts/python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Save right after installing so a failing test run still warms the cache.
+      - name: Save Python environment
+        if: steps.venv.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .venv-ci
+          key: ${{ steps.venv.outputs.cache-primary-key }}
+      - name: Activate Python environment
+        run: (Resolve-Path ../.venv-ci/Scripts).Path >> $env:GITHUB_PATH
+      - name: Check installed dependencies
+        run: |
+          python -c "import sys; assert sys.prefix != sys.base_prefix, sys.prefix"
           python -m pip check
       - name: Python syntax and undefined names
         run: python -m ruff check .

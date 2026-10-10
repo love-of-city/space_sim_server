@@ -64,7 +64,8 @@ python tools/verify_team_recording.py <运行目录>/team_rendezvous.bskrec
 统一仓库外的工作区 `validation/` 保存原始证据，避免把运行产物放进 Git：
 
 - `unified-flight/in-orbit/`、`unified-flight/orbit-raise/`：默认种子 7 的全程数值、独立验证与交接恢复。
-- `unified-browser/result.json`：种子 19 的真实登录、参数设置、启动/停止、两种完整场景、视频与下载，以及标准场景交接、控制、双相机采集和重置。
+- `unified-browser/result.json`：种子 19 的真实登录、参数设置、启动/停止、两种完整场景、视频与下载；组合脚本后续读旧场景缓存的失败也保留在此。
+- `unified-handoff-ui/result.json`：按当前实例匹配观测，实际点击交接按钮，验证标准场景、真实关节响应、双相机采集、重置和停止。
 - `unified-native-final.xml`、`unified-component-tests.xml`：原生飞轮、环境、共同积分器、组件及入口测试。
 - `unified-server-ci-interactive.xml`、`unified-adapter-python.xml`、`unified-web-tests-final.log`、`unified-signalling-tests.txt`：基础回归。
 - `unified-ue-automation/index.json`：UE 自动化结果；真实图片位于 browser 证据目录。

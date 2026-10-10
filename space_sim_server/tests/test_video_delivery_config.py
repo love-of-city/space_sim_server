@@ -114,7 +114,8 @@ def test_project_caps_adaptive_video_bitrate_without_forcing_a_high_floor():
 @pytest.mark.skipif(os.name != "nt" or not PWSH, reason="Windows PowerShell required")
 # Default, both bounds and both out-of-range sides; each case costs a cold pwsh start.
 @pytest.mark.parametrize("quality", [None, 0, 100, -1, 101])
-def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality):
+def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality, monkeypatch):
+    monkeypatch.delenv('SSH_CONNECTION', raising=False)
     adapter = ROOT.parent / "space_sim_UE_Adapter"
     source = adapter / "Unreal/BskUnrealRenderer/scripts/start_renderer.ps1"
     if not source.is_file():

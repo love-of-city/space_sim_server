@@ -12,24 +12,36 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
 from .capture_lifecycle import CaptureLifecycle
-from .auth import AuthError, AuthStore, SESSION_COOKIE
+from .auth import SESSION_COOKIE, AuthError, AuthStore
 from .capture_receiver import CaptureReceiver
 from .jobs import JobManager
 from .models import (
-    EpisodeStart, EpisodeStop, LoginRequest, OperatorAction, OperatorCreate,
-    PasswordChange, PasswordReset, SceneInstanceCreate, SimulationObservation, TaskComplete, TaskCreate,
+    EpisodeStart,
+    EpisodeStop,
+    LoginRequest,
+    OperatorAction,
+    OperatorCreate,
+    PasswordChange,
+    PasswordReset,
+    SceneInstanceCreate,
+    SimulationObservation,
+    TaskComplete,
+    TaskCreate,
 )
 from .recorder import EpisodeRecorder
-from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
+from .rendezvous_hub import RendezvousHub
+from .rendezvous_runtime import RendezvousRuntime
+from .rendezvous_config import FlightOptions
 from .safety import ActionRejected, SafetyController
+from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
 from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
 from .simulation_hub import SimulationHub
 from .stream_access import issue_stream_access_token
@@ -43,6 +55,9 @@ class PlatformConfig:
     data_root: Path
     simulation_host: str = "127.0.0.1"
     simulation_port: int = 8766
+    rendezvous_port: int = 0
+    rendezvous_repo: Path | None = None
+    rendezvous_python: Path | None = None
     capture_host: str = "127.0.0.1"
     capture_port: int = 8767
     deadman_timeout_s: float = 0.25
@@ -82,6 +97,14 @@ class PlatformConfig:
             raise ValueError(f"dataset capture rate must be one of {SUPPORTED_FPS}")
         if type(self.runtime_encoder_min_quality) is not int or not 0 <= self.runtime_encoder_min_quality <= 100:
             raise ValueError("runtime_encoder_min_quality must be an integer in [0, 100]")
+
+
+class RendezvousStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    live: StrictBool = False
+    mode: Literal['simulation', 'demo'] = 'simulation'
+    scenario: Literal['legacy', 'team-in-orbit', 'team-orbit-raise'] = 'team-in-orbit'
+    options: dict[str, Any] = Field(default_factory=dict)
 
 
 class OperatorSessions:
@@ -162,6 +185,15 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     tasks = TaskStore(config.data_root.parent / "tasks")
     safety = SafetyController(config.deadman_timeout_s)
     hub = SimulationHub()
+    rendezvous = RendezvousHub()
+    scene_start_lock = asyncio.Lock()
+    rendezvous_runtime = RendezvousRuntime(
+        config.rendezvous_repo, config.rendezvous_python, config.rendezvous_port,
+        config.project_root / "logs" / "rendezvous",
+        team_repository=config.project_root,
+        render_port=config.runtime_render_port,
+        launch_config=config,
+    )
     capture_lifecycle = CaptureLifecycle(hub, recorder)
     sessions = OperatorSessions()
 
@@ -247,6 +279,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except Exception:
             logging.getLogger(__name__).exception("Dataset writer preparation failed; recording remains unavailable until preparation succeeds")
         await hub.start(config.simulation_host, config.simulation_port)
+        if config.rendezvous_port:
+            await rendezvous.start("127.0.0.1", config.rendezvous_port)
         captures.start()
         timeout_task = asyncio.create_task(watchdog(), name="deadman-watchdog")
         try:
@@ -269,6 +303,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             await asyncio.to_thread(captures.close)
             await asyncio.to_thread(recorder.close)
             await hub.close()
+            await rendezvous.close()
+            await asyncio.to_thread(rendezvous_runtime.close)
             jobs.close()
             auth.close()
 
@@ -279,6 +315,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     app.state.capture_lifecycle = capture_lifecycle
     app.state.safety = safety
     app.state.hub = hub
+    app.state.rendezvous = rendezvous
+    app.state.rendezvous_runtime = rendezvous_runtime
     app.state.captures = captures
     app.state.sessions = sessions
     app.state.jobs = jobs
@@ -454,7 +492,85 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             "capture_channels": captures.status(),
             "capture_sync": recorder.sync_status(),
             "scene_runtime": scenes.status(),
+            "rendezvous": rendezvous.status(),
         }
+
+    @app.get("/api/rendezvous/state")
+    async def rendezvous_state() -> dict[str, Any]:
+        return {**rendezvous.status(), "runtime": rendezvous_runtime.status()}
+
+    @app.get("/api/rendezvous/figure/{name}")
+    async def rendezvous_figure(name: str) -> FileResponse:
+        allowed = {
+            "rendezvous_summary.png",
+            "rendezvous_contact.png",
+            "full_mission_diagnostics.png",
+        }
+        if name not in allowed or rendezvous_runtime.output_dir is None:
+            raise HTTPException(status_code=404, detail="figure unavailable")
+        path = rendezvous_runtime.output_dir / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="figure unavailable")
+        return FileResponse(path, media_type="image/png")
+
+    @app.get("/api/rendezvous/artifact/{name}")
+    async def rendezvous_artifact(name: str) -> FileResponse:
+        if name not in {"mission_report.json", "handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz"}:
+            raise HTTPException(status_code=404, detail="Unknown rendezvous artifact")
+        if rendezvous_runtime.output_dir is None:
+            raise HTTPException(status_code=404, detail="No rendezvous output")
+        path = rendezvous_runtime.output_dir / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Artifact is not ready")
+        return FileResponse(path, filename=name)
+
+    @app.post("/api/rendezvous/start")
+    async def rendezvous_start(request: Request, payload: RendezvousStart | None = None) -> dict[str, Any]:
+        require_admin(request)
+        if payload and (payload.live or payload.mode == 'demo') and scenes.status().get('active'):
+            raise HTTPException(status_code=409, detail='请先停止机械臂场景，再播放卫星交会')
+        try:
+            async with scene_start_lock:
+                if scenes.status().get('active'):
+                    raise RuntimeError('请先停止机械臂场景，再启动交会任务')
+                result = await asyncio.to_thread(rendezvous_runtime.start, payload.live if payload else False,
+                                                 payload.mode if payload else 'simulation',
+                                                 payload.scenario if payload else 'team-in-orbit',
+                                                 payload.options if payload else {})
+                rendezvous.clear_cached_state()
+                return result
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/rendezvous/options")
+    async def rendezvous_options() -> dict[str, Any]:
+        return FlightOptions().to_dict()
+
+    @app.post("/api/rendezvous/handoff")
+    async def rendezvous_handoff(request: Request) -> dict[str, Any]:
+        user = require_admin(request)
+        from simulation.orbital_rendezvous.handoff import load_handoff
+        from simulation.orbital_rendezvous.model import DEFAULT_MODEL
+        async with scene_start_lock:
+            if rendezvous_runtime.status().get("running") or scenes.status().get("active") or recorder.episode_id or capture_lifecycle.busy:
+                raise HTTPException(status_code=409, detail="请先结束当前仿真或采集")
+            folder = rendezvous_runtime.output_dir
+            if folder is None:
+                raise HTTPException(status_code=409, detail="没有可交接的交会结果")
+            try:
+                handoff = load_handoff(folder / "handoff.json", config.project_root / DEFAULT_MODEL)
+                await asyncio.to_thread(rendezvous_runtime.release_renderer)
+                creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
+                return await asyncio.to_thread(scenes.start, SceneInstanceCreate(randomization_profile="none"), creator, handoff=handoff)
+            except (ValueError, OSError, RuntimeError) as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/rendezvous/stop")
+    async def rendezvous_stop(request: Request) -> dict[str, Any]:
+        require_admin(request)
+        return await asyncio.to_thread(rendezvous_runtime.stop)
 
     @app.get("/api/scenes/catalog")
     async def scene_catalog() -> dict[str, Any]:
@@ -480,7 +596,11 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail="stop the active episode before starting another scene")
         creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
         try:
-            return await asyncio.to_thread(scenes.start, payload, creator)
+            async with scene_start_lock:
+                if rendezvous_runtime.status().get('running'):
+                    raise RuntimeError('请先停止交会任务，再启动机械臂场景')
+                await asyncio.to_thread(rendezvous_runtime.release_renderer)
+                return await asyncio.to_thread(scenes.start, payload, creator)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except RuntimeError as error:

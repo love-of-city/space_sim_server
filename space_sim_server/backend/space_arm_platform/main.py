@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 import uvicorn
@@ -19,6 +20,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--simulation-host", default="127.0.0.1")
     parser.add_argument("--simulation-port", type=int, default=8766)
+    parser.add_argument("--rendezvous-port", type=int, default=8768)
+    parser.add_argument("--rendezvous-repo", type=Path, default=os.getenv("SPACE_SIM_RENDEZVOUS_REPO"))
+    parser.add_argument("--rendezvous-python", type=Path, default=os.getenv("SPACE_SIM_RENDEZVOUS_PYTHON", sys.executable))
     parser.add_argument("--capture-host", default="127.0.0.1")
     parser.add_argument("--capture-port", type=int, default=8767)
     parser.add_argument("--pixel-streaming-player-port", type=int, default=8080)
@@ -88,6 +92,9 @@ def main() -> None:
             data_root=(args.data_root or project_root / "data" / "episodes").resolve(),
             simulation_host=args.simulation_host,
             simulation_port=args.simulation_port,
+            rendezvous_port=args.rendezvous_port,
+            rendezvous_repo=args.rendezvous_repo.resolve() if args.rendezvous_repo else None,
+            rendezvous_python=args.rendezvous_python.resolve() if args.rendezvous_python else None,
             capture_host=args.capture_host,
             capture_port=args.capture_port,
             pixel_streaming_player_port=args.pixel_streaming_player_port,

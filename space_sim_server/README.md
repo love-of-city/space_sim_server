@@ -6,6 +6,14 @@
 
 默认 `local` 场景采用 BSK 引力模型逐刚体计算差分力，保留 MuJoCo 刚体/接触/伺服与局部坐标。扩展引力源、球谐模型和子步采样的方法见 [BSK 在轨组件](docs/BSK_ORBITAL_COMPONENTS.md)。旧线性潮汐仅通过 `SPACE_SIM_ORBITAL_MODE=linear_tidal` 显式选择用于回归。
 
+## 卫星交会接入
+
+个人姿轨控待办、算法输入输出与证据索引见 [任务与复现](docs/AOC_SEVEN_TASKS.md)。
+
+登录后打开 `/static/rendezvous.html`，使用默认 **SARM＋地面验证星** 运行 7 km 接近或约 300→500 km 升轨后接近，在 100 m 外保持。交会使用团队 LocalMujocoStepper、Basilisk 在轨组件与原生飞轮，包含大气阻力、太阳光压、双星 GNSS 误差和未知轨道扰动。管理员可配置误差、自动启动 UE、查看质心距离、下载原始数据，并把成功结果连续交接到标准机械臂场景。模型、工程参数和验证标准见 [团队双星交会](docs/TEAM_RENDEZVOUS.md)。
+
+后端默认使用自身 Python（需具备 Basilisk 及渲染适配器），也可通过 `SPACE_SIM_RENDEZVOUS_PYTHON` 指定仿真解释器。在本机 8768 端口接收只读 `space-sim-state/1`；UE 接收端监听 5558。团队模型任务不依赖旧示例仓库。需要历史通用模型示例时，再设置 `SPACE_SIM_RENDEZVOUS_REPO` 指向 `basilisk-rendezvous-demo`，并使用安装其依赖的 Python。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。

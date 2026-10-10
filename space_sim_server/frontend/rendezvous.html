@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SpaceSim · 双星远程交会</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #18243a; background: #f1f5fb; }
+    body { margin: 0 auto; max-width: 940px; padding: 28px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    a { color: #225dba; }
+    h1 { margin-bottom: 4px; }
+    .muted { color: #63728b; }
+    .card { background: white; border: 1px solid #dbe3ee; border-radius: 14px; padding: 22px; margin-top: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+    .metric strong { display: block; font-size: 1.35rem; margin-top: 5px; }
+    button { background: #225dba; border: 0; border-radius: 8px; padding: 11px 16px; color: white; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    button.secondary { background: #64748b; }
+    .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    #message { min-height: 1.5em; }
+    canvas { width: 100%; height: 230px; }
+    code { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <header><div><p class="muted">SpaceSim · 远程交会</p><h1>双星远程交会</h1></div><a href="/">返回控制台</a></header>
+  <p class="muted">使用平台的 SARM 机械臂卫星与地面验证目标星，完成远程接近并在 100 m 交接区稳定保持。可选择在轨接近或从 300 km 爬升至 500 km 后接近。</p>
+  <section class="card actions">
+    <label>任务场景 <select id="scenario"><option value="team-in-orbit">团队双星 · 7 km → 100 m</option><option value="team-orbit-raise">团队双星 · 300 → 500 km 升轨交会</option><option value="legacy">历史通用双星对接示例</option></select></label>
+    <button id="start" type="button">启动仿真</button>
+    <button id="demo" class="secondary" type="button" hidden>▶ 历史示例回放</button>
+    <button id="stop" class="secondary" type="button">停止任务</button>
+    <button id="continue" class="secondary" type="button" hidden>交接到机械臂场景</button>
+    <label><input id="live" type="checkbox" checked> 重新计算时同步 UE 画面</label>
+    <span id="message" role="status"></span>
+  </section>
+  <details class="card" id="missionOptions"><summary>环境与误差参数</summary>
+    <p class="muted">双星独立 GNSS 噪声；位置与速度参数按各轴 1σ 建模。随机轨道扰动作用于实际动力学。默认在 110 m 保持，给 100 m 边界保留误差余量。</p>
+    <div class="grid">
+      <label>随机种子 <input id="seed" type="number" min="0" step="1" value="7"></label>
+      <label>GNSS 位置 σ（m）<input id="gnssPosition" type="number" min="0.001" max="100" step="0.1" value="3"></label>
+      <label>GNSS 速度 σ（m/s）<input id="gnssVelocity" type="number" min="0.00001" max="10" step="0.01" value="0.5"></label>
+      <label>初始位置 σ（m）<input id="initialPosition" type="number" min="0" max="1000" value="10"></label>
+      <label>轨道扰动 σ（m/s²）<input id="orbitNoise" type="number" min="0" max="0.001" step="0.00001" value="0.00002"></label>
+      <label>保持距离（m）<input id="holdDistance" type="number" min="100.5" max="1000" value="110"></label>
+      <label><input id="dragEnabled" type="checkbox" checked> 大气阻力</label>
+      <label><input id="srpEnabled" type="checkbox" checked> 太阳光压（含地影）</label>
+    </div>
+  </details>
+  <section class="card" style="padding:0;overflow:hidden;background:#070b15;color:white">
+    <div style="padding:14px 20px;display:flex;justify-content:space-between;gap:12px"><strong id="playbackTitle">交会对接 · 三维画面</strong><span id="playbackProgress">准备就绪</span></div>
+    <iframe id="demoVideo" title="卫星交会实时画面" allow="autoplay; fullscreen; gamepad; xr-spatial-tracking" allowfullscreen style="display:block;border:0;width:100%;aspect-ratio:16/9"></iframe>
+    <progress id="progress" max="15" value="0" style="display:block;width:100%;height:6px;border:0"></progress>
+    <p id="missionDescription" style="padding:0 20px;color:#b6c4de;font-size:14px">双星导航 → 推进与姿态控制 → 100 m 保持 → 近程交接</p>
+  </section>
+  <section class="card grid" aria-live="polite">
+    <div class="metric">连接状态<strong id="connection">—</strong></div>
+    <div class="metric">任务阶段<strong id="phase">—</strong></div>
+    <div class="metric">仿真时间<strong id="time">—</strong></div>
+    <div class="metric">双星质心距离<strong id="range">—</strong></div>
+    <div class="metric"><span id="completionLabel">交接状态</span><strong id="latch">—</strong></div>
+    <div class="metric">最终验收<strong id="result">—</strong></div>
+  </section>
+  <section class="card"><h2>运行中的距离变化</h2><canvas id="chart" width="860" height="230" aria-label="星间距离随仿真时间变化"></canvas></section>
+  <section id="figures" class="card" hidden><h2>完成后的任务图</h2><img id="missionFigure" alt="交会任务诊断图" style="max-width:100%" hidden><img id="contactFigure" alt="对接接触诊断图" style="max-width:100%" hidden></section>
+  <section id="resultFiles" class="card" hidden><a href="/api/rendezvous/artifact/mission_report.json">下载验收报告</a>　<a id="handoffLink" href="/api/rendezvous/artifact/handoff.json">下载近程交接状态</a>　<a href="/api/rendezvous/artifact/team_telemetry.npz">下载原始遥测</a>　<a href="/api/rendezvous/artifact/mission_options.json">下载运行参数</a></section>
+  <section class="card"><div>当前输出：<code id="output">—</code></div><div>服务端日志：<code id="log">—</code></div></section>
+  <script type="module" src="/rendezvous.js?v=demo15"></script>
+</body>
+</html>

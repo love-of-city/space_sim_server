@@ -24,7 +24,8 @@ def test_project_keeps_zen_and_makes_installed_graph_local_cache_writable():
     assert '-DDC=InstalledNoZenLocalFallback' not in script
 
 
-def test_launcher_checks_persistent_cache_passes_child_environment_and_hides_window(tmp_path):
+def test_launcher_checks_persistent_cache_passes_child_environment_and_hides_window(tmp_path, monkeypatch):
+    monkeypatch.delenv('SSH_CONNECTION', raising=False)
     project=tmp_path/'adapter/Unreal/BskUnrealRenderer'
     scripts=project/'scripts';scripts.mkdir(parents=True)
     for name in ['start_renderer.ps1','common.ps1','python_runtime.ps1']:
@@ -49,7 +50,53 @@ $global:launched['parent_unchanged']=($old -eq [Environment]::GetEnvironmentVari
     assert result.returncode==0,result.stdout+result.stderr
     report=json.loads(next(line[7:] for line in result.stdout.splitlines() if line.startswith('RESULT ')))
     assert report['style']=='Hidden' and report['parent_unchanged']
-    assert report['env']['UE-LocalDataCachePath']==str(project/'Saved/DerivedDataCache')
+    cache = Path(report['env']['UE-LocalDataCachePath'])
+    assert cache.is_dir() and len(str(cache)) <= 119
     assert '-DDC=InstalledDerivedDataBackendGraph' in report['args']
-    assert not list((project/'Saved/DerivedDataCache').glob('.write-probe-*'))
+    assert not list(cache.glob('.write-probe-*'))
     assert (project/'Saved/BskRenderer.pid').read_text().strip()=='4242'
+
+
+@pytest.mark.parametrize('windows_error', [0, 9])
+def test_ssh_renderer_launch_is_detached_and_preserves_cache_arguments(tmp_path, windows_error):
+    project = tmp_path / 'adapter with spaces/Unreal/BskUnrealRenderer'
+    scripts = project / 'scripts'
+    scripts.mkdir(parents=True)
+    for name in ['start_renderer.ps1', 'common.ps1', 'python_runtime.ps1']:
+        shutil.copy2(UE_PROJECT / 'scripts' / name, scripts / name)
+    engine = tmp_path / 'Unreal Engine'
+    editor = engine / 'Engine/Binaries/Win64/UnrealEditor.exe'
+    editor.parent.mkdir(parents=True)
+    editor.touch()
+    cache = tmp_path / 'persistent cache'
+    wrapper = tmp_path / 'launch.ps1'
+    wrapper.write_text('''
+param($Starter,$Engine,$Cache,[int]$WindowsError)
+$ErrorActionPreference='Stop'
+$env:SSH_CONNECTION='test connection'
+function Start-Process { throw 'SSH must not start an attached child' }
+function New-CimInstance { param($ClassName,[switch]$ClientOnly,$Property) return $Property }
+function Invoke-CimMethod {
+    param($ClassName,$MethodName,$Arguments)
+    $Arguments | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'request.json')
+    return [pscustomobject]@{ReturnValue=$WindowsError;ProcessId=6789}
+}
+& $Starter -UnrealRoot $Engine -Port 25558 -DerivedDataCachePath $Cache -PixelStreamingURL ws://127.0.0.1:28888
+''', encoding='utf-8')
+    result = subprocess.run([PWSH, '-NoProfile', '-File', str(wrapper),
+        str(scripts / 'start_renderer.ps1'), str(engine), str(cache), str(windows_error)],
+        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=20)
+    pid_file = project / 'Saved/BskRenderer.pid'
+    if windows_error:
+        assert result.returncode != 0 and not pid_file.exists()
+        assert 'Windows error 9' in result.stderr
+        return
+    assert result.returncode == 0, result.stderr
+    request = json.loads((tmp_path / 'request.json').read_text(encoding='utf-8-sig'))
+    assert request['ProcessStartupInformation']['ShowWindow'] == 0
+    assert request['CurrentDirectory'] == str(project)
+    assert f'"{editor}"' in request['CommandLine']
+    assert f'"{project / "BskUnrealRenderer.uproject"}"' in request['CommandLine']
+    assert f'"-LocalDataCachePath={cache}"' in request['CommandLine']
+    assert '-BskPort=25558' in request['CommandLine']
+    assert pid_file.read_text().strip() == '6789'

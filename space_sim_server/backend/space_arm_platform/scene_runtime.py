@@ -365,7 +365,7 @@ class SceneRuntimeManager:
             },
         }
 
-    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None) -> dict[str, Any]:
         if request.template_id not in {item["id"] for item in SCENE_TEMPLATES}:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
@@ -413,6 +413,16 @@ class SceneRuntimeManager:
             instance["ik_initialization"] = report
             if report["status"] in {"selected", "kept"}:
                 instance["randomization"]["arm_joint_position_rad"][:6] = report["joint_position_rad"]
+        if handoff is not None:
+            from datetime import datetime, timedelta
+            if request.template_id != SELF_COLLISION_TEMPLATE or handoff.get("accepted") is not True:
+                raise ValueError("handoff requires the original team model and an accepted flight")
+            epoch = datetime.strptime(handoff["ephemeris_epoch_utc"], "%Y %B %d %H:%M:%S.%f")
+            epoch += timedelta(seconds=float(handoff["state"]["sim_time_s"]))
+            instance["environment"]["ephemeris_epoch_utc"] = epoch.strftime("%Y %B %d %H:%M:%S.%f")
+            instance["rendezvous_handoff"] = handoff
+            instance["randomization"]["arm_joint_position_rad"] = [0.0] * 8
+            instance["arm_preparation_required"] = False
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -421,7 +431,7 @@ class SceneRuntimeManager:
         self._last_instance = instance
         return instance
 
-    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None) -> dict[str, Any]:
         if not self.launch:
             raise RuntimeError("scene runtime launching is not configured")
         if not self.launch.powershell_exe.is_file():
@@ -435,7 +445,7 @@ class SceneRuntimeManager:
             status = self.status()
             if status["active"]:
                 raise RuntimeError("a scene instance is already starting or running")
-            instance = self.create_instance(request, created_by)
+            instance = self.create_instance(request, created_by, handoff=handoff)
             instance_path = Path(instance["config_path"])
             script = launch_script
             command = [

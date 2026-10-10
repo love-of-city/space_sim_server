@@ -6,3 +6,6 @@ model/**/*.[sS][lL][dD][pP][rR][tT] filter=lfs diff=lfs merge=lfs -text
 model/**/*.[sS][tT][pP] filter=lfs diff=lfs merge=lfs -text
 model/**/*.[sS][tT][eE][pP] filter=lfs diff=lfs merge=lfs -text
 model/**/*.[bB][rR][eE][pP] filter=lfs diff=lfs merge=lfs -text
+
+# Preserve the upstream byte hash used by the offline reference runner.
+tools/vendor/scenarioRendezVous.py text eol=lf

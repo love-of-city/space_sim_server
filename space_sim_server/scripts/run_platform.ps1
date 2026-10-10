@@ -6,9 +6,11 @@ param(
     [int]$ApiPort = 8000,
     [int]$ControlPort = 8766,
     [int]$CapturePort = 8767,
+    [int]$RendezvousPort = 8768,
     [int]$RenderPort = 5558,
     [int]$PixelStreamerPort = 8888,
     [int]$PixelPlayerPort = 8080,
+    [int]$PixelSfuPort = 8889,
     [string]$PixelStreamingId = 'BskRenderer',
     [string[]]$PixelStreamingCameraIds = @(
         'teleop/camera/spacecraft_overview',
@@ -215,6 +217,7 @@ foreach ($portCheck in @(
     @{ Port = $ApiPort; Purpose = 'Backend API' },
     @{ Port = $ControlPort; Purpose = 'Simulation control' },
     @{ Port = $CapturePort; Purpose = 'Authoritative capture' },
+    @{ Port = $RendezvousPort; Purpose = 'Rendezvous state' },
     @{ Port = $RenderPort; Purpose = 'UE render receiver' }
 )) {
     Assert-TcpPortAvailable ([int]$portCheck.Port) ([string]$portCheck.Purpose)
@@ -247,7 +250,7 @@ if ($RemoteAccess) {
 } else {
     Write-Output 'Starting the local Pixel Streaming 2 signalling server ...'
     & (Join-Path $PSScriptRoot 'start_pixel_streaming.ps1') -UnrealRoot $UnrealRoot `
-        -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort
+        -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort -SfuPort $PixelSfuPort
 }
 
 Write-Output 'Checking the existing UE modules and assets ...'
@@ -301,6 +304,7 @@ $backendArgs = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $PSScriptRoot 'run_backend.ps1') + '"'),
     '-ApiHost', $ApiHost,
     '-ApiPort', $ApiPort, '-ControlPort', $ControlPort, '-CapturePort', $CapturePort,
+    '-RendezvousPort', $RendezvousPort,
     '-PixelStreamingPlayerPort', $PixelPlayerPort, '-PixelStreamingId', $PixelStreamingId,
     '-PixelStreamingCameraStreamers', ($cameraStreamers -join ';'),
     '-RenderPort', $RenderPort,

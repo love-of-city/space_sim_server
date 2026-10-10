@@ -331,7 +331,8 @@ function applySceneRuntime(runtime = {}) {
   $("sceneInstanceSunlight").textContent = instance.instance_id ? `${instanceSunlight} 倍` : "—";
   const instanceOrbitPhase = instance.environment?.orbit?.true_anomaly_deg ?? 180;
   const randomizeOrbitPhase = instance.randomize_orbit_phase === true;
-  $("sceneInstanceOrbitPhase").textContent = instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
+  $("sceneInstanceOrbitPhase").textContent = instance.rendezvous_handoff ? "继承交会终态"
+    : instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
   if (active && instance.instance_id) {
     if (instance.template_id) $("sceneTemplate").value = instance.template_id;
     if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
@@ -347,7 +348,9 @@ function applySceneRuntime(runtime = {}) {
     : "尚未生成实例";
   if (runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
-    setMessage(`场景 ${instance.instance_id || ""} 已运行，等待机械臂准备实测到位后操作或采集`);
+    const readiness = instance.arm_preparation_required
+      ? '等待机械臂准备实测到位后操作或采集' : '可进入操作或开始采集';
+    setMessage(`场景 ${instance.instance_id || ""} ${instance.rendezvous_handoff ? '已接续交会终态' : '已运行'}，${readiness}`);
     // The waiting player may have subscribed milliseconds ago. Moving from
     // launcher startup to running is not a reason to destroy its RTC handshake.
     if (!state.pixelStreaming && !state.pixelConnectPromise) connectPixelStreaming();

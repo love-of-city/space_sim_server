@@ -2,15 +2,15 @@
 
 ## 使用方法
 
-1. 在服务器上双击 `start_remote_visualization.cmd`。首次启动会将本机账号复制到部署使用的 `data/auth.sqlite3`，不会覆盖已有部署数据库，也不会重置自定义密码。
+1. 在服务器 PowerShell 7 中执行 `./scripts/remote_visualization.ps1 -Action Start`。首次启动会将本机账号复制到部署使用的 `data/auth.sqlite3`，不会覆盖已有部署数据库，也不会重置自定义密码。
 2. 在你自己电脑的 Edge/Chrome 直接打开并收藏 `https://117.50.185.8/`，不需要复制带密钥的链接，也不需要打开远程桌面的浏览器。
 3. 使用原账号和密码登录。当前部署已按要求关闭额外的 `access_key` 门槛，未关闭账号认证、操作授权或视频信令令牌校验。
 4. 点击“生成并启动场景”，等待“仿真在线”和 `LIVE WEBRTC`，点击画面进入操控。仿真、UE、场景资源都在服务器上运行，本机只需浏览器。
-5. 网页“停止场景”保留平台入口，下次直接打开同一网址。服务器上的 `stop_remote_visualization.cmd` 会停止整个平台和 HTTPS 入口；需要恢复时双击启动脚本，网址不变。
+5. 网页“停止场景”保留平台入口，下次直接打开同一网址。服务器上的 `./scripts/remote_visualization.ps1 -Action Stop` 会停止整个平台和 HTTPS 入口；需要恢复时执行启动命令，网址不变。
 
 当前采用原仓库的公网 IP 模式，入口为 `https://117.50.185.8/`。普通平台重启不再更换网址；前提是云平台保持这个公网 IP。不要将旧的 `127.0.0.1:18000` 或 trycloudflare 临时网址用于当前模式。
 
-`deploy/ip.local.json` 中 `require_access_key=false`、`show_access_window=false` 已持久保存；固定部署启动器会保留这些值，不会在重启时恢复额外密钥要求。`show_remote_access.cmd` 只作为可选的地址查看入口，不再是使用步骤。旧标签页请使用 Ctrl+Shift+R 强制刷新，再登录。
+`deploy/ip.local.json` 中 `require_access_key=false`、`show_access_window=false` 已持久保存；固定部署启动器会保留这些值，不会在重启时恢复额外密钥要求。`./scripts/remote_visualization.ps1 -Action Show` 只作为可选的地址查看入口，不再是使用步骤。旧标签页请使用 Ctrl+Shift+R 强制刷新，再登录。
 
 ## 当前部署
 
@@ -42,7 +42,7 @@
 ## 维护和验收
 
 - 当前网址及账号类型报告：`run/public-access.json`；应显示 `require_access_key=false`。密码登录模式部署日志：`run/password-only-start.log`，验收日志：`run/password-only-e2e.log`。
-- 本次 IP 部署日志：`run/ip-start.log`；后续双击启动的输出在启动窗口中。场景日志：`logs/scene-*.launcher.*.log`、`logs/scene-*.simulation.*.log`；HTTPS 日志：`logs/deployment-proxy.err.log`；TURN 日志：`C:\Program Files\eturnal\log\eturnal.log`。
+- 本次 IP 部署日志：`run/ip-start.log`；后续执行启动命令的输出在启动窗口中。场景日志：`logs/scene-*.launcher.*.log`、`logs/scene-*.simulation.*.log`；HTTPS 日志：`logs/deployment-proxy.err.log`；TURN 日志：`C:\Program Files\eturnal\log\eturnal.log`。
 - 空闲时运行 `scripts/verify_remote_platform.ps1` 进行实际公网入口回归：使用临时操作员测试，结束后删除该操作员，保留平台。已有场景运行时拒绝替换它。
 - 该验证会产生实际仿真与短暂低速控制，不要在正在操作的场景上执行。
 - 在 PowerShell 7 中设置 `$env:PIXEL_STREAMING_FORCE_RELAY='1'` 和 `$env:PIXEL_STREAMING_TURN_TRANSPORT='udp'`（或 `tcp`）再运行验证脚本，可强制浏览器走 TURN，并检查实际选中的 relay candidate 及持续解码帧；测试进程结束后清除这两个变量。该设置只作用于验证浏览器，不修改正常用户页面。

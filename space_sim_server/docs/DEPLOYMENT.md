@@ -1,7 +1,7 @@
 # 本地浏览器 → 远程 Windows 仿真机部署
-> **免填写公网入口已提供**：首次没有 `deploy/deployment.local.json` 时，双击 `start_deployment.cmd` 默认自动分配临时公网 HTTPS 网址，并自动生成登录信息，不再进入本文的地址/证书向导。详见 [一键临时公网发布](PUBLIC_DEPLOYMENT.md)。
+> **免填写公网入口已提供**：首次没有 `deploy/deployment.local.json` 时，在 PowerShell 7 中执行 `./scripts/deployment_launcher.ps1 -Action Start` 默认自动分配临时公网 HTTPS 网址，并自动生成登录信息，不再进入本文的地址/证书向导。详见 [自动化临时公网发布](PUBLIC_DEPLOYMENT.md)。
 >
-> **下文保留的是固定域名/直接 HTTPS 模式**，已有配置继续兼容；需要首次手动配置该模式时执行 `start_deployment.cmd -Mode Direct`。不要把临时隧道的 `deploy/public.local.json` 传给底层 `deploy_platform.ps1`。
+> **下文保留的是固定域名/直接 HTTPS 模式**，已有配置继续兼容；需要首次手动配置该模式时执行 `./scripts/deployment_launcher.ps1 -Action Start -Mode Direct`。不要把临时隧道的 `deploy/public.local.json` 传给底层 `deploy_platform.ps1`。
 
 本指南保留现有 Windows + UE 5.6 + Basilisk/MJScene 环境，不迁移模型、不使用 RDP 传递手柄。手柄接在运行网页的**本地电脑**上；远程桌面只用于维护。
 
@@ -9,20 +9,20 @@
 
 ## 日常使用：只运行一个入口
 
-在**远程仿真电脑**的仓库根目录双击：
+在**远程仿真电脑**的仓库根目录，使用 PowerShell 7 执行：
 
-- **`start_deployment.cmd`**：启动部署。自动找到 PowerShell 7、加载已有 `space-sim-server` Conda 环境、恢复密钥，并调用底层部署脚本。
-- **`stop_deployment.cmd`**：停止平台、场景、串流和本项目的 HTTPS 代理。停止不需要 Conda、Caddy 路径、配置文件或密钥仍然可用。
+- **`./scripts/deployment_launcher.ps1 -Action Start`**：启动部署。使用指定或已配置的 Python 环境、恢复已保存的密钥，并调用部署实现。
+- **`./scripts/deployment_launcher.ps1 -Action Stop`**：停止平台、场景、串流和本项目的 HTTPS 代理。停止不需要 Conda、Caddy 路径、配置文件或密钥仍然可用。
 
-也可直接在终端运行同名 `.cmd`，不必再手动执行环境激活、复制 JSON、生成密钥等多条命令。入口不依赖终端的当前工作目录。它复用现有 Python/Node/UE/仿真环境，不会自动安装另一套仿真环境。
+也可直接在 PowerShell 7 终端执行上述命令，不必再手动执行环境激活、复制 JSON、生成密钥等多条命令。入口不依赖终端的当前工作目录。它复用现有 Python/Node/UE/仿真环境，不会自动安装另一套仿真环境。
 
-### 第一次双击会发生什么
+### 首次运行会发生什么
 
 1. 如果没有 `deploy/deployment.local.json`，询问**平台对外提供的统一 HTTPS 网址（不是访问者 IP 白名单）**及证书方式，验证后保存。不要填一个无法解析/访问的任意域名。选择 `manual` 时还会询问证书路径。
-2. 询问并确认管理员初始化密码；已有账号不会被自动重置。如果检测到现有管理员仍使用默认密码，会在停止任何服务前拒绝切换，请先在现有本机网页修改密码，再双击启动。
+2. 询问并确认管理员初始化密码；已有账号不会被自动重置。如果检测到现有管理员仍使用默认密码，会在停止任何服务前拒绝切换，请先在现有本机网页修改密码，再执行启动命令。
 3. 自动生成两份随机串流密钥，将密码/密钥以 Windows DPAPI 加密的 CLIXML 保存到 `deploy/secrets/`（Git 忽略），按配置文件路径隔离。以后自动恢复，**不会每次生成新密钥**。已有进程环境变量可用于首次导入；已有加密存储优先于环境变量，避免意外轮换。
 4. 如果没有 Caddy，下载 `deploy/caddy-release.json` 固定的官方 Windows 版本，验证仓库中固定的 SHA-512，再仅提取 `caddy.exe` 到 `run/deployment-tools/`。已配置的自定义路径若无效会报错，不会擅自替换。首次下载需要联网；失败可以重试，或手动提供 `caddy_executable`。
-5. 完成预检后，调用底层脚本切换平台并启动 HTTPS 代理。**首次切换会停止现有平台/场景。** 在完整的已记录部署仍运行且配置/密钥未变时，重复双击不会重启场景；入口共享启动/停止互斥锁，防止重复点击竞争。
+5. 完成预检后，调用底层脚本切换平台并启动 HTTPS 代理。**首次切换会停止现有平台/场景。** 在完整的已记录部署仍运行且配置/密钥未变时，重复执行不会重启场景；入口共享启动/停止互斥锁，防止并发执行竞争。
 6. 显示网页入口。可输入 `C` 将**含访问密钥的完整链接**复制到远程电脑剪贴板，再粘贴到**本地电脑浏览器**。不在日志或控制台中打印密钥。复制需要剪贴板可用；剪贴板/历史属于敏感位置，用后清理，不要分享链接。
 
 DPAPI 文件只能由同一台电脑、同一个 Windows 账号正常解密。换账号/换机器需要通过受控方式迁移秘密并重新初始化存储；文件损坏或解密失败时脚本不会静默删除并换一套密钥。不要删除 `deploy/secrets/` 来排障，也不要提交这些文件。更换配置文件路径也需要重新配置对应的秘密存储。
@@ -44,21 +44,21 @@ DPAPI 文件只能由同一台电脑、同一个 Windows 账号正常解密。�
 - 公共域名可使用 `acme` 获取证书；`internal` 仅适合能管理客户端根证书信任的内网/VPN 环境，不适合作为面向公众的免配置浏览器入口。公网入口存在也不代表 WebRTC 视频一定可达，可能仍需 TURN。
 - “允许来自不同 IP 的用户访问”不等于取消登录、访问密钥和操作权限，也不等于每个用户都有独立仿真实例。当前仍是单实例/单活动操作页；自助注册、公众体验流程、多用户独立仿真是另外的产品与架构工作。
 
-一键入口负责在已有机器上启动服务，**不负责购买域名、分配公网 IP、开通隧道或完成公网网络配置**。首次指定网址后，日常仍只需启动/停止两个入口，不需要随着用户 IP 变化重新配置。
+自动化入口负责在已有机器上启动服务，**不负责购买域名、分配公网 IP、开通隧道或完成公网网络配置**。首次指定网址后，日常仍只需启动/停止两个入口，不需要随着用户 IP 变化重新配置。
 
 ### 可选的检查和强制重启
 
 ```powershell
 # 只读检查：可读取已保存的密钥；不生成配置/密钥、不下载、不启停服务。
-.\start_deployment.cmd -ValidateOnly
+./scripts/deployment_launcher.ps1 -Action Start -ValidateOnly
 
 # 明确重新部署，即使已有部署仍在运行；会停止当前场景。
-.\start_deployment.cmd -Restart
+./scripts/deployment_launcher.ps1 -Action Start -Restart
 ```
 
 `-NonInteractive` 可用于已有配置的自动化启动：不会询问输入或复制剪贴板。缺少管理员/TURN 秘密或首次配置时会报错；停止入口不要求秘密。非标准 Conda 安装位置可用 `-CondaRoot` 或 `SPACE_SIM_PYTHON` 指定。
 
-> 以下是底层部署脚本的架构与**高级手动配置**说明。使用上面的桌面入口时，不需要逐条手动执行这些准备命令。底层 `scripts/deploy_platform.ps1` 仍保留默认只校验、显式 `-Start` 才切换的行为。
+> 以下是底层部署脚本的架构与**高级手动配置**说明。使用上面的部署命令时，不需要逐条手动执行这些准备命令。底层 `scripts/deploy_platform.ps1` 仍保留默认只校验、显式 `-Start` 才切换的行为。
 
 ## 1. 架构与边界
 
@@ -82,7 +82,7 @@ DPAPI 文件只能由同一台电脑、同一个 Windows 账号正常解密。�
 
 1. 原有 `scripts/run_platform.ps1` 在这台机器已能正常运行。
 2. 使用 PowerShell 7，按[README](../README.md#2-python-环境与安装)选择已有的仿真解释器，确保 `npm.cmd`、`node.exe` 可用。支持 uv、Conda 和 venv，不要求安装 Conda 或固定环境名；uv 使用 `uv pip install --python` 管理该解释器的包，无需安装 pip。
-3. 手动使用底层脚本时，安装官方 Caddy 2，放入 PATH，或在配置里填写其绝对路径；桌面入口会自动准备缺少的 Caddy。
+3. 手动使用底层脚本时，安装官方 Caddy 2，放入 PATH，或在配置里填写其绝对路径；部署命令会自动准备缺少的 Caddy。
 4. 确定本地电脑能够访问的主机名，以及直连/VPN/公网路线。推荐先在团队内网或 VPN 验收。
 5. **先在当前页面修改已有管理员的默认密码。** 初始化密码参数不会更新现有数据库；HTTPS 模式发现任何管理员仍使用文档中的本机默认密码时会拒绝启动。
 

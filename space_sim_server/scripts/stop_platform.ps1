@@ -20,12 +20,28 @@ function Stop-RecordedProcessTree([int]$ProcessId, [long]$ExpectedStartTicks) {
 function Stop-OrphanedPlatformBackends {
     # A PowerShell launcher can be terminated before its Python child.  Such a
     # child has no platform.json entry but still owns the API/control ports.
-    # Match the project's exact module entry point so unrelated Python jobs are
-    # never touched.
+    # A module name alone is not ownership: other workspaces run the same module.
+    # Only this repository's or its parent workspace's private interpreter counts.
+    $runtimeRoots = @(
+        (Join-Path $projectRoot '.venv'),
+        (Join-Path $workspaceRoot '.venv'),
+        (Join-Path $workspaceRoot '.python')
+    ) | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') + '\' }
     $backends = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -match '(?i)(^|\s)-m\s+space_arm_platform\.main(\s|$)' })
     foreach ($backend in $backends) {
-        Stop-RecordedProcessTree ([int]$backend.ProcessId) 0
+        $match = [regex]::Match($backend.CommandLine, '^\s*(?:"(?<exe>[^"]+)"|(?<exe>\S+))')
+        if (!$match.Success) { continue }
+        $executable = $match.Groups['exe'].Value.Replace('/', '\')
+        $owned = @($runtimeRoots | Where-Object {
+            $executable.StartsWith($_, [StringComparison]::OrdinalIgnoreCase)
+        }).Count -gt 0
+        if (!$owned) { continue }
+        $process = Get-Process -Id ([int]$backend.ProcessId) -ErrorAction SilentlyContinue
+        if (!$process) { continue }
+        try { $ticks = $process.StartTime.ToUniversalTime().Ticks } catch { continue }
+        if (!$ticks) { continue }
+        Stop-RecordedProcessTree ([int]$backend.ProcessId) $ticks
         if (!$Quiet) { Write-Output "Stopped orphaned Space Arm backend (PID $($backend.ProcessId))." }
     }
 }

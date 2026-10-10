@@ -9,6 +9,8 @@
 
 团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](space_sim_server/README.md)。
 
+双星交会已接入共同动力学核心和平台网页，提供 7 km 接近、300→500 km 升轨后接近、环境与 GNSS 误差配置，以及成功状态向标准机械臂场景的连续交接。详细流程与物理参数见[交会说明](space_sim_server/docs/TEAM_RENDEZVOUS.md)。
+
 ## 首次获取与安装
 
 完整运行需要 Windows x64、PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。

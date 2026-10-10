@@ -1843,6 +1843,52 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
 {
     if (ActiveSessionId != Manifest.SessionId) CancelCaptureJobs();
     check(IsInGameThread());
+    // A manifest is a complete scene, not an additive object update. Without
+    // pruning, switching from a docking demo to SARM leaves old spacecraft at
+    // the floating origin and displays them alongside the new physical model.
+    auto PruneActors = [](auto& Actors, const TSet<FString>& Keep)
+    {
+        for (auto It = Actors.CreateIterator(); It; ++It)
+        {
+            if (Keep.Contains(It.Key())) continue;
+            if (IsValid(It.Value()))
+            {
+                It.Value()->SetActorHiddenInGame(true);
+                It.Value()->Destroy();
+            }
+            It.RemoveCurrent();
+        }
+    };
+    TSet<FString> ObjectIds, VisualIds, CelestialIds, CameraIds;
+    for (const auto& Definition : Manifest.Objects) ObjectIds.Add(Definition.ObjectId);
+    for (const auto& Definition : Manifest.Visuals) VisualIds.Add(Definition.VisualId);
+    for (const auto& Definition : Manifest.CelestialBodies) CelestialIds.Add(Definition.BodyId);
+    for (const auto& Definition : Manifest.Cameras) CameraIds.Add(Definition.CameraId);
+    for (auto It = CameraActors.CreateIterator(); It; ++It)
+    {
+        if (CameraIds.Contains(It.Key())) continue;
+        const FString CameraId = It.Key();
+        if (TSharedPtr<IPixelStreaming2Streamer> Streamer = PixelStreamingCameraStreamers.FindRef(CameraId))
+        {
+            Streamer->StopStreaming();
+            Streamer->SetVideoProducer(nullptr);
+            IPixelStreaming2Module::Get().DeleteStreamer(Streamer);
+        }
+        PixelStreamingCameraStreamers.Remove(CameraId);
+        PixelStreamingCameraProducers.Remove(CameraId);
+        PixelStreamingCameraCaptures.Remove(CameraId);
+        PixelStreamingCameraTargets.Remove(CameraId);
+        PixelStreamingCameraNextCaptureSeconds.Remove(CameraId);
+        CameraCaptureComponents.Remove(CameraId);
+        CameraRenderTargets.Remove(CameraId);
+        CameraNextCaptureSeconds.Remove(CameraId);
+        CameraNextDataCaptureSimulationNanoseconds.Remove(CameraId);
+        CameraPictureInPictureVisibility.Remove(CameraId);
+    }
+    PruneActors(CameraActors, CameraIds);
+    PruneActors(VisualActors, VisualIds);
+    PruneActors(BoundActors, ObjectIds);
+    PruneActors(CelestialActors, CelestialIds);
     if (!ActiveSessionId.IsEmpty() && ActiveSessionId != Manifest.SessionId)
     {
         PendingCommandIds.Reset();
@@ -2160,9 +2206,14 @@ AActor* ABskSceneController::SpawnManifestObject(const FBskObjectDefinition& Def
     State.ObjectId = Definition.ObjectId;
     State.Name = Definition.DisplayName;
     State.AssetPath = Definition.AssetPath;
-    const bool bHasConfiguredSpec = ObjectSpecs.Contains(Definition.ObjectId) || ObjectSpecs.Contains(Definition.DisplayName) || !Definition.AssetPath.IsEmpty();
+    // A legacy display-name placeholder (e.g. "target") must not replace an
+    // explicit v2 scene's geometry. Stable-ID overrides remain intentional.
+    const bool bHasConfiguredSpec = ObjectSpecs.Contains(Definition.ObjectId) ||
+        (Definition.Geometries.IsEmpty() && ObjectSpecs.Contains(Definition.DisplayName)) ||
+        !Definition.AssetPath.IsEmpty();
     if (bHasConfiguredSpec) return SpawnFromSpec(Definition.ObjectId, ResolveSpec(State));
-    if (Definition.Geometries.IsEmpty()) return nullptr;
+    // Geometry-free bodies are transform nodes (fuel, flywheels, camera mounts).
+    // Keep an empty actor so frame intake cannot spawn a visible fallback sphere.
 
     FActorSpawnParameters Params;
     Params.Name = MakeUniqueObjectName(GetWorld(), AActor::StaticClass(), SafeActorName(Definition.ObjectId));

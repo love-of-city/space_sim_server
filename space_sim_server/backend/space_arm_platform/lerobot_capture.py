@@ -128,6 +128,17 @@ class LiveLeRobotWriter:
         if self.dataset is None:
             return
         try:
+            # LeRobot describes shape-(1,) features as scalar Hugging Face Values.
+            # Its frame validator requires the arrays, but save_episode stacks
+            # them into (frames, 1), which NumPy 2 cannot encode as scalars.
+            for key in (
+                "observation.sim_time_ns",
+                "observation.source_frame_id",
+                "observation.applied_action_sequence",
+            ):
+                self.dataset.episode_buffer[key] = [
+                    value.reshape(()) for value in self.dataset.episode_buffer[key]
+                ]
             self.dataset.save_episode()
             path = self.root / "meta" / "platform.json"
             metadata = json.loads(path.read_text(encoding="utf-8"))

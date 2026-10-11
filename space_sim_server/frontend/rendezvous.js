@@ -10,7 +10,7 @@ function missionOptions() {
 let currentRun = null;
 let requesting = false;
 let playerUrl = null;
-const phases = {'Orbit raising':'升轨飞行', 'Team approach':'团队双星接近', '100 m handoff hold':'100 米交接保持', 'Abort':'已中止', 'Distant approach':'远距离接近', 'Transfer acquisition':'交会准备',
+const phases = {'Orbit raising':'升轨飞行', 'Team approach':'团队双星接近', '100 m handoff hold':'100 米外交接保持', 'Abort':'已中止', 'Distant approach':'远距离接近', 'Transfer acquisition':'交会准备',
   'Transfer burn 1':'第一次变轨', 'Transfer coast':'滑行接近', 'Transfer turn':'姿态转向',
   'Transfer burn 2':'第二次变轨', 'Handoff hold':'交接保持', 'Near-field approach':'近距离接近',
   '20 m hold':'20 米保持', 'Close approach':'近程接近', '3 m hold':'3 米保持',
@@ -159,5 +159,5 @@ byId('scenario').addEventListener('change', () => {
   const legacy = byId('scenario').value === 'legacy';
   byId('missionOptions').hidden = legacy;
   byId('demo').hidden = !legacy;
-  byId('missionDescription').textContent = legacy ? '历史通用模型：接近、捕获、硬锁与联合体控制' : '双星导航 → 推进与姿态控制 → 100 m 保持 → 近程交接';
+  byId('missionDescription').textContent = legacy ? '历史通用模型：接近、捕获、硬锁与联合体控制' : '双星导航 → 推进与姿态控制 → 100 m 外保持 → 近程交接';
 });

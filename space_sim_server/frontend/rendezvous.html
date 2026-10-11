@@ -25,9 +25,9 @@
 </head>
 <body>
   <header><div><p class="muted">SpaceSim · 远程交会</p><h1>双星远程交会</h1></div><a href="/">返回控制台</a></header>
-  <p class="muted">使用平台的 SARM 机械臂卫星与地面验证目标星，完成远程接近并在 100 m 交接区稳定保持。可选择在轨接近或从 300 km 爬升至 500 km 后接近。</p>
+  <p class="muted">使用平台的 SARM 机械臂卫星与地面验证目标星，完成远程接近并在 100 m 外稳定保持（默认 110 m）。可选择在轨接近或从 300 km 爬升至 500 km 后接近。</p>
   <section class="card actions">
-    <label>任务场景 <select id="scenario"><option value="team-in-orbit">团队双星 · 7 km → 100 m</option><option value="team-orbit-raise">团队双星 · 300 → 500 km 升轨交会</option><option value="legacy">历史通用双星对接示例</option></select></label>
+    <label>任务场景 <select id="scenario"><option value="team-in-orbit">团队双星 · 7 km → 100 m 外</option><option value="team-orbit-raise">团队双星 · 300 → 500 km 升轨交会</option><option value="legacy">历史通用双星对接示例</option></select></label>
     <button id="start" type="button">启动仿真</button>
     <button id="demo" class="secondary" type="button" hidden>▶ 历史示例回放</button>
     <button id="stop" class="secondary" type="button">停止任务</button>
@@ -52,7 +52,7 @@
     <div style="padding:14px 20px;display:flex;justify-content:space-between;gap:12px"><strong id="playbackTitle">交会对接 · 三维画面</strong><span id="playbackProgress">准备就绪</span></div>
     <iframe id="demoVideo" title="卫星交会实时画面" allow="autoplay; fullscreen; gamepad; xr-spatial-tracking" allowfullscreen style="display:block;border:0;width:100%;aspect-ratio:16/9"></iframe>
     <progress id="progress" max="15" value="0" style="display:block;width:100%;height:6px;border:0"></progress>
-    <p id="missionDescription" style="padding:0 20px;color:#b6c4de;font-size:14px">双星导航 → 推进与姿态控制 → 100 m 保持 → 近程交接</p>
+    <p id="missionDescription" style="padding:0 20px;color:#b6c4de;font-size:14px">双星导航 → 推进与姿态控制 → 100 m 外保持 → 近程交接</p>
   </section>
   <section class="card grid" aria-live="polite">
     <div class="metric">连接状态<strong id="connection">—</strong></div>

@@ -335,7 +335,16 @@ class RendezvousRuntime:
                    "-UnrealRoot", str(cfg.runtime_unreal_root), "-Port", str(self.render_port),
                    "-PixelStreamingURL", f"ws://127.0.0.1:{cfg.runtime_pixel_streamer_port}",
                    "-PixelStreamingId", cfg.pixel_streaming_streamer_id,
-                   "-PixelStreamingFps", str(round(cfg.runtime_preview_rate))]
+                   "-PixelStreamingFps", str(round(cfg.runtime_preview_rate)),
+                   "-EncoderMinQuality", str(getattr(cfg, "runtime_encoder_min_quality", 60))]
+        cameras = getattr(cfg, "runtime_pixel_streaming_camera_ids", ())
+        if cameras:
+            command.extend([
+                "-PixelStreamingCameraIds", ",".join(cameras),
+                "-PixelStreamingCameraWidth", str(cfg.runtime_pixel_streaming_camera_width),
+                "-PixelStreamingCameraHeight", str(cfg.runtime_pixel_streaming_camera_height),
+                "-PixelStreamingCameraFps", str(round(cfg.runtime_preview_rate)),
+            ])
         try:
             self.log_root.mkdir(parents=True, exist_ok=True)
             # A Windows/RDP launch lets long-lived UE inherit the launcher's

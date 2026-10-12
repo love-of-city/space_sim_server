@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {missionPresentation} from '../mission_panel.js';
+import {missionPresentation, createMissionPanel} from '../mission_panel.js';
 
 test('flight keeps robot controls closed and exposes stop only to its owner', () => {
   const run = {stage: 'flight', phase: 'flight', active: true, can_manage: true};
@@ -28,4 +28,32 @@ test('idle selection changes panels without starting a task; stopping stays disa
   assert.equal(missionPresentation({}, 'team-orbit-raise').flightView, true);
   assert.equal(missionPresentation({}, 'teleop').flightView, false);
   assert.equal(missionPresentation({active: true, phase: 'stopping', can_manage: true}).canStop, false);
+});
+
+test('actual flight transition reconnects a waiting player once and updates the startup message', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {body: {classList: {toggle() {}}}};
+  const nodes = new Map(), messages = [];
+  const ctx = {clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}};
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value: id === 'missionMode' ? 'team-in-orbit' : '', textContent: '',
+      addEventListener() {}, querySelectorAll: () => [], getContext: () => ctx, width: 620, height: 200});
+    return nodes.get(id);
+  };
+  let reconnects = 0;
+  const state = {missionMode: 'team-in-orbit', streamLive: false};
+  try {
+    const panel = createMissionPanel({$, state, message: text => messages.push(text), reconnect: () => reconnects++});
+    const mission = {mission_id: 'test', mode: 'team-in-orbit', stage: 'flight', active: true, can_manage: true};
+    panel.render({...mission, phase: 'starting'});
+    assert.equal(reconnects, 0);
+    panel.render({...mission, phase: 'flight'});
+    panel.render({...mission, phase: 'flight'});
+    assert.equal(reconnects, 1);
+    assert.equal(messages.at(-1), '交会运行中');
+    state.streamLive = true;
+    panel.render({...mission, phase: 'starting'});
+    panel.render({...mission, phase: 'flight'});
+    assert.equal(reconnects, 1, 'A live stream must not be recreated');
+  } finally { globalThis.document = previousDocument; }
 });

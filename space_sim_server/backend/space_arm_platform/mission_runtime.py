@@ -41,7 +41,8 @@ class MissionRuntime:
         if latest.is_file():
             try:
                 record = json.loads(latest.read_text(encoding="utf-8"))
-                if record.get("schema") == "spacesim-mission/1":
+                if (isinstance(record, dict) and record.get("schema") == "spacesim-mission/1"
+                        and re.fullmatch(r"mission-[0-9a-f]{32}", str(record.get("mission_id", "")))):
                     self._record = record
             except (OSError, ValueError):
                 pass
@@ -119,7 +120,9 @@ class MissionRuntime:
         self._task = asyncio.create_task(self._run(operation, work), name=f"mission-{operation}")
         if background:
             return self.status()
-        result, error = await self._task
+        # A browser disconnect must not cancel the worker's state/cleanup while
+        # its synchronous launcher continues running in a thread.
+        result, error = await asyncio.shield(self._task)
         if error:
             raise error
         return result
@@ -172,7 +175,8 @@ class MissionRuntime:
                 raise PermissionError("历史结果需要管理员接续")
             self._new(self.flight.status().get("scenario", "legacy"), user)
             self._record["flight_output_dir"] = str(folder)
-        if self._record.get("scene_instance_id") and not self._record.get("stopped"):
+        terminal_scene = self.scenes.status().get("phase") in {"stopped", "failed", "completed"}
+        if self._record.get("scene_instance_id") and not (self._record.get("stopped") or terminal_scene):
             raise RuntimeError("本次结果已经接续，请使用当前场景或启动新任务")
         self._record["source_run_id"] = (handoff.get("state", {}).get("metadata") or {}).get("run_id")
 
@@ -191,14 +195,16 @@ class MissionRuntime:
         if self._operation == "stopping" or self._stop_requested:
             raise RuntimeError("任务正在停止")
         self._stop_requested = True
-        if self._operation:
+        pending = self._task if self._operation else None
+        if pending:
             self.flight.cancel_start()
-            await self._task
         # No other admission can interleave before this operation is reserved.
         if self._record is None:
             self._new("teleop", user)
 
         async def work():
+            if pending:
+                await asyncio.shield(pending)
             if self.scenes.status().get("active") or self._record["stage"] == "teleop":
                 result = await stop_scene()
             else:
@@ -251,7 +257,8 @@ class MissionRuntime:
             telemetry = {"connected": False, "state": None}
         active = bool(self._operation or scene.get("active") or flight.get("running"))
         can_handoff = bool(report and report.get("basic_nominal_passed") and not active
-                           and (not record.get("scene_instance_id") or record.get("stopped")))
+                           and (not record.get("scene_instance_id") or record.get("stopped")
+                                or scene.get("phase") in {"stopped", "failed", "completed"}))
         return {**record, "phase": phase, "active": active,
                 "can_manage": self.can_manage(user), "can_handoff": can_handoff,
                 "report": report, "telemetry": telemetry,

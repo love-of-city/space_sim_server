@@ -76,6 +76,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
 
   function render(mission) {
     if (!mission) return;
+    const previousPhase = snapshot.phase;
     snapshot = mission;
     state.mission = mission;
     stateFailed = false;
@@ -95,6 +96,12 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     }
     configure();
     const view = missionPresentation(mission, state.missionMode);
+    if (mission.phase !== previousPhase) {
+      if (['flight', 'ready', 'failed'].includes(mission.phase)) message(mission.error || view.label);
+      // A background cold start acknowledges before UE is ready. Reconnect
+      // once the flight executor is live, instead of waiting for the watchdog.
+      if (mission.phase === 'flight' && !state.streamLive) reconnect();
+    }
     $('scenePhase').textContent = view.label;
     $('missionStatus').textContent = mission.error || (mission.mission_id
       ? `${!mission.active ? '保存任务：' : ''}${catalog.modes.find(m => m.id === mission.mode)?.label || mission.mode} · ${view.label}${mission.restored && !mission.active ? ' · 已恢复保存记录' : ''}` : '选择任务后启动');

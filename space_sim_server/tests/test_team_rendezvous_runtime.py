@@ -116,6 +116,39 @@ def test_api_defaults_to_team_models_and_rejects_unknown_scenario():
         RendezvousStart(scenario="arbitrary-command")
 
 
+def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tmp_path, monkeypatch):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "start_renderer.ps1").write_text("")
+    config = SimpleNamespace(runtime_adapter_root=tmp_path, runtime_unreal_root=tmp_path,
+        runtime_powershell_exe="pwsh", runtime_pixel_streamer_port=28888,
+        pixel_streaming_streamer_id="test", runtime_preview_rate=60, runtime_renderer_ready_timeout=2,
+        runtime_encoder_min_quality=65, runtime_pixel_streaming_camera_ids=("teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"),
+        runtime_pixel_streaming_camera_width=640, runtime_pixel_streaming_camera_height=360)
+    runtime = RendezvousRuntime(None, Path(sys.executable), 0, tmp_path / "logs", tmp_path, launch_config=config)
+    attempts = 0
+    def connect(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError("cold renderer")
+        return contextlib.nullcontext()
+    commands = []
+    def launch(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr("space_arm_platform.rendezvous_runtime.socket.create_connection", connect)
+    monkeypatch.setattr("space_arm_platform.rendezvous_runtime.subprocess.run", launch)
+    monkeypatch.setattr(runtime, "_remember_renderer", lambda *args, **kwargs: None)
+    runtime._ensure_renderer()
+    command = commands[0]
+    assert command[command.index("-PixelStreamingCameraIds") + 1] == ",".join(config.runtime_pixel_streaming_camera_ids)
+    assert command[command.index("-PixelStreamingCameraFps") + 1] == "60"
+    assert command[command.index("-PixelStreamingCameraWidth") + 1] == "640"
+    assert command[command.index("-PixelStreamingCameraHeight") + 1] == "360"
+    assert command[command.index("-EncoderMinQuality") + 1] == "65"
+
+
 def test_handoff_refuses_failed_or_different_model(tmp_path):
     model = tmp_path / "source.xml"
     model.write_text("<mujoco/>")

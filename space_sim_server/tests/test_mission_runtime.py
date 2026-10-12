@@ -165,10 +165,11 @@ def test_handoff_keeps_mission_identity_in_scene_and_can_be_repeated_after_stop(
         flight.running = False
         flight.report = {"basic_nominal_passed": True}
         identity = manager.status(OWNER)["mission_id"]
-        handoff = {"accepted": True, "state": {"metadata": {"run_id": "source-flight"}}}
+        handoff = {"accepted": True, "state": {"metadata": {"run_id": "source-flight"}}, "mission_options": {"seed": 19}}
         monkeypatch.setattr("simulation.orbital_rendezvous.handoff.load_handoff", lambda *args: handoff)
         instances = []
         def start(request, user, **kwargs):
+            assert request.randomization_profile == "none"
             item = {"instance_id": f"scene-{len(instances)}", "created_by": user, **kwargs}
             instances.append(item)
             state.update(active=True, phase="running", instance=item)
@@ -241,3 +242,75 @@ def test_download_stays_bound_to_original_mission_and_rejects_foreign_paths(tmp_
     manager._save()
     with pytest.raises(ValueError, match="不属于"):
         manager.artifact(manager._record["mission_id"], "mission_report.json")
+
+
+def test_disconnected_start_request_does_not_abandon_the_launch_worker(tmp_path):
+    async def run():
+        manager, flight, _, _, _ = setup(tmp_path)
+        request = asyncio.create_task(manager.start_flight(OWNER, scenario="team-in-orbit", options={}))
+        await asyncio.to_thread(flight.entered.wait, 2)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        assert manager.status(OWNER)["phase"] == "starting"
+        assert not manager._task.cancelled()
+        flight.proceed.set()
+        await manager._task
+        assert manager.status(OWNER)["phase"] == "flight"
+        assert manager.status(OWNER)["flight_output_dir"] == str(flight.output_dir)
+    asyncio.run(run())
+
+
+def test_disconnected_stop_request_still_finishes_cold_start_cleanup(tmp_path):
+    async def run():
+        manager, flight, _, _, _ = setup(tmp_path)
+        stopping, finish_stop = threading.Event(), threading.Event()
+        original_stop = flight.stop
+        def slow_stop():
+            stopping.set()
+            assert finish_stop.wait(5)
+            return original_stop()
+        flight.stop = slow_stop
+        await manager.start_flight(OWNER, scenario="team-in-orbit", options={}, background=True)
+        await asyncio.to_thread(flight.entered.wait, 2)
+        request = asyncio.create_task(manager.stop(OWNER, None))
+        await asyncio.to_thread(stopping.wait, 2)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        finish_stop.set()
+        await manager._task
+        assert manager.status(OWNER)["phase"] == "stopped"
+        assert not flight.running and flight.released == 1
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("invalid", [[], 12, {"schema": "spacesim-mission/1", "mission_id": "../foreign"}])
+def test_invalid_persisted_record_is_not_trusted(tmp_path, invalid):
+    manager, flight, scenes, _, _ = setup(tmp_path)
+    manager.root.mkdir()
+    (manager.root / "latest.json").write_text(json.dumps(invalid), encoding="utf-8")
+    restored = MissionRuntime(manager.root, scenes, flight, manager.telemetry, lambda: False)
+    assert restored.status(OWNER)["phase"] == "idle"
+
+
+def test_handoff_after_scene_launch_failure_is_retryable_without_repeating_flight(tmp_path, monkeypatch):
+    async def run():
+        manager, flight, scenes, _, state = setup(tmp_path)
+        flight.proceed.set()
+        await manager.start_flight(OWNER, scenario="team-in-orbit", options={})
+        flight.running = False
+        flight.report = {"basic_nominal_passed": True}
+        handoff = {"accepted": True, "state": {"metadata": {"run_id": "source"}}}
+        monkeypatch.setattr("simulation.orbital_rendezvous.handoff.load_handoff", lambda *args: handoff)
+        def start(*args, **kwargs):
+            state.update(phase="failed", active=False)
+            return {"instance_id": "failed-scene"}
+        scenes.start = start
+        await manager.handoff(OWNER)
+        identity = manager.status(OWNER)["mission_id"]
+        assert manager.status(OWNER)["can_handoff"]
+        await manager.handoff(OWNER)
+        assert flight.calls == 1
+        assert manager.status(OWNER)["mission_id"] == identity
+    asyncio.run(run())

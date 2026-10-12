@@ -15,6 +15,7 @@ import { FreeCameraController } from "./free_camera.js";
 import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "./control_status.js";
 import { createMissionPanel } from "./mission_panel.js";
+import { resolvePreviewStreams } from "./preview_streams.js";
 
 const gamepadInput = new GamepadInput();
 
@@ -598,22 +599,7 @@ async function connectPixelStreaming() {
     const config = await response.json();
     state.streamConfig = config;
     configureVideoFps();
-    const selector = $("streamSelector");
-    const previousStreamerId = state.selectedStreamerId;
-    selector.replaceChildren();
-    for (const item of config.pixel_streaming_streamers || [
-      { id: config.pixel_streaming_streamer_id, label: "主视口" },
-    ]) {
-      const option = document.createElement("option");
-      option.value = item.id;
-      const labels = { WristCamera: "机械臂腕部相机", SpacecraftOverview: "卫星总览相机" };
-      option.textContent = labels[item.label] || item.label || item.id;
-      selector.append(option);
-    }
-    if ([...selector.options].some((option) => option.value === previousStreamerId)) {
-      selector.value = previousStreamerId;
-    }
-    state.selectedStreamerId = selector.value || config.pixel_streaming_streamer_id;
+    updatePreviewStreams(null);
     createPixelStream();
     } catch (error) {
       console.warn("Pixel Streaming configuration is unavailable", error);
@@ -625,6 +611,24 @@ async function connectPixelStreaming() {
   });
   state.pixelConnectPromise = pending;
   return pending;
+}
+
+function updatePreviewStreams(availableIds) {
+  const config = state.streamConfig;
+  const configured = config.pixel_streaming_streamers || [{id: config.pixel_streaming_streamer_id, label: "主视口"}];
+  const resolved = resolvePreviewStreams(configured, availableIds, state.selectedStreamerId);
+  const selector = $("streamSelector");
+  selector.replaceChildren();
+  for (const item of resolved.streams) {
+    const option = document.createElement("option");
+    const labels = {WristCamera: "机械臂腕部相机", SpacecraftOverview: "卫星总览相机"};
+    option.value = item.id;
+    option.textContent = labels[item.label] || item.label || item.id;
+    option.disabled = item.disabled;
+    selector.append(option);
+  }
+  selector.value = resolved.selectedId;
+  state.selectedStreamerId = resolved.selectedId;
 }
 
 function signallingUrl() {
@@ -952,8 +956,17 @@ function createPixelStream() {
     // Give negotiation its own deadline, independent of how long UE took to load.
     armPixelStreamingWatchdog(stream);
   });
-  stream.addEventListener("streamerListMessage", () => {
-    if (state.pixelStreaming !== stream || state.streamLive) return;
+  stream.addEventListener("streamerListMessage", (event) => {
+    if (state.pixelStreaming !== stream) return;
+    const available = event?.data?.messageStreamerList?.ids;
+    if (Array.isArray(available)) {
+      const previous = state.selectedStreamerId;
+      updatePreviewStreams(available);
+      if (previous !== state.selectedStreamerId && available.includes(state.selectedStreamerId)) {
+        config.setOptionSettingValue(OptionParameters.StreamerId, state.selectedStreamerId);
+      }
+    }
+    if (state.streamLive) return;
     // Healthy signalling / streamer discovery is progress, not a reason to
     // periodically replace a player while the renderer is coming online.
     armPixelStreamingWatchdog(stream);

@@ -142,11 +142,29 @@ def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tm
     monkeypatch.setattr(runtime, "_remember_renderer", lambda *args, **kwargs: None)
     runtime._ensure_renderer()
     command = commands[0]
-    assert command[command.index("-PixelStreamingCameraIds") + 1] == ",".join(config.runtime_pixel_streaming_camera_ids)
+    assert command[command.index("-PixelStreamingCameraIds") + 1] == "team/camera/spacecraft_overview,team/camera/sarm_wrist_cam"
     assert command[command.index("-PixelStreamingCameraFps") + 1] == "60"
     assert command[command.index("-PixelStreamingCameraWidth") + 1] == "640"
     assert command[command.index("-PixelStreamingCameraHeight") + 1] == "360"
     assert command[command.index("-EncoderMinQuality") + 1] == "65"
+
+
+def test_preview_aliases_are_scoped_to_configured_cameras_in_stream_tokens(tmp_path):
+    from fastapi.testclient import TestClient
+    from space_arm_platform.app import PlatformConfig, create_app
+    from space_arm_platform.stream_access import verify_stream_access_token
+    (tmp_path / "frontend").mkdir()
+    app = create_app(PlatformConfig(project_root=tmp_path, data_root=tmp_path / "episodes",
+        simulation_port=0, capture_port=0, pixel_streaming_streamer_id="own",
+        pixel_streaming_camera_streamers=(("own__teleop_camera_sarm_wrist_cam", "WristCamera"), ("custom", "Custom")),
+        stream_access_jwt_secret="test-secret"))
+    with TestClient(app) as client:
+        client.post('/api/auth/login', json={"username": "admin", "password": "ChangeMe123!"})
+        data = client.get('/api/client-config').json()
+        assert data['pixel_streaming_streamers'][1]['aliases'] == ['own__team_camera_sarm_wrist_cam']
+        assert 'aliases' not in data['pixel_streaming_streamers'][2]
+        claims = verify_stream_access_token('test-secret', data['pixel_streaming_access_token'])
+        assert claims['streamer_ids'] == ['own', 'own__teleop_camera_sarm_wrist_cam', 'own__team_camera_sarm_wrist_cam', 'custom']
 
 
 def test_handoff_refuses_failed_or_different_model(tmp_path):

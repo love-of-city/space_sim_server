@@ -482,6 +482,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 for streamer_id, label in config.pixel_streaming_camera_streamers
             ),
         ]
+        prefix = config.pixel_streaming_streamer_id + "__teleop_camera_"
+        for item in streamers[1:]:
+            if item["id"].startswith(prefix):
+                item["aliases"] = [config.pixel_streaming_streamer_id + "__team_camera_" + item["id"].removeprefix(prefix)]
         response = {
             "preview_transport": "pixel_streaming_2",
             "pixel_streaming_player_port": config.pixel_streaming_player_port,
@@ -494,7 +498,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if config.stream_access_jwt_secret:
             response["pixel_streaming_access_token"] = issue_stream_access_token(
                 config.stream_access_jwt_secret,
-                (item["id"] for item in streamers),
+                (identifier for item in streamers for identifier in [item["id"], *item.get("aliases", [])]),
                 ttl_seconds=config.stream_access_token_ttl_seconds,
             )
         return response

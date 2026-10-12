@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { resolvePreviewStreams } from '../preview_streams.js';
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const lifecycle = source.slice(source.indexOf("function disposePixelStream()"), source.indexOf("function applyControlLimits("));
@@ -28,11 +29,15 @@ function harness() {
     state, $, window: {}, PixelStreaming: Player, Config: class {
       constructor(options) { this.initialSettings = options.initialSettings; }
       setNumericSetting(key, value) { this.initialSettings[key] = value; }
+      setOptionSettingValue(key, value) { (this.optionUpdates ||= []).push([key, value]); }
     }, queueMicrotask,
-    TextParameters: {}, OptionParameters: {}, NumericParameters: { WebRTCFPS: "WebRTCFPS", MinQuality: "MinQuality" }, Flags: {},
+    TextParameters: {}, OptionParameters: {StreamerId: "StreamerId"}, NumericParameters: { WebRTCFPS: "WebRTCFPS", MinQuality: "MinQuality" }, Flags: {},
     signallingUrl: () => "ws://localhost/", setPixelStreamingInputEnabled() {},
     resetWebRtcStats() {}, updateWebRtcStats() { statsUpdates++; },
     connectPixelStreaming() { reconnects++; },
+    updatePreviewStreams(ids) {
+      state.selectedStreamerId = resolvePreviewStreams(state.streamConfig.pixel_streaming_streamers, ids, state.selectedStreamerId).selectedId;
+    },
     setFreeCameraMode(enabled) { state.freeCameraMode = enabled; },
     setTimeout(fn, delay) { const id = ++nextId; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -49,6 +54,31 @@ test("disconnecting a retired player cannot create an orphan reconnect timer", (
   assert.equal(h.timers.size, 1, "only the current player's startup watchdog remains");
   assert.equal([...h.timers.values()][0].delay, 60000);
   h.players[1].emit("webRtcConnected");
+  assert.equal(h.timers.size, 0);
+});
+
+test('camera discovery switches a waiting logical camera once without recreating the player', () => {
+  const h = harness();
+  h.state.streamConfig = {pixel_streaming_streamers: [{id: 'main'}, {id: 'arm-wrist', aliases: ['flight-wrist']}]};
+  h.state.selectedStreamerId = 'arm-wrist';
+  h.context.createPixelStream();
+  const event = {data: {messageStreamerList: {ids: ['main', 'flight-wrist']}}};
+  h.players[0].emit('streamerListMessage', event);
+  h.players[0].emit('streamerListMessage', event);
+  assert.equal(h.state.selectedStreamerId, 'flight-wrist');
+  assert.deepEqual(h.state.pixelConfig.optionUpdates, [['StreamerId', 'flight-wrist']]);
+  assert.equal(h.players.length, 1);
+});
+
+test('discovering flight cameras preserves a healthy main preview', () => {
+  const h = harness();
+  h.state.streamConfig = {pixel_streaming_streamers: [{id: 'main'}, {id: 'arm-wrist', aliases: ['flight-wrist']}]};
+  h.state.selectedStreamerId = 'main';
+  h.context.createPixelStream();
+  h.players[0].emit('webRtcConnected');
+  h.players[0].emit('streamerListMessage', {data: {messageStreamerList: {ids: ['main', 'flight-wrist']}}});
+  assert.equal(h.state.selectedStreamerId, 'main');
+  assert.equal(h.state.pixelConfig.optionUpdates, undefined);
   assert.equal(h.timers.size, 0);
 });
 

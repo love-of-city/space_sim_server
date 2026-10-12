@@ -339,6 +339,10 @@ class RendezvousRuntime:
                    "-EncoderMinQuality", str(getattr(cfg, "runtime_encoder_min_quality", 60))]
         cameras = getattr(cfg, "runtime_pixel_streaming_camera_ids", ())
         if cameras:
+            # The orbital manifest keeps the team's model under its flight
+            # namespace; the console resolves these streams as the same cameras.
+            cameras = tuple("team/" + camera.removeprefix("teleop/") if camera.startswith("teleop/") else camera
+                            for camera in cameras)
             command.extend([
                 "-PixelStreamingCameraIds", ",".join(cameras),
                 "-PixelStreamingCameraWidth", str(cfg.runtime_pixel_streaming_camera_width),

@@ -41,7 +41,7 @@ class RendezvousState(BaseModel):
         ):
             raise ValueError("a run_id is required")
         if not isinstance(self.metadata.get("phase"), str):
-            raise TypeError("a mission phase is required")
+            raise ValueError("a mission phase is required")
         return self
 
 
@@ -54,6 +54,7 @@ class RendezvousHub:
         self._received_at_ns: int | None = None
         self._connected = False
         self._writers: set[asyncio.StreamWriter] = set()
+        self._active_writer: asyncio.StreamWriter | None = None
 
     async def start(self, host: str, port: int):
         self._server = await asyncio.start_server(self._handle, host, port)
@@ -81,10 +82,16 @@ class RendezvousHub:
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self._writers.add(writer)
-        self._connected = True
+        stream_run_id = None
         try:
             while True:
                 state = RendezvousState.model_validate(await read_async(reader))
+                run_id = state.metadata["run_id"]
+                if stream_run_id is not None:
+                    if self._active_writer is not writer:
+                        break  # A newer validated publisher owns the state.
+                    if run_id != stream_run_id:
+                        raise ValueError("a state connection must retain its run_id")
                 if (
                     self._latest is not None
                     and state.metadata["run_id"] == self._latest.metadata["run_id"]
@@ -93,13 +100,25 @@ class RendezvousHub:
                     raise ValueError(
                         "rendezvous timestamps must increase within one run"
                     )
+                # An invalid/empty connection must not evict the active stream.
+                # Promote only after validating the first packet, then close
+                # the old peer so buffered old states cannot replace new ones.
+                if stream_run_id is None:
+                    previous = self._active_writer
+                    self._active_writer = writer
+                    stream_run_id = run_id
+                    if previous is not None and previous is not writer:
+                        previous.close()
+                self._connected = True
                 self._latest = state
                 self._received_at_ns = time.time_ns()
         except (asyncio.IncompleteReadError, ConnectionError, ValueError):
             pass
         finally:
             self._writers.discard(writer)
-            self._connected = bool(self._writers)
+            if self._active_writer is writer:
+                self._active_writer = None
+                self._connected = False
             writer.close()
             with contextlib.suppress(ConnectionError):
                 await writer.wait_closed()

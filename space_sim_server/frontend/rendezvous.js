@@ -1,4 +1,5 @@
 import { rendezvousPlayerUrl } from './rendezvous_player.js';
+import { RendezvousSession, requestJson } from './rendezvous_client.js';
 const byId = (id) => document.getElementById(id);
 const points = [];
 function missionOptions() {
@@ -8,7 +9,9 @@ function missionOptions() {
     drag_enabled: byId('dragEnabled').checked, srp_enabled: byId('srpEnabled').checked};
 }
 let currentRun = null;
-let requesting = false;
+const session = new RendezvousSession();
+let lastRuntime = {};
+let stateError = false;
 let playerUrl = null;
 const phases = {'Orbit raising':'升轨飞行', 'Team approach':'团队双星接近', '100 m handoff hold':'100 米外交接保持', 'Abort':'已中止', 'Distant approach':'远距离接近', 'Transfer acquisition':'交会准备',
   'Transfer burn 1':'第一次变轨', 'Transfer coast':'滑行接近', 'Transfer turn':'姿态转向',
@@ -17,12 +20,13 @@ const phases = {'Orbit raising':'升轨飞行', 'Team approach':'团队双星接
   'Final approach':'末段接近', 'Contact approach':'接触接近', 'Closing jaws':'捕获爪闭合',
   'Soft capture':'软捕获', 'Retracting':'回撤', 'Seating':'法兰贴合', 'Coupled':'硬锁与联合体运动'};
 
-async function request(path, options = {}) {
-  const response = await fetch(path, { cache: "no-store", ...options });
-  if (response.status === 401) throw new Error("请先返回控制台登录");
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-  return data;
+const request = requestJson;
+
+function updateButtons() {
+  byId('start').disabled = session.busy || stateError || !lastRuntime.configured || lastRuntime.running;
+  byId('demo').disabled = session.busy || stateError || !lastRuntime.demo_available || lastRuntime.running;
+  byId('stop').disabled = session.busy || !lastRuntime.running;
+  byId('continue').disabled = session.busy || stateError || lastRuntime.running;
 }
 
 function draw() {
@@ -49,9 +53,11 @@ function draw() {
 }
 
 async function refresh() {
-  try {
-    const data = await request("/api/rendezvous/state");
+  await session.refresh((signal) => request('/api/rendezvous/state', {signal}), (data) => {
+    if (stateError) byId('message').textContent = '连接已恢复';
+    stateError = false;
     const run = data.runtime || {};
+    lastRuntime = run;
     if (data.run_id !== currentRun) {
       currentRun = data.run_id;
       points.length = 0;
@@ -87,7 +93,6 @@ async function refresh() {
     byId('resultFiles').hidden = !run.report;
     byId('handoffLink').hidden = !team || !run.report?.basic_nominal_passed;
     byId('continue').hidden = !team || !run.report?.basic_nominal_passed;
-    byId('continue').disabled = requesting || run.running;
     byId("output").textContent = run.output_dir || "—";
     byId("log").textContent = run.log_file || "—";
     for (const [element, name] of [
@@ -101,19 +106,33 @@ async function refresh() {
         figure.dataset.directory = run.output_dir;
       }
     }
-    byId("start").disabled = requesting || !run.configured || run.running;
-    byId('demo').disabled = requesting || !run.demo_available || run.running;
-    byId("stop").disabled = !run.running;
-  } catch (error) {
+    updateButtons();
+  }, (error) => {
+    stateError = true;
+    byId('connection').textContent = '状态连接中断';
     byId("message").textContent = error.message;
+    updateButtons();
+  });
+}
+
+async function perform(work) {
+  if (session.busy) return;
+  try {
+    await session.act(async () => {
+      updateButtons();
+      await work();
+    });
+  } catch (error) {
+    byId('message').textContent = error.message;
+  } finally {
+    updateButtons();
+    await refresh();
   }
 }
 
 for (const action of ["start", "stop", "demo"]) {
   byId(action).addEventListener("click", async () => {
-    try {
-      requesting = true;
-      byId('demo').disabled = byId('start').disabled = true;
+    await perform(async () => {
       byId("message").textContent = "正在处理…";
       await request(`/api/rendezvous/${action === 'demo' ? 'start' : action}`, {
         method: "POST",
@@ -128,12 +147,7 @@ for (const action of ["start", "stop", "demo"]) {
         byId('demoVideo').src = playerUrl;
       }
       byId("message").textContent = action === 'demo' ? '正在播放已验收任务的 15 秒演示' : action === "start" ? "任务已启动" : "任务已停止";
-      requesting = false;
-      await refresh();
-    } catch (error) {
-      requesting = false;
-      byId("message").textContent = error.message;
-    }
+    });
   });
 }
 
@@ -143,16 +157,11 @@ request('/api/client-config').then((config) => {
 }).catch((error) => { byId('message').textContent = `视频连接失败：${error.message}`; });
 refresh();
 byId('continue').addEventListener('click', async () => {
-  requesting = true;
-  byId('continue').disabled = true;
-  byId('message').textContent = '正在将双星状态交接到机械臂场景…';
-  try {
+  await perform(async () => {
+    byId('message').textContent = '正在将双星状态交接到机械臂场景…';
     await request('/api/rendezvous/handoff', {method: 'POST'});
     window.location.assign('/');
-  } catch (error) {
-    byId('message').textContent = error.message;
-    requesting = false;
-  }
+  });
 });
 setInterval(refresh, 100);
 byId('scenario').addEventListener('change', () => {

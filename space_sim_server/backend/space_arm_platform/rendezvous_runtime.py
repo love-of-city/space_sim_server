@@ -325,8 +325,15 @@ class RendezvousRuntime:
                    "-PixelStreamingId", cfg.pixel_streaming_streamer_id,
                    "-PixelStreamingFps", str(round(cfg.runtime_preview_rate))]
         try:
-            result = subprocess.run(command, cwd=adapter, capture_output=True, timeout=60,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            self.log_root.mkdir(parents=True, exist_ok=True)
+            # A Windows/RDP launch lets long-lived UE inherit the launcher's
+            # stdout handles. PIPE/communicate then waits for UE to exit even
+            # after PowerShell has finished (including timeout cleanup).
+            # A regular log file preserves diagnostics without waiting on EOF.
+            with (self.log_root / "renderer-start.log").open("ab") as output:
+                result = subprocess.run(command, cwd=adapter, stdin=subprocess.DEVNULL,
+                                        stdout=output, stderr=subprocess.STDOUT, timeout=60,
+                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         except (OSError, subprocess.TimeoutExpired) as error:
             raise RuntimeError("无法启动本工作区的 UE 渲染器") from error
         if result.returncode:

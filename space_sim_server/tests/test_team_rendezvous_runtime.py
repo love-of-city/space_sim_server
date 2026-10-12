@@ -2,14 +2,71 @@
 
 import hashlib
 import json
+import contextlib
+import os
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from space_arm_platform.app import RendezvousStart
 from space_arm_platform.rendezvous_runtime import RendezvousRuntime
 
 from simulation.orbital_rendezvous.handoff import load_handoff
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows child handle inheritance")
+def test_renderer_launcher_does_not_wait_for_long_lived_child_stdout(tmp_path, monkeypatch):
+    """Exercise the actual PowerShell Start-Process path without launching UE."""
+    import psutil
+
+    adapter = tmp_path / "adapter"
+    scripts = adapter / "scripts"
+    scripts.mkdir(parents=True)
+    child_pid_file = tmp_path / "child.pid"
+    marker = f"renderer-probe-{tmp_path.name}"
+    quote = lambda value: "'" + str(value).replace("'", "''") + "'"
+    (scripts / "start_renderer.ps1").write_text(
+        "$ErrorActionPreference='Stop'\n"
+        f"$child = Start-Process -FilePath {quote(sys.executable)} "
+        f"-ArgumentList @('-u','-c','\"import time; time.sleep(30) # {marker}\"') -PassThru -WindowStyle Hidden\n"
+        f"$child.Id | Set-Content -LiteralPath {quote(child_pid_file)} -Encoding ascii\n"
+        "Write-Output 'renderer launcher finished'\n", encoding="utf-8")
+    config = SimpleNamespace(runtime_adapter_root=adapter, runtime_unreal_root=tmp_path,
+                             runtime_powershell_exe="pwsh", runtime_pixel_streamer_port=28888,
+                             pixel_streaming_streamer_id="test", runtime_preview_rate=90,
+                             runtime_renderer_ready_timeout=2)
+    runtime = RendezvousRuntime(None, Path(sys.executable), 0, tmp_path / "logs", tmp_path,
+                                launch_config=config)
+    connections = 0
+
+    def connect(*args, **kwargs):
+        nonlocal connections
+        connections += 1
+        if connections == 1:
+            raise OSError("renderer not started")
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr("space_arm_platform.rendezvous_runtime.socket.create_connection", connect)
+    monkeypatch.setattr(runtime, "_remember_renderer", lambda *args, **kwargs: None)
+    started = time.monotonic()
+    try:
+        runtime._ensure_renderer()
+        assert time.monotonic() - started < 10, "Launcher waited for child pipe EOF"
+        assert psutil.Process(int(child_pid_file.read_text())).is_running()
+        assert "renderer launcher finished" in (tmp_path / "logs/renderer-start.log").read_text()
+    finally:
+        if child_pid_file.exists():
+            with contextlib.suppress(psutil.NoSuchProcess):
+                child = psutil.Process(int(child_pid_file.read_text()))
+                # A failing test may outlive the probe; never clean a reused PID.
+                if any(marker in argument for argument in child.cmdline()):
+                    owned = [*child.children(recursive=True), child]
+                    for process in owned:
+                        with contextlib.suppress(psutil.NoSuchProcess):
+                            process.kill()
+                    psutil.wait_procs(owned, timeout=5)
 
 
 @pytest.mark.parametrize("render_port", [5558, 25558])

@@ -4,11 +4,82 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from fastapi.testclient import TestClient
 from space_arm_platform.app import PlatformConfig, create_app
 from space_arm_platform.protocol import write_async
 from space_arm_platform.rendezvous_hub import RendezvousHub, RendezvousState
 from space_arm_platform.rendezvous_runtime import RendezvousRuntime
+
+
+def packet(run_id, time_s=0.5):
+    body = dict(position_m=[7_000_000.0, 0.0, 0.0], velocity_m_s=[0.0, 7500.0, 0.0],
+                attitude_wxyz=[1.0, 0.0, 0.0, 0.0], angular_velocity_rad_s=[0.0, 0.0, 0.0])
+    return dict(protocol="space-sim-state/1", type="state", sim_time_s=time_s,
+                bodies=[dict(body, body_id="rendezvous/target"), dict(body, body_id="rendezvous/chaser")],
+                metadata={"run_id": run_id, "phase": "Team approach"})
+
+
+async def wait_until(predicate):
+    for _ in range(300):
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("rendezvous transport did not reach the expected state")
+
+
+@pytest.mark.parametrize("phase", [None, 5, [], {}])
+def test_invalid_phase_is_a_validation_error(phase):
+    value = packet("invalid")
+    value["metadata"]["phase"] = phase
+    with pytest.raises(ValueError, match="phase"):
+        RendezvousState.model_validate(value)
+
+
+def test_only_latest_validated_connection_can_publish():
+    async def exercise():
+        hub = RendezvousHub()
+        await hub.start("127.0.0.1", 0)
+        clients = []
+        errors = []
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _loop, context: errors.append(context))
+        try:
+            old_reader, old = await asyncio.open_connection("127.0.0.1", hub.bound_port)
+            clients.append(old)
+            await write_async(old, packet("old"))
+            await wait_until(lambda: hub.status().get("run_id") == "old")
+            invalid_reader, invalid = await asyncio.open_connection("127.0.0.1", hub.bound_port)
+            clients.append(invalid)
+            bad = packet("bad")
+            bad["metadata"]["phase"] = None
+            await write_async(invalid, bad)
+            assert await asyncio.wait_for(invalid_reader.read(), 3) == b""
+            assert hub.status()["connected"] and hub.status()["run_id"] == "old"
+            reader, current = await asyncio.open_connection("127.0.0.1", hub.bound_port)
+            clients.append(current)
+            await write_async(current, packet("new", 0.0))
+            await wait_until(lambda: hub.status().get("run_id") == "new")
+            assert await asyncio.wait_for(old_reader.read(), 3) == b""
+            assert hub.status()["connected"]
+            await write_async(current, packet("new", 0.5))
+            await wait_until(lambda: hub.status().get("sim_time_s") == 0.5)
+            # A publisher cannot silently change mission identity mid-stream.
+            await write_async(current, packet("unexpected", 1.0))
+            assert await asyncio.wait_for(reader.read(), 3) == b""
+            await wait_until(lambda: not hub.status()["connected"])
+            assert hub.status()["run_id"] == "new"
+            assert not errors, errors
+        finally:
+            for writer in clients:
+                writer.close()
+            await asyncio.gather(*(w.wait_closed() for w in clients), return_exceptions=True)
+            await hub.close()
+            loop.set_exception_handler(previous_handler)
+
+    asyncio.run(exercise())
 
 
 def test_rendezvous_state_transport():

@@ -36,6 +36,7 @@ class RendezvousRuntime:
         self._renderer_identity = None
         self._options = FlightOptions()
         self._lock = threading.RLock()
+        self._cancel_start = threading.Event()
         self._scenario = "legacy"
         self._process: subprocess.Popen | None = None
         self._log = None
@@ -75,6 +76,16 @@ class RendezvousRuntime:
     @property
     def output_dir(self) -> Path | None:
         return self._output_dir
+
+    def prepare_start(self):
+        self._cancel_start.clear()
+
+    def cancel_start(self):
+        self._cancel_start.set()
+
+    def _check_start_cancelled(self):
+        if self._cancel_start.is_set():
+            raise RuntimeError("交会启动已取消")
 
     def status(self) -> dict:
         if self._mode == "demo" and self._demo is not None:
@@ -240,6 +251,7 @@ class RendezvousRuntime:
             self._log = None
         if live and self.launch_config is not None:
             self._ensure_renderer()
+        self._check_start_cancelled()
         self._mode = "simulation"
         self._options = resolved_options
         self._scenario = scenario
@@ -341,6 +353,7 @@ class RendezvousRuntime:
         self._remember_renderer(adapter, require_listening=False)
         deadline = time.monotonic() + cfg.runtime_renderer_ready_timeout
         while time.monotonic() < deadline:
+            self._check_start_cancelled()
             if ready():
                 self._remember_renderer(adapter)
                 return

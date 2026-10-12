@@ -68,7 +68,7 @@ python -m simulation.orbital_rendezvous.run --step 0.025 --output-dir run/team_h
 python -m simulation.orbital_rendezvous.run --navigation-loss 100 --output-dir run/team_nav_loss
 ```
 
-登录平台后打开 `/static/rendezvous.html`：配置误差、选择场景、启动、查看实时 GNSS 和 UE 画面、停止或等待完成、下载报告/原始遥测/配置/交接文件。平台自动启动所属工作区的 UE；与标准机械臂场景互斥。后台使用 `SPACE_SIM_RENDEZVOUS_PYTHON` 指定原生解释器，`SPACE_SIM_TEAM_CATALOG` 可覆盖资产目录。继续运行下一场交会时复用渲染器；切换到机械臂场景时释放所属渲染器，避免两套状态争用。
+登录原控制台，在“任务与场景”选择交会模式：配置误差、启动、在原主视窗查看实时 UE 画面与右侧导航遥测、停止或等待完成、下载报告/原始遥测/配置/交接文件。完成后点击“接续遥操作”，同一页面切回团队的控制和采集面板。旧 `/static/rendezvous.html` 自动重定向至控制台。平台自动启动所属工作区的 UE；与标准机械臂场景互斥。后台使用 `SPACE_SIM_RENDEZVOUS_PYTHON` 指定原生解释器，`SPACE_SIM_TEAM_CATALOG` 可覆盖资产目录。继续运行下一场交会时复用渲染器；切换到机械臂场景时释放所属渲染器，界面允许短暂重连。任务编号关联交会输出、源 run_id、场景实例与 LeRobot 采集；刷新只恢复状态，不自动启动或接续。
 
 只有已通过完整判据且源模型匹配的结果可点击“交接到机械臂场景”。管理员 API 为 `POST /api/rendezvous/handoff`，在启动锁内完成场景切换。交接后使用主页面的原有控制、采集、重置与停止功能。当前任务只验收交接、控制响应和双相机录制，不声明完成抓取。
 

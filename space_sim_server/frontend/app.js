@@ -14,6 +14,7 @@ import "./styles.css";
 import { FreeCameraController } from "./free_camera.js";
 import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "./control_status.js";
+import { createMissionPanel } from "./mission_panel.js";
 
 const gamepadInput = new GamepadInput();
 
@@ -55,6 +56,9 @@ const state = {
   stateTimer: null,
   stateRequestSequence: 0,
   sceneTransitionPending: false,
+  missionMode: "teleop",
+  mission: null,
+  stateReadPending: false,
   gamepadSnapshot: null,
 };
 
@@ -95,6 +99,9 @@ function configureSceneSelection() {
   configureInitialJoints();
 }
 const jointAngles = createJointAnglePanel($("jointAngleGrid"), $("jointAngleState"));
+const missionPanel = createMissionPanel({$, state, apiRequest, refresh: refreshState,
+  message: setMessage, configureScene: configureSceneSelection,
+  reconnect: () => { if (!state.streamLive) connectPixelStreaming(); }});
 const controlKeys = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "KeyQ", "KeyE", "KeyR", "KeyF", "ShiftLeft", "ShiftRight", "Escape"]);
 
 function setPixelStreamingInputEnabled(keyboardEnabled, mouseEnabled) {
@@ -232,6 +239,9 @@ async function deleteOperator(user) {
 }
 
 function shutdownAuthenticatedApp() {
+  state.stateRequestSequence += 1;
+  state.stateReadPending = false;
+  missionPanel.reset();
   exitOperationMode("");
   if (state.actionTimer) clearInterval(state.actionTimer);
   if (state.stateTimer) clearInterval(state.stateTimer);
@@ -244,6 +254,7 @@ function shutdownAuthenticatedApp() {
 
 async function startAuthenticatedApp() {
   await loadSceneCatalog();
+  await missionPanel.load();
   await connectPixelStreaming();
   if (!state.currentUser) return;
   if (state.streamConfig) connect();
@@ -252,7 +263,7 @@ async function startAuthenticatedApp() {
   if (!state.currentUser) return;
   updateOperationUI();
   if (!state.actionTimer) state.actionTimer = setInterval(sendAction, 33);
-  if (!state.stateTimer) state.stateTimer = setInterval(() => { jointAngles.checkFreshness(); refreshState(); }, 1500);
+  if (!state.stateTimer) state.stateTimer = setInterval(() => { jointAngles.checkFreshness(); refreshState(); }, 500);
 }
 
 async function initialize() {
@@ -366,6 +377,7 @@ async function readApiResponse(response) {
 
 async function startScene() {
   if (state.sceneTransitionPending) return;
+  if (state.missionMode && state.missionMode !== "teleop") return missionPanel.startFlight();
   let initialAngles;
   let operatingAngles;
   const operatingProfile = [ZERO_START_PROFILE, "teleop-zero-prepare-v2"].includes($("randomizationProfile").value);
@@ -1097,8 +1109,9 @@ function updateOperationUI() {
       ? `${freeCamera.inputMode === "raw" ? "原始输入 · 固定增益" : "兼容输入 · 受系统指针设置影响"}；WASD / QE 移动；C / Home / Esc 返回`
       : "点击视频画面锁定鼠标后再转动；C / Home / Esc 返回";
   } else if (!state.sceneReady) {
-    hintTitle.textContent = "等待场景运行";
-    hintDetail.textContent = "场景运行后点击画面进入操作";
+    const flight = state.mission?.stage === "flight";
+    hintTitle.textContent = flight ? state.mission.active ? "交会自动控制" : "交会任务已结束" : "等待场景运行";
+    hintDetail.textContent = flight ? "C 查看自由视角；可在右侧查看结果或接续遥操作" : "场景运行后点击画面进入操作";
   } else if (!state.connected) {
     hintTitle.textContent = "操作链路未连接";
     hintDetail.textContent = "等待后端 WebSocket 恢复";
@@ -1218,10 +1231,13 @@ function highlightKeys() {
 
 async function refreshState() {
   if (state.sceneTransitionPending) return;
+  if (state.stateReadPending && state.stateReadPending === state.stateRequestSequence) return;
   const sequence = ++state.stateRequestSequence;
+  state.stateReadPending = sequence;
   try {
-    const response = await apiRequest("/api/state", { cache: "no-store" });
+    const response = await apiRequest("/api/state", { cache: "no-store", signal: globalThis.AbortSignal?.timeout(10000) });
     const data = await response.json();
+    if (response.ok === false) throw new Error(data.detail || "无法读取任务状态");
     if (sequence !== state.stateRequestSequence) return;
     state.simulationConnected = data.simulation.connected;
     state.simulationResetting = data.simulation.resetting === true;
@@ -1231,6 +1247,15 @@ async function refreshState() {
     state.activeEpisode = data.active_episode;
     $("episodePath").textContent = data.episode_directory || "—";
     applySceneRuntime(data.scene_runtime || {});
+    if (data.mission) {
+      setOnline("backendDot", true);
+      $("backendState").textContent = "后端在线";
+      missionPanel.render(data.mission);
+      const flightOnline = data.mission.stage === "flight" && data.mission.telemetry?.connected;
+      setOnline("simDot", data.simulation.connected || flightOnline);
+      $("simState").textContent = flightOnline ? "交会仿真在线" : data.simulation.connected ? "仿真在线" : "仿真未连接";
+      updateOperationUI();
+    }
     if (!state.simulationConnected || state.simulationResetting || !state.sceneReady) {
       jointAngles.clear(state.simulationResetting ? "场景重置中" : "等待运行场景的遥测");
     }
@@ -1243,6 +1268,9 @@ async function refreshState() {
   } catch (_) {
     if (sequence !== state.stateRequestSequence) return;
     setOnline("backendDot", false);
+    if (state.mission) missionPanel.failed();
+  } finally {
+    if (state.stateReadPending === sequence) state.stateReadPending = false;
   }
 }
 

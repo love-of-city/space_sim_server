@@ -35,7 +35,6 @@
       <span class="account-chip"><strong id="currentUsername">—</strong><small id="currentRole">—</small></span>
       <button id="changePasswordButton" class="quiet-button account-logout" type="button">修改密码</button>
       <button id="logoutButton" class="quiet-button account-logout" type="button">退出</button>
-      <a class="quiet-button account-logout" href="/static/rendezvous.html">卫星交会任务</a>
     </div>
   </header>
 
@@ -84,31 +83,34 @@
       <section class="control-section control-intro">
         <div>
           <p class="eyebrow">OPERATOR CONTROL</p>
-          <h1>末端六维遥操作</h1>
+          <h1 id="controlHeading">末端六维遥操作</h1>
         </div>
-        <p>点击画面操作机械臂，Shift 切换姿态；C 进入全局自由视角，WASD/QE 移动、Shift 加速、鼠标观察；C/Home 返回主视角，Esc 停止输入并退出。</p>
+        <p id="controlDescription">点击画面操作机械臂，Shift 切换姿态；C 进入全局自由视角，WASD/QE 移动、Shift 加速、鼠标观察；C/Home 返回主视角，Esc 停止输入并退出。</p>
       </section>
 
-      <section id="adminUsers" class="control-section admin-users" hidden>
-        <div class="section-heading"><h2>操作员管理</h2><span class="section-note">管理员</span></div>
+      <details id="adminUsers" class="control-section admin-users" hidden>
+        <summary class="section-heading"><h2>操作员管理</h2><span class="section-note">管理员</span></summary>
         <form id="createOperatorForm" class="admin-create-form">
           <input id="operatorUsername" placeholder="新操作员用户名" minlength="3" maxlength="64" required>
           <input id="operatorPassword" type="password" placeholder="初始密码（至少8位）" minlength="8" required>
           <button class="primary" type="submit">新增操作员</button>
         </form>
         <div id="operatorList" class="operator-list"></div>
-      </section>
+      </details>
 
-      <section class="control-section scene-controls">
+      <section id="mission" class="control-section scene-controls">
         <div class="section-heading">
-          <h2>场景实例</h2>
+          <h2>任务与场景</h2>
           <span id="scenePhase" class="section-status">平台空闲</span>
         </div>
+        <p id="missionStatus" class="mission-note" role="status" aria-live="polite">选择任务后启动</p>
         <div class="scene-form">
+          <label>任务模式<select id="missionMode"><option value="teleop">直接遥操作</option></select></label>
           <label>场景模板
             <select id="sceneTemplate" aria-describedby="sceneCollisionWarning"><option value="sarm-ground-validation-self-collision-grasp">SARM + 地面验证星（粗碰撞体·内部碰撞）</option></select>
           </label>
           <small id="sceneCollisionWarning">默认粗碰撞体版已启用目标内部碰撞；铰链附近采用近似间隙，接触角度不代表真实限位。旧粗盒版不计算目标内部碰撞；高精度三角网格版仅供实验，运行速度显著低于实时。</small>
+          <div id="teleopSettings" class="scene-form">
           <label>随机化配置
             <select id="randomizationProfile"><option value="teleop-zero-prepare-v2">六轴零位自动展开</option></select>
           </label>
@@ -182,24 +184,66 @@
             <span>启用 LeRobot v3 权威 RGB 采集能力</span>
           </label>
           <small id="sceneDatasetCaptureHelp">未开始采集时仅预览；点击“开始采集”后才开启严格截图与记录，结束后恢复预览。</small>
+          </div>
+          <div id="flightSettings" class="scene-form" hidden>
+            <p class="mission-note">使用团队双星模型，在 100 m 外保持后可接续遥操作。飞行期间自动导航与控制，机械臂输入停用。</p>
+            <div class="initial-joint-grid">
+              <label>随机种子<input id="missionSeed" type="number" min="0" max="4294967295" step="1" value="7" required></label>
+              <label>保持距离（m）<input id="missionHold" type="number" min="100.5" max="1000" step="any" value="110" required></label>
+            </div>
+            <details class="mission-options">
+              <summary>环境与误差参数</summary>
+              <div class="initial-joint-grid">
+                <label>GNSS 位置 σ（m）<input id="missionGnssPosition" type="number" min="0.001" max="100" step="any" value="3" required></label>
+                <label>GNSS 速度 σ（m/s）<input id="missionGnssVelocity" type="number" min="0.00001" max="10" step="any" value="0.5" required></label>
+                <label>初始位置 σ（m）<input id="missionInitialPosition" type="number" min="0" max="1000" step="any" value="10" required></label>
+                <label>轨道扰动 σ（m/s²）<input id="missionOrbitNoise" type="number" min="0" max="0.001" step="any" value="0.00002" required></label>
+              </div>
+              <label class="scene-checkbox"><input id="missionDrag" type="checkbox" checked>大气阻力</label>
+              <label class="scene-checkbox"><input id="missionSrp" type="checkbox" checked>太阳光压（含地影）</label>
+              <small>双星独立 GNSS 噪声按各轴 1σ 设置；随机扰动实际作用于动力学。地影阶段沿用默认无补光，画面可能变暗。</small>
+            </details>
+          </div>
         </div>
         <div class="scene-actions">
           <button id="startScene" class="primary" type="button">生成并启动场景</button>
           <button id="stopScene" type="button" disabled>停止场景</button>
+          <button id="continueMission" class="primary" type="button" hidden>接续遥操作</button>
         </div>
-        <dl class="scene-instance-summary">
+        <details class="scene-parameters"><summary>任务来源与记录</summary><pre id="missionProvenance">尚未创建任务</pre></details>
+        <dl id="sceneInstanceSummary" class="scene-instance-summary">
           <div><dt>实例</dt><dd id="sceneInstanceId">—</dd></div>
           <div><dt>Seed</dt><dd id="sceneInstanceSeed">—</dd></div>
           <div><dt>太阳光照</dt><dd id="sceneInstanceSunlight">—</dd></div>
           <div><dt>轨道起点</dt><dd id="sceneInstanceOrbitPhase">—</dd></div>
           <div><dt>待抓取物体</dt><dd id="sceneInstanceTarget">—</dd></div>
         </dl>
-        <details class="scene-parameters">
+        <details id="sceneDetails" class="scene-parameters">
           <summary>查看本次环境与随机参数</summary>
           <pre id="sceneParameters">尚未生成实例</pre>
         </details>
       </section>
 
+      <section id="flightTelemetry" class="control-section telemetry" hidden>
+        <div class="section-heading"><h2>交会遥测</h2><span id="missionConnection" class="section-status">等待任务</span></div>
+        <dl>
+          <div><dt>任务阶段</dt><dd id="missionPhase">—</dd></div>
+          <div><dt>仿真时间</dt><dd id="missionTime">—</dd></div>
+          <div><dt>双星质心距离</dt><dd id="missionRange">—</dd></div>
+          <div><dt>双星导航</dt><dd id="missionNavigation">—</dd></div>
+          <div><dt>追踪星原点高度</dt><dd id="missionAltitude">—</dd></div>
+          <div><dt>相对速度（惯性系）</dt><dd id="missionSpeed">—</dd></div>
+        </dl>
+        <p id="missionResult" class="mission-note">等待任务验收</p>
+        <canvas id="missionChart" width="620" height="200" aria-label="当前浏览会话记录的双星距离曲线"></canvas>
+        <small>距离曲线显示本次页面连接期间的采样；完整历史见原始遥测。</small>
+        <div id="missionFiles" class="mission-files" hidden>
+          <a href="/api/rendezvous/artifact/mission_report.json" download>验收报告</a>
+          <a href="/api/rendezvous/artifact/handoff.json" download>交接状态</a>
+          <a href="/api/rendezvous/artifact/team_telemetry.npz" download>原始遥测</a>
+          <a href="/api/rendezvous/artifact/mission_options.json" download>运行参数</a>
+        </div>
+      </section>
       <section class="control-section command-section">
         <div class="section-heading">
           <h2>实时指令</h2>

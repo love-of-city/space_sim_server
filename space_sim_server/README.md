@@ -10,7 +10,7 @@
 
 个人姿轨控待办、算法输入输出与证据索引见 [任务与复现](docs/AOC_SEVEN_TASKS.md)。
 
-登录后打开 `/static/rendezvous.html`，使用默认 **SARM＋地面验证星** 运行 7 km 接近或约 300→500 km 升轨后接近，在 100 m 外保持。交会使用团队 LocalMujocoStepper、Basilisk 在轨组件与原生飞轮，包含大气阻力、太阳光压、双星 GNSS 误差和未知轨道扰动。管理员可配置误差、自动启动 UE、查看质心距离、下载原始数据，并把成功结果连续交接到标准机械臂场景。模型、工程参数和验证标准见 [团队双星交会](docs/TEAM_RENDEZVOUS.md)。
+登录原控制台，在“任务与场景”选择交会模式，使用默认 **SARM＋地面验证星** 运行 7 km 接近或约 300→500 km 升轨后接近，在 100 m 外保持。交会使用团队 LocalMujocoStepper、Basilisk 在轨组件与原生飞轮，包含大气阻力、太阳光压、双星 GNSS 误差和未知轨道扰动。创建者及管理员可配置、启停任务，在原主视窗查看 UE 画面、下载结果，并在同一页面接续遥操作与采集。任务编号贯穿交会、场景和数据集；旧 `/static/rendezvous.html` 链接自动进入控制台。模型、工程参数和验证标准见 [团队双星交会](docs/TEAM_RENDEZVOUS.md)。
 
 后端默认使用自身 Python（需具备 Basilisk 及渲染适配器），也可通过 `SPACE_SIM_RENDEZVOUS_PYTHON` 指定仿真解释器。在本机 8768 端口接收只读 `space-sim-state/1`；UE 接收端监听 5558。团队模型任务不依赖旧示例仓库。需要历史通用模型示例时，再设置 `SPACE_SIM_RENDEZVOUS_REPO` 指向 `basilisk-rendezvous-demo`，并使用安装其依赖的 Python。
 

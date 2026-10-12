@@ -365,7 +365,7 @@ class SceneRuntimeManager:
             },
         }
 
-    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None) -> dict[str, Any]:
+    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         if request.template_id not in {item["id"] for item in SCENE_TEMPLATES}:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
@@ -393,6 +393,8 @@ class SceneRuntimeManager:
                     raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
+        if mission is not None:
+            instance["mission"] = dict(mission)
         if request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE:
             from .preparation_planning import prepare_arm_plan
             model_root = self.launch.model_root if self.launch else self.project_root / "model/SARM/platform"
@@ -431,7 +433,7 @@ class SceneRuntimeManager:
         self._last_instance = instance
         return instance
 
-    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None) -> dict[str, Any]:
+    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         if not self.launch:
             raise RuntimeError("scene runtime launching is not configured")
         if not self.launch.powershell_exe.is_file():
@@ -445,7 +447,7 @@ class SceneRuntimeManager:
             status = self.status()
             if status["active"]:
                 raise RuntimeError("a scene instance is already starting or running")
-            instance = self.create_instance(request, created_by, handoff=handoff)
+            instance = self.create_instance(request, created_by, handoff=handoff, mission=mission)
             instance_path = Path(instance["config_path"])
             script = launch_script
             command = [

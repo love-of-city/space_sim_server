@@ -1,0 +1,374 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MJCF conversion of SARM.urdf.
+
+  Place the original STL files in a "meshes" directory next to this file:
+  base_link.STL, link1.STL, ..., link6.STL, finger1.STL, finger2.STL.
+
+  URDF joint velocity limits are recorded in comments because MJCF hinge/slide
+  joints do not directly enforce velocity limits. Joint ranges, effort limits,
+  link masses, centers of mass and full inertia tensors are preserved.
+-->
+<mujoco model="SARM">
+  <compiler angle="radian" meshdir="meshes" autolimits="true"
+            inertiafromgeom="auto"/>
+  <!-- High-resolution convex models can generate many simultaneous contacts. -->
+  <size memory="128M"/>
+
+  <!-- Closed-loop finger linkage benefits from a smaller integration step. -->
+  <option gravity="0 0 0" timestep="0.001" integrator="implicitfast"/>
+
+  <visual>
+      <!-- 默认相机自带的头灯 -->
+      <headlight
+          ambient="0.2 0.2 0.2"
+          diffuse="0.5 0.5 0.5"
+          specular="0.2 0.2 0.2"/>
+
+      <!-- 阴影质量 -->
+      <quality shadowsize="4096"/>
+      <rgba haze="0.15 0.20 0.25 1"/>
+  </visual>
+
+  <default>
+    <default class="robot_joint">
+      <joint limited="true" damping="0.1" armature="0.01"/>
+    </default>
+    <default class="robot_geom">
+      <!-- Source mesh defaults; the convex builder separates visual and collision geoms. -->
+      <geom type="mesh" contype="1" conaffinity="1" condim="3"
+            friction="0.8 0.005 0.0001" density="0"/>
+    </default>
+    <default class="object_geom">
+      <!-- Object STL files use millimetres; their mesh assets are scaled below. -->
+      <geom type="mesh" contype="1" conaffinity="1" condim="3"
+            friction="0.8 0.005 0.0001" density="1000"/>
+    </default>
+  </default>
+
+  <asset>
+    <!-- The source base mesh uses millimetres and exceeds MuJoCo's STL face limit. -->
+    <mesh name="base_link_mesh" file="base_link_mujoco.stl"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="task_box_base_mesh" file="task_box_base.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="asm_board1_mesh" file="ASM_board1.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="asm_board2_mesh" file="ASM_board2.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="asm_board3_mesh" file="ASM_board3.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="hook_mesh" file="hook.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="limit_clip_mesh" file="limit_clip.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="link1_mesh" file="link1.STL"/>
+    <mesh name="link2_mesh" file="link2.STL"/>
+    <mesh name="link3_mesh" file="link3.STL"/>
+    <mesh name="link4_mesh" file="link4.STL"/>
+    <mesh name="link5_mesh" file="link5.STL"/>
+    <mesh name="link6_mesh" file="link6.STL"/>
+    <mesh name="ee_base_mesh" file="ee_base.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="ee_link11_mesh" file="ee_link11.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="ee_link12_mesh" file="ee_link12.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="ee_link21_mesh" file="ee_link21.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="ee_link22_mesh" file="ee_link22.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="ee_finger1_mesh" file="ee_finger1.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="ee_finger2_mesh" file="ee_finger2.STL" scale="0.001 0.001 0.001"/>
+
+    <mesh name="aviation_plug_mesh" file="aviation_plug.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="guide_plug_mesh" file="guide_plug.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="cylindrical_plug_mesh" file="cylindrical_plug.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="bolt_mesh" file="bolt.STL" scale="0.001 0.001 0.001"/>
+    <mesh name="drawer_base_mesh" file="drawer_base.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="drawer_buckle_mesh" file="drawer_buckle.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="locking_rod_mesh" file="locking_rod.STL"
+          scale="0.001 0.001 0.001"/>
+    <mesh name="fastener_mesh" file="fastener.STL"
+          scale="0.001 0.001 0.001"/>
+
+    <texture
+            type="skybox"
+            builtin="gradient"
+            rgb1="0.3 0.5 0.8"
+            rgb2="0.02 0.02 0.05"
+            width="512"
+            height="512"/>
+  </asset>
+
+  <worldbody>
+    <light
+        name="main_light"
+        directional="true"
+        pos="0 0 5"
+        dir="-0.3 -0.4 -1"
+        diffuse="0.8 0.8 0.8"
+        specular="0.3 0.3 0.3"
+        ambient="0.1 0.1 0.1"
+        castshadow="true"/>
+
+        <!-- 补光 -->
+      <light
+          name="fill_light"
+          directional="true"
+          pos="2 -2 3"
+          dir="-0.5 0.5 -1"
+          diffuse="0.3 0.3 0.3"
+          specular="0.1 0.1 0.1"
+          castshadow="false"/>
+
+    <body name="base_link">
+      <inertial pos="0.18986 0.27487 -0.31454" mass="162.76"
+                fullinertia="4.8392 5.532 8.6291 0.095847 0.01857 -0.006219"/>
+      <geom name="base_link_geom" class="robot_geom" mesh="base_link_mesh"
+            rgba="0.75294 0.75294 0.75294 1"/>
+
+      <body name="link1" pos="0 0 0"
+            quat="0.707105482511 0 0 0.707105482511">
+        <!-- URDF velocity limit: 0.0873 rad/s -->
+        <joint name="joint1" class="robot_joint" type="hinge" axis="0 0 1"
+               range="-3.1416 3.1416" actuatorfrcrange="-100 100"/>
+        <inertial pos="1.0911e-08 0.0018897 0.061536" mass="0.69371"
+                  fullinertia="0.0016057 0.0015826 0.00063348 -7.17e-11 -4.1405e-11 -4.3866e-05"/>
+        <geom name="link1_geom" class="robot_geom" mesh="link1_mesh"
+              rgba="0.43922 0.43922 0.43922 1"/>
+
+        <body name="link2" pos="0 0 0.095"
+              quat="0.707105482511 -0.707108079859 0 0">
+          <!-- URDF velocity limit: 0.0873 rad/s -->
+          <joint name="joint2" class="robot_joint" type="hinge" axis="0 0 1"
+                 range="-3.1416 3.1416" actuatorfrcrange="-100 100"/>
+          <inertial pos="0.27 0 0.12404" mass="2.4574"
+                    fullinertia="0.0031113 0.10872 0.10693 1.8436e-09 -3.536e-17 1.0895e-18"/>
+          <geom name="link2_geom" class="robot_geom" mesh="link2_mesh"
+                rgba="0.43922 0.43922 0.43922 1"/>
+
+          <body name="link3" pos="0.54 0 0.135" quat="1 0 0 0">
+            <!-- URDF velocity limit: 0.0873 rad/s -->
+            <joint name="joint3" class="robot_joint" type="hinge" axis="0 0 1"
+                   range="-3.1416 3.1416" actuatorfrcrange="-100 100"/>
+            <inertial pos="-0.2511 2.6168e-08 -0.14997" mass="1.8453"
+                      fullinertia="0.0019521 0.026644 0.02568 4.6343e-10 -0.0018369 4.984e-10"/>
+            <geom name="link3_geom" class="robot_geom" mesh="link3_mesh"
+                  rgba="0.43922 0.43922 0.43922 1"/>
+
+            <body name="link4" pos="-0.43 0 -0.145"
+                  quat="-3.67320510335e-06 0 0 -0.999999999993">
+              <!-- URDF velocity limit: 0.0873 rad/s -->
+              <joint name="joint4" class="robot_joint" type="hinge" axis="0 0 1"
+                     range="-3.1416 3.1416" actuatorfrcrange="-100 100"/>
+              <inertial pos="0.023288 1.6705e-07 -0.13273" mass="0.57839"
+                        fullinertia="0.00039092 0.0011196 0.001097 -2.1862e-11 3.0527e-05 7.9399e-11"/>
+              <geom name="link4_geom" class="robot_geom" mesh="link4_mesh"
+                    rgba="0.43922 0.43922 0.43922 1"/>
+
+              <body name="link5" pos="0 0 -0.135"
+                    quat="0.499998163397 0.499999999997 0.500001836603 0.499999999997">
+                <!-- URDF velocity limit: 0.0873 rad/s -->
+                <joint name="joint5" class="robot_joint" type="hinge" axis="0 0 1"
+                       range="-3.1416 3.1416" actuatorfrcrange="-100 100"/>
+                <inertial pos="-1.6705e-07 -0.023288 0.13273" mass="0.57839"
+                          fullinertia="0.0011196 0.00039092 0.001097 -2.1862e-11 7.9399e-11 3.0527e-05"/>
+                <geom name="link5_geom" class="robot_geom" mesh="link5_mesh"
+                      rgba="0.43922 0.43922 0.43922 1"/>
+
+                <body name="ee_base" pos="0 -0.095 0.135"
+                      euler="1.5708 0 1.5708">
+                  <!-- URDF velocity limit: 0.0873 rad/s -->
+                  <joint name="joint6" class="robot_joint" type="hinge" axis="0 0 1"
+                         range="-6.2832 6.2832" actuatorfrcrange="-100 100"/>
+                  <geom name="ee_base_geom" class="robot_geom" mesh="ee_base_mesh" density="2700"
+                        rgba="0.41176 0.41176 0.41176 1"/>
+
+                  <!--
+                    End-effector four-bar linkages. All positions below are
+                    editable placeholders in their parent body's local frame.
+                    link11/link12 are actuated; link21/link22 and both fingers
+                    are passive.
+                  -->
+                  <body name="ee_link11" pos="0.030 0 0.1165" euler="-1.5708 0 -1.5708">
+                    <joint name="ee_link11_joint" type="hinge" pos="0 0 0"
+                           axis="0 0 1" range="-3.1416 3.1416"
+                           damping="0.05" armature="0.001"
+                           actuatorfrcrange="-20 20"/>
+                    <geom name="ee_link11_geom" class="robot_geom"
+                          mesh="ee_link11_mesh" density="2700"
+                          rgba="0.45 0.45 0.48 1"/>
+                    <site name="ee_link11_finger1_site" pos="0.060 0 0" size="0.002"/>
+                  </body>
+
+                  <body name="ee_link21" pos="0.01309 0 0.12266" euler="-1.5708 0 -1.5708">
+                        <joint name="ee_link21_joint" type="hinge" pos="0 0 0"
+                              axis="0 0 1" range="-3.1416 3.1416"
+                              damping="0.05" armature="0.001"/>
+                        <geom name="ee_link21_geom" class="robot_geom"
+                              mesh="ee_link21_mesh" density="2700"
+                              rgba="0.45 0.45 0.48 1"/>
+                  
+                        <body name="ee_finger1" pos="0.060 0 0" euler="0 0 1.92014067">
+                              <joint name="ee_finger1_joint" type="hinge" pos="0 0 0"
+                                    axis="0 0 1" damping="0.05" armature="0.001"/>
+                              <geom name="ee_finger1_geom" class="robot_geom"
+                                    mesh="ee_finger1_mesh" density="2700"
+                                    friction="3 0.02 0.0001" condim="4"
+                                    rgba="0.55 0.55 0.58 1"/>
+                        <!-- Set this to the finger/link2 revolute-axis point. -->
+                              <site name="ee_finger1_link11_site" pos="0.017997047 0 0"
+                                    size="0.002" rgba="1 0 1 1"/>
+                        </body>
+                  </body>
+
+                  <!-- finger2 mirrors finger1 about ee_base's local x=0 plane. -->
+                  <body name="ee_link12" pos="-0.030 0 0.1165" euler="-1.5708 0 -1.5708">
+                    <joint name="ee_link12_joint" type="hinge" pos="0 0 0"
+                           axis="0 0 1" range="-3.1416 3.1416"
+                           damping="0.05" armature="0.001"
+                           actuatorfrcrange="-20 20"/>
+                    <geom name="ee_link12_geom" class="robot_geom"
+                          mesh="ee_link12_mesh" density="2700"
+                          rgba="0.45 0.45 0.48 1"/>
+                    <site name="ee_link12_finger2_site" pos="0.060 0 0" size="0.002"/>
+                  </body>
+
+                  <body name="ee_link22" pos="-0.01309 0 0.12266" euler="-1.5708 0 -1.5708">
+                    <joint name="ee_link22_joint" type="hinge" pos="0 0 0"
+                           axis="0 0 1" range="-3.1416 3.1416"
+                           damping="0.05" armature="0.001"/>
+                    <geom name="ee_link22_geom" class="robot_geom"
+                          mesh="ee_link22_mesh" density="2700"
+                          rgba="0.45 0.45 0.48 1"/>
+
+                    <body name="ee_finger2" pos="0.060 0 0" euler="0 0 -1.92014067">
+                      <joint name="ee_finger2_joint" type="hinge" pos="0 0 0"
+                             axis="0 0 1" damping="0.05" armature="0.001"/>
+                      <geom name="ee_finger2_geom" class="robot_geom"
+                            mesh="ee_finger2_mesh" density="2700"
+                            friction="3 0.02 0.0001" condim="4"
+                            rgba="0.55 0.55 0.58 1"/>
+                      <site name="ee_finger2_link12_site" pos="0.017997047 0 0"
+                            size="0.002" rgba="1 0 1 1"/>
+                    </body>
+                  </body>
+
+
+                  <body name="ee" pos="0 0 0.25">
+                    <site name="ee_site" pos="0 0 0" size="0.005" rgba="1 0 0 1"/>
+                  </body>
+
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+
+      <body name="task_box_base" pos="0.125 0.065 0" quat="1 0 0 0">
+        <geom name="task_box_base_geom" class="object_geom"
+              mesh="task_box_base_mesh" rgba="0.75 0.75 0.75 1"/>
+
+        <!-- These STL files share task_box_base's assembly coordinate frame. -->
+        <body name="asm_board1" pos="0 0 0" quat="1 0 0 0">
+          <geom name="asm_board1_geom" class="object_geom"
+                mesh="asm_board1_mesh" rgba="0.30 0.55 0.30 1"/>
+        </body>
+        <body name="asm_board2" pos="0 0 0" quat="1 0 0 0">
+          <geom name="asm_board2_geom" class="object_geom"
+                mesh="asm_board2_mesh" rgba="0.35 0.60 0.35 1"/>
+        </body>
+        <body name="asm_board3" pos="0 0 0" quat="1 0 0 0">
+          <geom name="asm_board3_geom" class="object_geom"
+                mesh="asm_board3_mesh" rgba="0.40 0.65 0.40 1"/>
+        </body>
+        <body name="hook" pos="0 0 0" quat="1 0 0 0">
+          <geom name="hook_geom" class="object_geom"
+                mesh="hook_mesh" rgba="0.55 0.55 0.58 1"/>
+        </body>
+        <body name="limit_clip" pos="0 0 0" quat="1 0 0 0">
+          <geom name="limit_clip_geom" class="object_geom"
+                mesh="limit_clip_mesh" rgba="0.65 0.55 0.30 1"/>
+        </body>
+      </body>
+      
+
+
+    </body>
+
+  </worldbody>
+
+  <equality>
+    <!--
+      Each connect closes one planar four-bar linkage at its final revolute
+      pivot. Adjust the two named sites above; their initial world positions
+      must coincide after the body poses have been set.
+    -->
+      <connect name="ee_link11_finger1_connect"
+               site1="ee_link11_finger1_site" site2="ee_finger1_link11_site"
+               solref="0.005 1" solimp="0.99 0.999 0.001"/>
+      <connect name="ee_link12_finger2_connect"
+               site1="ee_link12_finger2_site" site2="ee_finger2_link12_site"
+               solref="0.005 1" solimp="0.99 0.999 0.001"/>
+      <!-- The common drive keeps the mirrored active links at opposite angles. -->
+      <joint name="ee_active_links_coupling"
+             joint1="ee_link11_joint" joint2="ee_link12_joint"
+             polycoef="0 -1 0 0 0"
+             solref="0.005 1" solimp="0.99 0.999 0.001"/>
+    <!-- Two point constraints on one axis form the locking-rod hinge. -->
+<!--
+    <connect name="locking_rod_hinge_anchor"
+             body1="locking_rod" body2="task_box_base"
+             anchor="0.125 0.065 0"/>
+    <connect name="locking_rod_hinge_axis"
+             body1="locking_rod" body2="task_box_base"
+             anchor="0.125 0.065 0.05"/>
+-->
+  </equality>
+
+  <!-- Constrained assembly parts must not collide with each other. -->
+  <contact>
+    <!-- Adjacent visual meshes overlap around their joint interfaces. -->
+    <exclude name="base_link_link1_exclude" body1="base_link" body2="link1"/>
+    <exclude name="link1_link2_exclude" body1="link1" body2="link2"/>
+    <exclude name="link2_link3_exclude" body1="link2" body2="link3"/>
+    <exclude name="link3_link4_exclude" body1="link3" body2="link4"/>
+    <exclude name="link4_link5_exclude" body1="link4" body2="link5"/>
+    <exclude name="link5_ee_base_exclude" body1="link5" body2="ee_base"/>
+    <exclude name="ee_base_link11_exclude" body1="ee_base" body2="ee_link11"/>
+    <exclude name="ee_link11_finger1_exclude" body1="ee_link11" body2="ee_finger1"/>
+    <exclude name="ee_base_link21_exclude" body1="ee_base" body2="ee_link21"/>
+    <exclude name="ee_base_link12_exclude" body1="ee_base" body2="ee_link12"/>
+    <exclude name="ee_link12_finger2_exclude" body1="ee_link12" body2="ee_finger2"/>
+    <exclude name="ee_base_link22_exclude" body1="ee_base" body2="ee_link22"/>
+  </contact>
+
+  <!-- One transmission drives the two mirrored active links together. -->
+  <tendon>
+    <fixed name="ee_active_links_tendon">
+      <joint joint="ee_link11_joint" coef="1"/>
+      <joint joint="ee_link12_joint" coef="-1"/>
+    </fixed>
+  </tendon>
+
+  <!-- Position commands are in radians; actuator force remains limited to 100 N·m. -->
+  <actuator>
+    <position name="joint1_position" joint="joint1" kp="100" kv="10"
+              ctrlrange="-3.1416 3.1416"/>
+    <position name="joint2_position" joint="joint2" kp="100" kv="10"
+              ctrlrange="-3.1416 3.1416" forcerange="-100 100"/>
+    <position name="joint3_position" joint="joint3" kp="100" kv="10"
+              ctrlrange="-3.1416 3.1416" forcerange="-100 100"/>
+    <position name="joint4_position" joint="joint4" kp="100" kv="10"
+              ctrlrange="-3.1416 3.1416" forcerange="-100 100"/>
+    <position name="joint5_position" joint="joint5" kp="100" kv="10"
+              ctrlrange="-3.1416 3.1416" forcerange="-100 100"/>
+    <position name="joint6_position" joint="joint6" kp="100" kv="10"
+              ctrlrange="-6.2832 6.2832" forcerange="-100 100"/>
+    <!-- Filter the GUI/control target so a slider jump does not impulse the loop. -->
+    <position name="ee_fingers_position" tendon="ee_active_links_tendon" gear="0.5"
+              kp="20" kv="2" timeconst="0.1"
+              ctrlrange="0 1" forcerange="-20 20"/>
+  </actuator>
+</mujoco>

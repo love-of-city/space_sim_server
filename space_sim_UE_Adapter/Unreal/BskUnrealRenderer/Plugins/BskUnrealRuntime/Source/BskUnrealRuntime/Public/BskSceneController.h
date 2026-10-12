@@ -117,6 +117,7 @@ protected:
 
 private:
     friend class FBskBuiltinCaptureProvider;
+    friend class FBskEmptyManifestBodyTest;
     friend class FBskLocalFrameExtrapolationTest;
     friend class FBskSceneResetTest;
     friend class FBskSceneSunlightIntensityTest;

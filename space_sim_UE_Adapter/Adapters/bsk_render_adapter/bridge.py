@@ -310,6 +310,8 @@ class BasiliskRenderBridge(_BridgeBase):
             if body_name not in geometry_by_body:
                 continue
             metadata = source_metadata[index] if index < len(source_metadata) else None
+            if _rgba(geom.rgba)[3] <= 0:
+                continue
             if metadata is not None and metadata.body_name == body_name and metadata.mesh_name:
                 geometry = _mj_mesh_geometry(
                     geom,

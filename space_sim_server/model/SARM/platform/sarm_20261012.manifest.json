@@ -1,0 +1,34 @@
+{
+  "source_sha256": "edd0426c24fec4ba1a4946f6a767310014dc077dd88cdd6b3064ff4916f34a19",
+  "model_sha256": "9aabe8024c20310a7ae0dbeb8e4159c9e1b02e635f4621e6be8fe51412bac2a2",
+  "model_revision": "2026-10-12",
+  "platform_additions": [
+    "free base",
+    "reaction wheels (additional mass)",
+    "capture target",
+    "cameras"
+  ],
+  "source_base_inertia_preserved": true,
+  "gripper_type": "four_bar_tendon",
+  "root_renames": {
+    "base_link": "cubesat_bus"
+  },
+  "drawer_reparented_to": "cubesat_bus",
+  "orbital_free_joint_damping_overrides": [
+    {
+      "joint": "aviation_plug_freejoint",
+      "source": 5.0,
+      "platform": 0.0
+    },
+    {
+      "joint": "guide_plug_freejoint",
+      "source": 5.0,
+      "platform": 0.0
+    },
+    {
+      "joint": "cylindrical_plug_freejoint",
+      "source": 5.0,
+      "platform": 0.0
+    }
+  ]
+}

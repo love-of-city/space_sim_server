@@ -30,6 +30,7 @@ class SafetyController:
         self._last_client_sequence: dict[str, int] = {}
         self._last_input_monotonic = 0.0
         self._last_action: AppliedAction | None = None
+        self.gripper_type = 'parallel_slider'
 
     @property
     def last_action(self) -> AppliedAction | None:
@@ -161,8 +162,10 @@ class SafetyController:
                 value * self.ANGULAR_MAX_RAD_S for value in normalized_angular
             ] if request.angular_control_frame == "end_effector" else [0.0] * 3,
             joint6_velocity_rad_s=joint6 * self.JOINT6_MAX_RAD_S,
-            gripper_velocity_rad_s=grip * self.GRIPPER_MAX_M_S,
-            gripper_velocity_m_s=grip * self.GRIPPER_MAX_M_S,
+            gripper_velocity_rad_s=grip * (.2 if self.gripper_type == 'four_bar_tendon' else self.GRIPPER_MAX_M_S),
+            gripper_velocity_m_s=0. if self.gripper_type == 'four_bar_tendon' else grip * self.GRIPPER_MAX_M_S,
+            gripper_drive_velocity_rad_s=grip*.2 if self.gripper_type == 'four_bar_tendon' else None,
+            gripper_type=self.gripper_type,
             input_source=request.input_source,
             limited=limited,
             reason=reason,

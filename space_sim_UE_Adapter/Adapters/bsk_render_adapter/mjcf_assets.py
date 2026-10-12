@@ -34,6 +34,7 @@ class MjcfGeometryMetadata:
     material_texture_repeat: tuple[float, float] = (1.0, 1.0)
     use_asset_materials: bool = False
     role: str = "visual"
+    visible: bool = True
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,7 @@ def parse_mjcf_geometry_metadata(mjcf_path: str | Path) -> list[MjcfGeometryMeta
                         material_texture_repeat=material.get("texrepeat", (1.0, 1.0)),
                         use_asset_materials=not material_name and _obj_has_resolvable_mtl(source),
                         role=role,
+                        visible=float(child.get('rgba', '1 1 1 1').split()[-1]) > 0,
                     )
                 )
             elif child.tag == "body":

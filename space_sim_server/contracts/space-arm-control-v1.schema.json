@@ -161,7 +161,10 @@
               "type": "number"
             },
             "angular_control_frame": {
-              "enum": ["spacecraft_body", "end_effector"],
+              "enum": [
+                "spacecraft_body",
+                "end_effector"
+              ],
               "default": "spacecraft_body",
               "description": "Frame of the requested normalized angular input. Body/tool SI vectors below always retain their named frames."
             },
@@ -169,8 +172,16 @@
               "type": "array",
               "minItems": 3,
               "maxItems": 3,
-              "items": {"type": "number", "minimum": -0.5, "maximum": 0.5},
-              "default": [0, 0, 0],
+              "items": {
+                "type": "number",
+                "minimum": -0.5,
+                "maximum": 0.5
+              },
+              "default": [
+                0,
+                0,
+                0
+              ],
               "description": "Angular velocity in sarm_ee local axes (+Z along wrist). Converted using measured tool orientation in the simulator; added to the body-frame angular command."
             },
             "joint6_velocity_rad_s": {
@@ -202,6 +213,23 @@
                   "type": "null"
                 }
               ]
+            },
+            "gripper_drive_velocity_rad_s": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Gripper Drive Velocity Rad S"
+            },
+            "gripper_type": {
+              "default": "parallel_slider",
+              "title": "Gripper Type",
+              "type": "string"
             }
           }
         }
@@ -644,6 +672,83 @@
             "capture_request_id": {
               "type": "string",
               "maxLength": 64
+            },
+            "model_revision": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model Revision"
+            },
+            "model_sha256": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model Sha256"
+            },
+            "mujoco_runtime_version": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mujoco Runtime Version"
+            },
+            "gripper_type": {
+              "default": "parallel_slider",
+              "title": "Gripper Type",
+              "type": "string"
+            },
+            "gripper_drive_position_rad": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Gripper Drive Position Rad"
+            },
+            "gripper_drive_velocity_rad_s": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Gripper Drive Velocity Rad S"
+            },
+            "target_gripper_drive_position_rad": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Gripper Drive Position Rad"
             }
           }
         },

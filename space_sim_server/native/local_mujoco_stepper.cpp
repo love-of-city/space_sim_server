@@ -219,6 +219,16 @@ API int lms_body_mass(void* handle, int body, double* out) {
     return OK;
 }
 
+// Compiled principal inertia and its orientation, including inferred geom inertia.
+API int lms_body_inertial(void* handle, int body, double* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !out || body < 0 || body >= s->m->nbody) return ERR_ARGUMENT;
+    lms_body_mass(handle, body, out);
+    for (int i=0; i<4; ++i) out[4+i] = s->m->body_iquat[4*body+i];
+    for (int i=0; i<3; ++i) out[8+i] = s->m->body_inertia[3*body+i];
+    return OK;
+}
+
 // Free-joint qpos/qvel addresses, in body order: [qposadr, dofadr] per body.
 API int lms_free_joints(void* handle, std::int64_t* out, int capacity) {
     auto* s = static_cast<Stepper*>(handle);

@@ -142,7 +142,7 @@ def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tm
     monkeypatch.setattr(runtime, "_remember_renderer", lambda *args, **kwargs: None)
     runtime._ensure_renderer()
     command = commands[0]
-    assert command[command.index("-PixelStreamingCameraIds") + 1] == "team/camera/spacecraft_overview,team/camera/sarm_wrist_cam"
+    assert command[command.index("-PixelStreamingCameraIds") + 1] == "team/camera/spacecraft_overview+team/camera/sarm_wrist_cam"
     assert command[command.index("-PixelStreamingCameraFps") + 1] == "60"
     assert command[command.index("-PixelStreamingCameraWidth") + 1] == "640"
     assert command[command.index("-PixelStreamingCameraHeight") + 1] == "360"

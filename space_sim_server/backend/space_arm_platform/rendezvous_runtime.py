@@ -344,7 +344,9 @@ class RendezvousRuntime:
             cameras = tuple("team/" + camera.removeprefix("teleop/") if camera.startswith("teleop/") else camera
                             for camera in cameras)
             command.extend([
-                "-PixelStreamingCameraIds", ",".join(cameras),
+                # UE's FParse::Value stops at commas. The team launcher uses
+                # '+' on its native command line and normalizes it in UE.
+                "-PixelStreamingCameraIds", "+".join(cameras),
                 "-PixelStreamingCameraWidth", str(cfg.runtime_pixel_streaming_camera_width),
                 "-PixelStreamingCameraHeight", str(cfg.runtime_pixel_streaming_camera_height),
                 "-PixelStreamingCameraFps", str(round(cfg.runtime_preview_rate)),

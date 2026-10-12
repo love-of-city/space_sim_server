@@ -37,8 +37,13 @@ class LiveLeRobotWriter:
         self.frames = 0
         self.last_tick: int | None = None
         self.camera_shapes: dict[str, tuple[int, ...]] = {}
+        self.model_identity = None
 
     def append(self, observation: Any, captures: dict[str, tuple[dict, dict]]) -> None:
+        identity = (observation.model_sha256, observation.model_revision, observation.gripper_type)
+        if self.model_identity is not None and self.model_identity != identity:
+            raise ValueError('model or gripper schema changed within an episode')
+        self.model_identity = identity
         tick = sample_tick(int(observation.sim_time_ns), self.fps)
         if tick is None:
             raise ValueError("observation is not on the dataset sampling grid")
@@ -98,6 +103,8 @@ class LiveLeRobotWriter:
                     features[name] = {"dtype": dtype, "shape": value.shape, "names": None}
             n = len(observation.joint_position_rad)
             names = [f"joint_{i + 1}_rad" for i in range(6)] + (["finger_1_m", "finger_2_m"] if n == 8 else [])
+            if observation.gripper_type == 'four_bar_tendon':
+                names = [f'joint_{i+1}_rad' for i in range(6)] + ['ee_link11_joint_rad', 'ee_link12_joint_rad']
             features["observation.state"]["names"] = names
             features["action"]["names"] = names
             features["observation.end_effector_pose_body"]["names"] = ["x_m", "y_m", "z_m", "qw", "qx", "qy", "qz"]
@@ -110,7 +117,10 @@ class LiveLeRobotWriter:
             # Explicit semantics alongside (not masquerading as) official metadata.
             (self.root / "meta" / "platform.json").write_text(json.dumps({
                 "schema": "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "sarm_ee",
-                "action_semantics": "joint servo target held at the observation time; six radians plus two finger metres",
+                "action_semantics": ('six arm angles and two coupled linkage references in radians; tendon drive equals first linkage reference'
+                                     if observation.gripper_type == 'four_bar_tendon' else 'joint servo target held at the observation time; six radians plus two finger metres'),
+                "model_revision": observation.model_revision, "gripper_type": observation.gripper_type,
+                "model_sha256": observation.model_sha256, "mujoco_runtime_version": observation.mujoco_runtime_version,
                 "timestamp_semantics": "episode-relative uniform sample time; original nanoseconds in observation.sim_time_ns",
                 "camera_keys": {c: camera_key(c) for c in self.cameras},
                 "request": self.request.model_dump(mode="json"),

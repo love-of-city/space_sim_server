@@ -225,6 +225,8 @@ def _load_scene(kinematics_only: bool = False) -> mujoco.MJScene:
     updates from every forward-kinematics publication. The qpos/qvel layout,
     body masses/inertias, geoms and sites are unchanged.
     """
+    from simulation.mujoco_plugins import ensure_model_plugins
+    ensure_model_plugins(MODEL_PATH)
     root = ET.parse(MODEL_PATH).getroot()
     compiler = root.find("compiler")
     meshdir = compiler.get("meshdir", "") if compiler is not None else ""
@@ -374,7 +376,17 @@ def _build_local_simulation(
 
     if scripted:
         simulation.AddModelToTask("graspTask", trajectory, LOCAL_TRAJECTORY_PRIORITY)
-    servos = servo_specs(ACTUATORS, [joint for _, joint in JOINTS], KP, KD, TORQUE_LIMITS, trajectory)
+    from simulation.sarm_model_profile import load_model_profile
+    profile = load_model_profile(MODEL_PATH)
+    count = 6 if profile.linkage else len(JOINTS)
+    servos = servo_specs(ACTUATORS[:count], [joint for _, joint in JOINTS[:count]], KP[:count], KD[:count], TORQUE_LIMITS[:count], trajectory)
+    extra_models = []
+    if profile.linkage:
+        from simulation.gripper_control import tendon_reference_publisher
+        tendon = tendon_reference_publisher(scene, trajectory, profile.gripper_actuator)
+        simulation.AddModelToTask('graspTask', tendon, LOCAL_WHEEL_DRIVE_PRIORITY + 1)
+        extra_models.append(tendon)
+        local_substeps = max(5, local_substeps or 5)
     stepper = LocalMujocoStepper(scene, MODEL_PATH, servos, substeps=local_substeps)
     simulation.AddModelToTask("graspTask", stepper, LOCAL_STEPPER_PRIORITY)
     simulation.local_stepper = stepper
@@ -391,7 +403,7 @@ def _build_local_simulation(
         for recorder in (state_recorder, *command_recorders):
             simulation.AddModelToTask("graspTask", recorder)
         recorders = [state_recorder, *command_recorders]
-    return simulation, scene, [trajectory, stepper], recorders
+    return simulation, scene, [trajectory, stepper, *extra_models], recorders
 
 
 def _initialize_state(simulation: Any, scene: Any) -> None:

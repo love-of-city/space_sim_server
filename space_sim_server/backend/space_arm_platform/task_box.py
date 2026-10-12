@@ -5,13 +5,13 @@ import xml.etree.ElementTree as ET
 
 def initialize_free_plugs(scene, model_path: Path, orbital_position, bus_velocity):
     names = set(scene.getBodyNames())
-    selected = names.intersection(('guide_plug', 'aviation_plug'))
+    selected = names.intersection(('guide_plug', 'aviation_plug', 'cylindrical_plug', 'bolt', 'fastener'))
     if not selected:
         return
     root = ET.parse(model_path).getroot()
     for name in selected:
         element = root.find(f'./worldbody/body[@name="{name}"]')
-        if element is None or element.find('freejoint') is None:
+        if element is None or (element.find('freejoint') is None and element.find('joint[@type="free"]') is None):
             raise ValueError(f'{name} must be an independent world body')
         local = [float(v) for v in element.get('pos', '0 0 0').split()]
         body = scene.getBody(name)

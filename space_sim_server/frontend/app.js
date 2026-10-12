@@ -326,7 +326,7 @@ function applySceneRuntime(runtime = {}) {
   updateOperationUI();
   $("sceneInstanceId").textContent = instance.instance_id || "—";
   $("sceneInstanceSeed").textContent = instance.seed ?? "—";
-  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
+  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id === "sarm-task-box-20261012" ? "新版 SARM 完整任务盒 + 地面验证星" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
   const instanceSunlight = instance.environment?.lighting?.sunlight_intensity_scale ?? 1;
   $("sceneInstanceSunlight").textContent = instance.instance_id ? `${instanceSunlight} 倍` : "—";
   const instanceOrbitPhase = instance.environment?.orbit?.true_anomaly_deg ?? 180;
@@ -521,7 +521,8 @@ function connect() {
       $("simState").textContent = "仿真在线";
       $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
       $("actionSequence").textContent = obs.applied_action_sequence;
-      updateMotionOutputs(obs.end_effector_twist_body || [], obs.gripper_velocity_m_s?.[0] ?? obs.joint_velocity_rad_s?.[6] ?? 0);
+      updateMotionOutputs(obs.end_effector_twist_body || [], obs.gripper_type === 'four_bar_tendon' ? obs.gripper_drive_velocity_rad_s : obs.gripper_velocity_m_s?.[0] ?? obs.joint_velocity_rad_s?.[6]);
+      $("grip").title = obs.gripper_type === 'four_bar_tendon' ? '四连杆驱动角速度 rad/s' : '手指滑动速度 m/s';
       const speedDiagnostic = formatMotionSpeedDiagnostics(obs.motion_speed_diagnostics);
       $("motionSpeedStatus").textContent = speedDiagnostic.title;
       $("motionSpeedDetail").textContent = speedDiagnostic.detail;
@@ -1199,7 +1200,7 @@ function updateMotionOutputs(twist, gripperVelocity) {
   ["vx", "vy", "vz", "wx", "wy", "wz"].forEach((id, index) => {
     $(id).textContent = Number(twist[index] || 0).toFixed(3);
   });
-  $("grip").textContent = Number(gripperVelocity || 0).toFixed(3);
+  $("grip").textContent = Number.isFinite(gripperVelocity) ? gripperVelocity.toFixed(3) : '—';
 }
 
 function highlightKeys() {

@@ -30,6 +30,7 @@ from .control_defaults import (
     ZERO_START_TELEOP_PROFILE, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG,
 )
 from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
+from .scene_targets import SARM_20261012_TEMPLATE
 
 
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -38,6 +39,12 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
         "label": "SARM + 地面验证星（粗碰撞体·内部碰撞）",
         "description": "默认启用外侧板与本体/内侧板接触；" + capture_target(SELF_COLLISION_TEMPLATE).runtime_warning,
         "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
+    },
+    {
+        'id': SARM_20261012_TEMPLATE,
+        'label': '新版 SARM 与完整任务盒（2026-10-12·实验）',
+        'description': capture_target(SARM_20261012_TEMPLATE).runtime_warning,
+        'camera_ids': ['teleop/camera/spacecraft_overview', 'teleop/camera/sarm_wrist_cam'],
     },
     {
         "id": TASK_BOX_TEMPLATE,
@@ -108,9 +115,11 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
 # offline zero-start planner deliberately refuses those models until it can
 # validate flex contacts without ignoring the experiment's core collision.
 TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES: dict[str, str] = {
+    SARM_20261012_TEMPLATE: ZERO_START_TELEOP_PROFILE,
     FREE_PLUG_TEMPLATE: ZERO_START_TELEOP_PROFILE,
 }
 TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
+    SARM_20261012_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE, BALANCED_TELEOP_PROFILE, 'none', 'training-v1'),
     FREE_PLUG_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE,),
 }
 
@@ -246,6 +255,8 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
 
     if target.hinge_joint:
         randomization["target_hinge_position_rad"] = 0.0
+    if request.template_id == SARM_20261012_TEMPLATE:
+        randomization['arm_joint_position_rad'][6:] = [0., 0.]
 
     orbit = dict(_DEFAULT_ORBIT)
     if request.randomize_orbit_phase:

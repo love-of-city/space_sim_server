@@ -205,6 +205,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     capture_failure_task: asyncio.Task | None = None
 
     async def record_observation(observation: SimulationObservation) -> None:
+        safety.gripper_type = observation.gripper_type
         await asyncio.to_thread(recorder.record_observation, observation, safety.last_action)
         if hub.capture_pair_ack_supported:
             await asyncio.to_thread(recorder.wait_for_capture_pair, observation)

@@ -14,6 +14,7 @@ MESH_TARGET_TEMPLATE = "sarm-ground-validation-mesh-grasp"
 SELF_COLLISION_TEMPLATE = "sarm-ground-validation-self-collision-grasp"
 TASK_BOX_TEMPLATE = "sarm-task-box-contacts"
 FREE_PLUG_TEMPLATE = "sarm-task-box-free-plugs"
+SARM_20261012_TEMPLATE = 'sarm-task-box-20261012'
 # Keep old scene identities/artifacts reproducible; triangle contact remains opt-in.
 DEFAULT_TEMPLATE = SELF_COLLISION_TEMPLATE
 
@@ -85,6 +86,12 @@ TARGETS[FREE_PLUG_TEMPLATE] = replace(
     runtime_warning="两个无卡扣插头为自由刚体，初始抬离存放孔以避免 CAD 干涉；质量为临时假设。精细孔槽接触，实际整臂插拔尚需验收。",
 )
 
+
+TARGETS[SARM_20261012_TEMPLATE] = replace(
+    TARGETS[FREE_PLUG_TEMPLATE], model_file='sarm_20261012.xml',
+    source_model='model/SARM_mjcf_20261012/SARM_convex.xml',
+    collision_model='sarm_20261012_convex_and_thread_sdf',
+    runtime_warning='2026-10-12 完整 MJCF：四连杆抓夹、活动任务盒与螺纹 SDF。实验模板，实际插拔与旋拧稳定性仍需验收。')
 
 def capture_target(template_id: str) -> CaptureTarget:
     try:

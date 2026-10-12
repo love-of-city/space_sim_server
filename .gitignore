@@ -9,3 +9,6 @@ venv/
 /.space-sim-posture-python
 /reports/
 /tmp/
+
+# Local verification outputs and helper environments.
+**/.local/

@@ -93,3 +93,31 @@ def test_side_uvs_continue_across_corners(mesh):
 def test_no_dark_hem_bands_added_to_continuous_surface():
     config=json.loads((ROOT/'ContentSource/PBR0110/source.json').read_text())
     assert config['instances']['MliHem']==config['instances']['MliFace']
+
+
+def test_sarm_20261012_shell_planes_match_original_blanket_recipe():
+    """Check the ten supported shell faces in metres, directly from both sources.
+
+    This checks wrap support planes/extents, not equality of mechanical details.
+    The top is intentionally open; arm/task-box geometry is not wrapped.
+    """
+    server = ROOT.parents[2] / 'space_sim_server'
+    old = np.array([[float(x) for x in line.split()[1:4]]
+                    for line in (server/'model/SARM/meshes/base_link.obj').open()
+                    if line.startswith('v ')])
+    raw = (server/'model/SARM_mjcf_20261012/meshes/base_link_mujoco.stl').read_bytes()
+    dtype = np.dtype([('normal','<f4',(3,)), ('vertices','<f4',(3,3)), ('attribute','<u2')])
+    count = int.from_bytes(raw[80:84], 'little')
+    assert len(raw) == 84 + 50 * count
+    new = np.frombuffer(raw, dtype=dtype, offset=84, count=count)['vertices'].reshape(-1,3).astype(float) * .001
+    recipe = json.loads((SOURCE/'recipe.json').read_text())
+    for face in recipe['faces']:
+        bounds = []
+        for vertices in (old, new):
+            mask = np.abs(vertices[:,face['axis']] - face['plane']) < 1.e-5
+            for axis, limits in ((face['uaxis'],face['urange']), (face['vaxis'],face['vrange'])):
+                mask &= (vertices[:,axis] >= limits[0]-1.e-7) & (vertices[:,axis] <= limits[1]+1.e-7)
+            selected = vertices[mask]
+            assert len(selected) >= 4, face['name']
+            bounds.append(np.array([selected.min(0), selected.max(0)]))
+        np.testing.assert_allclose(bounds[0], bounds[1], atol=1.e-5, rtol=0, err_msg=face['name'])

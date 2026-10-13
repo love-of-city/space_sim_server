@@ -136,6 +136,7 @@ def _library():
     lib.lms_name2id.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
     lib.lms_id2name.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     lib.lms_joint.argtypes = [ctypes.c_void_p, ctypes.c_int, _INT64_P]
+    lib.lms_body_inertial.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
     lib.lms_free_joints.argtypes = [ctypes.c_void_p, _INT64_P, ctypes.c_int]
     lib.lms_set_servo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double]
     lib.lms_set_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
@@ -533,6 +534,17 @@ class LocalMujocoStepper(sysModel.SysModel):
         if scene_free != sorted(zip(self.free_qpos.tolist(), self.free_dof.tolist())):
             raise RuntimeError("free-joint layout differs between MJScene and the local model")
         self._verify_mass_properties()
+
+    def body_mass(self, name: str) -> float:
+        return float(self.body_inertial(name)[0])
+
+    def body_inertial(self, name: str):
+        for index in range(self.nbody):
+            if self._name(_OBJ_BODY, index) == name:
+                values = np.zeros(11)
+                self._check(self._lib.lms_body_inertial(self._handle, index, _pointer(values)), 'body inertia')
+                return values
+        raise ValueError(f'Unknown model body: {name}')
 
     def _verify_mass_properties(self) -> None:
         """The publish-only copy must describe the same masses as this model.

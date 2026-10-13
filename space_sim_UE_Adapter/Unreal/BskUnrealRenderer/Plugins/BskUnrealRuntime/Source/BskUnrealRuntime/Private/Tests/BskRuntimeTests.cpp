@@ -13,6 +13,8 @@
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
+#include "Engine/World.h"
+#include "Components/StaticMeshComponent.h"
 
 namespace
 {
@@ -789,6 +791,34 @@ bool FBskOnDemandCaptureTest::RunTest(const FString& Parameters)
         TestTrue(TEXT("on-demand marker parsed"), Messages[0].Frame.bCaptureOnDemand);
         TestEqual(TEXT("episode parsed"), Messages[0].Frame.CaptureEpisodeId, FString(TEXT("episode-B")));
     }
+    return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskEmptyManifestBodyTest,
+    "BskUnreal.Visuals.EmptyManifestBodyHasNoPlaceholder",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBskEmptyManifestBodyTest::RunTest(const FString& Parameters)
+{
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    ABskSceneController* Controller = World->SpawnActor<ABskSceneController>();
+    FBskObjectDefinition Definition;
+    Definition.ObjectId = TEXT("teleop/ee");
+    Definition.DisplayName = TEXT("ee");
+    Controller->ManifestObjects.Add(Definition.ObjectId, Definition);
+    FBskRenderObjectState State;
+    State.ObjectId = Definition.ObjectId;
+    State.Name = Definition.DisplayName;
+    AActor* Actor = Controller->GetOrCreateActor(State);
+    TestNotNull(TEXT("empty body remains a transform anchor"), Actor);
+    if (Actor)
+    {
+        TArray<UStaticMeshComponent*> Meshes;
+        Actor->GetComponents(Meshes);
+        TestEqual(TEXT("explicitly empty manifest must not fabricate an occluding cube"), Meshes.Num(), 0);
+        TestNotNull(TEXT("anchor root supports camera/body transforms"), Actor->GetRootComponent());
+    }
+    World->DestroyWorld(false);
     return true;
 }
 

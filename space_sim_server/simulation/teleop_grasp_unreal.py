@@ -247,7 +247,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
         raise ValueError("scene target quaternion must have non-zero norm")
     joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
     scene_model = target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model
-    scene_limits = load_joint_limits(scene_model, SARM_JOINT_NAMES)
+    from simulation.sarm_model_profile import load_model_profile
+    scene_limits = load_joint_limits(scene_model, load_model_profile(scene_model).joint_names)
     if np.any(joints < np.array(scene_limits.lower)) or np.any(joints > np.array(scene_limits.upper)):
         raise ValueError("scene arm joint positions exceed the SARM joint limits")
     if document.get("arm_preparation_required", False):
@@ -318,9 +319,12 @@ class CartesianTeleopTarget:
         self.elbow_deviation = ElbowDeviationState()
         self.elbow_diagnostics = ElbowStepDiagnostics()
         limits = joint_limits or _DEFAULT_LIMITS
-        if limits.names != SARM_JOINT_NAMES:
+        self.linkage_gripper = limits.names[-2:] == ('ee_link11_joint', 'ee_link12_joint')
+        if limits.names != SARM_JOINT_NAMES and not self.linkage_gripper:
             raise ValueError("joint limit order does not match the SARM chain")
         self.joint_min, self.joint_max = np.array(limits.lower), np.array(limits.upper)
+        if self.linkage_gripper:
+            self.joint_min[6:], self.joint_max[6:] = [0., -1.], [1., 0.]
         if np.any(self.initial_position < self.joint_min) or np.any(self.initial_position > self.joint_max):
             raise ValueError("initial joint positions exceed selected model limits")
         self.preparation = ArmPreparation(
@@ -521,6 +525,8 @@ class CartesianTeleopTarget:
         requested_gripper = float(
             action.get("gripper_velocity_m_s", action.get("gripper_velocity_rad_s", 0.0))
         )
+        if self.linkage_gripper:
+            requested_gripper = float(action.get('gripper_drive_velocity_rad_s') or 0.) if action.get('gripper_type') == 'four_bar_tendon' else 0.
         # The packet deadman authorizes both channels, but a gripper action must
         # never enable arm IK. Numerical zero only: not a new joystick dead zone.
         cartesian_enabled = enabled and bool(np.any(np.abs(self.raw_operator_twist) > 1.0e-14))
@@ -669,8 +675,12 @@ class CartesianTeleopTarget:
         )
 
         gripper_velocity = requested_gripper if gripper_enabled else 0.0
+        if self.linkage_gripper:
+            # Normalized operator intent has no legacy slider units.
+            angular_command = action.get('gripper_drive_velocity_rad_s')
+            gripper_velocity = max(-.2, min(.2, float(angular_command or 0.))) if gripper_enabled and action.get('gripper_type') == 'four_bar_tendon' else 0.
         self.velocity[6] = gripper_velocity
-        self.velocity[7] = gripper_velocity
+        self.velocity[7] = -gripper_velocity if self.linkage_gripper else gripper_velocity
 
         proposed_arm = self.position[:6] + self.velocity[:6] * dt
         joint_limited_arm = np.clip(proposed_arm, self.joint_min[:6], self.joint_max[:6])
@@ -899,16 +909,29 @@ def run(args: argparse.Namespace) -> None:
     native.KP[:6] = TELEOP_ARM_KP
     native.KD[:6] = TELEOP_ARM_KD
     native.TORQUE_LIMITS[:6] = TELEOP_ARM_TORQUE_LIMIT
+    from simulation.sarm_model_profile import load_model_profile
+    native.model_profile = load_model_profile(native.MODEL_PATH)
+    native.model_sha256 = hashlib.sha256(native.MODEL_PATH.read_bytes()).hexdigest()
+    if native.model_profile.linkage:
+        native.JOINTS = native.model_profile.joints
+        native.ACTUATORS = native.model_profile.arm_actuators
+        native.KP = np.full(6, 500.)
+        native.KD = np.full(6, 50.)
+        native.TORQUE_LIMITS = np.full(6, 100.)
     selected_posture_backend = posture_backend()
     if selected_posture_backend == "native":
         from simulation.native_posture import available
         if not available():
             raise RuntimeError("Native posture backend was requested but is not built; run tools/build_native_acceleration.py.")
     args.dynamics_backend = dynamics_backend(getattr(args, "dynamics_backend", None))
+    if native.model_profile.linkage and args.dynamics_backend != BACKEND_LOCAL:
+        raise ValueError('SARM 2026-10-12 requires the local implicitfast backend for its tendon and constraints')
     from simulation.orbital_environment import orbital_mode
     args.orbital_mode = orbital_mode(getattr(args, "orbital_mode", None))
     args.local_substeps = (local_substeps(getattr(args, "local_substeps", None))
                            if args.dynamics_backend == BACKEND_LOCAL else None)
+    if native.model_profile.linkage:
+        args.local_substeps = max(5, args.local_substeps)
     print(json.dumps({"type": "teleop_control_configuration", "dynamics_step_s": native.TIME_STEP,
                       "dynamics_backend": args.dynamics_backend,
                       "integrator": ("RKF45" if args.dynamics_backend == BACKEND_BASILISK
@@ -944,6 +967,8 @@ def run(args: argparse.Namespace) -> None:
         posture_report = scene_instance.get("ik_initialization", {
             "status": "skipped", "reason": "saved_initial_state",
         })
+    if native.model_profile.linkage:
+        initial_joints[6:] = 0.
     print(json.dumps({"type": "ik_initialization", **posture_report}, ensure_ascii=True), flush=True)
     client.start()
     try:
@@ -972,7 +997,7 @@ def _run_session(
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     targets = CartesianTeleopTarget(
         initial_joints, client, kinematics, ik_mode=args.ik_mode,
-        joint_limits=load_joint_limits(native.MODEL_PATH, SARM_JOINT_NAMES),
+        joint_limits=load_joint_limits(native.MODEL_PATH, native.model_profile.joint_names),
         preparation_required=scene_instance.get("arm_preparation_required", False) if scene_instance else False,
         operating_joint_deg=scene_instance.get("operating_arm_joint_position_deg", DEFAULT_OPERATING_JOINT_DEG) if scene_instance else DEFAULT_OPERATING_JOINT_DEG,
         preparation_plan=scene_instance.get("arm_preparation_plan") if scene_instance else None,
@@ -1189,9 +1214,15 @@ def _run_session(
                     "arm_joint_velocity_rad_s": joint_velocity[:6],
                     "target_arm_joint_position_rad": targets.position[:6].tolist(),
                     "arm_preparation": targets.preparation.telemetry(),
-                    "gripper_position_m": joint_position[6:],
-                    "gripper_velocity_m_s": joint_velocity[6:],
-                    "target_gripper_position_m": targets.position[6:].tolist(),
+                    **({"model_revision": "2026-10-12", "gripper_type": "four_bar_tendon",
+                        "model_sha256": native.model_sha256, "mujoco_runtime_version": 3007000,
+                        "gripper_drive_position_rad": joint_position[6],
+                        "gripper_drive_velocity_rad_s": joint_velocity[6],
+                        "target_gripper_drive_position_rad": float(targets.position[6])}
+                       if native.model_profile.linkage else {
+                        "gripper_position_m": joint_position[6:],
+                        "gripper_velocity_m_s": joint_velocity[6:],
+                        "target_gripper_position_m": targets.position[6:].tolist()}),
                     **simulation.attitude_control.telemetry(),
                     "joint_position_rad": joint_position,
                     "joint_velocity_rad_s": joint_velocity,
@@ -1378,7 +1409,7 @@ def _run_session(
         targets.bind_actuator_state_provider(lambda: {
             "requested_torque_nm": [float(read().input) for read in requested_torque_readers],
             "applied_torque_nm": [float(read().input) for read in applied_torque_readers],
-            "torque_limits_nm": TELEOP_ARM_TORQUE_LIMIT.tolist(),
+            "torque_limits_nm": native.TORQUE_LIMITS[:6].tolist(),
         })
         arm_actuators = [scene.getSingleActuator(name) for name in native.ACTUATORS[:6]]
         targets.bind_effort_provider(
@@ -1533,6 +1564,8 @@ def main() -> None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
         if args.scene_instance and args.scene_instance.is_file():
             selected_instance = json.loads(args.scene_instance.read_text(encoding="utf-8"))
+            if selected_instance.get('template_id') == 'sarm-task-box-20261012':
+                catalog_name = 'sarm_20261012.catalog.json'
             if selected_instance.get("template_id") == "sarm-task-box-contacts":
                 catalog_name = "sarm_task_box.catalog.json"
             elif selected_instance.get("template_id") == "sarm-task-box-free-plugs":

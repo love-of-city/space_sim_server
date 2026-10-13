@@ -9,3 +9,6 @@ model/**/*.[bB][rR][eE][pP] filter=lfs diff=lfs merge=lfs -text
 
 # Preserve the upstream byte hash used by the offline reference runner.
 tools/vendor/scenarioRendezVous.py text eol=lf
+# Preserve delivered source bytes used by provenance SHA256 validation.
+model/SARM_mjcf_20261012/** -text
+model/SARM/platform/sarm_20261012.xml text eol=lf

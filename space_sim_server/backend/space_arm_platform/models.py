@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
+import math
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
@@ -86,6 +87,8 @@ class AppliedAction(BaseModel):
     angular_control_frame: Literal["spacecraft_body", "end_effector"] = "spacecraft_body"
     gripper_velocity_rad_s: float
     gripper_velocity_m_s: float = 0.0
+    gripper_drive_velocity_rad_s: FiniteFloat | None = None
+    gripper_type: str = 'parallel_slider'
     input_source: str
     limited: bool = False
     reason: str = ""
@@ -219,6 +222,13 @@ class SimulationObservation(BaseModel):
     arm_joint_velocity_rad_s: ArmVector | None = None
     target_arm_joint_position_rad: ArmVector | None = None
     gripper_position_m: FingerVector | None = None
+    model_revision: str | None = None
+    model_sha256: str | None = None
+    mujoco_runtime_version: int | None = None
+    gripper_type: str = 'parallel_slider'
+    gripper_drive_position_rad: float | None = None
+    gripper_drive_velocity_rad_s: float | None = None
+    target_gripper_drive_position_rad: float | None = None
     gripper_velocity_m_s: FingerVector | None = None
     target_gripper_position_m: FingerVector | None = None
     attitude_control: AttitudeControlObservation | None = None
@@ -237,7 +247,14 @@ class SimulationObservation(BaseModel):
             (self.arm_joint_velocity_rad_s, self.gripper_velocity_m_s, self.joint_velocity_rad_s),
             (self.target_arm_joint_position_rad, self.target_gripper_position_m, self.target_joint_position_rad),
         )
-        if any(arm is not None or fingers is not None for arm, fingers, _ in pairs):
+        if self.gripper_type == 'four_bar_tendon':
+            drives = (self.gripper_drive_position_rad, self.gripper_drive_velocity_rad_s, self.target_gripper_drive_position_rad)
+            if count != 8 or any(fingers is not None for _, fingers, _ in pairs):
+                raise ValueError('linkage observations use radians, never slider metre fields')
+            for (arm, _, legacy), drive in zip(pairs, drives):
+                if arm != legacy[:6] or drive is None or not math.isfinite(drive) or drive != legacy[6]:
+                    raise ValueError('linkage SI fields must match joint observations')
+        elif any(arm is not None or fingers is not None for arm, fingers, _ in pairs):
             if count != 8 or any(arm is None or fingers is None or arm + fingers != legacy
                                  for arm, fingers, legacy in pairs):
                 raise ValueError("SARM SI fields must be complete and match legacy aliases")

@@ -39,7 +39,7 @@ test("SARM telemetry uses a slider velocity, not the sixth revolute joint", () =
 
 test("missing SARM telemetry remains safe before the first full observation", () => {
   const h = observe({ sim_time_ns: "0" });
-  assert.equal(h.output.grip, 0);
+  assert.equal(h.output.grip, undefined);
   assert.equal(h.$("jacobianRank").textContent, "— / 6");
   assert.match(h.$("referenceProtection").textContent, /未上报/);
 });
@@ -54,6 +54,12 @@ test("observation renders control protection independently of IK scale", () => {
 test("explicit SI slider telemetry takes precedence over the legacy alias", () => {
   const h = observe({sim_time_ns: "0", gripper_velocity_m_s: [0.004, 0.004], joint_velocity_rad_s: [0,0,0,0,0,0,99,99]});
   assert.equal(h.output.grip, 0.004);
+});
+
+test('linkage telemetry uses angular units and never the slider alias', () => {
+  const h=observe({sim_time_ns:'0',gripper_type:'four_bar_tendon',gripper_drive_velocity_rad_s:.12,gripper_velocity_m_s:[99,99]});
+  assert.equal(h.output.grip,.12);
+  assert.match(h.$('grip').title,/rad\/s/);
 });
 
 test("attitude hold, wheel speed and saturation are displayed separately", () => {

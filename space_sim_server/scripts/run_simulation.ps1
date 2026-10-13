@@ -38,6 +38,9 @@ if (!$ModelRoot) {
 $catalog = if ((Split-Path -Leaf $ModelRoot) -eq 'platform') { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_platform.catalog.json' } else { Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\cubesat_so101.catalog.json' }
 if ($SceneInstancePath) {
     $selectedInstance = Get-Content -Raw -LiteralPath $SceneInstancePath | ConvertFrom-Json
+    if ($selectedInstance.template_id -eq 'sarm-task-box-20261012') {
+        $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_20261012.catalog.json'
+    }
     if ($selectedInstance.template_id -eq 'sarm-task-box-contacts') {
         $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_task_box.catalog.json'
     }

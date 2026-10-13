@@ -64,7 +64,7 @@ def test_client_reset_barrier_and_duplicate_delivery():
 
 @pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')
 @pytest.mark.parametrize("initial_angles", [None, [-45., -20., 25., -90., -50., 275.], [0.] * 6])
-def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, initial_angles):
+def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, initial_angles, template_id=None):
     monkeypatch.syspath_prepend(str(ADAPTER / 'Adapters'))
     monkeypatch.syspath_prepend(str(ADAPTER / 'Unreal/BskUnrealRenderer/examples'))
     # Establish the production DLL import order before loading any native scene.
@@ -72,6 +72,9 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
     native = load_native_grasp_module(ROOT / 'model/SARM/platform')
     import bsk_render_adapter
     from bsk_render_adapter.protocol import RecordingOnlyPublisher
+    from simulation.sarm_model_profile import load_model_profile
+    tested_joints = (load_model_profile(ROOT / 'model/SARM/platform/sarm_20261012.xml').joints
+                     if template_id else native.JOINTS)
 
     bridges, observations, events, scene_refs = [], [], [], []
     authoritative_joint_samples = {}
@@ -95,14 +98,14 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
             if self.last_published_sim_time_ns == int(nanos):
                 authoritative_joint_samples[(self.session_id, str(self.last_published_frame_id))] = (
                     str(nanos), [float(self.scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
-                                 for body, joint in native.JOINTS])
+                                 for body, joint in tested_joints])
             data = self.scene.stateOutMsg.read()
             snapshot = (np.array(data.qpos), np.array(data.qvel))
             if self.initial is None:
                 self.initial = (int(nanos), snapshot)
                 if initial_angles is not None:
                     actual = [float(self.scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
-                              for body, joint in native.JOINTS[:6]]
+                              for body, joint in tested_joints[:6]]
                     np.testing.assert_allclose(actual, np.deg2rad(initial_angles), rtol=0, atol=1.e-12)
             self.last = snapshot
         def close(self):
@@ -151,7 +154,9 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
     monkeypatch.setattr(bsk_render_adapter, 'BasiliskRenderBridge', ProbeBridge)
     monkeypatch.setattr(teleop, 'SimulationControlClient', OfflineClient)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
-    instance = manager.create_instance(SceneInstanceCreate(seed=123, randomize_orbit_phase=True, randomization_profile="teleop-balanced-v1" if initial_angles is not None else "teleop-zero-prepare-v1", initial_arm_joint_position_deg=initial_angles))
+    extra = {'template_id': template_id, 'operating_arm_joint_position_deg': initial_angles} if template_id else {'initial_arm_joint_position_deg': initial_angles}
+    profile = 'teleop-zero-prepare-v1' if template_id else ("teleop-balanced-v1" if initial_angles is not None else "teleop-zero-prepare-v1")
+    instance = manager.create_instance(SceneInstanceCreate(seed=123, randomize_orbit_phase=True, randomization_profile=profile, **extra))
     config_path = Path(instance['config_path'])
     before = config_path.read_bytes()
     args = SimpleNamespace(adapter_root=ADAPTER, model_root=ROOT / 'model/SARM/platform',
@@ -203,3 +208,9 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
         np.testing.assert_allclose(obs['reaction_wheels']['speed_rad_s'], first[0]['reaction_wheels']['speed_rad_s'], atol=1.e-12)
         np.testing.assert_allclose(obs['target_joint_position_rad'], first[0]['target_joint_position_rad'], atol=1.e-12)
     assert len([event for event in events if event[1] == 'scene_reset']) == 2
+
+
+@pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')
+def test_sarm_20261012_orbital_state_rebuilds_twice(tmp_path, monkeypatch):
+    test_real_run_rebuilds_identical_initial_state_twice(
+        tmp_path, monkeypatch, [90., -60., 60., 0., -90., 0.], 'sarm-task-box-20261012')

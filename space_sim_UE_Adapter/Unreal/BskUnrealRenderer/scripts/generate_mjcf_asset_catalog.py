@@ -26,7 +26,7 @@ def main() -> None:
 
     metadata = parse_mjcf_geometry_metadata(args.mjcf)
     sources = sorted(
-        {Path(item.source_path).resolve() for item in metadata if item.source_path},
+        {Path(item.source_path).resolve() for item in metadata if item.source_path and item.visible},
         key=lambda item: item.as_posix().casefold(),
     )
     if not sources:

@@ -56,7 +56,7 @@ def _inertia(element):
     return rotation @ np.diag(_vector(element, 'diaginertia', '')) @ rotation.T
 
 
-def load_hardware(model_path: Path):
+def load_hardware(model_path: Path, *, inertia_reader=None):
     """Read and validate the supported balanced, body-axis wheel arrangement."""
     root = ET.parse(model_path).getroot()
     bus = root.find('./worldbody/body[@name="cubesat_bus"]')
@@ -103,6 +103,14 @@ def load_hardware(model_path: Path):
     parts = []
     for body in [bus, *bus.findall('.//body')]:
         inertial = body.find('inertial')
+        # Imported assemblies may contain massless fixed frame/visual bodies.
+        # Only omit one when the compiled physics model confirms exactly zero.
+        if inertia_reader is not None:
+            values = inertia_reader(body.get('name'))
+            if values[0] > 0:
+                rotation = rbk.EP2C(values[4:8]).T
+                parts.append((body.get('name'), float(values[0]), values[1:4], rotation @ np.diag(values[8:11]) @ rotation.T))
+            continue
         if inertial is None or not math.isfinite(float(inertial.get('mass', 'nan'))) or float(inertial.get('mass', '0')) <= 0:
             raise ValueError(f'{body.get("name")}: explicit positive finite body mass required')
         parts.append((body.get('name'), float(inertial.get('mass')),
@@ -267,7 +275,9 @@ class AttitudeControl:
         timestamps correspond to the state it actually used.
         """
         self.scene = scene
-        self.wheels, self.parts = load_hardware(model_path)
+        from simulation.sarm_model_profile import load_model_profile
+        profile = load_model_profile(model_path)
+        self.wheels, self.parts = load_hardware(model_path, inertia_reader=simulation.local_stepper.body_inertial if profile.linkage else None)
         self.settings = load_settings(model_path.with_name('attitude_control.json'))
         self.enabled = self.settings['enabled'] if enabled is None else bool(enabled)
         self.cached_speed_reads = drive_task is not None

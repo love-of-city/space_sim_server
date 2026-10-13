@@ -1,4 +1,7 @@
 #include "BskSceneController.h"
+#if WITH_DEV_AUTOMATION_TESTS
+#include "Misc/AutomationTest.h"
+#endif
 #include "BskPreviewCadence.h"
 #include "BskLeRobotSampling.h"
 #include "BskCelestialLighting.h"
@@ -708,7 +711,7 @@ bool ApplyConfiguredMaterialOverride(UStaticMeshComponent* Component, const FBsk
 }
 
 // Render-only skins are children of the original mesh component. This preserves
-// body transforms and component scaling without changing source geometry/physics.
+// body position/rotation without inheriting source-mesh unit conversion or changing physics.
 void AttachConfiguredVisualOverlay(UStaticMeshComponent* Parent, const FBskGeometryDefinition& Geometry)
 {
     if (!Parent || !GConfig || Geometry.AssetPath.IsEmpty() || Geometry.RenderRole == TEXT("collision") ||
@@ -739,11 +742,49 @@ void AttachConfiguredVisualOverlay(UStaticMeshComponent* Parent, const FBskGeome
     Overlay->SetCanEverAffectNavigation(false);
     Overlay->SetCastShadow(true);
     Overlay->SetupAttachment(Parent);
+    // Overlay assets are baked in UE centimetres. Geometry scale converts the
+    // source mesh units (e.g. millimetres); applying it again shrinks the wrap.
+    Overlay->SetAbsolute(false, false, true);
     Overlay->SetRelativeTransform(FTransform::Identity);
     Owner->AddInstanceComponent(Overlay);
     Overlay->RegisterComponent();
-    UE_LOG(LogBskUnreal, Log, TEXT("Attached visual-only overlay %s to %s (%s)"), *MeshPath, *Geometry.AssetPath, *Geometry.GeometryId);
+    UE_LOG(LogBskUnreal, Log, TEXT("Attached visual-only overlay %s to %s (%s), source scale=%s, physical overlay scale=%s"), *MeshPath, *Geometry.AssetPath, *Geometry.GeometryId, *Parent->GetComponentScale().ToString(), *Overlay->GetComponentScale().ToString());
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskOverlayPhysicalScaleTest,
+    "BskUnreal.VisualOverlay.PhysicalUnits", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBskOverlayPhysicalScaleTest::RunTest(const FString& Parameters)
+{
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    AActor* Owner = World->SpawnActor<AActor>();
+    for (const double SourceScale : {1.0, 0.001})
+    {
+        UStaticMeshComponent* Parent = NewObject<UStaticMeshComponent>(Owner);
+        Owner->AddInstanceComponent(Parent);
+        Parent->RegisterComponent();
+        Parent->SetWorldLocationAndRotation(FVector(123, -456, 789), FRotator(12, 34, 56));
+        Parent->SetWorldScale3D(FVector(SourceScale));
+        FBskGeometryDefinition Geometry;
+        Geometry.AssetPath = SourceScale == 1.0
+            ? TEXT("/Game/BSK/Generated/SARM/base_link.base_link")
+            : TEXT("/Game/BSK/Generated/Sarm20261012/base_link_mujoco.base_link_mujoco");
+        Geometry.Scale = FVector3d(SourceScale);
+        AttachConfiguredVisualOverlay(Parent, Geometry);
+        TestEqual(TEXT("one configured overlay attached"), Parent->GetNumChildrenComponents(), 1);
+        if (Parent->GetNumChildrenComponents() == 1)
+        {
+            USceneComponent* Overlay = Parent->GetChildComponent(0);
+            TestTrue(TEXT("centimetre overlay retains physical size for metre and millimetre source meshes"),
+                Overlay->GetComponentScale().Equals(FVector::OneVector, 1.e-6));
+            TestTrue(TEXT("overlay follows geometry position"), Overlay->GetComponentLocation().Equals(Parent->GetComponentLocation(), 1.e-6));
+            TestTrue(TEXT("overlay follows geometry rotation"), Overlay->GetComponentQuat().Equals(Parent->GetComponentQuat(), 1.e-6));
+        }
+    }
+    World->DestroyWorld(false);
+    return true;
+}
+#endif
 
 void ApplyGeometryMaterial(UStaticMeshComponent* Component, UObject* Owner, const FBskGeometryDefinition& Geometry, double Ambient)
 {
@@ -2212,8 +2253,8 @@ AActor* ABskSceneController::SpawnManifestObject(const FBskObjectDefinition& Def
         (Definition.Geometries.IsEmpty() && ObjectSpecs.Contains(Definition.DisplayName)) ||
         !Definition.AssetPath.IsEmpty();
     if (bHasConfiguredSpec) return SpawnFromSpec(Definition.ObjectId, ResolveSpec(State));
-    // Geometry-free bodies are transform nodes (fuel, flywheels, camera mounts).
-    // Keep an empty actor so frame intake cannot spawn a visible fallback sphere.
+    // An explicit empty manifest body is a transform anchor, not a missing
+    // asset. Keep it mesh-free so joints/sites cannot occlude the scene.
 
     FActorSpawnParameters Params;
     Params.Name = MakeUniqueObjectName(GetWorld(), AActor::StaticClass(), SafeActorName(Definition.ObjectId));

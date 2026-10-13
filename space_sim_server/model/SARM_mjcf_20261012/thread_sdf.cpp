@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstdint>
+#include <cstring>
 #include <mujoco/mujoco.h>
 
 namespace {
@@ -40,9 +42,40 @@ constexpr double kLockGuideOuterRadius = 0.020;
 constexpr double kLockRodPhase = 0.002035;
 constexpr double kLockNutPhase = 0.001171;
 
-double tooth_radius(const mjtNum p[3], double phase,
+struct RadialGeometry {
+  std::uint64_t xy[2]{};
+  double radius = 0;
+  double theta = 0;
+  bool valid = false;
+  bool has_theta = false;
+};
+
+RadialGeometry& radial_geometry(const mjtNum p[3]) {
+  // Exact XY reuse across the +/-Z finite differences and repeated SDF
+  // queries. Immutable geometry parameters do not participate in this cache.
+  // No coordinate quantization: signed zeros retain their atan2 semantics.
+  thread_local RadialGeometry cache[32];
+  static_assert(sizeof(mjtNum) == sizeof(std::uint64_t), "SDF cache requires double precision");
+  std::uint64_t xy[2];
+  std::memcpy(xy, p, sizeof(xy));
+  const auto hash = xy[0] ^ (xy[1] + 0x9e3779b97f4a7c15ULL + (xy[0] << 6) + (xy[0] >> 2));
+  auto& entry = cache[(hash ^ (hash >> 32)) & 31];
+  if (!entry.valid || std::memcmp(entry.xy, xy, sizeof(xy)) != 0) {
+    std::memcpy(entry.xy, xy, sizeof(xy));
+    entry.radius = std::hypot(p[0], p[1]);
+    entry.has_theta = false;
+    entry.valid = true;
+  }
+  return entry;
+}
+
+double tooth_radius(const mjtNum p[3], RadialGeometry& geometry, double phase,
                     double root = kRootRadius, double height = kToothHeight) {
-  const double theta = std::atan2(p[1], p[0]);
+  if (!geometry.has_theta) {
+    geometry.theta = std::atan2(p[1], p[0]);
+    geometry.has_theta = true;
+  }
+  const double theta = geometry.theta;
   const double u = p[2] - kLead * theta / (2.0 * kPi) + phase;
   // cos(2*pi*u/pitch) has two starts per 16 mm lead.
   const double profile = 0.5 * (1.0 - std::cos(2.0 * kPi * u / kPitch));
@@ -50,24 +83,33 @@ double tooth_radius(const mjtNum p[3], double phase,
 }
 
 double distance(const mjtNum p[3], int mode) {
-  const double radius = std::hypot(p[0], p[1]);
+  auto& geometry = radial_geometry(p);
+  const double radius = geometry.radius;
   if (mode == 0) {  // threaded male cylinder, local z=-60..0 mm
-    const double radial = radius - tooth_radius(p, kMalePhase);
+    const double cap = std::max(-kMaleLength - p[2], p[2]);
+    if (cap > radius - kRootRadius) return cap;
+    const double radial = radius - tooth_radius(p, geometry, kMalePhase);
     return std::max({radial, -kMaleLength - p[2], p[2]});
   }
   if (mode == 1) {  // board1 threaded female bore
-    const double inside_hole = tooth_radius(p, kFemalePhase) + kClearance - radius;
+    const double outside = std::max({radius - kOuterRadius, -kFemaleLength - p[2], p[2]});
+    if (outside > kRootRadius + kToothHeight + kClearance - radius) return outside;
+    const double inside_hole = tooth_radius(p, geometry, kFemalePhase) + kClearance - radius;
     return std::max({inside_hole, radius - kOuterRadius,
                      -kFemaleLength - p[2], p[2]});
   }
   if (mode == 2) {  // locking rod, local z=-110..0 mm
+    const double cap = std::max(-kLockRodLength - p[2], p[2]);
+    if (cap > radius - kLockRootRadius) return cap;
     const double radial = radius - tooth_radius(
-        p, kLockRodPhase, kLockRootRadius, kLockToothHeight);
+        p, geometry, kLockRodPhase, kLockRootRadius, kLockToothHeight);
     return std::max({radial, -kLockRodLength - p[2], p[2]});
   }
   if (mode == 3) {  // fastener's internal thread, local z=-65..0 mm
+    const double outside = std::max({radius - kLockOuterRadius, -kLockNutLength - p[2], p[2]});
+    if (outside > kLockFemaleRoot + kLockFemaleHeight - radius) return outside;
     const double inside_hole = tooth_radius(
-        p, kLockNutPhase, kLockFemaleRoot, kLockFemaleHeight) - radius;
+        p, geometry, kLockNutPhase, kLockFemaleRoot, kLockFemaleHeight) - radius;
     return std::max({inside_hole, radius - kLockOuterRadius,
                      -kLockNutLength - p[2], p[2]});
   }
@@ -80,6 +122,15 @@ double distance(const mjtNum p[3], int mode) {
 }
 
 void gradient(mjtNum grad[3], const mjtNum p[3], int mode) {
+  // A line search may ask for the same gradient again after evaluating the
+  // two surfaces. Retain only the last exact query per immutable SDF mode.
+  struct Entry { mjtNum point[3]{}, gradient[3]{}; bool valid = false; };
+  thread_local Entry cache[5];
+  Entry* entry = mode >= 0 && mode < 5 ? &cache[mode] : nullptr;
+  if (entry && entry->valid && std::memcmp(entry->point, p, sizeof(entry->point)) == 0) {
+    std::memcpy(grad, entry->gradient, sizeof(entry->gradient));
+    return;
+  }
   constexpr double eps = 2e-6;
   for (int i = 0; i < 3; ++i) {
     mjtNum plus[3] = {p[0], p[1], p[2]};
@@ -93,6 +144,11 @@ void gradient(mjtNum grad[3], const mjtNum p[3], int mode) {
     for (int i = 0; i < 3; ++i) grad[i] /= norm;
   } else {
     grad[0] = 1; grad[1] = 0; grad[2] = 0;
+  }
+  if (entry) {
+    std::memcpy(entry->point, p, sizeof(entry->point));
+    std::memcpy(entry->gradient, grad, sizeof(entry->gradient));
+    entry->valid = true;
   }
 }
 

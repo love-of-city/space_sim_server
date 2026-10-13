@@ -207,8 +207,12 @@ class BskOrbitalEnvironment:
         for source in self.sources.values():
             native = source["native"]
             common = np.asarray(compute(native, origin_spice)).reshape(3)
-            for row, position in enumerate(positions_spice):
-                accelerations[row] += np.asarray(compute(native, position)).reshape(3) - common
+            # Keep the same native BSK field evaluation for every COM, in the
+            # same order. Convert its small SWIG results once per source rather
+            # than allocating/subtracting a NumPy array for every body/substep.
+            values = np.asarray([compute(native, position) for position in positions_spice],
+                                dtype=np.float64).reshape((-1, 3))
+            accelerations += values - common
         self._forces[self._body_ids] = masses[self._body_ids, None] * accelerations
         if len(accelerations):
             self.max_differential_acceleration = max(self.max_differential_acceleration,

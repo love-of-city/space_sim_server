@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,9 @@ from PIL import Image
 
 from .sampling import sample_tick
 DEFAULT_CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
+# Below this conservative workload, starting fresh Windows encoder processes
+# costs more than encoding in the already-warm isolated dataset worker.
+IN_PROCESS_VIDEO_PIXEL_BUDGET = 200_000_000
 
 
 def camera_key(camera: str) -> str:
@@ -149,7 +153,12 @@ class LiveLeRobotWriter:
                 self.dataset.episode_buffer[key] = [
                     value.reshape(()) for value in self.dataset.episode_buffer[key]
                 ]
-            self.dataset.save_episode()
+            pixels = self.frames * sum(shape[0] * shape[1] for shape in self.camera_shapes.values())
+            parallel_encoding = sys.platform != "win32" or pixels > IN_PROCESS_VIDEO_PIXEL_BUDGET
+            # Use the official batch path with the same images, statistics,
+            # codec and encoder threads. Large/high-resolution episodes keep
+            # parallel encoding; no streaming-statistics approximation is added.
+            self.dataset.save_episode(parallel_encoding=parallel_encoding)
             path = self.root / "meta" / "platform.json"
             metadata = json.loads(path.read_text(encoding="utf-8"))
             metadata["episode_result"] = {"outcome": outcome, "note": note}

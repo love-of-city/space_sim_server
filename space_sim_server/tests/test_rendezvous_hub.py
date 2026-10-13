@@ -172,8 +172,11 @@ def test_completed_report_survives_backend_restart(tmp_path):
 
 
 def test_new_mission_does_not_show_previous_mission_state(tmp_path, monkeypatch):
+    (tmp_path / "project/frontend").mkdir(parents=True)
     app = create_app(PlatformConfig(
-        project_root=Path(__file__).resolve().parents[1], data_root=tmp_path,
+        # The launch is mocked: use an isolated scene state too. Reading this
+        # checkout's run/scene_runtime.json made a real UI session block CI.
+        project_root=tmp_path / "project", data_root=tmp_path,
         simulation_port=0, capture_port=0,
     ))
     body = dict(position_m=[7_000_000.0, 0.0, 0.0], velocity_m_s=[0.0, 7500.0, 0.0],

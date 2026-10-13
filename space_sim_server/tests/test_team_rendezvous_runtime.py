@@ -16,6 +16,78 @@ from space_arm_platform.rendezvous_runtime import RendezvousRuntime
 from simulation.orbital_rendezvous.handoff import load_handoff
 
 
+def renderer_release_probe(tmp_path, monkeypatch):
+    import psutil
+    runtime = RendezvousRuntime(None, Path(sys.executable), 0, tmp_path / "logs", tmp_path, render_port=25558)
+    runtime._renderer_identity = (42, 7.0)
+    events = []
+    process = SimpleNamespace(pid=42, create_time=lambda: 7.0, children=lambda **kw: [],
+                              terminate=lambda: events.append("terminate"), kill=lambda: events.append("kill"))
+    def lookup(pid):
+        assert pid == 42, "must never inspect or stop an unrelated port owner"
+        return process
+    monkeypatch.setattr(psutil, "Process", lookup)
+    monkeypatch.setattr(psutil, "net_connections", lambda **kw: [])
+    monkeypatch.setattr(psutil, "wait_procs", lambda processes, **kw: (processes, []))
+    return runtime, process, events
+
+
+def test_renderer_release_waits_for_asynchronous_exit_before_forgetting_identity(tmp_path, monkeypatch):
+    import psutil
+    runtime, process, events = renderer_release_probe(tmp_path, monkeypatch)
+    results = iter([([], [process]), ([process], [])])
+    def wait(processes, **kwargs):
+        assert runtime._renderer_identity == (42, 7.0)
+        events.append("wait")
+        return next(results)
+    monkeypatch.setattr(psutil, "wait_procs", wait)
+    runtime.release_renderer()
+    assert events == ["terminate", "wait", "kill", "wait"]
+    assert runtime._renderer_identity is None
+
+
+def test_renderer_release_timeout_retains_identity_for_a_safe_retry(tmp_path, monkeypatch):
+    import psutil
+    runtime, process, events = renderer_release_probe(tmp_path, monkeypatch)
+    monkeypatch.setattr(psutil, "wait_procs", lambda processes, **kw: ([], processes))
+    with pytest.raises(RuntimeError, match="尚未完全退出"):
+        runtime.release_renderer()
+    assert runtime._renderer_identity == (42, 7.0)
+    monkeypatch.setattr(psutil, "wait_procs", lambda processes, **kw: (processes, []))
+    runtime.release_renderer()
+    assert runtime._renderer_identity is None
+    assert events == ["terminate", "kill", "terminate"]
+
+
+def test_renderer_release_waits_for_its_listener_to_drain(tmp_path, monkeypatch):
+    import psutil
+    runtime, _, events = renderer_release_probe(tmp_path, monkeypatch)
+    listener = SimpleNamespace(pid=42, status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=25558))
+    replies = iter([[listener], []])
+    monkeypatch.setattr(psutil, "net_connections", lambda **kw: next(replies))
+    monkeypatch.setattr("space_arm_platform.rendezvous_runtime.time.sleep", lambda seconds: events.append("drain"))
+    runtime.release_renderer()
+    assert events == ["terminate", "drain"]
+    assert runtime._renderer_identity is None
+
+
+def test_renderer_release_never_terminates_a_reused_pid(tmp_path, monkeypatch):
+    runtime, process, events = renderer_release_probe(tmp_path, monkeypatch)
+    process.create_time = lambda: 8.0
+    runtime.release_renderer()
+    assert not events and runtime._renderer_identity is None
+
+
+def test_renderer_release_refuses_a_foreign_listener_without_stopping_it(tmp_path, monkeypatch):
+    import psutil
+    runtime, _, events = renderer_release_probe(tmp_path, monkeypatch)
+    listener = SimpleNamespace(pid=99, status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=25558))
+    monkeypatch.setattr(psutil, "net_connections", lambda **kw: [listener])
+    with pytest.raises(RuntimeError, match="另一进程占用"):
+        runtime.release_renderer()
+    assert events == ["terminate"]
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows child handle inheritance")
 def test_renderer_launcher_does_not_wait_for_long_lived_child_stdout(tmp_path, monkeypatch):
     """Exercise the actual PowerShell Start-Process path without launching UE."""

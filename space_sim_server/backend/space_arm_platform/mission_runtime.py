@@ -182,7 +182,10 @@ class MissionRuntime:
 
         async def work():
             await asyncio.to_thread(self.flight.release_renderer)
-            result = await asyncio.to_thread(self.scenes.start, SceneInstanceCreate(randomization_profile="none"),
+            # The flight's source model is fixed and hash-validated above. Do
+            # not let the platform's selected experimental template replace it.
+            result = await asyncio.to_thread(self.scenes.start, SceneInstanceCreate(
+                template_id=SELF_COLLISION_TEMPLATE, randomization_profile="none"),
                                              user, handoff=handoff, mission=self.provenance())
             self._record.update(stage="teleop", scene_instance_id=result.get("instance_id"), stopped=False)
             self._record.setdefault("scene_instance_ids", []).append(result.get("instance_id"))

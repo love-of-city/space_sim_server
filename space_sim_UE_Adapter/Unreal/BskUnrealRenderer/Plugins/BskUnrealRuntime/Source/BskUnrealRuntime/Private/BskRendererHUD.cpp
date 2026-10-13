@@ -2,6 +2,10 @@
 
 #include "BskRenderWorldSubsystem.h"
 #include "BskSceneController.h"
+#include "BskCameraPawn.h"
+#include "BskRelativeView.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Misc/CommandLine.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -103,6 +107,71 @@ void ABskRendererHUD::NotifyHitBoxClick(FName BoxName)
     ArmedCommandIndex = INDEX_NONE;
 }
 
+bool ABskRendererHUD::DrawRelativeView(const ABskSceneController* Scene)
+{
+    FBskRelativeViewState View;
+    if (!Scene || !PlayerOwner || !Scene->GetRelativeViewState(View)) return false;
+    const ABskCameraPawn* Pawn = Cast<ABskCameraPawn>(PlayerOwner->GetPawn());
+    const FString Mode = Pawn ? Pawn->GetRelativeViewMode() : TEXT("free");
+    const bool bFixed = Mode == TEXT("overview-fixed");
+    const bool bOverview = Mode == TEXT("overview") || bFixed;
+    const FString Name = bFixed ? TEXT("RENDEZVOUS OVERVIEW | FIXED SCALE") : bOverview ? TEXT("RENDEZVOUS OVERVIEW | AUTO-FIT")
+        : Mode == TEXT("chaser") ? TEXT("CHASER CLOSE-UP")
+        : Mode == TEXT("target") ? TEXT("TARGET CLOSE-UP") : TEXT("FREE VIEW");
+    const auto Label = [this](const FString& Text, const FVector2D& At, const FLinearColor& Color)
+    {
+        FCanvasTextItem Item(At, FText::FromString(Text), GEngine->GetMediumFont(), Color);
+        Item.EnableShadow(FLinearColor::Black);
+        Canvas->DrawItem(Item);
+    };
+    Label(Name, FVector2D(24, 22), FLinearColor::White);
+    Label(FString::Printf(TEXT("Center distance: %s | t=%.1f s | models 1:1 | markers not to scale"),
+        *BskRelativeView::Distance(View.DistanceMeters), View.SimulationSeconds), FVector2D(24, 49), FLinearColor(0.75f, 0.85f, 0.92f));
+    const bool bDark = View.PrimarySunlight < 0.001 && View.SecondarySunlight < 0.001;
+    Label(bDark ? TEXT("ECLIPSE | physical sunlight is zero; position markers remain visible")
+                : TEXT("PHYSICAL SUNLIGHT | no observation fill light"), FVector2D(24, 76),
+          bDark ? FLinearColor(1.0f, 0.75f, 0.3f) : FLinearColor(0.7f, 0.78f, 0.85f));
+    FVector2D Primary, Secondary;
+    const auto Visible = [this](const FVector& Point, FVector2D& Screen)
+    {
+        return PlayerOwner->ProjectWorldLocationToScreen(Point, Screen, true) &&
+            Screen.X >= 10 && Screen.X <= Canvas->SizeX - 10 && Screen.Y >= 105 && Screen.Y <= Canvas->SizeY - 50;
+    };
+    const bool bPrimary = Visible(View.PrimaryCentimeters, Primary);
+    const bool bSecondary = Visible(View.SecondaryCentimeters, Secondary);
+    const auto Line = [this](const FVector2D& A, const FVector2D& B, const FLinearColor& Color)
+    {
+        FCanvasLineItem Item(A, B); Item.SetColor(Color); Canvas->DrawItem(Item);
+    };
+    if (bPrimary && bSecondary) Line(Primary, Secondary, FLinearColor(0.3f, 0.65f, 0.8f, 0.7f));
+    const auto Marker = [this, &Label](const FVector2D& Point, const FString& Text, const FLinearColor& Color)
+    {
+        FCanvasBoxItem Box(Point - FVector2D(6, 6), FVector2D(12, 12)); Box.SetColor(Color); Canvas->DrawItem(Box);
+        Label(Text, FVector2D(FMath::Clamp(Point.X + 12.0, 12.0, static_cast<double>(Canvas->SizeX - 180)), Point.Y - 28), Color);
+    };
+    if (bPrimary) Marker(Primary, View.PrimaryLabel, FLinearColor(0.25f, 0.8f, 1.0f));
+    if (bSecondary) Marker(Secondary, View.SecondaryLabel, FLinearColor(1.0f, 0.72f, 0.25f));
+    if (!bPrimary || !bSecondary)
+    {
+        const FString Missing = !bPrimary && !bSecondary ? View.PrimaryLabel + TEXT(" / ") + View.SecondaryLabel
+            : !bPrimary ? View.PrimaryLabel : View.SecondaryLabel;
+        Label(Missing + TEXT(" outside view | select rendezvous overview to locate both"),
+              FVector2D(24, Canvas->SizeY - 55), FLinearColor(1.0f, 0.78f, 0.35f));
+    }
+    if (bOverview && bPrimary && bSecondary && View.DistanceMeters > 0.001)
+    {
+        const double PixelsPerMeter = FVector2D::Distance(Primary, Secondary) / View.DistanceMeters;
+        const double Meters = BskRelativeView::RulerMeters(160.0 / FMath::Max(PixelsPerMeter, 1e-12));
+        const float Width = static_cast<float>(Meters * PixelsPerMeter);
+        const float Y = Canvas->SizeY - 28.0f;
+        Line(FVector2D(26, Y), FVector2D(26 + Width, Y), FLinearColor::White);
+        Line(FVector2D(26, Y - 5), FVector2D(26, Y + 5), FLinearColor::White);
+        Line(FVector2D(26 + Width, Y - 5), FVector2D(26 + Width, Y + 5), FLinearColor::White);
+        Label(BskRelativeView::Distance(Meters), FVector2D(26, Y - 27), FLinearColor::White);
+    }
+    return true;
+}
+
 void ABskRendererHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -135,8 +204,11 @@ void ABskRendererHUD::DrawHUD()
         TransceiverStatus,
         CameraStatus.IsEmpty() ? TEXT("") : TEXT("\n"),
         *CameraStatus);
-    Canvas->SetDrawColor(FColor(178, 230, 255));
-    Canvas->DrawText(GEngine->GetSmallFont(), Text, 24.0f, 24.0f, 1.0f, 1.0f, FFontRenderInfo());
+    if (!DrawRelativeView(Scene) || FParse::Param(FCommandLine::Get(), TEXT("BskCameraDiagnostics")))
+    {
+        Canvas->SetDrawColor(FColor(178, 230, 255));
+        Canvas->DrawText(GEngine->GetSmallFont(), Text, 24.0f, 24.0f, 1.0f, 1.0f, FFontRenderInfo());
+    }
 
     if (Scene && bMissionUiVisible)
     {

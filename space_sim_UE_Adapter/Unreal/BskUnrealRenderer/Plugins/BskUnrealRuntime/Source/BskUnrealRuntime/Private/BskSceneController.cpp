@@ -1882,6 +1882,7 @@ AActor* ABskSceneController::SpawnPlaceholder(const FString& ObjectName, const F
 
 void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
 {
+    RelativeView = Manifest.RelativeView;
     if (ActiveSessionId != Manifest.SessionId) CancelCaptureJobs();
     check(IsInGameThread());
     // A manifest is a complete scene, not an additive object update. Without
@@ -2096,11 +2097,11 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
         if (ABskCameraPawn* Pawn = Cast<ABskCameraPawn>(Player->GetPawn()))
         {
             Pawn->SetOrbitDistanceMeters(Manifest.DefaultCameraDistanceMeters);
+            Pawn->ConfigureRelativeView(RelativeView.IsConfigured());
         }
     }
-    const FString CameraTarget = Manifest.DefaultCameraTarget.IsEmpty()
-        ? Manifest.OriginObjectId
-        : Manifest.DefaultCameraTarget;
+    const FString CameraTarget = RelativeView.IsConfigured() ? RelativeView.PrimaryObjectId
+        : Manifest.DefaultCameraTarget.IsEmpty() ? Manifest.OriginObjectId : Manifest.DefaultCameraTarget;
     if (!CameraTarget.IsEmpty()) FocusObject(CameraTarget, false);
     if (UBskRenderWorldSubsystem* RenderSubsystem = GetWorld()->GetSubsystem<UBskRenderWorldSubsystem>())
     {
@@ -3351,6 +3352,30 @@ void ABskSceneController::AttachManifestChildren()
         AActor* Parent = Pair.Value.ParentId.IsEmpty() ? nullptr : BoundActors.FindRef(Pair.Value.ParentId);
         if (Actor && Parent) Actor->AttachToActor(Parent, FAttachmentTransformRules::KeepRelativeTransform);
     }
+}
+
+bool ABskSceneController::GetRelativeViewState(FBskRelativeViewState& Out) const
+{
+    if (!RelativeView.IsConfigured() || !bHasPresentationFrame) return false;
+    const AActor* Primary = BoundActors.FindRef(RelativeView.PrimaryObjectId);
+    const AActor* Secondary = BoundActors.FindRef(RelativeView.SecondaryObjectId);
+    if (!IsValid(Primary) || !IsValid(Secondary)) return false;
+    Out.PrimaryCentimeters = Primary->GetActorTransform().TransformPosition(
+        FVector(Converter.LocalMetersToUnrealCentimeters(RelativeView.PrimaryCenterBodyMeters)));
+    Out.SecondaryCentimeters = Secondary->GetActorTransform().TransformPosition(
+        FVector(Converter.LocalMetersToUnrealCentimeters(RelativeView.SecondaryCenterBodyMeters)));
+    Out.PrimaryLabel = RelativeView.PrimaryLabel;
+    Out.SecondaryLabel = RelativeView.SecondaryLabel;
+    Out.DistanceMeters = FVector::Distance(Out.PrimaryCentimeters, Out.SecondaryCentimeters) / Converter.GetCentimetersPerMeter();
+    Out.SimulationSeconds = static_cast<double>(PresentationFrame.SimulationTimeNanoseconds) * 1e-9;
+    const auto LocalMeters = [this](const FVector& Position)
+    {
+        const double YSign = Converter.MirrorsLocalY() ? -1.0 : 1.0;
+        return FVector3d(Position.X, Position.Y * YSign, Position.Z) / Converter.GetCentimetersPerMeter();
+    };
+    Out.PrimarySunlight = SolarVisibilityAt(LocalMeters(Out.PrimaryCentimeters));
+    Out.SecondarySunlight = SolarVisibilityAt(LocalMeters(Out.SecondaryCentimeters));
+    return true;
 }
 
 void ABskSceneController::ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame)

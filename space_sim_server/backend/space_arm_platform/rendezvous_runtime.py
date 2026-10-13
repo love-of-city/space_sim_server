@@ -402,23 +402,47 @@ class RendezvousRuntime:
                 return
             if self._process is not None and self._process.poll() is None:
                 raise RuntimeError("请先停止正在运行的交会任务")
-            identity, self._renderer_identity = self._renderer_identity, None
-            if identity is None:
-                return
+            identity = self._renderer_identity
             try:
                 process = psutil.Process(identity[0])
                 if process.create_time() != identity[1]:
+                    self._renderer_identity = None
                     return
                 children = process.children(recursive=True)
                 process.terminate()
-                psutil.wait_procs([process], timeout=10)
                 for child in children:
                     try:
                         child.terminate()
                     except psutil.NoSuchProcess:
                         pass
+                # TerminateProcess is asynchronous on Windows, especially while
+                # UE releases GPU/media resources. Do not admit a new scene
+                # merely because a stop request was sent or a wait timed out.
+                _, alive = psutil.wait_procs([process, *children], timeout=30)
+                for pending in alive:
+                    try:
+                        pending.kill()  # psutil guards the captured Process identity.
+                    except psutil.NoSuchProcess:
+                        pass
+                if alive:
+                    _, alive = psutil.wait_procs(alive, timeout=10)
+                if alive:
+                    raise RuntimeError("本工作区的 UE 尚未完全退出，请稍后重试接续")
             except psutil.NoSuchProcess:
                 pass
+            deadline = time.monotonic() + 5
+            while True:
+                owners = {c.pid for c in psutil.net_connections(kind="tcp")
+                          if c.status == psutil.CONN_LISTEN and c.laddr.port == self.render_port}
+                if not owners:
+                    break
+                if owners != {identity[0]}:
+                    raise RuntimeError("渲染端口已由另一进程占用，未停止该进程")
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("UE 监听端口尚未释放，请稍后重试接续")
+                time.sleep(0.1)
+            # Preserve ownership on failure so cleanup can be retried safely.
+            self._renderer_identity = None
 
     def stop(self) -> dict:
         with self._lock:

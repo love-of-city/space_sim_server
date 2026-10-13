@@ -19,7 +19,9 @@ def test_source_preserved_and_platform_assembly(tmp_path):
   body=b.find('./worldbody/body[@name="'+n+'"]'); assert body is not None
   assert body.find('freejoint') is not None or body.find('joint[@type="free"]') is not None
  assert len(bus.findall('./body[@name="rw_x"]'))==1
- for mesh in b.findall('./asset/mesh[@file]'):assert (out.parent/mesh.get('file')).is_file()
+ # Normalize the temporary directory's ../ segments before Windows stat:
+ # their uncollapsed spelling may exceed MAX_PATH despite a short real path.
+ for mesh in b.findall('./asset/mesh[@file]'):assert (out.parent/mesh.get('file')).resolve().is_file()
 
 def test_orbital_free_parts_have_no_world_drag(tmp_path):
  src=ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml'

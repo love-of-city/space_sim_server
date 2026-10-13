@@ -8,6 +8,7 @@
 - 平台派生：`model/SARM/platform/sarm_20261012.xml`；由 `tools/build_sarm_20261012.py` 生成，旁边的 manifest 记录来源、哈希和适配项。
 - 真实执行：Basilisk/MJScene + 本地 MuJoCo 3.7.0 implicitfast，240 Hz 主时钟、每步至少 5 子步。MJScene 发布状态，UE 读取同一状态进行渲染。
 - `tools/build_sarm_plugin.py` 使用当前 Basilisk 的 MuJoCo DLL，构建 `sarm.sdf.two_start_thread`。加载前校验运行库版本、源码和 DLL 哈希。构建结果在忽略目录 `run/native_acceleration/`，不提交 DLL。
+- UE 资产目录生成只解析 XML 中的网格、材质和可见性，不编译动力学模型；该进程无需加载螺纹插件，也不会为了导入网格再加载另一份 MuJoCo。实际仿真仍通过上述插件与 ABI 校验。运行时的网格姿态补偿保持原行为。
 - 当前模型含 68 个 qpos、61 个 qvel、2346 个编译后 geom。透明碰撞几何参加物理计算，不作为重复可见物体导入 UE。
 
 派生模型将原固定基座改为自由基座，将原世界固定的抽屉装配附着基座；保留机构层级、内部关节、质量来源、约束、tendon 和 SDF。另增加平台的三只反作用轮、独立地面验证星及相机。这些附件确实增加系统质量。源基座没有显式 inertial，按源几何编译得到质量属性；姿态模块使用相同编译模型的质量与惯量，不凭空补旧基座质量。

@@ -9,8 +9,49 @@ import uuid
 from itertools import pairwise
 from pathlib import Path
 
+import numpy as np
+
 from bsk_render_adapter.protocol import encode_packet
 from bsk_render_adapter.recording import BskRecordingReader
+
+
+def verify_relative_positions(folder, manifest, frames):
+    """Compare recorded body COMs against the independent raw dynamics states."""
+    model = json.loads((folder / "model_manifest.json").read_text(encoding="utf-8"))
+    names = ("capture_target", "cubesat_bus")
+    centers = [np.asarray(model["bodies"][name]["center_body_m"]) for name in names]
+    # Read compressed arrays once; indexing NpzFile in the frame loop repeatedly
+    # decompresses a complete multi-hour flight and makes the audit quadratic.
+    with np.load(folder / "team_telemetry.npz", allow_pickle=False) as data:
+        times, truth = data["time_s"], data["truth"]
+    errors = []
+    for frame in frames:
+        t = int(frame["sim_time_ns"]) * 1e-9
+        index = int(np.searchsorted(times, t - 1e-7))
+        if index >= len(times) or abs(times[index] - t) > 1e-7:
+            raise ValueError(f"Rendered frame has no matching raw state: {t}")
+        objects = {o["object_id"]: o for o in frame["objects"]}
+        positions = []
+        for name, center in zip(names, centers):
+            obj = objects["team/" + name]
+            w, x, y, z = obj["orientation_wxyz"]
+            v = np.array([x, y, z])
+            rotation = ((w*w - v@v) * np.eye(3) + 2*np.outer(v, v)
+                        + 2*w*np.array([[0, -z, y], [z, 0, -x], [-y, x, 0]]))
+            positions.append(np.asarray(obj["position_m"]) + rotation @ center)
+        rendered = positions[1] - positions[0]
+        actual = truth[index, 1, :3] - truth[index, 0, :3]
+        errors.append(float(np.linalg.norm(rendered - actual)))
+    view = manifest.get("settings", {}).get("relative_view")
+    view_matches = view is None or (
+        view["primary_object_id"] == "team/cubesat_bus"
+        and view["secondary_object_id"] == "team/capture_target"
+        and np.allclose(view["primary_center_body_m"], centers[1], rtol=0, atol=1e-12)
+        and np.allclose(view["secondary_center_body_m"], centers[0], rtol=0, atol=1e-12))
+    maximum = max(errors, default=float("inf"))
+    return {"passed": bool(len(errors) == len(times) and maximum < 1e-6 and view_matches),
+            "frames": len(errors), "max_relative_position_error_m": maximum,
+            "relative_view_matches_model": bool(view_matches), "relative_view_enabled": view is not None}
 
 
 def display(path, focus, distance, port):
@@ -48,10 +89,17 @@ def main():
     frames = [m for m in messages if m["type"] == "frame"]
     geometries = [g for o in manifest["objects"] for g in o.get("geometries", [])]
     meshes = [g for g in geometries if g["shape"] == "mesh"]
+    visible = [g for g in geometries if g.get("color_rgba", [1, 1, 1, 1])[3] > 0]
     times = [int(f["sim_time_ns"]) for f in frames]
+    relative = verify_relative_positions(args.recording.parent, manifest, frames)
     checks = {
         "team_objects": len(manifest["objects"]) == 15,
-        "all_geometries": len(geometries) == 225,
+        # PR #17 omits five fully transparent collision boxes from rendering;
+        # they remain in the unchanged physics MJCF. Legacy recordings include
+        # them. Require the same 217 meshes and three visible wheel cylinders.
+        "all_visible_geometries": len(visible) == 220,
+        "only_transparent_collision_helpers_omitted": all(
+            g["render_role"] == "collision" for g in geometries if g not in visible),
         "all_mesh_instances": len(meshes) == 217,
         "all_team_assets_resolved": all(
             g.get("asset_path", "").startswith("/Game/BSK/Generated/SARM/")
@@ -64,13 +112,17 @@ def main():
                                    for b in manifest["celestial_bodies"]),
         "celestial_frame_coverage": all({b["body_id"] for b in f["celestial_bodies"]} == {"earth", "sun"}
                                         for f in frames),
+        "relative_positions_match_raw_dynamics": relative["passed"],
     }
     result = {
         "passed": all(checks.values()),
         "checks": checks,
         "frames": len(frames),
+        "visible_geometries": len(visible),
+        "transparent_helpers": len(geometries) - len(visible),
         "first_time_s": times[0] * 1e-9,
         "last_time_s": times[-1] * 1e-9,
+        "relative_positions": relative,
     }
     (args.recording.parent / "recording_validation.json").write_text(
         json.dumps(result, indent=2)

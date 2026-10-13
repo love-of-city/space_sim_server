@@ -23,8 +23,10 @@ def configure_celestials(simulation, bridge, gravity):
     return (factory, earth, sun, ephemeris), DEFAULT_EPHEMERIS_EPOCH_UTC
 
 
-def flight_scene_settings(sunlight_intensity_scale=1.0):
-    from bsk_render_adapter.descriptors import SceneSettings
+def flight_scene_settings(sunlight_intensity_scale=1.0, bodies=None):
+    from bsk_render_adapter.descriptors import RelativeView, SceneSettings
+
+    bodies = bodies or {}
 
     return SceneSettings(
         origin_object_id="team/cubesat_bus",
@@ -33,4 +35,9 @@ def flight_scene_settings(sunlight_intensity_scale=1.0):
         sunlight_intensity_scale=sunlight_intensity_scale,
         orbit_lines=False,
         trajectory_history=False,
+        relative_view=RelativeView(
+            primary_object_id="team/cubesat_bus", secondary_object_id="team/capture_target",
+            primary_center_body_m=bodies.get("cubesat_bus", {}).get("center_body_m", (0, 0, 0)),
+            secondary_center_body_m=bodies.get("capture_target", {}).get("center_body_m", (0, 0, 0)),
+        ),
     )

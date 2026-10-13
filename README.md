@@ -11,6 +11,10 @@
 
 双星交会已接入共同动力学核心和平台网页，提供 7 km 接近、300→500 km 升轨后接近、环境与 GNSS 误差配置，以及成功状态向标准机械臂场景的连续交接。详细流程与物理参数见[交会说明](space_sim_server/docs/TEAM_RENDEZVOUS.md)。
 
+交会使用原控制台与原 UE 主视口，可在真实尺度的双星总览、追踪星近景、目标星近景间切换；总览显示身份、质心距离、比例尺与地影状态。团队最新 SARM 实验模型仍在直接遥操作的场景选择器中，保留其独立模型身份和夹爪角度单位，见[新模型说明](space_sim_server/docs/SARM_20261012_PLATFORM.md)。
+
+最新主线合并、固定尺度总览、运行可靠性修复和真实仿真证据见[10/13 整合记录](archive/2026_10_13_最新主线交会整合与真实尺度显示.md)。
+
 ## 首次获取与安装
 
 完整运行需要 Windows x64、PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。

@@ -67,3 +67,20 @@ test("legacy catalog supplies default one without replacing zero",async()=>{
   h.ctx.apiRequest=async()=>({ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{sunlight_intensity_scale:0}})});
   await h.ctx.loadSceneCatalog();assert.equal(h.$("sceneSunlightIntensity").value,"0");
 });
+
+test("a running process cannot enable controls using absent or previous-scene telemetry",()=>{
+  const h=setup();vm.runInContext(applySource,h.ctx);
+  const runtime={phase:"running",active:true,instance:{instance_id:"current",randomization:{}}};
+  for(const [connected,id] of [[false,null],[false,"current"],[true,null],[true,"previous"]]){
+    h.state.simulationConnected=connected;h.state.observationSceneId=id;
+    h.ctx.applySceneRuntime(runtime);
+    assert.equal(h.state.sceneReady,false);
+    assert.equal(h.$("linearSpeed").disabled,true);
+  }
+  h.state.simulationConnected=true;h.state.observationSceneId="current";
+  h.ctx.applySceneRuntime(runtime);
+  assert.equal(h.state.sceneReady,true);
+  assert.equal(h.$("linearSpeed").disabled,false);
+  h.state.simulationResetting=true;h.ctx.applySceneRuntime(runtime);
+  assert.equal(h.state.sceneReady,false);
+});

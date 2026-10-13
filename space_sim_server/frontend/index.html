@@ -53,6 +53,15 @@
             <option value="BskRenderer">主视口</option>
           </select>
           <button id="reconnectStream" class="quiet-button" type="button">重新连接</button>
+          <label id="relativeViewControl" hidden title="只改变观察相机，不改变双星位置；总览自动取景，以画内距离和比例尺为准。共享此UE主视口的页面会同时改变视角。">
+            <span class="sr-only">交会观察视角</span>
+            <select id="relativeViewSelector" aria-label="交会观察视角">
+              <option value="overview">双星交会总览 · 自动取景</option>
+              <option value="overview-fixed">双星交会总览 · 固定尺度</option>
+              <option value="chaser">追踪星近景</option>
+              <option value="target">目标星近景</option>
+            </select>
+          </label>
           <button id="resetScene" class="quiet-button" type="button" disabled title="恢复本次场景的机械臂、夹爪、目标物及仿真时间；保持原随机种子">一键复原初始位置</button>
           <label class="sr-only" for="videoFpsSelector">视频目标帧率</label>
           <select id="videoFpsSelector" aria-label="视频目标帧率" title="目标而非保证帧率；网络较差选 30/60，高刷屏可选 90。影响共享 UE 实例。"></select>

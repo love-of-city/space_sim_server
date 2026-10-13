@@ -87,6 +87,7 @@ public:
     int32 GetObjectCount() const { return BoundActors.Num(); }
     int32 GetVisualCount() const { return VisualActors.Num(); }
     int32 GetCameraCount() const { return CameraActors.Num(); }
+    bool GetRelativeViewState(FBskRelativeViewState& Out) const;
     int32 GetPendingCommandCount() const { return PendingCommandIds.Num(); }
     FString GetLastCommandStatus() const { return LastCommandStatus; }
 
@@ -189,6 +190,7 @@ private:
     FObjectSpec ResolveSpec(const FBskRenderObjectState& State) const;
 
     TUniquePtr<IBskFrameSource> Receiver;
+    FBskRelativeView RelativeView;
     FOnBskFrameApplied FrameAppliedEvent;
     TMap<FString, TObjectPtr<AActor>> BoundActors;
     TMap<FString, TObjectPtr<AActor>> CelestialActors;

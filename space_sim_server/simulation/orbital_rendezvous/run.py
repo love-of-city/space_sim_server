@@ -255,7 +255,7 @@ def run(args):
             camera_picture_in_picture=False,
         )
         _register_celestial_bodies(bridge, orbit.earth, orbit.sun)
-        bridge.set_scene_settings(flight_scene_settings(args.sunlight_intensity_scale))
+        bridge.set_scene_settings(flight_scene_settings(args.sunlight_intensity_scale, manifest["bodies"]))
         simulation.AddModelToTask("flightDynamics", bridge, -10000)
     simulation.InitializeSimulation()
     simulation.disableTask("flightPublisherInit")

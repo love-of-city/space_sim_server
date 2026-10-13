@@ -429,6 +429,18 @@ and frames wait until their pending manifest has been consumed on the game
 thread. The first new frame is applied directly; old-session frames/events are
 rejected rather than blended into the new state.
 
+The interpolated preview uses a continuous simulation-time playhead and a
+bounded buffer of at most 64 received frames. Arrival intervals estimate the
+simulation/wall-clock rate; new packets do not restart interpolation. The
+buffer allows at least 1.5 average source intervals (bounded at 500 ms) or the
+configured interpolation delay, whichever is greater. Gradual clock correction
+absorbs arrival jitter. Extrapolation is limited by the configured wall-clock
+budget and converted to simulation seconds using the estimated playback rate.
+Repeated/rewound timestamps and session resets discard the preview history.
+The first state and paused snapshots remain exact. Authoritative image capture
+still consumes the exact received frames before this preview-only processing;
+its simulation timestamps and strict FIFO are unchanged.
+
 The existing `scene_reset` event also clears presentation/capture history; it
 never changes authoritative physics or independently moves the simulation's
 bodies. The backend control protocol, not this renderer event, owns the request

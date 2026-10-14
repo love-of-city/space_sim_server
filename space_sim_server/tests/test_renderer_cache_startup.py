@@ -18,7 +18,7 @@ pytestmark=pytest.mark.skipif(not PWSH or not (UE_PROJECT/'scripts/start_rendere
 def cache_root():
     # pytest's long descriptive directory can itself exceed UE's 119-char limit.
     with tempfile.TemporaryDirectory(prefix='bsk-cache-') as directory:
-        yield Path(directory)
+        yield Path(directory).resolve()
 
 
 def test_project_keeps_zen_and_makes_installed_graph_local_cache_writable():

@@ -121,8 +121,10 @@ def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality, mon
     if not source.is_file():
         pytest.skip("Paired UE adapter checkout not present")
     (tmp_path / "start_renderer.ps1").write_text(source.read_text(encoding="utf-8-sig"), encoding="utf-8")
-    (tmp_path / "common.ps1").write_text("$ProjectFile=Join-Path $PSScriptRoot 'fake.uproject'\n"
-        "$ProjectRoot=$PSScriptRoot\nfunction Resolve-UnrealRoot($Requested){ return $PSScriptRoot }\n", encoding="utf-8")
+    (tmp_path / "common.ps1").write_text("param([string]$RequestedDerivedDataCachePath='')\n"
+        "$ProjectFile=Join-Path $PSScriptRoot 'fake.uproject'\n"
+        "$ProjectRoot=$PSScriptRoot\n$script:BskDerivedDataCachePath=$PSScriptRoot\n"
+        "function Resolve-UnrealRoot($Requested){ return $PSScriptRoot }\n", encoding="utf-8")
     quality_arg = "" if quality is None else f" -EncoderMinQuality {quality}"
     wrapper = tmp_path / "wrapper.ps1"
     wrapper.write_text("$ErrorActionPreference='Stop'\n"

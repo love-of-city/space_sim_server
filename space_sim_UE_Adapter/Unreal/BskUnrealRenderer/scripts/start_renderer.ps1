@@ -40,6 +40,10 @@ $editor = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor.exe'
 # The installed graph normally relies on Zen and marks its filesystem node
 # DeleteOnly. Our project config makes Local writable as a persistent fallback.
 # Keep Zen enabled so existing cached shaders/assets do not need recompilation.
+if (!$DerivedDataCachePath) {
+    # Reuse an operator-configured cache, including a short path for deep checkouts.
+    $DerivedDataCachePath = [Environment]::GetEnvironmentVariable('UE-LocalDataCachePath', 'Process')
+}
 if (!$DerivedDataCachePath) { $DerivedDataCachePath = Join-Path $ProjectRoot 'Saved\DerivedDataCache' }
 $DerivedDataCachePath = [IO.Path]::GetFullPath($DerivedDataCachePath)
 New-Item -ItemType Directory -Path $DerivedDataCachePath -Force | Out-Null

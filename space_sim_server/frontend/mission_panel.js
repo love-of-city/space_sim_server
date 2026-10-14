@@ -4,7 +4,10 @@ const phases = {idle: '平台空闲', starting: '正在启动任务', flight: '�
   handoff: '正在接续遥操作', launching: '正在启动场景', starting_renderer: '正在启动 UE',
   starting_simulation: '正在启动仿真', running: '遥操作场景运行中', stopping: '正在停止任务',
   stopped: '任务已停止', failed: '任务未完成', completed: '任务已结束', unknown: '状态未知'};
-const flightPhases = {'Orbit raising': '升轨飞行', 'Team approach': '双星接近', '100 m handoff hold': '100 m 外保持', Abort: '已中止'};
+const flightPhases = {'Orbit raising': '升轨飞行', 'Team approach': '双星接近', '100 m handoff hold': '100 m 外保持', Abort: '已中止',
+  FarHandoff: '远距状态交接', GNSSApproach: '相对 GNSS 接近', VisualFusion: '视觉融合', VisualApproach: '视觉主导接近',
+  PlatformHold: '平台驻留', ArmDeploy: '机械臂展开', ArmAlign: '机械臂视觉对准', FinalApproach: '末段接近',
+  ContactProxy: '进入虚拟接触窗口', Grasp: '夹取代理', CaptureConfirm: '捕获确认代理', CaptureHold: '捕获保持（逻辑代理）', SafeHold: '安全保持 · 闭合已禁止'};
 const fields = {missionSeed: 'seed', missionHold: 'handoff_distance_m', missionGnssPosition: 'gnss_position_sigma_m',
   missionGnssVelocity: 'gnss_velocity_sigma_m_s', missionInitialPosition: 'initial_position_sigma_m', missionOrbitNoise: 'orbit_acceleration_sigma_m_s2'};
 const number = (value, digits, unit) => Number.isFinite(value) ? `${value.toFixed(digits)} ${unit}` : '—';
@@ -30,6 +33,14 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
   function configure() {
     state.missionMode = $('missionMode').value || 'teleop';
     const flight = state.missionMode !== 'teleop';
+    const near = state.missionMode.startsWith('near-field');
+    $('missionSettingsNote').textContent = near
+      ? '自动接近、机械臂对准及逻辑捕获保持。主视窗使用演示补光；暗处视觉能力尚未验证。'
+      : '使用团队双星模型，在 100 m 外保持后可接续遥操作。飞行期间自动导航与控制，机械臂输入停用。';
+    $('nearFieldSettings').hidden = !near;
+    $('orbitalFlightOptions').hidden = near;
+    $('missionHoldField').hidden = near;
+    $('nearFieldFailure').disabled = !!snapshot.active;
     const templateIds = catalog.modes.find(m => m.id === state.missionMode)?.template_ids;
     if (templateIds && !templateIds.includes($('sceneTemplate').value)) {
       $('sceneTemplate').value = templateIds[0];
@@ -48,7 +59,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     $('flightTelemetry').hidden = !view.flightView;
     $('controlHeading').textContent = view.flightView ? '双星交会任务' : '末端六维遥操作';
     $('controlDescription').textContent = view.flightView
-      ? '自动完成轨道机动与双星交会，在 100 m 外保持后接续遥操作。C 进入自由视角，Home 返回主视角。' : intro;
+      ? near ? '近距闭环演示：GNSS → 视觉融合与接管 → 驻留 → 机械臂对准 → 夹取与逻辑捕获保持。双目为参数化观测。' : '自动完成轨道机动与双星交会，在 100 m 外保持后接续遥操作。C 进入自由视角，Home 返回主视角。' : intro;
     $('startScene').textContent = flight ? '启动交会任务' : '生成并启动场景';
     $('stopScene').textContent = '停止任务';
     const configured = flight ? snapshot.runtime?.configured !== false : snapshot.scene?.enabled !== false;
@@ -87,6 +98,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     if (changed) {
       observedId = mission.mission_id;
       points = [];
+      $('nearFieldFailure').value = mission.options?.vision_loss_phase || '';
       for (const [id, key] of Object.entries(fields)) {
         if (mission.options?.[key] != null) $(id).value = String(mission.options[key]);
       }
@@ -113,19 +125,31 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     const t = telemetry.sim_time_s ?? report?.final_time_s;
     const distance = meta.center_distance_m ?? telemetry.separation_m ?? report?.final_center_distance_m;
     $('missionConnection').textContent = telemetry.connected ? '遥测在线' : mission.phase === 'flight' ? '等待遥测' : '保存结果';
-    $('missionPhase').textContent = flightPhases[telemetry.phase] || (report?.basic_nominal_passed ? '100 m 外保持' : view.label);
+    $('missionPhase').textContent = flightPhases[telemetry.phase || report?.outcome] || (report?.basic_nominal_passed ? '100 m 外保持' : view.label);
     $('missionTime').textContent = number(t, 1, 's');
     $('missionRange').textContent = number(distance, 3, 'm');
-    $('missionNavigation').textContent = meta.navigation_valid === true && meta.gnss?.length === 2
-      ? '双星有效' : meta.navigation_valid === false ? '导航失效' : '—';
+    const nearMeta = meta.navigation_source ? meta : report?.final || {};
+    $('missionNavigation').textContent = nearMeta.navigation_source || (meta.navigation_valid === true && meta.gnss?.length === 2
+      ? '双星有效' : meta.navigation_valid === false ? '导航失效' : '—');
+    $('nearPlatformDistance').textContent = number(nearMeta.platform_to_grasp_m, 4, 'm');
+    $('nearTcpGap').textContent = number(nearMeta.tcp_gap_m, 4, 'm');
+    $('nearCameraDepth').textContent = number(nearMeta.optical?.camera_depth_m, 4, 'm');
+    $('nearAlignment').textContent = `${number(nearMeta.lateral_error_m, 4, 'm')} / ${number(nearMeta.alignment_error_deg, 3, '°')}`;
+    $('nearQuality').textContent = number(nearMeta.position_sigma_m, 4, 'm');
+    $('nearCapture').textContent = nearMeta.capture_state || '—';
     const bodies = telemetry.state?.bodies || [];
     const chaser = bodies.find(b => b.body_id === 'rendezvous/chaser'), target = bodies.find(b => b.body_id === 'rendezvous/target');
     $('missionAltitude').textContent = chaser ? number((Math.hypot(...chaser.position_m) - 6378136.6) / 1000, 3, 'km') : '—';
-    $('missionSpeed').textContent = chaser && target ? number(Math.hypot(...chaser.velocity_m_s.map((v, i) => v - target.velocity_m_s[i])), 3, 'm/s') : '—';
+    $('missionSpeed').textContent = Number.isFinite(nearMeta.relative_speed_m_s) ? number(nearMeta.relative_speed_m_s, 4, 'm/s') : chaser && target ? number(Math.hypot(...chaser.velocity_m_s.map((v, i) => v - target.velocity_m_s[i])), 3, 'm/s') : '—';
     $('missionResult').textContent = report ? `任务验收 · ${report.basic_nominal_passed ? '通过' : '未通过'}` : '等待任务验收';
     $('missionFiles').hidden = !report;
     for (const link of $('missionFiles').querySelectorAll('a')) {
-      const path = link.getAttribute('href').split('?')[0];
+      let path = link.getAttribute('href').split('?')[0];
+      if (/\/(input_)?handoff\.json$/.test(path)) {
+        const near = mission.mode?.startsWith('near-field');
+        path = path.replace(/\/(input_)?handoff\.json$/, near ? '/input_handoff.json' : '/handoff.json');
+        link.textContent = near ? '输入交接状态' : '交接状态';
+      }
       link.href = path + (mission.mission_id ? '?mission_id=' + encodeURIComponent(mission.mission_id) : '');
     }
     if (Number.isFinite(t) && Number.isFinite(distance) && (!points.length || t > points.at(-1).t)) {
@@ -166,8 +190,10 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       for (const input of $('flightSettings').querySelectorAll('input[type="number"]')) {
         if (!input.reportValidity()) return;
       }
-      const options = Object.fromEntries(Object.entries(fields).map(([id, key]) => [key, Number($(id).value)]));
-      options.drag_enabled = $('missionDrag').checked; options.srp_enabled = $('missionSrp').checked;
+      const near = state.missionMode.startsWith('near-field');
+      const options = near ? {seed: Number($('missionSeed').value), vision_loss_phase: $('nearFieldFailure').value}
+        : Object.fromEntries(Object.entries(fields).map(([id, key]) => [key, Number($(id).value)]));
+      if (!near) { options.drag_enabled = $('missionDrag').checked; options.srp_enabled = $('missionSrp').checked; }
       await act('/api/mission/start', {mode: state.missionMode, scene: {template_id: $('sceneTemplate').value}, options});
     },
   };

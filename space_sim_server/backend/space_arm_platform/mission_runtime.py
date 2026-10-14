@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .models import SceneInstanceCreate
 from .rendezvous_config import FlightOptions
+from .near_field_config import NearFieldOptions
 from .scene_targets import SELF_COLLISION_TEMPLATE
 
 
@@ -25,6 +26,8 @@ MISSION_MODES = (
     {"id": "teleop", "label": "直接遥操作", "template_ids": None},
     {"id": "team-in-orbit", "label": "7 km 交会 → 遥操作", "template_ids": [SELF_COLLISION_TEMPLATE]},
     {"id": "team-orbit-raise", "label": "300 → 500 km 升轨交会 → 遥操作", "template_ids": [SELF_COLLISION_TEMPLATE]},
+    {"id": "near-field", "label": "110 m 初态 → 近距自主捕获代理演示", "template_ids": [SELF_COLLISION_TEMPLATE]},
+    {"id": "near-field-resume", "label": "接续上次 110 m 结果 → 近距捕获代理", "template_ids": [SELF_COLLISION_TEMPLATE]},
 )
 
 
@@ -128,8 +131,9 @@ class MissionRuntime:
         return result
 
     async def start_flight(self, user, *, scenario, options, live=True, mode="simulation", background=False):
-        resolved = FlightOptions.from_dict(options).to_dict()
-        if scenario not in {"legacy", "team-in-orbit", "team-orbit-raise"}:
+        near = scenario in {"near-field", "near-field-resume"}
+        resolved = (NearFieldOptions if near else FlightOptions).from_dict(options).to_dict()
+        if scenario not in {"legacy", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"}:
             raise ValueError("未知交会任务模式")
         self.require_available()
         self._new(scenario, user)
@@ -253,13 +257,13 @@ class MissionRuntime:
         elif record.get("error"):
             phase = "failed"
         elif is_flight:
-            phase = "flight" if flight.get("running") else "ready" if report and report.get("basic_nominal_passed") else "failed"
+            phase = "flight" if flight.get("running") else ("completed" if record.get("mode", "").startswith("near-field") else "ready") if report and report.get("basic_nominal_passed") else "failed"
         else:
             phase = scene.get("phase", "idle") if record else "idle"
         if not is_flight or not same_flight or self._operation == "starting":
             telemetry = {"connected": False, "state": None}
         active = bool(self._operation or scene.get("active") or flight.get("running"))
-        can_handoff = bool(report and report.get("basic_nominal_passed") and not active
+        can_handoff = bool(report and report.get("basic_nominal_passed") and not record.get("mode", "").startswith("near-field") and not active
                            and (not record.get("scene_instance_id") or record.get("stopped")
                                 or scene.get("phase") in {"stopped", "failed", "completed"}))
         return {**record, "phase": phase, "active": active,

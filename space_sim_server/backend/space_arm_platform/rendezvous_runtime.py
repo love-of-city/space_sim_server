@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .rendezvous_demo import RendezvousDemo
 from .rendezvous_config import FlightOptions
+from .near_field_config import NearFieldOptions
 
 
 class RendezvousRuntime:
@@ -68,8 +69,8 @@ class RendezvousRuntime:
                     self._output_dir = latest.parent
                     try:
                         saved = json.loads(latest.read_text(encoding="utf-8"))
-                        self._scenario = "team-" + saved["scenario"]
-                        self._options = FlightOptions.from_dict(saved.get("mission_options", {}))
+                        self._scenario = saved["scenario"] if saved["scenario"] == "near-field" else "team-" + saved["scenario"]
+                        self._options = (NearFieldOptions if self._scenario == "near-field" else FlightOptions).from_dict(saved.get("mission_options", {}))
                     except (OSError, ValueError, KeyError):
                         pass
 
@@ -140,6 +141,8 @@ class RendezvousRuntime:
                         "final_body_origin_distance_m"
                     ),
                     "final_center_distance_m": result.get("final_center_distance_m"),
+                    "capture": result.get("capture"),
+                    "final": result.get("final") if result.get("scenario") == "near-field" else None,
                 }
             except (OSError, ValueError):
                 pass
@@ -170,7 +173,18 @@ class RendezvousRuntime:
             return self._start(live, mode, scenario, options)
 
     def _start(self, live: bool, mode: str, scenario: str, options=None) -> dict:
-        resolved_options = FlightOptions.from_dict(options or {})
+        near = scenario in ("near-field", "near-field-resume")
+        if near and mode != "simulation":
+            raise ValueError("近距任务需使用实际仿真入口；轨迹回放请使用独立回放工具")
+        resolved_options = (NearFieldOptions if near else FlightOptions).from_dict(options or {})
+        handoff_path = None
+        if scenario == "near-field-resume":
+            from simulation.orbital_rendezvous.handoff import load_handoff
+            from simulation.orbital_rendezvous.model import DEFAULT_MODEL
+            if self._output_dir is None or self.team_repository is None:
+                raise RuntimeError("没有可接续的 110 m 交会结果")
+            handoff_path = self._output_dir / "handoff.json"
+            load_handoff(handoff_path, self.team_repository / DEFAULT_MODEL)
         if self._demo is not None and self._demo.running:
             raise RuntimeError("请先停止正在播放的演示")
         if self._process is not None and self._process.poll() is None:
@@ -202,7 +216,7 @@ class RendezvousRuntime:
             return self.status()
         if mode != "simulation":
             raise RuntimeError("Unknown rendezvous mode")
-        if scenario not in ("legacy", "team-in-orbit", "team-orbit-raise"):
+        if scenario not in ("legacy", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"):
             raise RuntimeError("Unknown rendezvous scenario")
         if (
             not self.python
@@ -291,6 +305,12 @@ class RendezvousRuntime:
             ]
             if catalog.is_file():
                 command.extend(["--catalog", str(catalog)])
+            if near:
+                command = [str(self.python), "-u", "-m", "simulation.near_field.run",
+                           "--output-dir", str(self._output_dir), "--state-port", str(self.state_port)]
+                command.extend(["--handoff", str(handoff_path)] if handoff_path else ["--fixture"])
+                if catalog.is_file():
+                    command.extend(["--catalog", str(catalog)])
         if scenario != "legacy":
             self._output_dir.mkdir(parents=True, exist_ok=True)
             options_path = self._output_dir / "mission_options.json"

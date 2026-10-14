@@ -57,3 +57,33 @@ test('actual flight transition reconnects a waiting player once and updates the 
     assert.equal(reconnects, 1, 'A live stream must not be recreated');
   } finally { globalThis.document = previousDocument; }
 });
+
+test('login recovery waits for restored state before accepting a different mission mode', async () => {
+  const previousDocument = globalThis.document, previousOption = globalThis.Option;
+  globalThis.document = {body: {classList: {toggle() {}}}};
+  globalThis.Option = class { constructor(label, value) { this.value = value; } };
+  const nodes = new Map();
+  const ctx = {clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}};
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value: id === 'missionMode' ? 'teleop' : '', textContent: '',
+      addEventListener() {}, replaceChildren() {}, querySelectorAll: () => [], getContext: () => ctx, width: 620, height: 200});
+    return nodes.get(id);
+  };
+  try {
+    const panel = createMissionPanel({$, state: {streamLive: false}, message() {}, reconnect() {}, configureScene() {},
+      apiRequest: async () => ({ok: true, status: 200, json: async () => ({modes: [{id: 'teleop'}, {id: 'team-in-orbit'}]})})});
+    await panel.load();
+    assert.equal($('missionMode').disabled, true, 'catalog alone must not unlock a selection');
+    const saved = {mission_id: 'saved', mode: 'team-in-orbit', stage: 'flight', phase: 'stopped', active: false};
+    panel.render(saved);
+    assert.equal($('missionMode').value, 'team-in-orbit');
+    assert.equal($('missionMode').disabled, false);
+    $('missionMode').value = 'teleop'; panel.configure(); panel.render(saved);
+    assert.equal($('missionMode').value, 'teleop', 'subsequent polls preserve the user selection');
+    panel.failed();
+    assert.equal($('missionMode').disabled, true);
+    panel.render(saved);
+    assert.equal($('missionMode').disabled, false);
+    assert.equal($('missionMode').value, 'teleop');
+  } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
+});

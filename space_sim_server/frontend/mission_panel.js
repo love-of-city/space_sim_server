@@ -39,7 +39,9 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     $('flightSettings').hidden = !flight || !!snapshot.active;
     $('sceneTemplate').disabled = !!snapshot.active || flight;
     for (const input of $('flightSettings').querySelectorAll('input')) input.disabled = !!snapshot.active;
-    $('missionMode').disabled = !!snapshot.active || !available;
+    // A restored task may replace the mode on its first state response. Do not
+    // accept a user selection before that response (including login recovery).
+    $('missionMode').disabled = !!snapshot.active || !available || stateFailed;
     const view = missionPresentation(snapshot, state.missionMode);
     $('sceneCollisionWarning').hidden = view.flightView;
     $('sceneInstanceSummary').hidden = view.flightView;

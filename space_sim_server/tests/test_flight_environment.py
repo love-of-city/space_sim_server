@@ -9,6 +9,30 @@ from simulation.components.flight_environment import FlightEnvironment, solar_fo
 from space_arm_platform.rendezvous_config import FlightOptions
 
 
+def test_flight_entry_uses_native_substep_gravity_despite_teleop_stride(tmp_path, monkeypatch):
+    """Exercise the real assembly boundary; a mocked stepper misses API wiring errors."""
+    import json
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    monkeypatch.setenv('SPACE_SIM_ORBITAL_FORCE_STRIDE', '8')
+    folder = tmp_path / 'short-flight'
+    result = subprocess.run(
+        [sys.executable, '-m', 'simulation.orbital_rendezvous.run', '--scenario', 'in-orbit',
+         '--seed', '19', '--duration', '1', '--output-dir', str(folder)],
+        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
+        encoding='utf-8', errors='replace', timeout=180)
+    # A deliberately shortened flight must remain unaccepted for handoff.
+    assert result.returncode == 2, result.stdout + result.stderr
+    report = json.loads((folder / 'mission_report.json').read_text(encoding='utf-8'))
+    gravity = report['local_dynamics']['orbital_environment']
+    assert report['final_time_s'] == 1 and not report['basic_nominal_passed']
+    assert gravity['force_stride_steps'] == 1 and gravity['evaluations'] == 240
+    assert report['checks']['gravity_at_every_substep'] and report['checks']['finite_states']
+    assert not json.loads((folder / 'handoff.json').read_text(encoding='utf-8'))['accepted']
+
+
 def make_model(options, seed=13, illumination=1.0):
     state = messaging.SCStatesMsg().write(messaging.SCStatesMsgPayload(
         r_BN_N=[6.8e6, 0, 0], v_BN_N=[0, 7600, 0]))

@@ -54,7 +54,9 @@ def test_finish_avoids_windows_spawn_only_for_small_videos(tmp_path, monkeypatch
     from unittest.mock import Mock
     from space_arm_platform import lerobot_capture
     monkeypatch.setattr(lerobot_capture.sys, "platform", platform)
-    keys = ("observation.sim_time_ns", "observation.source_frame_id", "observation.applied_action_sequence")
+    keys = ("observation.sim_time_ns", "observation.source_frame_id", "observation.applied_action_sequence",
+            "observation.wrist_wrench_valid", "observation.wrist_wrench_sample_time_ns",
+            "observation.wrist_wrench_interval_end_time_ns")
     dataset = SimpleNamespace(episode_buffer={key: [np.array([7], dtype=np.int64)] for key in keys},
                               save_episode=Mock(), finalize=Mock(), stop_image_writer=Mock())
     writer = object.__new__(lerobot_capture.LiveLeRobotWriter)

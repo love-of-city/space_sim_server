@@ -214,7 +214,11 @@ def run(args):
     orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC)
     ctx.install([orbit])
     stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin,
-                                substeps=max(1, round(args.step * 240)), publish_every=1)
+                                substeps=max(1, round(args.step * 240)), publish_every=1,
+                                force_every=1)
+    # Flight uses a 20 Hz outer task with 240 Hz internal integration, unlike
+    # teleop's 240 Hz outer task. Keep gravity fresh at every internal substep;
+    # inheriting teleop's eight-step hold would reduce it to 2.5 Hz in flight.
     ctx.ports.set_stepper(stepper)
     ctx.add(stepper, Slot.PHYSICS, component="dynamics_core")
     ctx.install([OrbitalGravityComponent()])
@@ -356,6 +360,7 @@ def run(args):
         "minimum_separation": min(r["range_m"] for r in rows) >= 100.0,
         "target_orbit_500km": abs(rows[-1]["altitude_m"] - (np.linalg.norm(rows[-1]["truth"][0][:3]) - EARTH_RADIUS)) < 10.0,
         "single_multibody_integrator": stepper.external_writes == 0,
+        "gravity_at_every_substep": stepper.orbital_force_every == 1,
         "wheel_speed_limits": wheel_peak < min(w.max_speed for w in attitude.wheels),
         "wheel_torque_limits": all(
             abs(value) <= wheel.max_torque + 1e-12

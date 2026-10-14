@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +44,7 @@ def verify_sdf_equivalence(output: Path, reference_commit: str) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
     repo = ROOT.parent
     out = output.parent
-    path = "space_sim_server/model/SARM_mjcf_20261012/thread_sdf.cpp"
+    path = "space_sim_server/native/sarm_thread_sdf.cpp"
     original = subprocess.check_output(["git", "-C", str(repo), "show", f"{reference_commit}:{path}"], encoding="utf-8")
     candidate = (repo / path).read_text(encoding="utf-8")
     def functions(text, name):
@@ -120,8 +121,14 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,default=ROOT/'run/sarm_20261012_validation.json')
     parser.add_argument('--sdf-equivalence', action='store_true', help='Compile a bitwise distance/gradient comparison; no simulation')
-    parser.add_argument('--reference-commit', default='9011b97c9e19939cc984f98c36085f183a27f885')
+    parser.add_argument('--collision-equivalence', action='store_true', help='Compare native contact outputs across containment boundaries')
+    parser.add_argument('--reference-commit', default='4f1a3217a9ca01dda50bfdfa8dbe704f1612ce24')
+    parser.add_argument('--local-substeps', type=int, default=None,
+        help='Override native substeps; otherwise use the platform environment/default.')
     args=parser.parse_args()
+    if args.collision_equivalence:
+        verify_collision_equivalence(args.output)
+        return
     if args.sdf_equivalence:
         verify_sdf_equivalence(args.output, args.reference_commit)
         return
@@ -136,7 +143,7 @@ def main():
     n.KP=np.full(6,500.); n.KD=np.full(6,50.);n.TORQUE_LIMITS=np.full(6,100.);n.TIME_STEP=1/240
     q=np.zeros(8)
     ref=HeldJointReferencePublisher(lambda t:(q.copy(),np.zeros(8)),8)
-    simulation,scene,keep,_=n._build_simulation(external_reference=ref,dynamics_backend='local',local_substeps=5,
+    simulation,scene,keep,_=n._build_simulation(external_reference=ref,dynamics_backend='local',local_substeps=args.local_substeps,
         record_history=False,attitude_control_enabled=False)
     simulation.AddModelToTask('graspTask',ref,9000)
     simulation.InitializeSimulation()
@@ -148,6 +155,7 @@ def main():
         scene.getBody(name).setVelocity(n.COMMON_VELOCITY)
     reads=[scene.getBody(b).getScalarJoint(j).stateOutMsg.addSubscriber() for b,j in p.joints]
     samples=[]
+    started=time.perf_counter()
     for i in range(1,401):
         seconds=i/10
         # Ten seconds at rest, then three full 0..1..0 cycles at 0.2 rad/s.
@@ -161,14 +169,61 @@ def main():
         samples.append(dict(time_s=seconds,target_rad=float(q[6]),positions=positions,
             coupling_error_rad=abs(positions[6]+positions[7]),max_qacc=float(np.abs(stepper.qacc).max())))
         if i%10==0: print(json.dumps(samples[-1]),flush=True)
+    elapsed=time.perf_counter()-started
     validate_cycles(samples)
     report=dict(model_sha256=hashlib.sha256(n.MODEL_PATH.read_bytes()).hexdigest(),runtime='Basilisk MuJoCo 3.7.0',
-        substeps=5,nq=stepper.nq,nv=stepper.nv,samples=samples,
+        substeps=stepper.substeps,wall_seconds=elapsed,real_time_factor=40/elapsed,
+        nq=stepper.nq,nv=stepper.nv,samples=samples,
         max_coupling_error_rad=max(s['coupling_error_rad'] for s in samples),
         scope='zero arm pose with common free-body drift, 10 seconds idle and three full tendon cycles; no grasp/plug insertion acceptance')
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2),encoding='utf-8')
     print(f'PASS {args.output}',flush=True)
     _=keep
+
+def verify_collision_equivalence(output: Path) -> dict:
+    import subprocess
+    import xml.etree.ElementTree as ET
+    from tools.build_native_acceleration import compiler_environment, VENDORED_MUJOCO_INCLUDE
+    from simulation.local_mujoco_stepper import _basilisk_mujoco_runtime
+    output = output.resolve()
+    if output.exists():
+        raise ValueError('use a new output path; preserve previous evidence')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    root = ET.Element('mujoco')
+    ET.SubElement(root, 'option', gravity='0 0 0')
+    extension = ET.SubElement(root, 'extension')
+    plugin = ET.SubElement(extension, 'plugin', plugin='sarm.sdf.two_start_thread')
+    assets = ET.SubElement(root, 'asset')
+    world = ET.SubElement(root, 'worldbody')
+    for mode in range(5):
+        name = f'sdf{mode}'
+        instance = ET.SubElement(plugin, 'instance', name=name)
+        ET.SubElement(instance, 'config', key='mode', value=str(mode))
+        mesh = ET.SubElement(assets, 'mesh', name=name)
+        ET.SubElement(mesh, 'plugin', instance=name)
+        geom = ET.SubElement(world, 'geom', name=name, type='sdf', mesh=name,
+                             pos=f'{mode} 0 0', contype='0', conaffinity='0')
+        ET.SubElement(geom, 'plugin', instance=name)
+    model = output.with_suffix('.xml')
+    ET.ElementTree(root).write(model, encoding='utf-8')
+    source = ROOT / 'tools/validate_sarm_sdf_collision.cpp'
+    env = compiler_environment()
+    compiler = Path(env['VCToolsInstallDir']) / 'bin/Hostx64/x64/cl.exe'
+    executable = output.with_suffix('.exe')
+    subprocess.run([str(compiler), '/nologo', '/O2', '/fp:strict', '/EHsc', '/std:c++17', '/MD',
+                    str(source), f'/I{VENDORED_MUJOCO_INCLUDE}', f'/Fo:{output.with_suffix(".obj")}',
+                    f'/Fe:{executable}'], cwd=output.parent, env=env, check=True)
+    manifest = json.loads((ROOT / 'run/native_acceleration/sarm_thread.json').read_text())
+    completed = subprocess.run([str(executable), str(_basilisk_mujoco_runtime()),
+                                str(ROOT / manifest['library']), str(model)], capture_output=True, text=True)
+    result = {'passed': completed.returncode == 0, 'exit_code': completed.returncode,
+              'plugin': manifest, 'result': completed.stdout.strip(), 'stderr': completed.stderr.strip()}
+    output.write_text(json.dumps(result, indent=2), encoding='utf-8')
+    print(json.dumps(result), flush=True)
+    if completed.returncode:
+        raise RuntimeError(f'Native collision equivalence failed: {completed.stdout} {completed.stderr}')
+    return result
+
 
 if __name__=='__main__': main()

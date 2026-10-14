@@ -104,6 +104,7 @@ def verify(folder, repository=ROOT):
             "shared_local_backend": report["local_dynamics"]["dynamics_backend"] == "local",
             "no_runtime_state_overwrite": report["local_dynamics"]["external_state_writes"] == 0,
             "native_bsk_gravity": report["local_dynamics"]["orbital_environment"].get("mode") == "bsk",
+            "gravity_at_every_substep": report["local_dynamics"]["orbital_environment"].get("force_stride_steps") == 1,
             "environment_telemetry": force_parts.shape == (count, 2, 9) and np.isfinite(force_parts).all(),
             "drag_active": bool(np.any(np.linalg.norm(force_parts[..., :3], axis=-1) > 0)) if options.drag_enabled and options.density_300km_kg_m3 else bool(np.all(force_parts[..., :3] == 0)),
             "srp_active": bool(np.any(np.linalg.norm(force_parts[..., 3:6], axis=-1) > 0)) if options.srp_enabled else bool(np.all(force_parts[..., 3:6] == 0)),

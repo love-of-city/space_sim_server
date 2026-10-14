@@ -25,7 +25,8 @@
     "tests/test_satellite_component_review.py": "Generated CAD review artifacts",
     "tests/test_satellite_wing_joint.py": "Generated CAD wing artifacts",
     "tests/test_public_gateway_integration.py": "External Caddy binary",
-    "tests/test_capture_on_demand_renderer.py": "Opt-in real UE 5.6/GPU RGB smoke test requiring SPACE_SIM_UE_CAPTURE_SMOKE=1 and UE56_ROOT; basic CI does not install Unreal. Run separately for renderer acceptance."
+    "tests/test_capture_on_demand_renderer.py": "Opt-in real UE 5.6/GPU RGB smoke test requiring SPACE_SIM_UE_CAPTURE_SMOKE=1 and UE56_ROOT; basic CI does not install Unreal. Run separately for renderer acceptance.",
+    "tests/test_wrist_wrench_native.py": "Basilisk MJScene and locally built MuJoCo helper: analytic wrench, contact, frame, passive measurement and rebase verification"
   },
   "nodes": {
     "tests/test_gamepad_tool_control.py::test_ab_only_changes_j6_target_even_with_posture_preferences_enabled": "Basilisk teleoperation runtime; run gamepad tests separately with the native environment",

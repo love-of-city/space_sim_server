@@ -5,6 +5,8 @@ import hashlib
 import json
 
 _LOADED = {}
+DELIVERED_SOURCE = 'model/SARM_mjcf_20261012/thread_sdf.cpp'
+PLATFORM_SOURCE = 'native/sarm_thread_sdf.cpp'
 
 def ensure_model_plugins(model_path: Path):
     import xml.etree.ElementTree as ET
@@ -35,9 +37,12 @@ def ensure_sarm_plugin(runtime_path: Path, plugin_path: Path, manifest_path: Pat
     runtime = ctypes.CDLL(str(runtime_path))
     runtime.mj_version.restype = ctypes.c_int
     record = validate_plugin_manifest(plugin_path, manifest_path, runtime.mj_version())
-    source = Path(__file__).resolve().parents[1] / 'model/SARM_mjcf_20261012/thread_sdf.cpp'
-    if hashlib.sha256(source.read_bytes()).hexdigest() != record['source_sha256']:
-        raise ValueError('SARM plugin source hash changed; rebuild the plugin')
+    base = Path(__file__).resolve().parents[1]
+    # The DLL is built from the platform source, which the build proved
+    # equivalent to this exact delivered source; either changing needs a rebuild.
+    for key, source in (('source_sha256', base / PLATFORM_SOURCE), ('delivered_source_sha256', base / DELIVERED_SOURCE)):
+        if hashlib.sha256(source.read_bytes()).hexdigest() != record.get(key):
+            raise ValueError(f'SARM plugin source hash changed ({source.name}); rebuild with tools/build_sarm_plugin.py')
     key = (str(runtime_path), str(plugin_path))
     if key not in _LOADED:
         runtime.mj_loadPluginLibrary.argtypes = [ctypes.c_char_p]

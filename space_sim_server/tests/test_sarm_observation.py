@@ -85,6 +85,7 @@ def test_schema_and_backend_agree_on_sarm_shapes_and_fields():
         for constraint in ('minItems','maxItems','maximum','minimum','anyOf','$ref'):
             assert properties[key].get(constraint) == source['properties'][key].get(constraint)
     assert schema['$defs']['ReactionWheelObservation'] == source['$defs']['ReactionWheelObservation']
+    assert schema['$defs']['WrenchObservation'] == source['$defs']['WrenchObservation']
     assert len(schema['$defs']['observation']['allOf'][2]['oneOf']) == 2
 
 

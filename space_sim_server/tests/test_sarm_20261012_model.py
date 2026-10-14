@@ -19,7 +19,7 @@ def test_source_preserved_and_platform_assembly(tmp_path):
   body=b.find('./worldbody/body[@name="'+n+'"]'); assert body is not None
   assert body.find('freejoint') is not None or body.find('joint[@type="free"]') is not None
  assert len(bus.findall('./body[@name="rw_x"]'))==1
- for mesh in b.findall('./asset/mesh[@file]'):assert (out.parent/mesh.get('file')).is_file()
+ for mesh in b.findall('./asset/mesh[@file]'):assert (out.parent/mesh.get('file')).resolve().is_file()
 
 def test_orbital_free_parts_have_no_world_drag(tmp_path):
  src=ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml'
@@ -63,3 +63,29 @@ def test_wrist_camera_centers_new_gripper_working_region(tmp_path):
  expected/=np.linalg.norm(expected)
  assert np.dot(forward,expected) > .9999
  assert float(camera.get('fovy')) == 60
+
+
+def test_wrist_sensor_cut_preserves_tool_inertia_and_joint_layout(tmp_path):
+ source=ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml'
+ out=tmp_path/'sensor.xml'
+ manifest=compose_platform_model(source, ROOT/'model/SARM/platform/sarm_task_box_plugs.xml', out)
+ original=E.parse(source).find('.//body[@name="ee_base"]')
+ derived=E.parse(out)
+ flange=derived.find('.//body[@name="ee_base"]')
+ tool=flange.find('body[@name="wrist_ft_tool"]')
+ assert flange.find('joint').get('name') == 'joint6'
+ assert flange.find('inertial') is None
+ assert tool.find('joint') is None and tool.find('freejoint') is None
+ assert original.find('inertial').attrib == tool.find('inertial').attrib
+ assert {g.get('name') for g in original.findall('.//geom')} == {g.get('name') for g in tool.findall('.//geom')}
+ for typ in ('force','torque'):
+  assert derived.find(f'./sensor/{typ}').get('site') == 'wrist_ft_site'
+ assert manifest['wrist_force_torque_sensor']['added_mass_kg'] == 0
+
+ # Every exclusion targeting the moved geometry must still protect that geometry.
+ for original_exclusion in E.parse(source).findall('./contact/exclude'):
+  if 'ee_base' in (original_exclusion.get('body1'),original_exclusion.get('body2')):
+   name=original_exclusion.get('name')
+   moved=derived.find(f'./contact/exclude[@name="{name}"]')
+   for key in ('body1','body2'):
+    assert moved.get(key) == ('wrist_ft_tool' if original_exclusion.get(key)=='ee_base' else original_exclusion.get(key))

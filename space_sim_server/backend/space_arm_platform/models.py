@@ -172,6 +172,32 @@ class MotionSpeedDiagnostics(BaseModel):
     angular: MotionSpeedChannel | None = None
 
 
+class WrenchObservation(BaseModel):
+    """Raw interface load, in site axes about the site origin; not contact-only."""
+    model_config = ConfigDict(extra="forbid")
+    sensor_name: str = Field(min_length=1)
+    site_name: str = Field(min_length=1)
+    parent_body: str = Field(min_length=1)
+    child_body: str = Field(min_length=1)
+    frame: Literal["sensor_site"]
+    sign_convention: Literal["mujoco_force_torque"]
+    measurement: Literal["raw_interface_wrench"]
+    sample_phase: Literal["last_substep_start"]
+    valid: bool
+    sample_time_ns: str = Field(pattern=r"^[0-9]+$")
+    interval_end_time_ns: str = Field(pattern=r"^[0-9]+$")
+    force_n: list[FiniteFloat] = Field(min_length=3, max_length=3)
+    torque_nm: list[FiniteFloat] = Field(min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_sample_interval(self):
+        if self.valid and int(self.sample_time_ns) >= int(self.interval_end_time_ns):
+            raise ValueError("wrench sample must precede the completed interval end")
+        if not self.valid and (self.sample_time_ns != self.interval_end_time_ns or any(self.force_n + self.torque_nm)):
+            raise ValueError("invalid initial wrench must have equal timestamps and zero placeholders")
+        return self
+
+
 class SimulationObservation(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -233,10 +259,13 @@ class SimulationObservation(BaseModel):
     target_gripper_position_m: FingerVector | None = None
     attitude_control: AttitudeControlObservation | None = None
     reaction_wheels: ReactionWheelObservation | None = None
+    wrist_wrench: WrenchObservation | None = None
 
     @model_validator(mode="after")
     def validate_joint_layout(self):
         """Accept legacy six or SARM eight, but never seven/mismatched arrays."""
+        if self.wrist_wrench and int(self.wrist_wrench.interval_end_time_ns) != int(self.sim_time_ns):
+            raise ValueError("wrench interval must end at the authoritative observation time")
         count = len(self.joint_position_rad)
         if count not in (6, 8) or any(len(v) != count for v in (
             self.joint_velocity_rad_s, self.target_joint_position_rad

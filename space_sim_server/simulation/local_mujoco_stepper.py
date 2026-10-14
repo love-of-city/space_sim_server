@@ -145,6 +145,7 @@ def _library():
                              _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P]
     lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
     lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
+    lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, _DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
     if lib.lms_abi() != 1 or lib.lms_header_version() != 3007000:
@@ -328,6 +329,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._last_nanos: int | None = None
         self._published_q: np.ndarray | None = None
         self._published_v: np.ndarray | None = None
+        self.wrench_sample_time_ns: int | None = None
+        self.wrench_interval_end_ns: int | None = None
         self.step_count = 0
         self.kinematics_publish_count = 0
         self.external_writes = 0
@@ -631,6 +634,8 @@ class LocalMujocoStepper(sysModel.SysModel):
 
     # --- Basilisk interface -------------------------------------------------------
     def Reset(self, current_sim_nanos: int) -> None:
+        self.wrench_sample_time_ns = None
+        self.wrench_interval_end_ns = None
         self._last_nanos = None
         self._previous_origin = None
         self._published_q = self._published_v = None
@@ -679,6 +684,8 @@ class LocalMujocoStepper(sysModel.SysModel):
             raise FloatingPointError(
                 f"local MuJoCo dynamics diverged at t={now * 1e-9:.6f}s (status {status}, "
                 f"substep {int(self.stats[5])}/{self.substeps}, contacts {int(self.stats[3])})")
+        self.wrench_sample_time_ns = self._last_nanos + ((now - self._last_nanos) * (self.substeps - 1) // self.substeps)
+        self.wrench_interval_end_ns = now
         self.step_count += 1
         self.max_contacts = max(self.max_contacts, int(self.stats[0]))
         self.max_constraint_rows = max(self.max_constraint_rows, int(self.stats[1]))
@@ -722,6 +729,21 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._check(self._lib.lms_momentum(self._handle, _pointer(out)), "momentum")
         return {"linear_kg_m_s": out[0:3], "angular_about_com_kg_m2_s": out[3:6],
                 "com_m": out[6:9], "com_velocity_m_s": out[9:12]}
+
+    def read_wrench(self, force_sensor: str, torque_sensor: str):
+        """Raw site-frame pair, or None on models without either sensor.
+
+        Last substep start is the sample timestamp. Never re-run dynamics on
+        MJScene's publication-only copy to manufacture an endpoint reading.
+        """
+        values = np.empty(6, dtype=np.float64)
+        status = self._lib.lms_read_wrench(self._handle, force_sensor.encode(), torque_sensor.encode(), _pointer(values))
+        self._check(status, "force/torque sensor pair")
+        if status == 0:
+            return None
+        if self.wrench_sample_time_ns is None:
+            return np.zeros(6), None, None
+        return values.copy(), self.wrench_sample_time_ns, self.wrench_interval_end_ns
 
     def telemetry(self) -> dict[str, Any]:
         return {"dynamics_backend": BACKEND_LOCAL, "integrator": "mujoco_implicitfast_fixed_step",

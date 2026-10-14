@@ -183,6 +183,14 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
     # Recorded joints must be the render-time snapshot, not a later state read
     # after ExecuteSimulation reaches the outer 30 Hz loop's stop time.
     for observation in observations:
+        if template_id == 'sarm-task-box-20261012':
+            from space_arm_platform.models import SimulationObservation
+            wrench = SimulationObservation.model_validate(observation).wrist_wrench
+            assert wrench is not None
+            assert wrench.valid == (int(observation['sim_time_ns']) > 0)
+            assert int(wrench.interval_end_time_ns) == int(observation['sim_time_ns'])
+            assert wrench.site_name == 'wrist_ft_site'
+            assert np.isfinite(wrench.force_n + wrench.torque_nm).all()
         stamp, joints = authoritative_joint_samples[(observation['render_session_id'], observation['render_frame_id'])]
         assert observation['observation_source'] == 'authoritative_render_snapshot'
         assert observation['sim_time_ns'] == stamp

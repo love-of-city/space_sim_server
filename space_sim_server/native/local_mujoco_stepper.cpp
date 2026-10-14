@@ -64,6 +64,8 @@ struct Stepper {
     std::vector<double> force_world;
     std::vector<double> torque_body;
     std::vector<double> orbital_force;  // BSK-computed differential force, inertial axes
+    // Preserve the completed-step sample across rebase/set_state forward passes.
+    std::vector<double> sensor_sample;
     bool orbital_forces_enabled = false;
 };
 
@@ -160,6 +162,7 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
     s->force_world.assign(3 * s->m->nbody, 0.0);
     s->torque_body.assign(3 * s->m->nbody, 0.0);
     s->orbital_force.assign(3 * s->m->nbody, 0.0);
+    s->sensor_sample.assign(s->m->nsensordata, 0.0);
     s->api.resetData(s->m, s->d);
     s->api.forward(s->m, s->d);
     return s;
@@ -188,6 +191,28 @@ API int lms_name2id(void* handle, int type, const char* name) {
     auto* s = static_cast<Stepper*>(handle);
     if (!s || !name) return ERR_ARGUMENT;
     return s->api.name2id(s->m, type, name);
+}
+
+// Read an existing force/torque pair from the authoritative dynamics data.
+// No forward pass: sensordata is the LAST substep's pre-integration sample.
+// Return 1 when supported, 0 only when both sensors are absent, negative on
+// invalid configuration. out = Fx,Fy,Fz,Tx,Ty,Tz in the common site frame.
+API int lms_read_wrench(void* handle, const char* force_name, const char* torque_name, double* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !force_name || !torque_name || !out) return ERR_ARGUMENT;
+    const mjModel* m = s->m;
+    int f = s->api.name2id(m, mjOBJ_SENSOR, force_name);
+    int t = s->api.name2id(m, mjOBJ_SENSOR, torque_name);
+    if (f < 0 && t < 0) return 0;
+    if (f < 0 || t < 0 || m->sensor_type[f] != mjSENS_FORCE || m->sensor_type[t] != mjSENS_TORQUE ||
+        m->sensor_dim[f] != 3 || m->sensor_dim[t] != 3 ||
+        m->sensor_objtype[f] != mjOBJ_SITE || m->sensor_objtype[t] != mjOBJ_SITE ||
+        m->sensor_objid[f] != m->sensor_objid[t] || (m->opt.disableflags & mjDSBL_SENSOR)) return ERR_ARGUMENT;
+    for (int i=0; i<3; ++i) {
+        out[i] = s->sensor_sample[m->sensor_adr[f]+i];
+        out[3+i] = s->sensor_sample[m->sensor_adr[t]+i];
+    }
+    return finite(out, 6) ? 1 : ERR_DIVERGED;
 }
 
 // Copies the object name (empty when unnamed); returns its length or an error.
@@ -373,6 +398,9 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
             }
             return ERR_DIVERGED;
         }
+    }
+    if (m->nsensordata > 0) {
+        std::memcpy(s->sensor_sample.data(), d->sensordata, sizeof(mjtNum) * m->nsensordata);
     }
     // actuator_force/qacc are those of the LAST substep, i.e. the effort that
     // was actually applied over it. No extra forward pass: it would repeat

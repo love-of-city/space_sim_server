@@ -29,7 +29,7 @@ function harness() {
   $("sceneSunlightIntensity").value = "1";
   $("randomizationProfile").value = "teleop-zero-prepare-v2";
   const requests = [], runtimes = [], armed = [], online = [], messages = [];
-  const context = vm.createContext({ state, $, ZERO_START_PROFILE: "teleop-zero-prepare-v1",
+  const context = vm.createContext({clearWristWrench() {}, state, $, ZERO_START_PROFILE: "teleop-zero-prepare-v1",
     initialJoints: { read: () => null },
     armPreparation: { read: () => [0, -67.6, -86.6, 143.2, -85.5, 0], armAutoStart: id => armed.push(id) },
     apiRequest(path, options) {

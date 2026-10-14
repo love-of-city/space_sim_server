@@ -979,39 +979,37 @@ void ABskSceneController::Tick(float DeltaSeconds)
                         PreviewRate, bCaptureActive ? TEXT("on") : TEXT("off"), *Latest.CaptureEpisodeId);
                 }
                 UpdateAuthoritativeDataProductCaptures(Latest);
-                if (TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) || !bHasTargetFrame)
+                if (!PresentationClock.Observe(static_cast<double>(Latest.SimulationTimeNanoseconds) * 1.e-9, NowSeconds))
                 {
-                    PreviousFrame = Latest;
-                    TargetFrame = Latest;
-                    bHasTargetFrame = true;
+                    PresentationFrames.Reset();
+                }
+                if (TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) || PresentationFrames.IsEmpty())
+                {
                     ApplyFrame(Latest);
                 }
-                else
-                {
-                    PreviousFrame = TargetFrame;
-                    TargetFrame = MoveTemp(Latest);
-                    BlendElapsedSeconds = 0.0;
-                    if (LastFrameArrivalSeconds > 0.0)
-                    {
-                        BlendDurationSeconds = FMath::Clamp(NowSeconds - LastFrameArrivalSeconds, 1.0 / 240.0, InterpolationDelaySeconds);
-                    }
-                }
-                LastFrameArrivalSeconds = NowSeconds;
+                PresentationFrames.Add(MoveTemp(Latest));
+                if (PresentationFrames.Num() > 64) PresentationFrames.RemoveAt(0, PresentationFrames.Num() - 64, EAllowShrinking::No);
             }
         }
-        if (bHasTargetFrame && !TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) && PreviousFrame.FrameId != TargetFrame.FrameId)
+        if (PresentationFrames.Num() >= 2 && !TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase))
         {
-            BlendElapsedSeconds += DeltaSeconds;
-            const double BlendDuration = FMath::Max(BlendDurationSeconds, UE_DOUBLE_SMALL_NUMBER);
-            const double Alpha = BlendElapsedSeconds / BlendDuration;
-            if (Alpha <= 1.0)
+            const double Cursor = PresentationClock.Advance(DeltaSeconds, FPlatformTime::Seconds(),
+                InterpolationDelaySeconds, MaxExtrapolationSeconds);
+            while (PresentationFrames.Num() > 2 && static_cast<double>(PresentationFrames[1].SimulationTimeNanoseconds) * 1.e-9 <= Cursor)
+                PresentationFrames.RemoveAt(0, 1, EAllowShrinking::No);
+            const FBskRenderFrame& From = PresentationFrames[0];
+            const FBskRenderFrame& To = PresentationFrames[1];
+            const double FromSeconds = static_cast<double>(From.SimulationTimeNanoseconds) * 1.e-9;
+            const double ToSeconds = static_cast<double>(To.SimulationTimeNanoseconds) * 1.e-9;
+            if (Cursor <= ToSeconds)
             {
-                ApplyFrame(InterpolateFrame(PreviousFrame, TargetFrame, Alpha));
+                const double Alpha = FMath::Clamp((Cursor - FromSeconds) / FMath::Max(ToSeconds - FromSeconds, 1.e-9), 0.0, 1.0);
+                ApplyFrame(InterpolateFrame(From, To, Alpha));
             }
             else
             {
-                const double ExtrapolationSeconds = FMath::Min(BlendElapsedSeconds - BlendDuration, MaxExtrapolationSeconds);
-                ApplyFrame(ExtrapolateFrame(PreviousFrame, TargetFrame, ExtrapolationSeconds));
+                const double Rate = FMath::Max(PresentationClock.GetRate(), 1.e-9);
+                ApplyFrame(ExtrapolateFrame(From, To, (Cursor - ToSeconds) / Rate, Rate));
             }
         }
     }
@@ -2085,14 +2083,10 @@ void ABskSceneController::ResetPresentationState()
 {
     check(IsInGameThread());
     LastFrameId = -1;
-    bHasTargetFrame = false;
     bHasPresentationFrame = false;
-    PreviousFrame = FBskRenderFrame{};
-    TargetFrame = FBskRenderFrame{};
     PresentationFrame = FBskRenderFrame{};
-    LastFrameArrivalSeconds = 0.0;
-    BlendElapsedSeconds = 0.0;
-    BlendDurationSeconds = 1.0 / 30.0;
+    PresentationClock.Reset();
+    PresentationFrames.Reset();
     // Simulation time goes back to zero: old deadlines would stall capture
     // until the new session caught up with the previous one.
     CameraNextDataCaptureSimulationNanoseconds.Reset();
@@ -3429,11 +3423,12 @@ FBskRenderFrame ABskSceneController::InterpolateFrame(const FBskRenderFrame& Fro
 FBskRenderFrame ABskSceneController::ExtrapolateFrame(
     const FBskRenderFrame& From,
     const FBskRenderFrame& To,
-    double SecondsBeyondTarget) const
+    double SecondsBeyondTarget,
+    double SimulationRate) const
 {
     FBskRenderFrame Result = To;
     const double SourceDeltaSeconds = static_cast<double>(To.SimulationTimeNanoseconds - From.SimulationTimeNanoseconds) * 1.0e-9;
-    const double ExtraSeconds = FMath::Clamp(SecondsBeyondTarget, 0.0, MaxExtrapolationSeconds);
+    const double ExtraSeconds = FMath::Clamp(SecondsBeyondTarget, 0.0, MaxExtrapolationSeconds) * FMath::Max(0.0, SimulationRate);
     if (SourceDeltaSeconds <= UE_DOUBLE_SMALL_NUMBER || ExtraSeconds <= 0.0) return Result;
     Result.SimulationTimeNanoseconds += FMath::RoundToInt64(ExtraSeconds * 1.0e9);
     Result.OriginInertialMeters += (To.OriginInertialMeters - From.OriginInertialMeters) * (ExtraSeconds / SourceDeltaSeconds);

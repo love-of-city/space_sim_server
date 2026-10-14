@@ -4,9 +4,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstdint>
-#include <cstring>
-#include <limits>
 #include <mujoco/mujoco.h>
 
 namespace {
@@ -43,40 +40,9 @@ constexpr double kLockGuideOuterRadius = 0.020;
 constexpr double kLockRodPhase = 0.002035;
 constexpr double kLockNutPhase = 0.001171;
 
-struct RadialGeometry {
-  std::uint64_t xy[2]{};
-  double radius = 0;
-  double theta = 0;
-  bool valid = false;
-  bool has_theta = false;
-};
-
-RadialGeometry& radial_geometry(const mjtNum p[3]) {
-  // Exact XY reuse across the +/-Z finite differences and repeated SDF
-  // queries. Immutable geometry parameters do not participate in this cache.
-  // No coordinate quantization: signed zeros retain their atan2 semantics.
-  thread_local RadialGeometry cache[32];
-  static_assert(sizeof(mjtNum) == sizeof(std::uint64_t), "SDF cache requires double precision");
-  std::uint64_t xy[2];
-  std::memcpy(xy, p, sizeof(xy));
-  const auto hash = xy[0] ^ (xy[1] + 0x9e3779b97f4a7c15ULL + (xy[0] << 6) + (xy[0] >> 2));
-  auto& entry = cache[(hash ^ (hash >> 32)) & 31];
-  if (!entry.valid || std::memcmp(entry.xy, xy, sizeof(xy)) != 0) {
-    std::memcpy(entry.xy, xy, sizeof(xy));
-    entry.radius = std::hypot(p[0], p[1]);
-    entry.has_theta = false;
-    entry.valid = true;
-  }
-  return entry;
-}
-
-double tooth_radius(const mjtNum p[3], RadialGeometry& geometry, double phase,
+double tooth_radius(const mjtNum p[3], double phase,
                     double root = kRootRadius, double height = kToothHeight) {
-  if (!geometry.has_theta) {
-    geometry.theta = std::atan2(p[1], p[0]);
-    geometry.has_theta = true;
-  }
-  const double theta = geometry.theta;
+  const double theta = std::atan2(p[1], p[0]);
   const double u = p[2] - kLead * theta / (2.0 * kPi) + phase;
   // cos(2*pi*u/pitch) has two starts per 16 mm lead.
   const double profile = 0.5 * (1.0 - std::cos(2.0 * kPi * u / kPitch));
@@ -84,33 +50,24 @@ double tooth_radius(const mjtNum p[3], RadialGeometry& geometry, double phase,
 }
 
 double distance(const mjtNum p[3], int mode) {
-  auto& geometry = radial_geometry(p);
-  const double radius = geometry.radius;
+  const double radius = std::hypot(p[0], p[1]);
   if (mode == 0) {  // threaded male cylinder, local z=-60..0 mm
-    const double cap = std::max(-kMaleLength - p[2], p[2]);
-    if (cap > radius - kRootRadius) return cap;
-    const double radial = radius - tooth_radius(p, geometry, kMalePhase);
+    const double radial = radius - tooth_radius(p, kMalePhase);
     return std::max({radial, -kMaleLength - p[2], p[2]});
   }
   if (mode == 1) {  // board1 threaded female bore
-    const double outside = std::max({radius - kOuterRadius, -kFemaleLength - p[2], p[2]});
-    if (outside > kRootRadius + kToothHeight + kClearance - radius) return outside;
-    const double inside_hole = tooth_radius(p, geometry, kFemalePhase) + kClearance - radius;
+    const double inside_hole = tooth_radius(p, kFemalePhase) + kClearance - radius;
     return std::max({inside_hole, radius - kOuterRadius,
                      -kFemaleLength - p[2], p[2]});
   }
   if (mode == 2) {  // locking rod, local z=-110..0 mm
-    const double cap = std::max(-kLockRodLength - p[2], p[2]);
-    if (cap > radius - kLockRootRadius) return cap;
     const double radial = radius - tooth_radius(
-        p, geometry, kLockRodPhase, kLockRootRadius, kLockToothHeight);
+        p, kLockRodPhase, kLockRootRadius, kLockToothHeight);
     return std::max({radial, -kLockRodLength - p[2], p[2]});
   }
   if (mode == 3) {  // fastener's internal thread, local z=-65..0 mm
-    const double outside = std::max({radius - kLockOuterRadius, -kLockNutLength - p[2], p[2]});
-    if (outside > kLockFemaleRoot + kLockFemaleHeight - radius) return outside;
     const double inside_hole = tooth_radius(
-        p, geometry, kLockNutPhase, kLockFemaleRoot, kLockFemaleHeight) - radius;
+        p, kLockNutPhase, kLockFemaleRoot, kLockFemaleHeight) - radius;
     return std::max({inside_hole, radius - kLockOuterRadius,
                      -kLockNutLength - p[2], p[2]});
   }
@@ -123,15 +80,6 @@ double distance(const mjtNum p[3], int mode) {
 }
 
 void gradient(mjtNum grad[3], const mjtNum p[3], int mode) {
-  // A line search may ask for the same gradient again after evaluating the
-  // two surfaces. Retain only the last exact query per immutable SDF mode.
-  struct Entry { mjtNum point[3]{}, gradient[3]{}; bool valid = false; };
-  thread_local Entry cache[5];
-  Entry* entry = mode >= 0 && mode < 5 ? &cache[mode] : nullptr;
-  if (entry && entry->valid && std::memcmp(entry->point, p, sizeof(entry->point)) == 0) {
-    std::memcpy(grad, entry->gradient, sizeof(entry->gradient));
-    return;
-  }
   constexpr double eps = 2e-6;
   for (int i = 0; i < 3; ++i) {
     mjtNum plus[3] = {p[0], p[1], p[2]};
@@ -146,62 +94,9 @@ void gradient(mjtNum grad[3], const mjtNum p[3], int mode) {
   } else {
     grad[0] = 1; grad[1] = 0; grad[2] = 0;
   }
-  if (entry) {
-    std::memcpy(entry->point, p, sizeof(entry->point));
-    std::memcpy(entry->gradient, grad, sizeof(entry->gradient));
-    entry->valid = true;
-  }
 }
 
 const char* const kAttributes[] = {"mode"};
-
-// MuJoCo's public collision dispatch table also covers explicit <pair>s, which
-// bypass mjcb_contactfilter. Preserve the stock detector for every uncertain
-// configuration and for every other SDF plugin.
-mjfCollision original_sdf_collision = nullptr;
-int registered_slot = -1;
-
-int model_mode(const mjModel* m, const mjData* d, int geom) {
-  const int instance = m->geom_plugin[geom];
-  if (instance < 0 || m->plugin[instance] != registered_slot || !d->plugin_data[instance]) return -1;
-  return *reinterpret_cast<const int*>(d->plugin_data[instance]);
-}
-
-bool rod_inside_guide(const mjData* d, int rod, int guide, double margin) {
-  const mjtNum* rp = d->geom_xpos + 3*rod;
-  const mjtNum* gp = d->geom_xpos + 3*guide;
-  const mjtNum* rm = d->geom_xmat + 9*rod;
-  const mjtNum* gm = d->geom_xmat + 9*guide;
-  double first[2]{}, last[2]{};
-  double magnitude = 1.0;
-  for (int j = 0; j < 3; ++j) magnitude = std::max({magnitude, std::abs(rp[j]), std::abs(gp[j])});
-  for (int i = 0; i < 2; ++i) {
-    double axis = 0.0;
-    for (int j = 0; j < 3; ++j) {
-      first[i] += gm[3*j+i] * (rp[j] - gp[j]);
-      axis += gm[3*j+i] * rm[3*j+2];
-    }
-    last[i] = first[i] - kLockRodLength * axis;
-  }
-  // Every thread point lies in the radius-12 mm cylinder from z=-110..0 mm.
-  // Projecting a disk cannot enlarge its radius; the norm of the axis segment
-  // is bounded by its endpoints. If this entire cylinder is strictly inside
-  // the 12.65 mm bore, the two signed-distance sublevel sets cannot intersect.
-  // Inflate the bound for margins and world-coordinate subtraction roundoff.
-  const double roundoff = 128.0 * std::numeric_limits<double>::epsilon() * magnitude + 1e-9;
-  const double bound = std::max(std::hypot(first[0], first[1]), std::hypot(last[0], last[1]))
-                        + kLockRootRadius + kLockToothHeight + roundoff + std::max(0.0, margin);
-  return std::isfinite(bound) && std::isfinite(margin) && bound < kLockGuideBoreRadius;
-}
-
-int collide_sdf(const mjModel* m, mjData* d, mjContact* contacts,
-                int geom1, int geom2, mjtNum margin) {
-  const int mode1 = model_mode(m, d, geom1);
-  const int mode2 = model_mode(m, d, geom2);
-  if ((mode1 == 2 && mode2 == 4 && rod_inside_guide(d, geom1, geom2, margin)) ||
-      (mode1 == 4 && mode2 == 2 && rod_inside_guide(d, geom2, geom1, margin))) return 0;
-  return original_sdf_collision(m, d, contacts, geom1, geom2, margin);
-}
 
 void register_plugin() {
   mjpPlugin plugin;
@@ -258,9 +153,7 @@ void register_plugin() {
     aabb[0] = 0; aabb[1] = 0; aabb[2] = -0.5 * length;
     aabb[3] = radius; aabb[4] = radius; aabb[5] = 0.5 * length;
   };
-  registered_slot = mjp_registerPlugin(&plugin);
-  original_sdf_collision = mjCOLLISIONFUNC[mjGEOM_SDF][mjGEOM_SDF];
-  mjCOLLISIONFUNC[mjGEOM_SDF][mjGEOM_SDF] = collide_sdf;
+  mjp_registerPlugin(&plugin);
 }
 
 }  // namespace

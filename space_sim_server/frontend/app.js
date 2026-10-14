@@ -1,3 +1,4 @@
+import { formatWristWrench } from "./wrist_wrench.js";
 import { createArmPreparation, AUTO_PREPARE_PROFILE, ZERO_START_PROFILE } from "./arm_preparation.js";
 import { createInitialJointAngles } from "./initial_joint_angles.js";
 import { createJointAnglePanel } from "./joint_angles.js";
@@ -14,6 +15,12 @@ import "./styles.css";
 import { FreeCameraController } from "./free_camera.js";
 import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "./control_status.js";
+
+function clearWristWrench() {
+  $("wristForce").textContent = "—";
+  $("wristTorque").textContent = "—";
+  $("wristWrenchDetail").textContent = "无实时测量";
+}
 
 const gamepadInput = new GamepadInput();
 
@@ -239,6 +246,7 @@ function shutdownAuthenticatedApp() {
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
   disposePixelStream();
   jointAngles.clear("已退出登录");
+  clearWristWrench();
   state.connected = false; state.controlGranted = false;
 }
 
@@ -305,6 +313,7 @@ function applySceneRuntime(runtime = {}) {
   );
   state.scenePhase = phase;
   state.sceneReady = phase === "running" && !state.resetPending && !state.simulationResetting;
+  if (!state.sceneReady) clearWristWrench();
   if (!state.sceneReady && state.operationActive) {
     exitOperationMode("场景已结束，已退出操作模式");
   }
@@ -472,6 +481,7 @@ function connect() {
     setMessage("操作链路已连接；场景运行后点击画面进入操作模式");
   };
   state.ws.onclose = () => {
+    clearWristWrench();
     state.connected = false;
     state.controlGranted = false;
     setOnline("backendDot", false);
@@ -533,6 +543,10 @@ function connect() {
       $("ikSolver").textContent = obs.ik_mode
         ? `${obs.ik_mode}${obs.ik_status ? ` / ${obs.ik_status}` : ""} · λ=${Number(obs.ik_damping ?? 0).toFixed(4)} · scale=${Number(obs.ik_velocity_scale ?? 1).toFixed(2)} · σmin=${Number(obs.ik_minimum_singular_value ?? 0).toExponential(1)} · ${Number(obs.ik_solve_time_ms ?? 0).toFixed(2)} ms${obs.ik_elbow_preference?.enabled ? ` · 构型偏好=${obs.ik_elbow_preference.status} · 肘高=${Number(obs.ik_elbow_preference.measured_height_m ?? 0).toFixed(3)}m${obs.ik_elbow_preference.wrist_enabled ? ` · J4−J6=${Number(obs.ik_elbow_preference.measured_wrist_drop_m ?? 0).toFixed(3)}m` : ""}${obs.ik_elbow_preference.joint3_enabled ? ` · J3负角偏好=${(Number(obs.ik_elbow_preference.measured_joint3_rad ?? 0) * 180 / Math.PI).toFixed(1)}°` : ""}` : ""}`
         : "—";
+      const wrench = formatWristWrench(obs.wrist_wrench);
+      $("wristForce").textContent = wrench.force;
+      $("wristTorque").textContent = wrench.torque;
+      $("wristWrenchDetail").textContent = wrench.detail;
       const attitude = obs.attitude_control;
       $("referenceProtection").textContent = referenceProtectionLabel(obs);
       $("dynamicsTiming").textContent = dynamicsTimingLabel(obs);
@@ -1232,6 +1246,7 @@ async function refreshState() {
     $("episodePath").textContent = data.episode_directory || "—";
     applySceneRuntime(data.scene_runtime || {});
     if (!state.simulationConnected || state.simulationResetting || !state.sceneReady) {
+      clearWristWrench();
       jointAngles.clear(state.simulationResetting ? "场景重置中" : "等待运行场景的遥测");
     }
     if (data.simulation.reset_error) setMessage(data.simulation.reset_error);

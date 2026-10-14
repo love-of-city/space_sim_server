@@ -1,3 +1,4 @@
+import { formatWristWrench } from "../wrist_wrench.js";
 import { formatMotionSpeedDiagnostics } from "../motion_diagnostics.js";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -19,7 +20,7 @@ function observe(payload) {
   };
   vm.runInNewContext(observationHandler, {
     armPreparation: { update() {} },
-    referenceProtectionLabel, dynamicsTimingLabel,
+    referenceProtectionLabel, dynamicsTimingLabel, formatWristWrench,
     message: { payload }, $, setOnline() {}, formatMotionSpeedDiagnostics,
     jointAngles: { update(obs) { jointObservation = obs; } },
     updateMotionOutputs(twist, grip) { output = { twist, grip }; },
@@ -114,3 +115,9 @@ test("joint3 negative-angle preference uses measured degrees and preserves posit
   }});
   assert.doesNotMatch(off.$("ikSolver").textContent, /J3负角偏好/);
 });
+
+ test("wrist interface load reaches the six-axis telemetry fields", () => {
+   const h=observe({sim_time_ns:"100000000",wrist_wrench:{valid:true,force_n:[1,2,3],torque_nm:[4,5,6],site_name:"wrist_ft_site",sample_time_ns:"99166667"}});
+   assert.equal(h.$("wristForce").textContent,"1.000, 2.000, 3.000 N");
+   assert.equal(h.$("wristTorque").textContent,"4.000, 5.000, 6.000 N·m");
+ });

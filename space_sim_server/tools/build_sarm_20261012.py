@@ -10,6 +10,46 @@ def asset_path(path: Path, directory: Path) -> str:
     except ValueError:  # Windows checkouts and temporary output may use different drives.
         return path.resolve().as_posix()
 
+# Platform cameras (not part of the delivered model). Positions in the parent
+# body frame: overview on cubesat_bus, wrist on ee_base. "right" is the image
+# +x direction before orthogonalization. Fully open fingers reach ee_base
+# x=+/-.085 m; fovy 70 deg keeps both in frame at the 640x360 aspect.
+# Overview: a virtual camera at the top of a 0.5 m deck mast (the mast itself is
+# not modelled). Deck point B on the rear edge, left-behind the arm base, so the
+# image "up" follows the arm reaching towards the task box.
+OVERVIEW_CAMERA_POS = (-0.18, 0.27, 0.5)
+OVERVIEW_CAMERA_AIM = (0.35, 0.34, 0.03)
+OVERVIEW_CAMERA_RIGHT = (0.07, -0.53, 0.0)  # horizontal, perpendicular to the line of sight (no roll)
+OVERVIEW_CAMERA_FOVY = 51
+WRIST_CAMERA_POS = (0.0, 0.10, 0.12)
+WRIST_CAMERA_AIM = (0.0, 0.0, 0.22)
+WRIST_CAMERA_RIGHT = (-1.0, 0.0, 0.0)
+WRIST_CAMERA_FOVY = 70
+
+def look_at_quat(pos, aim, right):
+    """MJCF camera quaternion (w,x,y,z): local -Z towards aim, local +X ~ right."""
+    f=[a-p for a,p in zip(aim,pos)]; n=math.sqrt(sum(v*v for v in f)); f=[v/n for v in f]
+    k=sum(a*b for a,b in zip(right,f)); x=[a-k*b for a,b in zip(right,f)]
+    n=math.sqrt(sum(v*v for v in x)); x=[v/n for v in x]
+    z=[-v for v in f]
+    y=[z[1]*x[2]-z[2]*x[1], z[2]*x[0]-z[0]*x[2], z[0]*x[1]-z[1]*x[0]]
+    # Columns x, y, z are the camera axes in the parent frame.
+    m=[[x[0],y[0],z[0]],[x[1],y[1],z[1]],[x[2],y[2],z[2]]]
+    t=m[0][0]+m[1][1]+m[2][2]
+    if t>0:
+        s=math.sqrt(t+1)*2; q=(s/4,(m[2][1]-m[1][2])/s,(m[0][2]-m[2][0])/s,(m[1][0]-m[0][1])/s)
+    else:
+        i=max(range(3),key=lambda a:m[a][a]); j,k=(i+1)%3,(i+2)%3
+        s=math.sqrt(1+m[i][i]-m[j][j]-m[k][k])*2
+        q=[0.0]*4; q[0]=(m[k][j]-m[j][k])/s; q[1+i]=s/4; q[1+j]=(m[j][i]+m[i][j])/s; q[1+k]=(m[k][i]+m[i][k])/s
+    if q[0]<0: q=[-v for v in q]
+    return tuple(q)
+
+def set_look_at(camera, pos, aim, right):
+    text=lambda values: ' '.join(repr(float(v)+0.0) for v in values)  # shortest exact, no -0
+    camera.set('pos',text(pos))
+    camera.set('quat',text(look_at_quat(pos,aim,right)))
+
 def compose_platform_model(source: Path, platform_reference: Path, output: Path) -> dict:
     source,platform_reference,output=map(Path,(source,platform_reference,output))
     r=E.parse(source).getroot(); old=E.parse(platform_reference).getroot()
@@ -46,19 +86,50 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path)
             if e.get(attr)=='base_link':e.set(attr,'cubesat_bus')
     oldbus=old.find('.//body[@name="cubesat_bus"]')
     for n in ['rw_x','rw_y','rw_z']:bus.append(copy.deepcopy(oldbus.find('body[@name="'+n+'"]')))
-    for node in oldbus.findall('camera')+oldbus.findall('site'):bus.append(copy.deepcopy(node))
+    for node in oldbus.findall('camera')+oldbus.findall('site'):
+        node=copy.deepcopy(node)
+        if node.tag=='camera' and node.get('name')=='spacecraft_overview':
+            # Frame the whole task box (bus-frame AABB x .12-.58, y .06-.62,
+            # z -.09-.15 m) with ~8% margin; the arm stays at the image edge.
+            set_look_at(node,OVERVIEW_CAMERA_POS,OVERVIEW_CAMERA_AIM,OVERVIEW_CAMERA_RIGHT)
+            node.set('fovy',format(OVERVIEW_CAMERA_FOVY,'g'))
+        bus.append(node)
     wrist=r.find('.//body[@name="ee_base"]')
     for camera in old.findall('.//body[@name="link6"]/camera'):
         camera = copy.deepcopy(camera)
         if camera.get('name') == 'sarm_wrist_cam':
-            # New TCP is ee_base+[0,0,.19], not the old link6 frame.
-            # Keep the clear side mount; look at [0,0,.23], 4 cm ahead
-            # of the fingers. MuJoCo camera forward is local -Z.
-            camera.set('pos', '0.22 0 0.12')
-            qw = math.sqrt(1 - 1/math.sqrt(5))/2
-            qx = math.sqrt(1 + 1/math.sqrt(5))/2
-            camera.set('quat', ' '.join(format(v, '.17g') for v in (qw,qx,qx,qw)))
+            # Mounted on ee_base, so it turns with joint6. The fingers open
+            # along ee_base x; viewing from the +y side keeps both fingertips
+            # apart in the image (a view along x hides one behind the other)
+            # and sees over the linkage bars. Aimed 3 cm past the TCP
+            # (ee_base z=.19): whole fingers (z .144-.209) in the lower half,
+            # the grasped object between them, the workspace ahead above.
+            set_look_at(camera,WRIST_CAMERA_POS,WRIST_CAMERA_AIM,WRIST_CAMERA_RIGHT)
+            camera.set('fovy',format(WRIST_CAMERA_FOVY,'g'))
         wrist.append(camera)
+    # Ideal, rigid, zero-added-mass load cell after joint6. Keep the joint and
+    # camera names on ee_base; move the entire tool inertia/geometry/subtree
+    # across the measurement cut without changing any transforms or DOFs.
+    tool = E.SubElement(wrist, 'body', name='wrist_ft_tool', pos='0 0 0')
+    for child in list(wrist):
+        if child is not tool and child.tag in ('inertial', 'geom', 'body'):
+            wrist.remove(child)
+            tool.append(child)
+            if child.tag == 'inertial':
+                child.tail = "\n                  "
+    # Body-pair exclusions follow the original geoms across the fixed cut.
+    # Joint and camera references stay on ee_base.
+    for exclusion in r.findall('./contact/exclude'):
+        for attribute in ('body1', 'body2'):
+            if exclusion.get(attribute) == 'ee_base':
+                exclusion.set(attribute, 'wrist_ft_tool')
+    E.SubElement(tool, 'site', name='wrist_ft_site', pos='0 0 0',
+                 size='0.003', rgba='0 0 0 0', group='4')
+    sensors = r.find('sensor')
+    if sensors is None:
+        sensors = E.SubElement(r, 'sensor')
+    E.SubElement(sensors, 'force', name='wrist_ft_force', site='wrist_ft_site')
+    E.SubElement(sensors, 'torque', name='wrist_ft_torque', site='wrist_ft_site')
     r.find('.//site[@name="ee_site"]').set('name','sarm_ee')
     # Retain the platform's separate capture target as an explicitly additional body.
     target=copy.deepcopy(old.find('.//body[@name="capture_target"]'));world.append(target)
@@ -73,6 +144,7 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path)
     for pair in old.findall('./contact/pair'):r.find('contact').append(copy.deepcopy(pair))
     output.parent.mkdir(parents=True,exist_ok=True);output.write_bytes(E.tostring(r,encoding='utf-8',xml_declaration=True))
     record={'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'model_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'model_revision':'2026-10-12','platform_additions':['free base','reaction wheels (additional mass)','capture target','cameras'],'source_base_inertia_preserved':True,'gripper_type':'four_bar_tendon','root_renames':{'base_link':'cubesat_bus'},'drawer_reparented_to':'cubesat_bus'}
+    record['wrist_force_torque_sensor'] = {'site': 'wrist_ft_site', 'parent_body': 'ee_base', 'tool_body': 'wrist_ft_tool', 'added_mass_kg': 0, 'ideal_rigid_sensor': True}
     record['orbital_free_joint_damping_overrides']=damping_overrides
     output.with_suffix('.manifest.json').write_text(json.dumps(record,indent=2)+'\n')
     return record

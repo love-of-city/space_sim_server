@@ -38,6 +38,7 @@ class LiveLeRobotWriter:
         self.last_tick: int | None = None
         self.camera_shapes: dict[str, tuple[int, ...]] = {}
         self.model_identity = None
+        self.wrench_identity = None
 
     def append(self, observation: Any, captures: dict[str, tuple[dict, dict]]) -> None:
         identity = (observation.model_sha256, observation.model_revision, observation.gripper_type)
@@ -69,6 +70,18 @@ class LiveLeRobotWriter:
             "observation.platform_json": observation.model_dump_json(),
             "task": self.request.instruction or self.request.task,
         }
+        wrench = observation.wrist_wrench
+        identity = None if wrench is None else (
+            wrench.sensor_name, wrench.site_name, wrench.parent_body, wrench.child_body,
+            wrench.frame, wrench.sign_convention, wrench.measurement, wrench.sample_phase)
+        if self.frames and identity != self.wrench_identity:
+            raise ValueError("wrist sensor availability or frame changed within an episode")
+        self.wrench_identity = identity
+        if wrench is not None:
+            frame["observation.wrist_wrench_valid"] = np.array([int(wrench.valid)], dtype=np.int64)
+            frame["observation.wrist_wrench"] = f32(wrench.force_n + wrench.torque_nm)
+            frame["observation.wrist_wrench_sample_time_ns"] = np.array([int(wrench.sample_time_ns)], dtype=np.int64)
+            frame["observation.wrist_wrench_interval_end_time_ns"] = np.array([int(wrench.interval_end_time_ns)], dtype=np.int64)
         for camera in self.cameras:
             meta, products = captures[camera]
             if set(self.products) - products.keys():
@@ -107,6 +120,8 @@ class LiveLeRobotWriter:
                 names = [f'joint_{i+1}_rad' for i in range(6)] + ['ee_link11_joint_rad', 'ee_link12_joint_rad']
             features["observation.state"]["names"] = names
             features["action"]["names"] = names
+            if wrench is not None:
+                features["observation.wrist_wrench"]["names"] = ["Fx_N", "Fy_N", "Fz_N", "Tx_Nm", "Ty_Nm", "Tz_Nm"]
             features["observation.end_effector_pose_body"]["names"] = ["x_m", "y_m", "z_m", "qw", "qx", "qy", "qz"]
             self.dataset = self.dataset_class.create(
                 repo_id=f"local/{self.root.parent.name}", root=self.root,
@@ -122,6 +137,7 @@ class LiveLeRobotWriter:
                 "model_revision": observation.model_revision, "gripper_type": observation.gripper_type,
                 "model_sha256": observation.model_sha256, "mujoco_runtime_version": observation.mujoco_runtime_version,
                 "timestamp_semantics": "episode-relative uniform sample time; original nanoseconds in observation.sim_time_ns",
+                "wrist_wrench": (wrench.model_dump(exclude={"force_n", "torque_nm", "sample_time_ns", "interval_end_time_ns", "valid"}) if wrench else None),
                 "camera_keys": {c: camera_key(c) for c in self.cameras},
                 "request": self.request.model_dump(mode="json"),
             }, ensure_ascii=False, indent=2), encoding="utf-8")

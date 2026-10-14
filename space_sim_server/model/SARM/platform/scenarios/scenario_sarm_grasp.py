@@ -386,7 +386,6 @@ def _build_local_simulation(
         tendon = tendon_reference_publisher(scene, trajectory, profile.gripper_actuator)
         simulation.AddModelToTask('graspTask', tendon, LOCAL_WHEEL_DRIVE_PRIORITY + 1)
         extra_models.append(tendon)
-        local_substeps = max(5, local_substeps or 5)
     stepper = LocalMujocoStepper(scene, MODEL_PATH, servos, substeps=local_substeps)
     simulation.AddModelToTask("graspTask", stepper, LOCAL_STEPPER_PRIORITY)
     simulation.local_stepper = stepper

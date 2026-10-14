@@ -791,29 +791,28 @@ class BasiliskRenderBridge(_BridgeBase):
         if self.frame_period_ns is not None and current_sim_ns < self._next_frame_ns:
             return
 
-        raw_objects: list[dict[str, Any]] = []
-        for binding in self._objects:
-            state = binding.reader()
-            raw_objects.append(
+        states = [binding.reader() for binding in self._objects]
+        origin_n = self._origin(
+            [{"object_id": binding.object_id, "position_N_m": list(state.r_BN_N)}
+             for binding, state in zip(self._objects, states)]
+        )
+        objects = []
+        if states:
+            # One batched conversion for all bodies (same checks as the per-body path).
+            positions, orientations, velocities, rates = self.converter.bodies(
+                [state.r_BN_N for state in states], [state.v_BN_N for state in states],
+                [state.sigma_BN for state in states], [state.omega_BN_B for state in states], origin_n)
+            objects = [
                 {
                     "object_id": binding.object_id,
-                    "position_N_m": list(state.r_BN_N),
-                    "velocity_N_mps": list(state.v_BN_N),
-                    "sigma_BN": list(state.sigma_BN),
-                    "angular_velocity_B_radps": list(state.omega_BN_B),
+                    "position_m": position,
+                    "orientation_wxyz": orientation,
+                    "velocity_mps": velocity,
+                    "angular_velocity_B_radps": rate,
                 }
-            )
-        origin_n = self._origin(raw_objects)
-        objects = [
-            {
-                "object_id": item["object_id"],
-                "position_m": self.converter.position(item["position_N_m"], origin_n).tolist(),
-                "orientation_wxyz": self.converter.body_orientation(item["sigma_BN"]).tolist(),
-                "velocity_mps": self.converter.velocity(item["velocity_N_mps"]).tolist(),
-                "angular_velocity_B_radps": vector(item["angular_velocity_B_radps"], 3, "omega_BN_B").tolist(),
-            }
-            for item in raw_objects
-        ]
+                for binding, position, orientation, velocity, rate in zip(
+                    self._objects, positions.tolist(), orientations.tolist(), velocities.tolist(), rates.tolist())
+            ]
         celestial = []
         for binding in self._celestial:
             state = binding.reader()

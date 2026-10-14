@@ -75,11 +75,12 @@ MAX_SUBSTEPS = 16
 #   (k % SYNC_STEPS == 0, the 30 Hz grid on 240 Hz dynamics): body/site messages
 #   (MJScene.postIntegration = forward kinematics of its publish-only copy,
 #   ~0.1 ms in isolation, ~0.6 ms in the live process). Their consumers are the
-#   30 Hz render bridge and observation (always exact) and the 100 Hz attitude
-#   navigation, which may read a site state up to stride-1 steps old; the
-#   message's timeWritten() says so.
+#   30 Hz render bridge and observation (always exact) and the attitude
+#   navigation, scheduled at a multiple of the stride (30 Hz by default) so it
+#   reads the state published one step before it runs.
 # Physics (MuJoCo) is stepped on every 240 Hz tick regardless of the stride.
-DEFAULT_PUBLISH_STRIDE = 2
+# Default 8: publish only on the 30 Hz render grid (IK reads joint states only).
+DEFAULT_PUBLISH_STRIDE = 8
 ALLOWED_PUBLISH_STRIDES = (1, 2, 4, 8)
 SYNC_STEPS = 8  # space_arm_platform.sampling: DYNAMICS_HZ // RENDER_HZ
 # Move O onto the system COM before local coordinates grow large enough for
@@ -89,6 +90,11 @@ DEFAULT_REBASE_DISTANCE_M = 50.0
 # degrades near 1e6 m and fails at orbital radius (run/diagnostics/local_stepper/
 # orbital_offset_contact.py), so a once-per-second check has a wide margin.
 REBASE_CHECK_STEPS = 240
+# Differential (tidal) orbital forces are ~3e-6 m/s^2 and change on the orbit
+# time scale. The platform evaluates them once per render frame (every 8 steps,
+# 30 Hz) and holds them; one hold interval changes them by ~4e-4 relative. A
+# stepper built directly still evaluates every substep (stride 1) unless asked.
+DEFAULT_ORBITAL_FORCE_STRIDE = SYNC_STEPS
 _OBJ_BODY = 1
 _OBJ_ACTUATOR = 19
 _OBJ_JOINT = 3
@@ -120,6 +126,20 @@ def publish_stride(value: int | None = None) -> int:
     count = int(raw)
     if count not in ALLOWED_PUBLISH_STRIDES:
         raise ValueError(f"publish stride must be one of {ALLOWED_PUBLISH_STRIDES}")
+    return count
+
+
+def orbital_force_stride(value: int | None = None) -> int:
+    """Physics steps per BSK differential-force evaluation (SPACE_SIM_ORBITAL_FORCE_STRIDE).
+
+    1 evaluates at every MuJoCo substep; N > 1 evaluates at the first substep of
+    every Nth physics step and holds the forces in between.
+    """
+    raw = value if value is not None else os.environ.get("SPACE_SIM_ORBITAL_FORCE_STRIDE",
+                                                         DEFAULT_ORBITAL_FORCE_STRIDE)
+    count = int(raw)
+    if not 1 <= count <= REBASE_CHECK_STEPS:
+        raise ValueError(f"orbital force stride must be 1..{REBASE_CHECK_STEPS} physics steps")
     return count
 
 
@@ -335,6 +355,9 @@ class LocalMujocoStepper(sysModel.SysModel):
         self.kinematics_publish_count = 0
         self.external_writes = 0
         self.rebase_count = 0
+        self.orbital_force_every = 1
+        self.orbital_force_evaluations = 0
+        self._orbital_forces_current = False
         self.max_contacts = 0
         self.max_constraint_rows = 0
         self.max_solver_iterations = 0
@@ -345,29 +368,40 @@ class LocalMujocoStepper(sysModel.SysModel):
             self.connect_servo(spec)
         self._refresh_actuators()
 
-    def set_orbital_environment(self, environment: OrbitalForceProvider) -> None:
+    def set_orbital_environment(self, environment: OrbitalForceProvider, *, force_every: int = 1) -> None:
+        """``force_every`` physics steps per evaluation; 1 (default) is every substep."""
         if self.orbital_environment is not None or self._last_nanos is not None:
             raise ValueError("orbital environment must be installed exactly once before stepping")
+        self.orbital_force_every = orbital_force_stride(force_every)
         self.orbital_environment = environment
 
     def _step_with_orbital_environment(self, now, dt, r_o, v_o) -> int:
         environment = self.orbital_environment
-        environment.begin_interval()
+        every_substep = self.orbital_force_every == 1
+        # Held forces stay in the native buffer until the next evaluation. Any
+        # adopted external state or rebase invalidates them (see _invalidate_orbital_forces).
+        refresh = (every_substep or not self._orbital_forces_current
+                   or self.step_count % self.orbital_force_every == 0)
+        if refresh:
+            environment.begin_interval()
         r0, v0 = self._previous_origin
         maxima = np.zeros(3)
         status = 0
         for substep in range(self.substeps):
             nanos = self._last_nanos + ((now - self._last_nanos) * substep // self.substeps)
             end_nanos = self._last_nanos + ((now - self._last_nanos) * (substep + 1) // self.substeps)
-            origin = interpolate_origin(r0, v0, r_o, v_o, dt,
-                                        (nanos - self._last_nanos) / (now - self._last_nanos))
-            self._check(self._lib.lms_body_coms(self._handle, _pointer(self._body_coms),
-                                               _pointer(self._body_masses)), "fresh COM kinematics")
-            forces = np.ascontiguousarray(
-                environment.forces(self._body_coms, self._body_masses, origin, nanos), dtype=np.float64)
-            if forces.shape != (self.nbody, 3) or not np.isfinite(forces).all():
-                raise ValueError("orbital provider must return finite (nbody, 3) COM forces")
-            self._check(self._lib.lms_set_orbital_forces(self._handle, _pointer(forces)), "BSK orbital force")
+            if every_substep or (refresh and substep == 0):
+                origin = interpolate_origin(r0, v0, r_o, v_o, dt,
+                                            (nanos - self._last_nanos) / (now - self._last_nanos))
+                self._check(self._lib.lms_body_coms(self._handle, _pointer(self._body_coms),
+                                                   _pointer(self._body_masses)), "fresh COM kinematics")
+                forces = np.ascontiguousarray(
+                    environment.forces(self._body_coms, self._body_masses, origin, nanos), dtype=np.float64)
+                if forces.shape != (self.nbody, 3) or not np.isfinite(forces).all():
+                    raise ValueError("orbital provider must return finite (nbody, 3) COM forces")
+                self._check(self._lib.lms_set_orbital_forces(self._handle, _pointer(forces)), "BSK orbital force")
+                self._orbital_forces_current = True
+                self.orbital_force_evaluations += 1
             # mu=0 disables the old analytic tide: never apply gravity twice.
             status = self._lib.lms_step(self._handle, self._pointers[0], (end_nanos - nanos) * 1e-9, 1,
                                         self._pointers[1], 0.0, *self._pointers[2:])
@@ -607,7 +641,12 @@ class LocalMujocoStepper(sysModel.SysModel):
         return (np.asarray(self._qpos_state.getState(), dtype=float).reshape(-1),
                 np.asarray(self._qvel_state.getState(), dtype=float).reshape(-1))
 
+    def _invalidate_orbital_forces(self) -> None:
+        """Held differential forces depend on positions relative to O; recompute next step."""
+        self._orbital_forces_current = False
+
     def _adopt_scene_state(self, r_o: np.ndarray, v_o: np.ndarray) -> None:
+        self._invalidate_orbital_forces()
         q, v = self._scene_state()
         q, v = self._to_local(q, v, r_o, v_o)
         self._check(self._lib.lms_set_state(self._handle, _pointer(q), _pointer(v)), "set_state")
@@ -639,6 +678,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._last_nanos = None
         self._previous_origin = None
         self._published_q = self._published_v = None
+        self._invalidate_orbital_forces()
         if self.orbital_environment is not None:
             self.orbital_environment.reset()
 
@@ -720,6 +760,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._check(self._lib.lms_set_state(self._handle, _pointer(q), _pointer(v)), "rebase")
         self.qpos[:], self.qvel[:] = q, v
         self.origin.shift(dr, dv, now_s)
+        self._invalidate_orbital_forces()
         self.rebase_count += 1
         return True
 
@@ -753,8 +794,16 @@ class LocalMujocoStepper(sysModel.SysModel):
                 "max_solver_iterations": self.max_solver_iterations,
                 "external_state_writes": self.external_writes, "rebases": self.rebase_count,
                 "tidal_mu_m3_s2": self.origin.mu if self.orbital_environment is None else 0.0,
-                "orbital_environment": (self.orbital_environment.telemetry() if self.orbital_environment
-                                        else {"mode": "linear_tidal"})}
+                "orbital_environment": self._orbital_telemetry()}
+
+    def _orbital_telemetry(self) -> dict[str, Any]:
+        if self.orbital_environment is None:
+            return {"mode": "linear_tidal"}
+        telemetry = dict(self.orbital_environment.telemetry())
+        if self.orbital_force_every > 1:
+            telemetry["force_cadence"] = f"every_{self.orbital_force_every}_physics_steps_held"
+        telemetry["force_stride_steps"] = self.orbital_force_every
+        return telemetry
 
     def close(self) -> None:
         if getattr(self, "_handle", None):

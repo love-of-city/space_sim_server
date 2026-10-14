@@ -219,6 +219,23 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
 
 
 @pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')
-def test_sarm_20261012_orbital_state_rebuilds_twice(tmp_path, monkeypatch):
+@pytest.mark.parametrize("configured_substeps", [None, 3])
+def test_sarm_20261012_orbital_state_rebuilds_twice(tmp_path, monkeypatch, configured_substeps):
+    from simulation.local_mujoco_stepper import LocalMujocoStepper
+    if configured_substeps is None:
+        monkeypatch.delenv("SPACE_SIM_LOCAL_SUBSTEPS", raising=False)
+    else:
+        monkeypatch.setenv("SPACE_SIM_LOCAL_SUBSTEPS", str(configured_substeps))
+    actual_substeps = []
+    original_init = LocalMujocoStepper.__init__
+
+    def capture_substeps(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        actual_substeps.append(self.substeps)
+
+    monkeypatch.setattr(LocalMujocoStepper, "__init__", capture_substeps)
     test_real_run_rebuilds_identical_initial_state_twice(
         tmp_path, monkeypatch, [90., -60., 60., 0., -90., 0.], 'sarm-task-box-20261012')
+    # Both startup and reset must respect the shared default/override, even
+    # below five substeps; neither runtime layer may silently clamp the value.
+    assert actual_substeps == [configured_substeps or 1] * 3

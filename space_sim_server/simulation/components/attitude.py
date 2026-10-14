@@ -49,6 +49,15 @@ class AttitudeComponent:
 
             rate = load_settings(self.model_path.with_name("attitude_control.json"))["control_rate_hz"]
             every = int(round(DYNAMICS_HZ / rate))
+            # The chain reads body states, which the core publishes every
+            # `publish_stride` steps. It installs itself outside ctx.add, so apply
+            # the same rule here: a faster chain would reuse a stale state.
+            stride = max(1, int(ctx.config.publish_stride))
+            if every > 1 and every % stride:
+                from simulation.physics_ports import PortError
+                raise PortError(
+                    f"attitude control at {rate:g} Hz runs every {every} physics steps, not a multiple "
+                    f"of the body/site publication stride {stride}; it would read stale states")
             physics_grid = (ctx.config.physics_task, ATTITUDE_CHAIN_PRIORITY, every, ctx.clock)
         control = AttitudeControl(
             ctx.simulation, self._process(ctx), ctx.scene, self.model_path,

@@ -50,19 +50,61 @@ def test_all_source_free_parts_inherit_orbit():
   assert min(positions[n])>99.
 
 
-def test_wrist_camera_centers_new_gripper_working_region(tmp_path):
+def _camera_frame(camera):
+ import numpy as np
+ w,x,y,z=map(float,camera.get('quat').split())
+ R=np.array([[1-2*(y*y+z*z),2*(x*y-w*z),2*(x*z+w*y)],[2*(x*y+w*z),1-2*(x*x+z*z),2*(y*z-w*x)],[2*(x*z-w*y),2*(y*z+w*x),1-2*(x*x+y*y)]])
+ return np.array(list(map(float,camera.get('pos').split()))),R
+
+
+def _project(point,position,R,fovy_deg,aspect=640/360):
+ import numpy as np
+ c=R.T@(np.asarray(point)-position)  # camera frame: -Z forward, +Y up
+ depth=-c[2]
+ t=np.tan(np.radians(fovy_deg)/2)
+ return depth,c[0]/depth/(t*aspect),c[1]/depth/t
+
+
+def test_wrist_camera_sees_both_fingers_apart_at_every_opening(tmp_path):
+ # Mounted on ee_base (turns with joint6). Fingertips open along ee_base x
+ # (closed x=+/-.002-.035 m, fully open +/-.053-.085 m, z .144-.209 m). The
+ # camera must not look along x, must keep both fingers inside the frame and
+ # must put them on opposite image sides with the TCP between them.
  import numpy as np
  out=tmp_path/'model.xml'
  compose_platform_model(ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml',ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',out)
  camera=E.parse(out).find('.//body[@name="ee_base"]/camera[@name="sarm_wrist_cam"]')
- w,x,y,z=map(float,camera.get('quat').split())
- forward=-np.array([2*(x*z+w*y),2*(y*z-w*x),1-2*(x*x+y*y)])
- position=np.array(list(map(float,camera.get('pos').split())))
- # New ee TCP is z=.19 m; center the view 4 cm ahead of the fingers.
- expected=np.array([0.,0.,.23])-position
- expected/=np.linalg.norm(expected)
- assert np.dot(forward,expected) > .9999
- assert float(camera.get('fovy')) == 60
+ assert camera is not None
+ position,R=_camera_frame(camera)
+ fovy=float(camera.get('fovy'))
+ assert abs(np.dot(-R[:,2],[1,0,0])) < .2  # not along the finger opening axis
+ for x in (.002,.035,.053,.085):
+  for z in (.144,.209):
+   left,right=_project([-x,0,z],position,R,fovy),_project([x,0,z],position,R,fovy)
+   for depth,u,v in (left,right):
+    assert depth > .05 and abs(u) < 1 and abs(v) < 1
+   assert np.sign(left[1]) != np.sign(right[1])
+ depth,u,_=_project([0,0,.19],position,R,fovy)
+ assert depth > .05 and abs(u) < .05
+
+
+def test_overview_camera_frames_the_whole_task_box(tmp_path):
+ # Task-box AABB in the bus frame, operating pose (measured from the model).
+ import itertools
+ out=tmp_path/'model.xml'
+ compose_platform_model(ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml',ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',out)
+ camera=E.parse(out).find('./worldbody/body[@name="cubesat_bus"]/camera[@name="spacecraft_overview"]')
+ assert camera is not None
+ position,R=_camera_frame(camera)
+ # Virtual camera on a 0.5 m mast at deck point B, behind the arm base (-x side).
+ assert position[0] < 0 and abs(position[2] - .5) < 1e-9
+ assert R[2,1] > 0  # image up points away from -z: the view is not upside down
+ assert abs(R[2,0]) < 1e-9  # no roll: image rows stay level with the deck
+ # Visible task-box volume: from the deck top (bus z=0; the drawer below it is
+ # inside the bus) to the tallest part, with a 10% image margin.
+ for corner in itertools.product((.122,.578),(.062,.618),(0.,.149)):
+  depth,u,v=_project(corner,position,R,float(camera.get('fovy')))
+  assert depth > 0 and abs(u) < .9 and abs(v) < .9
 
 
 def test_wrist_sensor_cut_preserves_tool_inertia_and_joint_layout(tmp_path):

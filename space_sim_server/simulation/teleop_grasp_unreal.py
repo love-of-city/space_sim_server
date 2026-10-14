@@ -930,8 +930,6 @@ def run(args: argparse.Namespace) -> None:
     args.orbital_mode = orbital_mode(getattr(args, "orbital_mode", None))
     args.local_substeps = (local_substeps(getattr(args, "local_substeps", None))
                            if args.dynamics_backend == BACKEND_LOCAL else None)
-    if native.model_profile.linkage:
-        args.local_substeps = max(5, args.local_substeps)
     print(json.dumps({"type": "teleop_control_configuration", "dynamics_step_s": native.TIME_STEP,
                       "dynamics_backend": args.dynamics_backend,
                       "integrator": ("RKF45" if args.dynamics_backend == BACKEND_BASILISK
@@ -1170,10 +1168,10 @@ def _run_session(
                     **bridge.last_capture_state,
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
                     "scene_seed": scene_instance.get("seed") if scene_instance else None,
+                    # The stepper's view includes the actual force cadence it applied.
                     "orbital_dynamics": (
-                        simulation.local_stepper.orbital_environment.telemetry()
-                        if local_backend and simulation.local_stepper.orbital_environment is not None
-                        else {"mode": "linear_tidal" if local_backend else "basilisk"}),
+                        simulation.local_stepper.telemetry()["orbital_environment"]
+                        if local_backend else {"mode": "basilisk"}),
                     "wrist_wrench": (
                         WRIST_SENSOR.observation(simulation.local_stepper, render_sim_time_ns)
                         if local_backend and native.model_profile.linkage else None),

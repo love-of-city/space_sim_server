@@ -73,6 +73,77 @@ def dcm_to_quaternion_wxyz(matrix: Iterable[Iterable[float]]) -> np.ndarray:
     return q
 
 
+
+def vectors(values: Iterable[Iterable[float]], name: str) -> np.ndarray:
+    """Return finite three-vectors as an (n, 3) array (batched :func:`vector`)."""
+
+    result = np.array([list(item) for item in values], dtype=np.float64)
+    if result.shape == (0,):
+        result = result.reshape(0, 3)
+    if result.ndim != 2 or result.shape[1] != 3 or not np.isfinite(result).all():
+        raise ValueError(f"{name} must contain 3 finite values")
+    return result
+
+
+def mrps_to_dcm_b_from_n(sigma_bn: np.ndarray) -> np.ndarray:
+    """Batched :func:`mrp_to_dcm_b_from_n` for an (n, 3) MRP array."""
+
+    q1, q2, q3 = sigma_bn[:, 0], sigma_bn[:, 1], sigma_bn[:, 2]
+    d1 = q1 * q1 + q2 * q2 + q3 * q3
+    s = 1.0 - d1
+    dcm = np.empty((len(sigma_bn), 3, 3))
+    dcm[:, 0, 0] = 4.0 * (2.0 * q1 * q1 - d1) + s * s
+    dcm[:, 0, 1] = 8.0 * q1 * q2 + 4.0 * q3 * s
+    dcm[:, 0, 2] = 8.0 * q1 * q3 - 4.0 * q2 * s
+    dcm[:, 1, 0] = 8.0 * q2 * q1 - 4.0 * q3 * s
+    dcm[:, 1, 1] = 4.0 * (2.0 * q2 * q2 - d1) + s * s
+    dcm[:, 1, 2] = 8.0 * q2 * q3 + 4.0 * q1 * s
+    dcm[:, 2, 0] = 8.0 * q3 * q1 + 4.0 * q2 * s
+    dcm[:, 2, 1] = 8.0 * q3 * q2 - 4.0 * q1 * s
+    dcm[:, 2, 2] = 4.0 * (2.0 * q3 * q3 - d1) + s * s
+    return dcm / ((1.0 + d1) ** 2)[:, None, None]
+
+
+def dcms_to_quaternions_wxyz(matrices: np.ndarray) -> np.ndarray:
+    """Batched :func:`dcm_to_quaternion_wxyz` for (n, 3, 3), with the same checks.
+
+    The render bridge converts every body each frame; one vectorized pass
+    replaces dozens of tiny NumPy calls per body.
+    """
+
+    r = np.asarray(matrices, dtype=np.float64)
+    if r.ndim != 3 or r.shape[1:] != (3, 3) or not np.isfinite(r).all():
+        raise ValueError("rotation matrix must be 3x3 and finite")
+    gram = r @ r.transpose(0, 2, 1)
+    if ((np.abs(gram - _ROTATION_IDENTITY) > _ROTATION_GRAM_TOLERANCE).any()
+            or (np.abs(np.linalg.det(r) - 1.0) > _ROTATION_DIAGONAL_TOLERANCE).any()):
+        raise ValueError("rotation matrix must be proper orthonormal")
+    diagonal = np.stack([r[:, 0, 0], r[:, 1, 1], r[:, 2, 2]], axis=1)
+    trace = diagonal.sum(axis=1)
+    axis = np.argmax(diagonal, axis=1)
+    q = np.empty((len(r), 4))
+    # Same four branches as the scalar conversion; each row uses exactly one.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rows = trace > 0.0
+        scale = np.sqrt(trace + 1.0) * 2.0
+        q[rows] = np.stack([0.25 * scale, (r[:, 2, 1] - r[:, 1, 2]) / scale,
+                            (r[:, 0, 2] - r[:, 2, 0]) / scale, (r[:, 1, 0] - r[:, 0, 1]) / scale], 1)[rows]
+        rows = ~(trace > 0.0) & (axis == 0)
+        scale = np.sqrt(1.0 + r[:, 0, 0] - r[:, 1, 1] - r[:, 2, 2]) * 2.0
+        q[rows] = np.stack([(r[:, 2, 1] - r[:, 1, 2]) / scale, 0.25 * scale,
+                            (r[:, 0, 1] + r[:, 1, 0]) / scale, (r[:, 0, 2] + r[:, 2, 0]) / scale], 1)[rows]
+        rows = ~(trace > 0.0) & (axis == 1)
+        scale = np.sqrt(1.0 + r[:, 1, 1] - r[:, 0, 0] - r[:, 2, 2]) * 2.0
+        q[rows] = np.stack([(r[:, 0, 2] - r[:, 2, 0]) / scale, (r[:, 0, 1] + r[:, 1, 0]) / scale,
+                            0.25 * scale, (r[:, 1, 2] + r[:, 2, 1]) / scale], 1)[rows]
+        rows = ~(trace > 0.0) & (axis == 2)
+        scale = np.sqrt(1.0 + r[:, 2, 2] - r[:, 0, 0] - r[:, 1, 1]) * 2.0
+        q[rows] = np.stack([(r[:, 1, 0] - r[:, 0, 1]) / scale, (r[:, 0, 2] + r[:, 2, 0]) / scale,
+                            (r[:, 1, 2] + r[:, 2, 1]) / scale, 0.25 * scale], 1)[rows]
+    q /= np.linalg.norm(q, axis=1)[:, None]
+    q[q[:, 0] < 0.0] *= -1.0
+    return q
+
 class FrameConverter:
     """Convert inertial BSK states into a floating-origin render frame."""
 
@@ -98,6 +169,25 @@ class FrameConverter:
         """Return the active body-to-local quaternion."""
 
         return dcm_to_quaternion_wxyz(self.c_l_n @ mrp_to_dcm_b_from_n(sigma_bn).T)
+
+    def bodies(self, positions_n_m, velocities_n_mps, sigmas_bn, omegas_b_radps,
+               origin_n_m: Iterable[float]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Batched position/body_orientation/velocity for n bodies; (n, 3|4) arrays.
+
+        Applies the same finiteness and proper-rotation checks as the per-body
+        methods. Angular velocity stays in the body frame and is only validated.
+        """
+
+        origin = vector(origin_n_m, 3, "origin_N_m")
+        positions = vectors(positions_n_m, "position_N_m")
+        velocities = vectors(velocities_n_mps, "velocity_N_mps")
+        sigmas = vectors(sigmas_bn, "sigma_BN")
+        omegas = vectors(omegas_b_radps, "omega_BN_B")
+        if len({len(positions), len(velocities), len(sigmas), len(omegas)}) != 1:
+            raise ValueError("batched body fields must have the same number of rows")
+        rotations = self.c_l_n @ mrps_to_dcm_b_from_n(sigmas).transpose(0, 2, 1)
+        return ((positions - origin) @ self.c_l_n.T, dcms_to_quaternions_wxyz(rotations),
+                velocities @ self.c_l_n.T, omegas)
 
     def fixed_orientation(self, c_p_n: Iterable[Iterable[float]]) -> np.ndarray:
         """Return the active planet-fixed-to-local quaternion from passive N-to-P DCM."""

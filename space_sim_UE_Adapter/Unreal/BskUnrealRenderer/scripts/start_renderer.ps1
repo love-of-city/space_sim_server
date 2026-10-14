@@ -34,7 +34,7 @@ param(
     [switch]$Foreground
 )
 
-. (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'common.ps1') -RequestedDerivedDataCachePath $DerivedDataCachePath
 $ue = Resolve-UnrealRoot $UnrealRoot
 $editor = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor.exe'
 # The installed graph normally relies on Zen and marks its filesystem node
@@ -42,10 +42,7 @@ $editor = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor.exe'
 # Keep Zen enabled so existing cached shaders/assets do not need recompilation.
 # The common resolver honors UE-LocalDataCachePath and otherwise selects a
 # short per-checkout cache. An explicit launcher parameter takes precedence.
-if (!$DerivedDataCachePath) { $DerivedDataCachePath = $script:BskDerivedDataCachePath }
-if (!$DerivedDataCachePath) { $DerivedDataCachePath = Join-Path $ProjectRoot 'Saved\DerivedDataCache' }
-$DerivedDataCachePath = [IO.Path]::GetFullPath($DerivedDataCachePath)
-New-Item -ItemType Directory -Path $DerivedDataCachePath -Force | Out-Null
+$DerivedDataCachePath = $script:BskDerivedDataCachePath
 $probe = Join-Path $DerivedDataCachePath ('.write-probe-' + [Guid]::NewGuid().ToString('N'))
 try {
     [IO.File]::WriteAllText($probe, 'writable')

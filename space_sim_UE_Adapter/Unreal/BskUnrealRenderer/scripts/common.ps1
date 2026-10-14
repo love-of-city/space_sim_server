@@ -1,4 +1,4 @@
-param()
+param([string]$RequestedDerivedDataCachePath = '')
 
 $script:ProjectRoot = Split-Path -Parent $PSScriptRoot
 $script:ProjectFile = Join-Path $script:ProjectRoot 'BskUnrealRenderer.uproject'
@@ -18,7 +18,7 @@ function Resolve-BskDerivedDataCachePath([string]$Requested = '') {
     New-Item -ItemType Directory -Path $resolved -Force | Out-Null
     return $resolved
 }
-$script:BskDerivedDataCachePath = Resolve-BskDerivedDataCachePath
+$script:BskDerivedDataCachePath = Resolve-BskDerivedDataCachePath $RequestedDerivedDataCachePath
 $script:BskDerivedDataCacheArguments = @('-DDC=InstalledDerivedDataBackendGraph', "-LocalDataCachePath=$script:BskDerivedDataCachePath")
 
 function Resolve-UnrealRoot {

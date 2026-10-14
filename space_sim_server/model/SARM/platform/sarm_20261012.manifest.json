@@ -1,6 +1,6 @@
 {
   "source_sha256": "edd0426c24fec4ba1a4946f6a767310014dc077dd88cdd6b3064ff4916f34a19",
-  "model_sha256": "9aabe8024c20310a7ae0dbeb8e4159c9e1b02e635f4621e6be8fe51412bac2a2",
+  "model_sha256": "8aac8651e7b68de93652f756da8b052b6bc8fd98119fcae2bdaf89706b0f0937",
   "model_revision": "2026-10-12",
   "platform_additions": [
     "free base",
@@ -14,6 +14,13 @@
     "base_link": "cubesat_bus"
   },
   "drawer_reparented_to": "cubesat_bus",
+  "wrist_force_torque_sensor": {
+    "site": "wrist_ft_site",
+    "parent_body": "ee_base",
+    "tool_body": "wrist_ft_tool",
+    "added_mass_kg": 0,
+    "ideal_rigid_sensor": true
+  },
   "orbital_free_joint_damping_overrides": [
     {
       "joint": "aviation_plug_freejoint",

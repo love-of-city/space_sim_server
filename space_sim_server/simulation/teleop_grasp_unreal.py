@@ -1149,6 +1149,8 @@ def _run_session(
             .stateOutMsg.addSubscriber() if target_spec.hinge_joint else None
         )
 
+        from simulation.wrench_sensors import WRIST_SENSOR
+
         def snapshot_observation(render_frame_id: int, render_sim_time_ns: int) -> dict[str, Any]:
             joint_position = [float(read().state) for read in position_readers]
             joint_velocity = [float(read().state) for read in velocity_readers]
@@ -1172,6 +1174,9 @@ def _run_session(
                         simulation.local_stepper.orbital_environment.telemetry()
                         if local_backend and simulation.local_stepper.orbital_environment is not None
                         else {"mode": "linear_tidal" if local_backend else "basilisk"}),
+                    "wrist_wrench": (
+                        WRIST_SENSOR.observation(simulation.local_stepper, render_sim_time_ns)
+                        if local_backend and native.model_profile.linkage else None),
                     "capture_target": {
                         "model_file": target_spec.model_file,
                         "runtime_model": target_spec.runtime_model,

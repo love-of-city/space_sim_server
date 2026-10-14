@@ -12,7 +12,7 @@ function harness(detail, signedIn = true) {
   const response = { status: 401, ok: false, clone: () => ({ json: async () => ({ detail }) }) };
   const nodes = new Map();
   const metrics = { logins: 0, shutdowns: 0, retries: 0, requests: 0, disposals: 0 };
-  const context = vm.createContext({
+  const context = vm.createContext({clearWristWrench() {},
     state, URLSearchParams, location: { search: "" }, console,
     fetch: async () => { metrics.requests++; return response; },
     shutdownAuthenticatedApp: () => { metrics.shutdowns++; },

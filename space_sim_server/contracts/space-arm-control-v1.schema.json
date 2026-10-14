@@ -749,6 +749,17 @@
               ],
               "default": null,
               "title": "Target Gripper Drive Position Rad"
+            },
+            "wrist_wrench": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WrenchObservation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           }
         },
@@ -1283,6 +1294,101 @@
           }
         }
       ]
+    },
+    "WrenchObservation": {
+      "additionalProperties": false,
+      "description": "Raw interface load, in site axes about the site origin; not contact-only.",
+      "properties": {
+        "sensor_name": {
+          "minLength": 1,
+          "title": "Sensor Name",
+          "type": "string"
+        },
+        "site_name": {
+          "minLength": 1,
+          "title": "Site Name",
+          "type": "string"
+        },
+        "parent_body": {
+          "minLength": 1,
+          "title": "Parent Body",
+          "type": "string"
+        },
+        "child_body": {
+          "minLength": 1,
+          "title": "Child Body",
+          "type": "string"
+        },
+        "frame": {
+          "const": "sensor_site",
+          "title": "Frame",
+          "type": "string"
+        },
+        "sign_convention": {
+          "const": "mujoco_force_torque",
+          "title": "Sign Convention",
+          "type": "string"
+        },
+        "measurement": {
+          "const": "raw_interface_wrench",
+          "title": "Measurement",
+          "type": "string"
+        },
+        "sample_phase": {
+          "const": "last_substep_start",
+          "title": "Sample Phase",
+          "type": "string"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        },
+        "sample_time_ns": {
+          "pattern": "^[0-9]+$",
+          "title": "Sample Time Ns",
+          "type": "string"
+        },
+        "interval_end_time_ns": {
+          "pattern": "^[0-9]+$",
+          "title": "Interval End Time Ns",
+          "type": "string"
+        },
+        "force_n": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Force N",
+          "type": "array"
+        },
+        "torque_nm": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Torque Nm",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sensor_name",
+        "site_name",
+        "parent_body",
+        "child_body",
+        "frame",
+        "sign_convention",
+        "measurement",
+        "sample_phase",
+        "valid",
+        "sample_time_ns",
+        "interval_end_time_ns",
+        "force_n",
+        "torque_nm"
+      ],
+      "title": "WrenchObservation",
+      "type": "object"
     }
   }
 }

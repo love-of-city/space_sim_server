@@ -1469,9 +1469,9 @@
                 <joint name="joint5" class="robot_joint" type="hinge" axis="0 0 1" range="-3.1416 3.1416" actuatorfrcrange="-100 100" />
                 <geom name="link5_geom" class="robot_geom" mesh="link5_mesh" rgba="0.43922 0.43922 0.43922 1" contype="1" conaffinity="1" density="0" group="2" />
                 <body name="ee_base" pos="0 -0.095 0.135" quat="0.49999816339744829 0.49999999999662686 -0.5000018366025516 0.49999999999662686">
-                  <inertial pos="0 0 0.0636159692368" quat="0.706325435355 0 0 0.707887264591" mass="3.2325900237452" diaginertia="0.005059570785947 0.0049292995108171 0.0016709776347182" />
-                  
                   <joint name="joint6" class="robot_joint" type="hinge" axis="0 0 1" range="-6.2832 6.2832" actuatorfrcrange="-100 100" />
+                  <camera name="sarm_wrist_cam" mode="fixed" pos="0.22 0 0.12" quat="0.37174803446018451 0.60150095500754563 0.60150095500754563 0.37174803446018451" fovy="60" resolution="640 360" />
+         <body name="wrist_ft_tool" pos="0 0 0"><inertial pos="0 0 0.0636159692368" quat="0.706325435355 0 0 0.707887264591" mass="3.2325900237452" diaginertia="0.005059570785947 0.0049292995108171 0.0016709776347182" />
                   <geom name="ee_base_geom" class="robot_geom" mesh="ee_base_mesh" density="0" rgba="0.41176 0.41176 0.41176 1" contype="1" conaffinity="1" group="2" />
                   
                   <body name="ee_link11" pos="0.030 0 0.1165" quat="0.49999816339744829 -0.49999999999662686 -0.5000018366025516 -0.49999999999662686">
@@ -1748,8 +1748,7 @@
                   <body name="ee" pos="0 0 0.19">
                     <site name="sarm_ee" pos="0 0 0" size="0.005" rgba="1 0 0 1" />
                   </body>
-                <camera name="sarm_wrist_cam" mode="fixed" pos="0.22 0 0.12" quat="0.37174803446018451 0.60150095500754563 0.60150095500754563 0.37174803446018451" fovy="60" resolution="640 360" />
-         </body>
+                <site name="wrist_ft_site" pos="0 0 0" size="0.003" rgba="0 0 0 0" group="4" /></body></body>
               </body>
             </body>
           </body>
@@ -3958,13 +3957,13 @@
     <exclude name="link2_link3_exclude" body1="link2" body2="link3" />
     <exclude name="link3_link4_exclude" body1="link3" body2="link4" />
     <exclude name="link4_link5_exclude" body1="link4" body2="link5" />
-    <exclude name="link5_ee_base_exclude" body1="link5" body2="ee_base" />
-    <exclude name="ee_base_link11_exclude" body1="ee_base" body2="ee_link11" />
+    <exclude name="link5_ee_base_exclude" body1="link5" body2="wrist_ft_tool" />
+    <exclude name="ee_base_link11_exclude" body1="wrist_ft_tool" body2="ee_link11" />
     <exclude name="ee_link11_finger1_exclude" body1="ee_link11" body2="ee_finger1" />
-    <exclude name="ee_base_link21_exclude" body1="ee_base" body2="ee_link21" />
-    <exclude name="ee_base_link12_exclude" body1="ee_base" body2="ee_link12" />
+    <exclude name="ee_base_link21_exclude" body1="wrist_ft_tool" body2="ee_link21" />
+    <exclude name="ee_base_link12_exclude" body1="wrist_ft_tool" body2="ee_link12" />
     <exclude name="ee_link12_finger2_exclude" body1="ee_link12" body2="ee_finger2" />
-    <exclude name="ee_base_link22_exclude" body1="ee_base" body2="ee_link22" />
+    <exclude name="ee_base_link22_exclude" body1="wrist_ft_tool" body2="ee_link22" />
     <exclude name="ee_link21_finger1_exclude" body1="ee_link21" body2="ee_finger1" />
     <exclude name="ee_link22_finger2_exclude" body1="ee_link22" body2="ee_finger2" />
     <exclude name="ee_link11_ee_link21_exclude" body1="ee_link11" body2="ee_link21" />
@@ -3999,7 +3998,7 @@
   <motor name="rw_y_motor" joint="rw_y_spin" gear="1" ctrllimited="true" ctrlrange="-0.2 0.2" forcelimited="true" forcerange="-0.2 0.2" />
   <motor name="rw_z_motor" joint="rw_z_spin" gear="1" ctrllimited="true" ctrlrange="-0.2 0.2" forcelimited="true" forcerange="-0.2 0.2" />
  </actuator>
-<custom>
+<sensor><force name="wrist_ft_force" site="wrist_ft_site" /><torque name="wrist_ft_torque" site="wrist_ft_site" /></sensor><custom>
   <numeric name="rw_max_speed_rad_s" data="628.318530717959 628.318530717959 628.318530717959" />
  </custom>
  </mujoco>

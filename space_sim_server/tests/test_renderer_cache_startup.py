@@ -74,7 +74,7 @@ $global:launched['parent_unchanged']=($old -eq [Environment]::GetEnvironmentVari
             arguments.append(str(expected))
         else:
             environment['UE-LocalDataCachePath']=str(expected)
-    result=subprocess.run(arguments,env=environment,capture_output=True,text=True,encoding='utf-8',timeout=20)
+    result=subprocess.run(arguments,env=environment,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=20)
     if cache_mode.startswith('long-'):
         assert result.returncode != 0 and 'exceeds 119 characters' in result.stderr
         assert not expected.exists()

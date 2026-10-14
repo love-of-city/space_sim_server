@@ -29,7 +29,8 @@ function Resolve-UnrealRoot {
     $candidates += 'E:\UE5.6\UE_5.6'
     $candidates += 'C:\Program Files\Epic Games\UE_5.6'
     foreach ($candidate in $candidates) {
-        $editor = Join-Path $candidate 'Engine\Binaries\Win64\UnrealEditor.exe'
+        # A suggested drive (for example E:) need not be mounted on this host.
+        $editor = [IO.Path]::Combine($candidate, 'Engine\Binaries\Win64\UnrealEditor.exe')
         if (Test-Path -LiteralPath $editor) { return (Resolve-Path $candidate).Path }
     }
     throw 'Unreal Engine 5.6 was not found. Pass -UnrealRoot or set UE56_ROOT.'

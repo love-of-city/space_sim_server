@@ -24,7 +24,9 @@ def main() -> None:
     parser.add_argument("--stl-smoothing-angle", type=float, default=60.0)
     args = parser.parse_args()
 
-    metadata = parse_mjcf_geometry_metadata(args.mjcf)
+    # Only source files/materials/visibility are used below. Compiling physics
+    # here needlessly requires application plugins (and may load another ABI).
+    metadata = parse_mjcf_geometry_metadata(args.mjcf, compile_mesh_poses=False)
     sources = sorted(
         {Path(item.source_path).resolve() for item in metadata if item.source_path and item.visible},
         key=lambda item: item.as_posix().casefold(),

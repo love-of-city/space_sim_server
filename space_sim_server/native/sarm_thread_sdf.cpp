@@ -1,7 +1,8 @@
 // Platform build of the delivered SARM thread SDF plugin
 // (model/SARM_mjcf_20261012/thread_sdf.cpp, kept byte-identical as delivered).
-// Only tooth_radius() differs: the same function without atan2, which MuJoCo's
-// SDF contact search calls tens of thousands of times per physics step.
+// The surface math differs only in tooth_radius(): the same function without
+// atan2, which SDF contact search calls thousands of times per physics step.
+// The collision wrapper below additionally skips provably disjoint rod/guide pairs.
 // tools/build_sarm_plugin.py compiles both sources into one checker and refuses
 // to install this plugin unless distances and gradients match the delivered code.
 //

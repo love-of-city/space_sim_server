@@ -97,6 +97,23 @@ class FrameConverter:
     def body_orientation(self, sigma_bn: Iterable[float]) -> np.ndarray:
         """Return the active body-to-local quaternion."""
 
+        if np.array_equal(self.c_l_n, _ROTATION_IDENTITY):
+            # The platform's floating origin translates but does not rotate.
+            # Convert MRP directly instead of constructing a 3x3 matrix and
+            # checking its determinant/orthogonality for every body/frame.
+            sigma = vector(sigma_bn, 3, "sigma_BN")
+            squared = float(sigma @ sigma)
+            if not np.isfinite(squared):
+                raise ValueError("rotation matrix must be 3x3 and finite")
+            quaternion = np.empty(4, dtype=np.float64)
+            quaternion[0] = (1.0 - squared) / (1.0 + squared)
+            quaternion[1:] = (2.0 / (1.0 + squared)) * sigma
+            quaternion /= np.linalg.norm(quaternion)
+            # Match the matrix converter's hemisphere, including exact pi.
+            if (quaternion[0] < 0.0 or (quaternion[0] == 0.0 and
+                    quaternion[1 + int(np.argmax(np.abs(quaternion[1:])))] < 0.0)):
+                quaternion *= -1.0
+            return quaternion
         return dcm_to_quaternion_wxyz(self.c_l_n @ mrp_to_dcm_b_from_n(sigma_bn).T)
 
     def fixed_orientation(self, c_p_n: Iterable[Iterable[float]]) -> np.ndarray:

@@ -72,6 +72,28 @@ def test_common_acceleration_is_removed_and_world_massless_bodies_are_not_forced
     np.testing.assert_array_equal(forces, 0)
 
 
+@pytest.mark.parametrize("count", [0, 1, 33])
+def test_batched_fields_preserve_scalar_native_results_and_massless_rows(count):
+    env, keep = environment(True)
+    rng = np.random.default_rng(821)
+    positions = rng.uniform(-30000, 30000, (count + 2, 3))
+    masses = rng.uniform(0.1, 80, count + 2)
+    masses[[0, -1]] = 0
+    actual = env.forces(positions, masses, R, 0).copy()
+    expected = np.zeros_like(positions)
+    for row in range(1, count + 1):
+        acceleration = np.zeros(3)
+        for source in env.sources.values():
+            native = source["native"]
+            common = np.asarray(env.gravity.computeAccelerationFromSource(native, R)).reshape(3)
+            at_body = np.asarray(env.gravity.computeAccelerationFromSource(native, R + positions[row])).reshape(3)
+            acceleration += at_body - common
+        expected[row] = masses[row] * acceleration
+    # Exact equality guards reduction order and common-acceleration subtraction,
+    # including the no-massive-target case and mixed massless/massive models.
+    np.testing.assert_array_equal(actual, expected)
+
+
 def test_add_native_bsk_moon_component_without_changing_physics_core():
     env, keep = environment(True)
     factory = keep[0]

@@ -658,7 +658,9 @@ function videoFpsOptions() {
 
 function configureVideoFps() {
   const options = videoFpsOptions();
-  if (!options.includes(state.requestedVideoFps)) state.requestedVideoFps = options.at(-1);
+  // Most browser/RDP displays present 60 Hz; keep higher server-supported
+  // choices available without decoding/rendering discarded frames by default.
+  if (!options.includes(state.requestedVideoFps)) state.requestedVideoFps = options.filter(fps => fps <= 60).at(-1) ?? options[0];
   const selector = $("videoFpsSelector");
   selector.replaceChildren();
   for (const fps of options) {

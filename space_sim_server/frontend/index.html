@@ -195,12 +195,16 @@
           <small id="sceneDatasetCaptureHelp">未开始采集时仅预览；点击“开始采集”后才开启严格截图与记录，结束后恢复预览。</small>
           </div>
           <div id="flightSettings" class="scene-form" hidden>
-            <p class="mission-note">使用团队双星模型，在 100 m 外保持后可接续遥操作。飞行期间自动导航与控制，机械臂输入停用。</p>
+            <p id="missionSettingsNote" class="mission-note">使用团队双星模型，在 100 m 外保持后可接续遥操作。飞行期间自动导航与控制，机械臂输入停用。</p>
             <div class="initial-joint-grid">
               <label>随机种子<input id="missionSeed" type="number" min="0" max="4294967295" step="1" value="7" required></label>
-              <label>保持距离（m）<input id="missionHold" type="number" min="100.5" max="1000" step="any" value="110" required></label>
+              <label id="missionHoldField">保持距离（m）<input id="missionHold" type="number" min="100.5" max="1000" step="any" value="110" required></label>
             </div>
-            <details class="mission-options">
+            <div id="nearFieldSettings" hidden>
+              <label>近距验证场景<select id="nearFieldFailure"><option value="">正常流程</option><option value="FinalApproach">末段接近丢失视觉</option><option value="Grasp">夹取时丢失视觉</option></select></label>
+              <p>相对 GNSS 观测模型；参数化双目，未处理左右图像。沿用两指夹爪，接触和捕获为逻辑代理。110 m 初态演示不证明远距流程已完成。</p>
+            </div>
+            <details id="orbitalFlightOptions" class="mission-options">
               <summary>环境与误差参数</summary>
               <div class="initial-joint-grid">
                 <label>GNSS 位置 σ（m）<input id="missionGnssPosition" type="number" min="0.001" max="100" step="any" value="3" required></label>
@@ -242,6 +246,12 @@
           <div><dt>双星导航</dt><dd id="missionNavigation">—</dd></div>
           <div><dt>追踪星原点高度</dt><dd id="missionAltitude">—</dd></div>
           <div><dt>相对速度（惯性系）</dt><dd id="missionSpeed">—</dd></div>
+          <div><dt>平台原点到抓取点</dt><dd id="nearPlatformDistance">—</dd></div>
+          <div><dt>TCP 轴向间隙</dt><dd id="nearTcpGap">—</dd></div>
+          <div><dt>相机观测深度</dt><dd id="nearCameraDepth">—</dd></div>
+          <div><dt>横向 / 姿态误差</dt><dd id="nearAlignment">—</dd></div>
+          <div><dt>最大主轴位置 1σ</dt><dd id="nearQuality">—</dd></div>
+          <div><dt>捕获状态（逻辑代理）</dt><dd id="nearCapture">—</dd></div>
         </dl>
         <p id="missionResult" class="mission-note">等待任务验收</p>
         <canvas id="missionChart" width="620" height="200" aria-label="当前浏览会话记录的双星距离曲线"></canvas>

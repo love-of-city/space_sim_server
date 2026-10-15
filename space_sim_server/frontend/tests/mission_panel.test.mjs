@@ -30,6 +30,15 @@ test('idle selection changes panels without starting a task; stopping stays disa
   assert.equal(missionPresentation({active: true, phase: 'stopping', can_manage: true}).canStop, false);
 });
 
+test('completed logical capture keeps its result view and does not offer distant-flight handoff', () => {
+  const mission = {stage: 'flight', phase: 'completed', active: false, mode: 'near-field', can_manage: true, can_handoff: false};
+  const view = missionPresentation(mission, 'near-field');
+  assert.equal(view.flightView, true);
+  assert.equal(view.canStart, true);
+  assert.equal(view.canStop, false);
+  assert.equal(view.showHandoff, false);
+});
+
 test('actual flight transition reconnects a waiting player once and updates the startup message', () => {
   const previousDocument = globalThis.document;
   globalThis.document = {body: {classList: {toggle() {}}}};

@@ -2577,8 +2577,35 @@ void ABskSceneController::ConfigureManifestLighting(const FBskSceneManifest& Man
     const double ManifestFillIntensity = Manifest.FillLightIntensityLux >= 0.0
         ? Manifest.FillLightIntensityLux
         : FillLightIntensityLux;
+    // A launch config can disable the initial fill. A later manifest must still
+    // be able to request presentation lighting without editing project assets.
+    if (!FillLight && ManifestFillIntensity > 0.0 && !Manifest.bUseSceneLighting)
+    {
+        FActorSpawnParameters Params;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        FRotator FillRotation = SunLight ? SunLight->GetActorRotation() : FRotator(-35.0, 45.0, 0.0);
+        FillRotation.Pitch *= -0.5;
+        FillRotation.Yaw += 165.0;
+        FillLight = GetWorld()->SpawnActor<ADirectionalLight>(ADirectionalLight::StaticClass(), FVector::ZeroVector, FillRotation, Params);
+        if (FillLight)
+        {
+            FillLight->GetLightComponent()->SetMobility(EComponentMobility::Movable);
+            FillLight->GetLightComponent()->SetLightColor(FLinearColor(0.55f, 0.68f, 1.0f));
+            FillLight->GetLightComponent()->SetCastShadows(false);
+        }
+    }
     if (FillLight) FillLight->GetLightComponent()->SetIntensity(
         Manifest.bUseSceneLighting ? 0.0f : static_cast<float>(ManifestFillIntensity));
+    if (FillLight)
+    {
+        if (UDirectionalLightComponent* Directional = Cast<UDirectionalLightComponent>(FillLight->GetLightComponent()))
+        {
+            // Forward shading selects one directional light. An eclipsed Sun
+            // must not outrank an explicitly requested demonstration fill.
+            Directional->SetForwardShadingPriority(!Manifest.bUseSceneLighting && ManifestFillIntensity > 0.0 ? 2 : 0);
+            Directional->SetAtmosphereSunLight(false);
+        }
+    }
     if (!Manifest.bHeadlightEnabled)
     {
         if (Headlight) Headlight->SetActorHiddenInGame(true);

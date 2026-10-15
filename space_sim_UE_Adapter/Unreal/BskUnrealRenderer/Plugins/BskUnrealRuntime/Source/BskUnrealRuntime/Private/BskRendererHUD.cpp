@@ -125,10 +125,21 @@ bool ABskRendererHUD::DrawRelativeView(const ABskSceneController* Scene)
         Canvas->DrawItem(Item);
     };
     Label(Name, FVector2D(24, 22), FLinearColor::White);
-    Label(FString::Printf(TEXT("Center distance: %s | t=%.1f s | models 1:1 | markers not to scale"),
+    TArray<FBskMissionEventView> Events;
+    Scene->GetMissionEvents(Events);
+    const bool bNearField = Events.ContainsByPredicate([](const FBskMissionEventView& Event)
+    {
+        return Event.Kind == TEXT("near_field_status");
+    });
+    // Relative-view anchors use the catalog's stowed COM offsets. Near-field
+    // telemetry below computes the live articulated COM independently.
+    Label(FString::Printf(TEXT("%s: %s | t=%.1f s | models 1:1 | markers not to scale"),
+        bNearField ? TEXT("Stowed reference distance") : TEXT("Center distance"),
         *BskRelativeView::Distance(View.DistanceMeters), View.SimulationSeconds), FVector2D(24, 49), FLinearColor(0.75f, 0.85f, 0.92f));
     const bool bDark = View.PrimarySunlight < 0.001 && View.SecondarySunlight < 0.001;
-    Label(bDark ? TEXT("ECLIPSE | physical sunlight is zero; position markers remain visible")
+    Label(bNearField ? (bDark ? TEXT("VIEW FILL | ECLIPSE; physical sunlight is zero")
+                                             : TEXT("VIEW FILL | physical sunlight plus display lighting"))
+                : bDark ? TEXT("ECLIPSE | physical sunlight is zero; position markers remain visible")
                 : TEXT("PHYSICAL SUNLIGHT | no observation fill light"), FVector2D(24, 76),
           bDark ? FLinearColor(1.0f, 0.75f, 0.3f) : FLinearColor(0.7f, 0.78f, 0.85f));
     FVector2D Primary, Secondary;
@@ -208,6 +219,31 @@ void ABskRendererHUD::DrawHUD()
     {
         Canvas->SetDrawColor(FColor(178, 230, 255));
         Canvas->DrawText(GEngine->GetSmallFont(), Text, 24.0f, 24.0f, 1.0f, 1.0f, FFontRenderInfo());
+    }
+
+    // The near-field demonstration status stays visible without opening the
+    // interactive mission panel. It carries explicit sensor/capture boundaries.
+    if (Scene)
+    {
+        TArray<FBskMissionEventView> Events;
+        Scene->GetMissionEvents(Events);
+        TArray<FString> NearLines;
+        for (int32 Index = Events.Num() - 1; Index >= 0 && NearLines.Num() < 5; --Index)
+        {
+            if (Events[Index].Kind == TEXT("near_field_status")) NearLines.Insert(Events[Index].Message, 0);
+        }
+        if (NearLines.Num() > 0)
+        {
+            const float X = 24.0f;
+            const float Y = FMath::Max(155.0f, static_cast<float>(Canvas->SizeY) - 155.0f);
+            FCanvasTileItem Background(FVector2D(X, Y), GWhiteTexture,
+                FVector2D(FMath::Min(780.0f, static_cast<float>(Canvas->SizeX) - 48.0f), 112.0f), FLinearColor(0.008f, 0.018f, 0.035f, 0.88f));
+            Background.BlendMode = SE_BLEND_Translucent;
+            Canvas->DrawItem(Background);
+            Canvas->SetDrawColor(FColor(180, 230, 255));
+            for (int32 Index = 0; Index < NearLines.Num(); ++Index)
+                Canvas->DrawText(GEngine->GetSmallFont(), NearLines[Index], X + 10.0f, Y + 8.0f + Index * 19.0f);
+        }
     }
 
     if (Scene && bMissionUiVisible)

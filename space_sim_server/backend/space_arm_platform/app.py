@@ -104,13 +104,13 @@ class RendezvousStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     live: StrictBool = False
     mode: Literal['simulation', 'demo'] = 'simulation'
-    scenario: Literal['legacy', 'team-in-orbit', 'team-orbit-raise'] = 'team-in-orbit'
+    scenario: Literal['legacy', 'team-in-orbit', 'team-orbit-raise', 'near-field', 'near-field-resume'] = 'team-in-orbit'
     options: dict[str, Any] = Field(default_factory=dict)
 
 
 class MissionStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    mode: Literal["teleop", "team-in-orbit", "team-orbit-raise"] = "teleop"
+    mode: Literal["teleop", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"] = "teleop"
     scene: SceneInstanceCreate = Field(default_factory=SceneInstanceCreate)
     options: dict[str, Any] = Field(default_factory=dict)
     live: StrictBool = True
@@ -541,7 +541,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.get("/api/rendezvous/artifact/{name}")
     async def rendezvous_artifact(name: str, mission_id: str | None = None) -> FileResponse:
-        if name not in {"mission_report.json", "handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz"}:
+        if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz"}:
             raise HTTPException(status_code=404, detail="Unknown rendezvous artifact")
         if mission_id:
             try:

@@ -85,6 +85,7 @@ function configureInitialJoints() {
 }
 function configureSceneSelection() {
   const template = initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value);
+  if (template && $("sceneCollisionWarning")) $("sceneCollisionWarning").textContent = template.description;
   const fallbackTemplate = template?.id === "sarm-task-box-free-plugs";
   const unsupported = template?.unsupported_randomization_profiles
     ?? (fallbackTemplate ? [AUTO_PREPARE_PROFILE] : []);
@@ -305,6 +306,7 @@ function applySceneRuntime(runtime = {}) {
   );
   state.scenePhase = phase;
   state.sceneReady = phase === "running" && !state.resetPending && !state.simulationResetting;
+  if (!state.sceneReady) $("fastenerDemoStatus").hidden = true;
   if (!state.sceneReady && state.operationActive) {
     exitOperationMode("场景已结束，已退出操作模式");
   }
@@ -326,7 +328,7 @@ function applySceneRuntime(runtime = {}) {
   updateOperationUI();
   $("sceneInstanceId").textContent = instance.instance_id || "—";
   $("sceneInstanceSeed").textContent = instance.seed ?? "—";
-  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id === "sarm-task-box-20261012" ? "新版 SARM 完整任务盒 + 地面验证星" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
+  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id?.startsWith("sarm-task-box-20261012") ? "新版 SARM 完整任务盒 + 地面验证星" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
   const instanceSunlight = instance.environment?.lighting?.sunlight_intensity_scale ?? 1;
   $("sceneInstanceSunlight").textContent = instance.instance_id ? `${instanceSunlight} 倍` : "—";
   const instanceOrbitPhase = instance.environment?.orbit?.true_anomaly_deg ?? 180;
@@ -334,6 +336,7 @@ function applySceneRuntime(runtime = {}) {
   $("sceneInstanceOrbitPhase").textContent = instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
   if (active && instance.instance_id) {
     if (instance.template_id) $("sceneTemplate").value = instance.template_id;
+    if (instance.capture_target?.runtime_warning) $("sceneCollisionWarning").textContent = instance.capture_target.runtime_warning;
     if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
     $("sceneSunlightIntensity").value = String(instanceSunlight);
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
@@ -515,6 +518,12 @@ function connect() {
       exitOperationMode(message.reason === "scene_reset" ? "场景正在重置，已撤销操控；完成后请重新点击画面" : "同一用户的其他页面已进入操作，本页面自动退出");
     } else if (message.type === "observation") {
       const obs = message.payload;
+      const demo = obs.fastener_demo;
+      $("fastenerDemoStatus").hidden = !demo;
+      if (demo) {
+        const phase = { settle: "松开等待", tighten: "正在拧紧", hold_tight: "压紧保持", loosen: "正在拧松", hold_loose: "松开保持" }[demo.phase] || demo.phase;
+        $("fastenerDemoStatus").textContent = `防脱演示 · ${phase} · 行程 ${Number(demo.travel_mm).toFixed(2)} mm · 转角 ${Number(demo.angle_deg).toFixed(1)}°`;
+      }
       jointAngles.update(obs);
       armPreparation.update(obs.arm_preparation, obs);
       setOnline("simDot", true);

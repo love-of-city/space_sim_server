@@ -11,8 +11,9 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'python_runtime.ps1')
 $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('numpy', 'Basilisk.simulation.mujoco')
 $env:SPACE_SIM_PYTHON = $pythonExe
-if ($TemplateId -eq 'sarm-task-box-20261012') {
-    & $pythonExe (Join-Path $projectRoot 'tools\build_sarm_20261012.py')
+if ($TemplateId -in @('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo')) {
+    $fastenerModel = if ($TemplateId -eq 'sarm-task-box-20261012-sdf') { 'sdf' } else { 'captive' }
+    & $pythonExe (Join-Path $projectRoot 'tools\build_sarm_20261012.py') --fastener-model $fastenerModel
     if ($LASTEXITCODE -ne 0) { throw 'SARM assembly generation failed.' }
     & $pythonExe (Join-Path $projectRoot 'tools\build_sarm_plugin.py')
     if ($LASTEXITCODE -ne 0) { throw 'SARM thread plugin build failed.' }
@@ -25,7 +26,7 @@ $scene = [string]$selected[0]
 $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
 $catalogName = 'sarm_platform.catalog.json'
 $destination = '/Game/BSK/Generated/SARM'
-if ($TemplateId -eq 'sarm-task-box-20261012') {
+if ($TemplateId -in @('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo')) {
     $catalogName = 'sarm_20261012.catalog.json'
     $destination = '/Game/BSK/Generated/Sarm20261012'
 }

@@ -15,6 +15,9 @@ SELF_COLLISION_TEMPLATE = "sarm-ground-validation-self-collision-grasp"
 TASK_BOX_TEMPLATE = "sarm-task-box-contacts"
 FREE_PLUG_TEMPLATE = "sarm-task-box-free-plugs"
 SARM_20261012_TEMPLATE = 'sarm-task-box-20261012'
+SARM_SDF_TEMPLATE = 'sarm-task-box-20261012-sdf'
+SARM_DEMO_TEMPLATE = 'sarm-task-box-20261012-demo'
+SARM_TEMPLATES = (SARM_20261012_TEMPLATE, SARM_SDF_TEMPLATE, SARM_DEMO_TEMPLATE)
 # Keep old scene identities/artifacts reproducible; triangle contact remains opt-in.
 DEFAULT_TEMPLATE = SELF_COLLISION_TEMPLATE
 
@@ -92,6 +95,15 @@ TARGETS[SARM_20261012_TEMPLATE] = replace(
     source_model='model/SARM_mjcf_20261012/SARM_convex.xml',
     collision_model='sarm_20261012_captive_fastener_and_bolt_sdf',
     runtime_warning='完整 MJCF：防脱紧固件使用螺旋约束，螺栓保留 SDF。摩擦与刚度未做实物标定，完整抓取旋拧仍需验收。')
+
+TARGETS[SARM_SDF_TEMPLATE] = replace(
+    TARGETS[SARM_20261012_TEMPLATE], model_file='sarm_20261012_sdf.xml',
+    collision_model='sarm_20261012_convex_and_thread_sdf',
+    runtime_warning='原始 SDF 螺纹对照；未启用自动力矩。')
+TARGETS[SARM_DEMO_TEMPLATE] = replace(
+    TARGETS[SARM_20261012_TEMPLATE],
+    runtime_warning='防脱旋拧演示：每 16 秒循环施加拧紧/保持/拧松力矩，不代表机械臂自主抓取。')
+
 
 def capture_target(template_id: str) -> CaptureTarget:
     try:

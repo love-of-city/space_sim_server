@@ -63,6 +63,7 @@ from simulation.reference_governor import JointReferenceGovernor
 from simulation.gamepad_control import add_joint6_command
 from simulation.reference_recovery import ReferenceRecoverySettings
 from simulation.runtime_progress import runtime_stage
+from simulation.fastener_demo_schedule import demo_command
 from simulation.runtime_performance import RuntimePerformanceMonitor, render_transport_status
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 from simulation.local_mujoco_stepper import (
@@ -1116,6 +1117,9 @@ def _run_session(
                 enabled=False if getattr(args, "disable_attitude_control", False) else None),
             render,
         ])
+        if template_id == 'sarm-task-box-20261012-demo':
+            from simulation.components.fastener_demo import FastenerDemoComponent
+            assembly.install([FastenerDemoComponent()])
         if getattr(args, "atmospheric_drag", False):
             # Extension sample (docs/MUJOCO_CORE_ARCHITECTURE.md §8.2): one extra
             # component line, no core change. Opt-in only, so the default physics
@@ -1253,6 +1257,11 @@ def _run_session(
                     'joint_limit_margin_rad': [
                         float(min(q-lo, hi-q)) if np.isfinite(lo) or np.isfinite(hi) else None
                         for q, lo, hi in zip(joint_position[:6], targets.joint_min[:6], targets.joint_max[:6])],
+                    'fastener_demo': (dict(
+                        phase=demo_command(int(render_sim_time_ns)*1e-9)[0],
+                        travel_mm=float(assembly.extra['fastener_demo'].travel().state)*1000,
+                        angle_deg=math.degrees(float(assembly.extra['fastener_demo'].angle().state)))
+                        if 'fastener_demo' in assembly.extra else None),
                     'motion_speed_diagnostics': targets.speed_monitor.latest,
                     'arm_actuator_diagnostics': targets.actuator_diagnostics,
                     "ik_damping": float(targets.ik_damping),
@@ -1527,7 +1536,7 @@ def main() -> None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
         if args.scene_instance and args.scene_instance.is_file():
             selected_instance = json.loads(args.scene_instance.read_text(encoding="utf-8"))
-            if selected_instance.get('template_id') == 'sarm-task-box-20261012':
+            if selected_instance.get('template_id') in ('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo'):
                 catalog_name = 'sarm_20261012.catalog.json'
             if selected_instance.get("template_id") == "sarm-task-box-contacts":
                 catalog_name = "sarm_task_box.catalog.json"

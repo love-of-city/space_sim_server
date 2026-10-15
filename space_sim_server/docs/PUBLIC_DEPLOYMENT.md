@@ -1,10 +1,10 @@
-# 一键公网部署（自动 TURN + 隧道入口）
+# 自动化公网部署（自动 TURN + 隧道入口）
 
-日常只使用根目录的三个入口，不需要再填写域名、服务器 IP、证书或密码：
+在仓库根目录的 PowerShell 7 终端中使用以下命令：
 
-- **启动**：双击 `start_deployment.cmd`
-- **停止**：双击 `stop_deployment.cmd`
-- **查看访问链接/初始化密码**：双击 `show_deployment_access.cmd`
+- **启动**：在 PowerShell 7 中执行 `./scripts/deployment_launcher.ps1 -Action Start`
+- **停止**：在 PowerShell 7 中执行 `./scripts/deployment_launcher.ps1 -Action Stop`
+- **查看访问链接/初始化密码**：在 PowerShell 7 中执行 `./scripts/show_public_access.ps1`
 
 启动脚本会自动选择部署方式：
 
@@ -16,11 +16,11 @@
 强参数（正常使用不需要）：
 
 ```powershell
-.\start_deployment.cmd -Mode Ip       # 公网 IP + Let's Encrypt IP 证书（地址固定，推荐）
-.\start_deployment.cmd -Mode Turn     # 显式 TURN 增强模式（隧道网址，重启会变）
-.\start_deployment.cmd -Mode Public   # 普通临时隧道
-.\start_deployment.cmd -Mode Fixed    # 固定域名 + ACME（需要能签出域名证书）
-.\start_deployment.cmd -Mode Direct   # 手工 deployment.local.json
+./scripts/deployment_launcher.ps1 -Action Start -Mode Ip       # 公网 IP + Let's Encrypt IP 证书（地址固定，推荐）
+./scripts/deployment_launcher.ps1 -Action Start -Mode Turn     # 显式 TURN 增强模式（隧道网址，重启会变）
+./scripts/deployment_launcher.ps1 -Action Start -Mode Public   # 普通临时隧道
+./scripts/deployment_launcher.ps1 -Action Start -Mode Fixed    # 固定域名 + ACME（需要能签出域名证书）
+./scripts/deployment_launcher.ps1 -Action Start -Mode Direct   # 手工 deployment.local.json
 ```
 
 ## TURN 增强模式（默认优先）
@@ -65,7 +65,7 @@
 运行要求：
 
 - 证书约 6 天有效，由 Caddy 通过 ACME Renewal Info (ARI) 自动续期，**ARI 续期豁免 Let's Encrypt 全部速率限制**。
-- 续期依赖本机 Caddy 持续运行；长时间关机后重新执行 `start_deployment.cmd` 会自动补签。
+- 续期依赖本机 Caddy 持续运行；长时间关机后重新执行 `./scripts/deployment_launcher.ps1 -Action Start` 会自动补签。
 - 公网 IP 必须保持稳定；若运营商更换 IP，证书中的 IP 会失配，需要重新生成配置。
 
 ## 固定域名模式（显式 `-Mode Fixed`）
@@ -87,7 +87,7 @@
 
 ```powershell
 # 编辑 deploy/ip.local.json，加入 "require_access_key": false
-.\start_deployment.cmd -Mode Ip -Restart
+./scripts/deployment_launcher.ps1 -Action Start -Mode Ip -Restart
 ```
 
 行为说明：
@@ -107,10 +107,10 @@
 
 ```powershell
 # 编辑 deploy/ip.local.json，加入 "show_access_window": false
-.\start_deployment.cmd -Mode Ip -Restart
+./scripts/deployment_launcher.ps1 -Action Start -Mode Ip -Restart
 ```
 
-关闭后终端仍会打印入口地址与安全警告，只是不再弹出窗口；随时可以运行 `show_deployment_access.cmd` 手动打开。该项缺省为 `true`。
+关闭后终端仍会打印入口地址与安全警告，只是不再弹出窗口；随时可以运行 `./scripts/show_public_access.ps1` 手动打开。该项缺省为 `true`。
 
 ## 限制与边界
 
@@ -133,9 +133,9 @@
 ## 高级选项
 
 ```powershell
-.\start_deployment.cmd -ValidateOnly -Mode Turn -NonInteractive   # 只验证配置，不创建文件、不启停服务
-.\start_deployment.cmd -Restart                                    # 强制重启当前部署
-.\start_deployment.cmd -Mode Turn -Python $env:SPACE_SIM_PYTHON      # 指定 Python 解释器
+./scripts/deployment_launcher.ps1 -Action Start -ValidateOnly -Mode Turn -NonInteractive   # 只验证配置，不创建文件、不启停服务
+./scripts/deployment_launcher.ps1 -Action Start -Restart                                    # 强制重启当前部署
+./scripts/deployment_launcher.ps1 -Action Start -Mode Turn -Python $env:SPACE_SIM_PYTHON      # 指定 Python 解释器
 ```
 
 环境变量覆盖（用于特殊网络或测试，正常使用不需要）：

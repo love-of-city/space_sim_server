@@ -260,3 +260,23 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .initial-joint-grid[hidden] { display: none; }
 .initial-joint-grid button { grid-column: 1 / -1; }
 .initial-joint-grid small { font-size: 10px; overflow-wrap: anywhere; }
+
+/* Mission panels use the existing control rail and the single shared viewport. */
+[hidden] { display: none !important; }
+.mission-note { color: var(--muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.mission-options { font-size: 11px; }
+.mission-options summary { cursor: pointer; margin-bottom: 10px; }
+.mission-options small { display: block; line-height: 1.6; color: var(--muted); }
+.mission-files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: 11px; }
+#missionChart { width: 100%; height: auto; margin: 12px 0 4px; }
+#continueMission { grid-column: 1 / -1; }
+#missionProvenance { overflow-wrap: anywhere; white-space: pre-wrap; }
+.admin-users > summary { cursor: pointer; margin: 0; }
+.admin-users[open] > summary { margin-bottom: 14px; }
+.flight-mode .command-section, .flight-mode .joint-angle-section,
+.flight-mode .episode-controls, .flight-mode .telemetry:not(#flightTelemetry) { display: none; }
+@media (max-width: 560px) {
+  .topbar { flex-wrap: wrap; }
+  .system-status { flex-wrap: wrap; }
+  .stream-controls { flex-wrap: wrap; }
+}

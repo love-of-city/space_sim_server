@@ -24,22 +24,44 @@ function Stop-RecordedProcessTree([int]$ProcessId, [long]$ExpectedStartTicks) {
     }
     if ($ExpectedStartTicks -gt 0 -and $actualStart -ne $ExpectedStartTicks) { return }
     $null = $process.Handle
+    # Stop spawning before enumerating descendants. The old child-first walk
+    # let a warming PowerShell launcher create Python after its child snapshot.
+    # Retain the process handle while walking, so this parent PID is not reused.
+    $current = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    $currentStart = Get-SceneProcessStartTicks $current
+    if ($null -eq $currentStart -or $currentStart -ne $actualStart) { return }
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    if (!$process.WaitForExit(15000)) {
+        throw "Scene process $ProcessId did not exit within 15 seconds; refusing to start a competing scene."
+    }
     $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue)
     foreach ($child in $children) {
-        # Parent IDs can be reused too; do not touch older unrelated processes.
         $childProcess = Get-Process -Id ([int]$child.ProcessId) -ErrorAction SilentlyContinue
         $childStart = Get-SceneProcessStartTicks $childProcess
         if ($null -ne $childStart -and $childStart -ge $actualStart) {
+            if ($child.CreationDate -and [Math]::Abs($childStart - $child.CreationDate.ToUniversalTime().Ticks) -ge 10000) { continue }
             Stop-RecordedProcessTree ([int]$child.ProcessId) $childStart
         }
     }
-    $current = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-    $currentStart = Get-SceneProcessStartTicks $current
-    if ($null -ne $currentStart -and $currentStart -eq $actualStart) {
-        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
-        if (!$process.WaitForExit(15000)) {
-            throw "Scene process $ProcessId did not exit within 15 seconds; refusing to start a competing scene."
-        }
+}
+
+function Stop-ProjectSimulations([string]$ProjectRoot) {
+    # Recover already orphaned native clients, including virtualenv launchers.
+    # Both the entry point and generated instance path must belong to this
+    # checkout; a module name or a Python process name alone is not ownership.
+    $entry = [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'simulation\teleop_grasp_unreal.py')).Replace('\', '/')
+    $instances = [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'run\scenes')).Replace('\', '/')
+    $entryPattern = '(?i)^\s*(?:"[^"]+"|\S+)\s+(?:-u\s+)?"?' + [regex]::Escape($entry) + '"?(?=\s|$)'
+    $instancePattern = '(?i)(?:^|\s)--scene-instance\s+"?' + [regex]::Escape($instances) + '/scene-[0-9]{8}-[0-9]{6}-[a-f0-9]+\.json"?(?=\s|$)'
+    $candidates = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction Stop)
+    foreach ($candidate in $candidates) {
+        $command = ([string]$candidate.CommandLine).Replace('\', '/')
+        if ($command -notmatch $entryPattern -or $command -notmatch $instancePattern) { continue }
+        $process = Get-Process -Id ([int]$candidate.ProcessId) -ErrorAction SilentlyContinue
+        $startTicks = Get-SceneProcessStartTicks $process
+        if ($null -eq $startTicks -or !$candidate.CreationDate) { continue }
+        if ([Math]::Abs($startTicks - $candidate.CreationDate.ToUniversalTime().Ticks) -ge 10000) { continue }
+        Stop-RecordedProcessTree ([int]$candidate.ProcessId) $startTicks
     }
 }
 

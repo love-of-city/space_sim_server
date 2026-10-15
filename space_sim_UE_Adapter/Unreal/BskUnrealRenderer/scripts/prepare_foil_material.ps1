@@ -23,6 +23,7 @@ if (!$Force -and $missing.Count -eq 0 -and $old -eq $signature) {
 $log = Join-Path $saved 'foil002_material_build.log'
 $editor = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
 $args = @(('"' + $ProjectFile + '"'), '-run=pythonscript', ('-script="' + $script + '"'), '-unattended', '-nop4', '-nosplash', ('-abslog="' + $log + '"'))
+$args += @('-DDC=InstalledDerivedDataBackendGraph', ('-LocalDataCachePath="' + $BskDerivedDataCachePath + '"'))
 $p = Start-Process -FilePath $editor -ArgumentList $args -WindowStyle Hidden -PassThru
 $p.WaitForExit()
 if ($p.ExitCode -ne 0) { throw "Foil002 asset build failed ($($p.ExitCode)); see $log" }

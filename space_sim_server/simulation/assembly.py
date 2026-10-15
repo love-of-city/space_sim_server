@@ -69,6 +69,7 @@ class ScheduledModule:
     every: int
     phase: int
     task: str = "graspTask"
+    clock_rate_hz: float = 240.0
     def to_dict(self) -> dict[str, Any]:
         return {
             "component": self.component,
@@ -78,7 +79,7 @@ class ScheduledModule:
             "every": self.every,
             "phase": self.phase,
             # every=0 means "scheduled by its own task period", not by this grid.
-            "rate_hz": (None if self.every == 0 else 240.0 / self.every),
+            "rate_hz": (None if self.every == 0 else self.clock_rate_hz / self.every),
         }
 
 
@@ -203,7 +204,7 @@ class AssemblyContext:
         key = (task, slot)
         priority = self._next_priority.get(key, int(slot))
         self._next_priority[key] = priority - 1
-        entry = ScheduledModule(self._current or component or "?", model, slot, priority, every, phase, task)
+        entry = ScheduledModule(self._current or component or "?", model, slot, priority, every, phase, task, self.config.clock_rate_hz)
         self._scheduled.append(entry)
         if every == 1:
             self.simulation.AddModelToTask(task, model, priority)
@@ -229,7 +230,7 @@ class AssemblyContext:
         """
         self._scheduled.append(ScheduledModule(
             component=component, model=model, slot=Slot.CLOCK, priority=int(priority),
-            every=int(every), phase=int(phase), task=str(task)))
+            every=int(every), phase=int(phase), task=str(task), clock_rate_hz=self.config.clock_rate_hz))
 
     # --- description -------------------------------------------------------------
     def describe(self) -> list[dict[str, Any]]:

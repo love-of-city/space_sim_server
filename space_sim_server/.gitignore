@@ -36,3 +36,7 @@ data/visualization-test-auth.sqlite3*
 /run-signalling.pid
 /signalling/*.log
 /reports/
+
+# Personal presentation scripts and report pages are maintained outside Git.
+/docs/reports/
+/frontend/public/reports/

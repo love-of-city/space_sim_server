@@ -1048,6 +1048,10 @@ def _run_session(
         print(json.dumps({"type": "native_integration_configuration", **integration,
                           "dynamics_rate_hz": DYNAMICS_HZ}, sort_keys=True), flush=True)
         ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
+        flight_handoff = scene_instance.get("rendezvous_handoff") if scene_instance else None
+        handoff_continuity = []
+        if flight_handoff and not local_backend:
+            raise ValueError("rendezvous handoff requires the shared local dynamics backend")
         ephemeris_epoch = str(
             ephemeris_environment.get("ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC)
         )
@@ -1114,7 +1118,17 @@ def _run_session(
                 enabled=False if getattr(args, "disable_attitude_control", False) else None),
             render,
         ])
-        if getattr(args, "atmospheric_drag", False):
+        flight_environment = None
+        if flight_handoff:
+            from simulation.components.flight_environment import FlightEnvironmentComponent
+            from space_arm_platform.rendezvous_config import FlightOptions
+            flight_options = FlightOptions.from_dict(flight_handoff["mission_options"])
+            flight_environment = FlightEnvironmentComponent(flight_options, [
+                ("capture_target", None, flight_handoff["body_properties"]["capture_target"]["mass_kg"], flight_options.target_area_m2),
+                ("cubesat_bus", None, flight_handoff["body_properties"]["cubesat_bus"]["mass_kg"], flight_options.chaser_area_m2),
+            ])
+            assembly.install([flight_environment])
+        elif getattr(args, "atmospheric_drag", False):
             # Extension sample (docs/MUJOCO_CORE_ARCHITECTURE.md §8.2): one extra
             # component line, no core change. Opt-in only, so the default physics
             # is bit-identical with and without it.
@@ -1172,6 +1186,12 @@ def _run_session(
                     "orbital_dynamics": (
                         simulation.local_stepper.telemetry()["orbital_environment"]
                         if local_backend else {"mode": "basilisk"}),
+                    "rendezvous_handoff": ({"source_run_id": flight_handoff["state"]["metadata"]["run_id"],
+                                            "initial_state_errors_m_m_s": handoff_continuity,
+                                            "epoch_s": flight_handoff["state"]["sim_time_s"],
+                                            "navigation_estimates_eci": flight_handoff["gnss_estimates_eci"],
+                                            "navigation_covariances": flight_handoff["covariances"]} if flight_handoff else None),
+                    "flight_environment": flight_environment.telemetry() if flight_environment else None,
                     "wrist_wrench": (
                         WRIST_SENSOR.observation(simulation.local_stepper, render_sim_time_ns)
                         if local_backend and native.model_profile.linkage else None),
@@ -1319,6 +1339,23 @@ def _run_session(
         orbit_state = _apply_orbital_initial_state(
             scene, native, earth, orbit, randomized, initial_joints, orbit_origin
         )
+        if flight_handoff:
+            from simulation.orbital_rendezvous.handoff import apply_handoff, validate_handoff
+            validate_handoff(flight_handoff, native.MODEL_PATH)
+            apply_handoff(scene, flight_handoff)
+            scene.postIntegration(0)
+            for saved in flight_handoff["state"]["bodies"]:
+                body_name = "capture_target" if saved["body_id"] == "rendezvous/target" else "cubesat_bus"
+                actual = scene.getBody(body_name).getOrigin().stateOutMsg.read()
+                handoff_continuity.extend([float(np.linalg.norm(np.asarray(actual.r_BN_N)-saved["position_m"])),
+                                           float(np.linalg.norm(np.asarray(actual.v_BN_N)-saved["velocity_m_s"]))])
+            if max(handoff_continuity) >= 1e-8:
+                raise ValueError("handoff initial state continuity failed")
+            target_state = next(body for body in flight_handoff["state"]["bodies"] if body["body_id"] == "rendezvous/target")
+            orbit_origin.set_state(np.asarray(target_state["position_m"]), np.asarray(target_state["velocity_m_s"]))
+            for module, saved in zip(flight_environment.models, flight_handoff.get("environment_state", []), strict=True):
+                module.restore(saved)
+            orbit_state["rendezvous_handoff_applied"] = True
         print(
             json.dumps(
                 {

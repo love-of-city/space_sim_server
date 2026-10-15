@@ -1,5 +1,6 @@
 {
   "files": {
+    "tests/test_flight_environment.py": "Basilisk messages; run in the native simulation acceptance suite",
     "tests/test_attitude_control.py": "Basilisk attitude-control integration",
     "tests/test_celestial_alignment.py": "Basilisk celestial-state integration",
     "tests/test_ground_capture_native.py": "Basilisk MJScene integration",

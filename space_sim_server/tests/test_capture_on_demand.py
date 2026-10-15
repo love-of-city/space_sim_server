@@ -248,8 +248,8 @@ def test_off_request_is_retained_across_disconnect_and_replayed():
             await start
             # Hold reconnect by closing only the listener, not the peer state.
             hub._server.close()
-            await hub._server.wait_closed()
             hub._writer.close()
+            await hub._server.wait_closed()
             for _ in range(100):
                 if not hub.connected: break
                 await asyncio.sleep(.01)

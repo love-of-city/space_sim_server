@@ -64,7 +64,7 @@ $needsImport = $Force -or $missingAssetFiles.Count -gt 0 -or $configuredImportSi
 if ($needsImport) {
     $stlMeshes = @($catalogData.assets.PSObject.Properties | Where-Object { $_.Value.source_format -eq 'stl' }).Count
     Write-Output "Importing $expectedMeshes MJCF meshes ($stlMeshes STL) and $expectedTextures textures into $Destination ..."
-    & $editorCmd $ProjectFile -run=ImportAssets "-importsettings=$importSettings" "-dest=$Destination" -replaceexisting -nosourcecontrol -unattended -nop4 -nosplash
+    & $editorCmd $ProjectFile @BskDerivedDataCacheArguments -run=ImportAssets "-importsettings=$importSettings" "-dest=$Destination" -replaceexisting -nosourcecontrol -unattended -nop4 -nosplash
     $importExitCode = $LASTEXITCODE
     $missingAssetFiles = @($expectedAssetFiles | Where-Object { !(Test-Path -LiteralPath $_) })
     $existingAssets = $expectedAssets - $missingAssetFiles.Count
@@ -85,7 +85,7 @@ if ($needsImport -or $configuredSignature -ne $meshSettingsSignature) {
         # StaticMeshEditorSubsystem rejects changes from PythonScriptCommandlet.
         # Execute in a headless editor session so LOD build settings are really
         # written, rebuilt, and saved rather than only logged as configured.
-        & $editorCmd $ProjectFile "-ExecutePythonScript=$meshConfigScript" -nullrhi -unattended -nop4 -nosplash
+        & $editorCmd $ProjectFile @BskDerivedDataCacheArguments "-ExecutePythonScript=$meshConfigScript" -nullrhi -unattended -nop4 -nosplash
         if ($LASTEXITCODE -ne 0) { throw "MJCF mesh build-setting configuration failed with exit code $LASTEXITCODE." }
         Set-Content -LiteralPath $meshSettingsMarker -Value $meshSettingsSignature -Encoding ascii
     } finally {

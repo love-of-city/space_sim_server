@@ -43,6 +43,8 @@ if ($state) {
     }
 }
 
+Stop-ProjectSimulations $projectRoot
+
 if ($AdapterRoot) {
     Stop-ProjectRenderers $AdapterRoot
     $pidFile = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\BskRenderer.pid'

@@ -108,18 +108,20 @@ for (const action of ["startScene", "stopScene"]) {
   });
 }
 
-test("overlapping polls cannot apply older JSON after a newer poll", async () => {
+test("slow JSON decoding prevents overlapping polls and releases the next read", async () => {
   const h = harness();
   const oldBody = deferred();
   const oldPoll = h.context.refreshState();
   h.requests[0].resolve({ json: () => oldBody.promise });
   await flush();
+  await h.context.refreshState();
+  assert.equal(h.requests.length, 1);
+  oldBody.resolve(snapshot("old", "stopped"));
+  await oldPoll;
   const newPoll = h.context.refreshState();
   respond(h.requests[1], snapshot("new"));
   await newPoll;
-  oldBody.resolve(snapshot("old", "stopped"));
-  await oldPoll;
-  assert.deepEqual(h.runtimes.map(runtime => runtime.instance.instance_id), ["new"]);
+  assert.deepEqual(h.runtimes.map(runtime => runtime.instance.instance_id), ["old", "new"]);
   assert.deepEqual(h.armed, []);
 });
 

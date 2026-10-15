@@ -90,8 +90,8 @@ TARGETS[FREE_PLUG_TEMPLATE] = replace(
 TARGETS[SARM_20261012_TEMPLATE] = replace(
     TARGETS[FREE_PLUG_TEMPLATE], model_file='sarm_20261012.xml',
     source_model='model/SARM_mjcf_20261012/SARM_convex.xml',
-    collision_model='sarm_20261012_convex_and_thread_sdf',
-    runtime_warning='2026-10-12 完整 MJCF：四连杆抓夹、活动任务盒与螺纹 SDF。实验模板，实际插拔与旋拧稳定性仍需验收。')
+    collision_model='sarm_20261012_captive_fastener_and_bolt_sdf',
+    runtime_warning='完整 MJCF：防脱紧固件使用螺旋约束，螺栓保留 SDF。摩擦与刚度未做实物标定，完整抓取旋拧仍需验收。')
 
 def capture_target(template_id: str) -> CaptureTarget:
     try:

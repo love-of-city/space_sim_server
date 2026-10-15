@@ -10,6 +10,13 @@ def initialize_free_plugs(scene, model_path: Path, orbital_position, bus_velocit
         return
     root = ET.parse(model_path).getroot()
     for name in selected:
+        if name == 'fastener':
+            captive = root.find('.//body[@name="locking_rod"]/body[@name="fastener"]')
+            if (captive is not None and captive.find('joint[@name="fastener_slide"]') is not None
+                    and captive.find('joint[@name="fastener_spin"]') is not None
+                    and root.find('./equality/joint[@name="fastener_helix"]') is not None):
+                # Its parent already inherits the orbital transform/velocity.
+                continue
         element = root.find(f'./worldbody/body[@name="{name}"]')
         if element is None or (element.find('freejoint') is None and element.find('joint[@type="free"]') is None):
             raise ValueError(f'{name} must be an independent world body')

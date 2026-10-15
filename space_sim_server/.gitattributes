@@ -10,3 +10,4 @@ model/**/*.[bB][rR][eE][pP] filter=lfs diff=lfs merge=lfs -text
 # Preserve delivered source bytes used by provenance SHA256 validation.
 model/SARM_mjcf_20261012/** -text
 model/SARM/platform/sarm_20261012.xml text eol=lf
+model/SARM/platform/sarm_20261012_sdf.xml text eol=lf

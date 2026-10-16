@@ -30,7 +30,7 @@ from .control_defaults import (
     ZERO_START_TELEOP_PROFILE, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG,
 )
 from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
-from .scene_targets import SARM_20261012_TEMPLATE
+from .scene_targets import SARM_20261012_TEMPLATE, SARM_SDF_TEMPLATE, SARM_DEMO_TEMPLATE, SARM_TEMPLATES
 
 
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -42,7 +42,7 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
     },
     {
         'id': SARM_20261012_TEMPLATE,
-        'label': '新版 SARM 与完整任务盒（2026-10-12·实验）',
+        'label': '新版 SARM · 防脱紧固件（正常操作）',
         'description': capture_target(SARM_20261012_TEMPLATE).runtime_warning,
         'camera_ids': ['teleop/camera/spacecraft_overview', 'teleop/camera/sarm_wrist_cam'],
     },
@@ -77,6 +77,12 @@ SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
         "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
     },
 )
+
+SCENE_TEMPLATES += tuple(dict(id=name, label=label,
+    description=capture_target(name).runtime_warning,
+    camera_ids=['teleop/camera/spacecraft_overview', 'teleop/camera/sarm_wrist_cam'])
+    for name, label in ((SARM_DEMO_TEMPLATE, '防脱紧固件 · 自动拧紧/拧松演示'),
+                        (SARM_SDF_TEMPLATE, '新版 SARM · 原始 SDF 螺纹对照')))
 
 RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     {
@@ -122,6 +128,10 @@ TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
     SARM_20261012_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE, BALANCED_TELEOP_PROFILE, 'none', 'training-v1'),
     FREE_PLUG_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE,),
 }
+
+for _template in (SARM_SDF_TEMPLATE, SARM_DEMO_TEMPLATE):
+    TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES[_template] = ZERO_START_TELEOP_PROFILE
+    TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES[_template] = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES[SARM_20261012_TEMPLATE]
 
 
 def template_default_randomization_profile(template_id: str) -> str:
@@ -255,7 +265,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
 
     if target.hinge_joint:
         randomization["target_hinge_position_rad"] = 0.0
-    if request.template_id == SARM_20261012_TEMPLATE:
+    if request.template_id in SARM_TEMPLATES:
         randomization['arm_joint_position_rad'][6:] = [0., 0.]
 
     orbit = dict(_DEFAULT_ORBIT)

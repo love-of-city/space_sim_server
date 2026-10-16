@@ -1,0 +1,44 @@
+{
+  "source_sha256": "edd0426c24fec4ba1a4946f6a767310014dc077dd88cdd6b3064ff4916f34a19",
+  "model_sha256": "34ab9eb8ad5b6d8274fd578239e127d1077440a4d560e2da8f52460f1f0e0441",
+  "model_revision": "2026-10-12",
+  "platform_additions": [
+    "free base",
+    "reaction wheels (additional mass)",
+    "capture target",
+    "cameras"
+  ],
+  "source_base_inertia_preserved": true,
+  "gripper_type": "four_bar_tendon",
+  "root_renames": {
+    "base_link": "cubesat_bus"
+  },
+  "drawer_reparented_to": "cubesat_bus",
+  "wrist_force_torque_sensor": {
+    "site": "wrist_ft_site",
+    "parent_body": "ee_base",
+    "tool_body": "wrist_ft_tool",
+    "added_mass_kg": 0,
+    "ideal_rigid_sensor": true
+  },
+  "orbital_free_joint_damping_overrides": [
+    {
+      "joint": "aviation_plug_freejoint",
+      "source": 5.0,
+      "platform": 0.0
+    },
+    {
+      "joint": "guide_plug_freejoint",
+      "source": 5.0,
+      "platform": 0.0
+    },
+    {
+      "joint": "cylindrical_plug_freejoint",
+      "source": 5.0,
+      "platform": 0.0
+    }
+  ],
+  "fastener": {
+    "model": "sdf"
+  }
+}

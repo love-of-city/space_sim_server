@@ -1,6 +1,6 @@
 {
   "source_sha256": "edd0426c24fec4ba1a4946f6a767310014dc077dd88cdd6b3064ff4916f34a19",
-  "model_sha256": "34ab9eb8ad5b6d8274fd578239e127d1077440a4d560e2da8f52460f1f0e0441",
+  "model_sha256": "e7896209fe9b0c63d1971f064918bd39d9eb9150b71daadbac880338c4c2ee69",
   "model_revision": "2026-10-12",
   "platform_additions": [
     "free base",
@@ -37,5 +37,22 @@
       "source": 5.0,
       "platform": 0.0
     }
-  ]
+  ],
+  "fastener": {
+    "model": "captive",
+    "lead_m": 0.016,
+    "stroke_m": 0.05399969612129266,
+    "max_turns_to_runout": 3.3749810075807916,
+    "friction_torque_nm": 0.03,
+    "viscous_damping_nm_s": 0.04,
+    "geometry": {
+      "retainer_radius_m": 0.0175000011078452,
+      "retainer_start_y_m": 0.129,
+      "loose_end_y_m": 0.12899969649382176,
+      "hook_envelope_y_m": 0.06112856441199603,
+      "envelope_gap_m": 0.0028711317092966343,
+      "thread_start_y_m": 0.01
+    },
+    "calibration": "runout from source SDF extent; seating by actual contact; friction and compliance uncalibrated"
+  }
 }

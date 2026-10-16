@@ -109,7 +109,16 @@ def test_wrist_view_contains_horizontal_fingers_entering_from_below():
 def test_only_demo_overrides_overview_camera_and_focus(monkeypatch, template):
     import sys
     from types import SimpleNamespace
-    from simulation.components.render import RenderComponent
+    import importlib.util
+    # Basic CI has no Basilisk. Isolate only the scheduling boundary, and load
+    # this component separately so no fake assembly is cached for native tests.
+    monkeypatch.setitem(sys.modules, "simulation.assembly", SimpleNamespace(
+        AssemblyContext=object, Slot=SimpleNamespace(OUTPUT=0)))
+    spec = importlib.util.spec_from_file_location(
+        "camera_render_probe", Path(__file__).resolve().parents[1] / "simulation/components/render.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    RenderComponent = module.RenderComponent
 
     overview = SimpleNamespace(camera_id="teleop/camera/spacecraft_overview", parent_id="teleop/cubesat_bus",
                                position_body_m=(1, 2, 3), field_of_view_rad=0.9)

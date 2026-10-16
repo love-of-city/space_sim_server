@@ -202,6 +202,6 @@ def test_spawned_writer_cold_start_and_two_recordings(tmp_path):
             assert result["dataset_status"]=="complete",result
             assert result["dataset_frame_count"]==4
             meta=json.loads((tmp_path/info["episode_id"]/'lerobot/meta/info.json').read_text())
-            assert meta["total_frames"]==4 and meta["fps"]==30
+            assert meta["total_frames"]==4 and meta["fps"]==DEFAULT_CAPTURE_HZ
             assert r._service._process.pid==child_pid
     finally:r.close()

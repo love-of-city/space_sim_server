@@ -14,12 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
 from space_arm_platform.capture_receiver import CaptureReceiver
 from space_arm_platform.capture_lifecycle import CaptureLifecycle
+from space_arm_platform.camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from space_arm_platform.models import AppliedAction, EpisodeStart, EpisodeStop
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.simulation_hub import SimulationHub
 
 
 async def run(args):
+    args.adapter = args.adapter.resolve()
+    args.unreal = args.unreal.resolve()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     # The input may be a preview-only production scene. Never modify it: the
@@ -77,14 +80,14 @@ async def run(args):
         env = os.environ.copy()
         env["UE-LocalDataCachePath"] = str(project / "Saved/DerivedDataCache")
         command = [str(editor),str(project / "BskUnrealRenderer.uproject"),"-game","-RenderOffscreen","-ForceRes",
-                   "-ResX=640","-ResY=360",f"-BskPort={args.render_port}","-BskListen=127.0.0.1",
+                   f"-ResX={CAPTURE_CAMERA_WIDTH}",f"-ResY={CAPTURE_CAMERA_HEIGHT}",f"-BskPort={args.render_port}","-BskListen=127.0.0.1",
                    "-BskCaptureHost=127.0.0.1",f"-BskCapturePort={args.capture_port}","-BskCaptureRate=30",
                    "-BskCaptureProducts=rgb",'-ExecCmds=t.MaxFPS 90,r.VSync 0',
                    "-DDC=InstalledDerivedDataBackendGraph",f"-abslog={out / 'renderer.log'}",
                    f"-PixelStreamingConnectionURL=ws://127.0.0.1:{args.signalling_port}","-PixelStreamingID=BskValidation",
                    f"-BskPixelStreamingURL=ws://127.0.0.1:{args.signalling_port}","-BskPixelStreamingBaseId=BskValidation",
                    "-BskPixelStreamingCameras=teleop/camera/spacecraft_overview+teleop/camera/sarm_wrist_cam",
-                   "-BskPixelStreamingCameraWidth=640","-BskPixelStreamingCameraHeight=360",
+                   f"-BskPixelStreamingCameraWidth={CAPTURE_CAMERA_WIDTH}",f"-BskPixelStreamingCameraHeight={CAPTURE_CAMERA_HEIGHT}",
                    "-BskPixelStreamingCameraFps=90","-PixelStreamingWebRTCFps=90",
                    "-PixelStreamingUseMediaCapture=false","-PixelStreamingWebRTCDisableTransmitAudio=true"]
         renderer = launch(command, "renderer-process", env)
@@ -98,7 +101,6 @@ async def run(args):
                 await asyncio.sleep(.25)
         command = [sys.executable,str(ROOT / "simulation/teleop_grasp_unreal.py"),
                    "--adapter-root",str(args.adapter),"--model-root",str(ROOT / "model/SARM/platform"),
-                   "--catalog",str(project / "Saved/AssetImport/sarm_platform.catalog.json"),
                    "--scene-instance",str(validation_scene),"--control-port",str(args.control_port),
                    "--render-port",str(args.render_port),"--duration","0","--capture-rate","30","--ik-rate","120"]
         env["PYTHONPATH"] = os.pathsep.join([str(ROOT/'backend'),str(args.adapter/'Adapters')])

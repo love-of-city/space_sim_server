@@ -1,4 +1,4 @@
-"""Physics clock: drive the physics task on a drift-free rational 240 Hz grid."""
+"""Physics clock: drive the physics task on a drift-free rational 400 Hz grid."""
 from __future__ import annotations
 
 from typing import Any

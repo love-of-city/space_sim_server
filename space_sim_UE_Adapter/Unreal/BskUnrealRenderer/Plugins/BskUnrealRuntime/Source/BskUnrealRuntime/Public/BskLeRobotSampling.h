@@ -2,13 +2,13 @@
 
 #include "CoreMinimal.h"
 
-// Match the server absolute rational-nanosecond grid: physics 240 Hz, IK 120 Hz,
-// render 30 Hz. Never accumulate a rounded period or use wall-clock preview time.
+// Match the server absolute rational-nanosecond grid: physics 400 Hz, IK 100 Hz,
+// render 50 Hz. Never accumulate a rounded period or use wall-clock preview time.
 inline bool BskLeRobotSample(int64 SimulationTimeNanoseconds, double RateHertz, int64& OutSampleIndex)
 {
     const int32 Fps = FMath::RoundToInt(RateHertz);
     if (!FMath::IsNearlyEqual(RateHertz, static_cast<double>(Fps), 1.e-9) ||
-        !(Fps == 1 || Fps == 2 || Fps == 5 || Fps == 10 || Fps == 30) ||
+        !(Fps == 1 || Fps == 2 || Fps == 5 || Fps == 10 || Fps == 25 || Fps == 30 || Fps == 50) ||
         SimulationTimeNanoseconds < 0)
     {
         return false;

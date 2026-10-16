@@ -11,7 +11,7 @@ class OrbitalGravityComponent:
         self.mode = orbital_mode(mode)
         self.ephemeris_sampler = ephemeris_sampler
         # Physics steps per BSK force evaluation; the platform default holds the
-        # forces for one 30 Hz render frame (SPACE_SIM_ORBITAL_FORCE_STRIDE=1: every substep).
+        # forces for one 50 Hz render frame (SPACE_SIM_ORBITAL_FORCE_STRIDE=1: every substep).
         self.force_every = orbital_force_stride(force_every)
         self.environment = None
 

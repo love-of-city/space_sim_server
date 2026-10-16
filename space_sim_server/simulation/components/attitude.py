@@ -1,10 +1,7 @@
 """Attitude control: the reaction-wheel chain, scheduled on the physics grid.
 
-The chain used to run in its own 100 Hz task, which is not a division of the 240 Hz
-physics grid, so it read a body state whose age varied between 0 and 6.7 ms and
-stamped its outputs with a time that did not correspond to the state it used. It now
-runs on the physics task at a fixed division of the grid (120 Hz by default), phase
-aligned with state publication, so the input age is exactly one physics step.
+The chain runs at 50 Hz on the 400 Hz physics grid, phase-aligned with
+body/site publication. The input age is exactly one physics step.
 
 The wheel drives keep their own slot (ACTUATOR): MuJoCo holds the motor command for
 the whole step on the local backend, so the torque and speed limits must see fresh

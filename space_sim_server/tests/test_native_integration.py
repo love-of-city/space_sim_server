@@ -19,7 +19,7 @@ def test_integrator_controls_error_without_altering_clock_or_physics(monkeypatch
     assert scene.integrator.scene is scene
     assert scene.integrator.relative==1e-4 and scene.integrator.absolute==1e-4
     assert report['collision_authority']=='running_native_MJScene'
-    assert (DYNAMICS_HZ,DEFAULT_IK_HZ,RENDER_HZ)==(240,120,30)
+    assert (DYNAMICS_HZ,DEFAULT_IK_HZ,RENDER_HZ)==(400,100,50)
 
 
 def test_integrator_tolerances_can_be_overridden_and_reject_bad_values(monkeypatch):

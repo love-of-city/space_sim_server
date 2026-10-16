@@ -6,12 +6,12 @@ param(
     [int]$RenderPort = 5558,
     [double]$Duration = 0.0,
     [double]$SimulationRate = 1.0,
-    [double]$CaptureRate = 30.0,
+    [double]$CaptureRate = 50.0,
     [string]$SceneInstancePath = '',
     [ValidateSet('bsk', 'linear_tidal')]
     [string]$OrbitalMode = '',
-    [ValidateRange(1.0, 240.0)]
-    [double]$IkRate = 120.0,
+    [ValidateRange(1.0, 400.0)]
+    [double]$IkRate = 100.0,
     [switch]$DisableAttitudeControl
 )
 

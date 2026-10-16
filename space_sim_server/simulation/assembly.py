@@ -12,7 +12,7 @@ This module makes the order data:
 
 * `Slot` names a segment of the physics task; `AssemblyContext.add` allocates the
   actual Basilisk priority inside it, so components never invent magic numbers.
-* `every`/`phase` express a rate as an integer division of the 240 Hz grid and
+* `every`/`phase` express a rate as an integer division of the 400 Hz grid and
   pin its execution phase to the state-publication phase (see §3.4/§6.3 of
   docs/MUJOCO_CORE_ARCHITECTURE.md).
 * `describe()` returns the final schedule, which is logged at startup and used as
@@ -30,6 +30,7 @@ from typing import Any, Iterable, Protocol, runtime_checkable
 
 from Basilisk.architecture import sysModel
 
+from space_arm_platform.sampling import DYNAMICS_HZ, DEFAULT_IK_HZ, RENDER_HZ
 from simulation.physics_ports import PhysicsPorts, PortError
 
 
@@ -78,7 +79,7 @@ class ScheduledModule:
             "every": self.every,
             "phase": self.phase,
             # every=0 means "scheduled by its own task period", not by this grid.
-            "rate_hz": (None if self.every == 0 else 240.0 / self.every),
+            "rate_hz": (None if self.every == 0 else float(DYNAMICS_HZ) / self.every),
         }
 
 
@@ -136,9 +137,9 @@ class SessionConfig:
     dynamics_backend: str = "local"
     local_substeps: int | None = None
     publish_stride: int = 2
-    clock_rate_hz: int = 240
-    ik_rate_hz: int = 120
-    render_rate_hz: int = 30
+    clock_rate_hz: int = DYNAMICS_HZ
+    ik_rate_hz: int = DEFAULT_IK_HZ
+    render_rate_hz: int = RENDER_HZ
     physics_task: str = "graspTask"
     options: dict[str, Any] = field(default_factory=dict)
 

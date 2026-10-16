@@ -228,7 +228,7 @@ def test_cached_wheel_handles_still_read_fresh_rk_stage_state():
     assert reader().input == 0.
 
 
-@pytest.mark.parametrize(('rate', 'stride', 'ok'), [(30.0, 8, True), (120.0, 2, True), (120.0, 8, False), (60.0, 8, False)])
+@pytest.mark.parametrize(('rate', 'stride', 'ok'), [(50.0, 8, True), (100.0, 2, True), (100.0, 8, False), (200.0, 8, False)])
 def test_attitude_chain_rate_must_be_a_multiple_of_the_publication_stride(tmp_path, rate, stride, ok):
     # The chain installs itself outside AssemblyContext.add, so it must apply the
     # same stale-state rule: run only on steps right after a body publication.

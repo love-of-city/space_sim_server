@@ -1470,7 +1470,7 @@
                 <geom name="link5_geom" class="robot_geom" mesh="link5_mesh" rgba="0.43922 0.43922 0.43922 1" contype="1" conaffinity="1" density="0" group="2" />
                 <body name="ee_base" pos="0 -0.095 0.135" quat="0.49999816339744829 0.49999999999662686 -0.5000018366025516 0.49999999999662686">
                   <joint name="joint6" class="robot_joint" type="hinge" axis="0 0 1" range="-6.2832 6.2832" actuatorfrcrange="-100 100" />
-                  <camera name="sarm_wrist_cam" mode="fixed" pos="0.0 0.1 0.12" quat="0.0 0.0 0.9238795325112867 0.3826834323650897" fovy="70" resolution="640 360" />
+                  <camera name="sarm_wrist_cam" mode="fixed" pos="0.0 0.1 0.12" quat="0.0 0.0 0.9238795325112867 0.3826834323650897" fovy="102.447857778" resolution="1024 1024" />
          <body name="wrist_ft_tool" pos="0 0 0"><inertial pos="0 0 0.0636159692368" quat="0.706325435355 0 0 0.707887264591" mass="3.2325900237452" diaginertia="0.005059570785947 0.0049292995108171 0.0016709776347182" />
                   <geom name="ee_base_geom" class="robot_geom" mesh="ee_base_mesh" density="0" rgba="0.41176 0.41176 0.41176 1" contype="1" conaffinity="1" group="2" />
                   
@@ -3370,7 +3370,7 @@
     <joint name="rw_z_spin" type="hinge" axis="0 0 1" limited="false" damping="0" frictionloss="0" stiffness="0" armature="0" />
     <geom name="rw_z_rotor" type="cylinder" size="0.14142135623731 0.03464101615138" mass="0" contype="0" conaffinity="0" rgba="0.15 0.35 0.75 1" />
    </body>
-   <camera name="spacecraft_overview" mode="fixed" pos="-0.18 0.27 0.5" quat="0.6851394915897261 0.30992428380402737 -0.27168234994635526 -0.600599297452435" fovy="51" resolution="640 360" />
+   <camera name="spacecraft_overview" mode="fixed" pos="-0.18 0.27 0.5" quat="0.6851394915897261 0.30992428380402737 -0.27168234994635526 -0.600599297452435" fovy="80.5929896518" resolution="1024 1024" />
 
    <site name="cubesat_origin" pos="0 0 0" size="0.01" />
 

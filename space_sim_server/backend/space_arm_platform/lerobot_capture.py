@@ -15,6 +15,8 @@ import numpy as np
 from PIL import Image
 
 from .sampling import sample_tick
+from .wrench_recording import WrenchStreamWriter
+from .gripper_representation import opening_profile
 DEFAULT_CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
 
 
@@ -39,6 +41,7 @@ class LiveLeRobotWriter:
         self.camera_shapes: dict[str, tuple[int, ...]] = {}
         self.model_identity = None
         self.wrench_identity = None
+        self.wrench_stream = WrenchStreamWriter(root)
 
     def append(self, observation: Any, captures: dict[str, tuple[dict, dict]]) -> None:
         identity = (observation.model_sha256, observation.model_revision, observation.gripper_type)
@@ -57,19 +60,28 @@ class LiveLeRobotWriter:
             if not np.isfinite(array).all():
                 raise ValueError("non-finite dataset feature")
             return array
+        profile = opening_profile(observation.gripper_type)
+        state = list(observation.joint_position_rad)
+        action = list(observation.target_joint_position_rad)
+        if profile is not None:
+            state = state[:6] + [observation.gripper_opening_normalized]
+            action = action[:6] + [observation.target_gripper_opening_normalized]
         frame = {
-            "observation.state": f32(observation.joint_position_rad),
+            "observation.state": f32(state),
             "observation.joint_velocity": f32(observation.joint_velocity_rad_s),
             "observation.end_effector_pose_body": f32(observation.end_effector_position_body_m + observation.end_effector_orientation_body_wxyz),
             "observation.end_effector_twist_body": f32(observation.end_effector_twist_body),
             # Held joint servo targets, not the API's newest (possibly unapplied) command.
-            "action": f32(observation.target_joint_position_rad),
+            "action": f32(action),
             "observation.sim_time_ns": np.array([int(observation.sim_time_ns)], dtype=np.int64),
             "observation.source_frame_id": np.array([int(observation.render_frame_id)], dtype=np.int64),
             "observation.applied_action_sequence": np.array([int(observation.applied_action_sequence)], dtype=np.int64),
             "observation.platform_json": observation.model_dump_json(),
             "task": self.request.instruction or self.request.task,
         }
+        if profile is not None:
+            frame["observation.raw_joint_position"] = f32(observation.joint_position_rad)
+            frame["observation.raw_target_joint_position"] = f32(observation.target_joint_position_rad)
         wrench = observation.wrist_wrench
         identity = None if wrench is None else (
             wrench.sensor_name, wrench.site_name, wrench.parent_body, wrench.child_body,
@@ -116,8 +128,12 @@ class LiveLeRobotWriter:
                     features[name] = {"dtype": dtype, "shape": value.shape, "names": None}
             n = len(observation.joint_position_rad)
             names = [f"joint_{i + 1}_rad" for i in range(6)] + (["finger_1_m", "finger_2_m"] if n == 8 else [])
-            if observation.gripper_type == 'four_bar_tendon':
-                names = [f'joint_{i+1}_rad' for i in range(6)] + ['ee_link11_joint_rad', 'ee_link12_joint_rad']
+            if profile is not None:
+                raw_names = [f"joint_{i+1}_rad" for i in range(6)] + ["ee_link11_joint_rad", "ee_link12_joint_rad"]
+                names = [f"joint_{i+1}_rad" for i in range(6)] + ["gripper_opening_normalized"]
+                for key in ("observation.raw_joint_position", "observation.raw_target_joint_position"):
+                    features[key]["names"] = raw_names
+                features["observation.joint_velocity"]["names"] = [name + "_s" for name in raw_names]
             features["observation.state"]["names"] = names
             features["action"]["names"] = names
             if wrench is not None:
@@ -131,9 +147,13 @@ class LiveLeRobotWriter:
             )
             # Explicit semantics alongside (not masquerading as) official metadata.
             (self.root / "meta" / "platform.json").write_text(json.dumps({
-                "schema": "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "sarm_ee",
-                "action_semantics": ('six arm angles and two coupled linkage references in radians; tendon drive equals first linkage reference'
-                                     if observation.gripper_type == 'four_bar_tendon' else 'joint servo target held at the observation time; six radians plus two finger metres'),
+                "schema": "space-arm-lerobot/2" if profile is not None else "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "sarm_ee",
+                "action_semantics": ('six held arm servo targets in radians plus target normalized gripper opening; not newest API command'
+                                     if profile is not None else 'joint servo target held at the observation time; six radians plus two finger metres'),
+                "state_semantics": ("six measured arm angles in radians plus measured normalized gripper opening"
+                                    if profile is not None else "raw joint coordinates"),
+                "gripper_normalization": profile.metadata() if profile is not None else None,
+                "joint_velocity_semantics": "raw simulator joint velocities; retains both finger coordinates",
                 "model_revision": observation.model_revision, "gripper_type": observation.gripper_type,
                 "model_sha256": observation.model_sha256, "mujoco_runtime_version": observation.mujoco_runtime_version,
                 "timestamp_semantics": "episode-relative uniform sample time; original nanoseconds in observation.sim_time_ns",
@@ -141,6 +161,7 @@ class LiveLeRobotWriter:
                 "camera_keys": {c: camera_key(c) for c in self.cameras},
                 "request": self.request.model_dump(mode="json"),
             }, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.wrench_stream.append(observation)
         self.dataset.add_frame(frame)
         self.frames += 1
         self.last_tick = tick
@@ -157,6 +178,7 @@ class LiveLeRobotWriter:
             self.dataset.save_episode()
             path = self.root / "meta" / "platform.json"
             metadata = json.loads(path.read_text(encoding="utf-8"))
+            metadata["high_frequency_wrist_wrench"] = self.wrench_stream.metadata()
             metadata["episode_result"] = {"outcome": outcome, "note": note}
             path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         finally:

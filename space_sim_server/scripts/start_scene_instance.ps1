@@ -14,9 +14,9 @@ param(
     [string]$PixelStreamingId = 'BskRenderer',
     [string[]]$PixelStreamingCameraIds = @(),
     [ValidateRange(160, 1920)]
-    [int]$PixelStreamingCameraWidth = 640,
+    [int]$PixelStreamingCameraWidth = 1024,
     [ValidateRange(90, 1080)]
-    [int]$PixelStreamingCameraHeight = 360,
+    [int]$PixelStreamingCameraHeight = 1024,
     [ValidateRange(1, 120)]
     [double]$PreviewRate = 90.0,
     [ValidateRange(0, 100)]
@@ -55,11 +55,11 @@ $simulationRate = [double]$instance.runtime.simulation_rate
 $captureRate = [double]$instance.runtime.capture_rate_hz
 $ikRate = [double]$instance.runtime.ik_rate_hz
 $datasetCapture = [bool]$instance.runtime.dataset_capture
-if ($datasetCapture -and $captureRate -notin @(1, 2, 5, 10, 30)) {
-    throw 'LeRobot capture rate must be 1, 2, 5, 10 or 30 Hz on the 240 Hz dynamics / 30 Hz render clock.'
+if ($datasetCapture -and $captureRate -notin @(1, 2, 5, 10, 25, 50)) {
+    throw 'LeRobot capture rate must be 1, 2, 5, 10, 25 or 50 Hz on the 400 Hz dynamics / 50 Hz render clock.'
 }
-if ($ikRate -le 0 -or $ikRate -gt 240 -or $ikRate -ne [Math]::Truncate($ikRate) -or 240 % $ikRate -ne 0) {
-    throw 'IK rate must be an integer divisor of 240 Hz (default 120 Hz); recreate scenes using the old 100 Hz configuration.'
+if ($ikRate -le 0 -or $ikRate -gt 400 -or $ikRate -ne [Math]::Truncate($ikRate) -or 400 % $ikRate -ne 0) {
+    throw 'IK rate must be an integer divisor of 400 Hz (default 100 Hz); recreate scenes using the old 120 Hz configuration.'
 }
 if ($simulationRate -le 0 -or $captureRate -le 0 -or $ikRate -le 0) {
     throw 'Scene runtime rates must be positive.'

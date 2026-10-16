@@ -1,0 +1,332 @@
+"""Regression coverage for the authenticated batch lifecycle and independent clocks."""
+
+import json
+from pathlib import Path
+import time
+import os
+import subprocess
+import sys
+import psutil
+
+from fastapi.testclient import TestClient
+import pytest
+from pydantic import ValidationError
+
+from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.collection_jobs import (
+    CollectionCreate,
+    CollectionManager,
+    CollectionTask,
+    TASKS,
+    TERMINAL,
+)
+from space_arm_platform.dataset_view import Store
+from space_arm_platform.recorder import EpisodeRecorder
+from space_arm_platform.collection_processes import WindowsProcessGroup
+
+ROOT = Path(__file__).resolve().parents[1]
+OWNER = dict(user_id="owner", username="alice", role="operator")
+OTHER = dict(user_id="other", username="bob", role="operator")
+ADMIN = dict(user_id="admin", username="admin", role="admin")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        dict(workers=5),
+        dict(workers=2, count=1),
+        dict(count=5, max_attempts=4),
+        dict(task="shell"),
+        dict(range_deg=11),
+        dict(range_deg=float("nan")),
+        dict(seed=-1),
+        dict(owner=ADMIN),
+    ],
+)
+def test_reject_invalid_plan(payload):
+    with pytest.raises(ValidationError):
+        CollectionCreate(**payload)
+
+
+FAKE_COLLECTOR = r"""
+import argparse,json,time
+from pathlib import Path
+p=argparse.ArgumentParser()
+for name in ('output','count','seed','cancel-file'):
+    p.add_argument('--'+name)
+a,_=p.parse_known_args()
+folder=Path(a.output);folder.mkdir()
+seed=int(a.seed)
+if seed==99:
+    while not Path(a.cancel_file).exists(): time.sleep(.05)
+    status='cancelled';accepted=[]
+else:
+    time.sleep(.5)
+    status='complete';accepted=[str(folder/('episode-'+str(seed+i))) for i in range(int(a.count))]
+(folder/'summary.json').write_text(json.dumps(dict(status=status,attempts=[],accepted_episodes=accepted)))
+raise SystemExit(0 if status=='complete' else 1)
+"""
+
+
+@pytest.fixture
+def manager(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "fake.py").write_text(FAKE_COLLECTOR)
+    unreal = tmp_path / "ue"
+    file = unreal / "Engine/Binaries/Win64/UnrealEditor-Cmd.exe"
+    file.parent.mkdir(parents=True)
+    file.touch()
+    adapter = tmp_path / "adapter"
+    file = (
+        adapter
+        / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json"
+    )
+    file.parent.mkdir(parents=True)
+    file.touch()
+    monkeypatch.setitem(
+        TASKS, "drawer_cycle", CollectionTask("fake", "fake.py", "fake")
+    )
+    manager = CollectionManager(project, tmp_path / "data/episodes", adapter, unreal)
+    yield manager
+    manager.close()
+
+
+def wait_job(manager, key):
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        job = manager.get(key, OWNER)
+        if job["status"] in TERMINAL:
+            return job
+        time.sleep(0.05)
+    pytest.fail("collector did not terminate")
+
+
+def test_four_workers_exact_success_budget_isolation_and_reload(manager):
+    job = manager.start(
+        CollectionCreate(workers=4, count=5, max_attempts=9, seed=30),
+        OWNER,
+        {"created_by": ADMIN},
+    )
+    with pytest.raises(ValueError):
+        manager.start(CollectionCreate(), OWNER, {})
+    with pytest.raises(KeyError):
+        manager.get(job["id"], OTHER)
+    result = wait_job(manager, job["id"])
+    assert result["status"] == "complete" and result["success_count"] == 5
+    assert result["owner"] == OWNER
+    assert len({p for w in result["workers"] for p in w["ports"]}) == 16
+    seeds = [
+        s
+        for w in result["workers"]
+        for s in range(w["seed"], w["seed"] + w["max_attempts"])
+    ]
+    assert len(seeds) == len(set(seeds)) == 9
+    assert manager.list(OTHER) == [] and len(manager.list(ADMIN)) == 1
+    manager.close()
+    recovered = CollectionManager(
+        manager.project_root, manager.data_root, manager.adapter, manager.unreal
+    )
+    assert recovered.get(job["id"], OWNER)["success_count"] == 5
+    recovered.close()
+
+
+def test_cooperative_stop_keeps_results_and_exits(manager):
+    job = manager.start(
+        CollectionCreate(workers=1, count=1, max_attempts=1, seed=99), OWNER, {}
+    )
+    time.sleep(0.3)
+    stopped = manager.stop(job["id"], OWNER)
+    assert stopped["status"] == "stopping"
+    result = wait_job(manager, job["id"])
+    assert result["status"] == "cancelled" and result["success_count"] == 0
+    assert manager.stop(job["id"], OWNER)["status"] == "cancelled"
+
+
+def test_restart_does_not_silently_resume(tmp_path):
+    folder = tmp_path / "collection_jobs/collection-stale"
+    folder.mkdir(parents=True)
+    (folder / "job.json").write_text(
+        json.dumps(
+            dict(
+                id=folder.name,
+                status="running",
+                owner=OWNER,
+                workers=[],
+                started_at=time.time(),
+            )
+        )
+    )
+    manager = CollectionManager(tmp_path, tmp_path / "episodes")
+    assert manager.get(folder.name, OWNER)["status"] == "interrupted"
+    manager.close()
+
+
+def make_episode(root, key, user=None):
+    path = root / key
+    path.mkdir(parents=True)
+    (path / "metadata.json").write_text(
+        json.dumps(
+            dict(
+                operator_user_id=user,
+                dataset_status="complete",
+                dataset_fps=50,
+                dataset_frame_count=2,
+            )
+        )
+    )
+    (path / "steps.jsonl").write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "observation": dict(
+                        sim_time_ns=str(1_000_000_000 + i * 20_000_000),
+                        render_frame_id=str(i),
+                        joint_position_rad=[0] * 8,
+                        wrist_wrench={
+                            "valid": True,
+                            "force_n": [1, 2, 3],
+                            "torque_nm": [4, 5, 6],
+                        },
+                    )
+                }
+            )
+            for i in range(2)
+        )
+    )
+    sidecar = path / "lerobot/high_frequency/wrist_wrench.jsonl"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text(
+        "\n".join(
+            json.dumps(
+                dict(
+                    sim_time_ns=str(1_000_000_000 + i * 5_000_000),
+                    valid=True,
+                    force_n=[i, 2, 3],
+                    torque_nm=[4, 5, 6],
+                )
+            )
+            for i in range(5)
+        )
+    )
+    video = path / "lerobot/videos/camera/chunk-000/file-000.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"0123456789")
+    return path
+
+
+def test_native_timestamps_no_upsampling_and_sidecar_cache(tmp_path):
+    path = make_episode(tmp_path, "episode-one")
+    store = Store(tmp_path)
+    data = json.loads(store.load("episode-one"))
+    force = next(g for g in data["groups"] if g["id"] == "force_200hz")
+    assert data["times"] == [0, 0.02] and force["times"] == [
+        0,
+        0.005,
+        0.01,
+        0.015,
+        0.02,
+    ]
+    assert data["count"] == 2 and len(force["series"][0]["values"]) == 5
+    assert data["videos"][0]["url"].startswith("/api/datasets/episode-one/media/")
+    sidecar = path / "lerobot/high_frequency/wrist_wrench.jsonl"
+    sidecar.write_text(
+        sidecar.read_text().replace('"force_n": [0,', '"force_n": [123,')
+    )
+    updated = json.loads(store.load("episode-one"))
+    assert (
+        next(g for g in updated["groups"] if g["id"] == "force_200hz")["series"][0][
+            "values"
+        ][0]
+        == 123
+    )
+
+
+def test_api_ownership_media_ranges_and_auth(tmp_path, monkeypatch):
+    monkeypatch.setattr(EpisodeRecorder, "prepare", lambda self: None)
+    app = create_app(
+        PlatformConfig(
+            project_root=ROOT,
+            data_root=tmp_path / "episodes",
+            simulation_port=0,
+            capture_port=0,
+            auth_database=tmp_path / "auth.sqlite3",
+        )
+    )
+    user = app.state.auth.create_operator("viewer", "Viewer-Password!")
+    make_episode(tmp_path / "episodes", "episode-owned", user["user_id"])
+    make_episode(tmp_path / "episodes", "episode-other", "another")
+    make_episode(tmp_path / "episodes", "episode-legacy")
+    with TestClient(app) as client:
+        assert client.get("/api/datasets").status_code == 401
+        assert client.get("/api/collections").status_code == 401
+        client.post(
+            "/api/auth/login", json=dict(username="viewer", password="Viewer-Password!")
+        ).raise_for_status()
+        assert [e["id"] for e in client.get("/api/datasets").json()["episodes"]] == [
+            "episode-owned"
+        ]
+        assert client.get("/api/datasets/episode-other").status_code == 404
+        assert client.get("/api/datasets/episode-legacy").status_code == 404
+        assert (
+            client.get(
+                "/api/datasets/episode-other/media/lerobot/videos/camera/chunk-000/file-000.mp4"
+            ).status_code
+            == 404
+        )
+        assert (
+            client.get("/api/datasets/episode-owned/media/metadata.json").status_code
+            == 404
+        )
+        response = client.get(
+            "/api/datasets/episode-owned/media/lerobot/videos/camera/chunk-000/file-000.mp4",
+            headers={"Range": "bytes=2-5"},
+        )
+        assert response.status_code == 206 and response.content == b"2345"
+        assert client.get("/api/datasets/episode-owned").status_code == 200
+        assert client.get("/collection").status_code == 200
+        assert client.get("/datasets").status_code == 200
+        assert client.get("/static/collection/app.js").status_code == 200
+        assert client.get("/api/collections/catalog").json()["rates"] == dict(
+            dynamics=400, ik=100, main=50, wrench=200
+        )
+        assert client.post("/api/collections", json=dict(workers=5)).status_code == 422
+        client.post("/api/auth/logout")
+        client.post(
+            "/api/auth/login", json=dict(username="admin", password="ChangeMe123!")
+        ).raise_for_status()
+        assert len(client.get("/api/datasets").json()["episodes"]) == 3
+
+
+def test_second_coordinator_cannot_take_over_running_directory(manager):
+    with pytest.raises(RuntimeError, match="第二个"):
+        CollectionManager(
+            manager.project_root, manager.data_root, manager.adapter, manager.unreal
+        )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process ownership integration")
+def test_windows_group_cleans_orphan_descendant(tmp_path):
+    child_file = tmp_path / "child.pid"
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import subprocess,sys,time\nfrom pathlib import Path\ntime.sleep(.2)\nchild=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\nPath(sys.argv[1]).write_text(str(child.pid))\ntime.sleep(.5)\n"
+    )
+    process = subprocess.Popen(
+        [sys.executable, str(script), str(child_file)],
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    group = WindowsProcessGroup(process)
+    try:
+        process.wait(timeout=10)
+        pid = int(child_file.read_text())
+        assert psutil.pid_exists(pid)
+        group.close()
+        deadline = time.monotonic() + 5
+        while psutil.pid_exists(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not psutil.pid_exists(pid)
+    finally:
+        group.close()
+        if process.poll() is None:
+            process.kill()

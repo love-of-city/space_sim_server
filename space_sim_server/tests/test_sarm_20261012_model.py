@@ -57,7 +57,7 @@ def _camera_frame(camera):
  return np.array(list(map(float,camera.get('pos').split()))),R
 
 
-def _project(point,position,R,fovy_deg,aspect=640/360):
+def _project(point,position,R,fovy_deg,aspect=1.0):
  import numpy as np
  c=R.T@(np.asarray(point)-position)  # camera frame: -Z forward, +Y up
  depth=-c[2]

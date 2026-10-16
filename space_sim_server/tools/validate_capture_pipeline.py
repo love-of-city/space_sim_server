@@ -25,6 +25,7 @@ def run(args):
     import numpy as np
     from PIL import Image
     from space_arm_platform.capture_receiver import CaptureReceiver
+    from space_arm_platform.camera_defaults import CAPTURE_CAMERA_RESOLUTION
     from space_arm_platform.models import EpisodeStart, EpisodeStop, SimulationObservation
     from space_arm_platform.recorder import EpisodeRecorder
     sys.path.insert(0, str(args.adapter_root / 'Adapters'))
@@ -143,7 +144,7 @@ def run(args):
             assert [int(r['metadata']['source_frame_id']) for r in cr] == list(range(120, 120 + count))
             assert all(r['metadata']['capture_episode_id'] == episode for r in cr)
             assert all(int(r['metadata']['sim_time_ns']) == (int(r['metadata']['source_frame_id']) * 1_000_000_000 + 15)//30 for r in cr)
-            assert Image.open(io.BytesIO(samples[camera])).size == (640, 360)
+            assert Image.open(io.BytesIO(samples[camera])).size == CAPTURE_CAMERA_RESOLUTION
         if recorder:
             finish_start = time.perf_counter()
             closed = recorder.stop(EpisodeStop(outcome='success', note='Isolated capture pipeline validation, saved-state replay.'))

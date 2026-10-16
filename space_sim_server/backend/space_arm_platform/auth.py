@@ -52,6 +52,11 @@ class AuthStore:
                 );
                 """
             )
+            columns = {row["name"] for row in self._db.execute("PRAGMA table_info(users)")}
+            if "display_name" not in columns:
+                self._db.execute("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
+            if "last_login_at_ns" not in columns:
+                self._db.execute("ALTER TABLE users ADD COLUMN last_login_at_ns TEXT")
             self._db.commit()
         self.bootstrap_admin_created = self._bootstrap_admin(bootstrap_username, bootstrap_password)
 
@@ -83,6 +88,8 @@ class AuthStore:
             "role": row["role"],
             "active": bool(row["active"]),
             "created_at_ns": row["created_at_ns"],
+            "display_name": row["display_name"] or row["username"],
+            "last_login_at_ns": row["last_login_at_ns"],
         }
 
     def _bootstrap_admin(self, username: str, password: str) -> bool:
@@ -94,7 +101,9 @@ class AuthStore:
                 return False
             password_hash, salt, iterations = self._password_record(password)
             self._db.execute(
-                "INSERT INTO users VALUES (?, ?, 'admin', ?, ?, ?, 1, ?)",
+                """INSERT INTO users
+                   (user_id, username, role, password_hash, password_salt, password_iterations, active, created_at_ns)
+                   VALUES (?, ?, 'admin', ?, ?, ?, 1, ?)""",
                 (f"user-{uuid.uuid4().hex}", username, password_hash, salt, iterations, str(time.time_ns())),
             )
             self._db.commit()
@@ -115,6 +124,10 @@ class AuthStore:
         now = time.time_ns()
         expires = now + _SESSION_SECONDS * 1_000_000_000
         with self._lock:
+            row = self._db.execute("SELECT active FROM users WHERE user_id=?", (user_id,)).fetchone()
+            if not row or not row["active"]:
+                raise AuthError("账号不可用")
+            self._db.execute("UPDATE users SET last_login_at_ns=? WHERE user_id=?", (str(now), user_id))
             self._db.execute("DELETE FROM sessions WHERE CAST(expires_at_ns AS INTEGER) <= ?", (now,))
             self._db.execute(
                 "INSERT INTO sessions VALUES (?, ?, ?, ?)",
@@ -149,21 +162,80 @@ class AuthStore:
         return [self._public_user(row) for row in rows]
 
     def create_operator(self, username: str, password: str) -> dict[str, Any]:
+        return self.create_user(username, password)
+
+    def create_user(
+        self, username: str, password: str, display_name: str = "", role: str = "operator", active: bool = True,
+    ) -> dict[str, Any]:
         username = self._validate_username(username)
         self._validate_password(password)
+        if role not in {"admin", "operator"}:
+            raise AuthError("无效的角色")
+        display_name = display_name.strip() or username
+        if len(display_name) > 64:
+            raise AuthError("显示名称不能超过 64 个字符")
         password_hash, salt, iterations = self._password_record(password)
         user_id = f"user-{uuid.uuid4().hex}"
         try:
             with self._lock:
                 self._db.execute(
-                    "INSERT INTO users VALUES (?, ?, 'operator', ?, ?, ?, 1, ?)",
-                    (user_id, username, password_hash, salt, iterations, str(time.time_ns())),
+                    """INSERT INTO users
+                       (user_id, username, role, password_hash, password_salt, password_iterations,
+                        active, created_at_ns, display_name)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (user_id, username, role, password_hash, salt, iterations, int(active), str(time.time_ns()), display_name),
                 )
                 self._db.commit()
                 row = self._db.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
         except sqlite3.IntegrityError as error:
             raise AuthError("用户名已存在") from error
         return self._public_user(row)
+
+    def update_user(self, actor_id: str, user_id: str, display_name: str, role: str, active: bool) -> dict[str, Any]:
+        display_name = display_name.strip()
+        if not display_name or len(display_name) > 64:
+            raise AuthError("显示名称长度必须为 1～64 个字符")
+        if role not in {"admin", "operator"}:
+            raise AuthError("无效的角色")
+        with self._lock:
+            actor = self._db.execute("SELECT * FROM users WHERE user_id=?", (actor_id,)).fetchone()
+            row = self._db.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+            if not actor or actor["role"] != "admin" or not actor["active"]:
+                raise AuthError("仅管理员可以管理用户")
+            if not row:
+                raise AuthError("用户不存在")
+            if actor_id == user_id and (role != "admin" or not active):
+                raise AuthError("不能停用当前账号或移除自己的管理员权限")
+            if row["role"] == "admin" and row["active"] and (role != "admin" or not active):
+                count = self._db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND active=1").fetchone()[0]
+                if count <= 1:
+                    raise AuthError("必须保留至少一个启用的管理员")
+            self._db.execute(
+                "UPDATE users SET display_name=?, role=?, active=? WHERE user_id=?",
+                (display_name, role, int(active), user_id),
+            )
+            if not active or role != row["role"]:
+                self._db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            self._db.commit()
+            return self._public_user(self._db.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone())
+
+    def reset_user_password(self, actor_id: str, user_id: str, password: str) -> None:
+        self._validate_password(password)
+        with self._lock:
+            actor = self._db.execute("SELECT role, active FROM users WHERE user_id=?", (actor_id,)).fetchone()
+            if not actor or actor["role"] != "admin" or not actor["active"]:
+                raise AuthError("仅管理员可以管理用户")
+            if actor_id == user_id:
+                raise AuthError("请通过修改密码更新自己的密码")
+            if not self._db.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,)).fetchone():
+                raise AuthError("用户不存在")
+            password_hash, salt, iterations = self._password_record(password)
+            self._db.execute(
+                "UPDATE users SET password_hash=?, password_salt=?, password_iterations=? WHERE user_id=?",
+                (password_hash, salt, iterations, user_id),
+            )
+            self._db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            self._db.commit()
 
     def delete_operator(self, user_id: str) -> None:
         with self._lock:

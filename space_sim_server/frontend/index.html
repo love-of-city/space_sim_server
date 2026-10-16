@@ -20,26 +20,35 @@
     </form>
   </div>
 
-  <header class="topbar">
+  <div id="platformLayout" class="platform-layout">
+  <aside class="platform-sidebar">
     <div class="identity">
       <span class="mark" aria-hidden="true"><i></i></span>
       <div>
         <strong>Space Arm</strong>
-        <small>遥操作与数据采集</small>
+        <small>太空仿真与数据采集</small>
       </div>
     </div>
-    <a class="quiet-button" href="/collection" target="_blank" rel="noopener">自动采集与数据集 ↗</a>
+    <nav id="platformNav" class="platform-nav" aria-label="平台主导航">
+      <a href="/" data-route aria-label="仿真工作台"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span>仿真工作台</span></a>
+      <a href="/collection" data-route aria-label="自动采集"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><path d="M6 10v8h8M17 14V6h-7"/></svg><span>自动采集</span></a>
+      <a href="/datasets" data-route aria-label="数据集"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></svg><span>数据集</span></a>
+      <div class="nav-group-label" data-admin-only hidden>管理</div>
+      <a href="/users" data-route data-admin-only hidden aria-label="用户管理"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 4a3 3 0 0 1 0 6M19 15a5 5 0 0 1 2 4v2"/></svg><span>用户管理</span></a>
+    </nav>
+    <div class="sidebar-account"><span class="account-chip"><strong id="currentUsername">—</strong><small id="currentRole">—</small></span><div class="account-actions"><button id="changePasswordButton" class="quiet-button" type="button">修改密码</button><button id="logoutButton" class="quiet-button" type="button">退出</button></div></div>
+  </aside>
+  <div class="platform-main">
+  <header class="topbar platform-topbar">
+    <div class="platform-title"><button id="collapseNavigation" class="quiet-button nav-toggle" aria-expanded="true" aria-controls="platformNav" aria-label="收起导航" type="button">☰</button><div><strong id="platformPageTitle">仿真工作台</strong><small>Space Arm 平台</small></div></div>
     <div class="system-status" aria-live="polite">
       <span class="status-item"><i id="backendDot" class="status-dot"></i><span id="backendState">后端连接中</span></span>
       <span class="status-item"><i id="simDot" class="status-dot"></i><span id="simState">仿真未连接</span></span>
       <span id="episodeBadge" class="episode-badge">未采集</span>
-      <span class="account-chip"><strong id="currentUsername">—</strong><small id="currentRole">—</small></span>
-      <button id="changePasswordButton" class="quiet-button account-logout" type="button">修改密码</button>
-      <button id="logoutButton" class="quiet-button account-logout" type="button">退出</button>
     </div>
   </header>
 
-  <main class="workspace">
+  <main id="operatePage" class="workspace" data-platform-page="operate">
     <section id="viewport" class="viewport" tabindex="0" role="button" aria-pressed="false" aria-label="点击进入机械臂键盘或手柄操作模式；按 C 进入自由视角，Home 返回主视角">
       <div id="pixelStream" tabindex="-1" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
       <div id="previewEmpty" class="preview-empty">
@@ -88,16 +97,6 @@
           <h1>末端六维遥操作</h1>
         </div>
         <p>点击画面操作机械臂，Shift 切换姿态；C 进入全局自由视角，WASD/QE 移动、Shift 加速、鼠标观察；C/Home 返回主视角，Esc 停止输入并退出。</p>
-      </section>
-
-      <section id="adminUsers" class="control-section admin-users" hidden>
-        <div class="section-heading"><h2>操作员管理</h2><span class="section-note">管理员</span></div>
-        <form id="createOperatorForm" class="admin-create-form">
-          <input id="operatorUsername" placeholder="新操作员用户名" minlength="3" maxlength="64" required>
-          <input id="operatorPassword" type="password" placeholder="初始密码（至少8位）" minlength="8" required>
-          <button class="primary" type="submit">新增操作员</button>
-        </form>
-        <div id="operatorList" class="operator-list"></div>
       </section>
 
       <section class="control-section scene-controls">
@@ -291,10 +290,15 @@
     </aside>
   </main>
 
-  <footer class="footer">
+  <footer id="workbenchFooter" class="footer">
     <span class="pipeline">动作 <i></i> BSK/MJScene <i></i> UE 渲染</span>
     <span id="message">正在建立操作链路…</span>
   </footer>
+  <main id="collectionPage" class="platform-page collection-page" data-platform-page="collection" hidden></main>
+  <main id="datasetsPage" class="platform-page dataset-page" data-platform-page="datasets" hidden></main>
+  <main id="usersPage" class="platform-page users-page" data-platform-page="users" hidden></main>
+  </div>
+  </div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

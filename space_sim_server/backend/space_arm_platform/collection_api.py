@@ -130,16 +130,4 @@ def install_collection_routes(app, config, scenes, current_user):
 
     app.include_router(router)
 
-    @app.get("/collection")
-    def collection_page():
-        return FileResponse(
-            Path(config.project_root) / "frontend/public/collection/index.html"
-        )
-
-    @app.get("/datasets")
-    def dataset_page():
-        return FileResponse(
-            Path(config.project_root) / "frontend/public/datasets/index.html"
-        )
-
     return manager

@@ -54,7 +54,7 @@ const state = {
   simulationResetting: false,
   simulationConnected: false,
   resetSupported: false,
-  sceneDefaults: { simulation_rate: 1, capture_rate_hz: 30, ik_rate_hz: 120 },
+  sceneDefaults: { simulation_rate: 1, capture_rate_hz: 50, ik_rate_hz: 100 },
   currentUser: null,
   canManageScene: false,
   operationRequested: false,
@@ -293,8 +293,8 @@ async function loadSceneCatalog() {
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
-      capture_rate_hz: Number(defaults.capture_rate_hz || 30),
-      ik_rate_hz: Number(defaults.ik_rate_hz || 120),
+      capture_rate_hz: Number(defaults.capture_rate_hz || 50),
+      ik_rate_hz: Number(defaults.ik_rate_hz || 100),
     };
   } catch (error) {
     console.warn("Scene catalog is unavailable", error);

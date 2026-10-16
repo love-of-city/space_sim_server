@@ -36,3 +36,6 @@ data/visualization-test-auth.sqlite3*
 /run-signalling.pid
 /signalling/*.log
 /reports/
+
+# Persistent automated collection job manifests and logs.
+data/collection_jobs/

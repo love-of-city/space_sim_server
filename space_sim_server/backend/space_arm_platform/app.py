@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from .collection_api import install_collection_routes
 from .capture_lifecycle import CaptureLifecycle
 from .auth import AuthError, AuthStore, SESSION_COOKIE
 from .capture_receiver import CaptureReceiver
@@ -28,7 +29,8 @@ from .models import (
     PasswordChange, PasswordReset, SceneInstanceCreate, SimulationObservation, TaskComplete, TaskCreate,
 )
 from .recorder import EpisodeRecorder
-from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
+from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
+from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
 from .safety import ActionRejected, SafetyController
 from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
 from .simulation_hub import SimulationHub
@@ -60,8 +62,8 @@ class PlatformConfig:
     runtime_render_port: int = 5558
     runtime_pixel_streamer_port: int = 8888
     runtime_pixel_streaming_camera_ids: tuple[str, ...] = ()
-    runtime_pixel_streaming_camera_width: int = 640
-    runtime_pixel_streaming_camera_height: int = 360
+    runtime_pixel_streaming_camera_width: int = CAPTURE_CAMERA_WIDTH
+    runtime_pixel_streaming_camera_height: int = CAPTURE_CAMERA_HEIGHT
     runtime_preview_rate: float = 90.0
     runtime_encoder_min_quality: int = 60
     runtime_renderer_ready_timeout: int = 240
@@ -78,8 +80,8 @@ class PlatformConfig:
 
     def __post_init__(self) -> None:
         ik_step_stride(self.runtime_ik_rate)
-        if self.runtime_default_dataset_capture and self.runtime_capture_rate not in SUPPORTED_FPS:
-            raise ValueError(f"dataset capture rate must be one of {SUPPORTED_FPS}")
+        if self.runtime_default_dataset_capture and self.runtime_capture_rate not in LIVE_CAPTURE_FPS:
+            raise ValueError(f"dataset capture rate must be one of {LIVE_CAPTURE_FPS}")
         if type(self.runtime_encoder_min_quality) is not int or not 0 <= self.runtime_encoder_min_quality <= 100:
             raise ValueError("runtime_encoder_min_quality must be an integer in [0, 100]")
 
@@ -266,6 +268,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 closed = await capture_lifecycle.stop(EpisodeStop(outcome="aborted", note="backend shutdown"))
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
+            await asyncio.to_thread(collections.close)
             await asyncio.to_thread(scenes.close)
             await asyncio.to_thread(captures.close)
             await asyncio.to_thread(recorder.close)
@@ -289,6 +292,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     frontend_source = config.project_root / "frontend"
     frontend_dist = frontend_source / "dist"
     frontend = frontend_dist if (frontend_dist / "index.html").is_file() else frontend_source
+    for section in ("collection", "datasets"):
+        assets = frontend_source / "public" / section
+        if assets.is_dir():
+            app.mount(f"/static/{section}", StaticFiles(directory=assets), name=section)
     app.mount("/static", StaticFiles(directory=frontend), name="static")
 
     def current_user(request: Request) -> dict[str, Any]:
@@ -306,6 +313,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     def can_manage_scene(user: dict[str, Any], status: dict[str, Any]) -> bool:
         owner = (status.get("instance") or {}).get("created_by") or {}
         return user["role"] == "admin" or owner.get("user_id") == user["user_id"]
+
+    collections = install_collection_routes(app, config, scenes, current_user)
 
     @app.middleware("http")
     async def authenticated_api(request: Request, call_next):
@@ -544,8 +553,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if payload.camera_ids and not runtime.get("dataset_capture", False):
             raise RuntimeError("当前场景未启用权威相机采集，请启用数据集采集后重新创建场景")
         fps = runtime.get("capture_rate_hz", DEFAULT_CAPTURE_HZ)
-        if fps not in SUPPORTED_FPS:
-            raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{SUPPORTED_FPS}")
+        if fps not in LIVE_CAPTURE_FPS:
+            raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{LIVE_CAPTURE_FPS}")
         if "fps" in payload.model_fields_set and payload.fps != fps:
             raise RuntimeError("录制 FPS 必须与场景权威采样率一致")
         return EpisodeStart.model_validate({**payload.model_dump(), "fps": int(fps), "scene_instance": instance})

@@ -25,7 +25,8 @@
     "tests/test_satellite_wing_joint.py": "Generated CAD wing artifacts",
     "tests/test_public_gateway_integration.py": "External Caddy binary",
     "tests/test_capture_on_demand_renderer.py": "Opt-in real UE 5.6/GPU RGB smoke test requiring SPACE_SIM_UE_CAPTURE_SMOKE=1 and UE56_ROOT; basic CI does not install Unreal. Run separately for renderer acceptance.",
-    "tests/test_wrist_wrench_native.py": "Basilisk MJScene and locally built MuJoCo helper: analytic wrench, contact, frame, passive measurement and rebase verification"
+    "tests/test_wrist_wrench_native.py": "Basilisk MJScene and locally built MuJoCo helper: analytic wrench, contact, frame, passive measurement and rebase verification",
+    "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation"
   },
   "nodes": {
     "tests/test_gamepad_tool_control.py::test_ab_only_changes_j6_target_even_with_posture_preferences_enabled": "Basilisk teleoperation runtime; run gamepad tests separately with the native environment",
@@ -40,7 +41,8 @@
     "tests/test_online_elbow_ik.py::test_live_policy_switch_and_strict_bypass": "Basilisk live runtime",
     "tests/test_online_elbow_ik.py::test_wrist_only_switch_does_not_disable_elbow_and_invalid_value_fails": "Basilisk live runtime",
     "tests/test_online_elbow_ik.py::test_joint3_switch_and_manual_positive_initialization": "Basilisk live runtime",
-    "tests/test_linkage_gripper.py::test_live_target_opposes_linkages_and_holds_on_release": "Basilisk teleoperation runtime; run in the native simulation environment alongside test_teleop_target.py"
+    "tests/test_linkage_gripper.py::test_live_target_opposes_linkages_and_holds_on_release": "Basilisk teleoperation runtime; run in the native simulation environment alongside test_teleop_target.py",
+    "tests/test_multirate_wrench.py::test_real_scheduler_samples_native_each_second_physics_step": "Basilisk scheduler integration for native 200 Hz wrist sampling; run in the simulation environment"
   },
   "groups": {
     "deploy": {

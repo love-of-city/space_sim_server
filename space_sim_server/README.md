@@ -204,7 +204,7 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 ## LeRobot v3 原生采集（本分支）
 
 新的录制通过官方 LeRobot writer 直接生成 v3 数据集，不需要事后转换。
-默认动力学 240 Hz、IK 120 Hz（每 2 个物理步）、双相机 RGB 30 FPS（每 8 步）。
+默认动力学 240 Hz、IK 120 Hz（每 2 个物理步）、双相机 RGB 1024×1024、30 FPS（每 8 步）。新录制图像与视频为正方形，历史 episode 保留其原始尺寸；详见 [正方形 1K 采集](docs/SQUARE_1K_CAPTURE.md)。
 使用绝对步序号的纳秒调度避免周期取整漂移；不采集深度和分割。
 参见 [采集链路、特征语义、同步规则和验证](docs/LEROBOT_V3_CAPTURE.md)。
 
@@ -239,3 +239,18 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 在线偏好还包括 joint3 负角软目标（默认 q3≤−5°，达标后不继续推动）。角度先归一化并
 转换为长度等效误差，与抬肘/腕部项共同求解并共享偏差预算。模型机械限位、正角初态及旧场景不变。
 `SPACE_SIM_ONLINE_JOINT3_MODE=off` 可单独关闭此项。是否真正转入负角仍取决于任务与剩余预算。
+
+## 自动任务试验
+
+[自动抽屉提拉脚本](docs/SCRIPTED_DRAWER_TASK.md)可以在独立的 BSK/MuJoCo 动力学实例中，完成到位、转向、张开、下降、夹持和提拉，并输出实际抽拉位移与腕部载荷。`run_drawer_task.py` 提供无界面动力学验收；`record_drawer_task.py` 可启动当前场景配置的独立 UE 实例，通过现有数据链路录制双相机、关节及腕部载荷，输出与手动录制一致的 LeRobot v3 数据集。
+
+[圆柱插头自动搬运与插入](docs/SCRIPTED_PLUG_TASK.md)使用同一套动力学和录制入口，从初始取件位夹取圆柱插头，搬到前方装配孔完成插入、松爪与撤离；目标孔与任务参数可独立配置。
+
+当前 SARM 训练录制使用六个关节角 + 一个连续 0–1 夹爪开合量（7 维），保留原始八维诊断。格式与兼容约定见 [夹爪训练数据](docs/GRIPPER_TRAINING_REPRESENTATION.md)。
+
+
+## 自动采集与数据集回放
+
+登录后，操作台顶部的“自动采集与数据集”入口可配置抽屉完整循环的批量采集、1–4 路并发、随机种子和关节初始偏移，并查看后台进度与停止任务。`/datasets` 提供历史及新记录的双相机视频、关节/夹爪/末端与六维力曲线回放；沿用 50 Hz 主数据、200 Hz 独立六维力和现有 LeRobot 数据格式。
+
+详细用法、权限、任务扩展接口及限制见 [平台自动采集与数据集回放](docs/PLATFORM_AUTOMATED_COLLECTION.md)。更新后需要重启后端并刷新页面。

@@ -91,11 +91,13 @@ def test_no_change_to_physics_or_camera_resolution():
     from space_arm_platform.sampling import DYNAMICS_HZ, RENDER_HZ
     # The rational clock replaced the old rounded frame_period_ns literal.
     # Preview tuning must still leave native scheduling and output rates intact.
-    assert (DYNAMICS_HZ, RENDER_HZ) == (240, 30)
+    assert (DYNAMICS_HZ, RENDER_HZ) == (400, 50)
     assert "render_rate_hz=RENDER_HZ" in runtime
     assert "frame_rate_hz=self.render_rate_hz" in render
     assert "native.TIME_STEP = 1.0 / DYNAMICS_HZ" in runtime
-    assert "camera_pip_resolution=(640, 360)" in render
+    assert "camera_pip_resolution=CAPTURE_CAMERA_RESOLUTION" in render
+    from space_arm_platform.camera_defaults import CAPTURE_CAMERA_RESOLUTION
+    assert CAPTURE_CAMERA_RESOLUTION == (1024, 1024)
     text = (ROOT / "scripts/start_scene_instance.ps1").read_text(encoding="utf-8")
     assert "if ($datasetCapture)" in text
 

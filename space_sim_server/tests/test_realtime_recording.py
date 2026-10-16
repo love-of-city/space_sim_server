@@ -8,6 +8,7 @@ import time
 import pytest
 
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SimulationObservation
+from space_arm_platform.sampling import DEFAULT_CAPTURE_HZ, tick_time_ns
 from space_arm_platform.protocol import FramedSocketReader, encode_packet
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.simulation_hub import SimulationHub
@@ -17,7 +18,7 @@ from simulation.control_client import SimulationControlClient
 def observation(i):
     return SimulationObservation(protocol="space-arm-control/1", type="observation", simulation_id="test",
         render_session_id="session", step_id=str(i + 1), render_frame_id=str(i),
-        sim_time_ns=str((i * 1_000_000_000 + 15) // 30), wall_time_ns=str(time.time_ns()),
+        sim_time_ns=str(tick_time_ns(i, DEFAULT_CAPTURE_HZ)), wall_time_ns=str(time.time_ns()),
         applied_action_sequence="0", joint_position_rad=[0.] * 8, joint_velocity_rad_s=[0.] * 8,
         target_joint_position_rad=[0.] * 8)
 
@@ -201,6 +202,6 @@ def test_spawned_writer_cold_start_and_two_recordings(tmp_path):
             assert result["dataset_status"]=="complete",result
             assert result["dataset_frame_count"]==4
             meta=json.loads((tmp_path/info["episode_id"]/'lerobot/meta/info.json').read_text())
-            assert meta["total_frames"]==4 and meta["fps"]==30
+            assert meta["total_frames"]==4 and meta["fps"]==DEFAULT_CAPTURE_HZ
             assert r._service._process.pid==child_pid
     finally:r.close()

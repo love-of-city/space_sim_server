@@ -162,7 +162,7 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
     args = SimpleNamespace(adapter_root=ADAPTER, model_root=ROOT / 'model/SARM/platform',
                            scene_instance=config_path, catalog=tmp_path / 'unused.json',
                            control_host='127.0.0.1', control_port=0, render_host='127.0.0.1', render_port=0,
-                           duration=.2, simulation_rate=1., capture_rate=30., ik_rate=120.,
+                           duration=.2, simulation_rate=1., capture_rate=50., ik_rate=100.,
                            ik_mode=teleop.IK_MODE_IK_POSE,
                            disable_attitude_control=False)
     teleop.run(args)
@@ -190,6 +190,14 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
             assert wrench.valid == (int(observation['sim_time_ns']) > 0)
             assert int(wrench.interval_end_time_ns) == int(observation['sim_time_ns'])
             assert wrench.site_name == 'wrist_ft_site'
+            batch = observation['wrist_wrench_samples']
+            assert len(batch) == (4 if int(observation['sim_time_ns']) else 0)
+            assert observation['wrist_wrench_rate_hz'] == 200
+            if batch:
+                assert batch[-1]['interval_end_time_ns'] == observation['sim_time_ns']
+                assert [int(s['interval_end_time_ns']) for s in batch] == [
+                    int(observation['sim_time_ns']) - offset for offset in (15_000_000,10_000_000,5_000_000,0)]
+
             assert np.isfinite(wrench.force_n + wrench.torque_nm).all()
         stamp, joints = authoritative_joint_samples[(observation['render_session_id'], observation['render_frame_id'])]
         assert observation['observation_source'] == 'authoritative_render_snapshot'
@@ -197,14 +205,14 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
         np.testing.assert_array_equal(observation['joint_position_rad'], joints)
     from space_arm_platform.sampling import tick_time_ns, sample_tick
     for bridge in bridges:
-        assert bridge.physics_stamps == [tick_time_ns(n, 240) for n in range(len(bridge.physics_stamps))]
+        assert bridge.physics_stamps == [tick_time_ns(n, 400) for n in range(len(bridge.physics_stamps))]
         rows = [o for o in observations if o['render_session_id'] == bridge.session_id]
-        assert [int(o['sim_time_ns']) for o in rows] == [tick_time_ns(n, 30) for n in range(len(rows))]
+        assert [int(o['sim_time_ns']) for o in rows] == [tick_time_ns(n, 50) for n in range(len(rows))]
         for index, obs in enumerate(rows):
-            assert sample_tick(int(obs['sim_time_ns']), 30) == index
-            assert obs['dynamics_rate_hz'] == 240
-            assert obs['ik_control_rate_hz'] == 120
-            assert int(obs['ik_update_count']) == index * 4
+            assert sample_tick(int(obs['sim_time_ns']), 50) == index
+            assert obs['dynamics_rate_hz'] == 400
+            assert obs['ik_control_rate_hz'] == 100
+            assert int(obs['ik_update_count']) == index * 2
     first = [o for o in observations if o['step_id'] == '1']
     assert [o['reset_generation'] for o in first] == ['', 'reset-1', 'reset-2']
     assert len({o['sim_time_ns'] for o in first}) == 1

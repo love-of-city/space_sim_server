@@ -190,7 +190,7 @@ def test_start_reports_new_instance_without_overwriting_cleanup_state(tmp_path, 
         render_port=3, pixel_streamer_port=4, pixel_streaming_id="test",
         pixel_streaming_camera_ids=(), pixel_streaming_camera_width=64,
         pixel_streaming_camera_height=64, preview_rate=30, renderer_ready_timeout=30,
-        ik_rate=120, simulation_rate=1, capture_rate=30, default_dataset_capture=False,
+        ik_rate=100, simulation_rate=1, capture_rate=50, default_dataset_capture=False,
     )
     manager = SceneRuntimeManager(launch)
     old_state = {"phase": old_phase, "instance": {"instance_id": "old"},

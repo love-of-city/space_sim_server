@@ -118,7 +118,10 @@ def load_hardware(model_path: Path, *, inertia_reader=None):
     return wheels, parts
 
 
-def load_settings(path: Path, *, grid_hz: float = 240.0):
+from space_arm_platform.sampling import DYNAMICS_HZ
+
+
+def load_settings(path: Path, *, grid_hz: float = DYNAMICS_HZ):
     settings = json.loads(path.read_text(encoding='utf-8-sig'))
     expected = {'mode', 'enabled', 'control_rate_hz', 'mrp_proportional_gain_nm',
                 'rate_derivative_gain_nm_s', 'speed_guard_fraction'}
@@ -132,7 +135,7 @@ def load_settings(path: Path, *, grid_hz: float = 240.0):
             raise ValueError(f'{key} must be finite and positive')
     rate = settings['control_rate_hz']
     # The control chain runs on the physics grid, never on an independently
-    # rounded clock, so its rate must divide the grid (240 Hz -> 120/80/60/...).
+    # rounded clock, so its rate must divide the grid (400 Hz -> 200/100/50/...).
     # This used to be validated against the retired 500 Hz dynamics rate.
     if rate > grid_hz or not math.isclose(grid_hz / rate, round(grid_hz / rate)):
         raise ValueError(f'attitude control rate must divide the {grid_hz:g} Hz physics grid')
@@ -269,7 +272,7 @@ class AttitudeControl:
 
         ``physics_grid=(task_name, base_priority, every, clock)`` runs the
         guidance/control chain on the physics task at a fixed division of the
-        240 Hz grid, phase-aligned with state publication, instead of in its own
+        400 Hz grid, phase-aligned with state publication, instead of in its own
         independent 100 Hz task. The chain then sees states whose age is exactly
         one physics step instead of anywhere between 0 and 6.7 ms, and its message
         timestamps correspond to the state it actually used.

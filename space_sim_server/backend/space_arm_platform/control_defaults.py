@@ -2,7 +2,7 @@
 
 from .sampling import DYNAMICS_HZ
 
-# The online scene uses a rational 240 Hz task; RKF45 handles integration substeps.
+# The online scene uses a 400 Hz task; the local backend uses native MuJoCo steps.
 DEFAULT_DYNAMICS_STEP_S = 1.0 / DYNAMICS_HZ
 MIN_DYNAMICS_STEP_S = DEFAULT_DYNAMICS_STEP_S
 MAX_DYNAMICS_STEP_S = DEFAULT_DYNAMICS_STEP_S

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from simulation.assembly import AssemblyContext, Slot
+from space_arm_platform.camera_defaults import CAPTURE_CAMERA_RESOLUTION
 
 
 class RenderComponent:
@@ -49,7 +50,7 @@ class RenderComponent:
             camera_picture_in_picture=True,
             camera_capture_rate_hz=self.capture_rate_hz,
             camera_capture_products=("rgb",),
-            camera_pip_resolution=(640, 360),
+            camera_pip_resolution=CAPTURE_CAMERA_RESOLUTION,
             camera_picture_in_picture_start_slot=1,
             camera_display_names=self.camera_display_names,
         )

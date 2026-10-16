@@ -6,7 +6,7 @@ the session's component list, and it exercises the parts of the design that only
 matter once something new is added:
 
 * the ENVIRONMENT slot, which nothing used before;
-* a divided rate (`every=24`, 10 Hz) whose phase is aligned with state publication;
+* a divided rate (`every=40`, 10 Hz) whose phase is aligned with state publication;
 * a read of ``planet_state`` (SPICE) and of the body COM state;
 * the additive body-wrench port, so another source (thrusters, SRP) can act on the
   same body at the same time without either knowing about the other.
@@ -32,9 +32,9 @@ from simulation.assembly import AssemblyContext, Slot
 # atmosphere velocity; the true pole is offset by a few arcseconds, which is far
 # below the uncertainty of an exponential density model.
 EARTH_ROTATION_RAD_S = 7.2921150e-5
-# 240 Hz / 24 = 10 Hz. Density changes slowly; the force is held zero-order in
+# 400 Hz / 40 = 10 Hz. Density changes slowly; the force is held zero-order in
 # between, and `every` must divide the body/site publication stride.
-DRAG_EVERY = 24
+DRAG_EVERY = 40
 
 
 def drag_force_n(density_kg_m3: float, relative_velocity_m_s: Sequence[float],

@@ -15,7 +15,7 @@ from simulation.control_client import SimulationControlClient
 def observation(i, episode="", request=""):
     return SimulationObservation(protocol="space-arm-control/1", type="observation", simulation_id="test",
         render_session_id="session", step_id=str(i+1), render_frame_id=str(i),
-        sim_time_ns=str((i * 1_000_000_000 + 15) // 30), wall_time_ns=str(time.time_ns()),
+        sim_time_ns=str((i * 1_000_000_000 + 25) // 50), wall_time_ns=str(time.time_ns()),
         capture_episode_id=episode, capture_request_id=request, applied_action_sequence="0",
         joint_position_rad=[0.] * 8, joint_velocity_rad_s=[0.] * 8, target_joint_position_rad=[0.] * 8)
 

@@ -13,18 +13,20 @@ def asset_path(path: Path, directory: Path) -> str:
 # Platform cameras (not part of the delivered model). Positions in the parent
 # body frame: overview on cubesat_bus, wrist on ee_base. "right" is the image
 # +x direction before orthogonalization. Fully open fingers reach ee_base
-# x=+/-.085 m; fovy 70 deg keeps both in frame at the 640x360 aspect.
+# x=+/-.085 m. Square 1K capture preserves the former horizontal field of
+# view and expands the vertical view, retaining both fingertips.
 # Overview: a virtual camera at the top of a 0.5 m deck mast (the mast itself is
 # not modelled). Deck point B on the rear edge, left-behind the arm base, so the
 # image "up" follows the arm reaching towards the task box.
 OVERVIEW_CAMERA_POS = (-0.18, 0.27, 0.5)
 OVERVIEW_CAMERA_AIM = (0.35, 0.34, 0.03)
 OVERVIEW_CAMERA_RIGHT = (0.07, -0.53, 0.0)  # horizontal, perpendicular to the line of sight (no roll)
-OVERVIEW_CAMERA_FOVY = 51
+CAMERA_RESOLUTION = "1024 1024"
+OVERVIEW_CAMERA_FOVY = math.degrees(2 * math.atan(math.tan(math.radians(51) / 2) * 16 / 9))
 WRIST_CAMERA_POS = (0.0, 0.10, 0.12)
 WRIST_CAMERA_AIM = (0.0, 0.0, 0.22)
 WRIST_CAMERA_RIGHT = (-1.0, 0.0, 0.0)
-WRIST_CAMERA_FOVY = 70
+WRIST_CAMERA_FOVY = math.degrees(2 * math.atan(math.tan(math.radians(70) / 2) * 16 / 9))
 
 def look_at_quat(pos, aim, right):
     """MJCF camera quaternion (w,x,y,z): local -Z towards aim, local +X ~ right."""
@@ -90,15 +92,17 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path,
     for n in ['rw_x','rw_y','rw_z']:bus.append(copy.deepcopy(oldbus.find('body[@name="'+n+'"]')))
     for node in oldbus.findall('camera')+oldbus.findall('site'):
         node=copy.deepcopy(node)
+        if node.tag == 'camera': node.set('resolution', CAMERA_RESOLUTION)
         if node.tag=='camera' and node.get('name')=='spacecraft_overview':
             # Frame the whole task box (bus-frame AABB x .12-.58, y .06-.62,
             # z -.09-.15 m) with ~8% margin; the arm stays at the image edge.
             set_look_at(node,OVERVIEW_CAMERA_POS,OVERVIEW_CAMERA_AIM,OVERVIEW_CAMERA_RIGHT)
-            node.set('fovy',format(OVERVIEW_CAMERA_FOVY,'g'))
+            node.set('fovy',format(OVERVIEW_CAMERA_FOVY,'.12g'))
         bus.append(node)
     wrist=r.find('.//body[@name="ee_base"]')
     for camera in old.findall('.//body[@name="link6"]/camera'):
         camera = copy.deepcopy(camera)
+        camera.set("resolution", CAMERA_RESOLUTION)
         if camera.get('name') == 'sarm_wrist_cam':
             # Mounted on ee_base, so it turns with joint6. The fingers open
             # along ee_base x; viewing from the +y side keeps both fingertips
@@ -107,7 +111,7 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path,
             # (ee_base z=.19): whole fingers (z .144-.209) in the lower half,
             # the grasped object between them, the workspace ahead above.
             set_look_at(camera,WRIST_CAMERA_POS,WRIST_CAMERA_AIM,WRIST_CAMERA_RIGHT)
-            camera.set('fovy',format(WRIST_CAMERA_FOVY,'g'))
+            camera.set('fovy',format(WRIST_CAMERA_FOVY,'.12g'))
         wrist.append(camera)
     # Ideal, rigid, zero-added-mass load cell after joint6. Keep the joint and
     # camera names on ee_base; move the entire tool inertia/geometry/subtree

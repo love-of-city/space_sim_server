@@ -21,9 +21,9 @@ param(
     [int]$EncoderMinQuality = 60,
     [string[]]$PixelStreamingCameraIds = @(),
     [ValidateRange(160, 1920)]
-    [int]$PixelStreamingCameraWidth = 640,
+    [int]$PixelStreamingCameraWidth = 1024,
     [ValidateRange(90, 1080)]
-    [int]$PixelStreamingCameraHeight = 360,
+    [int]$PixelStreamingCameraHeight = 1024,
     [ValidateRange(1, 120)]
     [int]$PixelStreamingCameraFps = 90,
     [string]$CaptureNetworkHost = '127.0.0.1',
@@ -69,8 +69,8 @@ if ($unsupportedCaptureProducts.Count -gt 0) {
 if ($normalizedCaptureProducts.Count -gt 0 -or $CaptureNetworkPort -gt 0 -or $CaptureDirectory) {
     . (Join-Path $PSScriptRoot 'runtime_build.ps1')
     Assert-BskCaptureRuntimeBuild $ProjectRoot
-    if ($CaptureRate -gt 0 -and $CaptureRate -notin @(1, 2, 5, 10, 30)) {
-        throw 'LeRobot capture rate must be 1, 2, 5, 10 or 30 Hz.'
+    if ($CaptureRate -gt 0 -and $CaptureRate -notin @(1, 2, 5, 10, 25, 30, 50)) {
+        throw 'LeRobot capture rate must be 1, 2, 5, 10, 25, 30 or 50 Hz.'
     }
 }
 if ($ReplayPath) {

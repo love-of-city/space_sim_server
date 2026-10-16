@@ -475,3 +475,18 @@ API int lms_momentum(void* handle, double* out) {
     }
     return OK;
 }
+
+// Read-only contact snapshot from the authoritative native model. Returns ncon.
+// Each row: geom1, geom2, body1, body2, signed separation [m]. No forward/step.
+API int lms_contacts(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    for (int i = 0; i < s->d->ncon && i < capacity; ++i) {
+        const auto& c = s->d->contact[i];
+        out[5*i] = c.geom[0]; out[5*i+1] = c.geom[1];
+        out[5*i+2] = c.geom[0] >= 0 ? s->m->geom_bodyid[c.geom[0]] : -1;
+        out[5*i+3] = c.geom[1] >= 0 ? s->m->geom_bodyid[c.geom[1]] : -1;
+        out[5*i+4] = c.dist;
+    }
+    return s->d->ncon;
+}

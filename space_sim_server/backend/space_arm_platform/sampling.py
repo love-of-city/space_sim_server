@@ -6,11 +6,15 @@ The renderer's BskLeRobotSampling.h must use the same dataset grid.
 from __future__ import annotations
 
 NANOSECONDS_PER_SECOND = 1_000_000_000
-DYNAMICS_HZ = 240
-DEFAULT_IK_HZ = 120
-RENDER_HZ = 30
-DEFAULT_CAPTURE_HZ = 30
-SUPPORTED_FPS = (1, 2, 5, 10, 30)
+DYNAMICS_HZ = 400
+DEFAULT_IK_HZ = 100
+RENDER_HZ = 50
+DEFAULT_CAPTURE_HZ = 50
+WRENCH_HZ = 200
+SCRIPTED_TASK_HZ = 200
+SUPPORTED_FPS = (1, 2, 5, 10, 25, 30, 50)
+# 30 Hz remains readable for historical episodes, but is not a live 50 Hz divisor.
+LIVE_CAPTURE_FPS = tuple(fps for fps in SUPPORTED_FPS if RENDER_HZ % fps == 0)
 
 
 def tick_time_ns(index: int, rate_hz: int) -> int:

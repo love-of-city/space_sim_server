@@ -1,80 +1,25 @@
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Space Arm · 数据集回放</title>
-    <link rel="stylesheet" href="/static/datasets/style.css" />
-  </head>
-  <body>
-    <aside class="sidebar">
-      <a class="brand" href="/collection" aria-label="返回自动采集"
-        ><span class="brand-icon">◎</span
-        ><span
-          >SPACE ARM<span class="brand-sub">返回自动采集 / 数据回放</span></span
-        ></a
-      >
-      <div class="sidebar-title">
-        采集记录 <span id="episode-count">—</span
-        ><button
-          id="refresh"
-          class="icon-button"
-          title="刷新记录列表"
-          aria-label="刷新记录列表"
-        >
-          ↻
-        </button>
-      </div>
-      <label class="search"
-        ><span>⌕</span
-        ><input
-          id="search"
-          placeholder="搜索任务、日期或记录…"
-          aria-label="搜索录制记录"
-      /></label>
-      <div class="filter-tabs" role="group" aria-label="录制结果筛选">
-        <button class="active" data-filter="all">全部</button
-        ><button data-filter="success">成功</button
-        ><button data-filter="other">其他</button>
-      </div>
-      <nav id="episodes" aria-label="录制记录列表">
-        <div class="empty">正在读取采集记录…</div>
-      </nav>
-      <div class="sidebar-footer">
-        <span class="live-dot"></span> 平台数据 · 权限隔离
-        <div id="root-path" title="数据目录"></div>
-      </div>
-    </aside>
-    <main>
-      <header>
-        <div>
-          <div class="eyebrow">TELEMETRY WORKSPACE</div>
-          <h1>仿真数据回放</h1>
-          <p>让每一次动作，都有迹可循。</p>
-        </div>
-        <div class="header-actions">
-          <span id="connection" class="badge">读取中</span
-          ><button id="export" class="button secondary" disabled>
-            ↓ 导出当前范围 CSV
-          </button>
-        </div>
-      </header>
-      <div id="notice" role="status" hidden></div>
-      <section id="welcome" class="welcome">
-        <span class="welcome-orbit">◎</span>
-        <h2>选择一段采集记录</h2>
-        <p>在同一时间轴查看视频、关节运动与腕部载荷。</p>
-      </section>
-      <div id="workspace" hidden>
-        <section class="episode-heading">
-          <div>
-            <div class="eyebrow" id="episode-id"></div>
-            <h2 id="task-name"></h2>
-            <p id="instruction"></p>
-          </div>
-          <span id="outcome" class="badge"></span>
-        </section>
-        <section class="stats">
+<p id="notice" class="notice" role="status" hidden></p>
+<section id="list-page">
+ <div class="page-heading"><div><h1>数据集</h1><p>查看手动录制与自动采集结果。</p></div><span id="connection" class="badge neutral">正在连接…</span></div>
+ <div id="batch-scope" class="form-note" hidden><span id="batch-label"></span> <a class="button text-button" href="/datasets" data-route>查看全部记录</a></div>
+ <div class="panel">
+  <div class="panel-heading"><h2>采集记录</h2><span id="episode-count" class="muted">正在读取…</span></div>
+  <div class="table-controls">
+   <label class="field search-field">搜索记录<input id="search" type="search" placeholder="任务、记录编号或采集用户"></label>
+   <label class="field">来源<select id="source"><option value="all">全部来源</option><option value="auto">自动采集</option><option value="manual">手动录制</option></select></label>
+   <label class="field">结果<select id="outcome-filter"><option value="all">全部结果</option><option value="success">成功</option><option value="failure">失败</option><option value="aborted">已中止</option></select></label>
+   <button id="refresh" class="button" type="button">刷新</button>
+  </div>
+  <details style="padding:0 18px 16px"><summary>任务与时间筛选</summary><div class="table-controls" style="padding:14px 0 0"><label class="field">任务<select id="task-filter"><option value="all">全部任务</option></select></label><label class="field">开始日期<input id="date-from" type="date"></label><label class="field">结束日期<input id="date-to" type="date"></label></div></details>
+  <div class="table-scroll"><table class="platform-table"><thead><tr><th scope="col">任务 / 时间</th><th scope="col">来源 / 用户</th><th scope="col">结果</th><th scope="col">时长 / 帧数</th><th scope="col">操作</th></tr></thead><tbody id="episodes"></tbody></table></div>
+  <p id="list-empty" class="empty" hidden>没有匹配的采集记录</p>
+ </div>
+</section>
+<section id="workspace" hidden>
+ <div class="back-row"><button id="back-list" class="button text-button" type="button">← 数据集</button><span>/ 记录详情</span></div>
+ <div class="episode-heading"><div><h2 id="task-name"></h2><p id="instruction"></p><div id="episode-id"></div></div><span id="outcome" class="badge"></span></div>
+ <div class="form-actions" style="margin:0 0 14px"><button id="export" class="button" type="button" disabled>导出当前范围 CSV</button></div>
+<section class="stats">
           <div><span>采集时长</span><strong id="stat-duration">—</strong></div>
           <div><span>数据帧数</span><strong id="stat-frames">—</strong></div>
           <div><span>采样频率</span><strong id="stat-rate">—</strong></div>
@@ -84,7 +29,7 @@
         </section>
         <section class="playback panel">
           <div class="panel-heading">
-            <h3><span class="section-number">01</span> 同步画面</h3>
+            <h3>同步画面</h3>
             <span class="muted" id="video-note">按采集帧与仿真时刻同步</span>
           </div>
           <div id="videos" class="videos"></div>
@@ -128,9 +73,9 @@
             ><span id="sim-time">仿真时间 —</span>
           </div>
         </section>
-        <section class="chart-toolbar">
+        <nav class="chart-tabs" aria-label="数据分组"><button type="button" data-chart-group="joints" aria-pressed="true">关节与夹爪</button><button type="button" data-chart-group="wrench" aria-pressed="false">六维力</button><button type="button" data-chart-group="tool" aria-pressed="false">末端状态</button><button type="button" data-chart-group="task" aria-pressed="false">任务状态</button></nav><section class="chart-toolbar">
           <div>
-            <h3><span class="section-number">02</span> 运动与载荷</h3>
+            <h3>运动与载荷</h3>
             <p>点击曲线定位画面 · 拖动图表框选时间 · 双击恢复全段</p>
           </div>
           <div class="toolbar-controls">
@@ -170,7 +115,7 @@
                 aria-label="可视范围终点"
               />
               s</label
-            ><button id="apply-range" class="text-button">应用</button>
+            ><button id="apply-range" class="button text-button">应用</button>
           </div>
         </div>
         <section id="charts" class="chart-grid"></section>
@@ -178,8 +123,5 @@
           <span>实线：实际测量值 · 虚线：目标参考值 · 竖线：当前回放时刻</span
           ><span>腕力采用传感器坐标系原始读数，未做重力/惯性补偿。</span>
         </footer>
-      </div>
-    </main>
-    <script type="module" src="/static/datasets/app.js"></script>
-  </body>
-</html>
+
+</section>

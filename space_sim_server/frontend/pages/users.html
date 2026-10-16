@@ -1,0 +1,31 @@
+<div class="page-heading"><div><h1>用户管理</h1><p>管理平台账号、角色与登录状态。</p></div><button id="new-user" class="button primary" type="button">＋ 新建用户</button></div>
+<p id="notice" class="notice" role="status" hidden></p>
+<section id="editor" class="panel user-editor" hidden>
+  <div class="panel-heading"><h2 id="editor-title">新建用户</h2><button id="close-editor" class="button" type="button">关闭</button></div>
+  <form id="user-form" class="panel-body">
+    <div class="form-grid">
+      <label class="field">登录账号<input id="username" name="username" minlength="3" maxlength="64" autocomplete="off" required><small>3～64 位字母、数字、点、短横线或下划线</small></label>
+      <label class="field">显示名称<input id="display-name" name="display_name" maxlength="64" autocomplete="off" required></label>
+      <label class="field">用户角色<select id="role" name="role"><option value="operator">操作员</option><option value="admin">管理员</option></select></label>
+      <label class="field">账号状态<select id="active" name="active"><option value="true">启用</option><option value="false">停用</option></select></label>
+      <label id="password-field" class="field">初始密码<input id="password" name="password" type="password" minlength="8" maxlength="256" autocomplete="new-password" required><small>至少 8 位，可在登录后自行修改。</small></label>
+    </div>
+    <div class="form-note"><strong>角色权限</strong><p id="role-description"></p></div>
+    <p id="self-note" class="muted" hidden>当前登录账号的角色与启用状态受保护。</p>
+    <p id="form-error" class="error" role="alert" hidden></p>
+    <div class="form-actions"><button id="cancel-edit" class="button" type="button">取消</button><button id="save-user" class="button primary" type="submit">创建用户</button></div>
+  </form>
+</section>
+<section class="panel">
+  <div class="panel-heading"><h2>平台用户</h2><span class="muted" id="count">正在读取…</span></div>
+  <div class="table-controls">
+    <label class="field search-field">搜索用户<input id="search" type="search" placeholder="账号或显示名称"></label>
+    <label class="field">角色<select id="filter-role"><option value="all">全部角色</option><option value="admin">管理员</option><option value="operator">操作员</option></select></label>
+    <label class="field">状态<select id="filter-status"><option value="all">全部状态</option><option value="true">启用</option><option value="false">停用</option></select></label>
+    <button id="refresh" class="button" type="button">刷新</button>
+  </div>
+  <div class="table-scroll"><table class="platform-table"><thead><tr><th scope="col">用户</th><th scope="col">角色</th><th scope="col">状态</th><th scope="col">最近登录</th><th scope="col">操作</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <p id="empty" class="empty" hidden>没有匹配的用户</p>
+  <div class="panel-tail"><small>停用会撤销登录会话，已有采集记录保留；后台采集需在自动采集页单独停止。</small><span class="badge neutral">管理员可见</span></div>
+</section>
+<details class="permissions"><summary>查看角色权限说明</summary><div class="form-grid"><div class="form-note"><strong>管理员</strong><p>管理平台用户、所有采集批次和数据；可管理共享场景。</p></div><div class="form-note"><strong>操作员</strong><p>使用工作台和自动采集；管理自己的场景、采集批次与数据。</p></div></div></details>

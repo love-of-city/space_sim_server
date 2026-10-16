@@ -1,5 +1,12 @@
-const $ = (id) => document.getElementById(id);
+import template from './datasets.html?raw';
+import {mountView} from '../ui.js';
+import {filterRecords,chartCategory} from './dataset_filters.js';
+export function createDatasetPage(root,{api,navigate}) {
+const $=mountView(root,template);
+let viewGeneration=0,listingRequest=0,batchId='',batchIds=null;
 const state = {
+  active: false,
+  group: "joints",
   list: [],
   filter: "all",
   data: null,
@@ -15,22 +22,24 @@ const state = {
   anchorTime: 0,
 };
 const colors = [
-  "#64d9c4",
-  "#779cff",
-  "#f2bb69",
-  "#d397ed",
-  "#ef8395",
-  "#92c878",
+  "#2563eb",
+  "#16805f",
+  "#b66d0d",
+  "#8755bd",
+  "#c84464",
+  "#168195",
 ];
 const stageNames = {
   settle: "初始停稳",
   raise: "抬高夹爪",
   above_pickup: "到达取件位上方",
+  above_drawer: "到达抽屉上方",
   align: "调整抓取姿态",
   open: "张开夹爪",
   descend: "下降抓取",
   grip: "夹持",
   lift: "抬起",
+  return: "放回抽屉",
   transfer: "搬运",
   above_hole: "到达装配孔上方",
   align_hole: "对孔",
@@ -73,13 +82,6 @@ function el(tag, cls, text) {
   if (text !== undefined) e.textContent = text;
   return e;
 }
-async function api(path) {
-  const res = await fetch(path);
-  const body = await res.json();
-  if (res.status === 401) { location.href = "/"; throw new Error("请先登录平台"); }
-  if (!res.ok) throw new Error(body.detail || body.error || "读取失败");
-  return body;
-}
 function dateLabel(r) {
   const match = r.id.match(
     /episode-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/,
@@ -88,69 +90,33 @@ function dateLabel(r) {
     ? `${match[1]}.${match[2]}.${match[3]}  ${match[4]}:${match[5]}:${match[6]}`
     : r.id;
 }
-function renderList() {
-  const query = $("search").value.toLowerCase();
-  const container = $("episodes");
-  container.replaceChildren();
-  const matches = state.list.filter(
-    (r) =>
-      `${r.id} ${r.task} ${r.instruction}`.toLowerCase().includes(query) &&
-      (state.filter === "all" ||
-        (state.filter === "success"
-          ? r.outcome === "success"
-          : r.outcome !== "success")),
-  );
-  for (const r of matches) {
-    const b = el(
-      "button",
-      "episode" + (state.data?.id === r.id ? " active" : ""),
-    );
-    b.dataset.id = r.id;
-    b.disabled = !r.readable;
-    const row = el("div", "row");
-    row.append(
-      el("strong", "", taskName(r)),
-      el("span", "status-dot " + (r.outcome === "success" ? "success" : "")),
-    );
-    b.append(
-      row,
-      el("div", "date", dateLabel(r)),
-      el(
-        "div",
-        "identifier",
-        `${r.frames == null ? "帧数未记录" : Number(r.frames).toLocaleString() + " 帧"} · ${outcomeName(r.outcome)} · ${r.id.slice(-8)}`,
-      ),
-    );
-    b.title = r.instruction || r.id;
-    b.onclick = () => loadEpisode(r.id);
-    container.append(b);
-  }
-  if (!matches.length)
-    container.append(el("div", "empty", "没有匹配的采集记录"));
+function listUrl(){return '/datasets'+(batchId?'?batch='+encodeURIComponent(batchId):'');}
+function episodeUrl(id){return '/datasets?episode='+encodeURIComponent(id)+(batchId?'&batch='+encodeURIComponent(batchId):'');}
+function showList(){pause();$('list-page').hidden=false;$('workspace').hidden=true;}
+function renderList(){
+ const matches=filterRecords(state.list,{query:$('search').value,source:$('source').value,outcome:$('outcome-filter').value,task:$('task-filter').value,from:$('date-from').value,to:$('date-to').value,ids:batchIds});
+ $('episodes').replaceChildren(...matches.map(record=>{
+  const row=el('tr'),identity=el('td');identity.append(el('strong','',taskName(record)),el('small','',dateLabel(record)),el('small','',record.id));
+  const source=el('td');source.append(el('span','',record.source==='auto'?'自动采集':'手动录制'),el('small','',record.owner||'未记录采集用户'));
+  const result=el('td');result.append(el('span','badge '+(record.outcome==='success'?'success':'neutral'),outcomeName(record.outcome)));
+  const duration=el('td');duration.append(el('span','',Number.isFinite(record.frames)&&record.fps>0?fmt(record.frames/record.fps,2)+' s':'—'),el('small','',record.frames==null?'帧数未记录':record.frames.toLocaleString()+' 帧'));
+  const action=el('td'),open=el('button','button text-button',record.readable?'回放与分析':'数据未就绪');open.type='button';open.disabled=!record.readable;open.onclick=()=>navigate(episodeUrl(record.id));action.append(open);
+  row.append(identity,source,result,duration,action);return row;
+ }));
+ $('episode-count').textContent=matches.length+' / '+state.list.length+' 条记录';$('list-empty').hidden=matches.length>0;
 }
-async function refresh() {
-  try {
-    const result = await api("/api/datasets");
-    state.list = result.episodes;
-    $("episode-count").textContent = state.list.length;
-    $("root-path").textContent = result.root;
-    $("root-path").title = result.root;
-    $("connection").textContent = "● 平台已连接";
-    renderList();
-    if (!result.exists)
-      notice("数据目录不存在。请通过启动参数 --data-root 指定录制数据目录。");
-    else if (!state.data && state.list.length) {
-      const desired = new URLSearchParams(location.search).get("episode");
-      const r =
-        state.list.find((x) => x.id === desired && x.readable) ||
-        state.list.find((x) => x.readable && x.outcome === "success") ||
-        state.list.find((x) => x.readable);
-      if (r) await loadEpisode(r.id);
-    }
-  } catch (error) {
-    notice(error.message);
-    $("connection").textContent = "读取失败";
-  }
+async function refresh(){
+ const version=viewGeneration,request=++listingRequest;$('refresh').disabled=true;
+ try{
+  const result=await api('/api/datasets');if(!state.active||version!==viewGeneration||request!==listingRequest)return;
+  state.list=result.episodes;
+  const selected=$('task-filter').value;
+  $('task-filter').replaceChildren(new Option('全部任务','all'),...[...new Set(state.list.map(record=>record.task).filter(Boolean))].map(task=>new Option(taskName({task}),task)));
+  if([...$('task-filter').options].some(option=>option.value===selected))$('task-filter').value=selected;
+  $('connection').textContent='平台已连接';renderList();
+  if(!result.exists)notice('暂无录制数据。完成一次手动或自动采集后，记录会显示在这里。');
+ }catch(error){if(state.active&&version===viewGeneration){notice(error.message);$('connection').textContent='读取失败';}}
+ finally{if(version===viewGeneration&&request===listingRequest)$('refresh').disabled=false;}
 }
 async function loadEpisode(id) {
   pause();
@@ -159,19 +125,20 @@ async function loadEpisode(id) {
   $("export").disabled = true;
   try {
     const data = await api("/api/datasets/" + encodeURIComponent(id));
-    if (request !== state.request) return;
+    if (!state.active || request !== state.request) return;
     for (const chart of state.charts) chart.destroy();
     for (const v of state.videos) {
       v.pause();
       v.removeAttribute("src");
       v.load();
     }
+    for (const group of data.groups) group.series.forEach((series,index)=>{series.color=colors[index%colors.length];});
     state.data = data;
     state.index = 0;
     state.range = [0, Math.max(data.duration, 1 / data.fps)];
     state.charts = [];
     state.videos = [];
-    $("welcome").hidden = true;
+    $("list-page").hidden = true;
     $("workspace").hidden = false;
     $("episode-id").textContent = data.id;
     $("task-name").textContent = taskName(data.metadata);
@@ -193,13 +160,14 @@ async function loadEpisode(id) {
     $("range-start").max = data.duration;
     renderVideos();
     renderCharts();
+    filterCharts();
     updateRangeFields();
     setIndex(0, false);
     renderList();
     notice(data.warning);
-    history.replaceState(null, "", "?episode=" + encodeURIComponent(id));
+
   } catch (error) {
-    if (request === state.request) {
+    if (state.active && request === state.request) {
       notice(error.message);
       $("export").disabled = !state.data;
     }
@@ -278,6 +246,7 @@ function renderCharts() {
       "article",
       "chart-card" + (group.id === "joints" ? " wide" : ""),
     );
+    card.dataset.chartCategory=chartCategory(group.id);
     const heading = el("div", "chart-heading");
     heading.append(el("h4", "", group.title));
     const unit = el("span");
@@ -529,7 +498,15 @@ class Chart {
   }
   rebuild() {
     if (!state.data) return;
+    this.times = this.group.times || state.data.times;
+    this.unit.textContent = this.unitText();
     const rect = this.wrap.getBoundingClientRect();
+    // Inactive pages and unselected chart groups have no layout box.
+    // ResizeObserver will rebuild them when they become visible again.
+    if (!state.active || rect.width <= 0 || rect.height <= 0) {
+      this.w = this.h = 0;
+      return;
+    }
     this.w = Math.max(100, rect.width);
     this.h = rect.height;
     const dpr = window.devicePixelRatio || 1;
@@ -539,8 +516,6 @@ class Chart {
     }
     const ctx = this.base.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.unit.textContent = this.unitText();
-    this.times = this.group.times || state.data.times;
     this.lo = Math.max(0, nearest(state.range[0], this.times) - 1);
     this.hi = Math.min(this.times.length - 1, nearest(state.range[1], this.times) + 1);
     let min = Infinity,
@@ -572,12 +547,12 @@ class Chart {
     for (let i = 0; i <= 4; i++) {
       const v = this.min + ((this.max - this.min) * i) / 4,
         y = this.y(v);
-      ctx.strokeStyle = "#273140";
+      ctx.strokeStyle = "#dfe5ea";
       ctx.beginPath();
       ctx.moveTo(this.pad.l, y);
       ctx.lineTo(this.w - this.pad.r, y);
       ctx.stroke();
-      ctx.fillStyle = "#8594a8";
+      ctx.fillStyle = "#65717c";
       ctx.fillText(this.axis(v), this.pad.l - 9, y);
     }
     ctx.textAlign = "center";
@@ -585,7 +560,7 @@ class Chart {
     for (let i = 0; i <= 5; i++) {
       const t = state.range[0] + ((state.range[1] - state.range[0]) * i) / 5,
         x = this.x(t);
-      ctx.fillStyle = "#8594a8";
+      ctx.fillStyle = "#65717c";
       ctx.fillText(
         t.toFixed(state.range[1] - state.range[0] < 5 ? 2 : 1),
         x,
@@ -671,7 +646,7 @@ class Chart {
     ctx.globalAlpha = 1;
   }
   draw() {
-    if (!this.w || !state.data) return;
+    if (!this.w || !this.h || !state.active || !state.data) return;
     const ctx = this.canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -681,7 +656,7 @@ class Chart {
     const cursorIndex = nearest(state.data.times[state.index], this.times);
     const x = this.x(state.data.times[state.index]);
     if (x >= this.pad.l && x <= this.w - this.pad.r) {
-      ctx.strokeStyle = "#d4e4ec88";
+      ctx.strokeStyle = "#65717c99";
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 4]);
       ctx.beginPath();
@@ -704,7 +679,7 @@ class Chart {
         }
     }
     if (this.drag) {
-      ctx.fillStyle = "#64d9c422";
+      ctx.fillStyle = "#2563eb22";
       ctx.fillRect(
         Math.min(this.drag.start, this.drag.end),
         this.pad.t,
@@ -794,16 +769,10 @@ function exportCSV() {
 }
 $("refresh").onclick = refresh;
 $("search").oninput = renderList;
-document.querySelectorAll("[data-filter]").forEach(
-  (b) =>
-    (b.onclick = () => {
-      state.filter = b.dataset.filter;
-      document
-        .querySelectorAll("[data-filter]")
-        .forEach((x) => x.classList.toggle("active", x === b));
-      renderList();
-    }),
-);
+for(const id of ['source','outcome-filter','task-filter','date-from','date-to'])$(id).onchange=renderList;
+$('back-list').onclick=()=>navigate(listUrl());
+function filterCharts(){root.querySelectorAll('[data-chart-category]').forEach(card=>{card.hidden=card.dataset.chartCategory!==state.group;});root.querySelectorAll('[data-chart-group]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.chartGroup===state.group)));state.charts.forEach(chart=>chart.rebuild());}
+root.querySelectorAll('[data-chart-group]').forEach(button=>button.onclick=()=>{state.group=button.dataset.chartGroup;filterCharts();});
 $("play").onclick = play;
 $("timeline").oninput = () => {
   pause();
@@ -838,6 +807,7 @@ $("apply-range").onclick = () =>
   setRange($("range-start").value, $("range-end").value);
 $("export").onclick = exportCSV;
 document.addEventListener("keydown", (e) => {
+  if (!state.active || $("workspace").hidden || !state.data) return;
   if (
     ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(
       document.activeElement.tagName,
@@ -859,4 +829,22 @@ document.addEventListener("keydown", (e) => {
     setIndex(state.index - 1);
   }
 });
-refresh();
+
+function clearData(){
+ pause();state.request++;for(const chart of state.charts)chart.destroy();for(const video of state.videos){video.pause();video.removeAttribute('src');video.load();}state.charts=[];state.videos=[];state.data=null;$('videos').replaceChildren();$('charts').replaceChildren();$('export').disabled=true;
+}
+return {
+ async activate(params){
+  state.active=true;const version=++viewGeneration;notice();
+  const requestedBatch=params.get('batch')||'';batchId=requestedBatch;batchIds=null;
+  $('batch-scope').hidden=!requestedBatch;$('batch-label').textContent=requestedBatch?'批次：'+requestedBatch:'';
+  showList();
+  if(requestedBatch){try{const job=await api('/api/collections/'+encodeURIComponent(requestedBatch));if(!state.active||version!==viewGeneration)return;batchIds=new Set(job.accepted_episodes||[]);}catch(error){if(state.active&&version===viewGeneration){batchIds=new Set();notice(error.message);}}}
+  if(!state.active||version!==viewGeneration)return;await refresh();if(!state.active||version!==viewGeneration)return;
+  const desired=params.get('episode');
+  if(desired){if(state.data?.id===desired){$('list-page').hidden=true;$('workspace').hidden=false;filterCharts();}else await loadEpisode(desired);}
+ },
+ deactivate(){state.active=false;viewGeneration++;state.request++;pause();},
+ reset(){this.deactivate();clearData();state.list=[];batchId='';batchIds=null;state.group='joints';$('search').value='';$('source').value='all';$('outcome-filter').value='all';$('task-filter').replaceChildren(new Option('全部任务','all'));$('date-from').value='';$('date-to').value='';notice();showList();renderList();},
+};
+}

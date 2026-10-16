@@ -286,7 +286,12 @@ def test_api_ownership_media_ranges_and_auth(tmp_path, monkeypatch):
         assert client.get("/api/datasets/episode-owned").status_code == 200
         assert client.get("/collection").status_code == 200
         assert client.get("/datasets").status_code == 200
-        assert client.get("/static/collection/app.js").status_code == 200
+        shell = client.get("/").text
+        for route in ("/collection", "/datasets?episode=episode-owned", "/users"):
+            response = client.get(route)
+            assert response.status_code == 200
+            assert response.text == shell
+        assert 'id="platformNav"' in shell
         assert client.get("/api/collections/catalog").json()["rates"] == dict(
             dynamics=400, ik=100, main=50, wrench=200
         )

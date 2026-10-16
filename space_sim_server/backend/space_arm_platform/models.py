@@ -447,6 +447,19 @@ class PasswordReset(BaseModel):
     password: str = Field(min_length=8, max_length=256)
 
 
+class UserCreate(OperatorCreate):
+    display_name: str = Field(default="", max_length=64)
+    role: Literal["admin", "operator"] = "operator"
+    active: bool = True
+
+
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str = Field(min_length=1, max_length=64)
+    role: Literal["admin", "operator"]
+    active: bool
+
+
 class PasswordChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     current_password: str = Field(min_length=1, max_length=256)

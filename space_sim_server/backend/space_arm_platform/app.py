@@ -27,6 +27,7 @@ from .jobs import JobManager
 from .models import (
     EpisodeStart, EpisodeStop, LoginRequest, OperatorAction, OperatorCreate,
     PasswordChange, PasswordReset, SceneInstanceCreate, SimulationObservation, TaskComplete, TaskCreate,
+    UserCreate, UserUpdate,
 )
 from .recorder import EpisodeRecorder
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
@@ -292,10 +293,6 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     frontend_source = config.project_root / "frontend"
     frontend_dist = frontend_source / "dist"
     frontend = frontend_dist if (frontend_dist / "index.html").is_file() else frontend_source
-    for section in ("collection", "datasets"):
-        assets = frontend_source / "public" / section
-        if assets.is_dir():
-            app.mount(f"/static/{section}", StaticFiles(directory=assets), name=section)
     app.mount("/static", StaticFiles(directory=frontend), name="static")
 
     def current_user(request: Request) -> dict[str, Any]:
@@ -346,7 +343,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         user = await asyncio.to_thread(auth.authenticate, payload.username, payload.password)
         if not user:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
-        token, max_age = await asyncio.to_thread(auth.create_session, user["user_id"])
+        try:
+            token, max_age = await asyncio.to_thread(auth.create_session, user["user_id"])
+        except AuthError as error:
+            raise HTTPException(status_code=401, detail="账号不可用") from error
         response = JSONResponse({"user": user})
         response.set_cookie(
             SESSION_COOKIE, token, max_age=max_age, httponly=True, samesite="strict",
@@ -391,6 +391,31 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except AuthError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post("/api/users", status_code=201)
+    async def create_user(payload: UserCreate, request: Request) -> dict[str, Any]:
+        require_admin(request)
+        try:
+            return await asyncio.to_thread(auth.create_user, **payload.model_dump())
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.patch("/api/users/{user_id}")
+    async def update_user(user_id: str, payload: UserUpdate, request: Request) -> dict[str, Any]:
+        actor = require_admin(request)
+        try:
+            return await asyncio.to_thread(auth.update_user, actor["user_id"], user_id, **payload.model_dump())
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/users/{user_id}/reset-password")
+    async def reset_user_password(user_id: str, payload: PasswordReset, request: Request) -> dict[str, Any]:
+        actor = require_admin(request)
+        try:
+            await asyncio.to_thread(auth.reset_user_password, actor["user_id"], user_id, payload.password)
+            return {"ok": True}
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.delete("/api/users/operators/{user_id}")
     async def delete_operator(user_id: str, request: Request) -> dict[str, Any]:
         require_admin(request)
@@ -410,6 +435,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/")
+    @app.get("/collection")
+    @app.get("/datasets")
+    @app.get("/users")
     async def index() -> FileResponse:
         return FileResponse(frontend / "index.html")
 

@@ -760,6 +760,27 @@
                 }
               ],
               "default": null
+            },
+            "wrist_wrench_rate_hz": {
+              "anyOf": [
+                {
+                  "const": 200,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Wrist Wrench Rate Hz"
+            },
+            "wrist_wrench_samples": {
+              "items": {
+                "$ref": "#/$defs/WrenchObservation"
+              },
+              "maxItems": 1024,
+              "title": "Wrist Wrench Samples",
+              "type": "array"
             }
           }
         },

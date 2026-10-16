@@ -1,6 +1,7 @@
 """Camera manifest and launch defaults agree with square dataset capture."""
 from pathlib import Path
 import math
+import pytest
 import xml.etree.ElementTree as ET
 from space_arm_platform.camera_defaults import CAPTURE_CAMERA_RESOLUTION
 from space_arm_platform.app import PlatformConfig
@@ -8,8 +9,9 @@ from bsk_render_adapter.mjcf_assets import parse_mjcf_scene_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 
-def test_active_cameras_square_and_preserve_horizontal_fov():
-    model = ROOT / "model/SARM/platform/sarm_20261012.xml"
+@pytest.mark.parametrize("filename", ["sarm_20261012.xml", "sarm_20261012_sdf.xml"])
+def test_active_cameras_square_and_preserve_horizontal_fov(filename):
+    model = ROOT / "model/SARM/platform" / filename
     cameras = ET.parse(model).findall(".//camera")
     metadata = parse_mjcf_scene_metadata(model, "teleop")
     assert len(cameras) == len(metadata.cameras) == 2

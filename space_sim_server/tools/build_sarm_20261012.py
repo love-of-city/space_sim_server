@@ -52,7 +52,9 @@ def set_look_at(camera, pos, aim, right):
     camera.set('pos',text(pos))
     camera.set('quat',text(look_at_quat(pos,aim,right)))
 
-def compose_platform_model(source: Path, platform_reference: Path, output: Path) -> dict:
+def compose_platform_model(source: Path, platform_reference: Path, output: Path, *, fastener_model='captive') -> dict:
+    if fastener_model not in ('captive', 'sdf'):
+        raise ValueError('fastener_model must be captive or sdf')
     source,platform_reference,output=map(Path,(source,platform_reference,output))
     r=E.parse(source).getroot(); old=E.parse(platform_reference).getroot()
     r.set('model','SARM_20261012_platform')
@@ -146,11 +148,23 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path)
     for a in old.find('actuator'):
         if a.get('name','').startswith('rw_'):r.find('actuator').append(copy.deepcopy(a))
     for pair in old.findall('./contact/pair'):r.find('contact').append(copy.deepcopy(pair))
+    if fastener_model == 'captive':
+        from tools.captive_fastener import apply_captive_fastener
+        fastener = apply_captive_fastener(r, output.parent)
+    else:
+        fastener = {'model': 'sdf'}
     output.parent.mkdir(parents=True,exist_ok=True);output.write_bytes(E.tostring(r,encoding='utf-8',xml_declaration=True))
     record={'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'model_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'model_revision':'2026-10-12','platform_additions':['free base','reaction wheels (additional mass)','capture target','cameras'],'source_base_inertia_preserved':True,'gripper_type':'four_bar_tendon','root_renames':{'base_link':'cubesat_bus'},'drawer_reparented_to':'cubesat_bus'}
     record['wrist_force_torque_sensor'] = {'site': 'wrist_ft_site', 'parent_body': 'ee_base', 'tool_body': 'wrist_ft_tool', 'added_mass_kg': 0, 'ideal_rigid_sensor': True}
     record['orbital_free_joint_damping_overrides']=damping_overrides
+    record['fastener']=fastener
     output.with_suffix('.manifest.json').write_text(json.dumps(record,indent=2)+'\n')
     return record
 if __name__=='__main__':
-    print(compose_platform_model(ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml',ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',ROOT/'model/SARM/platform/sarm_20261012.xml'))
+    import argparse, sys
+    sys.path.insert(0, str(ROOT))
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--fastener-model', choices=('captive','sdf'), default='captive')
+    args=parser.parse_args()
+    name='sarm_20261012.xml' if args.fastener_model=='captive' else 'sarm_20261012_sdf.xml'
+    print(compose_platform_model(ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml',ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',ROOT/'model/SARM/platform'/name,fastener_model=args.fastener_model))

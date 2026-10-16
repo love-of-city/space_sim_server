@@ -13,7 +13,7 @@
 | 文件 | 负责内容 |
 | --- | --- |
 | [sarm_platform.xml](../model/SARM/platform/sarm_platform.xml) | 三个轮的安装位置、质量、惯量、轴向、自由转动关节、电机限矩和最大轮速 |
-| [attitude_control.json](../model/SARM/platform/attitude_control.json) | 默认开关、姿态模式、120 Hz 控制频率、PD 增益、轮速保护裕量 |
+| [attitude_control.json](../model/SARM/platform/attitude_control.json) | 默认开关、姿态模式、30 Hz 控制频率（2026-10-14 前为 120 Hz）、PD 增益、轮速保护裕量 |
 | [attitude_control.py](../simulation/attitude_control.py) | BSK 导航/参考/误差/控制/分配/消息转换/驱动保护与独立遥测 |
 | [scenario_sarm_grasp.py](../model/SARM/platform/scenarios/scenario_sarm_grasp.py) | 创建并保留姿态链对象，安装到原生 simulation/process/scene |
 | [teleop_grasp_unreal.py](../simulation/teleop_grasp_unreal.py) | 保留原生姿态闭环、给全部轮体接重力、发布 SI 关节及姿态/轮遥测 |
@@ -60,7 +60,7 @@ MJScene 卫星状态 → SimpleNav（无噪声真值）
 ```
 
 - 保留 `MJScene` 为唯一积分器，没有独立 `spacecraft` hub，没有直接设置姿态来实现闭环，也没有额外施加第二份本体反力矩。
-- 本地动力学后端（默认）下，控制链运行在物理任务的 120 Hz 分频上（`control_rate_hz`），相位与状态发布对齐：导航读到的本体状态固定是一步前的，而不是 0–6.7 ms 之间的任意值。`--dynamics-backend basilisk` 时仍在独立的 `sarmAttitudeTask` 中按同一频率运行。
+- 本地动力学后端（默认）下，控制链运行在物理任务的 30 Hz 分频上（`control_rate_hz`；必须是刚体状态发布间隔的整数倍，默认发布间隔为 8 步），相位与状态发布对齐：导航读到的本体状态固定是一步前的，而不是 0–6.7 ms 之间的任意值。`--dynamics-backend basilisk` 时仍在独立的 `sarmAttitudeTask` 中按同一频率运行。
 - task 内顺序：初始参考/惯量锁存 1000、真值导航 900、惯性参考 800、误差 700、轮速转换 600、PD 500、分配 400、数组转换 300。
 - 三个 `WheelDrive` 在物理任务中以 2000 执行（basilisk 后端为 MJScene 动力学子任务的 `6500-i`），在正向运动学/机械臂控制之后读取当前轮速，故安全保护不只依赖控制链的更新频率。
 - 初次有效状态时锁存非零或零初始姿态；不会强制初始姿态为单位四元数。参考不会在后续周期重新追随实测姿态。

@@ -96,12 +96,12 @@ class PhysicsPorts:
             raise PortError("install the local orbit component before orbital gravity")
         return self._orbit_reference, self._gravity_factory
 
-    def set_orbital_environment(self, environment: Any) -> None:
+    def set_orbital_environment(self, environment: Any, *, force_every: int = 1) -> None:
         if self._orbital_environment is not None:
             raise PortError("an orbital environment is already registered")
         if self.stepper is None:
             raise PortError("install the local physics core before orbital gravity")
-        self.stepper.set_orbital_environment(environment)
+        self.stepper.set_orbital_environment(environment, force_every=force_every)
         self._orbital_environment = environment
 
     def orbital_environment(self) -> Any:

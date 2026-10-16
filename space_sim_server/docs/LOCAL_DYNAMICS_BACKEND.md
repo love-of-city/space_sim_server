@@ -48,15 +48,18 @@ sits on top of this backend are described in [MUJOCO_CORE_ARCHITECTURE.md](MUJOC
 | `SPACE_SIM_DYNAMICS_BACKEND` / `--dynamics-backend` | `local` (default), `basilisk` | backend |
 | `SPACE_SIM_ORBITAL_MODE` / `--orbital-mode` | `bsk` (default), `linear_tidal` | local orbital force provider |
 | `SPACE_SIM_LOCAL_SUBSTEPS` / `--local-substeps` | 1-16 (default 1) | MuJoCo substeps per 240 Hz step |
-| `SPACE_SIM_LOCAL_PUBLISH_STRIDE` | 1, 2, 4, 8 (default 2) | body/site kinematics publication stride |
+| `SPACE_SIM_LOCAL_PUBLISH_STRIDE` | 1, 2, 4, 8 (default 8) | body/site kinematics publication stride |
+| `SPACE_SIM_ORBITAL_FORCE_STRIDE` | 1-240 (default 8) | physics steps per BSK differential-force evaluation; 1 = every substep |
 | `SPACE_SIM_POSTURE_BACKEND` | `native` (default), `python` | IK geometry/posture implementation |
 
 Publication after every physics step: joint state/rate messages, the scene state message, the bulk
 states and servo efforts are always written (cheap; they read the bulk states). Body/site messages
 (`MJScene.postIntegration`, ~0.6 ms in the live process) are written every `stride` steps and on
-every 30 Hz render/observation step, so rendered and recorded frames are exact. The attitude
-navigation now runs on the 120 Hz physics grid (a multiple of the stride, phase-aligned), so it reads
-a body state exactly one physics step old; `timeWritten()` shows it. The integrated
+every 30 Hz render/observation step, so rendered and recorded frames are exact. Since 2026-10-14 the
+default stride is 8, i.e. body/site messages only on the 30 Hz grid; IK reads joint states only. The
+attitude navigation runs at 30 Hz (`attitude_control.json`), a multiple of the stride and
+phase-aligned, so it reads a body state exactly one physics step old; `timeWritten()` shows it. The
+attitude component refuses a control rate that is not a multiple of the stride. The integrated
 state does not depend on the stride (tested).
 
 ## Measurements

@@ -182,7 +182,7 @@ function setupApp(testContext,controlGranted) {
   send(packet){packets.push(JSON.parse(packet));}
  }
  let ui;
- const context=vm.createContext({state,$,document:doc,createArmPreparation,WebSocket:Socket,URL,URLSearchParams,
+ const context=vm.createContext({clearWristWrench() {},state,$,document:doc,createArmPreparation,WebSocket:Socket,URL,URLSearchParams,
   location:{protocol:'http:',host:'test.invalid',search:''},
   setOnline(){},setMessage(){},updateOperationUI(){},updateEpisodeUI(){},highlightKeys(){},
   jointAngles:{clear(){}},

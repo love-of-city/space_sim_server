@@ -183,6 +183,14 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
     # Recorded joints must be the render-time snapshot, not a later state read
     # after ExecuteSimulation reaches the outer 30 Hz loop's stop time.
     for observation in observations:
+        if template_id == 'sarm-task-box-20261012':
+            from space_arm_platform.models import SimulationObservation
+            wrench = SimulationObservation.model_validate(observation).wrist_wrench
+            assert wrench is not None
+            assert wrench.valid == (int(observation['sim_time_ns']) > 0)
+            assert int(wrench.interval_end_time_ns) == int(observation['sim_time_ns'])
+            assert wrench.site_name == 'wrist_ft_site'
+            assert np.isfinite(wrench.force_n + wrench.torque_nm).all()
         stamp, joints = authoritative_joint_samples[(observation['render_session_id'], observation['render_frame_id'])]
         assert observation['observation_source'] == 'authoritative_render_snapshot'
         assert observation['sim_time_ns'] == stamp
@@ -211,6 +219,23 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
 
 
 @pytest.mark.skipif(not (ADAPTER / 'Adapters').is_dir(), reason='matching adapter worktree unavailable')
-def test_sarm_20261012_orbital_state_rebuilds_twice(tmp_path, monkeypatch):
+@pytest.mark.parametrize("configured_substeps", [None, 3])
+def test_sarm_20261012_orbital_state_rebuilds_twice(tmp_path, monkeypatch, configured_substeps):
+    from simulation.local_mujoco_stepper import LocalMujocoStepper
+    if configured_substeps is None:
+        monkeypatch.delenv("SPACE_SIM_LOCAL_SUBSTEPS", raising=False)
+    else:
+        monkeypatch.setenv("SPACE_SIM_LOCAL_SUBSTEPS", str(configured_substeps))
+    actual_substeps = []
+    original_init = LocalMujocoStepper.__init__
+
+    def capture_substeps(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        actual_substeps.append(self.substeps)
+
+    monkeypatch.setattr(LocalMujocoStepper, "__init__", capture_substeps)
     test_real_run_rebuilds_identical_initial_state_twice(
         tmp_path, monkeypatch, [90., -60., 60., 0., -90., 0.], 'sarm-task-box-20261012')
+    # Both startup and reset must respect the shared default/override, even
+    # below five substeps; neither runtime layer may silently clamp the value.
+    assert actual_substeps == [configured_substeps or 1] * 3

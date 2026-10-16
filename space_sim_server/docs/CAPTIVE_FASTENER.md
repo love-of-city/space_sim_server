@@ -6,7 +6,7 @@
 
 - `sarm-task-box-20261012`：防脱紧固件正常操作，不施加演示力矩。
 - `sarm-task-box-20261012-demo`：自动旋拧演示，主视口聚焦紧固件；选择“卫星总览相机”可看固定在杆上的侧面特写（仅演示模板复用此通道），画面显示阶段、轴向行程与转角。
-- `sarm-task-box-20261012-sdf`：原始 SDF 对照，读取独立的旧 XML，不施加演示力矩。
+- `sarm-task-box-20261012-sdf`：原始 SDF 对照，读取独立的 SDF XML，不施加演示力矩。
 
 在操作台停止当前场景，选择对应模板，再点击“生成并启动场景”即可切换。演示每 16 秒仿真时间循环：等待 2 秒、拧紧 4 秒、压紧保持 2 秒、拧松 6 秒、松开保持 2 秒。“一键复原初始位置”会重建仿真并重新开始；“停止场景”结束演示。机械臂停止按钮仅控制机械臂，不用于停止独立演示力矩。
 
@@ -40,7 +40,7 @@ python tools/validate_captive_fastener.py --output run/captive_fastener_validati
 python tools/render_captive_fastener.py --output run/captive-cycle.gif
 ```
 
-对照 `sarm_20261012_sdf.xml` SHA256 为 `9aabe8024c20310a7ae0dbeb8e4159c9e1b02e635f4621e6be8fe51412bac2a2`，与修改前平台 XML 相同。防脱版 SHA256 为 `2799cd62bbfabd72086c0ad01d02fc43c2353b5f19ec3e6ac0f3fa89b43cedf7`。
+2026-10-16 同步主分支的相机、腕部测力和动力学优化后，两种模型均包含这些公共更新。SDF 对照保留原始自由关节和螺纹接触，XML 与主分支 4f1a321 一致，SHA256 为 `34ab9eb8ad5b6d8274fd578239e127d1077440a4d560e2da8f52460f1f0e0441`；防脱版为 `e7896209fe9b0c63d1971f064918bd39d9eb9150b71daadbac880338c4c2ee69`。下文 10 月 15 日的性能和行程属于当时版本，不代表同步后版本的重新测量。
 
 ## 验证与测量边界
 

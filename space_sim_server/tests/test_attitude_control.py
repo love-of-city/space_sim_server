@@ -226,3 +226,27 @@ def test_cached_wheel_handles_still_read_fresh_rk_stage_state():
     owner.enabled = False
     group.UpdateState(12)
     assert reader().input == 0.
+
+
+@pytest.mark.parametrize(('rate', 'stride', 'ok'), [(30.0, 8, True), (120.0, 2, True), (120.0, 8, False), (60.0, 8, False)])
+def test_attitude_chain_rate_must_be_a_multiple_of_the_publication_stride(tmp_path, rate, stride, ok):
+    # The chain installs itself outside AssemblyContext.add, so it must apply the
+    # same stale-state rule: run only on steps right after a body publication.
+    from types import SimpleNamespace
+    import json as _json
+    from simulation.components.attitude import AttitudeComponent
+    from simulation.physics_ports import PortError
+    settings = _json.loads(MODEL.with_name("attitude_control.json").read_text(encoding="utf-8"))
+    settings['control_rate_hz'] = rate
+    (tmp_path / 'attitude_control.json').write_text(_json.dumps(settings), encoding='utf-8')
+    ctx = SimpleNamespace(simulation=SimpleNamespace(), clock=None,
+                          config=SimpleNamespace(dynamics_backend='local', physics_task='graspTask', publish_stride=stride))
+    component = AttitudeComponent(tmp_path / 'model.xml')
+    if ok:
+        # Passes the schedule check and only then fails on the absent model file.
+        with pytest.raises(Exception) as error:
+            component.install(ctx)
+        assert not isinstance(error.value, PortError)
+    else:
+        with pytest.raises(PortError, match='publication stride'):
+            component.install(ctx)

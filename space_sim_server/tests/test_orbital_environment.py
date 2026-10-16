@@ -183,7 +183,8 @@ def test_gravity_source_component_registers_through_physics_ports():
     assert retained == [moon, message]
 
 
-def propagate_pair(tmp_path, *, substeps=1, publish_every=2, seconds=2., rebase=50., sun=False, j2=False):
+def propagate_pair(tmp_path, *, substeps=1, publish_every=2, seconds=2., rebase=50., sun=False, j2=False,
+                   force_every=1):
     """Compare two MuJoCo free bodies with two native BSK point spacecraft.
 
     Native BSK supplies BOTH the orbit carrier and field models. No analytical
@@ -229,7 +230,7 @@ def propagate_pair(tmp_path, *, substeps=1, publish_every=2, seconds=2., rebase=
         env.add_gravity_source("sun", sun_body, sun_message)
     stepper = LocalMujocoStepper(scene, path, [], origin=SpacecraftOrbitOrigin(origin, earth.mu),
                                  substeps=substeps, publish_every=publish_every, rebase_distance_m=rebase)
-    stepper.set_orbital_environment(env)
+    stepper.set_orbital_environment(env, force_every=force_every)
     simulation.AddModelToTask("t", origin, 19000)
     simulation.AddModelToTask("t", stepper, 1000)
     r0 = np.array([6_878_137., 0., 0.]); velocity = np.array([0., math.sqrt(earth.mu/r0[0]), 0.])
@@ -258,6 +259,32 @@ def propagate_pair(tmp_path, *, substeps=1, publish_every=2, seconds=2., rebase=
     result = np.array(actual), np.array(expected), stepper.telemetry(), stepper.qpos.copy()
     stepper.close()
     return result
+
+
+def test_held_differential_forces_track_per_substep_reference(tmp_path):
+    # The platform evaluates BSK forces once per 30 Hz render frame and holds them.
+    reference, truth, exact, _ = propagate_pair(tmp_path, seconds=5.)
+    held, truth_held, telemetry, _ = propagate_pair(tmp_path, seconds=5., force_every=8)
+    exact_error = np.linalg.norm((reference[1]-reference[0]) - (truth[1]-truth[0]))
+    held_error = np.linalg.norm((held[1]-held[0]) - (truth_held[1]-truth_held[0]))
+    # Holding adds far less than the fixed-step integration error already accepted.
+    assert held_error < exact_error * 1.05 + 1e-6, (exact_error, held_error)
+    np.testing.assert_allclose(held, reference, atol=1e-5, rtol=0)
+    steps = telemetry["steps"]
+    assert telemetry["orbital_environment"]["evaluations"] == -(-steps // 8)
+    assert telemetry["orbital_environment"]["force_cadence"] == "every_8_physics_steps_held"
+    assert exact["orbital_environment"]["force_cadence"] == "each_mujoco_substep"
+
+
+def test_orbital_force_stride_validation(monkeypatch):
+    from simulation.local_mujoco_stepper import DEFAULT_ORBITAL_FORCE_STRIDE, orbital_force_stride
+    monkeypatch.delenv("SPACE_SIM_ORBITAL_FORCE_STRIDE", raising=False)
+    assert orbital_force_stride() == DEFAULT_ORBITAL_FORCE_STRIDE == 8
+    monkeypatch.setenv("SPACE_SIM_ORBITAL_FORCE_STRIDE", "1")
+    assert orbital_force_stride() == 1
+    for bad in (0, -1, 241):
+        with pytest.raises(ValueError):
+            orbital_force_stride(bad)
 
 
 def test_local_pair_orbits_track_native_bsk_spacecraft_and_converge(tmp_path):
@@ -338,11 +365,11 @@ def test_orbital_ports_reject_missing_or_duplicate_providers():
     with pytest.raises(PortError):
         ports.set_gravity_factory(factory)
     recorded = []
-    ports.set_stepper(SimpleNamespace(set_orbital_environment=recorded.append))
+    ports.set_stepper(SimpleNamespace(set_orbital_environment=lambda env, **kw: recorded.append((env, kw))))
     env = BskOrbitalEnvironment(reference)
-    ports.set_orbital_environment(env)
+    ports.set_orbital_environment(env, force_every=8)
     assert ports.orbital_environment() is env
-    assert recorded == [env]
+    assert recorded == [(env, {"force_every": 8})]
     with pytest.raises(PortError):
         ports.set_orbital_environment(env)
 
@@ -403,6 +430,59 @@ def test_missing_or_multiple_central_bodies_are_not_silently_assumed():
     env.begin_interval()
     with pytest.raises(ValueError, match="exactly one central"):
         env.forces(np.zeros((2, 3)), np.array([0., 2.]), R, 0)
+
+
+def test_held_force_provider_is_called_once_per_stride_and_refreshes_on_external_write(tmp_path):
+    from Basilisk.simulation import mujoco
+    from Basilisk.utilities import SimulationBaseClass
+    from simulation.local_mujoco_stepper import LocalMujocoStepper
+
+    class Provider:
+        def reset(self):
+            self.times, self.intervals = [], 0
+
+        def begin_interval(self):
+            self.intervals += 1
+
+        def forces(self, positions, masses, origin, nanos):
+            self.times.append(nanos)
+            result = np.zeros_like(positions)
+            result[1, 0] = 2.0
+            return result
+
+        def telemetry(self):
+            return {"mode": "fixture", "force_cadence": "each_mujoco_substep"}
+
+    path = tmp_path / "orbital_hold.xml"
+    path.write_text('<mujoco><option gravity="0 0 0"/><worldbody>'
+                    '<body name="body"><freejoint/><geom type="sphere" size=".1" mass="2"/>'
+                    '</body></worldbody></mujoco>', encoding="utf-8")
+    sim = SimulationBaseClass.SimBaseClass()
+    process = sim.CreateNewProcess("p")
+    process.addTask(sim.CreateNewTask("t", 1_000_000))
+    process.addTask(sim.CreateNewTask("init_scene", 10**18))
+    scene = mujoco.MJScene.fromFile(str(path))
+    sim.AddModelToTask("init_scene", scene)
+    stepper = LocalMujocoStepper(scene, path, [], substeps=3, publish_every=8)
+    provider = Provider()
+    stepper.set_orbital_environment(provider, force_every=4)
+    sim.AddModelToTask("t", stepper)
+    try:
+        sim.InitializeSimulation()
+        sim.ConfigureStopTime(10_000_000)
+        sim.ExecuteSimulation()
+        # Steps 0, 4, 8 evaluate at their first substep; the held 2 N acts on every substep.
+        assert provider.times == [0, 4_000_000, 8_000_000]
+        assert provider.intervals == 3
+        assert stepper.qvel[0] == pytest.approx(1. * .01, abs=1e-13)  # 2 N / 2 kg over 10 ms
+        assert stepper.telemetry()["orbital_environment"]["force_cadence"] == "every_4_physics_steps_held"
+        # An adopted external state write invalidates the held forces at once.
+        scene.getBody("body").setVelocity([0., 0., 0.])
+        sim.ConfigureStopTime(11_000_000)
+        sim.ExecuteSimulation()
+        assert provider.times[-1] == 10_000_000
+    finally:
+        stepper.close()
 
 
 def test_force_provider_substeps_are_fresh_additive_and_integer_timed(tmp_path):

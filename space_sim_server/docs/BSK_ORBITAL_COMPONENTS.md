@@ -48,11 +48,19 @@ F_local,i = m_i * a_local,i
 
 1. 外层任务更新 SPICE，将参考点推进至 t1。
 2. 本地 core 取得上一时刻和当前时刻的 O 位置/速度。
-3. provider 快照星历；每个子步起点 tk 用 Hermite 插值获得 O(tk)。
+3. 需要求力的区间里，provider 快照星历；求力时刻 tk 用 Hermite 插值获得 O(tk)。
 4. 原生 `lms_body_coms()` 从真正的物理模型刷新 COM 运动学，不依赖 MJScene 的发布 stride。
 5. 在 tk 采样星历，调用 BSK 模型计算差分引力。
 6. 将引力缓冲区与推力/阻力等用户 wrench 相加，调用一次 `mj_step()`。
 7. 子步边界采用整数纳秒，步长由相邻边界相减。末端合成全局状态并按原规则发布/重定位。
+
+求力频率（2026-10-14 起）：平台每 8 个物理步（30 Hz，与渲染帧一致）在该步第一个子步做 3～6 步，
+其余步与子步沿用原生缓冲区里的同一组力（零阶保持）。差分引力约 3e-6 m/s²，按轨道时间尺度变化，
+一个保持区间内相对变化约 4e-4；实测 30 s 遥操作中关节、末端、本体姿态与逐子步求力的差异
+都在初值扰动 1e-12 rad 引起的混沌放大范围内。外部写状态、重定位和 Reset 都会使保持的力失效，
+下一步立即重算。`SPACE_SIM_ORBITAL_FORCE_STRIDE=1` 恢复逐子步求力；直接构造的
+`LocalMujocoStepper.set_orbital_environment(env)` 默认仍逐子步求力。遥测 `force_cadence`
+与 `force_stride_steps` 记录实际频率，并随观测写入数据集元数据。
 
 BSK provider 生效时 C++ 旧潮汐系数必须为零；原生层也拒绝二者同时开启，避免双重施力。
 

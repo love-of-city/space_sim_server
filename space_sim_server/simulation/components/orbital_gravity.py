@@ -1,14 +1,18 @@
 """Install native BSK gravity models on the local multibody integration boundary."""
 from simulation.assembly import Slot
+from simulation.local_mujoco_stepper import orbital_force_stride
 from simulation.orbital_environment import BskOrbitalEnvironment, orbital_mode
 
 
 class OrbitalGravityComponent:
     name = "orbital_gravity"
 
-    def __init__(self, mode=None, *, ephemeris_sampler=None):
+    def __init__(self, mode=None, *, ephemeris_sampler=None, force_every=None):
         self.mode = orbital_mode(mode)
         self.ephemeris_sampler = ephemeris_sampler
+        # Physics steps per BSK force evaluation; the platform default holds the
+        # forces for one 30 Hz render frame (SPACE_SIM_ORBITAL_FORCE_STRIDE=1: every substep).
+        self.force_every = orbital_force_stride(force_every)
         self.environment = None
 
     def install(self, ctx):
@@ -19,10 +23,11 @@ class OrbitalGravityComponent:
         for name, body in factory.gravBodies.items():
             # The factory subscribes these readers to the common SPICE interface.
             environment.add_gravity_source(name, body, ctx.ports.planet_state(name))
-        ctx.ports.set_orbital_environment(environment)
+        ctx.ports.set_orbital_environment(environment, force_every=self.force_every)
         self.environment = environment
-        # NBodyGravity runs at each local physics substep through its adapter,
-        # NOT on the publish-only MJScene task or a separate competing integrator.
+        # NBodyGravity runs inside the local physics core through its adapter
+        # (every `force_every` steps), NOT on the publish-only MJScene task or a
+        # separate competing integrator.
         ctx.note_external(environment.gravity, component=self.name,
                           task="localMujocoSubsteps", priority=int(Slot.ENVIRONMENT), every=0)
         ctx.keep_alive(environment)

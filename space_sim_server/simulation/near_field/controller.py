@@ -297,7 +297,9 @@ class NearController(sysModel.SysModel):
                     self.transition("CaptureHold", now)
         closing = self.phase in {"Grasp", "CaptureConfirm", "CaptureHold"} and not self.close_inhibited
         finger_goal = 0.002 if closing else 0.0375
-        self.dqref[6:] = np.clip(2 * (finger_goal - q[6:]), -0.005, 0.005)
+        # Once closing is inhibited, even a small measured overshoot of the
+        # open limit must not command a closing correction.
+        self.dqref[6:] = np.clip(2 * (finger_goal - q[6:]), 0. if self.close_inhibited else -0.005, 0.005)
         self.qref += self.dqref * dt
         self.qref = np.clip(self.qref, q - 0.03, q + 0.03)
         self.qref[:6] = np.clip(self.qref[:6], [-3.1416] * 5 + [-6.2832], [3.1416] * 5 + [6.2832])

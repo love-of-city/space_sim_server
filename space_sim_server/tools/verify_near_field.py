@@ -110,10 +110,11 @@ def verify(folder):
               "independent_gap_matches_telemetry": abs(h-data["truth_tcp_gap_m"][evaluated_index]) < 1e-8,
               "independent_navigation_matches": bool(np.allclose(error, data["navigation_error_m"], atol=1e-8))}
     if normal:
+        capture = np.flatnonzero(data["phase"] == "CaptureHold")
         required = ["FarHandoff", "GNSSApproach", "VisualFusion", "VisualApproach", "PlatformHold", "ArmDeploy",
                     "ArmAlign", "FinalApproach", "ContactProxy", "Grasp", "CaptureConfirm", "CaptureHold"]
         checks.update(phase_order=phases == required, gap=.01 < h < .026, lateral=lateral < .006,
-                      angle=angle < 1, hold_duration=float(data["elapsed_s"][-1]-data["elapsed_s"][np.flatnonzero(data["phase"]=="CaptureHold")[0]]) >= 5)
+                      angle=angle < 1, hold_duration=bool(len(capture)) and float(data["elapsed_s"][-1]-data["elapsed_s"][capture[0]]) >= 5)
     else:
         safe = np.flatnonzero(data["phase"]=="SafeHold")
         checks.update(safe_hold=bool(len(safe)), never_latched="CaptureHold" not in phases)

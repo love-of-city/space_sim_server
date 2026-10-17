@@ -60,7 +60,12 @@ try {
 } finally {
     Pop-Location
 }
-$env:PYTHONPATH = Join-Path $projectRoot 'backend'
+# Bind both sides of the unified checkout. A shared virtual environment may
+# contain editable installs from another worktree; child flight processes must
+# use this launcher's server and configured rendering adapter together.
+$modulePaths = @((Join-Path $projectRoot 'backend'), $projectRoot)
+if ($AdapterRoot) { $modulePaths += Join-Path $AdapterRoot 'Adapters' }
+$env:PYTHONPATH = $modulePaths -join [IO.Path]::PathSeparator
 Set-Location $projectRoot
 $arguments = @('-m', 'space_arm_platform.main', '--host', $ApiHost, '--port', $ApiPort, '--simulation-port', $ControlPort,
     '--capture-port', $CapturePort, '--rendezvous-port', $RendezvousPort,

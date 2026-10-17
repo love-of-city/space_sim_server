@@ -1,6 +1,7 @@
 import { requestJson } from './api_client.js';
 
 const phases = {idle: '平台空闲', starting: '正在启动任务', flight: '交会运行中', ready: '交会已完成 · 可接续',
+  transitioning: '正在连续接入近距阶段',
   handoff: '正在接续遥操作', launching: '正在启动场景', starting_renderer: '正在启动 UE',
   starting_simulation: '正在启动仿真', running: '遥操作场景运行中', stopping: '正在停止任务',
   stopped: '任务已停止', failed: '任务未完成', completed: '任务已结束', unknown: '状态未知'};
@@ -36,7 +37,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     const near = state.missionMode.startsWith('near-field');
     $('missionSettingsNote').textContent = near
       ? '自动接近、机械臂对准及逻辑捕获保持。主视窗使用演示补光；暗处视觉能力尚未验证。'
-      : '使用团队双星模型，在 100 m 外保持后可接续遥操作。飞行期间自动导航与控制，机械臂输入停用。';
+      : '使用团队双星模型，按同一任务推进远距交会、近距接近与操作。当前近距视觉仍为参数化观测，捕获结果需区分逻辑代理与真实接触。';
     $('nearFieldSettings').hidden = !near;
     $('orbitalFlightOptions').hidden = near;
     $('missionHoldField').hidden = near;
@@ -61,8 +62,8 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     $('flightTelemetry').hidden = !view.flightView;
     $('controlHeading').textContent = view.flightView ? '双星交会任务' : '末端六维遥操作';
     $('controlDescription').textContent = view.flightView
-      ? near ? '近距闭环演示：GNSS → 视觉融合与接管 → 驻留 → 机械臂对准 → 夹取与逻辑捕获保持。双目为参数化观测。' : '自动完成轨道机动与双星交会，在 100 m 外保持后接续遥操作。C 进入自由视角，Home 返回主视角。' : intro;
-    $('startScene').textContent = flight ? '启动交会任务' : '生成并启动场景';
+      ? near ? '近距闭环演示：GNSS → 视觉融合与接管 → 驻留 → 机械臂对准 → 夹取与逻辑捕获保持。双目为参数化观测。' : '连续任务在原工作台推进，当前阶段与导航质量见遥测。C 进入自由视角，Home 返回主视角。' : intro;
+    $('startScene').textContent = flight ? '启动连续任务' : '生成并启动场景';
     $('stopScene').textContent = '停止任务';
     const configured = flight ? snapshot.runtime?.configured !== false : snapshot.scene?.enabled !== false;
     $('startScene').disabled = !available || !configured || stateFailed || !view.canStart || !!state.sceneTransitionPending;
@@ -122,7 +123,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     $('missionProvenance').textContent = mission.mission_id ? JSON.stringify({mission_id: mission.mission_id,
       creator: mission.created_by?.username || '历史任务', flight_output_dir: mission.flight_output_dir,
       source_run_id: mission.source_run_id, scene_instance_id: mission.scene_instance_id, episodes: mission.episodes,
-      options: mission.options}, null, 2) : '尚未创建任务';
+      stages: mission.stages, options: mission.options}, null, 2) : '尚未创建任务';
     const telemetry = mission.telemetry || {}, meta = telemetry.state?.metadata || {}, report = mission.report;
     const t = telemetry.sim_time_s ?? report?.final_time_s;
     const distance = meta.center_distance_m ?? telemetry.separation_m ?? report?.final_center_distance_m;
@@ -182,6 +183,11 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     async load() {
       catalog = await requestJson('/api/mission/catalog', {}, apiRequest);
       $('missionMode').replaceChildren(...catalog.modes.map(m => new Option(m.label, m.id)));
+      if (!snapshot.mission_id) {
+        for (const [id, key] of Object.entries(fields)) {
+          if (catalog.flight_defaults?.[key] != null) $(id).value = String(catalog.flight_defaults[key]);
+        }
+      }
       available = true;
       configure();
     },
@@ -196,7 +202,10 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       const options = near ? {seed: Number($('missionSeed').value), vision_loss_phase: $('nearFieldFailure').value}
         : Object.fromEntries(Object.entries(fields).map(([id, key]) => [key, Number($(id).value)]));
       if (!near) { options.drag_enabled = $('missionDrag').checked; options.srp_enabled = $('missionSrp').checked; }
-      await act('/api/mission/start', {mode: state.missionMode, scene: {template_id: $('sceneTemplate').value}, options});
+      const continuous = !near && catalog.continuous_default === true;
+      if (continuous) options.differential_gnss = {...catalog.flight_defaults.differential_gnss,
+        absolute_position_sigma_m: options.gnss_position_sigma_m, absolute_velocity_sigma_m_s: options.gnss_velocity_sigma_m_s};
+      await act('/api/mission/start', {mode: state.missionMode, scene: {template_id: $('sceneTemplate').value}, options, continuous});
     },
   };
 }

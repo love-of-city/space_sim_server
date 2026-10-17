@@ -1361,6 +1361,12 @@ def _run_session(
             validate_handoff(flight_handoff, native.MODEL_PATH)
             apply_handoff(scene, flight_handoff)
             scene.postIntegration(0)
+            # A near-field handoff may contain a deployed arm and closed
+            # fingers. Seed the operator's hold references from those joints.
+            targets.initial_position = np.array([
+                float(scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
+                for body, joint in native.JOINTS])
+            targets.reset(0.0)
             for saved in flight_handoff["state"]["bodies"]:
                 body_name = "capture_target" if saved["body_id"] == "rendezvous/target" else "cubesat_bus"
                 actual = scene.getBody(body_name).getOrigin().stateOutMsg.read()

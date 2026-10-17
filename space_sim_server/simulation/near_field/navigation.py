@@ -19,7 +19,7 @@ def origin_navigation(handoff):
     hence P_relative = P_target + P_chaser; correlated inputs need cross terms.
     """
     estimates = np.array(handoff["gnss_estimates_eci"], dtype=float).copy()
-    if not handoff.get("source_kind", "").startswith("synthetic"):
+    if handoff.get("navigation_reference") != "body_origin" and not handoff.get("source_kind", "").startswith("synthetic"):
         bodies = {b["body_id"]: b for b in handoff["state"]["bodies"]}
         for i, (role, name) in enumerate((("target", "capture_target"), ("chaser", "cubesat_bus"))):
             body = bodies[f"rendezvous/{role}"]

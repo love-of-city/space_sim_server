@@ -108,6 +108,7 @@ class MissionStart(BaseModel):
     scene: SceneInstanceCreate = Field(default_factory=SceneInstanceCreate)
     options: dict[str, Any] = Field(default_factory=dict)
     live: StrictBool = True
+    continuous: StrictBool = False
 
 
 class OperatorSessions:
@@ -615,7 +616,12 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.get("/api/mission/catalog")
     async def mission_catalog():
-        return {"modes": MISSION_MODES, "flight_defaults": FlightOptions().to_dict()}
+        from .gnss_config import GNSSConfig
+        receiver = GNSSConfig()
+        defaults = FlightOptions().to_dict()
+        defaults.update(differential_gnss=receiver.to_dict(), gnss_position_sigma_m=receiver.absolute_position_sigma_m,
+                        gnss_velocity_sigma_m_s=receiver.absolute_velocity_sigma_m_s)
+        return {"modes": MISSION_MODES, "flight_defaults": defaults, "continuous_default": True}
 
     @app.get("/api/mission/state")
     async def mission_state(request: Request):
@@ -631,7 +637,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             if payload.scene.template_id != SELF_COLLISION_TEMPLATE:
                 raise ValueError("交会任务仅支持团队 SARM + 地面验证星默认模型")
             return await missions.start_flight(user, scenario=payload.mode, options=payload.options,
-                                                live=payload.live, background=True)
+                                                live=payload.live, background=True, continuous=payload.continuous)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except RuntimeError as error:

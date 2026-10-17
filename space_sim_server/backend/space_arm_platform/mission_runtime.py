@@ -20,14 +20,13 @@ from .models import SceneInstanceCreate
 from .rendezvous_config import FlightOptions
 from .near_field_config import NearFieldOptions
 from .scene_targets import SELF_COLLISION_TEMPLATE
+from .gnss_config import GNSSConfig
 
 
 MISSION_MODES = (
-    {"id": "teleop", "label": "直接遥操作", "template_ids": None},
-    {"id": "team-in-orbit", "label": "7 km 交会 → 遥操作", "template_ids": [SELF_COLLISION_TEMPLATE]},
-    {"id": "team-orbit-raise", "label": "300 → 500 km 升轨交会 → 遥操作", "template_ids": [SELF_COLLISION_TEMPLATE]},
-    {"id": "near-field", "label": "110 m 初态 → 近距自主捕获代理演示", "template_ids": [SELF_COLLISION_TEMPLATE]},
-    {"id": "near-field-resume", "label": "接续上次 110 m 结果 → 近距捕获代理", "template_ids": [SELF_COLLISION_TEMPLATE]},
+    {"id": "teleop", "label": "从机械臂操作场景开始", "template_ids": None},
+    {"id": "team-in-orbit", "label": "从 7 km 交会开始", "template_ids": [SELF_COLLISION_TEMPLATE]},
+    {"id": "team-orbit-raise", "label": "从 300 km 入轨状态开始", "template_ids": [SELF_COLLISION_TEMPLATE]},
 )
 
 
@@ -39,6 +38,7 @@ class MissionRuntime:
         self._record = None
         self._operation = None
         self._task = None
+        self._monitor = None
         self._stop_requested = False
         latest = root / "latest.json"
         if latest.is_file():
@@ -92,6 +92,8 @@ class MissionRuntime:
             raise PermissionError("只能管理自己创建的任务")
 
     def require_available(self):
+        if self._monitor and not self._monitor.done() and asyncio.current_task() is not self._monitor:
+            raise RuntimeError("连续任务尚未结束，请先停止当前任务")
         if self._operation or self._stop_requested or self.scenes.status().get("active") or self.flight.status().get("running"):
             raise RuntimeError("请先停止当前任务，再启动新任务")
         if self.capture_busy():
@@ -130,14 +132,18 @@ class MissionRuntime:
             raise error
         return result
 
-    async def start_flight(self, user, *, scenario, options, live=True, mode="simulation", background=False):
+    async def start_flight(self, user, *, scenario, options, live=True, mode="simulation", background=False, continuous=False):
         near = scenario in {"near-field", "near-field-resume"}
+        if continuous:
+            if scenario not in {"team-in-orbit", "team-orbit-raise"} or mode != "simulation":
+                raise ValueError("连续流程必须从真实远距场景开始")
+            options = {**options, "differential_gnss": options.get("differential_gnss") or GNSSConfig().to_dict()}
         resolved = (NearFieldOptions if near else FlightOptions).from_dict(options).to_dict()
         if scenario not in {"legacy", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"}:
             raise ValueError("未知交会任务模式")
         self.require_available()
         self._new(scenario, user)
-        self._record.update(options=resolved, live=live)
+        self._record.update(options=resolved, live=live, continuous=continuous, flight_phase="far", stages=[])
         previous_run = self.telemetry.status().get("run_id")
         self.flight.prepare_start()
 
@@ -148,9 +154,57 @@ class MissionRuntime:
             if self.telemetry.status().get("run_id") == previous_run:
                 self.telemetry.clear_cached_state()
             self._record["flight_output_dir"] = result.get("output_dir")
+            if continuous:
+                self._monitor = asyncio.create_task(self._continue_mission(user, self._record["mission_id"]), name="continuous-mission")
             return result
 
         return await self._begin("starting", work, background)
+
+    async def _continue_mission(self, user, mission_id):
+        """Advance accepted physical results without changing mission identity."""
+        try:
+            while self._record and self._record.get("mission_id") == mission_id:
+                await asyncio.sleep(.25)
+                if self._stop_requested or self._record.get("stopped"):
+                    return
+                if self._operation:
+                    continue
+                runtime = self.flight.status()
+                if runtime.get("running"):
+                    continue
+                report = runtime.get("report") or {}
+                if runtime.get("output_dir") != self._record.get("flight_output_dir"):
+                    raise RuntimeError("连续任务的运行来源发生变化")
+                if not report.get("basic_nominal_passed") or runtime.get("exit_code") not in (None, 0):
+                    raise RuntimeError(f"{self._record['flight_phase']} 阶段未通过验收，连续流程已停止")
+                phase = self._record["flight_phase"]
+                self._record["stages"].append({"phase": phase, "output_dir": self._record["flight_output_dir"],
+                                                "outcome": report.get("outcome"), "final_time_s": report.get("final_time_s")})
+                self._save()
+                if phase == "far":
+                    self.require_available()
+                    self.flight.prepare_start()
+                    async def near_work():
+                        previous_run = self.telemetry.status().get("run_id")
+                        result = await asyncio.to_thread(self.flight.start, self._record["live"], "simulation",
+                            "near-field-resume", NearFieldOptions(seed=self._record["options"]["seed"]).to_dict())
+                        if self.telemetry.status().get("run_id") == previous_run:
+                            self.telemetry.clear_cached_state()
+                        self._record.update(flight_phase="near", flight_output_dir=result.get("output_dir"))
+                        return result
+                    await self._begin("transitioning", near_work, False)
+                else:
+                    await self.handoff(user, background=False)
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            if self._record and self._record.get("mission_id") == mission_id:
+                self._record["error"] = str(error)
+                self._save()
+        finally:
+            if self._monitor is asyncio.current_task():
+                self._monitor = None
 
     async def start_scene(self, request, user, *, background=False):
         self.require_available()
@@ -202,6 +256,9 @@ class MissionRuntime:
         if self._operation == "stopping" or self._stop_requested:
             raise RuntimeError("任务正在停止")
         self._stop_requested = True
+        if self._monitor:
+            self._monitor.cancel()
+            await asyncio.gather(self._monitor, return_exceptions=True)
         pending = self._task if self._operation else None
         if pending:
             self.flight.cancel_start()
@@ -257,12 +314,12 @@ class MissionRuntime:
         elif record.get("error"):
             phase = "failed"
         elif is_flight:
-            phase = "flight" if flight.get("running") else ("completed" if record.get("mode", "").startswith("near-field") else "ready") if report and report.get("basic_nominal_passed") else "failed"
+            phase = "flight" if flight.get("running") else ("completed" if record.get("flight_phase") == "near" or record.get("mode", "").startswith("near-field") else "ready") if report and report.get("basic_nominal_passed") else "failed"
         else:
             phase = scene.get("phase", "idle") if record else "idle"
         if not is_flight or not same_flight or self._operation == "starting":
             telemetry = {"connected": False, "state": None}
-        active = bool(self._operation or scene.get("active") or flight.get("running"))
+        active = bool(self._operation or scene.get("active") or flight.get("running") or (self._monitor and not self._monitor.done()))
         can_handoff = bool(report and report.get("basic_nominal_passed") and not record.get("mode", "").startswith("near-field") and not active
                            and (not record.get("scene_instance_id") or record.get("stopped")
                                 or scene.get("phase") in {"stopped", "failed", "completed"}))
@@ -274,6 +331,9 @@ class MissionRuntime:
                 "scene": scene}
 
     async def close(self):
+        if self._monitor:
+            self._monitor.cancel()
+            await asyncio.gather(self._monitor, return_exceptions=True)
         if self._task and not self._task.done():
             self.flight.cancel_start()
             await self._task

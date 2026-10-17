@@ -14,6 +14,13 @@ OTHER = {"user_id": "operator-b", "username": "b", "role": "operator"}
 ADMIN = {"user_id": "admin", "username": "admin", "role": "admin"}
 
 
+async def wait_for_condition(predicate):
+    async def wait():
+        while not predicate():
+            await asyncio.sleep(.01)
+    await asyncio.wait_for(wait(), 4)
+
+
 class Flight:
     def __init__(self, root):
         self.output_dir = None
@@ -63,6 +70,62 @@ def setup(tmp_path):
     busy = [False]
     manager = MissionRuntime(tmp_path / "missions", scenes, flight, telemetry, lambda: busy[0])
     return manager, flight, scenes, busy, scene_state
+
+
+def test_continuous_mission_preserves_identity_and_orders_accepted_phases(tmp_path, monkeypatch):
+    async def run():
+        manager, flight, scenes, _, scene_state = setup(tmp_path)
+        starts, scene_starts = [], []
+        def start(live, mode, scenario, options):
+            starts.append((scenario, options))
+            flight.output_dir = tmp_path / f'flight-{len(starts)}'
+            flight.running, flight.report = True, None
+            return flight.status()
+        flight.start = start
+        def scene_start(request, user, **kwargs):
+            scene_starts.append(kwargs)
+            scene_state.update(active=True, phase='running')
+            return {'instance_id':'continuous-operation'}
+        scenes.start = scene_start
+        monkeypatch.setattr('simulation.orbital_rendezvous.handoff.load_handoff',
+                            lambda *args: {'accepted':True,'state':{'metadata':{'run_id':'near-source'}}})
+        await manager.start_flight(OWNER, scenario='team-in-orbit', options={}, continuous=True)
+        identity = manager.status(OWNER)['mission_id']
+        assert starts[0][1]['differential_gnss']['relative_position_sigma_m'] == .03
+        flight.running, flight.report = False, {'basic_nominal_passed':True, 'outcome':'far accepted'}
+        with pytest.raises(RuntimeError, match='连续任务'):
+            await manager.start_scene(SceneInstanceCreate(), OWNER)
+        await wait_for_condition(lambda: len(starts) == 2)
+        await wait_for_condition(lambda: manager._operation is None)
+        assert starts[1][0] == 'near-field-resume'
+        flight.running, flight.report = False, {'basic_nominal_passed':True, 'outcome':'CaptureHold'}
+        await wait_for_condition(lambda: manager._monitor is None)
+        status = manager.status(OWNER)
+        assert status['mission_id'] == identity and status['stage'] == 'teleop'
+        assert [stage['phase'] for stage in status['stages']] == ['far','near']
+        assert scene_starts[0]['mission']['mission_id'] == identity
+        assert status['source_run_id'] == 'near-source'
+        await manager.close()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('stop', [False, True])
+def test_continuous_failure_or_user_stop_never_launches_the_next_phase(tmp_path, stop):
+    async def run():
+        manager, flight, _, _, _ = setup(tmp_path)
+        flight.proceed.set()
+        await manager.start_flight(OWNER, scenario='team-orbit-raise', options={}, continuous=True)
+        if stop:
+            await manager.stop(OWNER, None)
+        else:
+            flight.running, flight.report = False, {'basic_nominal_passed':False}
+            await wait_for_condition(lambda: manager._monitor is None)
+        await asyncio.sleep(.3)
+        assert flight.calls == 1
+        assert manager.status(OWNER)['phase'] == ('stopped' if stop else 'failed')
+        assert not manager.status(OWNER)['active']
+        await manager.close()
+    asyncio.run(run())
 
 
 def test_background_admission_blocks_both_executors_and_retains_creator(tmp_path):

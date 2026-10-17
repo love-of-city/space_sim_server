@@ -69,3 +69,23 @@ def test_maneuvering_body_origin_does_not_look_like_a_lost_gnss_link():
     assert np.linalg.norm(estimator.x[:3]-truth[:3]) < .05
     assert not estimator.update({'source':'gnss','stamp':30.1,'z':truth+1000,
                                  'R':np.diag(sigmas**2)}, 30.1)
+
+
+def test_settled_navigation_resolves_stationary_hold_without_relaxing_velocity_limit():
+    from simulation.near_field.navigation import RelativeEKF
+    rng = np.random.default_rng(31)
+    estimator = RelativeEKF(np.zeros(6), np.eye(6), acceleration_sigma_m_s2=.003)
+    errors = []
+    for tick in range(2001):
+        t = tick*.05
+        estimator.predict(.05 if tick else 0, np.zeros(3), np.zeros((3, 3)))
+        if tick % 2 == 0:
+            for source, sigmas in [('gnss', np.array([.03]*3+[.002]*3)),
+                                   ('stereo', np.full(3, .0007))]:
+                estimator.update({'source':source, 'stamp':t, 'z':rng.normal(size=len(sigmas))*sigmas,
+                                  'R':np.diag(sigmas**2)}, t)
+        if t > 50:
+            errors.append(np.linalg.norm(estimator.x[3:]))
+    assert np.sqrt(np.mean(np.square(errors))) < .001
+    assert np.quantile(errors, .99) < .002
+    assert estimator.accepted['gnss'] > 990

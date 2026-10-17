@@ -115,7 +115,7 @@
         </div>
         <p id="missionStatus" class="mission-note" role="status" aria-live="polite">选择任务后启动</p>
         <div class="scene-form">
-          <label>任务模式<select id="missionMode"><option value="teleop">直接遥操作</option></select></label>
+          <label>任务起始条件<select id="missionMode"><option value="teleop">从机械臂操作场景开始</option></select></label>
           <label>场景模板
             <select id="sceneTemplate" aria-describedby="sceneCollisionWarning"><option value="sarm-ground-validation-self-collision-grasp">SARM + 地面验证星（粗碰撞体·内部碰撞）</option></select>
           </label>
@@ -208,14 +208,14 @@
             <details id="orbitalFlightOptions" class="mission-options">
               <summary>环境与误差参数</summary>
               <div class="initial-joint-grid">
-                <label>GNSS 位置 σ（m）<input id="missionGnssPosition" type="number" min="0.001" max="100" step="any" value="3" required></label>
-                <label>GNSS 速度 σ（m/s）<input id="missionGnssVelocity" type="number" min="0.00001" max="10" step="any" value="0.5" required></label>
+                <label>GNSS 绝对位置每轴 σ（m）<input id="missionGnssPosition" type="number" min="0.001" max="100" step="any" value="0.5773502692" required></label>
+                <label>GNSS 绝对速度每轴 σ（m/s）<input id="missionGnssVelocity" type="number" min="0.00001" max="10" step="any" value="0.0011547005" required></label>
                 <label>初始位置 σ（m）<input id="missionInitialPosition" type="number" min="0" max="1000" step="any" value="10" required></label>
                 <label>轨道扰动 σ（m/s²）<input id="missionOrbitNoise" type="number" min="0" max="0.001" step="any" value="0.00002" required></label>
               </div>
               <label class="scene-checkbox"><input id="missionDrag" type="checkbox" checked>大气阻力</label>
               <label class="scene-checkbox"><input id="missionSrp" type="checkbox" checked>太阳光压（含地影）</label>
-              <small>双星独立 GNSS 噪声按各轴 1σ 设置；随机扰动实际作用于动力学。地影阶段沿用默认无补光，画面可能变暗。</small>
+              <small>远近距共享双星 GNSS 配置和差分观测；误差按各轴 1σ 设置。随机扰动实际作用于动力学，地影可能使画面变暗。</small>
             </details>
           </div>
         </div>

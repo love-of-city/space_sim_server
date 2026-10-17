@@ -10,12 +10,48 @@ test('flight keeps robot controls closed and exposes stop only to its owner', ()
   assert.equal(missionPresentation({...run, can_manage: false}).canStop, false);
 });
 
-test('an accepted flight offers an explicit owned handoff, never automatic control', () => {
+test('an accepted manual flight offers an explicit owned handoff', () => {
   const ready = {stage: 'flight', phase: 'ready', active: false, can_manage: true, can_handoff: true};
   assert.equal(missionPresentation(ready).canHandoff, true);
   assert.equal(missionPresentation(ready).flightView, true);
   assert.equal(missionPresentation({...ready, can_manage: false}).canHandoff, false);
   assert.equal(missionPresentation({...ready, can_handoff: false}).showHandoff, false);
+});
+
+test('continuous start uses the shared receiver defaults in the existing mission request', async () => {
+  const previousDocument = globalThis.document, previousOption = globalThis.Option;
+  globalThis.document = {body: {classList: {toggle() {}}}};
+  globalThis.Option = class { constructor(label, value) { this.value = value; } };
+  const nodes = new Map(), requests = [];
+  const ctx = {clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}};
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value: id === 'missionMode' ? 'team-in-orbit' : '', textContent: '', checked: true,
+      addEventListener() {}, replaceChildren() {}, querySelectorAll: () => [], getContext: () => ctx, width: 620, height: 200});
+    return nodes.get(id);
+  };
+  const receiver = {absolute_position_sigma_m: .577, absolute_velocity_sigma_m_s: .001155,
+    relative_position_sigma_m: .03, relative_velocity_sigma_m_s: .0015, sample_rate_hz: 10, delay_s: 0};
+  try {
+    const panel = createMissionPanel({$, state: {streamLive: false}, message() {}, reconnect() {}, configureScene() {},
+      refresh: async () => {}, apiRequest: async (path, init) => {
+        requests.push([path, init]);
+        return {ok: true, status: 200, json: async () => path.endsWith('catalog') ? {
+          modes: [{id: 'team-in-orbit'}], continuous_default: true,
+          flight_defaults: {seed: 7, handoff_distance_m: 110, gnss_position_sigma_m: .577,
+            gnss_velocity_sigma_m_s: .001155, initial_position_sigma_m: 5, orbit_acceleration_sigma_m_s2: 0,
+            differential_gnss: receiver}} : {stage: 'flight', phase: 'starting', active: true}};
+      }});
+    await panel.load();
+    panel.render({});
+    $('missionGnssPosition').value = '.6';
+    await panel.startFlight();
+    const [path, init] = requests.at(-1), request = JSON.parse(init.body);
+    assert.equal(path, '/api/mission/start');
+    assert.equal(request.continuous, true);
+    assert.equal(request.mode, 'team-in-orbit');
+    assert.deepEqual(request.options.differential_gnss, {...receiver, absolute_position_sigma_m: .6});
+    assert.equal(request.options.gnss_position_sigma_m, .6);
+  } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
 });
 
 test('the same mission returns to original teleoperation panels only after handoff', () => {

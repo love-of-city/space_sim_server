@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import socket
@@ -246,6 +247,31 @@ def run(args):
               "nominal_platform_origin_to_grasp_m": float(np.linalg.norm(NOMINAL_TCP)),
               "nominal_origins_delta_m": (NOMINAL_TCP - GRASP_TARGET).tolist()}
     (output / "mission_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    # Preserve the actual articulated terminal state for the existing operator
+    # scene. A logical capture remains labelled as such; no weld is introduced.
+    handoff = copy.deepcopy(incoming)
+    handoff.update(accepted=all(checks.values()), state=packet(scene, final, run_id),
+                   model_configuration="restore recorded articulated joint positions and velocities",
+                   source_kind="near-field terminal; capture remains a logical proxy",
+                   navigation_reference="body_origin",
+                   navigation_sample_time_s=final["t"] - (.05 if final["elapsed_s"] > 0 else 0),
+                   environment_state=[module.snapshot() for module in environment.models])
+    for item in handoff["stowed_joints"]:
+        joint = scene.getBody(item["body"]).getScalarJoint(item["joint"]["name"])
+        item["position"] = float(joint.stateOutMsg.read().state)
+        item["velocity"] = float(joint.stateDotOutMsg.read().state)
+    handoff["reaction_wheels"] = [{"body": wheel.body, "joint": wheel.joint,
+        "position_rad": float(joint.stateOutMsg.read().state), "speed_rad_s": float(joint.stateDotOutMsg.read().state)}
+        for wheel, joint in zip(attitude.wheels, attitude.joints)]
+    # Only relative navigation is updated by this phase. Preserve that estimate
+    # exactly; absolute target propagation is explicitly identified, not truth.
+    handoff["gnss_estimates_eci"] = [control.target_orbit.tolist(), (control.target_orbit-control.nav.x).tolist()]
+    target_P = control.target_covariance
+    handoff["covariances"] = [target_P.tolist(), (target_P+control.nav.P).tolist()]
+    handoff["gnss_cross_covariance_eci"] = target_P.tolist()
+    handoff["navigation_absolute_source"] = "propagated target estimate with conservative uncertainty; relative EKF updated"
+    handoff["gnss_receiver_state"] = control.sensors.receiver.snapshot() if control.sensors.receiver else None
+    (output / "handoff.json").write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8")
     np.savez_compressed(output / "team_telemetry.npz", **{k: [r[k] for r in rows] for k in (
         "t", "elapsed_s", "phase", "truth", "estimate", "covariance", "force_n", "joints", "joint_reference",
         "tcp_gap_m", "truth_tcp_gap_m", "truth_lateral_error_m", "relative_speed_m_s", "position_sigma_m",

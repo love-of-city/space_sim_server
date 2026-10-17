@@ -41,6 +41,7 @@ class NearController(sysModel.SysModel):
         self.handoff_time = float(handoff["state"]["sim_time_s"])
         estimates, covariance = origin_navigation(handoff)
         self.target_orbit = estimates[0].copy()
+        self.target_covariance = np.asarray(handoff["covariances"][0], dtype=float).copy()
         self.orbital_guidance = guidance_frame(handoff) == "orbital-vbar"
         # Navigation is at body origins, which accelerate around the assembly
         # COM during wheel slew and cooperative target despin. The old quiet
@@ -137,6 +138,19 @@ class NearController(sysModel.SysModel):
         grasp_tool = stereo_rotation.T @ (grasp - truth[1, :3])
         radius = np.linalg.norm(self.target_orbit[:3])
         gradient = MU * (3 * np.outer(self.target_orbit[:3], self.target_orbit[:3]) / radius**5 - np.eye(3) / radius**3)
+        # Despin and arm deployment accelerate body origins relative to their
+        # assembly COMs. Once pointing is acquired, use the settled-flight
+        # disturbance model; retaining slew noise makes velocity estimates too
+        # noisy to certify a five-second stationary hold. Never reset P or x.
+        if self.orbital_guidance:
+            self.nav.acceleration_sigma_m_s2 = .05 if self.phase in {"FarHandoff", "ArmDeploy"} else .003
+        absolute_transition = np.eye(6)
+        absolute_transition[:3, 3:] = dt*np.eye(3)
+        absolute_transition[3:, :3] = dt*gradient
+        absolute_transition[:3, :3] += .5*dt*dt*gradient
+        acceleration_noise = np.vstack((.5*dt*dt*np.eye(3), dt*np.eye(3)))
+        self.target_covariance = (absolute_transition @ self.target_covariance @ absolute_transition.T
+            + acceleration_noise @ acceleration_noise.T * self.nav.acceleration_sigma_m_s2**2)
         self.nav.predict(dt, -self.force / self.mass, gradient)
         self.target_orbit[:3] += self.target_orbit[3:] * dt - 0.5 * MU * self.target_orbit[:3] / radius**3 * dt**2
         self.target_orbit[3:] -= MU * self.target_orbit[:3] / np.linalg.norm(self.target_orbit[:3])**3 * dt
@@ -308,6 +322,7 @@ class NearController(sysModel.SysModel):
             "relative_speed_m_s": speed, "position_sigma_m": self.nav.sigma_m,
             "guidance_frame": "orbital-vbar" if self.orbital_guidance else "inertial-fixture",
             "navigation_last_nis": self.nav.last_nis,
+            "navigation_acceleration_sigma_m_s2": self.nav.acceleration_sigma_m_s2,
             "navigation_rejection_reasons": dict(self.nav.rejection_reasons),
             "chaser_pointing_error_deg": float(np.rad2deg(chaser_angle)) if self.orbital_guidance else None,
             "target_pointing_error_deg": float(np.rad2deg(target_angle)),

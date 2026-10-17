@@ -42,6 +42,12 @@ def validate_handoff(data, source_model: Path):
                 raise ValueError(f"Invalid handoff {key}")
         if not np.isclose(np.linalg.norm(body["attitude_wxyz"]), 1.0, atol=1e-6):
             raise ValueError("Handoff quaternion must be normalized")
+    for item in data.get("stowed_joints", []):
+        if not np.isfinite([item["position"], item.get("velocity", 0.)]).all():
+            raise ValueError("Handoff joint position and velocity must be finite")
+    for wheel in data.get("reaction_wheels", []):
+        if not np.isfinite([wheel["position_rad"], wheel["speed_rad_s"]]).all():
+            raise ValueError("Handoff wheel state must be finite")
     return data
 
 
@@ -57,7 +63,7 @@ def apply_handoff(scene, data):
     for item in data["stowed_joints"]:
         joint = scene.getBody(item["body"]).getScalarJoint(item["joint"]["name"])
         joint.setPosition(float(item["position"]))
-        joint.setVelocity(0.0)
+        joint.setVelocity(float(item.get("velocity", 0.0)))
     for wheel in data["reaction_wheels"]:
         joint = scene.getBody(wheel["body"]).getScalarJoint(wheel["joint"])
         joint.setPosition(float(wheel["position_rad"]))

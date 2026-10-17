@@ -70,7 +70,7 @@ def main():
         joint_errors.append(
             abs(float(joint.stateOutMsg.read().state) - item["position"])
         )
-        joint_errors.append(abs(float(joint.stateDotOutMsg.read().state)))
+        joint_errors.append(abs(float(joint.stateDotOutMsg.read().state) - item.get("velocity", 0.0)))
     for wheel in data["reaction_wheels"]:
         joint = scene.getBody(wheel["body"]).getScalarJoint(wheel["joint"])
         joint_errors.append(abs(float(joint.stateOutMsg.read().state) - wheel["position_rad"]))

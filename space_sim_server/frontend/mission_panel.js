@@ -154,7 +154,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     const chaser = bodies.find(b => b.body_id === 'rendezvous/chaser'), target = bodies.find(b => b.body_id === 'rendezvous/target');
     $('missionAltitude').textContent = chaser ? number((Math.hypot(...chaser.position_m) - 6378136.6) / 1000, 3, 'km') : '—';
     $('missionSpeed').textContent = Number.isFinite(nearMeta.relative_speed_m_s) ? number(nearMeta.relative_speed_m_s, 4, 'm/s') : chaser && target ? number(Math.hypot(...chaser.velocity_m_s.map((v, i) => v - target.velocity_m_s[i])), 3, 'm/s') : '—';
-    $('missionResult').textContent = report ? `任务验收 · ${report.basic_nominal_passed ? '通过' : '未通过'}` : '等待任务验收';
+    $('missionResult').textContent = report ? `${report.outcome === 'SafeHold' ? '安全保持验证' : '任务验收'} · ${report.basic_nominal_passed ? '通过' : '未通过'}` : '等待任务验收';
     $('missionFiles').hidden = !report;
     for (const link of $('missionFiles').querySelectorAll('a')) {
       let path = link.getAttribute('href').split('?')[0];

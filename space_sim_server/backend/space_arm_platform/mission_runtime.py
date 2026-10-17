@@ -183,9 +183,10 @@ class MissionRuntime:
                 report = runtime.get("report") or {}
                 if runtime.get("output_dir") != self._record.get("flight_output_dir"):
                     raise RuntimeError("连续任务的运行来源发生变化")
-                if not report.get("basic_nominal_passed") or runtime.get("exit_code") not in (None, 0):
-                    raise RuntimeError(f"{self._record['flight_phase']} 阶段未通过验收，连续流程已停止")
                 phase = self._record["flight_phase"]
+                if (not report.get("basic_nominal_passed") or runtime.get("exit_code") not in (None, 0)
+                        or (phase == "near" and report.get("outcome") != "CaptureHold")):
+                    raise RuntimeError(f"{self._record['flight_phase']} 阶段未通过验收，连续流程已停止")
                 self._record["stages"].append({"phase": phase, "output_dir": self._record["flight_output_dir"],
                                                 "outcome": report.get("outcome"), "final_time_s": report.get("final_time_s")})
                 self._save()

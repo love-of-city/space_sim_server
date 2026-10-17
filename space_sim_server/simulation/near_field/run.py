@@ -250,7 +250,7 @@ def run(args):
     # Preserve the actual articulated terminal state for the existing operator
     # scene. A logical capture remains labelled as such; no weld is introduced.
     handoff = copy.deepcopy(incoming)
-    handoff.update(accepted=all(checks.values()), state=packet(scene, final, run_id),
+    handoff.update(accepted=normal and all(checks.values()), state=packet(scene, final, run_id),
                    model_configuration="restore recorded articulated joint positions and velocities",
                    source_kind="near-field terminal; capture remains a logical proxy",
                    navigation_reference="body_origin",

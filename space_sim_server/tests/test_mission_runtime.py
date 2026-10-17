@@ -72,7 +72,8 @@ def setup(tmp_path):
     return manager, flight, scenes, busy, scene_state
 
 
-def test_continuous_mission_preserves_identity_and_orders_accepted_phases(tmp_path, monkeypatch):
+@pytest.mark.parametrize('near_outcome', ['CaptureHold', 'SafeHold'])
+def test_continuous_mission_preserves_identity_and_orders_accepted_phases(tmp_path, monkeypatch, near_outcome):
     async def run():
         manager, flight, scenes, _, scene_state = setup(tmp_path)
         starts, scene_starts = [], []
@@ -99,9 +100,15 @@ def test_continuous_mission_preserves_identity_and_orders_accepted_phases(tmp_pa
         await wait_for_condition(lambda: len(starts) == 2)
         await wait_for_condition(lambda: manager._operation is None)
         assert starts[1][0] == 'near-field-resume'
-        flight.running, flight.report = False, {'basic_nominal_passed':True, 'outcome':'CaptureHold'}
+        flight.running, flight.report = False, {'basic_nominal_passed':True, 'outcome':near_outcome}
         await wait_for_condition(lambda: manager._monitor is None)
         status = manager.status(OWNER)
+        if near_outcome == 'SafeHold':
+            assert status['phase'] == 'failed' and status['stage'] == 'flight'
+            assert [stage['phase'] for stage in status['stages']] == ['far']
+            assert not scene_starts
+            await manager.close()
+            return
         assert status['mission_id'] == identity and status['stage'] == 'teleop'
         assert [stage['phase'] for stage in status['stages']] == ['far','near']
         assert scene_starts[0]['mission']['mission_id'] == identity

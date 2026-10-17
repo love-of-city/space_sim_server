@@ -92,6 +92,7 @@ def test_continuous_mission_preserves_identity_and_orders_accepted_phases(tmp_pa
         await manager.start_flight(OWNER, scenario='team-in-orbit', options={}, continuous=True)
         identity = manager.status(OWNER)['mission_id']
         assert starts[0][1]['differential_gnss']['relative_position_sigma_m'] == .03
+        assert starts[0][1]['gnss_position_sigma_m'] == starts[0][1]['differential_gnss']['absolute_position_sigma_m']
         flight.running, flight.report = False, {'basic_nominal_passed':True, 'outcome':'far accepted'}
         with pytest.raises(RuntimeError, match='连续任务'):
             await manager.start_scene(SceneInstanceCreate(), OWNER)
@@ -114,7 +115,11 @@ def test_continuous_failure_or_user_stop_never_launches_the_next_phase(tmp_path,
     async def run():
         manager, flight, _, _, _ = setup(tmp_path)
         flight.proceed.set()
-        await manager.start_flight(OWNER, scenario='team-orbit-raise', options={}, continuous=True)
+        await manager.start_flight(OWNER, scenario='team-orbit-raise',
+                                   options={'gnss_position_sigma_m': .8, 'gnss_velocity_sigma_m_s': .004}, continuous=True)
+        effective = manager.status(OWNER)['options']['differential_gnss']
+        assert effective['absolute_position_sigma_m'] == .8
+        assert effective['absolute_velocity_sigma_m_s'] == .004
         if stop:
             await manager.stop(OWNER, None)
         else:

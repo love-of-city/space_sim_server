@@ -137,7 +137,15 @@ class MissionRuntime:
         if continuous:
             if scenario not in {"team-in-orbit", "team-orbit-raise"} or mode != "simulation":
                 raise ValueError("连续流程必须从真实远距场景开始")
-            options = {**options, "differential_gnss": options.get("differential_gnss") or GNSSConfig().to_dict()}
+            receiver = GNSSConfig().to_dict()
+            for old, new in (("gnss_position_sigma_m", "absolute_position_sigma_m"),
+                             ("gnss_velocity_sigma_m_s", "absolute_velocity_sigma_m_s")):
+                if old in options:
+                    receiver[new] = options[old]
+            receiver = GNSSConfig.from_dict(options.get("differential_gnss") or receiver)
+            options = {**options, "differential_gnss": receiver.to_dict(),
+                       "gnss_position_sigma_m": receiver.absolute_position_sigma_m,
+                       "gnss_velocity_sigma_m_s": receiver.absolute_velocity_sigma_m_s}
         resolved = (NearFieldOptions if near else FlightOptions).from_dict(options).to_dict()
         if scenario not in {"legacy", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"}:
             raise ValueError("未知交会任务模式")

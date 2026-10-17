@@ -75,7 +75,7 @@ def test_handoff_com_conversion_inherits_covariance_and_time_without_mutation():
                            attitude_wxyz=ep, angular_velocity_rad_s=omega.tolist()))
         props[name] = {"center_body_m": c}
         estimates.append(np.r_[np.array(p)+R@c, np.array([0, 10, 0])+R@np.cross(omega, c)].tolist())
-    handoff = dict(state={"sim_time_s": 123.45, "bodies": bodies}, body_properties=props,
+    handoff = dict(guidance_frame="inertial-fixture", state={"sim_time_s": 123.45, "bodies": bodies}, body_properties=props,
                    gnss_estimates_eci=estimates, covariances=[np.eye(6).tolist(), (2*np.eye(6)).tolist()], stowed_joints=[])
     before = copy.deepcopy(handoff)
     states, P = origin_navigation(handoff)

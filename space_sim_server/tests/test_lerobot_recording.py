@@ -61,6 +61,7 @@ def test_finish_avoids_windows_spawn_only_for_small_videos(tmp_path, monkeypatch
                               save_episode=Mock(), finalize=Mock(), stop_image_writer=Mock())
     writer = object.__new__(lerobot_capture.LiveLeRobotWriter)
     writer.dataset, writer.root, writer.frames = dataset, tmp_path, frames
+    writer.wrench_stream = lerobot_capture.WrenchStreamWriter(tmp_path)
     writer.camera_shapes = {"overview": shape, "wrist": shape}
     (tmp_path / "meta").mkdir()
     (tmp_path / "meta/platform.json").write_text('{}')

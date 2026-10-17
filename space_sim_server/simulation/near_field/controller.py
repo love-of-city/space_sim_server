@@ -10,6 +10,7 @@ from simulation.pose_ik import _iterate, _rotation_error, ElbowPreference
 
 from .model import JOINTS, GRASP_TARGET, NOMINAL_TCP
 from .navigation import RelativeEKF, SensorSimulator, origin_navigation
+from .orbital_guidance import guidance_frame, vbar_frame, rotating_acceleration
 
 
 def bounded(v, limit):
@@ -42,6 +43,8 @@ class NearController(sysModel.SysModel):
         self.target_orbit = estimates[0].copy()
         self.nav = RelativeEKF(estimates[0] - estimates[1], covariance)
         self.initial_navigation = {"state": self.nav.x.tolist(), "covariance": self.nav.P.tolist()}
+        self.orbital_guidance = guidance_frame(handoff) == "orbital-vbar"
+        self.initial_hold_frame = vbar_frame(self.target_orbit)[0].T @ self.nav.x[:3] if self.orbital_guidance else None
         self.sensors = SensorSimulator(config, receiver_state=handoff.get("gnss_receiver_state"), epoch_s=self.handoff_time)
         self.config = config
         self.readers = [scene.getBody(n).getOrigin().stateOutMsg.addSubscriber() for n in ("capture_target", "cubesat_bus")]
@@ -89,10 +92,16 @@ class NearController(sysModel.SysModel):
     def reference(self, _t):
         return self.qref.copy(), self.dqref.copy()
 
+    def attitude_reference(self, _t):
+        rotation, omega = vbar_frame(self.target_orbit)
+        return rotation, omega, np.zeros(3)
+
     def transition(self, phase, now):
         if self.phase != phase:
             self.phase, self.phase_start, self.dwell = phase, now, 0.
             self.transitions.append({"time_s": self.handoff_time + now, "phase": phase})
+            if phase == "SafeHold" and self.orbital_guidance:
+                self.safe_hold_frame = vbar_frame(self.target_orbit)[0].T @ self.nav.x[:3]
 
     def UpdateState(self, nanos):
         now = nanos * 1e-9
@@ -105,8 +114,12 @@ class NearController(sysModel.SysModel):
         self.panel_torque.write(messaging.CmdTorqueBodyMsgPayload(torqueRequestBody=[0., 0., hinge_torque]), nanos)
         self.panel_reaction.write(messaging.CmdTorqueBodyMsgPayload(torqueRequestBody=[0., 0., -hinge_torque]), nanos)
         target_r = rbk.MRP2C(payloads[0].sigma_BN).T
+        orbital_rotation, orbital_rate = (vbar_frame(self.target_orbit) if self.orbital_guidance else (np.eye(3), np.zeros(3)))
+        if self.orbital_guidance:
+            self.target_reference_rotation = orbital_rotation
         target_error_body = target_r.T @ _rotation_error(self.target_reference_rotation @ target_r.T)
-        target_torque = bounded(0.02 * target_error_body - 0.12 * np.array(payloads[0].omega_BN_B), 0.02)
+        target_rate_error = np.array(payloads[0].omega_BN_B) - target_r.T @ orbital_rate
+        target_torque = bounded(0.02 * target_error_body - 0.12 * target_rate_error, 0.02)
         self.target_torque.write(messaging.CmdTorqueBodyMsgPayload(torqueRequestBody=target_torque.tolist()), nanos)
         truth = np.array([np.r_[p.r_BN_N, p.v_BN_N] for p in payloads])
         q = np.array([r().state for r in self.joint_readers])
@@ -166,7 +179,8 @@ class NearController(sysModel.SysModel):
         angle = float(np.linalg.norm(orientation_error))
         final_delta = rb @ NOMINAL_TCP - self.target_rotation @ grasp_local
         platform_error = self.nav.x[:3] - final_delta
-        speed = float(np.linalg.norm(self.nav.x[3:]))
+        rotating_velocity = self.nav.x[3:] - np.cross(orbital_rate, self.nav.x[:3])
+        speed = float(np.linalg.norm(rotating_velocity))
         late = self.phase in {"PlatformHold", "ArmDeploy", "ArmAlign", "FinalApproach", "ContactProxy", "Grasp", "CaptureConfirm"}
         if ((late and not visual_valid) or (now > 0.6 and not link_valid)
                 or (self.phase != "FarHandoff" and self.nav.sigma_m > 2.0)):
@@ -174,7 +188,12 @@ class NearController(sysModel.SysModel):
                 self.hold_delta = self.nav.x[:3].copy()
                 self.close_inhibited = True
                 self.transition("SafeHold", now)
-        if self.phase == "FarHandoff" and now >= 5 and self.nav.sigma_m < 0.15 and link_valid:
+        chaser_angle = np.linalg.norm(_rotation_error(orbital_rotation @ rb.T))
+        target_angle = np.linalg.norm(target_error_body)
+        pointing_ready = (not self.orbital_guidance or
+                          (chaser_angle < np.deg2rad(1) and target_angle < np.deg2rad(1)
+                           and np.linalg.norm(target_rate_error) < .001))
+        if self.phase == "FarHandoff" and now >= 5 and self.nav.sigma_m < 0.15 and link_valid and pointing_ready:
             self.transition("GNSSApproach", now)
         if self.phase == "GNSSApproach" and visual_valid:
             self.transition("VisualFusion", now)
@@ -199,10 +218,12 @@ class NearController(sysModel.SysModel):
                 self.dwell = 0.
         else:
             delta = self.hold_delta if self.phase == "SafeHold" else final_delta
+            if self.phase == "SafeHold" and self.orbital_guidance:
+                delta = orbital_rotation @ self.safe_hold_frame
             if self.phase == "FarHandoff":
                 if self.hold_delta is None:
                     self.hold_delta = self.nav.x[:3].copy()
-                delta = self.hold_delta
+                delta = orbital_rotation @ self.initial_hold_frame if self.orbital_guidance else self.hold_delta
             desired_velocity = bounded(-0.1 * (self.nav.x[:3] - delta), 0.005)
         if self.phase == "PlatformHold" and now - self.phase_start > 5:
             target_p = rb.T @ (estimated_grasp - axis * 0.15)
@@ -263,7 +284,8 @@ class NearController(sysModel.SysModel):
         self.qref = np.clip(self.qref, q - 0.03, q + 0.03)
         self.qref[:6] = np.clip(self.qref[:6], [-3.1416] * 5 + [-6.2832], [3.1416] * 5 + [6.2832])
         self.qref[6:] = np.clip(self.qref[6:], 0, 0.0375)
-        acceleration = gradient @ self.nav.x[:3] + 0.6 * (self.nav.x[3:] - desired_velocity)
+        acceleration = (gradient @ self.nav.x[:3] + 0.6 * (rotating_velocity - desired_velocity)
+                        - rotating_acceleration(orbital_rate, self.nav.x[:3], rotating_velocity))
         self.force = bounded(self.mass * acceleration, 25.)
         body_force = rb.T @ self.force
         for message, value in zip(self.force_messages, body_force):
@@ -280,6 +302,9 @@ class NearController(sysModel.SysModel):
             "platform_to_grasp_m": float(np.linalg.norm(estimated_grasp)), "tcp_gap_m": gap,
             "lateral_error_m": lateral, "alignment_error_deg": float(np.rad2deg(angle)),
             "relative_speed_m_s": speed, "position_sigma_m": self.nav.sigma_m,
+            "guidance_frame": "orbital-vbar" if self.orbital_guidance else "inertial-fixture",
+            "chaser_pointing_error_deg": float(np.rad2deg(chaser_angle)) if self.orbital_guidance else None,
+            "target_pointing_error_deg": float(np.rad2deg(target_angle)),
             "vision_valid": visual_valid, "communication_valid": link_valid,
             "navigation_source": "GNSS + stereo dominant" if self.visual_dominant and visual_valid else "GNSS + stereo fusion" if visual_valid else "relative GNSS" if link_valid else "prediction only",
             "optical": self.optical, "capture_state": "LOGICAL_PROXY_HOLD" if self.latch else self.phase,

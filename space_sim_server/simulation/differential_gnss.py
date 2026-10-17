@@ -107,4 +107,3 @@ class JointOrbitFilter:
     def relative_covariance(self):
         H = np.hstack((np.eye(6), -np.eye(6)))
         return H @ self.covariance @ H.T
-

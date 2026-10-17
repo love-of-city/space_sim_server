@@ -476,6 +476,7 @@ def run(args):
     handoff = {
         "schema": "spacesim-near-field-handoff/1",
         "accepted": passed,
+        "guidance_frame": "orbital-vbar",
         "state": final_packet,
         "source_model": manifest["source_model"],
         "source_sha256": manifest["source_sha256"],

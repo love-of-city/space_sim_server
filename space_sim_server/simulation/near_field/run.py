@@ -37,6 +37,7 @@ from simulation.teleop_grasp_unreal import DEFAULT_EPHEMERIS_EPOCH_UTC, _registe
 from .controller import NearController
 from .model import prepare, JOINTS, ACTUATORS, GRASP_TARGET, NOMINAL_TCP
 from .navigation import SensorConfig, admit_handoff
+from .orbital_guidance import guidance_frame
 
 
 def fixture(repository, manifest):
@@ -48,6 +49,7 @@ def fixture(repository, manifest):
     root = ET.parse(repository / DEFAULT_MODEL).getroot()
     return {"schema": "spacesim-near-field-handoff/1", "accepted": True,
             "source_kind": "synthetic 110 m fixture; not evidence of phases 1-3",
+            "guidance_frame": "inertial-fixture",
             "source_sha256": manifest["source_sha256"], "ephemeris_epoch_utc": DEFAULT_EPHEMERIS_EPOCH_UTC,
             "state": {"sim_time_s": 0., "bodies": [
                 {"body_id": f"rendezvous/{role}", "position_m": state[:3].tolist(), "velocity_m_s": state[3:].tolist(),
@@ -109,7 +111,9 @@ def run(args):
         ("capture_target", "target_flight_center", manifest["bodies"]["capture_target"]["mass_kg"], env_options.target_area_m2),
         ("cubesat_bus", "orbital_thrust_center", manifest["bodies"]["cubesat_bus"]["mass_kg"], env_options.chaser_area_m2)])
     ctx.install([environment])
-    attitude = AttitudeControl(sim, process, scene, model, drive_task=("nearDynamics", int(Slot.ACTUATOR)))
+    attitude = AttitudeControl(sim, process, scene, model, drive_task=("nearDynamics", int(Slot.ACTUATOR)),
+                              reference_provider=(lambda t: control.attitude_reference(t))
+                              if guidance_frame(incoming) == "orbital-vbar" else None)
     control = NearController(scene, ctx.ports, chain, manifest["bodies"]["cubesat_bus"]["mass_kg"], incoming, config, model)
     refs = HeldJointReferencePublisher(control.reference, 8)
     specs = servo_specs(ACTUATORS, JOINTS, [32, 32, 32, 30, 30, 15, 100, 100],
@@ -210,6 +214,7 @@ def run(args):
     normal = not args.vision_loss_phase and args.communication_loss is None
     checks = {"finite_states": bool(np.isfinite([r["truth"] for r in rows]).all()),
               "no_external_state_writes": stepper.external_writes == 0,
+              "gravity_at_every_substep": stepper.orbital_force_every == 1,
               "position_continuity_m": continuity < 1e-8,
               "initial_continuity": all(value < 1e-8 for item in continuity_details.values() for value in (item.values() if isinstance(item, dict) else [item])),
               "force_limit": max(np.linalg.norm(r["force_n"]) for r in rows) <= 25.000001,
@@ -223,6 +228,7 @@ def run(args):
     checks = {key: bool(value) for key, value in checks.items()}
     report = {"schema": "spacesim-near-field/1", "scenario": "near-field", "basic_nominal_passed": all(checks.values()),
               "outcome": final["phase"], "checks": checks, "run_id": run_id, "transitions": control.transitions,
+              "guidance_frame": guidance_frame(incoming),
               "final_time_s": final["t"], "wall_time_s": time.monotonic() - started,
               "final_center_distance_m": final["center_distance_m"], "final": final,
               "model_manifest": manifest, "mission_options": NearFieldOptions(args.seed, args.vision_loss_phase or "", args.communication_loss).to_dict(), "sensor_config": asdict(config), "local_dynamics": stepper.telemetry(),

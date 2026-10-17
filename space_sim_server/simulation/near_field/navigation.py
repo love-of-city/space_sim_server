@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 from space_arm_platform.gnss_config import GNSSConfig
 from simulation.differential_gnss import DifferentialGNSS
+from .orbital_guidance import guidance_frame, rotating_relative_state
 
 
 def origin_navigation(handoff):
@@ -46,12 +47,24 @@ def origin_navigation(handoff):
 
 
 def admit_handoff(handoff):
-    """Only the demonstrated cooperative +X corridor is admitted for autonomy."""
+    """Admit orbital geometry; target/chaser pointing converges under control."""
     estimates, covariance = origin_navigation(handoff)
     RelativeEKF(estimates[0] - estimates[1], covariance)
     bodies = {b["body_id"]: b for b in handoff["state"]["bodies"]}
     target, chaser = [bodies[f"rendezvous/{r}"] for r in ("target", "chaser")]
     delta = np.array(target["position_m"]) - chaser["position_m"]
+    if guidance_frame(handoff) == "orbital-vbar":
+        relative = np.r_[delta, np.array(target["velocity_m_s"]) - chaser["velocity_m_s"]]
+        orbital = rotating_relative_state(np.r_[target["position_m"], target["velocity_m_s"]], relative)
+        if not (100 <= orbital[0] <= 125 and np.linalg.norm(orbital[1:3]) <= 5):
+            raise ValueError("Near-field requires the 100-125 m V-bar corridor with transverse offset at most 5 m")
+        if np.linalg.norm(orbital[3:]) > .2:
+            raise ValueError("Handoff rotating-frame speed exceeds 0.2 m/s")
+        if any(np.linalg.norm(body["angular_velocity_rad_s"]) > .05 for body in (target, chaser)):
+            raise ValueError("Handoff angular rate exceeds the cooperative despin envelope")
+        if any(abs(j["position"]) > 1e-8 for j in handoff["stowed_joints"]):
+            raise ValueError("Only authored-zero articulated handoff is supported")
+        return
     if not (100 <= delta[0] <= 125 and np.linalg.norm(delta[1:]) < 0.6):
         raise ValueError("Near-field autonomy requires the validated 100-125 m +X corridor with transverse offset <0.6 m")
     if np.linalg.norm(np.array(target["velocity_m_s"]) - chaser["velocity_m_s"]) > 0.05:

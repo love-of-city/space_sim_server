@@ -93,7 +93,13 @@ def verify(folder):
     h, lateral, angle = evaluated[-1]
     true_relative = data["truth"][:, 0]-data["truth"][:, 1]
     error = np.linalg.norm(data["estimate"][:, :3]-true_relative[:, :3], axis=1)
-    speed = float(np.linalg.norm(true_relative[-1, 3:]))
+    inertial_speed = float(np.linalg.norm(true_relative[-1, 3:]))
+    velocity = true_relative[-1, 3:]
+    if report.get("guidance_frame") == "orbital-vbar":
+        target = data["truth"][-1, 0]
+        omega = np.cross(target[:3], target[3:]) / (target[:3] @ target[:3])
+        velocity = velocity - np.cross(omega, true_relative[-1, :3])
+    speed = float(np.linalg.norm(velocity))
     phases = list(dict.fromkeys(data["phase"].tolist()))
     normal = not report["mission_options"]["vision_loss_phase"] and report["mission_options"]["communication_loss_s"] is None
     checks = {"finite": bool(all(np.isfinite(data[k]).all() for k in ("truth", "estimate", "covariance", "force_n", "joints"))),
@@ -121,7 +127,8 @@ def verify(folder):
             "final_true_gap_m": float(h), "final_true_lateral_m": float(lateral), "final_true_angle_deg": float(angle),
             "kinematic_evaluation_time_s": float(evaluated_time),
             "kinematic_timing": "post-physics packet paired with next pre-physics encoder row; last unmatched packet omitted",
-            "final_true_speed_m_s": speed, "final_navigation_error_m": float(error[-1]),
+            "final_true_speed_m_s": speed, "final_inertial_speed_m_s": inertial_speed,
+            "final_navigation_error_m": float(error[-1]),
             "max_force_n": float(np.linalg.norm(data["force_n"], axis=1).max()),
             "external_writes_instrumentation": report["local_dynamics"]["external_state_writes"],
             "scope": "independent kinematic/numeric evaluation; physical latch and image algorithm not validated"}

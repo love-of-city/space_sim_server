@@ -40,4 +40,3 @@ class GNSSConfig:
         if not isinstance(values, dict) or set(values) - {field.name for field in fields(cls)}:
             raise ValueError("GNSS configuration must be an object with known fields")
         return cls(**values)
-

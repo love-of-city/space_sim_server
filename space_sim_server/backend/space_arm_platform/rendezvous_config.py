@@ -1,11 +1,15 @@
 """Validated, reproducible mission inputs shared by HTTP and the flight process."""
 from dataclasses import asdict, dataclass, fields
 import math
+from .gnss_config import GNSSConfig
 
 
 @dataclass(frozen=True)
 class FlightOptions:
     seed: int = 7
+    # None reproduces historical independent-receiver flights. The unified
+    # mission supplies one explicit receiver contract for every phase.
+    differential_gnss: dict | None = None
     gnss_position_sigma_m: float = 3.0
     gnss_velocity_sigma_m_s: float = 0.5
     initial_position_sigma_m: float = 10.0
@@ -23,6 +27,11 @@ class FlightOptions:
     handoff_distance_m: float = 110.0
 
     def __post_init__(self):
+        if self.differential_gnss is not None:
+            cfg = GNSSConfig.from_dict(self.differential_gnss)
+            if cfg.delay_s != 0:
+                raise ValueError("distant flight currently requires zero GNSS transport delay")
+            object.__setattr__(self, "differential_gnss", cfg.to_dict())
         if type(self.seed) is not int or not 0 <= self.seed < 2**32:
             raise ValueError("seed must be an integer in [0, 2^32)")
         for name in ("drag_enabled", "srp_enabled"):

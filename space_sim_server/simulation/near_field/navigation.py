@@ -7,6 +7,8 @@ from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
+from space_arm_platform.gnss_config import GNSSConfig
+from simulation.differential_gnss import DifferentialGNSS
 
 
 def origin_navigation(handoff):
@@ -27,7 +29,20 @@ def origin_navigation(handoff):
             center = np.array(handoff["body_properties"][name]["center_body_m"])
             estimates[i, :3] -= R @ center
             estimates[i, 3:] -= R @ np.cross(body["angular_velocity_rad_s"], center)
-    return estimates, np.array(handoff["covariances"]).sum(axis=0)
+    marginals = np.asarray(handoff["covariances"], dtype=float)
+    if marginals.shape != (2, 6, 6) or not np.isfinite(marginals).all():
+        raise ValueError("invalid navigation covariance in handoff")
+    cross = handoff.get("gnss_cross_covariance_eci")
+    covariance = marginals.sum(axis=0)
+    if cross is not None:
+        cross = np.asarray(cross, dtype=float)
+        if cross.shape != (6, 6) or not np.isfinite(cross).all():
+            raise ValueError("invalid cross covariance in handoff")
+        joint = np.block([[marginals[0], cross], [cross.T, marginals[1]]])
+        if not np.allclose(joint, joint.T) or np.linalg.eigvalsh(joint).min() < -1e-10:
+            raise ValueError("handoff joint covariance must be positive semidefinite")
+        covariance -= cross + cross.T
+    return estimates, covariance
 
 
 def admit_handoff(handoff):
@@ -62,6 +77,7 @@ class SensorConfig:
     baseline_m: float = 0.12
     marker_size_m: float = 0.08
     disparity_sigma_px: float = 0.2
+    receiver_config: GNSSConfig | None = None
 
 
 class RelativeEKF:
@@ -145,27 +161,49 @@ def stereo_geometry(grasp_in_tool, config=SensorConfig()):
 
 
 class SensorSimulator:
-    def __init__(self, config):
+    def __init__(self, config, *, receiver_state=None, epoch_s=0.0):
         self.config = config
         streams = np.random.SeedSequence(config.seed).spawn(2)
         self.gnss_rng, self.vision_rng = [np.random.default_rng(s) for s in streams]
         self.pending = deque()
         self.failed = False
         self.geometry = {}
+        self.epoch_s = float(epoch_s)
+        self.receiver = DifferentialGNSS(config.receiver_config, config.seed) if config.receiver_config else None
+        if receiver_state is not None:
+            if self.receiver is None:
+                raise ValueError("paired receiver state requires the shared receiver configuration")
+            self.receiver.restore(receiver_state)
+        self.last_gnss_acquisition = -float('inf')
+        self.last_vision_acquisition = -float('inf')
 
-    def acquire(self, now, phase, relative_truth, grasp_in_tool, tool_to_inertial, cooperative=None):
+    def acquire(self, now, phase, relative_truth, grasp_in_tool, tool_to_inertial, cooperative=None, *, absolute_truth=None):
         cfg = self.config
         link = cfg.communication_loss_s is None or now < cfg.communication_loss_s
         if phase == cfg.loss_after_phase:
             self.failed = True
-        if link:
+        period = 1 / cfg.receiver_config.sample_rate_hz if self.receiver else .1
+        if link and now - self.last_gnss_acquisition >= period - 1e-9:
+            self.last_gnss_acquisition = now
             sigmas = np.array([cfg.gnss_sigma_m] * 3 + [cfg.gnss_velocity_sigma_m_s] * 3)
-            self.pending.append({"source": "gnss", "stamp": now, "due": now + cfg.gnss_delay_s,
-                                 "z": relative_truth + self.gnss_rng.normal(size=6) * sigmas,
-                                 "R": np.diag(sigmas**2), "cooperative": cooperative})
+            if self.receiver:
+                if absolute_truth is None:
+                    raise ValueError("differential observations require both receiver states")
+                stamp = self.epoch_s + now
+                # The first near-field tick is the already-measured terminal
+                # far-field epoch. Preserve it instead of generating it twice.
+                if self.receiver.last_time is None or stamp > self.receiver.last_time + 1e-9:
+                    pair = self.receiver.measure(absolute_truth, stamp)
+                    self.pending.append({"source": "gnss", "stamp": now, "due": now + cfg.receiver_config.delay_s,
+                                         "z": pair["relative"], "R": pair["relative_covariance"], "cooperative": cooperative})
+            else:
+                self.pending.append({"source": "gnss", "stamp": now, "due": now + cfg.gnss_delay_s,
+                                     "z": relative_truth + self.gnss_rng.normal(size=6) * sigmas,
+                                     "R": np.diag(sigmas**2), "cooperative": cooperative})
         geom = stereo_geometry(grasp_in_tool, cfg)
         self.geometry = geom
-        if geom["valid"] and not self.failed:
+        if geom["valid"] and not self.failed and now - self.last_vision_acquisition >= .1 - 1e-9:
+            self.last_vision_acquisition = now
             sigmas = np.array([max(0.0003, geom["camera_depth_m"] * 0.2 / cfg.focal_px)] * 2 + [geom["depth_sigma_m"]])
             covariance = tool_to_inertial @ np.diag(sigmas**2) @ tool_to_inertial.T
             # Equivalent relative-origin observation after calibrated transforms

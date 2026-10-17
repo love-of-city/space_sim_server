@@ -16,6 +16,10 @@ def bounded(v, limit):
     return v * min(1., limit / max(float(np.linalg.norm(v)), 1e-12))
 
 
+def config_rate(config):
+    return config.receiver_config.sample_rate_hz if config.receiver_config else 10
+
+
 class NearController(sysModel.SysModel):
     def __init__(self, scene, ports, chain, mass, handoff, config, model_path):
         super().__init__()
@@ -38,7 +42,7 @@ class NearController(sysModel.SysModel):
         self.target_orbit = estimates[0].copy()
         self.nav = RelativeEKF(estimates[0] - estimates[1], covariance)
         self.initial_navigation = {"state": self.nav.x.tolist(), "covariance": self.nav.P.tolist()}
-        self.sensors = SensorSimulator(config)
+        self.sensors = SensorSimulator(config, receiver_state=handoff.get("gnss_receiver_state"), epoch_s=self.handoff_time)
         self.config = config
         self.readers = [scene.getBody(n).getOrigin().stateOutMsg.addSubscriber() for n in ("capture_target", "cubesat_bus")]
         self.grasp_reader = scene.getSite("capture_target_grasp").stateOutMsg.addSubscriber()
@@ -120,11 +124,12 @@ class NearController(sysModel.SysModel):
         self.target_orbit[:3] += self.target_orbit[3:] * dt - 0.5 * MU * self.target_orbit[:3] / radius**3 * dt**2
         self.target_orbit[3:] -= MU * self.target_orbit[:3] / np.linalg.norm(self.target_orbit[:3])**3 * dt
         # Acquisition is 10 Hz; actuator/controller clock remains 20 Hz.
-        if round(now * 20) % 2 == 0:
+        if round(now * 20) % 2 == 0 or config_rate(self.config) > 10:
             # Ideal onboard attitude/encoder measurements are time-tagged and
             # delayed with the cooperative state packet, not read by guidance.
             cooperative = {"rotation": target_r.copy(), "hinge": hinge}
-            packets, link = self.sensors.acquire(now, self.phase, truth_relative, grasp_tool, stereo_rotation, cooperative)
+            packets, link = self.sensors.acquire(now, self.phase, truth_relative, grasp_tool, stereo_rotation, cooperative,
+                                                 absolute_truth=truth)
             for packet in packets:
                 if self.nav.update(packet, now):
                     if packet["source"] == "gnss":
@@ -142,7 +147,9 @@ class NearController(sysModel.SysModel):
         # All guidance below this boundary uses estimated state, accepted
         # observations and platform attitude/encoders. Truth above is sensor/evaluation only.
         visual_valid = now - self.last_vision <= 0.35
-        link_valid = now - self.last_gnss <= 0.5
+        link_age_limit = (max(.5, 1.5 / config_rate(self.config) + self.config.receiver_config.delay_s)
+                          if self.config.receiver_config else .5)
+        link_valid = now - self.last_gnss <= link_age_limit
         if self.visual_streak >= 10 and visual_valid:
             self.visual_dominant = True
         # Cooperative target encoder telemetry assumption.

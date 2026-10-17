@@ -27,6 +27,8 @@ from simulation.components.flight_environment import FlightEnvironmentComponent
 from simulation.local_mujoco_stepper import LocalMujocoStepper
 from simulation.physics_ports import PhysicsPorts
 from space_arm_platform.rendezvous_config import FlightOptions
+from space_arm_platform.gnss_config import GNSSConfig
+from simulation.differential_gnss import DifferentialGNSS, JointOrbitFilter
 
 from .assets import bind_team_catalog
 from .model import prepare_model
@@ -47,6 +49,9 @@ class FlightControl(sysModel.SysModel):
         self.options = options or FlightOptions(seed=seed)
         self.filters = [OrbitFilter(self.options.gnss_position_sigma_m, self.options.gnss_velocity_sigma_m_s) for _ in range(2)]
         self.rng = np.random.default_rng(np.random.SeedSequence([seed, 0]))
+        self.paired_receiver = (DifferentialGNSS(GNSSConfig.from_dict(self.options.differential_gnss), seed)
+                                if self.options.differential_gnss is not None else None)
+        self.joint_filter = JointOrbitFilter() if self.paired_receiver else None
         self.messages = [messaging.SingleActuatorMsg() for _ in range(3)]
         for i, message in enumerate(self.messages):
             message.write(messaging.SingleActuatorMsgPayload(input=0.0))
@@ -63,11 +68,16 @@ class FlightControl(sysModel.SysModel):
         self.previous_time = t
         payloads = [read() for read in self.readers]
         truth = np.array([np.r_[p.r_BN_N, p.v_BN_N] for p in payloads])
-        observations = truth + self.rng.normal(size=(2, 6)) * np.array(
-            [self.options.gnss_position_sigma_m] * 3 + [self.options.gnss_velocity_sigma_m_s] * 3
-        )
+        packet = self.paired_receiver.measure(truth, t) if self.paired_receiver else None
+        observations = (packet["observations"] if packet else truth + self.rng.normal(size=(2, 6)) * np.array(
+            [self.options.gnss_position_sigma_m] * 3 + [self.options.gnss_velocity_sigma_m_s] * 3))
         navigation_valid = self.navigation_loss_s is None or t < self.navigation_loss_s
-        if navigation_valid:
+        if navigation_valid and self.joint_filter:
+            estimate = self.joint_filter.update(packet, np.array([np.zeros(3), self.force_n / self.mass]))
+            for i, f in enumerate(self.filters):
+                f.state = estimate[i].copy()
+                f.covariance = self.joint_filter.covariance[i*6:(i+1)*6, i*6:(i+1)*6].copy()
+        elif navigation_valid:
             estimate = np.array(
                 [
                     f.update(z, dt, self.force_n / self.mass if i else np.zeros(3))
@@ -119,6 +129,9 @@ class FlightControl(sysModel.SysModel):
                 "truth": truth.tolist(),
                 "gnss": observations.tolist() if navigation_valid else None,
                 "navigation_valid": navigation_valid,
+                "gnss_model": "paired correlated solutions" if packet else "independent receiver solutions",
+                "relative_navigation_covariance": (self.joint_filter.relative_covariance.tolist()
+                    if self.joint_filter and self.joint_filter.covariance is not None else None),
                 "estimate": estimate.tolist(),
                 "force_n": applied.tolist(),
                 "requested_force_n": requested.tolist(),
@@ -185,6 +198,7 @@ def run(args):
                            "simulation/components/orbit.py", "simulation/components/orbital_gravity.py",
                            "simulation/local_mujoco_stepper.py", "simulation/orbital_environment.py",
                            "simulation/attitude_control.py", "simulation/assembly.py", "simulation/physics_ports.py",
+                           "simulation/differential_gnss.py", "backend/space_arm_platform/gnss_config.py",
                            "backend/space_arm_platform/rendezvous_config.py", "native/local_mujoco_stepper.cpp"]
     integration_hashes = {name: hashlib.sha256((repository / name).read_bytes()).hexdigest() for name in integration_sources}
     model, mesh_files, manifest = prepare_model(
@@ -194,11 +208,15 @@ def run(args):
     profile = FlightProfile(scenario=args.scenario, handoff_distance_m=options.handoff_distance_m)
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("teamOrbitalFlight")
+    navigation_period = (1 / GNSSConfig.from_dict(options.differential_gnss).sample_rate_hz
+                         if options.differential_gnss is not None else 0.5)
+    if navigation_period < args.step or not np.isclose(navigation_period / args.step, round(navigation_period / args.step)):
+        raise ValueError("GNSS period must be an integer multiple of the outer physics step")
     process.addTask(
         simulation.CreateNewTask("flightDynamics", macros.sec2nano(args.step)), 30
     )
     process.addTask(
-        simulation.CreateNewTask("flightNavigation", macros.sec2nano(0.5)), 10
+        simulation.CreateNewTask("flightNavigation", macros.sec2nano(navigation_period)), 10
     )
     scene = mujoco.MJScene.fromFile(str(model), files=mesh_files)
     scene.ModelTag = "teamFlightMJScene"
@@ -295,11 +313,13 @@ def run(args):
     attitude_peak = 0.0
     actuator_rows = []
     environment_rows = []
+    sampled_rows = []
     try:
         for tick in range(int(duration * 2) + 1):
             simulation.ConfigureStopTime(macros.sec2nano(tick * 0.5))
             simulation.ExecuteSimulation()
             row = controller.rows[-1]
+            sampled_rows.append(row)
             telemetry = attitude.telemetry()
             actuator_rows.append(telemetry)
             environment_rows.append(environment.telemetry())
@@ -341,7 +361,9 @@ def run(args):
             channel.close()
         if bridge:
             bridge.close()
-    rows = controller.rows
+    # Navigation may run faster than the 2 Hz evidence/actuator grid. Keep every
+    # exported array on the same physical sampling instants.
+    rows = sampled_rows
     holds = [r for r in rows if r["phase"] == "100 m handoff hold"]
     hold_duration = holds[-1]["t"] - holds[0]["t"] if holds else 0.0
     checks = {
@@ -401,7 +423,7 @@ def run(args):
         "peak_attitude_error_rad": attitude_peak,
         "max_tracking_error_m": max(r["tracking_error_m"] for r in rows),
         "dynamics_step_s": args.step,
-        "navigation_period_s": 0.5,
+        "navigation_period_s": navigation_period,
         "environment": "Shared BSK Earth/Sun gravity; exponential co-rotating atmosphere; eclipsed cannonball SRP; seeded Gauss-Markov acceleration",
         "mission_options": options.to_dict(),
         "environment_state": [model.snapshot() for model in environment.models],
@@ -410,7 +432,9 @@ def run(args):
         "local_dynamics": stepper.telemetry(),
         "module_schedule": ctx.summary(),
         "acceptance_limits": {"minimum_range_m": 100., "hold_error_m": 5., "hold_speed_m_s": 0.2, "acquisition_s": 600., "tracking_after_acquisition_m": 5.},
-        "navigation": "independent noisy GNSS position/velocity receivers and six-state filters; attitude uses platform truth-navigation hold",
+        "navigation": ("paired correlated GNSS solutions and joint 12-state filter; no raw carrier processing"
+                       if controller.paired_receiver else
+                       "independent noisy GNSS position/velocity receivers and six-state filters; attitude uses platform truth-navigation hold"),
         "capture": {"latch_time_s": None},
         "source_hashes": source_hashes,
         "integration_source_hashes": integration_hashes,
@@ -446,6 +470,8 @@ def run(args):
         environment_force_n=[[[*b["drag_n"], *b["srp_n"], *b["disturbance_n"]] for b in sample] for sample in environment_rows],
         density_kg_m3=[[b["density_kg_m3"] for b in sample] for sample in environment_rows],
         illumination=[[b["illumination"] for b in sample] for sample in environment_rows],
+        **({"relative_navigation_covariance": [r["relative_navigation_covariance"] for r in rows]}
+           if controller.joint_filter else {}),
     )
     handoff = {
         "schema": "spacesim-near-field-handoff/1",
@@ -468,6 +494,9 @@ def run(args):
         ],
         "gnss_estimates_eci": rows[-1]["estimate"],
         "covariances": [f.covariance.tolist() for f in controller.filters],
+        "gnss_cross_covariance_eci": (controller.joint_filter.covariance[:6, 6:].tolist()
+                                     if controller.joint_filter else None),
+        "gnss_receiver_state": controller.paired_receiver.snapshot() if controller.paired_receiver else None,
         "mission_options": options.to_dict(),
         "environment_state": [model.snapshot() for model in environment.models],
     }

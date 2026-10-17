@@ -79,7 +79,10 @@ def run(args):
     model, files, manifest, chain = prepare(repository, output)
     incoming = load_handoff(args.handoff, repository / DEFAULT_MODEL) if args.handoff else fixture(repository, manifest)
     admit_handoff(incoming)
-    config = SensorConfig(seed=args.seed, loss_after_phase=args.vision_loss_phase or "", communication_loss_s=args.communication_loss)
+    from space_arm_platform.gnss_config import GNSSConfig
+    shared_gnss = incoming.get("mission_options", {}).get("differential_gnss")
+    config = SensorConfig(seed=args.seed, loss_after_phase=args.vision_loss_phase or "", communication_loss_s=args.communication_loss,
+                          receiver_config=GNSSConfig.from_dict(shared_gnss) if shared_gnss is not None else None)
     (output / "input_handoff.json").write_text(json.dumps(incoming, indent=2))
     (output / "mission_options.json").write_text(json.dumps(NearFieldOptions(args.seed, args.vision_loss_phase or "", args.communication_loss).to_dict(), indent=2))
     sim = SimulationBaseClass.SimBaseClass()
@@ -98,7 +101,9 @@ def run(args):
     stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin, substeps=12, publish_every=1)
     ctx.ports.set_stepper(stepper)
     ctx.add(stepper, Slot.PHYSICS, component="dynamics_core")
-    ctx.install([OrbitalGravityComponent()])
+    # A 20 Hz outer task advances twelve 240 Hz substeps. The teleop default
+    # holds gravity for eight outer steps and is not appropriate for this clock.
+    ctx.install([OrbitalGravityComponent(force_every=1)])
     env_options = FlightOptions.from_dict(incoming.get("mission_options", {}))
     environment = FlightEnvironmentComponent(env_options, [
         ("capture_target", "target_flight_center", manifest["bodies"]["capture_target"]["mass_kg"], env_options.target_area_m2),

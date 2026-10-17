@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from simulation.orbital_rendezvous.reference import EARTH_RADIUS, FlightProfile
 from space_arm_platform.rendezvous_config import FlightOptions
+from space_arm_platform.gnss_config import GNSSConfig
 
 
 def verify(folder, repository=ROOT):
@@ -47,6 +48,9 @@ def verify(folder, repository=ROOT):
     speed = np.linalg.norm(chaser[:, 3:] - target[:, 3:] - np.cross(orbit_rate, relative), axis=1)
     references = np.array([profile.chaser(float(value))[0] for value in t])
     if integrated:
+        differential = GNSSConfig.from_dict(options.differential_gnss) if options.differential_gnss is not None else None
+        position_sigma = differential.absolute_position_sigma_m if differential else options.gnss_position_sigma_m
+        velocity_sigma = differential.absolute_velocity_sigma_m_s if differential else options.gnss_velocity_sigma_m_s
         references += target[:, :3] - np.array([profile.target(float(value))[0] for value in t])
     tracking = np.linalg.norm(chaser[:, :3] - references, axis=1)
     hold = t >= profile.duration_s - profile.hold_duration_s - 1e-8
@@ -109,14 +113,34 @@ def verify(folder, repository=ROOT):
             "drag_active": bool(np.any(np.linalg.norm(force_parts[..., :3], axis=-1) > 0)) if options.drag_enabled and options.density_300km_kg_m3 else bool(np.all(force_parts[..., :3] == 0)),
             "srp_active": bool(np.any(np.linalg.norm(force_parts[..., 3:6], axis=-1) > 0)) if options.srp_enabled else bool(np.all(force_parts[..., 3:6] == 0)),
             "disturbance_active": bool(np.any(np.linalg.norm(force_parts[..., 6:], axis=-1) > 0)) if options.orbit_acceleration_sigma_m_s2 else bool(np.all(force_parts[..., 6:] == 0)),
-            "gnss_position_sigma": np.allclose(np.std(raw_error[:, :, :3], axis=0), options.gnss_position_sigma_m, rtol=.08),
-            "gnss_velocity_sigma": np.allclose(np.std(raw_error[:, :, 3:], axis=0), options.gnss_velocity_sigma_m_s, rtol=.08),
+            "gnss_position_sigma": np.allclose(np.std(raw_error[:, :, :3], axis=0), position_sigma, rtol=.08),
+            "gnss_velocity_sigma": np.allclose(np.std(raw_error[:, :, 3:], axis=0), velocity_sigma, rtol=.08),
             "initial_state_matches": np.allclose(truth[0], report["initial_states_eci"], atol=1e-5, rtol=0),
             "seeded_initial_orbit": np.allclose(truth[0], initial, atol=1e-5, rtol=0),
             "seeded_initial_offsets": np.allclose(report["initial_offsets_eci"], offsets, atol=1e-12, rtol=0),
             "density_valid": density.shape == (count, 2) and np.isfinite(density).all() and np.all(density >= 0),
             "illumination_valid": illumination.shape == (count, 2) and np.isfinite(illumination).all() and np.all((illumination >= 0) & (illumination <= 1)),
             "srp_zero_in_full_shadow": np.all(force_parts[..., 3:6][illumination == 0] == 0),
+        })
+    if integrated and differential:
+        checks.pop("independent_receiver_noise")
+        baseline = np.linalg.norm(target[:, :3] - chaser[:, :3], axis=1)
+        rho = np.exp(-0.5*(baseline/differential.correlation_length_m)**2)
+        absolute_sigma = np.array([position_sigma]*3 + [velocity_sigma]*3)
+        relative_sigma = np.array([differential.relative_position_sigma_m]*3 + [differential.relative_velocity_sigma_m_s]*3)
+        common_variance = absolute_sigma**2 - relative_sigma**2/2
+        expected_variance = relative_sigma**2 + 2*(1-rho[:, None])*common_variance
+        difference_error = raw_error[:, 0] - raw_error[:, 1]
+        standardized = difference_error / np.sqrt(expected_variance)
+        relative_P = d.get("relative_navigation_covariance", np.array([]))
+        marginal = np.asarray(handoff["covariances"])
+        cross = np.asarray(handoff.get("gnss_cross_covariance_eci"))
+        checks.update({
+            "differential_noise_statistics": np.allclose(standardized.std(axis=0), 1, rtol=.08),
+            "differential_covariance_recorded": relative_P.shape == (count, 6, 6) and np.isfinite(relative_P).all(),
+            "receiver_state_continues": handoff.get("gnss_receiver_state", {}).get("last_time") == t[-1],
+            "cross_covariance_preserved": cross.shape == (6, 6) and np.allclose(
+                marginal.sum(axis=0)-cross-cross.T, relative_P[-1], atol=1e-12, rtol=1e-8),
         })
     checks = {name: bool(value) for name, value in checks.items()}
     return {"passed": all(checks.values()), "checks": checks, "samples": count,

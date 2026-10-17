@@ -148,6 +148,9 @@ def run(args):
     by_id = {b["body_id"]: b for b in incoming["state"]["bodies"]}
     target = by_id["rendezvous/target"]
     orbit.origin.set_state(np.array(target["position_m"]), np.array(target["velocity_m_s"]))
+    # Publish the restored physical initial condition before the first sensor
+    # acquisition. Otherwise subscribers still contain the pre-handoff state.
+    scene.postIntegration(0)
     for module, saved in zip(environment.models, incoming.get("environment_state", [])):
         module.restore(saved)
     for i, reader in enumerate(control.joint_readers):

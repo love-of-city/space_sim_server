@@ -41,9 +41,13 @@ class NearController(sysModel.SysModel):
         self.handoff_time = float(handoff["state"]["sim_time_s"])
         estimates, covariance = origin_navigation(handoff)
         self.target_orbit = estimates[0].copy()
-        self.nav = RelativeEKF(estimates[0] - estimates[1], covariance)
-        self.initial_navigation = {"state": self.nav.x.tolist(), "covariance": self.nav.P.tolist()}
         self.orbital_guidance = guidance_frame(handoff) == "orbital-vbar"
+        # Navigation is at body origins, which accelerate around the assembly
+        # COM during wheel slew and cooperative target despin. The old quiet
+        # fixture's process noise falsely rejected valid measurements here.
+        self.nav = RelativeEKF(estimates[0] - estimates[1], covariance,
+                               acceleration_sigma_m_s2=.05 if self.orbital_guidance else .0003)
+        self.initial_navigation = {"state": self.nav.x.tolist(), "covariance": self.nav.P.tolist()}
         self.initial_hold_frame = vbar_frame(self.target_orbit)[0].T @ self.nav.x[:3] if self.orbital_guidance else None
         self.sensors = SensorSimulator(config, receiver_state=handoff.get("gnss_receiver_state"), epoch_s=self.handoff_time)
         self.config = config
@@ -303,6 +307,8 @@ class NearController(sysModel.SysModel):
             "lateral_error_m": lateral, "alignment_error_deg": float(np.rad2deg(angle)),
             "relative_speed_m_s": speed, "position_sigma_m": self.nav.sigma_m,
             "guidance_frame": "orbital-vbar" if self.orbital_guidance else "inertial-fixture",
+            "navigation_last_nis": self.nav.last_nis,
+            "navigation_rejection_reasons": dict(self.nav.rejection_reasons),
             "chaser_pointing_error_deg": float(np.rad2deg(chaser_angle)) if self.orbital_guidance else None,
             "target_pointing_error_deg": float(np.rad2deg(target_angle)),
             "vision_valid": visual_valid, "communication_valid": link_valid,

@@ -48,3 +48,24 @@ def test_invalid_orbit_and_unknown_guidance_mode_do_not_enable_autonomy():
     from simulation.near_field.orbital_guidance import guidance_frame
     with pytest.raises(ValueError):
         guidance_frame({'guidance_frame': 'unvalidated'})
+
+
+def test_maneuvering_body_origin_does_not_look_like_a_lost_gnss_link():
+    from simulation.near_field.navigation import RelativeEKF
+    rng = np.random.default_rng(18)
+    estimator = RelativeEKF([110, 0, 0, 0, .05, 0], np.eye(6), acceleration_sigma_m_s2=.05)
+    sigmas = np.array([.03]*3 + [.002]*3)
+    for tick in range(601):
+        t = tick*.05
+        estimator.predict(.05 if tick else 0, np.zeros(3), np.zeros((3, 3)))
+        if tick % 2 == 0:
+            # A 0.5 m lever arm rotating at 0.1 rad/s produces a real moving
+            # body origin even when its assembly COM has no acceleration.
+            truth = np.array([110+.5*(np.cos(.1*t)-1), .5*np.sin(.1*t), 0,
+                              -.05*np.sin(.1*t), .05*np.cos(.1*t), 0])
+            estimator.update({'source':'gnss','stamp':t,'z':truth+rng.normal(size=6)*sigmas,
+                              'R':np.diag(sigmas**2)}, t)
+    assert estimator.accepted['gnss'] >= 295
+    assert np.linalg.norm(estimator.x[:3]-truth[:3]) < .05
+    assert not estimator.update({'source':'gnss','stamp':30.1,'z':truth+1000,
+                                 'R':np.diag(sigmas**2)}, 30.1)

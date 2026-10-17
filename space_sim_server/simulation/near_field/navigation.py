@@ -94,7 +94,7 @@ class SensorConfig:
 
 
 class RelativeEKF:
-    def __init__(self, state, covariance):
+    def __init__(self, state, covariance, *, acceleration_sigma_m_s2=0.0003):
         self.x = np.array(state, dtype=float).copy()
         self.P = np.array(covariance, dtype=float).copy()
         if (self.x.shape != (6,) or self.P.shape != (6, 6)
@@ -104,6 +104,11 @@ class RelativeEKF:
             raise ValueError("invalid relative navigation handoff")
         self.accepted = {"gnss": 0, "stereo": 0}
         self.rejected = 0
+        if not np.isfinite(acceleration_sigma_m_s2) or acceleration_sigma_m_s2 <= 0:
+            raise ValueError("process acceleration sigma must be positive")
+        self.acceleration_sigma_m_s2 = float(acceleration_sigma_m_s2)
+        self.last_nis = None
+        self.rejection_reasons = {"age": 0, "innovation": 0}
 
     def predict(self, dt, acceleration, gradient):
         F = np.eye(6)
@@ -112,12 +117,13 @@ class RelativeEKF:
         F[:3, :3] += 0.5 * dt**2 * gradient
         self.x = F @ self.x + np.r_[0.5 * dt**2 * acceleration, dt * acceleration]
         B = np.vstack((np.eye(3) * dt**2 / 2, np.eye(3) * dt))
-        self.P = F @ self.P @ F.T + B @ B.T * 0.0003**2
+        self.P = F @ self.P @ F.T + B @ B.T * self.acceleration_sigma_m_s2**2
 
     def update(self, packet, now):
         age = now - packet["stamp"]
         if not 0 <= age <= 0.35:
             self.rejected += 1
+            self.rejection_reasons["age"] += 1
             return False
         full = packet["source"] == "gnss"
         H = np.eye(6) if full else np.eye(6)[:3]
@@ -129,8 +135,10 @@ class RelativeEKF:
         R[:3, :3] += np.eye(3) * ((age * 0.003)**2 + (0.5 * age**2 * 0.02)**2)
         innovation = z - H @ self.x
         S = H @ self.P @ H.T + R
-        if innovation @ np.linalg.solve(S, innovation) > (30 if full else 20):
+        self.last_nis = float(innovation @ np.linalg.solve(S, innovation))
+        if self.last_nis > (30 if full else 20):
             self.rejected += 1
+            self.rejection_reasons["innovation"] += 1
             return False
         K = np.linalg.solve(S, H @ self.P).T
         self.x += K @ innovation

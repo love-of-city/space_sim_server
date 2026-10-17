@@ -292,14 +292,21 @@ class MissionRuntime:
             self._record["episodes"].append(episode_id)
             self._save()
 
-    def artifact(self, mission_id, name):
+    def artifact(self, mission_id, name, phase=None):
         """Bind a download to its task even if another task starts meanwhile."""
         if not re.fullmatch(r"mission-[0-9a-f]{32}", mission_id):
             raise ValueError("无效任务编号")
         record = json.loads((self.root / f"{mission_id}.json").read_text(encoding="utf-8"))
         if record.get("mission_id") != mission_id or not record.get("flight_output_dir"):
             raise ValueError("该任务没有交会结果")
-        folder = Path(record["flight_output_dir"]).resolve()
+        output_dir = record["flight_output_dir"]
+        if phase is not None:
+            if phase not in {"far", "near"}:
+                raise ValueError("无效任务阶段")
+            output_dir = next((s["output_dir"] for s in record.get("stages", []) if s.get("phase") == phase), None)
+            if not output_dir:
+                raise ValueError("该阶段尚无已验收结果")
+        folder = Path(output_dir).resolve()
         allowed = [self.scenes.project_root / "run/team_rendezvous"]
         if getattr(self.flight, "repository", None):
             allowed.append(self.flight.repository / "output")

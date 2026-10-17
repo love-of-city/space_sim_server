@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {missionPresentation, createMissionPanel} from '../mission_panel.js';
+import {missionPresentation, createMissionPanel, missionArtifactLinks} from '../mission_panel.js';
+
+test('completed stages keep separate downloads after entering the original operator scene', () => {
+  const links = missionArtifactLinks({mission_id:'mission-123', stage:'teleop', stages:[{phase:'far'}, {phase:'near'}]});
+  assert.equal(links.length, 6);
+  assert.equal(links[0].href, '/api/rendezvous/artifact/mission_report.json?mission_id=mission-123&phase=far');
+  assert.equal(links[4].href, '/api/rendezvous/artifact/handoff.json?mission_id=mission-123&phase=near');
+  assert.deepEqual(missionArtifactLinks({stages:[{phase:'far'}]}), []);
+  assert.deepEqual(missionArtifactLinks({mission_id:'id', stages:[{phase:'unexpected'}]}), []);
+});
 
 test('flight keeps robot controls closed and exposes stop only to its owner', () => {
   const run = {stage: 'flight', phase: 'flight', active: true, can_manage: true};

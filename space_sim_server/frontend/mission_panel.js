@@ -13,6 +13,15 @@ const fields = {missionSeed: 'seed', missionHold: 'handoff_distance_m', missionG
   missionGnssVelocity: 'gnss_velocity_sigma_m_s', missionInitialPosition: 'initial_position_sigma_m', missionOrbitNoise: 'orbit_acceleration_sigma_m_s2'};
 const number = (value, digits, unit) => Number.isFinite(value) ? `${value.toFixed(digits)} ${unit}` : '—';
 
+export function missionArtifactLinks(mission) {
+  if (!mission.mission_id) return [];
+  return (mission.stages || []).filter(stage => ['far', 'near'].includes(stage.phase)).flatMap(stage =>
+    [['mission_report.json', '验收报告'], ['handoff.json', '交接状态'], ['team_telemetry.npz', '原始遥测']].map(([file, label]) => ({
+      label: `${stage.phase === 'far' ? '远距' : '近距'}${label}`,
+      href: `/api/rendezvous/artifact/${file}?mission_id=${encodeURIComponent(mission.mission_id)}&phase=${stage.phase}`,
+    })));
+}
+
 export function missionPresentation(mission = {}, selectedMode = 'teleop') {
   const inFlight = mission.stage === 'flight' && mission.phase !== 'stopped';
   const flightView = inFlight || (!mission.active && selectedMode !== 'teleop');
@@ -124,6 +133,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       creator: mission.created_by?.username || '历史任务', flight_output_dir: mission.flight_output_dir,
       source_run_id: mission.source_run_id, scene_instance_id: mission.scene_instance_id, episodes: mission.episodes,
       stages: mission.stages, options: mission.options}, null, 2) : '尚未创建任务';
+    $('missionStageFiles').innerHTML = missionArtifactLinks(mission).map(link => `<a href="${link.href}" download>${link.label}</a>`).join('');
     const telemetry = mission.telemetry || {}, meta = telemetry.state?.metadata || {}, report = mission.report;
     const t = telemetry.sim_time_s ?? report?.final_time_s;
     const distance = meta.center_distance_m ?? telemetry.separation_m ?? report?.final_center_distance_m;

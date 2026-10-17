@@ -569,15 +569,17 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         return FileResponse(path, media_type="image/png")
 
     @app.get("/api/rendezvous/artifact/{name}")
-    async def rendezvous_artifact(name: str, mission_id: str | None = None) -> FileResponse:
+    async def rendezvous_artifact(name: str, mission_id: str | None = None, phase: str | None = None) -> FileResponse:
         if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz"}:
             raise HTTPException(status_code=404, detail="Unknown rendezvous artifact")
         if mission_id:
             try:
-                path = missions.artifact(mission_id, name)
+                path = missions.artifact(mission_id, name, phase=phase)
             except (ValueError, OSError) as error:
                 raise HTTPException(status_code=404, detail="任务结果不可用") from error
         else:
+            if phase is not None:
+                raise HTTPException(status_code=404, detail="阶段下载需要任务编号")
             if rendezvous_runtime.output_dir is None:
                 raise HTTPException(status_code=404, detail="No rendezvous output")
             path = rendezvous_runtime.output_dir / name

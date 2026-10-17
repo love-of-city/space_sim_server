@@ -301,9 +301,16 @@ def test_download_stays_bound_to_original_mission_and_rejects_foreign_paths(tmp_
     folder = tmp_path / "run/team_rendezvous/first"
     folder.mkdir(parents=True)
     manager._record["flight_output_dir"] = str(folder)
+    near = tmp_path / "run/team_rendezvous/second"
+    near.mkdir()
+    manager._record['stages'] = [{'phase':'far','output_dir':str(folder)}, {'phase':'near','output_dir':str(near)}]
     manager._save()
     manager._new("team-orbit-raise", OWNER)
     assert manager.artifact(original, "mission_report.json") == folder / "mission_report.json"
+    assert manager.artifact(original, "handoff.json", phase='near') == near / 'handoff.json'
+    assert manager.artifact(original, "team_telemetry.npz", phase='far') == folder / 'team_telemetry.npz'
+    with pytest.raises(ValueError, match='阶段'):
+        manager.artifact(original, 'handoff.json', phase='../../private')
     with pytest.raises(ValueError):
         manager.artifact("../../private", "mission_report.json")
     manager._record["flight_output_dir"] = str(tmp_path.parent)

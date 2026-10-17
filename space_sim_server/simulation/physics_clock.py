@@ -15,7 +15,7 @@ class RationalPhysicsClock(sysModel.SysModel):
     """
     def __init__(self, task):
         super().__init__()
-        self.ModelTag = "rational240HzPhysicsClock"
+        self.ModelTag = f"rational{DYNAMICS_HZ}HzPhysicsClock"
         self.task = task
         self.step_index = 0
         self._next_index = 0

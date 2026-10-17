@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def test_source_preserved_and_platform_assembly(tmp_path):
  src=ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml'; before=src.read_bytes()
- out=tmp_path/'model.xml'; compose_platform_model(src,ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',out)
+ out=tmp_path/'model.xml'; compose_platform_model(src,ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',out,fastener_model='sdf')
  assert b'\r\n' not in out.read_bytes(), 'Generated XML must have stable LF bytes across platforms'
  a=E.fromstring(before); b=E.parse(out).getroot()
  assert src.read_bytes()==before
@@ -42,7 +42,7 @@ def test_all_source_free_parts_inherit_orbit():
  from space_arm_platform.task_box import initialize_free_plugs
  from types import SimpleNamespace
  positions={};velocities={}
- names=['guide_plug','aviation_plug','cylindrical_plug','bolt','fastener']
+ names=['guide_plug','aviation_plug','cylindrical_plug','bolt']
  scene=SimpleNamespace(getBodyNames=lambda:names,getBody=lambda n:SimpleNamespace(setPosition=lambda v:positions.update({n:v}),setVelocity=lambda v:velocities.update({n:v})))
  model=ROOT/'model/SARM/platform/sarm_20261012.xml'
  initialize_free_plugs(scene,model,[100.,200.,300.],[1.,2.,3.])
@@ -59,7 +59,7 @@ def _camera_frame(camera):
  return np.array(list(map(float,camera.get('pos').split()))),R
 
 
-def _project(point,position,R,fovy_deg,aspect=640/360):
+def _project(point,position,R,fovy_deg,aspect=1.0):
  import numpy as np
  c=R.T@(np.asarray(point)-position)  # camera frame: -Z forward, +Y up
  depth=-c[2]

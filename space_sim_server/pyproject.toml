@@ -16,6 +16,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
+  "psutil>=5.9",
   "pydantic>=2.8",
   "uvicorn[standard]>=0.30",
   "lerobot==0.4.4",

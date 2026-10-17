@@ -19,30 +19,24 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
+from .collection_api import install_collection_routes
 from .capture_lifecycle import CaptureLifecycle
 from .auth import SESSION_COOKIE, AuthError, AuthStore
 from .capture_receiver import CaptureReceiver
 from .jobs import JobManager
 from .models import (
-    EpisodeStart,
-    EpisodeStop,
-    LoginRequest,
-    OperatorAction,
-    OperatorCreate,
-    PasswordChange,
-    PasswordReset,
-    SceneInstanceCreate,
-    SimulationObservation,
-    TaskComplete,
-    TaskCreate,
+    EpisodeStart, EpisodeStop, LoginRequest, OperatorAction, OperatorCreate,
+    PasswordChange, PasswordReset, SceneInstanceCreate, SimulationObservation, TaskComplete, TaskCreate,
+    UserCreate, UserUpdate,
 )
 from .mission_runtime import MISSION_MODES, MissionRuntime
 from .recorder import EpisodeRecorder
 from .rendezvous_hub import RendezvousHub
 from .rendezvous_runtime import RendezvousRuntime
 from .rendezvous_config import FlightOptions
+from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .safety import ActionRejected, SafetyController
-from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
+from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
 from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
 from .simulation_hub import SimulationHub
 from .stream_access import issue_stream_access_token
@@ -76,8 +70,8 @@ class PlatformConfig:
     runtime_render_port: int = 5558
     runtime_pixel_streamer_port: int = 8888
     runtime_pixel_streaming_camera_ids: tuple[str, ...] = ()
-    runtime_pixel_streaming_camera_width: int = 640
-    runtime_pixel_streaming_camera_height: int = 360
+    runtime_pixel_streaming_camera_width: int = CAPTURE_CAMERA_WIDTH
+    runtime_pixel_streaming_camera_height: int = CAPTURE_CAMERA_HEIGHT
     runtime_preview_rate: float = 90.0
     runtime_encoder_min_quality: int = 60
     runtime_renderer_ready_timeout: int = 240
@@ -94,8 +88,8 @@ class PlatformConfig:
 
     def __post_init__(self) -> None:
         ik_step_stride(self.runtime_ik_rate)
-        if self.runtime_default_dataset_capture and self.runtime_capture_rate not in SUPPORTED_FPS:
-            raise ValueError(f"dataset capture rate must be one of {SUPPORTED_FPS}")
+        if self.runtime_default_dataset_capture and self.runtime_capture_rate not in LIVE_CAPTURE_FPS:
+            raise ValueError(f"dataset capture rate must be one of {LIVE_CAPTURE_FPS}")
         if type(self.runtime_encoder_min_quality) is not int or not 0 <= self.runtime_encoder_min_quality <= 100:
             raise ValueError("runtime_encoder_min_quality must be an integer in [0, 100]")
 
@@ -311,6 +305,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
             await missions.close()
+            await asyncio.to_thread(collections.close)
             await asyncio.to_thread(scenes.close)
             await asyncio.to_thread(captures.close)
             await asyncio.to_thread(recorder.close)
@@ -364,6 +359,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         owner = (status.get("instance") or {}).get("created_by") or {}
         return user["role"] == "admin" or owner.get("user_id") == user["user_id"]
 
+    collections = install_collection_routes(app, config, scenes, current_user)
+
     @app.middleware("http")
     async def authenticated_api(request: Request, call_next):
         origin = request.headers.get("origin")
@@ -394,7 +391,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         user = await asyncio.to_thread(auth.authenticate, payload.username, payload.password)
         if not user:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
-        token, max_age = await asyncio.to_thread(auth.create_session, user["user_id"])
+        try:
+            token, max_age = await asyncio.to_thread(auth.create_session, user["user_id"])
+        except AuthError as error:
+            raise HTTPException(status_code=401, detail="账号不可用") from error
         response = JSONResponse({"user": user})
         response.set_cookie(
             SESSION_COOKIE, token, max_age=max_age, httponly=True, samesite="strict",
@@ -439,6 +439,31 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except AuthError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post("/api/users", status_code=201)
+    async def create_user(payload: UserCreate, request: Request) -> dict[str, Any]:
+        require_admin(request)
+        try:
+            return await asyncio.to_thread(auth.create_user, **payload.model_dump())
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.patch("/api/users/{user_id}")
+    async def update_user(user_id: str, payload: UserUpdate, request: Request) -> dict[str, Any]:
+        actor = require_admin(request)
+        try:
+            return await asyncio.to_thread(auth.update_user, actor["user_id"], user_id, **payload.model_dump())
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/users/{user_id}/reset-password")
+    async def reset_user_password(user_id: str, payload: PasswordReset, request: Request) -> dict[str, Any]:
+        actor = require_admin(request)
+        try:
+            await asyncio.to_thread(auth.reset_user_password, actor["user_id"], user_id, payload.password)
+            return {"ok": True}
+        except AuthError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.delete("/api/users/operators/{user_id}")
     async def delete_operator(user_id: str, request: Request) -> dict[str, Any]:
         require_admin(request)
@@ -458,6 +483,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/")
+    @app.get("/collection")
+    @app.get("/datasets")
+    @app.get("/users")
     async def index() -> FileResponse:
         return FileResponse(frontend / "index.html")
 
@@ -724,8 +752,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if payload.camera_ids and not runtime.get("dataset_capture", False):
             raise RuntimeError("当前场景未启用权威相机采集，请启用数据集采集后重新创建场景")
         fps = runtime.get("capture_rate_hz", DEFAULT_CAPTURE_HZ)
-        if fps not in SUPPORTED_FPS:
-            raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{SUPPORTED_FPS}")
+        if fps not in LIVE_CAPTURE_FPS:
+            raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{LIVE_CAPTURE_FPS}")
         if "fps" in payload.model_fields_set and payload.fps != fps:
             raise RuntimeError("录制 FPS 必须与场景权威采样率一致")
         return EpisodeStart.model_validate({**payload.model_dump(), "fps": int(fps), "scene_instance": instance})

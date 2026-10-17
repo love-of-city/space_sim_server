@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from simulation.assembly import AssemblyContext, Slot
+from space_arm_platform.camera_defaults import CAPTURE_CAMERA_RESOLUTION
 
 
 class RenderComponent:
@@ -49,10 +50,20 @@ class RenderComponent:
             camera_picture_in_picture=True,
             camera_capture_rate_hz=self.capture_rate_hz,
             camera_capture_products=("rgb",),
-            camera_pip_resolution=(640, 360),
+            camera_pip_resolution=CAPTURE_CAMERA_RESOLUTION,
             camera_picture_in_picture_start_slot=1,
             camera_display_names=self.camera_display_names,
         )
+        if ctx.extra.get('template_id') == 'sarm-task-box-20261012-demo':
+            # Reuse the existing overview stream slot for a body-fixed close-up.
+            # Pose derived from the validated MuJoCo side-view camera, in rod axes.
+            for camera in bridge._cameras:
+                if camera.camera_id == 'teleop/camera/spacecraft_overview':
+                    camera.parent_id = 'teleop/locking_rod'
+                    camera.position_body_m = (-.03594668, .11668338, -.25216004)
+                    camera.orientation_body_from_camera_wxyz = (.53344552, -.53344625, -.36045813, -.54858083)
+                    camera.field_of_view_rad = 1.0471975511965976
+                    camera.display_name = 'Fastener close-up (demo)'
         celestial = ctx.extra.get("celestial")
         if celestial is not None:
             _register_celestial_bodies(bridge, *celestial)
@@ -61,8 +72,8 @@ class RenderComponent:
                 sunlight_intensity_scale=self.sunlight_intensity_scale,
                 origin_object_id="teleop/cubesat_bus",
                 # Focus targets must be registered body IDs, not MJCF sites.
-                default_camera_target="teleop/cubesat_bus",
-                default_camera_distance_m=2.8,
+                default_camera_target=("teleop/fastener" if ctx.extra.get('template_id') == 'sarm-task-box-20261012-demo' else "teleop/cubesat_bus"),
+                default_camera_distance_m=(.30 if ctx.extra.get('template_id') == 'sarm-task-box-20261012-demo' else 2.8),
                 orbit_lines=False,
                 trajectory_history=False,
                 interpolation_delay_ms=15.0,

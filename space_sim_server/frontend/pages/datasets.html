@@ -1,0 +1,127 @@
+<p id="notice" class="notice" role="status" hidden></p>
+<section id="list-page">
+ <div class="page-heading"><div><h1>数据集</h1><p>查看手动录制与自动采集结果。</p></div><span id="connection" class="badge neutral">正在连接…</span></div>
+ <div id="batch-scope" class="form-note" hidden><span id="batch-label"></span> <a class="button text-button" href="/datasets" data-route>查看全部记录</a></div>
+ <div class="panel">
+  <div class="panel-heading"><h2>采集记录</h2><span id="episode-count" class="muted">正在读取…</span></div>
+  <div class="table-controls">
+   <label class="field search-field">搜索记录<input id="search" type="search" placeholder="任务、记录编号或采集用户"></label>
+   <label class="field">来源<select id="source"><option value="all">全部来源</option><option value="auto">自动采集</option><option value="manual">手动录制</option></select></label>
+   <label class="field">结果<select id="outcome-filter"><option value="all">全部结果</option><option value="success">成功</option><option value="failure">失败</option><option value="aborted">已中止</option></select></label>
+   <button id="refresh" class="button" type="button">刷新</button>
+  </div>
+  <details style="padding:0 18px 16px"><summary>任务与时间筛选</summary><div class="table-controls" style="padding:14px 0 0"><label class="field">任务<select id="task-filter"><option value="all">全部任务</option></select></label><label class="field">开始日期<input id="date-from" type="date"></label><label class="field">结束日期<input id="date-to" type="date"></label></div></details>
+  <div class="table-scroll"><table class="platform-table"><thead><tr><th scope="col">任务 / 时间</th><th scope="col">来源 / 用户</th><th scope="col">结果</th><th scope="col">时长 / 帧数</th><th scope="col">操作</th></tr></thead><tbody id="episodes"></tbody></table></div>
+  <p id="list-empty" class="empty" hidden>没有匹配的采集记录</p>
+ </div>
+</section>
+<section id="workspace" hidden>
+ <div class="back-row"><button id="back-list" class="button text-button" type="button">← 数据集</button><span>/ 记录详情</span></div>
+ <div class="episode-heading"><div><h2 id="task-name"></h2><p id="instruction"></p><div id="episode-id"></div></div><span id="outcome" class="badge"></span></div>
+ <div class="form-actions" style="margin:0 0 14px"><button id="export" class="button" type="button" disabled>导出当前范围 CSV</button></div>
+<section class="stats">
+          <div><span>采集时长</span><strong id="stat-duration">—</strong></div>
+          <div><span>数据帧数</span><strong id="stat-frames">—</strong></div>
+          <div><span>采样频率</span><strong id="stat-rate">—</strong></div>
+          <div>
+            <span>有效腕力样本</span><strong id="stat-wrench">—</strong>
+          </div>
+        </section>
+        <section class="playback panel">
+          <div class="panel-heading">
+            <h3>同步画面</h3>
+            <span class="muted" id="video-note">按采集帧与仿真时刻同步</span>
+          </div>
+          <div id="videos" class="videos"></div>
+          <div class="transport">
+            <button id="play" class="play-button" aria-label="播放">▶</button
+            ><button
+              id="prev-frame"
+              class="icon-button"
+              title="上一帧"
+              aria-label="上一帧"
+            >
+              ❮</button
+            ><button
+              id="next-frame"
+              class="icon-button"
+              title="下一帧"
+              aria-label="下一帧"
+            >
+              ❯</button
+            ><span class="timecode"
+              ><b id="current-time">00:00.000</b><span>/</span
+              ><span id="total-time">00:00.000</span></span
+            ><input
+              id="timeline"
+              type="range"
+              min="0"
+              max="1"
+              value="0"
+              step="1"
+              aria-label="回放时间轴"
+            /><select id="speed" aria-label="播放速度">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </div>
+          <div class="frame-info">
+            <span id="source-frame">源帧 —</span><span id="stage">阶段 —</span
+            ><span id="sim-time">仿真时间 —</span>
+          </div>
+        </section>
+        <nav class="chart-tabs" aria-label="数据分组"><button type="button" data-chart-group="joints" aria-pressed="true">关节与夹爪</button><button type="button" data-chart-group="wrench" aria-pressed="false">六维力</button><button type="button" data-chart-group="tool" aria-pressed="false">末端状态</button><button type="button" data-chart-group="task" aria-pressed="false">任务状态</button></nav><section class="chart-toolbar">
+          <div>
+            <h3>运动与载荷</h3>
+            <p>点击曲线定位画面 · 拖动图表框选时间 · 双击恢复全段</p>
+          </div>
+          <div class="toolbar-controls">
+            <label
+              ><input id="show-target" type="checkbox" checked /> 目标值
+              <span class="dashed-key"></span></label
+            ><label
+              >角度单位
+              <select id="angle-unit" aria-label="角度单位">
+                <option value="deg">° / 度</option>
+                <option value="rad">rad / 弧度</option>
+              </select></label
+            ><button id="reset-zoom" class="button secondary">恢复全段</button>
+          </div>
+        </section>
+        <div class="range-bar">
+          <span>可视范围 <b id="range-label">—</b></span>
+          <div>
+            <label
+              >起点
+              <input
+                id="range-start"
+                type="number"
+                min="0"
+                step="0.1"
+                aria-label="可视范围起点"
+              />
+              s</label
+            ><span>—</span
+            ><label
+              >终点
+              <input
+                id="range-end"
+                type="number"
+                min="0"
+                step="0.1"
+                aria-label="可视范围终点"
+              />
+              s</label
+            ><button id="apply-range" class="button text-button">应用</button>
+          </div>
+        </div>
+        <section id="charts" class="chart-grid"></section>
+        <footer class="main-footer">
+          <span>实线：实际测量值 · 虚线：目标参考值 · 竖线：当前回放时刻</span
+          ><span>腕力采用传感器坐标系原始读数，未做重力/惯性补偿。</span>
+        </footer>
+
+</section>

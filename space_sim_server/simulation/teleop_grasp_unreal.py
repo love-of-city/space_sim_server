@@ -41,7 +41,7 @@ from simulation.serial_chain_kinematics import (  # noqa: E402
 from space_arm_platform.protocol import CONTROL_PROTOCOL  # noqa: E402
 from simulation.native_integration import configure_scene_integrator
 from space_arm_platform.sampling import (
-    DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, RENDER_HZ, SUPPORTED_FPS,
+    DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, RENDER_HZ, LIVE_CAPTURE_FPS,
     ik_step_stride, tick_time_ns,
 )
 from space_arm_platform.lighting import (  # noqa: E402
@@ -63,6 +63,7 @@ from simulation.reference_governor import JointReferenceGovernor
 from simulation.gamepad_control import add_joint6_command
 from simulation.reference_recovery import ReferenceRecoverySettings
 from simulation.runtime_progress import runtime_stage
+from simulation.fastener_demo_schedule import demo_command
 from simulation.runtime_performance import RuntimePerformanceMonitor, render_transport_status
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 from simulation.local_mujoco_stepper import (
@@ -212,7 +213,7 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     runtime_limits = {
         "simulation_rate": (0.0, 100.0),
         "capture_rate_hz": (0.0, 60.0),
-        "ik_rate_hz": (0.0, 240.0),
+        "ik_rate_hz": (0.0, 400.0),
     }
     for field, (minimum, maximum) in runtime_limits.items():
         try:
@@ -873,8 +874,8 @@ def run(args: argparse.Namespace) -> None:
     if requested_step is None:
         requested_step = scene_instance["runtime"].get("dynamics_step_s", DEFAULT_DYNAMICS_STEP_S) if scene_instance else DEFAULT_DYNAMICS_STEP_S
     args.dynamics_step = validate_dynamics_step(requested_step)
-    if (scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True)) and args.capture_rate not in SUPPORTED_FPS:
-        raise ValueError("LeRobot capture rate must align with the 240 Hz dynamics / 30 Hz render grid: 1, 2, 5, 10, 30 Hz")
+    if (scene_instance is None or scene_instance.get("runtime", {}).get("dataset_capture", True)) and args.capture_rate not in LIVE_CAPTURE_FPS:
+        raise ValueError("LeRobot capture rate must align with the 400 Hz dynamics / 50 Hz render grid: 1, 2, 5, 10, 25, 50 Hz")
     adapter_root = args.adapter_root.resolve()
     ue_examples = adapter_root / "Unreal" / "BskUnrealRenderer" / "examples"
     sys.path.insert(0, str(adapter_root / "Adapters"))
@@ -1118,6 +1119,9 @@ def _run_session(
                 enabled=False if getattr(args, "disable_attitude_control", False) else None),
             render,
         ])
+        if template_id == 'sarm-task-box-20261012-demo':
+            from simulation.components.fastener_demo import FastenerDemoComponent
+            assembly.install([FastenerDemoComponent()])
         flight_environment = None
         if flight_handoff:
             from simulation.components.flight_environment import FlightEnvironmentComponent
@@ -1163,6 +1167,11 @@ def _run_session(
 
         from simulation.wrench_sensors import WRIST_SENSOR
 
+        from simulation.wrench_sampling import install_wrench_sampler
+        from space_arm_platform.sampling import WRENCH_HZ
+        wrench_sampler = (install_wrench_sampler(assembly)
+                          if local_backend and native.model_profile.linkage else None)
+
         def snapshot_observation(render_frame_id: int, render_sim_time_ns: int) -> dict[str, Any]:
             joint_position = [float(read().state) for read in position_readers]
             joint_velocity = [float(read().state) for read in velocity_readers]
@@ -1195,6 +1204,9 @@ def _run_session(
                     "wrist_wrench": (
                         WRIST_SENSOR.observation(simulation.local_stepper, render_sim_time_ns)
                         if local_backend and native.model_profile.linkage else None),
+                    "wrist_wrench_rate_hz": WRENCH_HZ if wrench_sampler else None,
+                    "wrist_wrench_samples": (wrench_sampler.drain(render_sim_time_ns, args.capture_rate)
+                                             if wrench_sampler else []),
                     "capture_target": {
                         "model_file": target_spec.model_file,
                         "runtime_model": target_spec.runtime_model,
@@ -1276,6 +1288,11 @@ def _run_session(
                     'joint_limit_margin_rad': [
                         float(min(q-lo, hi-q)) if np.isfinite(lo) or np.isfinite(hi) else None
                         for q, lo, hi in zip(joint_position[:6], targets.joint_min[:6], targets.joint_max[:6])],
+                    'fastener_demo': (dict(
+                        phase=demo_command(int(render_sim_time_ns)*1e-9)[0],
+                        travel_mm=float(assembly.extra['fastener_demo'].travel().state)*1000,
+                        angle_deg=math.degrees(float(assembly.extra['fastener_demo'].angle().state)))
+                        if 'fastener_demo' in assembly.extra else None),
                     'motion_speed_diagnostics': targets.speed_monitor.latest,
                     'arm_actuator_diagnostics': targets.actuator_diagnostics,
                     "ik_damping": float(targets.ik_damping),
@@ -1533,7 +1550,7 @@ def main() -> None:
     parser.add_argument("--capture-rate", type=float, default=DEFAULT_CAPTURE_HZ)
     parser.add_argument("--ik-rate", type=float, default=DEFAULT_IK_HZ)
     parser.add_argument("--dynamics-step", type=float, default=None,
-                        help="Online rational clock period: 1/240 seconds; other periods are rejected")
+                        help="Online rational clock period: 1/400 seconds; other periods are rejected")
     parser.add_argument(
         "--ik-mode",
         choices=IK_MODES,
@@ -1552,7 +1569,7 @@ def main() -> None:
                              "Defaults to SPACE_SIM_DYNAMICS_BACKEND, else local.")
     parser.add_argument("--local-substeps", type=int, choices=range(1, MAX_SUBSTEPS + 1), default=None,
                         metavar=f"1..{MAX_SUBSTEPS}",
-                        help="MuJoCo substeps per 240 Hz step for the local backend (SPACE_SIM_LOCAL_SUBSTEPS)")
+                        help="MuJoCo substeps per 400 Hz step for the local backend (SPACE_SIM_LOCAL_SUBSTEPS)")
     parser.add_argument("--orbital-mode", choices=("bsk", "linear_tidal"), default=None,
                         help="Local gravity: BSK field models (default) or legacy Earth tidal baseline. "
                              "Defaults to SPACE_SIM_ORBITAL_MODE, else bsk.")
@@ -1567,7 +1584,7 @@ def main() -> None:
         catalog_name = "sarm_platform.catalog.json" if args.model_root.name == "platform" else "cubesat_so101.catalog.json"
         if args.scene_instance and args.scene_instance.is_file():
             selected_instance = json.loads(args.scene_instance.read_text(encoding="utf-8"))
-            if selected_instance.get('template_id') == 'sarm-task-box-20261012':
+            if selected_instance.get('template_id') in ('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo'):
                 catalog_name = 'sarm_20261012.catalog.json'
             if selected_instance.get("template_id") == "sarm-task-box-contacts":
                 catalog_name = "sarm_task_box.catalog.json"
@@ -1583,7 +1600,7 @@ def main() -> None:
     ):
         parser.error(
             "duration must be non-negative, simulation-rate and capture-rate must be positive; "
-            "ik-rate must divide 240 Hz (default 120 Hz)"
+            "ik-rate must divide 400 Hz (default 100 Hz)"
         )
     if not args.adapter_root.is_dir() or not args.model_root.is_dir() or not args.catalog.is_file():
         parser.error("adapter-root, model-root or prepared asset catalog is missing")

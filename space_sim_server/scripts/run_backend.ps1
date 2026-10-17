@@ -19,16 +19,16 @@ param(
     [int]$RenderPort = 5558,
     [int]$PixelStreamerPort = 8888,
     [string]$PixelStreamingCameraIds = '',
-    [int]$PixelStreamingCameraWidth = 640,
-    [int]$PixelStreamingCameraHeight = 360,
+    [int]$PixelStreamingCameraWidth = 1024,
+    [int]$PixelStreamingCameraHeight = 1024,
     [ValidateRange(1, 120)]
     [double]$PreviewRate = 90.0,
     [ValidateRange(0, 100)]
     [int]$EncoderMinQuality = 60,
     [int]$RendererReadyTimeout = 240,
-    [double]$IkRate = 120.0,
+    [double]$IkRate = 100.0,
     [double]$SimulationRate = 1.0,
-    [double]$CaptureRate = 30.0,
+    [double]$CaptureRate = 50.0,
     [switch]$DefaultDatasetCapture = $true
 )
 

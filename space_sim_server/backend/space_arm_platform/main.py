@@ -11,6 +11,7 @@ from pathlib import Path
 import uvicorn
 
 from .app import PlatformConfig, create_app
+from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ
 
 
@@ -53,8 +54,8 @@ def main() -> None:
     parser.add_argument("--runtime-render-port", type=int, default=5558)
     parser.add_argument("--runtime-pixel-streamer-port", type=int, default=8888)
     parser.add_argument("--runtime-pixel-streaming-camera-id", action="append", default=[])
-    parser.add_argument("--runtime-pixel-streaming-camera-width", type=int, default=640)
-    parser.add_argument("--runtime-pixel-streaming-camera-height", type=int, default=360)
+    parser.add_argument("--runtime-pixel-streaming-camera-width", type=int, default=CAPTURE_CAMERA_WIDTH)
+    parser.add_argument("--runtime-pixel-streaming-camera-height", type=int, default=CAPTURE_CAMERA_HEIGHT)
     parser.add_argument("--runtime-preview-rate", type=float, default=90.0)
     parser.add_argument("--runtime-encoder-min-quality", type=int, default=60)
     parser.add_argument("--runtime-renderer-ready-timeout", type=int, default=240)

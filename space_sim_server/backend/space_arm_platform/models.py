@@ -5,15 +5,16 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 import math
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, computed_field, field_validator, model_validator
 
+from .gripper_representation import opening_profile
 from .lighting import DEFAULT_SUNLIGHT_INTENSITY_SCALE, MAX_SUNLIGHT_INTENSITY_SCALE
 from .control_defaults import (
     DEFAULT_RANDOMIZATION_PROFILE, DEFAULT_OPERATING_JOINT_DEG, DEFAULT_DYNAMICS_STEP_S,
     MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S,
 )
 from .scene_targets import DEFAULT_TEMPLATE
-from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, SUPPORTED_FPS, ik_step_stride
+from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
 
 
 CONTROL_PROTOCOL = "space-arm-control/1"
@@ -260,6 +261,49 @@ class SimulationObservation(BaseModel):
     attitude_control: AttitudeControlObservation | None = None
     reaction_wheels: ReactionWheelObservation | None = None
     wrist_wrench: WrenchObservation | None = None
+    wrist_wrench_rate_hz: Literal[200] | None = None
+    wrist_wrench_samples: list[WrenchObservation] = Field(default_factory=list, max_length=1024)
+
+    @model_validator(mode="after")
+    def validate_wrench_batch(self):
+        if self.wrist_wrench_samples and self.wrist_wrench_rate_hz != 200:
+            raise ValueError("wrench batches require the 200 Hz sample contract")
+        last = None
+        for row in self.wrist_wrench_samples:
+            end = int(row.interval_end_time_ns)
+            if not row.valid or end > int(self.sim_time_ns) or end % 5_000_000:
+                raise ValueError("invalid high-rate wrench timestamp")
+            if last is not None and end - last != 5_000_000:
+                raise ValueError("non-contiguous high-rate wrench batch")
+            last = end
+        return self
+
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_derived_gripper_input(cls, values):
+        # Replayed JSON may contain these fields; always derive them from raw state.
+        if isinstance(values, dict):
+            values = dict(values)
+            values.pop("gripper_opening_normalized", None)
+            values.pop("target_gripper_opening_normalized", None)
+        return values
+
+    @computed_field
+    @property
+    def gripper_opening_normalized(self) -> float | None:
+        profile = opening_profile(self.gripper_type)
+        if profile is None or self.gripper_drive_position_rad is None:
+            return None
+        return profile.normalize(self.gripper_drive_position_rad)
+
+    @computed_field
+    @property
+    def target_gripper_opening_normalized(self) -> float | None:
+        profile = opening_profile(self.gripper_type)
+        if profile is None or self.target_gripper_drive_position_rad is None:
+            return None
+        return profile.normalize(self.target_gripper_drive_position_rad)
 
     @model_validator(mode="after")
     def validate_joint_layout(self):
@@ -311,7 +355,7 @@ class SimulationObservation(BaseModel):
 
 
 class EpisodeStart(BaseModel):
-    fps: Literal[1, 2, 5, 10, 30] = DEFAULT_CAPTURE_HZ
+    fps: Literal[1, 2, 5, 10, 25, 30, 50] = DEFAULT_CAPTURE_HZ
     camera_ids: list[str] = Field(default_factory=lambda: [
         "teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"])
     capture_products: list[Literal["rgb"]] = Field(
@@ -367,7 +411,7 @@ class SceneInstanceCreate(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     simulation_rate: float = Field(default=1.0, gt=0.0, le=100.0)
     capture_rate_hz: float = Field(default=DEFAULT_CAPTURE_HZ, gt=0.0, le=60.0)
-    ik_rate_hz: float = Field(default=DEFAULT_IK_HZ, ge=1.0, le=240.0)
+    ik_rate_hz: float = Field(default=DEFAULT_IK_HZ, ge=1.0, le=400.0)
     dynamics_step_s: FiniteFloat = Field(
         default=DEFAULT_DYNAMICS_STEP_S, ge=MIN_DYNAMICS_STEP_S, le=MAX_DYNAMICS_STEP_S,
     )
@@ -381,8 +425,8 @@ class SceneInstanceCreate(BaseModel):
     @model_validator(mode="after")
     def validate_dataset_sampling(self):
         ik_step_stride(self.ik_rate_hz)
-        if self.dataset_capture and self.capture_rate_hz not in SUPPORTED_FPS:
-            raise ValueError(f"LeRobot capture FPS must be representable by the dynamics and render clocks: {SUPPORTED_FPS}")
+        if self.dataset_capture and self.capture_rate_hz not in LIVE_CAPTURE_FPS:
+            raise ValueError(f"LeRobot capture FPS must be representable by the dynamics and render clocks: {LIVE_CAPTURE_FPS}")
         return self
 
 
@@ -401,6 +445,19 @@ class OperatorCreate(BaseModel):
 class PasswordReset(BaseModel):
     model_config = ConfigDict(extra="forbid")
     password: str = Field(min_length=8, max_length=256)
+
+
+class UserCreate(OperatorCreate):
+    display_name: str = Field(default="", max_length=64)
+    role: Literal["admin", "operator"] = "operator"
+    active: bool = True
+
+
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str = Field(min_length=1, max_length=64)
+    role: Literal["admin", "operator"]
+    active: bool
 
 
 class PasswordChange(BaseModel):

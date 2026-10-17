@@ -1470,7 +1470,7 @@
                 <geom name="link5_geom" class="robot_geom" mesh="link5_mesh" rgba="0.43922 0.43922 0.43922 1" contype="1" conaffinity="1" density="0" group="2" />
                 <body name="ee_base" pos="0 -0.095 0.135" quat="0.49999816339744829 0.49999999999662686 -0.5000018366025516 0.49999999999662686">
                   <joint name="joint6" class="robot_joint" type="hinge" axis="0 0 1" range="-6.2832 6.2832" actuatorfrcrange="-100 100" />
-                  <camera name="sarm_wrist_cam" mode="fixed" pos="0.0 0.1 0.12" quat="0.0 0.0 0.9238795325112867 0.3826834323650897" fovy="70" resolution="640 360" />
+                  <camera name="sarm_wrist_cam" mode="fixed" pos="0.0 0.1 0.12" quat="0.0 0.0 0.9238795325112867 0.3826834323650897" fovy="102.447857778" resolution="1024 1024" />
          <body name="wrist_ft_tool" pos="0 0 0"><inertial pos="0 0 0.0636159692368" quat="0.706325435355 0 0 0.707887264591" mass="3.2325900237452" diaginertia="0.005059570785947 0.0049292995108171 0.0016709776347182" />
                   <geom name="ee_base_geom" class="robot_geom" mesh="ee_base_mesh" density="0" rgba="0.41176 0.41176 0.41176 1" contype="1" conaffinity="1" group="2" />
                   
@@ -3259,7 +3259,138 @@
       <geom name="locking_rod_geom_collision_077" class="object_geom" mesh="locking_rod_mesh_collision_077" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
       <geom name="locking_rod_geom_collision_078" class="object_geom" mesh="locking_rod_mesh_collision_078" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
       <geom name="locking_rod_geom_collision_079" class="object_geom" mesh="locking_rod_mesh_collision_079" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-    </body>
+    <body name="fastener" pos="7.8367365188153348e-07 0.12899969612129272 0" quat="0.49999999999999989 0.49999999999999989 0.49999999999999989 -0.49999999999999983">
+      <joint name="fastener_slide" type="slide" axis="0 0 1" limited="true" range="0 0.053999696121292663" damping="0" solreflimit="0.01 1" solimplimit="0.9999 0.9999 0.001" margin="0" /><joint name="fastener_spin" type="hinge" axis="0 0 1" limited="false" damping="0.04" frictionloss="0.03" solreffriction="0.01 1" solimpfriction="0.9999 0.9999 0.001" /><geom name="fastener_geom" class="object_geom" mesh="fastener_mesh" rgba="0.55 0.55 0.58 1" contype="0" conaffinity="0" group="2" />
+      <geom name="fastener_thread_sdf" type="sdf" mesh="fastener_thread_sdf_mesh" pos="0 0 0.065" density="0" contype="0" conaffinity="0" condim="4" group="3" rgba="0 0 0 0"><plugin instance="fastener_female_sdf" /></geom><geom name="fastener_geom_collision_000" class="object_geom" mesh="fastener_mesh_collision_000" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_001" class="object_geom" mesh="fastener_mesh_collision_001" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_002" class="object_geom" mesh="fastener_mesh_collision_002" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_003" class="object_geom" mesh="fastener_mesh_collision_003" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_004" class="object_geom" mesh="fastener_mesh_collision_004" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_005" class="object_geom" mesh="fastener_mesh_collision_005" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_006" class="object_geom" mesh="fastener_mesh_collision_006" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_007" class="object_geom" mesh="fastener_mesh_collision_007" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_008" class="object_geom" mesh="fastener_mesh_collision_008" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_009" class="object_geom" mesh="fastener_mesh_collision_009" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_010" class="object_geom" mesh="fastener_mesh_collision_010" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_011" class="object_geom" mesh="fastener_mesh_collision_011" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_012" class="object_geom" mesh="fastener_mesh_collision_012" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_013" class="object_geom" mesh="fastener_mesh_collision_013" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_014" class="object_geom" mesh="fastener_mesh_collision_014" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_015" class="object_geom" mesh="fastener_mesh_collision_015" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_016" class="object_geom" mesh="fastener_mesh_collision_016" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_017" class="object_geom" mesh="fastener_mesh_collision_017" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_018" class="object_geom" mesh="fastener_mesh_collision_018" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_019" class="object_geom" mesh="fastener_mesh_collision_019" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_020" class="object_geom" mesh="fastener_mesh_collision_020" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_021" class="object_geom" mesh="fastener_mesh_collision_021" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_022" class="object_geom" mesh="fastener_mesh_collision_022" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_023" class="object_geom" mesh="fastener_mesh_collision_023" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_024" class="object_geom" mesh="fastener_mesh_collision_024" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_025" class="object_geom" mesh="fastener_mesh_collision_025" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_026" class="object_geom" mesh="fastener_mesh_collision_026" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_027" class="object_geom" mesh="fastener_mesh_collision_027" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_028" class="object_geom" mesh="fastener_mesh_collision_028" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_029" class="object_geom" mesh="fastener_mesh_collision_029" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_030" class="object_geom" mesh="fastener_mesh_collision_030" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_031" class="object_geom" mesh="fastener_mesh_collision_031" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_032" class="object_geom" mesh="fastener_mesh_collision_032" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_033" class="object_geom" mesh="fastener_mesh_collision_033" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_034" class="object_geom" mesh="fastener_mesh_collision_034" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_035" class="object_geom" mesh="fastener_mesh_collision_035" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_036" class="object_geom" mesh="fastener_mesh_collision_036" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_037" class="object_geom" mesh="fastener_mesh_collision_037" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_038" class="object_geom" mesh="fastener_mesh_collision_038" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_039" class="object_geom" mesh="fastener_mesh_collision_039" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_040" class="object_geom" mesh="fastener_mesh_collision_040" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_041" class="object_geom" mesh="fastener_mesh_collision_041" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_042" class="object_geom" mesh="fastener_mesh_collision_042" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_043" class="object_geom" mesh="fastener_mesh_collision_043" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_044" class="object_geom" mesh="fastener_mesh_collision_044" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_045" class="object_geom" mesh="fastener_mesh_collision_045" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_046" class="object_geom" mesh="fastener_mesh_collision_046" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_047" class="object_geom" mesh="fastener_mesh_collision_047" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_048" class="object_geom" mesh="fastener_mesh_collision_048" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_049" class="object_geom" mesh="fastener_mesh_collision_049" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_050" class="object_geom" mesh="fastener_mesh_collision_050" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_051" class="object_geom" mesh="fastener_mesh_collision_051" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_052" class="object_geom" mesh="fastener_mesh_collision_052" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_053" class="object_geom" mesh="fastener_mesh_collision_053" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_054" class="object_geom" mesh="fastener_mesh_collision_054" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_055" class="object_geom" mesh="fastener_mesh_collision_055" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_056" class="object_geom" mesh="fastener_mesh_collision_056" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_057" class="object_geom" mesh="fastener_mesh_collision_057" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_058" class="object_geom" mesh="fastener_mesh_collision_058" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_059" class="object_geom" mesh="fastener_mesh_collision_059" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_060" class="object_geom" mesh="fastener_mesh_collision_060" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_061" class="object_geom" mesh="fastener_mesh_collision_061" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_062" class="object_geom" mesh="fastener_mesh_collision_062" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_063" class="object_geom" mesh="fastener_mesh_collision_063" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_064" class="object_geom" mesh="fastener_mesh_collision_064" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_065" class="object_geom" mesh="fastener_mesh_collision_065" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_066" class="object_geom" mesh="fastener_mesh_collision_066" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_067" class="object_geom" mesh="fastener_mesh_collision_067" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_068" class="object_geom" mesh="fastener_mesh_collision_068" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_069" class="object_geom" mesh="fastener_mesh_collision_069" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_070" class="object_geom" mesh="fastener_mesh_collision_070" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_071" class="object_geom" mesh="fastener_mesh_collision_071" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_072" class="object_geom" mesh="fastener_mesh_collision_072" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_073" class="object_geom" mesh="fastener_mesh_collision_073" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_074" class="object_geom" mesh="fastener_mesh_collision_074" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_075" class="object_geom" mesh="fastener_mesh_collision_075" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_076" class="object_geom" mesh="fastener_mesh_collision_076" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_077" class="object_geom" mesh="fastener_mesh_collision_077" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_078" class="object_geom" mesh="fastener_mesh_collision_078" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_079" class="object_geom" mesh="fastener_mesh_collision_079" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_080" class="object_geom" mesh="fastener_mesh_collision_080" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_081" class="object_geom" mesh="fastener_mesh_collision_081" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_082" class="object_geom" mesh="fastener_mesh_collision_082" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_083" class="object_geom" mesh="fastener_mesh_collision_083" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_084" class="object_geom" mesh="fastener_mesh_collision_084" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_085" class="object_geom" mesh="fastener_mesh_collision_085" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_086" class="object_geom" mesh="fastener_mesh_collision_086" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_087" class="object_geom" mesh="fastener_mesh_collision_087" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_088" class="object_geom" mesh="fastener_mesh_collision_088" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_089" class="object_geom" mesh="fastener_mesh_collision_089" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_090" class="object_geom" mesh="fastener_mesh_collision_090" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_091" class="object_geom" mesh="fastener_mesh_collision_091" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_092" class="object_geom" mesh="fastener_mesh_collision_092" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_093" class="object_geom" mesh="fastener_mesh_collision_093" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_094" class="object_geom" mesh="fastener_mesh_collision_094" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_095" class="object_geom" mesh="fastener_mesh_collision_095" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_096" class="object_geom" mesh="fastener_mesh_collision_096" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_097" class="object_geom" mesh="fastener_mesh_collision_097" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_098" class="object_geom" mesh="fastener_mesh_collision_098" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_099" class="object_geom" mesh="fastener_mesh_collision_099" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_100" class="object_geom" mesh="fastener_mesh_collision_100" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_101" class="object_geom" mesh="fastener_mesh_collision_101" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_102" class="object_geom" mesh="fastener_mesh_collision_102" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_103" class="object_geom" mesh="fastener_mesh_collision_103" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_104" class="object_geom" mesh="fastener_mesh_collision_104" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_105" class="object_geom" mesh="fastener_mesh_collision_105" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_106" class="object_geom" mesh="fastener_mesh_collision_106" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_107" class="object_geom" mesh="fastener_mesh_collision_107" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_108" class="object_geom" mesh="fastener_mesh_collision_108" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_109" class="object_geom" mesh="fastener_mesh_collision_109" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_110" class="object_geom" mesh="fastener_mesh_collision_110" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_111" class="object_geom" mesh="fastener_mesh_collision_111" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_112" class="object_geom" mesh="fastener_mesh_collision_112" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_113" class="object_geom" mesh="fastener_mesh_collision_113" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_114" class="object_geom" mesh="fastener_mesh_collision_114" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_115" class="object_geom" mesh="fastener_mesh_collision_115" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_116" class="object_geom" mesh="fastener_mesh_collision_116" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_117" class="object_geom" mesh="fastener_mesh_collision_117" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_118" class="object_geom" mesh="fastener_mesh_collision_118" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_119" class="object_geom" mesh="fastener_mesh_collision_119" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_120" class="object_geom" mesh="fastener_mesh_collision_120" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_121" class="object_geom" mesh="fastener_mesh_collision_121" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_122" class="object_geom" mesh="fastener_mesh_collision_122" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_123" class="object_geom" mesh="fastener_mesh_collision_123" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_124" class="object_geom" mesh="fastener_mesh_collision_124" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_125" class="object_geom" mesh="fastener_mesh_collision_125" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_126" class="object_geom" mesh="fastener_mesh_collision_126" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+      <geom name="fastener_geom_collision_127" class="object_geom" mesh="fastener_mesh_collision_127" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
+    <geom name="fastener_radial_guide_sdf" type="sdf" mesh="fastener_radial_guide_sdf_mesh" pos="0 0 0.065" density="0" contype="0" conaffinity="0" condim="4" group="3" rgba="0 0 0 0"><plugin instance="fastener_radial_guide_instance" /></geom></body>
+  </body>
     </body>
     <body name="drawer_base" pos="0.455 0.105 0.030" quat="0 0 1 0">
       
@@ -3370,7 +3501,7 @@
     <joint name="rw_z_spin" type="hinge" axis="0 0 1" limited="false" damping="0" frictionloss="0" stiffness="0" armature="0" />
     <geom name="rw_z_rotor" type="cylinder" size="0.14142135623731 0.03464101615138" mass="0" contype="0" conaffinity="0" rgba="0.15 0.35 0.75 1" />
    </body>
-   <camera name="spacecraft_overview" mode="fixed" pos="-0.18 0.27 0.5" quat="0.6851394915897261 0.30992428380402737 -0.27168234994635526 -0.600599297452435" fovy="51" resolution="640 360" />
+   <camera name="spacecraft_overview" mode="fixed" pos="-0.18 0.27 0.5" quat="0.6851394915897261 0.30992428380402737 -0.27168234994635526 -0.600599297452435" fovy="80.5929896518" resolution="1024 1024" />
 
    <site name="cubesat_origin" pos="0 0 0" size="0.01" />
 
@@ -3570,139 +3701,7 @@
       <geom name="bolt_geom_collision_062" class="object_geom" mesh="bolt_mesh_collision_062" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" condim="6" friction="3 0.02 0.02" />
       <geom name="bolt_geom_collision_063" class="object_geom" mesh="bolt_mesh_collision_063" rgba="0 0 0 0" contype="0" conaffinity="0" group="3" density="0" />
     </body>
-    <body name="fastener" pos="0.4533 0.565 0.14085" quat="0.061629 0.704416 -0.704416 -0.061629">
-      <freejoint name="fastener_freejoint" />
-      <geom name="fastener_geom" class="object_geom" mesh="fastener_mesh" rgba="0.55 0.55 0.58 1" contype="0" conaffinity="0" group="2" />
-      <geom name="fastener_thread_sdf" type="sdf" mesh="fastener_thread_sdf_mesh" pos="0 0 0.065" density="0" contype="0" conaffinity="0" condim="4" group="3" rgba="0 0 0 0"><plugin instance="fastener_female_sdf" /></geom><geom name="fastener_geom_collision_000" class="object_geom" mesh="fastener_mesh_collision_000" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_001" class="object_geom" mesh="fastener_mesh_collision_001" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_002" class="object_geom" mesh="fastener_mesh_collision_002" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_003" class="object_geom" mesh="fastener_mesh_collision_003" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_004" class="object_geom" mesh="fastener_mesh_collision_004" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_005" class="object_geom" mesh="fastener_mesh_collision_005" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_006" class="object_geom" mesh="fastener_mesh_collision_006" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_007" class="object_geom" mesh="fastener_mesh_collision_007" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_008" class="object_geom" mesh="fastener_mesh_collision_008" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_009" class="object_geom" mesh="fastener_mesh_collision_009" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_010" class="object_geom" mesh="fastener_mesh_collision_010" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_011" class="object_geom" mesh="fastener_mesh_collision_011" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_012" class="object_geom" mesh="fastener_mesh_collision_012" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_013" class="object_geom" mesh="fastener_mesh_collision_013" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_014" class="object_geom" mesh="fastener_mesh_collision_014" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_015" class="object_geom" mesh="fastener_mesh_collision_015" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_016" class="object_geom" mesh="fastener_mesh_collision_016" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_017" class="object_geom" mesh="fastener_mesh_collision_017" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_018" class="object_geom" mesh="fastener_mesh_collision_018" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_019" class="object_geom" mesh="fastener_mesh_collision_019" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_020" class="object_geom" mesh="fastener_mesh_collision_020" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_021" class="object_geom" mesh="fastener_mesh_collision_021" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_022" class="object_geom" mesh="fastener_mesh_collision_022" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_023" class="object_geom" mesh="fastener_mesh_collision_023" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_024" class="object_geom" mesh="fastener_mesh_collision_024" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_025" class="object_geom" mesh="fastener_mesh_collision_025" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_026" class="object_geom" mesh="fastener_mesh_collision_026" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_027" class="object_geom" mesh="fastener_mesh_collision_027" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_028" class="object_geom" mesh="fastener_mesh_collision_028" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_029" class="object_geom" mesh="fastener_mesh_collision_029" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_030" class="object_geom" mesh="fastener_mesh_collision_030" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_031" class="object_geom" mesh="fastener_mesh_collision_031" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_032" class="object_geom" mesh="fastener_mesh_collision_032" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_033" class="object_geom" mesh="fastener_mesh_collision_033" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_034" class="object_geom" mesh="fastener_mesh_collision_034" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_035" class="object_geom" mesh="fastener_mesh_collision_035" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_036" class="object_geom" mesh="fastener_mesh_collision_036" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_037" class="object_geom" mesh="fastener_mesh_collision_037" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_038" class="object_geom" mesh="fastener_mesh_collision_038" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_039" class="object_geom" mesh="fastener_mesh_collision_039" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_040" class="object_geom" mesh="fastener_mesh_collision_040" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_041" class="object_geom" mesh="fastener_mesh_collision_041" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_042" class="object_geom" mesh="fastener_mesh_collision_042" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_043" class="object_geom" mesh="fastener_mesh_collision_043" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_044" class="object_geom" mesh="fastener_mesh_collision_044" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_045" class="object_geom" mesh="fastener_mesh_collision_045" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_046" class="object_geom" mesh="fastener_mesh_collision_046" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_047" class="object_geom" mesh="fastener_mesh_collision_047" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_048" class="object_geom" mesh="fastener_mesh_collision_048" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_049" class="object_geom" mesh="fastener_mesh_collision_049" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_050" class="object_geom" mesh="fastener_mesh_collision_050" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_051" class="object_geom" mesh="fastener_mesh_collision_051" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_052" class="object_geom" mesh="fastener_mesh_collision_052" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_053" class="object_geom" mesh="fastener_mesh_collision_053" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_054" class="object_geom" mesh="fastener_mesh_collision_054" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_055" class="object_geom" mesh="fastener_mesh_collision_055" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_056" class="object_geom" mesh="fastener_mesh_collision_056" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_057" class="object_geom" mesh="fastener_mesh_collision_057" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_058" class="object_geom" mesh="fastener_mesh_collision_058" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_059" class="object_geom" mesh="fastener_mesh_collision_059" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_060" class="object_geom" mesh="fastener_mesh_collision_060" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_061" class="object_geom" mesh="fastener_mesh_collision_061" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_062" class="object_geom" mesh="fastener_mesh_collision_062" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_063" class="object_geom" mesh="fastener_mesh_collision_063" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_064" class="object_geom" mesh="fastener_mesh_collision_064" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_065" class="object_geom" mesh="fastener_mesh_collision_065" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_066" class="object_geom" mesh="fastener_mesh_collision_066" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_067" class="object_geom" mesh="fastener_mesh_collision_067" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_068" class="object_geom" mesh="fastener_mesh_collision_068" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_069" class="object_geom" mesh="fastener_mesh_collision_069" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_070" class="object_geom" mesh="fastener_mesh_collision_070" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_071" class="object_geom" mesh="fastener_mesh_collision_071" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_072" class="object_geom" mesh="fastener_mesh_collision_072" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_073" class="object_geom" mesh="fastener_mesh_collision_073" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_074" class="object_geom" mesh="fastener_mesh_collision_074" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_075" class="object_geom" mesh="fastener_mesh_collision_075" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_076" class="object_geom" mesh="fastener_mesh_collision_076" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_077" class="object_geom" mesh="fastener_mesh_collision_077" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_078" class="object_geom" mesh="fastener_mesh_collision_078" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_079" class="object_geom" mesh="fastener_mesh_collision_079" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_080" class="object_geom" mesh="fastener_mesh_collision_080" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_081" class="object_geom" mesh="fastener_mesh_collision_081" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_082" class="object_geom" mesh="fastener_mesh_collision_082" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_083" class="object_geom" mesh="fastener_mesh_collision_083" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_084" class="object_geom" mesh="fastener_mesh_collision_084" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_085" class="object_geom" mesh="fastener_mesh_collision_085" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_086" class="object_geom" mesh="fastener_mesh_collision_086" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_087" class="object_geom" mesh="fastener_mesh_collision_087" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_088" class="object_geom" mesh="fastener_mesh_collision_088" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_089" class="object_geom" mesh="fastener_mesh_collision_089" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_090" class="object_geom" mesh="fastener_mesh_collision_090" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_091" class="object_geom" mesh="fastener_mesh_collision_091" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_092" class="object_geom" mesh="fastener_mesh_collision_092" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_093" class="object_geom" mesh="fastener_mesh_collision_093" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_094" class="object_geom" mesh="fastener_mesh_collision_094" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_095" class="object_geom" mesh="fastener_mesh_collision_095" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_096" class="object_geom" mesh="fastener_mesh_collision_096" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_097" class="object_geom" mesh="fastener_mesh_collision_097" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_098" class="object_geom" mesh="fastener_mesh_collision_098" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_099" class="object_geom" mesh="fastener_mesh_collision_099" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_100" class="object_geom" mesh="fastener_mesh_collision_100" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_101" class="object_geom" mesh="fastener_mesh_collision_101" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_102" class="object_geom" mesh="fastener_mesh_collision_102" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_103" class="object_geom" mesh="fastener_mesh_collision_103" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_104" class="object_geom" mesh="fastener_mesh_collision_104" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_105" class="object_geom" mesh="fastener_mesh_collision_105" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_106" class="object_geom" mesh="fastener_mesh_collision_106" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_107" class="object_geom" mesh="fastener_mesh_collision_107" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_108" class="object_geom" mesh="fastener_mesh_collision_108" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_109" class="object_geom" mesh="fastener_mesh_collision_109" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_110" class="object_geom" mesh="fastener_mesh_collision_110" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_111" class="object_geom" mesh="fastener_mesh_collision_111" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_112" class="object_geom" mesh="fastener_mesh_collision_112" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_113" class="object_geom" mesh="fastener_mesh_collision_113" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_114" class="object_geom" mesh="fastener_mesh_collision_114" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_115" class="object_geom" mesh="fastener_mesh_collision_115" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_116" class="object_geom" mesh="fastener_mesh_collision_116" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_117" class="object_geom" mesh="fastener_mesh_collision_117" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_118" class="object_geom" mesh="fastener_mesh_collision_118" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_119" class="object_geom" mesh="fastener_mesh_collision_119" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_120" class="object_geom" mesh="fastener_mesh_collision_120" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_121" class="object_geom" mesh="fastener_mesh_collision_121" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_122" class="object_geom" mesh="fastener_mesh_collision_122" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_123" class="object_geom" mesh="fastener_mesh_collision_123" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_124" class="object_geom" mesh="fastener_mesh_collision_124" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_125" class="object_geom" mesh="fastener_mesh_collision_125" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_126" class="object_geom" mesh="fastener_mesh_collision_126" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-      <geom name="fastener_geom_collision_127" class="object_geom" mesh="fastener_mesh_collision_127" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-    <geom name="fastener_radial_guide_sdf" type="sdf" mesh="fastener_radial_guide_sdf_mesh" pos="0 0 0.065" density="0" contype="0" conaffinity="0" condim="4" group="3" rgba="0 0 0 0"><plugin instance="fastener_radial_guide_instance" /></geom></body>
-  <body name="capture_target" pos="0.94 0.039086 0.4" quat="1 0 0 0">
+    <body name="capture_target" pos="0.94 0.039086 0.4" quat="1 0 0 0">
    <inertial mass="8.0" pos="0.20359075 0.00475 0" diaginertia="0.25655861918737 0.30932656514887 0.085633279294833" />
    <joint name="capture_target_free" type="free" damping="0" frictionloss="0" stiffness="0" armature="0" />
    <geom name="target_instance_0006_part_001_color_00" type="mesh" mesh="target_part_001_color_00" pos="0.1755 0.05625 0.04707870013" quat="1 0 0 0" rgba="0.64 0.68 0.73 1" mass="0" contype="0" conaffinity="0" group="2" />
@@ -3935,7 +3934,7 @@
     
     <joint name="ee_active_links_coupling" joint1="ee_link11_joint" joint2="ee_link12_joint" polycoef="0 -1 0 0 0" solref="0.005 1" solimp="0.99 0.999 0.001" />
     
-    </equality>
+    <joint name="fastener_helix" joint1="fastener_spin" joint2="fastener_slide" polycoef="0 392.69908169872411 0 0 0" solref="0.005 1" solimp="0.9999 0.9999 0.001" /></equality>
   
   <contact>
 
@@ -3974,7 +3973,7 @@
     <exclude name="base_link_aviation_plug_exclude" body1="cubesat_bus" body2="aviation_plug" />
     <exclude name="base_link_guide_plug_exclude" body1="cubesat_bus" body2="guide_plug" />
     <exclude name="base_link_cylindrical_plug_exclude" body1="cubesat_bus" body2="cylindrical_plug" />
-  <pair name="physical_two_start_thread" geom1="bolt_thread_sdf" geom2="board_thread_sdf" condim="4" friction="0.8 0.8 0.01 0.0001 0.0001" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="ee_finger1_bolt_neck_pair" geom1="ee_finger1_bolt_neck_nose" geom2="bolt_neck_guide" condim="6" friction="3 3 0.02 0.02 0.02" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="ee_finger2_bolt_neck_pair" geom1="ee_finger2_bolt_neck_nose" geom2="bolt_neck_guide" condim="6" friction="3 3 0.02 0.02 0.02" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="physical_locking_thread" geom1="locking_rod_thread_sdf" geom2="fastener_thread_sdf" condim="4" friction="0.8 0.8 0.01 0.0001 0.0001" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="locking_rod_fastener_radial_guide" geom1="locking_rod_thread_sdf" geom2="fastener_radial_guide_sdf" condim="4" margin="0.00015" friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.0015 1" solimp="0.95 0.99 0.001" /><pair name="target_internal_contact_0" geom1="capture_target_collision" geom2="satellite_outer_panel_internal_collision" condim="6" friction="1 1 0.005 0.0005 0.0005" solref="0.01 1" solimp="0.9 0.95 0.001" margin="0" gap="0" />
+  <pair name="physical_two_start_thread" geom1="bolt_thread_sdf" geom2="board_thread_sdf" condim="4" friction="0.8 0.8 0.01 0.0001 0.0001" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="ee_finger1_bolt_neck_pair" geom1="ee_finger1_bolt_neck_nose" geom2="bolt_neck_guide" condim="6" friction="3 3 0.02 0.02 0.02" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="ee_finger2_bolt_neck_pair" geom1="ee_finger2_bolt_neck_nose" geom2="bolt_neck_guide" condim="6" friction="3 3 0.02 0.02 0.02" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="target_internal_contact_0" geom1="capture_target_collision" geom2="satellite_outer_panel_internal_collision" condim="6" friction="1 1 0.005 0.0005 0.0005" solref="0.01 1" solimp="0.9 0.95 0.001" margin="0" gap="0" />
   <pair name="target_internal_contact_1" geom1="satellite_inner_panel_internal_collision" geom2="satellite_outer_panel_internal_collision" condim="6" friction="1 1 0.005 0.0005 0.0005" solref="0.01 1" solimp="0.9 0.95 0.001" margin="0" gap="0" />
  </contact>
   

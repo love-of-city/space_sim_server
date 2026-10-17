@@ -24,14 +24,14 @@ def observation(index=1, session="session-a"):
     )
 
 
-def packet(index=1, camera="wrist", session="session-a"):
+def packet(index=1, camera="wrist", session="session-a", size=(32, 32)):
     blob = io.BytesIO()
-    Image.fromarray(np.full((32, 32, 3), index * 20, dtype=np.uint8)).save(blob, format="PNG")
+    Image.fromarray(np.full((size[1], size[0], 3), index * 20, dtype=np.uint8)).save(blob, format="PNG")
     products = {"rgb": blob.getvalue()}
     meta = dict(protocol="bsk-capture/1", camera_id=camera, session_id=session,
                 capture_sequence=str(index), source_frame_id=str(index),
                 sim_time_ns=str(index * 100_000_000), stream_kind="authoritative", state_kind="authoritative",
-                dataset_format="lerobot-v3", sampling_fps=10, sample_index=str(index), resolution=[32, 32],
+                dataset_format="lerobot-v3", sampling_fps=10, sample_index=str(index), resolution=list(size),
                 products=[{"name": name, "file_name": name + ".png"}
                           for name in products])
     return meta, products
@@ -288,7 +288,7 @@ def test_default_recording_is_rgb_only():
     request = EpisodeStart()
     assert request.capture_products == ["rgb"]
     assert len(request.camera_ids) == 2
-    assert request.fps == 30
+    assert request.fps == 50
 
 
 @pytest.mark.parametrize("unsupported", ["depth", "segmentation"])
@@ -312,7 +312,7 @@ def test_30fps_rgb_roundtrip_uses_absolute_physics_timestamps(tmp_path):
     from space_arm_platform.sampling import tick_time_ns
     recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.15)
     cameras = ["overview", "wrist"]
-    result = recorder.start(EpisodeStart(camera_ids=cameras))
+    result = recorder.start(EpisodeStart(camera_ids=cameras, fps=30))
     root = tmp_path / result["episode_id"] / "lerobot"
     # More than a full second exercises both alternating rounded intervals.
     # Start at one day of simulation time to detect epoch-dependent drift.
@@ -416,3 +416,89 @@ def test_stop_allows_bounded_backlog_to_drain_while_frames_make_progress(tmp_pat
     assert not worker.is_alive()
     assert result[0]["dataset_status"] == "complete", result
     assert result[0]["dataset_frame_count"] == 3
+
+
+@pytest.mark.parametrize("size", [(640, 360), (1024, 1024)])
+def test_recording_dimensions_follow_rgb_and_metadata_without_changing_state_schema(tmp_path, size):
+    from space_arm_platform.lerobot_capture import LiveLeRobotWriter
+    from space_arm_platform.models import EpisodeStart
+    root = tmp_path / "lerobot"
+    writer = LiveLeRobotWriter(root, EpisodeStart(fps=10, camera_ids=["overview", "wrist"]))
+    for i in range(1, 3):
+        writer.append(observation(i), {camera: packet(i, camera, size=size) for camera in ("overview", "wrist")})
+    writer.finish()
+    info = json.loads((root / "meta/info.json").read_text())
+    assert info["features"]["observation.state"]["shape"] == [8]
+    assert info["features"]["action"]["shape"] == [8]
+    assert info["fps"] == 10
+    loaded = LeRobotDataset("local/dimensions", root=root, video_backend="pyav")
+    for camera in ("overview", "wrist"):
+        assert info["features"][f"observation.images.{camera}"]["shape"] == [size[1], size[0], 3]
+        assert tuple(loaded[0][f"observation.images.{camera}"].shape) == (3, size[1], size[0])
+    np.testing.assert_allclose(loaded[0]["action"][:6], [.02] * 6)
+
+
+def linkage_observation(index=1, actual=0.25, target=0.8):
+    values = observation(index).model_dump()
+    values.update(
+        gripper_type="four_bar_tendon",
+        joint_position_rad=[.01 * index] * 6 + [actual, -actual + .001],
+        joint_velocity_rad_s=[0.] * 6 + [.1, -.1],
+        target_joint_position_rad=[.02 * index] * 6 + [target, -target],
+        arm_joint_position_rad=[.01 * index] * 6,
+        arm_joint_velocity_rad_s=[0.] * 6,
+        target_arm_joint_position_rad=[.02 * index] * 6,
+        gripper_drive_position_rad=actual,
+        gripper_drive_velocity_rad_s=.1,
+        target_gripper_drive_position_rad=target,
+    )
+    return SimulationObservation.model_validate(values)
+
+
+def test_linkage_7d_roundtrip_with_raw_diagnostics_and_square_images(tmp_path):
+    recorder, root = make_recorder(tmp_path)
+    actuals = [-.002, .25, 1.002]
+    targets = [0., .8, 1.]
+    for index, (actual, target) in enumerate(zip(actuals, targets), 1):
+        recorder.record_observation(linkage_observation(index, actual, target), None)
+        recorder.record_authoritative_capture(*packet(index, size=(1024, 1024)))
+    assert recorder.wait_for_writes()
+    result = recorder.stop(EpisodeStop())
+    assert result["dataset_status"] == "complete", result
+    info = json.loads((root / "lerobot/meta/info.json").read_text())
+    semantics = json.loads((root / "lerobot/meta/platform.json").read_text(encoding="utf-8"))
+    assert semantics["schema"] == "space-arm-lerobot/2"
+    assert semantics["gripper_normalization"]["closed"] == 0.
+    assert semantics["gripper_normalization"]["opened"] == 1.
+    for feature in ("observation.state", "action"):
+        assert info["features"][feature]["shape"] == [7]
+        assert info["features"][feature]["names"][-1] == "gripper_opening_normalized"
+    assert info["features"]["observation.joint_velocity"]["shape"] == [8]
+    loaded = LeRobotDataset(f"local/{root.name}", root=root / "lerobot", video_backend="pyav")
+    steps = [json.loads(line) for line in (root / "steps.jsonl").read_text(encoding="utf-8").splitlines()]
+    for index, (actual, target) in enumerate(zip(actuals, targets)):
+        row = loaded[index]
+        expected = min(1., max(0., actual))
+        np.testing.assert_allclose(row["observation.state"], [.01 * (index+1)] * 6 + [expected])
+        np.testing.assert_allclose(row["action"], [.02 * (index+1)] * 6 + [target])
+        np.testing.assert_allclose(row["observation.raw_joint_position"][-2:], [actual, -actual+.001])
+        np.testing.assert_allclose(row["observation.raw_target_joint_position"][-2:], [target, -target])
+        assert row["observation.images.wrist"].shape == (3, 1024, 1024)
+        audit = steps[index]["observation"]
+        assert audit["gripper_opening_normalized"] == expected
+        assert audit["target_gripper_opening_normalized"] == target
+        assert audit["joint_position_rad"][6] == actual
+        platform = json.loads(row["observation.platform_json"])
+        assert platform == audit
+
+
+def test_normalized_opening_serialization_cannot_override_actual_state():
+    obs = linkage_observation(actual=.35, target=.9)
+    values = obs.model_dump()
+    values["gripper_opening_normalized"] = 1.
+    values["target_gripper_opening_normalized"] = 0.
+    restored = SimulationObservation.model_validate(values)
+    assert restored.model_dump_json().count('"gripper_opening_normalized":') == 1
+    encoded = json.loads(restored.model_dump_json())
+    assert encoded["gripper_opening_normalized"] == .35
+    assert encoded["target_gripper_opening_normalized"] == .9

@@ -79,7 +79,7 @@ def selected_scene(model_root: Path, template_id: str = DEFAULT_TEMPLATE, check:
             check_fingerprints(repository, manifest["source_hashes"])
             check_fingerprints(path.parent, manifest["output_sha256"])
             check_fingerprints(repository, {s["source_obj"]: s["sha256"] for s in manifest["surfaces"]})
-        elif template_id == 'sarm-task-box-20261012':
+        elif template_id in ('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo'):
             manifest = json.loads(path.with_suffix('.manifest.json').read_text(encoding='utf-8'))
             for file, expected in ((path, manifest['model_sha256']), (repository/'model/SARM_mjcf_20261012/SARM_convex.xml', manifest['source_sha256'])):
                 if hashlib.sha256(file.read_bytes()).hexdigest() != expected:

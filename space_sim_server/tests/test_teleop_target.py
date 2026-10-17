@@ -346,7 +346,7 @@ def test_unsafe_dynamics_steps_are_rejected(step):
         MODULE.validate_dynamics_step(step)
 
 
-@pytest.mark.parametrize("step", [1.0 / 240])
+@pytest.mark.parametrize("step", [1.0 / 400])
 def test_validated_dynamics_steps_are_accepted(step):
     assert MODULE.validate_dynamics_step(step) == step
 

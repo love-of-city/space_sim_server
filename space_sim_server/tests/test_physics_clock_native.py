@@ -14,7 +14,7 @@ from space_arm_platform.sampling import tick_time_ns
 def test_real_scheduler_and_ik_are_integer_divided_without_drift(seconds):
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("testProcess")
-    task = simulation.CreateNewTask("physics", tick_time_ns(1, 240))
+    task = simulation.CreateNewTask("physics", tick_time_ns(1, 400))
     process.addTask(task)
     clock = RationalPhysicsClock(task)
     physics_stamps, ik_stamps = [], []
@@ -30,13 +30,13 @@ def test_real_scheduler_and_ik_are_integer_divided_without_drift(seconds):
             physics_stamps.append(int(now))
             reference_stamps.append(int(reader.timeWritten()))
 
-    ik = CartesianIkControlModel(Target(), clock=clock, stride=2)
+    ik = CartesianIkControlModel(Target(), clock=clock, stride=4)
     publisher = HeldJointReferencePublisher(lambda _: (np.zeros(8), np.zeros(8)), 8)
-    publisher.clock, publisher.stride = clock, 2
+    publisher.clock, publisher.stride = clock, 4
     reader = publisher.positionOutMsgs[0].addSubscriber()
     reference_stamps = []
     probe = Probe()
-    simulation.AddModelToTask("physics", clock, 20000)
+    simulation.AddModelToTask("physics", clock, 40000)
     simulation.AddModelToTask("physics", ik, 10000)
     simulation.AddModelToTask("physics", publisher, 9999)
     simulation.AddModelToTask("physics", probe, 0)
@@ -45,10 +45,10 @@ def test_real_scheduler_and_ik_are_integer_divided_without_drift(seconds):
     for end in (1_000_000_000 // 2, seconds * 1_000_000_000):
         simulation.ConfigureStopTime(end)
         simulation.ExecuteSimulation()
-    assert physics_stamps == [tick_time_ns(n, 240) for n in range(seconds * 240 + 1)]
-    assert reference_stamps == [tick_time_ns(n - n % 2, 240) for n in range(len(physics_stamps))]
-    assert ik_stamps == physics_stamps[::2]
-    assert len(ik_stamps) == seconds * 120 + 1
+    assert physics_stamps == [tick_time_ns(n, 400) for n in range(seconds * 400 + 1)]
+    assert reference_stamps == [tick_time_ns(n - n % 4, 400) for n in range(len(physics_stamps))]
+    assert ik_stamps == physics_stamps[::4]
+    assert len(ik_stamps) == seconds * 100 + 1
     assert physics_stamps[-1] == seconds * 1_000_000_000
     # Same simulation scheduler can also be reinitialized without retaining phase.
     simulation.InitializeSimulation()
@@ -56,5 +56,5 @@ def test_real_scheduler_and_ik_are_integer_divided_without_drift(seconds):
     reference_stamps.clear()
     simulation.ConfigureStopTime(100_000_000)
     simulation.ExecuteSimulation()
-    assert physics_stamps == [tick_time_ns(n, 240) for n in range(25)]
-    assert ik_stamps == physics_stamps[::2]
+    assert physics_stamps == [tick_time_ns(n, 400) for n in range(41)]
+    assert ik_stamps == physics_stamps[::4]

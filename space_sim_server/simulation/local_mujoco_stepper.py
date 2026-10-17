@@ -60,8 +60,8 @@ DYNAMICS_BACKENDS = (BACKEND_BASILISK, BACKEND_LOCAL)
 # "basilisk" (MJScene + adaptive RKF45) stays available as the accuracy
 # reference and for contact-free comparisons.
 DEFAULT_BACKEND = BACKEND_LOCAL
-# One 240 Hz implicitfast step: faster than real time in every measured contact
-# case. More substeps trade speed for accuracy (errors are first order: the wrist
+# Historical 240 Hz measurements (not a performance claim for 400 Hz):
+# more substeps trade speed for accuracy (errors are first order: the wrist
 # roll joint J6, the stiffest, is ~2.5e-3 rad max off the RKF45 reference at 1,
 # ~1.4e-3 at 2 and ~7e-4 at 4; see docs/LOCAL_DYNAMICS_BACKEND.md).
 DEFAULT_SUBSTEPS = 1
@@ -72,27 +72,29 @@ MAX_SUBSTEPS = 16
 #   (MJScalarJoint::writeJointStateMessage), so this is cheap (~0.05 ms) and IK,
 #   reference protection and wheel drives see exactly what MJScene would publish.
 # * when k % stride == 0, and on every render/observation tick
-#   (k % SYNC_STEPS == 0, the 30 Hz grid on 240 Hz dynamics): body/site messages
+#   (k % SYNC_STEPS == 0, the 50 Hz grid on 400 Hz dynamics): body/site messages
 #   (MJScene.postIntegration = forward kinematics of its publish-only copy,
 #   ~0.1 ms in isolation, ~0.6 ms in the live process). Their consumers are the
-#   30 Hz render bridge and observation (always exact) and the attitude
-#   navigation, scheduled at a multiple of the stride (30 Hz by default) so it
+#   50 Hz render bridge and observation (always exact) and the attitude
+#   navigation, scheduled at a multiple of the stride (50 Hz by default) so it
 #   reads the state published one step before it runs.
-# Physics (MuJoCo) is stepped on every 240 Hz tick regardless of the stride.
-# Default 8: publish only on the 30 Hz render grid (IK reads joint states only).
-DEFAULT_PUBLISH_STRIDE = 8
+# Physics (MuJoCo) is stepped on every 400 Hz tick regardless of the stride.
+# Default 8: publish only on the 50 Hz render grid (IK reads joint states only).
+from space_arm_platform.sampling import DYNAMICS_HZ, RENDER_HZ
+
+DEFAULT_PUBLISH_STRIDE = DYNAMICS_HZ // RENDER_HZ
 ALLOWED_PUBLISH_STRIDES = (1, 2, 4, 8)
-SYNC_STEPS = 8  # space_arm_platform.sampling: DYNAMICS_HZ // RENDER_HZ
+SYNC_STEPS = DYNAMICS_HZ // RENDER_HZ
 # Move O onto the system COM before local coordinates grow large enough for
 # the linearized tidal term or float resolution to matter.
 DEFAULT_REBASE_DISTANCE_M = 50.0
 # Measured: MuJoCo collision detection is exact up to ~3e5 m from the origin,
 # degrades near 1e6 m and fails at orbital radius (run/diagnostics/local_stepper/
 # orbital_offset_contact.py), so a once-per-second check has a wide margin.
-REBASE_CHECK_STEPS = 240
+REBASE_CHECK_STEPS = DYNAMICS_HZ
 # Differential (tidal) orbital forces are ~3e-6 m/s^2 and change on the orbit
 # time scale. The platform evaluates them once per render frame (every 8 steps,
-# 30 Hz) and holds them; one hold interval changes them by ~4e-4 relative. A
+# 50 Hz) and holds them. A
 # stepper built directly still evaluates every substep (stride 1) unless asked.
 DEFAULT_ORBITAL_FORCE_STRIDE = SYNC_STEPS
 _OBJ_BODY = 1
@@ -165,6 +167,7 @@ def _library():
                              _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P]
     lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
     lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
+    lib.lms_contacts.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, _DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
@@ -367,6 +370,14 @@ class LocalMujocoStepper(sysModel.SysModel):
         for spec in servos:
             self.connect_servo(spec)
         self._refresh_actuators()
+
+    def contact_snapshot(self) -> np.ndarray:
+        """geom ids, body ids, separation in metres; never modifies physics."""
+        count = self._lib.lms_contacts(self._handle, None, 0)
+        self._check(count, "contact count")
+        rows = np.empty((count, 5), dtype=np.float64)
+        self._check(self._lib.lms_contacts(self._handle, _pointer(rows), count), "contacts")
+        return rows
 
     def set_orbital_environment(self, environment: OrbitalForceProvider, *, force_every: int = 1) -> None:
         """``force_every`` physics steps per evaluation; 1 (default) is every substep."""

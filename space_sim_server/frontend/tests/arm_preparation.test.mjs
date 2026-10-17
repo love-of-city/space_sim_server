@@ -172,7 +172,7 @@ function setupApp(testContext,controlGranted) {
   return nodes.get(id);
  };
  $('operatingJointFields').querySelectorAll=()=>inputs;
- const state={sceneReady:true,connected:true,canManageScene:true,controlGranted,estopped:false,
+ const state={currentUser:{user_id:'operator',role:'operator'},sceneReady:true,connected:true,canManageScene:true,controlGranted,estopped:false,
   operationActive:false,operationRequested:false,freeCameraMode:false,pressed:new Set(),sequence:0};
  const instance={instance_id:'auto',randomization_profile:'teleop-zero-prepare-v2',arm_preparation_required:true,
   operating_arm_joint_position_deg:[17,-61,-82,135,-72,23]};
@@ -184,7 +184,7 @@ function setupApp(testContext,controlGranted) {
  let ui;
  const context=vm.createContext({clearWristWrench() {},state,$,document:doc,createArmPreparation,WebSocket:Socket,URL,URLSearchParams,
   location:{protocol:'http:',host:'test.invalid',search:''},
-  setOnline(){},setMessage(){},updateOperationUI(){},updateEpisodeUI(){},highlightKeys(){},
+  setOnline(){},setMessage(){},updateOperationUI(){},updateEpisodeUI(){},highlightKeys(){},setTimeout(){},
   jointAngles:{clear(){}},
   async apiRequest(path,options){
    assert.equal(path,'/api/scenes/reset');assert.equal(options.method,'POST');

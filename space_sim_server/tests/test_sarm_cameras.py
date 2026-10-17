@@ -51,7 +51,7 @@ def test_source_and_runtime_xml_use_identical_camera_calibration():
         assert cameras(relative) == expected, relative
 
 
-def test_stream_ids_match_model_and_no_python_camera_override():
+def test_stream_ids_match_model_and_preserve_stream_slots():
     project = Path(__file__).resolve().parents[1]
     script = (project / "scripts/run_platform.ps1").read_text(encoding="utf-8-sig")
     # The camera wiring and scene settings moved into the render component during
@@ -60,7 +60,6 @@ def test_stream_ids_match_model_and_no_python_camera_override():
     expected = {f"teleop/camera/{name}" for name in CAMERAS}
     assert all(f"'{name}'" in script for name in expected)
     assert "teleop/camera/so101_wrist_cam" not in script
-    assert 'default_camera_target="teleop/cubesat_bus"' in render
     assert "bridge.add_camera(" not in render
     assert "camera_picture_in_picture_start_slot=1" in render
     assert any(set(template["camera_ids"]) == expected for template in SCENE_TEMPLATES)
@@ -104,3 +103,46 @@ def test_wrist_view_contains_horizontal_fingers_entering_from_below():
     right, up, back = camera_rotation.T @ (wrist - camera_position)
     assert -back > 0.01
     assert up / -back < min(finger1[1], finger2[1], center[1])
+
+
+@pytest.mark.parametrize("template", ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf", "sarm-task-box-20261012-demo"])
+def test_only_demo_overrides_overview_camera_and_focus(monkeypatch, template):
+    import sys
+    from types import SimpleNamespace
+    import importlib.util
+    # Basic CI has no Basilisk. Isolate only the scheduling boundary, and load
+    # this component separately so no fake assembly is cached for native tests.
+    monkeypatch.setitem(sys.modules, "simulation.assembly", SimpleNamespace(
+        AssemblyContext=object, Slot=SimpleNamespace(OUTPUT=0)))
+    spec = importlib.util.spec_from_file_location(
+        "camera_render_probe", Path(__file__).resolve().parents[1] / "simulation/components/render.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    RenderComponent = module.RenderComponent
+
+    overview = SimpleNamespace(camera_id="teleop/camera/spacecraft_overview", parent_id="teleop/cubesat_bus",
+                               position_body_m=(1, 2, 3), field_of_view_rad=0.9)
+    wrist = SimpleNamespace(camera_id="teleop/camera/sarm_wrist_cam", parent_id="teleop/ee_base",
+                            position_body_m=(4, 5, 6), field_of_view_rad=1.2)
+    bridge = SimpleNamespace(_cameras=[overview, wrist], add_mj_scene=lambda *a, **kw: None)
+    bridge.set_scene_settings = lambda settings: setattr(bridge, "settings", settings)
+    monkeypatch.setitem(sys.modules, "bsk_render_adapter", SimpleNamespace(
+        BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace))
+    monkeypatch.setitem(sys.modules, "simulation.teleop_grasp_unreal", SimpleNamespace(
+        _register_celestial_bodies=lambda *a: None))
+    ctx = SimpleNamespace(scene=object(), extra={"template_id": template},
+                          add=lambda *a, **kw: None, keep_alive=lambda *a: None)
+    RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,
+                    render_rate_hz=60, capture_rate_hz=30, capture_state_provider=None).install(ctx)
+    assert wrist.parent_id == "teleop/ee_base"
+    assert wrist.position_body_m == (4, 5, 6)
+    if template.endswith("-demo"):
+        assert overview.parent_id == "teleop/locking_rod"
+        assert bridge.settings.default_camera_target == "teleop/fastener"
+        assert bridge.settings.default_camera_distance_m == .30
+    else:
+        assert overview.parent_id == "teleop/cubesat_bus"
+        assert overview.position_body_m == (1, 2, 3)
+        assert overview.field_of_view_rad == .9
+        assert bridge.settings.default_camera_target == "teleop/cubesat_bus"
+        assert bridge.settings.default_camera_distance_m == 2.8

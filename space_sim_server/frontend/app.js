@@ -12,6 +12,12 @@ import {
   TextParameters,
 } from "@epicgames-ps/lib-pixelstreamingfrontend-ue5.6";
 import "./styles.css";
+import "./platform.css";
+import {createPlatformShell} from './platform_shell.js';
+import {createCollectionPage} from './pages/collection.js';
+import {createDatasetPage} from './pages/datasets.js';
+import {createUsersPage} from './pages/users.js';
+import {askDialog, userLabel} from './ui.js';
 import { FreeCameraController } from "./free_camera.js";
 import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "./control_status.js";
@@ -27,6 +33,7 @@ function clearWristWrench() {
 const gamepadInput = new GamepadInput();
 
 const state = {
+  activePage: "operate",
   ws: null,
   connected: false,
   controlGranted: false,
@@ -57,7 +64,7 @@ const state = {
   simulationResetting: false,
   simulationConnected: false,
   resetSupported: false,
-  sceneDefaults: { simulation_rate: 1, capture_rate_hz: 30, ik_rate_hz: 120 },
+  sceneDefaults: { simulation_rate: 1, capture_rate_hz: 50, ik_rate_hz: 100 },
   currentUser: null,
   canManageScene: false,
   operationRequested: false,
@@ -98,6 +105,7 @@ function configureInitialJoints() {
 }
 function configureSceneSelection() {
   const template = initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value);
+  if (template && $("sceneCollisionWarning")) $("sceneCollisionWarning").textContent = template.description;
   const fallbackTemplate = template?.id === "sarm-task-box-free-plugs";
   const unsupported = template?.unsupported_randomization_profiles
     ?? (fallbackTemplate ? [AUTO_PREPARE_PROFILE] : []);
@@ -187,6 +195,7 @@ const scenePhaseLabels = {
 
 function showLogin(message = "") {
   state.currentUser = null;
+  platform.setUser(null);
   state.operationRequested = false;
   document.body.classList.add("auth-required");
   document.body.classList.remove("auth-pending");
@@ -211,51 +220,9 @@ function applyAuthenticatedUser(user) {
   state.currentUser = user;
   document.body.classList.remove("auth-pending", "auth-required");
   $("authGate").hidden = true;
-  $("currentUsername").textContent = user.username;
+  $("currentUsername").textContent = userLabel(user);
   $("currentRole").textContent = user.role === "admin" ? "管理员" : "操作员";
-  $("adminUsers").hidden = user.role !== "admin";
-}
-
-async function loadOperators() {
-  if (state.currentUser?.role !== "admin") return;
-  const response = await apiRequest("/api/users", { cache: "no-store" });
-  if (!response.ok) return;
-  const data = await response.json();
-  const operators = (data.users || []).filter((user) => user.role === "operator");
-  $("operatorList").replaceChildren(...operators.map((user) => {
-    const row = document.createElement("div");
-    row.className = "operator-row";
-    row.innerHTML = `<span><strong>${user.username}</strong><small>操作员</small></span>`;
-    const actions = document.createElement("span");
-    actions.className = "operator-actions";
-    const reset = document.createElement("button");
-    reset.type = "button"; reset.textContent = "重置密码";
-    reset.addEventListener("click", () => resetOperatorPassword(user));
-    const remove = document.createElement("button");
-    remove.type = "button"; remove.textContent = "删除"; remove.className = "danger-button";
-    remove.addEventListener("click", () => deleteOperator(user));
-    actions.append(reset, remove); row.append(actions); return row;
-  }));
-  if (!operators.length) $("operatorList").textContent = "尚未创建操作员";
-}
-
-async function resetOperatorPassword(user) {
-  const password = prompt(`为操作员 ${user.username} 设置新密码（至少8位）`);
-  if (!password) return;
-  const response = await apiRequest(`/api/users/operators/${user.user_id}/reset-password`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }),
-  });
-  const data = await readApiResponse(response);
-  setMessage(response.ok ? `已重置 ${user.username} 的密码` : (data.detail || "重置失败"));
-}
-
-async function deleteOperator(user) {
-  if (!confirm(`确定删除操作员 ${user.username}？`)) return;
-  const response = await apiRequest(`/api/users/operators/${user.user_id}`, { method: "DELETE" });
-  const data = await readApiResponse(response);
-  if (!response.ok) return setMessage(data.detail || "删除失败");
-  setMessage(`已删除操作员 ${user.username}`);
-  await loadOperators();
+  platform.setUser(user);
 }
 
 function shutdownAuthenticatedApp() {
@@ -263,6 +230,8 @@ function shutdownAuthenticatedApp() {
   state.stateReadPending = false;
   missionPanel.reset();
   exitOperationMode("");
+  Object.values(pages).forEach(page=>page.reset());
+  document.querySelectorAll("dialog.platform-dialog").forEach(dialog=>dialog.close());
   if (state.actionTimer) clearInterval(state.actionTimer);
   if (state.stateTimer) clearInterval(state.stateTimer);
   state.actionTimer = null; state.stateTimer = null;
@@ -274,13 +243,8 @@ function shutdownAuthenticatedApp() {
 }
 
 async function startAuthenticatedApp() {
-  await loadSceneCatalog();
-  await missionPanel.load();
-  await connectPixelStreaming();
-  if (!state.currentUser) return;
-  if (state.streamConfig) connect();
-  await refreshState();
-  await loadOperators();
+  // Keep the team shell and deep links; load mission settings after the scene catalog.
+  await Promise.all([loadSceneCatalog().then(() => missionPanel.load()), refreshState(), platform.activateCurrent()]);
   if (!state.currentUser) return;
   updateOperationUI();
   if (!state.actionTimer) state.actionTimer = setInterval(sendAction, 33);
@@ -316,8 +280,8 @@ async function loadSceneCatalog() {
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
-      capture_rate_hz: Number(defaults.capture_rate_hz || 30),
-      ik_rate_hz: Number(defaults.ik_rate_hz || 120),
+      capture_rate_hz: Number(defaults.capture_rate_hz || 50),
+      ik_rate_hz: Number(defaults.ik_rate_hz || 100),
     };
   } catch (error) {
     console.warn("Scene catalog is unavailable", error);
@@ -340,6 +304,7 @@ function applySceneRuntime(runtime = {}) {
   const currentObservation = state.simulationConnected &&
     (!state.sceneInstanceId || state.observationSceneId === state.sceneInstanceId);
   state.sceneReady = phase === "running" && currentObservation && !state.resetPending && !state.simulationResetting;
+  if (!state.sceneReady) $("fastenerDemoStatus").hidden = true;
   if (!state.sceneReady) clearWristWrench();
   if (!state.sceneReady && state.operationActive) {
     exitOperationMode("当前场景尚未就绪，已退出操作模式");
@@ -362,7 +327,7 @@ function applySceneRuntime(runtime = {}) {
   updateOperationUI();
   $("sceneInstanceId").textContent = instance.instance_id || "—";
   $("sceneInstanceSeed").textContent = instance.seed ?? "—";
-  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id === "sarm-task-box-20261012" ? "新版 SARM 完整任务盒 + 地面验证星" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
+  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id?.startsWith("sarm-task-box-20261012") ? "新版 SARM 完整任务盒 + 地面验证星" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
   const instanceSunlight = instance.environment?.lighting?.sunlight_intensity_scale ?? 1;
   $("sceneInstanceSunlight").textContent = instance.instance_id ? `${instanceSunlight} 倍` : "—";
   const instanceOrbitPhase = instance.environment?.orbit?.true_anomaly_deg ?? 180;
@@ -371,6 +336,7 @@ function applySceneRuntime(runtime = {}) {
     : instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
   if (active && instance.instance_id) {
     if (instance.template_id) $("sceneTemplate").value = instance.template_id;
+    if (instance.capture_target?.runtime_warning) $("sceneCollisionWarning").textContent = instance.capture_target.runtime_warning;
     if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
     $("sceneSunlightIntensity").value = String(instanceSunlight);
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
@@ -499,6 +465,8 @@ async function stopScene() {
 }
 
 function connect() {
+  if (!state.currentUser || (state.activePage && state.activePage !== "operate")) return;
+  if (state.ws && [WebSocket.OPEN, WebSocket.CONNECTING].includes(state.ws.readyState)) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   const accessKey = new URLSearchParams(location.search).get("access_key");
   const operatorUrl = new URL(`${scheme}://${location.host}/ws/operator`);
@@ -557,6 +525,12 @@ function connect() {
     } else if (message.type === "observation") {
       const obs = message.payload;
       if (state.sceneInstanceId && obs.scene_instance_id !== state.sceneInstanceId) return;
+      const demo = obs.fastener_demo;
+      $("fastenerDemoStatus").hidden = !demo;
+      if (demo) {
+        const phase = { settle: "松开等待", tighten: "正在拧紧", hold_tight: "压紧保持", loosen: "正在拧松", hold_loose: "松开保持" }[demo.phase] || demo.phase;
+        $("fastenerDemoStatus").textContent = `防脱演示 · ${phase} · 行程 ${Number(demo.travel_mm).toFixed(2)} mm · 转角 ${Number(demo.angle_deg).toFixed(1)}°`;
+      }
       jointAngles.update(obs);
       armPreparation.update(obs.arm_preparation, obs);
       setOnline("simDot", true);
@@ -601,7 +575,7 @@ function connect() {
 }
 
 async function connectPixelStreaming() {
-  if (!state.currentUser) return;
+  if (!state.currentUser || (state.activePage && state.activePage !== "operate")) return;
   // Reconnect callbacks, the 10-second startup watchdog, and manual reconnect
   // can otherwise overlap.  That creates two Pixel Streaming players for the
   // main viewport and makes the displayed stream flash while old participants
@@ -615,7 +589,7 @@ async function connectPixelStreaming() {
       cache: "no-store",
       headers: accessKey ? { "X-Space-Arm-Access-Key": accessKey } : {},
     });
-    if (!state.currentUser) return;
+    if (!state.currentUser || (state.activePage && state.activePage !== "operate")) return;
     if (response.status === 401) {
       disposePixelStream();
       state.streamConfig = null;
@@ -1285,6 +1259,7 @@ function updateOperationUI() {
 }
 
 function enterOperationMode() {
+  if (state.activePage && state.activePage !== "operate") return;
   if (!armPreparation.ready()) return setMessage("请等待机械臂实测稳定到位；准备已中止时，请先复原场景再显式重试");
   if (!state.sceneReady) return setMessage("场景尚未运行，暂时不能进入操作模式");
   if (!state.connected) return setMessage("操作链路尚未连接");
@@ -1299,6 +1274,7 @@ function enterOperationMode() {
 }
 
 function completeEnterOperationMode() {
+  if (state.activePage && state.activePage !== "operate") return;
   if (!armPreparation.ready()) return setMessage("机械臂尚未准备到位");
   state.pressed.clear();
   state.operationActive = true;
@@ -1321,6 +1297,7 @@ function exitOperationMode(message = "已退出操作模式，点击实时画面
 }
 
 function sendAction() {
+  if (state.activePage && state.activePage !== "operate") return;
   // Poll diagnostics even outside operation mode; this never grants control.
   const gamepad = gamepadAction();
   if (armPreparation.tick()) return;
@@ -1370,6 +1347,11 @@ async function refreshState() {
     const data = await response.json();
     if (response.ok === false) throw new Error(data.detail || "无法读取任务状态");
     if (sequence !== state.stateRequestSequence) return;
+    if (!response.ok) throw new Error(`state ${response.status}`);
+    if (state.activePage !== 'operate') {
+      setOnline('backendDot', true);
+      $('backendState').textContent = '平台已连接';
+    }
     state.simulationConnected = data.simulation.connected;
     state.observationSceneId = data.simulation.latest_observation?.scene_instance_id || null;
     state.simulationResetting = data.simulation.resetting === true;
@@ -1401,6 +1383,7 @@ async function refreshState() {
   } catch (_) {
     if (sequence !== state.stateRequestSequence) return;
     setOnline("backendDot", false);
+    if (state.activePage !== 'operate') $('backendState').textContent = '平台连接异常';
     if (state.mission) missionPanel.failed();
   } finally {
     if (state.stateReadPending === sequence) state.stateReadPending = false;
@@ -1456,6 +1439,7 @@ $("viewport").addEventListener("pointerdown", (event) => {
 }, true);
 
 window.addEventListener("keydown", (event) => {
+  if (state.activePage && state.activePage !== "operate") return;
   if (event.code === "Escape") armPreparation.cancel();
   const editing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable;
   if (editing) {
@@ -1488,6 +1472,7 @@ window.addEventListener("keydown", (event) => {
   if (!state.freeCameraMode && state.operationActive && !event.repeat) state.pressed.add(event.code);
 }, true);
 window.addEventListener("keyup", (event) => {
+  if (state.activePage && state.activePage !== "operate") return;
   if (freeCamera.handleKey(event, false)) return;
   if (controlKeys.has(event.code) || ["KeyC", "Home"].includes(event.code)) {
     event.preventDefault();
@@ -1498,6 +1483,7 @@ window.addEventListener("keyup", (event) => {
   }
 }, true);
 window.addEventListener("keypress", (event) => {
+  if (state.activePage && state.activePage !== "operate") return;
   if (state.freeCameraMode || controlKeys.has(event.code) || event.code === "KeyC"
       || ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable) {
     event.stopImmediatePropagation();
@@ -1597,34 +1583,45 @@ $("loginForm").addEventListener("submit", async (event) => {
   await startAuthenticatedApp();
 });
 $("changePasswordButton").addEventListener("click", async () => {
-  const currentPassword = prompt("请输入当前密码");
-  if (!currentPassword) return;
-  const newPassword = prompt("请输入新密码（至少8位）");
-  if (!newPassword) return;
-  const response = await apiRequest("/api/auth/change-password", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
-  });
-  const data = await readApiResponse(response);
-  if (!response.ok) return setMessage(data.detail || "修改密码失败");
-  shutdownAuthenticatedApp();
-  showLogin("密码已修改，请使用新密码重新登录");
+  const values=await askDialog({title:'修改密码',message:'修改后需要重新登录。',fields:[{name:'current_password',label:'当前密码',type:'password',autocomplete:'current-password'},{name:'new_password',label:'新密码',type:'password',minLength:8,autocomplete:'new-password'}],confirmLabel:'修改密码'});
+  if(!values||!state.currentUser)return;
+  try{await platformApi('/api/auth/change-password',{method:'POST',body:JSON.stringify(values)});shutdownAuthenticatedApp();showLogin('密码已修改，请重新登录');}
+  catch(error){await askDialog({title:'修改失败',message:error.message,confirmLabel:'知道了'});}
 });
 $("logoutButton").addEventListener("click", async () => {
   await apiRequest("/api/auth/logout", { method: "POST" });
   shutdownAuthenticatedApp();
   showLogin("已退出登录");
 });
-$("createOperatorForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const response = await apiRequest("/api/users/operators", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: $("operatorUsername").value, password: $("operatorPassword").value }),
-  });
-  const data = await readApiResponse(response);
-  if (!response.ok) return setMessage(data.detail || "新增操作员失败");
-  event.target.reset(); setMessage(`已新增操作员 ${data.username}`); await loadOperators();
-});
+
+async function platformApi(url,options={}) {
+ const response=await apiRequest(url,{...options,cache:'no-store',headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});
+ const data=await readApiResponse(response);
+ if(!response.ok){const detail=data.detail;throw new Error(typeof detail==='string'?detail:Array.isArray(detail)?detail.map(item=>item.msg).join('；'):'请求失败，请稍后重试');}
+ return data;
+}
+function leaveWorkbench(){
+ exitOperationMode('已切换页面，遥操作输入已停止');state.operationRequested=false;
+ if(state.ws){state.ws.onopen=null;state.ws.onclose=null;state.ws.onmessage=null;state.ws.close();state.ws=null;}
+ state.connected=false;state.controlGranted=false;disposePixelStream();
+ setOnline('backendDot',true);$('backendState').textContent='平台已连接';
+}
+const platform=createPlatformShell({onNavigate:async(page,params)=>{
+ const previous=state.activePage;
+ if(previous==='operate'&&page!=='operate')leaveWorkbench();
+ Object.values(pages).forEach(view=>view.deactivate());state.activePage=page;
+ document.querySelectorAll('[data-platform-page]').forEach(view=>{view.hidden=view.dataset.platformPage!==page;});
+ $('workbenchFooter').hidden=page!=='operate';
+ if(page==='operate'){
+  await connectPixelStreaming();
+  if(state.currentUser&&state.activePage==='operate'){if(state.streamConfig)connect();await refreshState();}
+ }else await pages[page].activate(params);
+}});
+const pages={
+ collection:createCollectionPage($('collectionPage'),{api:platformApi}),
+ datasets:createDatasetPage($('datasetsPage'),{api:platformApi,navigate:(path)=>platform.navigate(path)}),
+ users:createUsersPage($('usersPage'),{api:platformApi,getUser:()=>state.currentUser,onUserChange:applyAuthenticatedUser}),
+};
 
 initialize();
 

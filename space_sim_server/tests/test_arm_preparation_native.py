@@ -75,7 +75,7 @@ def test_zero_start_fixed_sequence_real_joint_controllers(tmp_path, monkeypatch,
         operating_arm_joint_position_deg=goal_deg))
     args=SimpleNamespace(adapter_root=ADAPTER,model_root=ROOT/'model/SARM/platform',scene_instance=Path(instance['config_path']),
         catalog=tmp_path/'unused.json',control_host='127.0.0.1',control_port=0,render_host='127.0.0.1',render_port=0,
-        duration=180.,simulation_rate=1.,capture_rate=30.,ik_rate=120.,ik_mode=teleop.IK_MODE_IK_POSE,disable_attitude_control=False)
+        duration=180.,simulation_rate=1.,capture_rate=50.,ik_rate=100.,ik_mode=teleop.IK_MODE_IK_POSE,disable_attitude_control=False)
     try:teleop.run(args)
     except Finished:pass
     report={'case':case,'goal_deg':goal_deg,'final':observations[-1],'count':len(observations),

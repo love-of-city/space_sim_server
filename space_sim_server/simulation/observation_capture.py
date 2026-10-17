@@ -10,7 +10,7 @@ from Basilisk.architecture import sysModel
 class AuthoritativeObservationModel(sysModel.SysModel):
     """Same task/instant as the bridge; network delivery remains outside physics.
 
-    Physics uses an absolute 240 Hz grid; every eighth step publishes a render
+    Physics uses an absolute 400 Hz grid; every eighth step publishes a render
     frame. Snapshot immediately after that frame, not later in the outer loop.
     """
     def __init__(self, bridge, snapshot: Callable[[int, int], dict]):

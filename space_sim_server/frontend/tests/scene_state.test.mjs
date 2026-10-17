@@ -48,7 +48,7 @@ function harness() {
 }
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
-const respond = (request, data) => request.resolve({ json: async () => data });
+const respond = (request, data) => request.resolve({ ok: true, json: async () => data });
 
 for (const action of ["startScene", "stopScene"]) {
   for (const timing of ["during", "after"]) {
@@ -112,7 +112,7 @@ test("slow JSON decoding prevents overlapping polls and releases the next read",
   const h = harness();
   const oldBody = deferred();
   const oldPoll = h.context.refreshState();
-  h.requests[0].resolve({ json: () => oldBody.promise });
+  h.requests[0].resolve({ ok: true, json: () => oldBody.promise });
   await flush();
   await h.context.refreshState();
   assert.equal(h.requests.length, 1);
@@ -129,7 +129,7 @@ test("a scene transition invalidates a poll already decoding JSON", async () => 
   const h = harness();
   const oldBody = deferred();
   const oldPoll = h.context.refreshState();
-  h.requests[0].resolve({ json: () => oldBody.promise });
+  h.requests[0].resolve({ ok: true, json: () => oldBody.promise });
   await flush();
   const transition = h.context.startScene();
   oldBody.resolve(snapshot("old", "stopped"));
@@ -140,4 +140,20 @@ test("a scene transition invalidates a poll already decoding JSON", async () => 
   respond(h.requests[2], snapshot("new"));
   await transition;
   assert.deepEqual(h.armed, ["new"]);
+});
+
+test("non-workbench status reflects HTTP failure and recovery", async () => {
+  const h = harness();
+  h.state.activePage = "datasets";
+  const failed = h.context.refreshState();
+  h.requests[0].resolve({ ok: false, status: 503, json: async () => ({detail: "unavailable"}) });
+  await failed;
+  assert.equal(h.runtimes.length, 0);
+  assert.deepEqual(h.online.at(-1), ["backendDot", false]);
+  assert.equal(h.context.$("backendState").textContent, "平台连接异常");
+  const recovered = h.context.refreshState();
+  respond(h.requests[1], snapshot("existing"));
+  await recovered;
+  assert.equal(h.context.$("backendState").textContent, "平台已连接");
+  assert.equal(h.runtimes.length, 1);
 });

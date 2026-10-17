@@ -1,0 +1,438 @@
+"""Persistent orchestration of isolated production collectors (CPU + UE).
+
+Task adapters own their CLI and validation; the manager only owns resources,
+process lifecycle and durable progress. Native dynamics never run in the API.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import threading
+import time
+import uuid
+
+import psutil
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .collection_processes import ManagerLease, WindowsProcessGroup
+
+
+@dataclass(frozen=True)
+class CollectionTask:
+    label: str
+    script: str
+    template: str
+
+
+TASKS = {
+    "drawer_cycle": CollectionTask(
+        "抽屉取出、放回与撤离",
+        "tools/collect_drawer_cycles.py",
+        "sarm-task-box-20261012",
+    ),
+}
+TERMINAL = {"complete", "failed", "cancelled", "interrupted", "attempt_limit"}
+
+
+class CollectionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task: str = "drawer_cycle"
+    count: int = Field(default=5, ge=1, le=1000)
+    workers: int = Field(default=2, ge=1, le=4)
+    max_attempts: int = Field(default=15, ge=1, le=1000)
+    seed: int = Field(default=20261016, ge=0, le=2**31 - 1001)
+    range_deg: float = Field(default=10, ge=0, le=10, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def valid_plan(self):
+        if self.task not in TASKS:
+            raise ValueError("未注册的采集任务")
+        if not self.workers <= self.count <= self.max_attempts:
+            raise ValueError("需满足 并发数 ≤ 成功条数 ≤ 最大尝试数")
+        return self
+
+
+def read_json(path, default=None):
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return default
+
+
+def write_json(path, value):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    temporary.replace(path)
+
+
+def kill_owned_tree(pid, created):
+    """Never terminate a reused PID or an unrelated interactive scene."""
+    try:
+        parent = psutil.Process(pid)
+        if abs(parent.create_time() - created) > 0.01:
+            return
+        children = parent.children(recursive=True)
+        # Stop the supervisor first so that it cannot spawn replacements.
+        parent.suspend()
+        for process in reversed(children):
+            try:
+                process.kill()
+            except psutil.Error:
+                pass
+        parent.kill()
+        psutil.wait_procs([parent, *children], timeout=3)
+    except psutil.NoSuchProcess:
+        pass
+
+
+def free_ports(count):
+    """Probe both protocols. Child listeners also fail closed if a port is taken."""
+    for base in range(21000, 30000, 40):
+        ports = list(range(base, base + count * 4))
+        sockets = []
+        try:
+            for port in ports:
+                for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+                    sock = socket.socket(socket.AF_INET, kind)
+                    sockets.append(sock)
+                    if os.name == "nt":
+                        sock.setsockopt(
+                            socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
+                        )
+                    sock.bind(("127.0.0.1", port))
+            return [ports[i : i + 4] for i in range(0, len(ports), 4)]
+        except OSError:
+            continue
+        finally:
+            for sock in sockets:
+                sock.close()
+    raise ValueError("没有足够空闲的采集端口")
+
+
+class CollectionManager:
+    def __init__(self, project_root, data_root, adapter=None, unreal=None):
+        self.project_root = Path(project_root).resolve()
+        self.data_root = Path(data_root).resolve()
+        self.root = self.data_root.parent / "collection_jobs"
+        self.adapter = Path(
+            adapter or self.project_root.parent / "space_sim_UE_Adapter"
+        )
+        self.unreal = Path(unreal or "C:/Program Files/Epic Games/UE_5.6")
+        self.lock = threading.RLock()
+        self.thread = None
+        self.closing = False
+        self.jobs = {}
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.lease = ManagerLease(self.root / "manager.lock")
+        for path in self.root.glob("*/job.json"):
+            job = read_json(path)
+            if not job or job.get("id") != path.parent.name:
+                continue
+            if job["status"] not in TERMINAL:
+                for worker in job["workers"]:
+                    if worker.get("pid") and worker.get("created"):
+                        kill_owned_tree(worker["pid"], worker["created"])
+                    if worker["status"] not in TERMINAL:
+                        worker["status"] = "interrupted"
+                job.update(
+                    status="interrupted",
+                    error="后端重启中断；已清理原任务进程。请新建任务继续。",
+                    finished_at=time.time(),
+                )
+                write_json(path, job)
+            self.jobs[job["id"]] = job
+
+    @staticmethod
+    def visible(job, user):
+        return user["role"] == "admin" or job["owner"]["user_id"] == user["user_id"]
+
+    def _save(self, job):
+        write_json(self.root / job["id"] / "job.json", job)
+
+    def list(self, user):
+        with self.lock:
+            return [
+                self._view(j)
+                for j in sorted(
+                    self.jobs.values(), key=lambda j: j["started_at"], reverse=True
+                )
+                if self.visible(j, user)
+            ]
+
+    def get(self, key, user):
+        with self.lock:
+            job = self.jobs.get(key)
+            if not job or not self.visible(job, user):
+                raise KeyError(key)
+            return self._view(job)
+
+    def _view(self, job):
+        result = deepcopy(job)
+        result["elapsed_seconds"] = round(
+            result.get("finished_at", time.time()) - result["started_at"], 1
+        )
+        result["accepted_episodes"] = [
+            episode
+            for w in result["workers"]
+            for episode in w.get("accepted_episodes", [])
+        ]
+        result["success_count"] = len(result["accepted_episodes"])
+        for worker in result["workers"]:
+            worker.pop("created", None)
+        return result
+
+    def start(self, request, owner, scene):
+        with self.lock:
+            if self.closing or any(
+                j["status"] not in TERMINAL for j in self.jobs.values()
+            ):
+                raise ValueError("已有自动采集批次运行中，请等待完成或先停止该批次")
+            task = TASKS[request.task]
+            for path in (
+                self.project_root / task.script,
+                self.unreal / "Engine/Binaries/Win64/UnrealEditor-Cmd.exe",
+                self.adapter
+                / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json",
+            ):
+                if not path.is_file():
+                    raise ValueError(f"采集运行环境缺少文件：{path}")
+            key = "collection-" + time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
+            directory = self.root / key
+            directory.mkdir()
+            scene = deepcopy(scene)
+            scene["created_by"] = {k: owner[k] for k in ("user_id", "username", "role")}
+            write_json(directory / "scene.json", scene)
+            ports = free_ports(request.workers)
+            workers = []
+            seed = request.seed
+            for index in range(request.workers):
+                count = request.count // request.workers + (
+                    index < request.count % request.workers
+                )
+                attempts = request.max_attempts // request.workers + (
+                    index < request.max_attempts % request.workers
+                )
+                workers.append(
+                    dict(
+                        index=index,
+                        count=count,
+                        max_attempts=attempts,
+                        seed=seed,
+                        ports=ports[index],
+                        status="queued",
+                        accepted_episodes=[],
+                    )
+                )
+                seed += attempts
+            job = dict(
+                id=key,
+                status="running",
+                owner=scene["created_by"],
+                config=request.model_dump(),
+                started_at=time.time(),
+                workers=workers,
+            )
+            self.jobs[key] = job
+            self._save(job)
+            self.thread = threading.Thread(
+                target=self._run, args=(job,), name=key, daemon=True
+            )
+            self.thread.start()
+            return self._view(job)
+
+    def stop(self, key, user):
+        with self.lock:
+            self.get(key, user)
+            job = self.jobs[key]
+            if job["status"] not in TERMINAL:
+                job["status"] = "stopping"
+                job.setdefault("stop_requested_at", time.time())
+                (self.root / key / "cancel.request").touch()
+                self._save(job)
+            return self._view(job)
+
+    def _refresh(self, job, worker):
+        folder = self.root / job["id"] / f"worker-{worker['index']}"
+        summary = read_json(folder / "summary.json", {})
+        worker["attempts"] = summary.get("attempts", [])
+        worker["accepted_episodes"] = [
+            Path(p).name for p in summary.get("accepted_episodes", [])
+        ]
+        worker["collector_status"] = summary.get("status", "starting")
+        if summary.get("error"):
+            worker["error"] = summary["error"]
+        if worker["attempts"]:
+            attempt = worker["attempts"][-1]
+            worker["phase"] = attempt["status"]
+            # Tail only a bounded amount; progress records may be partially written.
+            log = Path(attempt["directory"]) / "recording.log"
+            try:
+                with log.open("rb") as stream:
+                    stream.seek(max(0, log.stat().st_size - 24000))
+                    lines = stream.read().decode("utf-8", errors="replace").splitlines()
+                for line in reversed(lines):
+                    try:
+                        item = json.loads(line)
+                    except ValueError:
+                        continue
+                    if item.get("stage"):
+                        worker["progress"] = item
+                        break
+            except OSError:
+                pass
+
+    def _run(self, job):
+        active = []
+        folder = self.root / job["id"]
+        try:
+            for worker in job["workers"]:
+                with self.lock:
+                    if job["status"] == "stopping":
+                        break
+                    cfg = job["config"]
+                    command = [
+                        sys.executable,
+                        "-X",
+                        "utf8",
+                        str(self.project_root / TASKS[cfg["task"]].script),
+                        "--scene",
+                        str(folder / "scene.json"),
+                        "--output",
+                        str(folder / f"worker-{worker['index']}"),
+                        "--episodes-root",
+                        str(self.data_root),
+                        "--count",
+                        str(worker["count"]),
+                        "--max-attempts",
+                        str(worker["max_attempts"]),
+                        "--seed",
+                        str(worker["seed"]),
+                        "--range-deg",
+                        str(cfg["range_deg"]),
+                        "--cancel-file",
+                        str(folder / "cancel.request"),
+                        "--adapter",
+                        str(self.adapter),
+                        "--unreal",
+                        str(self.unreal),
+                    ]
+                    for name, port in zip(
+                        ("control", "capture", "render", "signalling"),
+                        worker["ports"],
+                        strict=True,
+                    ):
+                        command += [f"--{name}-port", str(port)]
+                    log = (folder / f"worker-{worker['index']}.log").open(
+                        "w", encoding="utf-8"
+                    )
+                    try:
+                        process = subprocess.Popen(
+                            command,
+                            cwd=self.project_root,
+                            stdout=log,
+                            stderr=subprocess.STDOUT,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        )
+                    except BaseException:
+                        log.close()
+                        raise
+                    try:
+                        group = WindowsProcessGroup(process)
+                    except BaseException:
+                        kill_owned_tree(
+                            process.pid, psutil.Process(process.pid).create_time()
+                        )
+                        log.close()
+                        raise
+                    active.append((worker, process, log, group))
+                    worker.update(
+                        status="running",
+                        pid=process.pid,
+                        created=psutil.Process(process.pid).create_time(),
+                    )
+                    self._save(job)
+            while active:
+                with self.lock:
+                    for worker, process, log, group in list(active):
+                        self._refresh(job, worker)
+                        if (
+                            job.get("stop_requested_at")
+                            and time.time() - job["stop_requested_at"] > 180
+                        ):
+                            kill_owned_tree(process.pid, worker["created"])
+                            worker["forced_stop"] = True
+                        if process.poll() is None:
+                            continue
+                        worker["returncode"] = process.returncode
+                        worker["status"] = (
+                            "cancelled"
+                            if job["status"] == "stopping"
+                            else "complete"
+                            if process.returncode == 0
+                            and len(worker["accepted_episodes"]) == worker["count"]
+                            else "failed"
+                        )
+                        log.close()
+                        if worker["status"] == "failed":
+                            log_path = folder / f"worker-{worker['index']}.log"
+                            with log_path.open("rb") as stream:
+                                stream.seek(max(0, log_path.stat().st_size - 6000))
+                                worker["log_tail"] = stream.read().decode(
+                                    "utf-8", errors="replace"
+                                )
+                        group.close()
+                        active.remove((worker, process, log, group))
+                    self._save(job)
+                if active:
+                    time.sleep(0.5)
+            with self.lock:
+                job["status"] = (
+                    "cancelled"
+                    if job["status"] == "stopping"
+                    else "complete"
+                    if all(w["status"] == "complete" for w in job["workers"])
+                    else "failed"
+                )
+        except Exception as error:
+            with self.lock:
+                job.update(status="failed", error=f"{type(error).__name__}: {error}")
+        finally:
+            for worker, process, log, group in active:
+                group.close()
+                kill_owned_tree(process.pid, worker.get("created", 0))
+                process.wait(timeout=5)
+                log.close()
+            with self.lock:
+                for worker in job["workers"]:
+                    if worker["status"] in {"queued", "running"}:
+                        worker["status"] = (
+                            "cancelled" if job["status"] == "cancelled" else "failed"
+                        )
+                job["finished_at"] = time.time()
+                self._save(job)
+
+    def close(self):
+        with self.lock:
+            self.closing = True
+            for job in self.jobs.values():
+                if job["status"] not in TERMINAL:
+                    self.stop(job["id"], job["owner"])
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=20)
+            if self.thread.is_alive():
+                with self.lock:
+                    for job in self.jobs.values():
+                        if job["status"] not in TERMINAL:
+                            job["stop_requested_at"] = time.time() - 181
+                self.thread.join(timeout=15)
+
+        self.lease.close()

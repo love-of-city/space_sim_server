@@ -1,8 +1,8 @@
 # SpaceSim 双星交会与场景交接
 
-本文是远距飞行及交接的边界说明。新增100 m内接近、机械臂视觉伺服和捕获流程代理见 [NEAR_FIELD_RENDEZVOUS](NEAR_FIELD_RENDEZVOUS.md)；新流程不会把本页的独立单星GNSS滤波标为已实现载波差分，也不将逻辑捕获称作真实连接。
+本页说明远距阶段的模型、受力和验收门槛。当前工作台默认使用共享GNSS和连续远距→近距→操作流程，见[连续任务说明](../../archive/2026_10_17_连续任务与共享导航.md)。未传`gnss`配置的独立CLI仍保留旧六状态单星滤波及独立噪声，便于历史回归；不能与统一入口默认值混用。近距设计历史见[NEAR_FIELD_RENDEZVOUS](NEAR_FIELD_RENDEZVOUS.md)，逻辑捕获不代表真实连接。
 
-交会和机械臂场景使用同一个统一仓库、模型、动力学核心及 UE 适配器。两种任务分别为约 7 km 接近，以及从约 300 km 升至目标约 500 km 的轨道后接近。任务止于 100 m 外；完成后可把实际双星、飞轮和导航状态交给标准机械臂场景继续运行。交接与遥操作能力不等于已实现自主近程导航或抓捕。
+交会和机械臂场景使用同一个统一仓库、模型、动力学核心及UE适配器。两种远距初态分别为约7 km相对距离，以及约300 km升至目标约500 km轨道后接近。远距阶段止于100 m外；连续任务随后接续近距参数化控制和原操作场景。独立API未启用`continuous`时仍可手动交接。真实图像导航和物理抓捕尚未完成。
 
 ## 模型与共同动力学
 
@@ -12,7 +12,7 @@
 
 `LocalMujocoStepper` 是唯一多体积分器，与标准 SpaceSim 场景相同。Basilisk 负责组件调度、Earth/Sun 引力模型、环境、导航和姿态控制；MJScene 初始化模型并发布消息，不再次积分。默认外层调度 20 Hz，每拍 12 个内部子步，物理积分 240 Hz。报告保存组件调度及 `external_state_writes=0` 诊断；初态之后不回写位置/速度来实现轨迹。
 
-交会显式设置 `force_every=1`，保持在每个内部积分子步重新求值引力。遥操作主线新增的八个外层步保持策略仍用于其 240 Hz 调度；交会不能直接继承它，否则在 20 Hz 外层调度下会把刷新降为 2.5 Hz。报告与独立验收同时检查实际 `force_stride_steps=1`。
+远近距均显式设置`force_every=1`，在每个240Hz内部积分子步重新求值引力。标准遥操作当前使用团队400Hz积分、100Hz IK、200Hz腕力和50Hz采集配置。不能把其引力保持策略直接套到20Hz外层的交会入口，否则会改变实际求值频率；报告与独立验收同时检查交会的`force_stride_steps=1`。
 
 平移通过组件质心处的三轴合力执行器，范数上限 25 N。反作用轮沿用原始轮体惯量、轴、电机、限矩和转速保护；轮速由动力学推进。平移 PD 使用双方 GNSS 滤波结果，目标轨道估计持续更新。姿态保持使用原平台 MRP 反馈，仍采用真值姿态导航假设。
 
@@ -24,7 +24,7 @@
 
 | 参数 | 默认值和含义 |
 |---|---|
-| `seed` | 7；浏览器验收另用 19 |
+| `seed` | 默认7；部分历史浏览器回执使用19，以各次mission_options.json为准 |
 | `gnss_position_sigma_m` / `gnss_velocity_sigma_m_s` | 每星每轴 1σ：3 m / 0.5 m/s，独立 2 Hz 观测 |
 | `initial_position_sigma_m` / `initial_velocity_sigma_m_s` | 每星初态每轴 1σ：10 m / 0.02 m/s |
 | `orbit_acceleration_sigma_m_s2` / `orbit_correlation_s` | 双星独立 Gauss–Markov 未知物理加速度，1σ 为 2×10⁻⁵ m/s²，相关时间 60 s |
@@ -34,9 +34,11 @@
 | `chaser_area_m2` / `target_area_m2` | 等效面积 1 m² / 4 m² |
 | `handoff_distance_m` | 保持距离 110 m，为 100 m 边界留出噪声余量 |
 
-10/8 会议提出 GNSS 的 3 m、0.5 m/s，但未给出统计口径；此处明确采用每轴 1σ，不能称为接收机规格。密度、面积和系数也是可配置的仿真假设，并非实测硬件数据。
+上表GNSS项为旧独立CLI默认值。统一任务默认`GNSSConfig`使用10Hz成对测量：单星每轴σp=1/√3 m、σv=0.002/√3 m/s；近零基线的相对误差下限为每轴σp=0.03 m、σv=0.0015 m/s，相关长度10⁶m，基线增大时共同误差相关性降低。单星3D RMS参考PODRIX，其他相对指标和采样率为工程假设。两星12状态滤波保留交叉协方差，接收机随机流、采样序号和协方差跨段继承；不是原始载波差分或模糊度解算。
 
-大气组件采用 Basilisk ExponentialAtmosphere，阻力复用团队力函数和共转大气相对速度。光压采用球形等效面积模型，1 AU 太阳辐照度 1361 W/m²，按距离平方反比变化，并由 Basilisk Eclipse 的地影因子遮挡。未知扰动力真实施加到两个刚体，控制器不读取该随机过程。六维轨道滤波通过动力学预测和 Joseph 协方差更新估计轨道，不会以真值代替观测。通信延迟按本轮会议决定暂不加入。
+10/8会议的旧3m、0.5m/s在这里按每轴1σ解释，不称为接收机规格。密度、面积和系数同样是可配置仿真假设，并非实测硬件数据。
+
+大气组件采用Basilisk ExponentialAtmosphere，阻力复用团队力函数和共转大气相对速度。光压采用球形等效面积模型，1 AU太阳辐照度1361 W/m²，按距离平方反比变化，并由Basilisk Eclipse的地影因子遮挡。未知扰动力真实施加到两个刚体，控制器不读取该随机过程。轨道滤波通过动力学预测和Joseph协方差更新估计轨道，不以真值代替观测。连续任务目前拒绝非零GNSS传输延迟，避免把延迟观测误当作当前时刻更新。
 
 模型公式参考 [Basilisk 指数大气](https://hanspeterschaub.info/basilisk/_downloads/4628ece49f0fa96a05b63562dd03bf90/Basilisk-atmosphere-20190221.pdf)、[Basilisk 地影](https://www.hanspeterschaub.info/basilisk/Documentation/simulation/environment/eclipse/eclipse.html)、[Basilisk 光压](https://hanspeterschaub.info/basilisk/_downloads/86e242b81759c9aa6b3a9f4475ed82ff/Basilisk-RadiationPressure-20170712.pdf)和 [NASA 太阳辐照度](https://earth.gsfc.nasa.gov/climate/projects/solar-irradiance/science)。
 
@@ -100,6 +102,6 @@ UE 使用完整团队网格、材质与 Earth/Sun。主视口默认“双星交�
 
 本分支合入团队 main `662d829`（2026-10-12 SARM MJCF / PR #17），保留其四连杆夹爪、任务盒与自由操作件、螺纹 SDF、rad 单位语义、外覆尺度修复、空节点和腕部相机修复。直接遥操作的原场景选择器保留所有团队模板；新 `sarm-task-box-20261012` 仍按团队定义标为实验配置，说明见 [SARM 新模型](SARM_20261012_PLATFORM.md)。
 
-远程交会继续使用团队默认 `sarm-ground-validation-self-collision-grasp`；交接显式选择同一模板并校验源模型 SHA256，不能因为先前选择过实验模板而换掉飞行模型。新版自由插头、抽屉与螺纹机构没有被强行冻结后冒充已完成整场交会验收。其控制、重置及采集与交会共用平台，模型身份和数据单位保留各自来源。100 m 内自主接近、自动对接和实验机构操作不是本次已实现功能。
+远程交会继续使用团队默认`sarm-ground-validation-self-collision-grasp`；交接显式选择同一模板并校验源模型SHA256，不能因为先前选择过实验模板而换掉飞行模型。新版自由插头、抽屉与螺纹机构没有被强行冻结后冒充整场交会验收。其控制、重置及采集与交会共用平台，模型身份和数据单位保留各自来源。100m内现有参数化控制流程不等于真实图像自主导航、物理抓捕或自动对接成功；新机构的完整任务能力也需另行验收。
 
 个人任务对应及复现入口见 [AOC_SEVEN_TASKS.md](AOC_SEVEN_TASKS.md)（保留历史文件名）。源代码与适配器配套变更在同一分支交付；运行数据、认证、讲稿和生成 UE 资产不提交 Git。

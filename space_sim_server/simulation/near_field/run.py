@@ -152,6 +152,7 @@ def run(args):
     # Publish the restored physical initial condition before the first sensor
     # acquisition. Otherwise subscribers still contain the pre-handoff state.
     scene.postIntegration(0)
+    scene.UpdateState(0)  # Publish restored joint/wheel measurements before the first control tick.
     for module, saved in zip(environment.models, incoming.get("environment_state", [])):
         module.restore(saved)
     for i, reader in enumerate(control.joint_readers):

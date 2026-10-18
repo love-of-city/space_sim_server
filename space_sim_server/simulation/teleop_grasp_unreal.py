@@ -1361,12 +1361,25 @@ def _run_session(
             validate_handoff(flight_handoff, native.MODEL_PATH)
             apply_handoff(scene, flight_handoff)
             scene.postIntegration(0)
+            # postIntegration refreshes body/site kinematics only. Publish the
+            # scalar joints before seeding hold references or the first IK tick
+            # would consume the zero-position messages from initialization.
+            # With the required local backend this call only publishes states.
+            scene.UpdateState(0)
             # A near-field handoff may contain a deployed arm and closed
             # fingers. Seed the operator's hold references from those joints.
             targets.initial_position = np.array([
                 float(scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
                 for body, joint in native.JOINTS])
             targets.reset(0.0)
+            restored_joints = {(item["body"], item["joint"]["name"]): item["position"]
+                               for item in flight_handoff["stowed_joints"]}
+            reference_error = max(abs(value - restored_joints[key])
+                                  for key, value in zip(native.JOINTS, targets.position, strict=True))
+            if reference_error >= 1e-8:
+                raise ValueError("handoff joint hold reference continuity failed")
+            print(json.dumps({"type": "handoff_joint_reference", "max_error_rad_or_m": reference_error,
+                              "position": targets.position.tolist()}), flush=True)
             for saved in flight_handoff["state"]["bodies"]:
                 body_name = "capture_target" if saved["body_id"] == "rendezvous/target" else "cubesat_bus"
                 actual = scene.getBody(body_name).getOrigin().stateOutMsg.read()

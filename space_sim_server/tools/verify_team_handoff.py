@@ -39,6 +39,17 @@ def main():
     simulation.AddModelToTask("handoff", scene)
     simulation.InitializeSimulation()
     epoch = apply_handoff(scene, data)
+    def joint_message_error():
+        errors = []
+        for item in data["stowed_joints"]:
+            joint = scene.getBody(item["body"]).getScalarJoint(item["joint"]["name"])
+            errors.extend([abs(joint.stateOutMsg.read().state-item["position"]),
+                           abs(joint.stateDotOutMsg.read().state-item.get("velocity", 0.))])
+        return max(errors, default=0.)
+    unpublished_joint_error = joint_message_error()
+    scene.postIntegration(0)
+    scene.UpdateState(0)
+    initial_joint_message_error = joint_message_error()
     simulation.ConfigureStopTime(0)
     simulation.ExecuteSimulation()
     errors = []
@@ -83,6 +94,7 @@ def main():
             for e in errors
         )
         and max(joint_errors) < 1e-8
+        and initial_joint_message_error < 1e-8
     )
     result = {
         "passed": passed,
@@ -90,6 +102,8 @@ def main():
         "epoch_s": epoch,
         "body_errors": errors,
         "max_joint_error": max(joint_errors),
+        "unpublished_joint_error": unpublished_joint_error,
+        "initial_joint_message_error": initial_joint_message_error,
         "scope": "native articulated model initialization continuity, not subsequent near-field control",
     }
     (args.handoff.parent / "handoff_validation.json").write_text(

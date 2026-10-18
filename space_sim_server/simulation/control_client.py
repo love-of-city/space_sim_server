@@ -10,12 +10,14 @@ import time
 import uuid
 from typing import Any
 from space_arm_platform.protocol import CONTROL_PROTOCOL, encode_packet, FramedSocketReader
+from simulation.policy_control import PolicyCommandGate
 
 class SimulationControlClient:
     """Latest actions plus bounded ACK/replay delivery of every authoritative state."""
 
     def __init__(self, host: str, port: int, simulation_id: str, *,
-                 max_pending_observations: int = 128, observation_timeout_s: float = 30.) -> None:
+                 max_pending_observations: int = 128, observation_timeout_s: float = 30., policy_timeout_s: float = 30.,
+                 policy_runtime: bool = False) -> None:
         self.host = host
         self.port = int(port)
         self.simulation_id = simulation_id
@@ -40,6 +42,7 @@ class SimulationControlClient:
         self._transport_error = None
         self._reconnects = 0
         self._capture_state = {"capture_episode_id": "", "capture_request_id": ""}
+        self.policy = PolicyCommandGate(timeout_s=policy_timeout_s, enabled=policy_runtime)
 
 
     @property
@@ -63,6 +66,7 @@ class SimulationControlClient:
                     f"Transport detail: {self._transport_error or 'handshake not received'}")
 
     def close(self) -> None:
+        self.policy.invalidate("control transport closed")
         self._stop.set()
         with self._pending_condition:
             self._pending_condition.notify_all()
@@ -83,6 +87,12 @@ class SimulationControlClient:
         with self._lock:
             return dict(self._capture_state)
 
+    def discard_teleop(self) -> None:
+        """Clear queued human input at every policy ownership transition."""
+        with self._lock:
+            self._action = self._neutral_action()
+            self._received_monotonic = 0.0
+
     def latest_action(self) -> tuple[dict[str, Any], bool]:
         with self._lock:
             action = dict(self._action)
@@ -95,7 +105,7 @@ class SimulationControlClient:
             action["end_effector_angular_velocity_tool_rad_s"] = list(
                 self._action.get("end_effector_angular_velocity_tool_rad_s", [0.0] * 3)
             )
-            stale = self._resetting or time.monotonic() - self._received_monotonic > 0.25
+            stale = self._resetting or self.policy.controlling or time.monotonic() - self._received_monotonic > 0.25
         if stale:
             action["deadman"] = False
             action["end_effector_linear_velocity_body_m_s"] = [0.0] * 3
@@ -128,6 +138,7 @@ class SimulationControlClient:
             if request_id is not None:
                 self._pending_reset = None
                 self._reset_generation = request_id
+                self.policy.reset(request_id)
             return request_id
 
     def complete_reset(self) -> None:
@@ -140,12 +151,24 @@ class SimulationControlClient:
 
     def _accept_message(self, message: dict[str, Any]) -> None:
         with self._lock:
+            if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") == "joint_policy_command":
+                self.policy.submit(message, resetting=self._resetting)
+                if self.policy.controlling:
+                    self.discard_teleop()
+                return
+            if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") == "stop":
+                self.policy.invalidate("explicit STOP")
+                self.discard_teleop()
+                return
             if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") == "capture_control":
                 episode = message.get("episode_id")
                 request = message.get("request_id")
                 if (isinstance(episode, str) and len(episode) <= 128
                         and isinstance(request, str) and 1 <= len(request) <= 64):
-                    self._capture_state = {"capture_episode_id": episode, "capture_request_id": request}
+                    updated = {"capture_episode_id": episode, "capture_request_id": request}
+                    if self.policy.session_id and updated != self._capture_state:
+                        self.policy.invalidate("capture configuration changed during policy control")
+                    self._capture_state = updated
                 return
             if message.get("protocol") == CONTROL_PROTOCOL and message.get("type") in {"observation_ack", "observation_ready"}:
                 if message.get("observation_stream_id") != self._stream_id:
@@ -167,12 +190,21 @@ class SimulationControlClient:
                     return
                 if request_id == self._reset_generation or self._resetting:
                     return  # Reconnect/retry cannot reset an already applied generation twice.
+                self.policy.invalidate("scene reset")
                 self._pending_reset = request_id
                 self._resetting = True
                 self._action = self._neutral_action()
                 self._received_monotonic = 0.0
             elif (not self._resetting and self._valid_action(message)
                   and message.get("reset_generation", "") == self._reset_generation):
+                if self.policy.controlling:
+                    # Ordinary teleop deadman/heartbeat expiry cannot overwrite a
+                    # policy target. Explicit safety reasons still stop the lease.
+                    reason = message.get("reason")
+                    if reason and reason != "input_timeout":
+                        self.policy.invalidate(f"operator STOP: {reason}")
+                    self.discard_teleop()
+                    return
                 self._action = message
                 self._received_monotonic = time.monotonic()
 
@@ -218,7 +250,7 @@ class SimulationControlClient:
                              "capabilities": ["reliable_observations_v1", "capture_on_demand_v1", "capture_pair_ack_v1", "scene_reset", "arm_preparation",
                                  "cartesian_twist_6d", "damped_least_squares_ik", "gripper_velocity",
                                  "joint_observation", "cartesian_observation", "sarm_si_joint_observation",
-                                 "reaction_wheel_attitude_control"]}
+                                 "reaction_wheel_attitude_control"] + (["joint_policy_v1"] if self.policy.enabled else [])}
                     self._socket = connection
                 connection.sendall(encode_packet(hello))
                 handshake_deadline = time.monotonic() + 3.
@@ -231,6 +263,9 @@ class SimulationControlClient:
                     for sequence, data in packets:
                         connection.sendall(data)
                         cursor = sequence
+                    if self._peer_ready:
+                        for result in self.policy.take_results():
+                            connection.sendall(encode_packet(result))
                     # Reader retains bytes even when a payload spans receive timeouts.
                     if reader.buffer or select.select([connection], [], [], .01)[0]:
                         try:
@@ -249,6 +284,7 @@ class SimulationControlClient:
     def _drop(self, connection: socket.socket) -> None:
         with self._lock:
             if self._socket is connection:
+                self.policy.invalidate("control transport disconnected; pending outcome may be uncertain")
                 self._socket = None
                 self._peer_ready = False
                 self._pending_condition.notify_all()

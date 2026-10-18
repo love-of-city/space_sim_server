@@ -193,10 +193,11 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     async load() {
       catalog = await requestJson('/api/mission/catalog', {}, apiRequest);
       $('missionMode').replaceChildren(...catalog.modes.map(m => new Option(m.label, m.id)));
-      if (!snapshot.mission_id) {
-        for (const [id, key] of Object.entries(fields)) {
-          if (catalog.flight_defaults?.[key] != null) $(id).value = String(catalog.flight_defaults[key]);
-        }
+      // Restored teleop records have no flight options. State may arrive before
+      // the catalog; a mission ID alone must not preserve legacy HTML defaults.
+      for (const [id, key] of Object.entries(fields)) {
+        const value = snapshot.options?.[key] ?? catalog.flight_defaults?.[key];
+        if (value != null) $(id).value = String(value);
       }
       available = true;
       configure();

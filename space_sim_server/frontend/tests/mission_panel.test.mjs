@@ -69,6 +69,58 @@ test('the same mission returns to original teleoperation panels only after hando
   assert.equal(missionPresentation(run, 'team-in-orbit').canHandoff, false);
 });
 
+for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, true]) {
+  test(`restored ${hasSavedOptions ? 'flight' : 'teleop'} options with ${stateFirst ? 'state' : 'catalog'} arriving first`, async () => {
+    const previousDocument = globalThis.document, previousOption = globalThis.Option;
+    globalThis.document = {body: {classList: {toggle() {}}}};
+    globalThis.Option = class { constructor(label, value) { this.value = value; } };
+    const nodes = new Map(), requests = [];
+    const ctx = {clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}};
+    const $ = id => {
+      if (!nodes.has(id)) nodes.set(id, {
+        value: id === 'missionMode' ? 'teleop' : id === 'missionGnssPosition' ? '3' : id === 'missionGnssVelocity' ? '.5' : '',
+        textContent: '', checked: true, addEventListener() {}, replaceChildren() {},
+        querySelectorAll: () => [], getContext: () => ctx, width: 620, height: 200,
+      });
+      return nodes.get(id);
+    };
+    const defaults = {seed:7, handoff_distance_m:110, gnss_position_sigma_m:.577,
+      gnss_velocity_sigma_m_s:.001155, initial_position_sigma_m:10, orbit_acceleration_sigma_m_s2:.00002,
+      differential_gnss:{relative_position_sigma_m:.03, relative_velocity_sigma_m_s:.0015, sample_rate_hz:10, delay_s:0}};
+    const saved = {mission_id:'saved', mode:hasSavedOptions ? 'team-in-orbit' : 'teleop',
+      stage:'teleop', phase:'stopped', active:false,
+      ...(hasSavedOptions ? {options:{seed:0, gnss_position_sigma_m:3, gnss_velocity_sigma_m_s:.5}} : {})};
+    let releaseCatalog;
+    const pendingCatalog = new Promise(resolve => { releaseCatalog = resolve; });
+    try {
+      const panel = createMissionPanel({$, state:{streamLive:false}, message() {}, reconnect() {}, configureScene() {},
+        refresh:async () => {}, apiRequest:async (path, init) => {
+          requests.push([path, init]);
+          if (path.endsWith('catalog')) await pendingCatalog;
+          return {ok:true, status:200, json:async () => path.endsWith('catalog')
+            ? {modes:[{id:'teleop'},{id:'team-in-orbit'}], continuous_default:true, flight_defaults:defaults}
+            : {stage:'flight', phase:'starting', active:true}};
+        }});
+      const loading = panel.load();
+      if (stateFirst) panel.render(saved);
+      releaseCatalog(); await loading;
+      if (!stateFirst) panel.render(saved);
+      assert.equal(Number($('missionGnssPosition').value), hasSavedOptions ? 3 : defaults.gnss_position_sigma_m);
+      assert.equal(Number($('missionGnssVelocity').value), hasSavedOptions ? .5 : defaults.gnss_velocity_sigma_m_s);
+      assert.equal(Number($('missionSeed').value), hasSavedOptions ? 0 : 7);
+      $('missionMode').value = 'team-in-orbit'; panel.configure();
+      $('missionGnssPosition').value = '.8'; panel.render(saved);
+      assert.equal($('missionGnssPosition').value, '.8', 'later state polls preserve user edits');
+      await panel.startFlight();
+      const request = JSON.parse(requests.at(-1)[1].body);
+      assert.equal(request.continuous, true);
+      assert.equal(request.options.gnss_position_sigma_m, .8);
+      assert.equal(request.options.differential_gnss.absolute_position_sigma_m, .8);
+      assert.equal(request.options.differential_gnss.absolute_velocity_sigma_m_s, hasSavedOptions ? .5 : defaults.gnss_velocity_sigma_m_s);
+    } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
+  });
+}
+
 test('idle selection changes panels without starting a task; stopping stays disabled', () => {
   assert.equal(missionPresentation({}, 'team-orbit-raise').flightView, true);
   assert.equal(missionPresentation({}, 'teleop').flightView, false);

@@ -277,6 +277,9 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
 
 
 from simulation.control_client import SimulationControlClient
+from simulation.policy_control import (
+    DrawerPolicyState, JointPolicyController, POLICY_PERIOD_NS, validate_actions,
+)
 
 
 class CartesianTeleopTarget:
@@ -366,6 +369,7 @@ class CartesianTeleopTarget:
         self.last_sim_seconds: float | None = None
         self.applied_sequence = "0"
         self.command_stale = True
+        self.policy_active = False
         self.desired_twist = np.zeros(6)
         self.achieved_twist = np.zeros(6)
         self.residual_twist = np.zeros(6)
@@ -425,6 +429,7 @@ class CartesianTeleopTarget:
         """Reset the held joint and Cartesian references at simulation start."""
 
         self.position = self.initial_position.copy()
+        self.policy_active = False
         self.preparation.reset()
         self.elbow_deviation.reset()
         self.elbow_diagnostics = ElbowStepDiagnostics()
@@ -464,9 +469,63 @@ class CartesianTeleopTarget:
         self.update_count = 0
         self.ik_solve_count = 0
 
+    def set_policy_control(self, enabled: bool, sim_seconds: float) -> None:
+        """Hold the existing safe reference; ownership changes never assign qpos."""
+        self.policy_active = enabled
+        self.last_sim_seconds = float(sim_seconds)
+        self.velocity.fill(0.)
+        self.commanded_linear_velocity.fill(0.)
+        self.commanded_angular_velocity.fill(0.)
+        self.commanded_joint6_velocity = 0.
+        self.raw_operator_twist.fill(0.)
+        self.desired_twist.fill(0.)
+        self.achieved_twist.fill(0.)
+        self.residual_twist.fill(0.)
+        self.command_stale = True
+        self.applied_sequence = "0"
+        self.solver_status = "policy_hold" if enabled else "holding"
+        self.solve_time_ms = 0.
+        self.solver_reasons = []
+        self.elbow_deviation.reset()
+        self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(self.position[:6])
+
+    def apply_policy_action(self, action: list[float]) -> list[float]:
+        """Bound one absolute target through the existing reference/servo path."""
+        if not self.policy_active:
+            raise RuntimeError("joint policy does not own the reference")
+        checked = validate_actions([action], self.joint_min[:6], self.joint_max[:6])[0]
+        if not self.linkage_gripper:
+            raise ValueError("joint policy requires the calibrated SARM linkage gripper")
+        dt = POLICY_PERIOD_NS * 1e-9
+        requested = np.clip((np.asarray(checked[:6]) - self.position[:6]) / dt,
+                            -ARM_JOINT_VELOCITY_LIMIT, ARM_JOINT_VELOCITY_LIMIT)
+        self.arm_effort_ratio = self._effort_provider() if self._effort_provider else np.zeros(6)
+        governed = self.governor.apply(self.position[:6], self._actual_arm_position(),
+                                       requested, dt, enabled=True, effort_ratio=self.arm_effort_ratio)
+        self.velocity[:6] = governed.velocity
+        self.position[:6] = np.clip(self.position[:6] + governed.velocity * dt,
+                                    self.joint_min[:6], self.joint_max[:6])
+        # The calibrated tendon coordinate is 0 closed / 1 open. Preserve the
+        # existing 0.2 rad/s drive limit and the paired linkage reference.
+        self.velocity[6] = float(np.clip((checked[6] - self.position[6]) / dt, -.2, .2))
+        self.velocity[7] = -self.velocity[6]
+        self.position[6] = float(np.clip(self.position[6] + self.velocity[6] * dt, 0., 1.))
+        self.position[7] = -self.position[6]
+        self.tracking_scale = governed.scale
+        self.governor_state = governed.state
+        self.governor_limited_joints = governed.limited_joints
+        self.solver_status = "policy_target"
+        self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(self.position[:6])
+        return self.position[:6].tolist() + [float(self.position[6])]
+
     def update(self, sim_seconds: float) -> tuple[np.ndarray, np.ndarray]:
         """Update bounded joint references; hold them on release or stale input."""
 
+        if self.policy_active:
+            # Policy targets are published once at the render boundary. Neither
+            # IK, deadman expiry, preparation nor reference recovery may change them.
+            self.last_sim_seconds = float(sim_seconds)
+            return self.cached_reference(sim_seconds)
         if self.last_sim_seconds is None:
             self.last_sim_seconds = sim_seconds
             return self.position.copy(), self.velocity.copy()
@@ -943,7 +1002,7 @@ def run(args: argparse.Namespace) -> None:
                       "reference_governor_settings": asdict(JointReferenceGovernor().settings),
                       "reference_recovery_settings": asdict(ReferenceRecoverySettings())}), flush=True)
 
-    client = SimulationControlClient(args.control_host, args.control_port, "sarm-teleop")
+    client = SimulationControlClient(args.control_host, args.control_port, "sarm-teleop", policy_runtime=True)
     kinematics = SerialChainKinematics.from_mjcf(
         native.MODEL_PATH,
         base_body="cubesat_bus",
@@ -1027,6 +1086,7 @@ def _run_session(
     gravity_factory = None
     orbit_origin = None
     assembly: AssemblyContext | None = None
+    policy: JointPolicyController | None = None
     try:
         with runtime_stage("build_physics"):
             simulation, scene, dynamics_models, recorders = native._build_simulation(
@@ -1158,6 +1218,34 @@ def _run_session(
         wrench_sampler = (install_wrench_sampler(assembly)
                           if local_backend and native.model_profile.linkage else None)
 
+        drawer_policy_state = None
+        if local_backend and native.model_profile.linkage:
+            try:
+                drawer_policy_state = DrawerPolicyState(scene, simulation.local_stepper, model_path=native.MODEL_PATH)
+            except (ValueError, RuntimeError, KeyError):
+                pass  # Scenes without the physical drawer remain usable for joint policy.
+
+        def publish_policy_reference(now_ns: int) -> None:
+            # A policy interval starts at a render boundary, which need not also
+            # be an IK tick. Write the held message before any of its substeps.
+            stride = reference_publisher.stride
+            try:
+                reference_publisher.stride = 1
+                reference_publisher.UpdateState(now_ns)
+            finally:
+                reference_publisher.stride = stride
+
+        policy = JointPolicyController(
+            client.policy, targets,
+            supported=(local_backend and native.model_profile.linkage
+                       and 'fastener_demo' not in assembly.extra
+                       and not getattr(args, "scripted_task", None)),
+            discard_teleop=client.discard_teleop, capture_state=client.capture_state,
+            publish_reference=publish_policy_reference,
+            available_tasks=("drawer_cycle",) if drawer_policy_state is not None else (),
+            reset_task=drawer_policy_state.reset if drawer_policy_state is not None else None,
+        )
+
         def snapshot_observation(render_frame_id: int, render_sim_time_ns: int) -> dict[str, Any]:
             joint_position = [float(read().state) for read in position_readers]
             joint_velocity = [float(read().state) for read in velocity_readers]
@@ -1173,6 +1261,11 @@ def _run_session(
                     "type": "observation",
                     "simulation_id": "sarm-teleop",
                     "reset_generation": client.reset_generation,
+                    "policy_execution": policy.execution_metadata(),
+                    "policy_task_state": (drawer_policy_state.snapshot(
+                        joint_position, end_effector_position.tolist(), sim_time_ns=render_sim_time_ns,
+                        joint_velocities=joint_velocity, ee_rotation=end_effector_rotation)
+                                          if drawer_policy_state is not None else {"task_name": "", "success_available": False, "success": False}),
                     "render_session_id": bridge.session_id,
                     **bridge.last_capture_state,
                     "scene_instance_id": scene_instance.get("instance_id") if scene_instance else None,
@@ -1406,13 +1499,20 @@ def _run_session(
         if client.reset_generation:
             bridge.publish_event("scene_reset", {"request_id": client.reset_generation, "sim_time_ns": "0"})
         frame = 0
+        next_advance_wall = wall_start
         next_backpressure_log = 0.0
         while frame_count is None or frame < frame_count:
+            policy.service()
             reset_request = client.take_reset()
             if reset_request is not None:
+                policy.reset_task(None)
                 print(json.dumps({"type": "reset_accepted", "request_id": reset_request,
                                   "wall_time_ns": str(time.time_ns())}), flush=True)
                 return reset_request
+            if policy.paused and not policy.stepping:
+                next_advance_wall = time.monotonic()
+                time.sleep(.01)
+                continue
             # Flow control belongs outside ExecuteSimulation/UpdateState. Both
             # network workers remain alive, so STOP/reset/control stay responsive.
             # At most two render snapshots are emitted by one outer advance.
@@ -1426,24 +1526,44 @@ def _run_session(
                                       **render_transport_status(bridge.publisher),
                                       **client.observation_transport_status()}), flush=True)
                     next_backpressure_log = now + 2.0
+                next_advance_wall = time.monotonic()
                 time.sleep(.01)
                 continue
+            # Bound waits so reset/STOP and monotonic policy deadlines are serviced
+            # even with capture backpressure or a very slow simulation rate.
+            deadline = next_advance_wall + POLICY_PERIOD_NS * 1e-9 / args.simulation_rate
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(.01, remaining))
+                continue
+            policy_stop_ns = policy.prepare_step() if policy.stepping else None
+            if policy.paused and policy_stop_ns is None:
+                continue
             frame += 1
-            stop_ns = tick_time_ns(frame, RENDER_HZ)
+            stop_ns = policy_stop_ns if policy_stop_ns is not None else tick_time_ns(frame, RENDER_HZ)
             sim_seconds = stop_ns * 1.0e-9
             if frame_count is not None:
+                if policy_stop_ns is not None and stop_ns > macros.sec2nano(args.duration):
+                    client.policy.invalidate("policy interval would exceed finite simulation duration")
+                    policy.service()
+                    break
                 stop_ns = min(stop_ns, macros.sec2nano(args.duration))
                 sim_seconds = stop_ns * 1.0e-9
-            deadline = wall_start + sim_seconds / args.simulation_rate
-            time.sleep(max(0.0, deadline - time.monotonic()))
             processing_start = time.monotonic()
+            next_advance_wall = max(deadline, processing_start)
             simulation.ConfigureStopTime(stop_ns)
             simulation.ExecuteSimulation()
             execute_end = time.monotonic()
             if frame == 1:
                 client.complete_reset()
-            for observation_snapshot in observation_snapshots.drain():
+            snapshots = observation_snapshots.drain()
+            for observation_snapshot in snapshots:
                 client.send_observation(observation_snapshot)
+            if policy_stop_ns is not None:
+                policy.complete_step(snapshots)
+            else:
+                for observation_snapshot in snapshots:
+                    policy.observe(observation_snapshot)
             processing_end = time.monotonic()
             processing_seconds += processing_end - processing_start
             performance_event = performance.record(
@@ -1478,6 +1598,9 @@ def _run_session(
             )
         _ = keep_alive
     finally:
+        if policy is not None:
+            client.policy.invalidate("simulation session ended")
+            policy.service()
         stepper = getattr(simulation, "local_stepper", None)
         if stepper is not None:
             stepper.close()

@@ -29,6 +29,8 @@ class CollectionTask:
     label: str
     script: str
     template: str
+    arguments: tuple[str, ...] = ()
+    description: str = "接近 → 抓取 → 抽出 → 放回 → 松爪 → 撤离。"
 
 
 TASKS = {
@@ -38,6 +40,19 @@ TASKS = {
         "sarm-task-box-20261012",
     ),
 }
+for _task, _label in (
+    ("aviation_plug_insert", "航空插头"),
+    ("guide_plug_insert", "导向插头"),
+    ("cylindrical_plug_insert", "圆柱插头"),
+):
+    TASKS[_task] = CollectionTask(
+        _label + "拿取与插入",
+        "tools/collect_plug_tasks.py",
+        "sarm-task-box-20261012",
+        arguments=("--task", _task),
+        description=f"独立任务：跟踪并抓取{_label} → 搬到前方对应插孔 → 对准插入 → 松爪撤离 → 验收。",
+    )
+
 TERMINAL = {"complete", "failed", "cancelled", "interrupted", "attempt_limit"}
 
 
@@ -325,6 +340,7 @@ class CollectionManager:
                         "--unreal",
                         str(self.unreal),
                     ]
+                    command += list(TASKS[cfg["task"]].arguments)
                     for name, port in zip(
                         ("control", "capture", "render", "signalling"),
                         worker["ports"],

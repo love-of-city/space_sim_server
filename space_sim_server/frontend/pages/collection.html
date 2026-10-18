@@ -4,7 +4,7 @@
   <div class="panel-heading"><h2>新建采集批次</h2><button id="close-setup" class="button" type="button">关闭</button></div>
   <form id="collection-form" class="panel-body">
     <label class="field">采集任务<select id="task" name="task" required></select></label>
-    <p class="muted">接近 → 调整夹爪 → 夹持 → 抽出 → 放回 → 松爪 → 撤离。</p>
+    <p id="task-description" class="muted"></p>
     <div class="form-grid"><label class="field">成功记录数<input name="count" type="number" min="1" max="1000" value="5" required></label><label class="field">并行实例<select id="workers" name="workers"><option value="1">1 路</option><option value="2" selected>2 路</option><option value="3">3 路</option><option value="4">4 路</option></select></label></div>
     <div class="form-section">初始化与重试</div>
     <div class="form-grid"><label class="field">关节初始偏移（±°）<input name="range_deg" type="number" min="0" max="10" step="0.5" value="10" required><small>六个关节独立采样，并检查关节限制和碰撞。</small></label><label class="field">最多尝试次数<input name="max_attempts" type="number" min="1" max="1000" value="15" required><small>达到成功记录数或尝试上限即结束。</small></label></div>

@@ -21,12 +21,30 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
 
 from space_arm_platform.capture_lifecycle import CaptureLifecycle
-from space_arm_platform.camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
+from space_arm_platform.camera_defaults import (
+    CAPTURE_CAMERA_WIDTH,
+    CAPTURE_CAMERA_HEIGHT,
+)
 from space_arm_platform.capture_receiver import CaptureReceiver
 from space_arm_platform.models import EpisodeStart, EpisodeStop
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.simulation_hub import SimulationHub
-from space_arm_platform.sampling import DYNAMICS_HZ, DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, WRENCH_HZ, SCRIPTED_TASK_HZ
+from space_arm_platform.sampling import (
+    DYNAMICS_HZ,
+    DEFAULT_CAPTURE_HZ,
+    DEFAULT_IK_HZ,
+    WRENCH_HZ,
+    SCRIPTED_TASK_HZ,
+)
+
+from simulation.scripted_tasks.plug_profiles import (
+    PLUG_PROFILES,
+    is_plug_task,
+    plug_profile,
+)
+
+PROCESS_STARTED = time.monotonic()
+PROCESS_STARTED_AT_NS = time.time_ns()
 
 CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
 
@@ -42,10 +60,16 @@ def scene_copy(source, task="drawer_lift"):
     scene["instance_id"] = (
         "scripted-" + task.replace("_", "-") + "-" + uuid.uuid4().hex[:12]
     )
-    scene["runtime"] = {**runtime, "dataset_capture": True,
-        "dynamics_rate_hz": DYNAMICS_HZ, "dynamics_step_s": 1 / DYNAMICS_HZ,
-        "wrist_wrench_rate_hz": WRENCH_HZ, "scripted_task_rate_hz": SCRIPTED_TASK_HZ, "capture_rate_hz": DEFAULT_CAPTURE_HZ,
-        "ik_rate_hz": DEFAULT_IK_HZ}
+    scene["runtime"] = {
+        **runtime,
+        "dataset_capture": True,
+        "dynamics_rate_hz": DYNAMICS_HZ,
+        "dynamics_step_s": 1 / DYNAMICS_HZ,
+        "wrist_wrench_rate_hz": WRENCH_HZ,
+        "scripted_task_rate_hz": SCRIPTED_TASK_HZ,
+        "capture_rate_hz": DEFAULT_CAPTURE_HZ,
+        "ik_rate_hz": DEFAULT_IK_HZ,
+    }
     return scene
 
 
@@ -114,6 +138,8 @@ async def run(args):
         "source_scene": str(args.scene.resolve()),
         "scene_instance": scene,
         "result": "failed",
+        "started_at_ns": str(PROCESS_STARTED_AT_NS),
+        "task_name": args.task,
     }
 
     def emit(stage, **values):
@@ -259,12 +285,16 @@ async def run(args):
                 fps=DEFAULT_CAPTURE_HZ,
                 camera_ids=CAMERAS,
                 capture_products=["rgb"],
-                max_frames=18000,
+                max_frames=int(args.max_sim_seconds * DEFAULT_CAPTURE_HZ) + 100,
                 task="scripted " + args.task,
                 instruction=(
-                    f"将圆柱插头从初始取件位夹起，搬到前方{args.target_site.rsplit('_', 1)[-1].replace('p', '.')}毫米装配孔，对准后插入并松开撤离。"
-                    if args.task == "plug_insert"
-                    else ("夹住操作台最右侧抽屉，沿导轨抽出约8厘米并保持，然后放回归位、松开夹爪并撤离，确认抽屉保持关闭。" if args.task == "drawer_cycle" else "移动至操作台最右侧抽屉上方，转动夹爪、张开、下降夹住抽屉并提起约8厘米。")
+                    plug_profile(args.task).instruction
+                    if is_plug_task(args.task)
+                    else (
+                        "夹住操作台最右侧抽屉，沿导轨抽出约8厘米并保持，然后放回归位、松开夹爪并撤离，确认抽屉保持关闭。"
+                        if args.task == "drawer_cycle"
+                        else "移动至操作台最右侧抽屉上方，转动夹爪、张开、下降夹住抽屉并提起约8厘米。"
+                    )
                 ),
                 operator=owner.get("username", "scripted-task"),
                 operator_user_id=owner.get("user_id"),
@@ -312,6 +342,9 @@ async def run(args):
                 note="Live scripted task using authoritative UE capture. "
                 + str(task.get("reason", "")),
             )
+        )
+        report["finalization_wall_seconds"] = (
+            time.monotonic() - start_wall - report["recording_wall_seconds"]
         )
         report["episode"] = result
         validate_episode(result)
@@ -362,6 +395,8 @@ async def run(args):
         await asyncio.to_thread(recorder.close)
         for log in logs:
             log.close()
+        report["finished_at_ns"] = str(time.time_ns())
+        report["end_to_end_wall_seconds"] = time.monotonic() - PROCESS_STARTED
         (out / "summary.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -370,9 +405,11 @@ async def run(args):
 def main(default_task="drawer_cycle"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--task", choices=["drawer_lift", "drawer_cycle", "plug_insert"], default=default_task
+        "--task",
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES],
+        default=default_task,
     )
-    parser.add_argument("--target-site", default="cylindrical_insert_40p5")
+    parser.add_argument("--target-site", default=None)
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument(
         "--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter"
@@ -397,12 +434,16 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--substeps", type=int)
     parser.add_argument("--cancel-file", type=Path)
     args = parser.parse_args()
+    if args.target_site is None:
+        args.target_site = (
+            plug_profile(args.task).target_site
+            if is_plug_task(args.task)
+            else "cylindrical_insert_40p5"
+        )
     if args.warmup_sim_seconds is None:
         args.warmup_sim_seconds = 6.466666667 if args.task == "plug_insert" else 0.0
     if args.output is None:
-        folder = {"drawer_lift": "drawer-recording", "drawer_cycle": "drawer-cycle-recording", "plug_insert": "plug-recording"}[
-            args.task
-        ]
+        folder = args.task.replace("_", "-") + "-recording"
         args.output = ROOT / "run" / folder / time.strftime("%Y%m%d-%H%M%S")
     if (
         not 0 <= args.warmup_seconds <= 60

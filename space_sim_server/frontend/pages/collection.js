@@ -4,7 +4,7 @@ export function createCollectionPage(root,{api}) {
 const $=mountView(root,template);
 const taskLabels = new Map();
 const terminal = new Set(["complete", "failed", "cancelled", "interrupted", "attempt_limit"]);
-const names = {finalizing:"封装视频与数据", validating:"检查任务与数据完整性", seat:"确认抽屉归位",running:"运行中", starting:"启动中", queued:"等待启动", stopping:"正在收尾", complete:"已完成", failed:"失败", cancelled:"已停止", interrupted:"已中断", attempt_limit:"达到尝试上限", preflight:"初始状态检查", recording:"录制中", accepted:"校验通过", initialization_rejected:"初始状态未通过", validation_failed:"数据校验失败", recording_or_task_failed:"任务或录制失败", writer_ready:"录制器就绪", process_started:"启动场景", warming_renderer:"相机预热", completed:"录制完成", task_progress:"执行任务", settle:"初始停稳", raise:"抬高夹爪", above_pickup:"移动到抽屉上方", above_drawer:"移动到抽屉上方", align:"调整抓取姿态", open:"张开夹爪", descend:"下降", grip:"夹持", lift:"抽出", return:"放回", release:"松爪", retract:"撤离", verify:"最终检查"};
+const names = {finalizing:"封装视频与数据", validating:"检查任务与数据完整性", seat:"确认就位",running:"运行中", starting:"启动中", queued:"等待启动", stopping:"正在收尾", complete:"已完成", failed:"失败", cancelled:"已停止", interrupted:"已中断", attempt_limit:"达到尝试上限", preflight:"初始状态检查", recording:"录制中", accepted:"校验通过", initialization_rejected:"初始状态未通过", validation_failed:"数据校验失败", recording_or_task_failed:"任务或录制失败", writer_ready:"录制器就绪", process_started:"启动场景", warming_renderer:"相机预热", completed:"录制完成", task_progress:"执行任务", settle:"初始停稳", raise:"抬高夹爪", above_pickup:"跟踪取件位置", above_drawer:"移动到抽屉上方", align:"调整抓取姿态", open:"张开夹爪", descend:"下降", grip:"夹持", lift:"提起 / 抽出", transfer:"搬运到目标孔", above_hole:"移动到孔口上方", align_hole:"对准插孔", insert:"插入", return:"放回", release:"松爪", retract:"撤离", verify:"最终检查"};
 const label = (value) => names[value] || value || "等待进度";
 const element = (tag, text, cls) => { const el=document.createElement(tag); if(text!==undefined) el.textContent=text; if(cls) el.className=cls; return el; };
 function notice(message=""){ $("notice").textContent=message; $("notice").hidden=!message; }
@@ -34,6 +34,7 @@ function renderJob(job) {
     if(worker.forced_stop) box.append(element("p","正常收尾超时，进程已强制清理；未完成记录不会计入成功。"));
     const attempts=worker.attempts || [];
     for(const attempt of attempts){
+      if(attempt.end_to_end_wall_seconds!==undefined) box.append(element("p",`尝试 ${attempt.attempt} · ${attempt.status==='accepted'?'启动至验收':'本次耗时'} ${duration(attempt.end_to_end_wall_seconds)}`));
       if(attempt.episode_id && !worker.accepted_episodes.includes(attempt.episode_id)){
         const link=element("a",`查看尝试 ${attempt.attempt} · ${label(attempt.status)}`);link.href=`/datasets?episode=${encodeURIComponent(attempt.episode_id)}`;link.dataset.route="";box.append(link);
       }
@@ -88,6 +89,8 @@ function specs(data){
   const rows=[['初始姿态 J1–J6',data.baseline_joint_deg.map(value=>value+'°').join('，')],['动力学 / IK',rates.dynamics+' Hz / '+rates.ik+' Hz'],['状态、动作、双相机',rates.main+' Hz · '+camera.width+' × '+camera.height],['六维力',rates.wrench+' Hz · 噪声'+(data.wrist_wrench_noise?'开启':'关闭')],['光照随机化',data.lighting_randomized?'开启':'关闭'],['运动与观测扰动',data.disturbances_enabled?'开启':'关闭'],['训练状态与动作','6 个关节 + 夹爪 0–1']];
   $('specifications').replaceChildren(...rows.flatMap(([key,value])=>[element('dt',key),element('dd',value)]));
 }
+function describeTask(){ $('task-description').textContent=catalog?.tasks.find(task=>task.id===$('task').value)?.description||''; }
+$('task').onchange=describeTask;
 $('new-collection').onclick=()=>{$('setup').hidden=false;$('task').focus();};
 $('close-setup').onclick=$('cancel-setup').onclick=()=>{$('setup').hidden=true;};
 $('collection-form').onsubmit=async event=>{
@@ -104,6 +107,7 @@ return {
       if(!catalog){const data=await api('/api/collections/catalog');if(!active||version!==epoch)return;catalog=data;
         for(const task of data.tasks)taskLabels.set(task.id,task.label);
         $('task').replaceChildren(...data.tasks.map(task=>{const option=element('option',task.label);option.value=task.id;return option;}));
+        describeTask();
         [...$('workers').options].forEach(option=>{option.disabled=Number(option.value)>data.max_workers;});specs(data);
       }
     }catch(error){if(active&&version===epoch)notice(error.message);}

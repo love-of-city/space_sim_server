@@ -23,6 +23,8 @@ NOISE_DISABLED = {
 def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"):
     if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 10:
         raise ValueError("initialization range must be finite and in [0,10] degrees")
+    if not source.get("initialization_enabled", True):
+        half_range_deg = 0.0
     scene = deepcopy(source)
     baseline = np.asarray(
         source["randomization"]["arm_joint_position_rad"][:6], dtype=float
@@ -43,7 +45,7 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
         if task_name == "drawer_cycle"
         else "scripted-collection/2",
         task=task_name,
-        task_version="drawer-cycle/1"
+        task_version=DrawerCycleTask.version
         if task_name == "drawer_cycle"
         else "plug-insert/2",
         seed=int(seed),
@@ -56,11 +58,13 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
             initial_joint_velocity_rad_s=[0.0] * 8,
             initial_gripper_opening=0.0,
         ),
+        randomization_options=scene.get("collection_randomization", {}),
         disturbances=NOISE_DISABLED.copy(),
         lighting_randomized=False,
         dynamics_randomized=False,
     )
-    return scene
+    from .randomization import prepare_episode
+    return prepare_episode(scene)
 
 
 class NativePoseProbe:
@@ -214,7 +218,15 @@ class NativePoseProbe:
                 else ("raise", "above_drawer", "align")
             ):
                 task._enter(stage, sample)
-                for point in task._path:
+                path = task._path
+                if task._timing is not None:
+                    # Validate the executed spline, including former segment
+                    # midpoints, rather than checking only its IK knots.
+                    path = [
+                        task._timing.path.at(u)
+                        for u in np.linspace(0, 1, 2 * len(task._path) - 1)
+                    ]
+                for point in path:
                     candidate = np.r_[point, 0.0, 0.0]
                     hit = collision(candidate)
                     if hit:

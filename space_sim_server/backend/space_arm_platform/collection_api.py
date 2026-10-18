@@ -9,6 +9,7 @@ from .collection_jobs import CollectionCreate, CollectionManager, TASKS
 from .control_defaults import DEFAULT_OPERATING_JOINT_DEG, ZERO_START_TELEOP_PROFILE
 from .dataset_view import Store
 from .models import SceneInstanceCreate
+from .collection_randomization import randomization_catalog
 from .scene_runtime import SceneRuntimeManager
 from .sampling import DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, WRENCH_HZ
 
@@ -53,6 +54,7 @@ def install_collection_routes(app, config, scenes, current_user):
                 wrench=WRENCH_HZ,
             ),
             cameras=dict(count=2, width=1024, height=1024),
+            randomization_options=randomization_catalog(),
             wrist_wrench_noise=False,
             disturbances_enabled=False,
             lighting_randomized=False,

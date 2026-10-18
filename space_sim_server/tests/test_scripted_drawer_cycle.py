@@ -89,4 +89,72 @@ def test_cycle_config_rejects_invalid_close_tolerance():
     with pytest.raises(ValueError):
         DrawerCycleConfig(close_tolerance_m=-1)
     with pytest.raises(ValueError, match="overtravel"):
-        DrawerCycleConfig(seating_overtravel_m=.01)
+        DrawerCycleConfig(seating_overtravel_m=0.01)
+
+
+def test_smooth_interpolation_keeps_real_drawer_cartesian_path():
+    from simulation.serial_chain_kinematics import (
+        axis_angle_to_matrix,
+        rotation_matrix_to_vector,
+    )
+
+    task, sample = setup_cycle()
+    for stage in (
+        "raise",
+        "above_drawer",
+        "align",
+        "descend",
+        "lift",
+        "return",
+        "seat",
+        "retract",
+    ):
+        task._enter(stage, sample)
+        p0, r0 = task.chain.forward(task._path[0])
+        rv = rotation_matrix_to_vector(task._rotation @ r0.T)
+        angle = np.linalg.norm(rv)
+        # Include the midpoint of every former straight interpolation segment.
+        for u in np.linspace(0, 1, 161):
+            q = task._timing.path.at(u)
+            assert np.all(q >= task.lower) and np.all(q <= task.upper)
+            p, r = task.chain.forward(q)
+            expected_r = (
+                axis_angle_to_matrix(rv / angle, u * angle) @ r0
+                if angle > 1e-12
+                else r0
+            )
+            assert np.linalg.norm(p - (p0 + u * (task._goal - p0))) < 5e-6
+            assert np.linalg.norm(rotation_matrix_to_vector(expected_r @ r.T)) < 5e-6
+        task.reference[:6] = task._path[-1]
+
+
+def test_gripper_is_smooth_and_contact_still_does_not_imply_completion():
+    task, sample = setup_cycle()
+    for stage, start, target, speed in (
+        ("open", 0.0, 1.0, 0.2),
+        ("grip", 1.0, 0.0, 0.2),
+        ("release", 0.0, 1.0, 0.2),
+    ):
+        task.reference[6:] = [start, -start]
+        task._enter(stage, sample)
+        timing = task._gripper_timing
+        assert timing is not None
+        for t in np.linspace(0, timing.duration, 1001):
+            q, v, a, j = timing.joint_state(t)
+            assert 0 <= q[0] <= 1
+            assert abs(v[0]) <= speed + 1e-9
+            if stage == "grip" and q[0] <= task.config.grip_contact_range_rad:
+                assert abs(v[0]) <= task.config.grip_contact_speed_rad_s + 1e-9
+            assert abs(a[0]) <= task.config.gripper_acceleration_rad_s2 + 1e-9
+            assert abs(j[0]) <= task.config.gripper_jerk_rad_s3 + 1e-9
+        task._step_gripper(target, timing.duration)
+        np.testing.assert_allclose(task.reference[6:], [target, -target], atol=1e-12)
+    task.reference[6:] = [1.0, -1.0]
+    task._enter("grip", sample)
+    task.reference[6:] = 0.0
+    contact = replace(
+        sample,
+        joints=np.r_[sample.joints[:6], 0.047, -0.047],
+        finger_drawer_contacts=(3, 4),
+    )
+    assert not task._stage_reached(contact, True, task.grasp)

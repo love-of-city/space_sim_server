@@ -41,7 +41,10 @@ def install_collection_routes(app, config, scenes, current_user):
     @router.get("/collections/catalog")
     def catalog():
         return dict(
-            tasks=[dict(id=key, label=task.label) for key, task in TASKS.items()],
+            tasks=[
+                dict(id=key, label=task.label, description=task.description)
+                for key, task in TASKS.items()
+            ],
             max_workers=4,
             rates=dict(
                 dynamics=DYNAMICS_HZ,

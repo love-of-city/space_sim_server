@@ -19,6 +19,14 @@ from .protocol import RUNTIME_CAPABILITIES, read_async, write_async
 ObservationCallback = Callable[[SimulationObservation], Awaitable[None]]
 
 
+class PolicyCommandRejected(RuntimeError):
+    """A received negative runtime receipt, distinct from an uncertain timeout."""
+
+    def __init__(self, receipt):
+        super().__init__(str(receipt.get("error") or "policy command rejected"))
+        self.receipt = receipt
+
+
 class SimulationHub:
     """Own one authoritative simulator connection and latest observation."""
 
@@ -46,6 +54,7 @@ class SimulationHub:
         self._capture_peer_id: str | None = None
         self._capture_request: dict[str, Any] | None = None
         self._capture_error: str | None = None
+        self._policy_requests: dict[str, asyncio.Future] = {}
 
     @property
     def connected(self) -> bool:
@@ -69,6 +78,7 @@ class SimulationHub:
         self._server = await asyncio.start_server(self._handle_connection, host, port)
 
     async def close(self) -> None:
+        self._fail_policy_requests("backend closed")
         self.cancel_reset()
         if self._server:
             self._server.close()
@@ -95,6 +105,7 @@ class SimulationHub:
             raise RuntimeError("仿真未连接，无法重置")
         if "scene_reset" not in self._capabilities:
             raise RuntimeError("当前仿真进程不支持重置，请使用重置分支启动场景")
+        self._fail_policy_requests("scene reset invalidated policy requests")
         self._reset_request_id = uuid.uuid4().hex
         self._reset_future = asyncio.get_running_loop().create_future()
         self._reset_error = None
@@ -163,6 +174,47 @@ class SimulationHub:
         except (TimeoutError, ConnectionError, OSError) as error:
             self._capture_error = f"采集模式切换尚未确认: {error}"
             raise RuntimeError(self._capture_error) from error
+
+    @property
+    def joint_policy_supported(self) -> bool:
+        return "joint_policy_v1" in self._capabilities
+
+    async def policy_command(self, session_id: str, operation: str, *,
+                             request_id: str | None = None, timeout: float = 60.0,
+                             **payload) -> dict[str, Any]:
+        """One-shot runtime RPC. Never replay a step after an uncertain transport loss."""
+        if self.resetting or not self.connected or not self.joint_policy_supported:
+            raise RuntimeError("当前仿真未连接或不支持关节策略控制，请更新并重启场景")
+        identifier = request_id or uuid.uuid4().hex
+        if identifier in self._policy_requests:
+            raise RuntimeError("joint policy request is already pending")
+        future = asyncio.get_running_loop().create_future()
+        self._policy_requests[identifier] = future
+        packet = {**payload, "protocol": CONTROL_PROTOCOL, "type": "joint_policy_command",
+                  "request_id": identifier, "session_id": session_id, "operation": operation,
+                  "reset_generation": self._generation}
+        try:
+            async with self._writer_lock:
+                if not self.connected:
+                    raise ConnectionError("simulation disconnected before policy command")
+                await write_async(self._writer, packet)
+            result = await asyncio.wait_for(asyncio.shield(future), timeout)
+            if result.get("session_id") != session_id:
+                raise RuntimeError("invalid policy execution receipt session")
+            if not result.get("ok"):
+                raise PolicyCommandRejected(result)
+            return result
+        except (TimeoutError, ConnectionError, OSError) as error:
+            raise RuntimeError("策略指令执行结果未确认；禁止重试该动作，请释放控制或重置场景") from error
+        finally:
+            self._policy_requests.pop(identifier, None)
+            if not future.done():
+                future.cancel()
+
+    def _fail_policy_requests(self, reason: str) -> None:
+        for future in self._policy_requests.values():
+            if not future.done():
+                future.set_exception(ConnectionError(reason))
 
     async def publish_action(self, action: AppliedAction) -> bool:
         async with self._writer_lock:
@@ -240,6 +292,7 @@ class SimulationHub:
             return
         async with self._writer_lock:
             previous = self._writer
+            self._fail_policy_requests("simulation connection changed")
             self._writer = writer
             if self._capture_peer_id != (stream_id or hello.simulation_id) and self._capture_request:
                 # A different simulator must never inherit a live episode.
@@ -273,7 +326,14 @@ class SimulationHub:
                     await write_async(writer, self._reset_packet())
             while True:
                 raw = await read_async(reader)
-                if writer is not self._writer or raw.get("protocol") != CONTROL_PROTOCOL or raw.get("type") != "observation":
+                if writer is not self._writer or raw.get("protocol") != CONTROL_PROTOCOL:
+                    continue
+                if raw.get("type") == "joint_policy_result":
+                    future = self._policy_requests.get(raw.get("request_id"))
+                    if future is not None and not future.done():
+                        future.set_result(raw)
+                    continue
+                if raw.get("type") != "observation":
                     continue
                 async with self._observation_lock:
                     if writer is not self._writer:
@@ -304,6 +364,7 @@ class SimulationHub:
         finally:
             async with self._writer_lock:
                 if self._writer is writer:
+                    self._fail_policy_requests("simulation disconnected")
                     self._writer = None
                     self._simulation_id = None
                     self._latest_action = None
@@ -316,6 +377,7 @@ class SimulationHub:
         return {
             "connected": self.connected,
             "capture_on_demand_supported": self.capture_on_demand_supported,
+            "joint_policy_supported": self.joint_policy_supported,
             "capture_episode_id": observation.capture_episode_id if observation else "",
             "capture_control_error": self._capture_error,
             "reliable_observations": "reliable_observations_v1" in self._capabilities,

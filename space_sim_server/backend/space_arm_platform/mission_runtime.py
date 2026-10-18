@@ -100,7 +100,7 @@ class MissionRuntime:
             raise RuntimeError("请先结束当前采集")
 
     def require_stable(self):
-        if self._operation:
+        if self._operation or self._stop_requested:
             raise RuntimeError("任务正在切换阶段，请稍后重试")
 
     def provenance(self):

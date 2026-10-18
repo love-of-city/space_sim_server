@@ -4,6 +4,7 @@ import numpy as np
 from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 from simulation.scripted_tasks.drawer_lift import DrawerSample
 from simulation.scripted_tasks.plug_insert import PlugSample
+from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
 
 
 class DrawerState:
@@ -64,6 +65,7 @@ class PlugState:
         self.task, self.stepper = task, stepper
         self.base = scene.getBody("cubesat_bus").getFreeJoint()
         self.plug = scene.getBody(task.config.plug_body).getFreeJoint()
+        self.body_names = {i: stepper._name(1, i) for i in range(stepper.nbody)}
 
     def sample(self, time_s, q, v, wrench):
         qa, va = self.base.getQposAdr(), self.base.getQvelAdr()
@@ -77,6 +79,18 @@ class PlugState:
             rate[va + 3 : va + 6], position
         )
         omega = rotation @ rate[pv + 3 : pv + 6] - rate[va + 3 : va + 6]
+        contacts = None
+        if getattr(self, "body_names", None):
+            contacts = [0, 0]
+            for _, _, first, second, distance in self.stepper.contact_snapshot():
+                names = {
+                    self.body_names.get(int(first)),
+                    self.body_names.get(int(second)),
+                }
+                if distance <= 0.0001 and self.task.config.plug_body in names:
+                    for index in (0, 1):
+                        if f"ee_finger{index + 1}" in names:
+                            contacts[index] += 1
         return PlugSample(
             time_s,
             q,
@@ -87,6 +101,7 @@ class PlugState:
             omega,
             np.r_[wrench["force_n"], wrench["torque_nm"]],
             wrench["valid"],
+            tuple(contacts) if contacts is not None else None,
         )
 
     def metrics(self, sample):
@@ -98,3 +113,5 @@ STATE_READERS = {
     "drawer_lift": DrawerState,
     "plug_insert": PlugState,
 }
+
+STATE_READERS.update({name: PlugState for name in PLUG_PROFILES})

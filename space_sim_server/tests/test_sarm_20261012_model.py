@@ -109,6 +109,55 @@ def test_overview_camera_frames_the_whole_task_box(tmp_path):
   assert depth > 0 and abs(u) < .9 and abs(v) < .9
 
 
+def test_wrist_lamp_is_a_shadowless_spot_light_on_the_camera_axis(tmp_path):
+ # Rendering-only lamp: same mount as the wrist camera, shining along its optical
+ # axis, cone wide enough for the square image's corners, no shadows (the camera
+ # sits at the lamp and never sees them).
+ import math
+ import numpy as np
+ out=tmp_path/'model.xml'
+ manifest=compose_platform_model(ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml',ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',out)
+ ee=E.parse(out).find('.//body[@name="ee_base"]')
+ camera=ee.find('camera[@name="sarm_wrist_cam"]')
+ lamps=ee.findall('light')
+ assert [l.get('name') for l in lamps]==['wrist_lamp']  # direct child: stays on ee_base across the sensor cut
+ lamp=lamps[0]
+ position,R=_camera_frame(camera)
+ np.testing.assert_allclose([float(v) for v in lamp.get('pos').split()],position,atol=1e-12)
+ np.testing.assert_allclose([float(v) for v in lamp.get('dir').split()],-R[:,2],atol=1e-12)  # camera looks along its local -Z
+ assert lamp.get('directional') in (None,'false') and lamp.get('mode')=='fixed' and lamp.get('castshadow')=='false'
+ corner=math.degrees(math.atan(math.sqrt(2)*math.tan(math.radians(float(camera.get('fovy')))/2)))  # half diagonal of the square image
+ cutoff=float(lamp.get('cutoff'))
+ assert corner <= cutoff < 90
+ # UE spot cone as the adapter builds it: inner 0.65*cutoff, outer cutoff; attenuation
+ # = ((cos a - cos outer) / (cos inner - cos outer))^2. The image corners must stay
+ # at least half as bright as the centre (a 70 degree cutoff leaves only 19% there).
+ c=lambda deg: math.cos(math.radians(deg))
+ assert ((c(corner)-c(cutoff))/(c(0.65*cutoff)-c(cutoff)))**2 >= .5
+ diffuse=[float(v) for v in lamp.get('diffuse').split()]; specular=[float(v) for v in lamp.get('specular').split()]
+ assert min(diffuse)>0 and len(set(diffuse))==1 and all(0<=s<=d for s,d in zip(specular,diffuse))
+ assert manifest['wrist_lamp']['rendering_only'] and 'wrist lamp (rendering only)' in manifest['platform_additions']
+
+
+def test_adapter_turns_the_wrist_lamp_into_a_body_mounted_spot_light(tmp_path):
+ import numpy as np
+ from bsk_render_adapter.mjcf_assets import parse_mjcf_scene_metadata
+ out=tmp_path/'model.xml'
+ compose_platform_model(ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml',ROOT/'model/SARM/platform/sarm_task_box_plugs.xml',out)
+ metadata=parse_mjcf_scene_metadata(out,'teleop')
+ lights={light['visual_id']:light for light in metadata.lights}
+ lamp=lights['teleop/light/wrist_lamp']
+ camera=next(c for c in metadata.cameras if c['display_name']=='sarm_wrist_cam')
+ assert lamp['parent_id']==camera['parent_id']=='teleop/ee_base'
+ np.testing.assert_allclose(lamp['position_body_m'],camera['position_body_m'],atol=1e-12)
+ from tools.build_sarm_20261012 import WRIST_LIGHT_CUTOFF_DEG,WRIST_LIGHT_DIFFUSE
+ assert lamp['properties']['light_type']=='spot' and lamp['properties']['cast_shadows'] is False
+ # The cone and brightness reach UE unchanged (UE builds 650 * intensity and cone = cutoff_deg).
+ assert lamp['properties']['cutoff_deg']==WRIST_LIGHT_CUTOFF_DEG and lamp['properties']['intensity']==WRIST_LIGHT_DIFFUSE
+ # The scene's own lights are untouched: still the two directional ones.
+ assert sorted(k for k,v in lights.items() if v['properties']['light_type']=='directional')==['teleop/light/fill_light','teleop/light/main_light']
+
+
 def test_wrist_sensor_cut_preserves_tool_inertia_and_joint_layout(tmp_path):
  source=ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml'
  out=tmp_path/'sensor.xml'

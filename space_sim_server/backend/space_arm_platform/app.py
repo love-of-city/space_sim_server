@@ -22,6 +22,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 from .collection_api import install_collection_routes
 from .capture_lifecycle import CaptureLifecycle
 from .auth import SESSION_COOKIE, AuthError, AuthStore
+from .policy_api import PolicySessions, install_policy_routes
+from .policy_observation import PolicyObservationCache
 from .capture_receiver import CaptureReceiver
 from .jobs import JobManager
 from .models import (
@@ -199,6 +201,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     )
     capture_lifecycle = CaptureLifecycle(hub, recorder)
     sessions = OperatorSessions()
+    policy_cache = PolicyObservationCache()
 
     def record_current_capture(metadata: dict[str, Any], products: dict[str, bytes]) -> None:
         # Capture transport can drain old packets after physics has reset.
@@ -209,13 +212,18 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if (observation and observation.render_session_id
                 and metadata.get("session_id") != observation.render_session_id):
             return
+        policy_cache.record_capture(metadata, products)
         recorder.record_authoritative_capture(metadata, products)
+
+    def capture_failed(reason: str) -> None:
+        policy_cache.fail(reason)
+        recorder.fail(reason)
 
     captures = CaptureReceiver(
         config.capture_host,
         config.capture_port,
         record_current_capture,
-        recorder.fail,
+        capture_failed,
     )
     launch_config = None
     if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root, config.runtime_powershell_exe)):
@@ -237,25 +245,31 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     missions = MissionRuntime(config.data_root / ".missions", scenes, rendezvous_runtime, rendezvous,
-                              lambda: bool(recorder.episode_id or capture_lifecycle.busy))
+                              lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active))
     timeout_task: asyncio.Task[None] | None = None
     capture_failure_task: asyncio.Task | None = None
+    policy_watchdog_task: asyncio.Task | None = None
 
     async def record_observation(observation: SimulationObservation) -> None:
+        policy_cache.record_observation(observation)
         safety.gripper_type = observation.gripper_type
         await asyncio.to_thread(recorder.record_observation, observation, safety.last_action)
         if hub.capture_pair_ack_supported:
             await asyncio.to_thread(recorder.wait_for_capture_pair, observation)
+        try:
+            await asyncio.to_thread(policy_cache.wait_for_pair, observation)
+        except RuntimeError as error:
+            policy_cache.fail(str(error))
 
     hub.on_observation = record_observation
-    hub.on_transport_error = recorder.fail
+    hub.on_transport_error = capture_failed
 
     async def watchdog() -> None:
         nonlocal capture_failure_task
         while True:
             await asyncio.sleep(0.05)
             status = recorder.sync_status()
-            if (recorder.episode_id and status['dataset_error'] and not status['finalizing']
+            if (not policy.active and recorder.episode_id and status['dataset_error'] and not status['finalizing']
                     and not capture_lifecycle.busy
                     and (capture_failure_task is None or capture_failure_task.done())):
                 # Do not leave a failed recorder asking UE to generate strict
@@ -272,14 +286,27 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                     except Exception:
                         logging.getLogger(__name__).exception('Failed capture shutdown')
                 capture_failure_task = asyncio.create_task(stop_failed_capture())
+            if policy.active:
+                continue
             action = safety.timeout_action(recorder.episode_id)
             if action:
                 await asyncio.to_thread(recorder.record_action, action)
                 await hub.publish_action(action)
 
+    async def policy_watchdog():
+        while True:
+            await asyncio.sleep(1.0)
+            try:
+                if policy.active and recorder.episode_id and recorder.sync_status()["dataset_error"]:
+                    await policy.shutdown()
+                else:
+                    await policy.expire_idle()
+            except RuntimeError:
+                logging.getLogger(__name__).exception("Policy session cleanup failed")
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        nonlocal timeout_task
+        nonlocal timeout_task, policy_watchdog_task
         try:
             await asyncio.to_thread(recorder.prepare)
         except Exception:
@@ -289,9 +316,18 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             await rendezvous.start("127.0.0.1", config.rendezvous_port)
         captures.start()
         timeout_task = asyncio.create_task(watchdog(), name="deadman-watchdog")
+        policy_watchdog_task = asyncio.create_task(policy_watchdog(), name="policy-watchdog")
         try:
             yield
         finally:
+            if policy_watchdog_task:
+                policy_watchdog_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await policy_watchdog_task
+            try:
+                await policy.shutdown()
+            except RuntimeError:
+                logging.getLogger(__name__).exception("Policy release unconfirmed during backend shutdown")
             if timeout_task:
                 timeout_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -308,6 +344,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             await missions.close()
             await asyncio.to_thread(collections.close)
             await asyncio.to_thread(scenes.close)
+            policy.scene_stopped()
             await asyncio.to_thread(captures.close)
             await asyncio.to_thread(recorder.close)
             await hub.close()
@@ -321,6 +358,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     app.state.auth = auth
     app.state.recorder = recorder
     app.state.capture_lifecycle = capture_lifecycle
+    app.state.policy_cache = policy_cache
     app.state.safety = safety
     app.state.hub = hub
     app.state.rendezvous = rendezvous
@@ -589,6 +627,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/rendezvous/start")
     async def rendezvous_start(request: Request, payload: RendezvousStart | None = None) -> dict[str, Any]:
+        policy.require_free()
         user = current_user(request)
         payload = payload or RendezvousStart()
         try:
@@ -605,6 +644,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/rendezvous/handoff")
     async def rendezvous_handoff(request: Request) -> dict[str, Any]:
+        policy.require_free()
         try:
             return await missions.handoff(current_user(request))
         except PermissionError as error:
@@ -631,6 +671,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/mission/start", status_code=202)
     async def start_mission(payload: MissionStart, request: Request):
+        policy.require_free()
         user = current_user(request)
         try:
             if payload.mode == "teleop":
@@ -647,6 +688,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/mission/handoff", status_code=202)
     async def handoff_mission(request: Request):
+        policy.require_free()
         try:
             return await missions.handoff(current_user(request), background=True)
         except PermissionError as error:
@@ -682,6 +724,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/scenes/start")
     async def start_scene(payload: SceneInstanceCreate, request: Request) -> dict[str, Any]:
+        policy.require_free()
         user = current_user(request)
         if recorder.episode_id or capture_lifecycle.busy:
             raise HTTPException(status_code=409, detail="stop the active episode before starting another scene")
@@ -695,6 +738,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/scenes/reset")
     async def reset_scene(request: Request) -> dict[str, Any]:
+        policy.require_free()
         user = current_user(request)
         try:
             missions.require_stable()
@@ -732,6 +776,12 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="只能关闭自己创建的场景")
         if capture_lifecycle.busy:
             raise HTTPException(status_code=409, detail="采集正在启动或收尾，请稍后停止场景")
+        try:
+            await policy.shutdown()
+        except RuntimeError:
+            # Explicit scene STOP must remain available after an uncertain
+            # policy release. Ownership is cleared only after process stop.
+            logging.getLogger(__name__).exception("Stopping scene with unconfirmed policy release")
         hub.cancel_reset()
         episode_result = None
         if recorder.episode_id:
@@ -743,6 +793,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
         try:
             result = await asyncio.to_thread(scenes.stop)
+            policy.scene_stopped()
             if episode_result:
                 result["aborted_episode"] = episode_result
             return result
@@ -766,8 +817,16 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise RuntimeError("录制 FPS 必须与场景权威采样率一致")
         return EpisodeStart.model_validate({**payload.model_dump(), "fps": int(fps), "scene_instance": instance})
 
+    policy = PolicySessions(hub=hub, cache=policy_cache, recorder=recorder,
+        capture_lifecycle=capture_lifecycle, sessions=sessions, safety=safety, scenes=scenes,
+        recording_request=recording_request, require_stable=missions.require_stable,
+        episode_started=missions.add_episode)
+    app.state.policy_sessions = policy
+    install_policy_routes(app, policy, current_user)
+
     @app.post("/api/episodes/start")
     async def start_episode(payload: EpisodeStart, request: Request) -> dict[str, Any]:
+        policy.require_free()
         if hub.resetting:
             raise HTTPException(status_code=409, detail="场景正在重置，暂不能开始采集")
         user = current_user(request)
@@ -798,6 +857,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/episodes/stop")
     async def stop_episode(payload: EpisodeStop, request: Request) -> dict[str, Any]:
+        policy.require_free()
         user = current_user(request)
         scene_status = scenes.status()
         if scene_status.get("instance") and not can_manage_scene(user, scene_status):
@@ -838,6 +898,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.post("/api/tasks/{task_id}/start")
     async def start_task(task_id: str) -> dict[str, Any]:
+        policy.require_free()
         if hub.resetting:
             raise HTTPException(status_code=409, detail="场景正在重置，暂不能开始任务")
         task = tasks.get(task_id)
@@ -930,6 +991,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             await websocket.close(code=4401, reason="invalid access key")
             return
         identifier, granted = await sessions.connect(websocket, user)
+        if policy.active:
+            granted = False
+            await sessions.suspend_control()
         send_task: asyncio.Task[None] | None = None
         auth_task: asyncio.Task[None] | None = None
 
@@ -976,6 +1040,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 message_type = raw.get("type")
                 if message_type == "ping":
                     await websocket.send_json({"type": "pong", "server_time_ns": str(time.time_ns())})
+                    continue
+                if policy.active:
+                    await websocket.send_json({"type": "action_rejected", "reason": "policy_control_active"})
                     continue
                 if hub.resetting:
                     await websocket.send_json({"type": "action_rejected", "reason": "scene_resetting"})

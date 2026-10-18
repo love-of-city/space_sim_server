@@ -20,7 +20,7 @@ NOISE_DISABLED = {
 }
 
 
-def randomized_scene(source, seed, half_range_deg=10.0):
+def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"):
     if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 10:
         raise ValueError("initialization range must be finite and in [0,10] degrees")
     scene = deepcopy(source)
@@ -39,9 +39,13 @@ def randomized_scene(source, seed, half_range_deg=10.0):
     ]
     scene["arm_preparation_required"] = False
     scene["collection_config"] = dict(
-        schema="drawer-collection/1",
-        task="drawer_cycle",
-        task_version="drawer-cycle/1",
+        schema="drawer-collection/1"
+        if task_name == "drawer_cycle"
+        else "scripted-collection/2",
+        task=task_name,
+        task_version="drawer-cycle/1"
+        if task_name == "drawer_cycle"
+        else "plug-insert/2",
         seed=int(seed),
         generator="numpy.PCG64",
         initialization=dict(
@@ -134,7 +138,7 @@ class NativePoseProbe:
         self.check(self.lib.lms_contacts(self.handle, self.ptr(rows), count))
         return rows
 
-    def validate(self, model, scene):
+    def validate(self, model, scene, task_name="drawer_cycle"):
         self.q[:] = self.home
         target = scene.get("randomization", {})
         if "target_position_m" in target:
@@ -142,7 +146,18 @@ class NativePoseProbe:
             self.q[address : address + 3] = target["target_position_m"]
             self.q[address + 3 : address + 7] = target["target_orientation_wxyz"]
         q = np.array(scene["randomization"]["arm_joint_position_rad"])
-        task = DrawerCycleTask(model)
+        from .plug_profiles import is_plug_task, plug_profile
+
+        is_plug = is_plug_task(task_name)
+        if is_plug:
+            from .plug_insert import PlugInsertTask, PlugInsertConfig, PlugSample
+            from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+            import xml.etree.ElementTree as ET
+
+            profile = plug_profile(task_name)
+            task = PlugInsertTask(model, PlugInsertConfig(plug_body=profile.body))
+        else:
+            task = DrawerCycleTask(model)
         if np.any(q[:6] < task.lower) or np.any(q[:6] > task.upper):
             return dict(accepted=False, reason="joint_limit")
         checked = 0
@@ -170,10 +185,34 @@ class NativePoseProbe:
                 contact=hit,
                 checked_poses=checked,
             )
-        sample = DrawerSample(0.0, q, np.zeros(8), 0.0, 0.0, 0.0, np.zeros(6), False)
+        if is_plug:
+            element = (
+                ET.parse(model)
+                .getroot()
+                .find(f'./worldbody/body[@name="{profile.body}"]')
+            )
+            sample = PlugSample(
+                0.0,
+                q,
+                np.zeros(8),
+                np.fromstring(element.get("pos"), sep=" "),
+                quaternion_wxyz_to_matrix(np.fromstring(element.get("quat"), sep=" ")),
+                np.zeros(3),
+                np.zeros(3),
+                np.zeros(6),
+                False,
+            )
+        else:
+            sample = DrawerSample(
+                0.0, q, np.zeros(8), 0.0, 0.0, 0.0, np.zeros(6), False
+            )
         task.step(sample)
         try:
-            for stage in ("raise", "above_drawer", "align"):
+            for stage in (
+                ("raise", "above_pickup", "align")
+                if is_plug
+                else ("raise", "above_drawer", "align")
+            ):
                 task._enter(stage, sample)
                 for point in task._path:
                     candidate = np.r_[point, 0.0, 0.0]
@@ -188,7 +227,9 @@ class NativePoseProbe:
                         )
                 task.reference[:6] = task._path[-1]
             # Descend/lift/return IK must exist too. Contact intentionally starts here.
-            for stage in ("descend", "lift", "return", "retract"):
+            for stage in (
+                ("descend",) if is_plug else ("descend", "lift", "return", "retract")
+            ):
                 task._enter(stage, sample)
                 task.reference[:6] = task._path[-1]
         except ValueError as exc:

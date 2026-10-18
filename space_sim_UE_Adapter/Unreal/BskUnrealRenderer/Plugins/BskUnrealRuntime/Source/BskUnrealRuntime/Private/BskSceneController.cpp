@@ -2487,6 +2487,12 @@ AActor* ABskSceneController::SpawnVisual(const FBskVisualDefinition& Definition)
             LightComponent = Light ? Light->GetLightComponent() : nullptr;
             if (USpotLightComponent* Spot = Light ? Cast<USpotLightComponent>(Light->GetLightComponent()) : nullptr)
             {
+                // A spawned spot light is Stationary, and USpotLightComponent::
+                // SetInnerConeAngle/SetOuterConeAngle silently do nothing for a
+                // Stationary light (AreDynamicDataChangesAllowed(false)), which
+                // pinned every MJCF spot light to Unreal's default 0/44 degree
+                // cone whatever <light cutoff> said. Make it Movable first.
+                Spot->SetMobility(EComponentMobility::Movable);
                 Spot->SetIntensity(static_cast<float>(650.0 * FMath::Max(0.0, Definition.LightIntensity)));
                 Spot->SetAttenuationRadius(static_cast<float>(FMath::Max(Definition.RangeMeters, 20.0) * Converter.GetCentimetersPerMeter()));
                 Spot->SetInnerConeAngle(static_cast<float>(FMath::Clamp(Definition.LightCutoffDegrees * 0.65, 0.0, 80.0)));

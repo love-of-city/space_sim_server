@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import sys
 import time
+import xml.etree.ElementTree as ET
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,25 @@ sys.path[:0] = [
     str(ROOT.parent / "space_sim_UE_Adapter/Adapters"),
     str(ROOT.parent / "space_sim_UE_Adapter/Unreal/BskUnrealRenderer/examples"),
 ]
+
+from simulation.scripted_tasks.plug_profiles import (
+    PLUG_PROFILES,
+    is_plug_task,
+    plug_profile,
+)
+
+
+def default_target_state(model):
+    """Use the selected model, not the legacy grasp demo's nearby target pose."""
+    target = ET.parse(model).getroot().find('./worldbody/body[@name="capture_target"]')
+    return dict(
+        target_position_m=np.fromstring(target.get("pos", "0 0 0"), sep=" ").tolist(),
+        target_orientation_wxyz=np.fromstring(
+            target.get("quat", "1 0 0 0"), sep=" "
+        ).tolist(),
+        target_linear_velocity_m_s=[0.01, -0.004, 0.002],
+        target_angular_velocity_rad_s=[0.0, 0.0, 0.0],
+    )
 
 
 def run(args):
@@ -48,9 +68,15 @@ def run(args):
     )
     from simulation.wrench_sensors import WRIST_SENSOR
     from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
-    from space_arm_platform.sampling import (tick_time_ns, DYNAMICS_HZ, SCRIPTED_TASK_HZ, RENDER_HZ, WRENCH_HZ)
+    from space_arm_platform.sampling import (
+        tick_time_ns,
+        DYNAMICS_HZ,
+        SCRIPTED_TASK_HZ,
+        RENDER_HZ,
+        WRENCH_HZ,
+    )
 
-    model = ROOT / "model/SARM/platform/sarm_20261012.xml"
+    model = (args.model or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
     native.MODEL_PATH = model
     profile = load_model_profile(model)
     native.JOINTS, native.ACTUATORS = profile.joints, profile.arm_actuators
@@ -63,7 +89,9 @@ def run(args):
     scene_instance = (
         json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
     )
-    if any(scene_instance.get("collection_config", {}).get("disturbances", {}).values()):
+    if any(
+        scene_instance.get("collection_config", {}).get("disturbances", {}).values()
+    ):
         raise ValueError("This baseline collector supports disabled disturbances only")
     if scene_instance and scene_instance.get("template_id") != "sarm-task-box-20261012":
         raise ValueError("The scripted task requires the SARM 2026-10-12 scene")
@@ -80,13 +108,14 @@ def run(args):
         arm_speed_rad_s=args.arm_speed,
         force_limit_n=args.force_limit,
     )
-    if args.task == "plug_insert":
+    if is_plug_task(args.task):
         from simulation.scripted_tasks.plug_insert import (
             PlugInsertTask,
             PlugInsertConfig,
         )
 
         config = PlugInsertConfig(
+            plug_body=plug_profile(args.task).body,
             target_site=args.target_site,
             arm_speed_rad_s=args.arm_speed,
             grasp_offset_m=tuple(args.plug_grasp_offset),
@@ -94,7 +123,11 @@ def run(args):
         )
         task = PlugInsertTask(model, config)
     elif args.task == "drawer_cycle":
-        from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask, DrawerCycleConfig
+        from simulation.scripted_tasks.drawer_cycle import (
+            DrawerCycleTask,
+            DrawerCycleConfig,
+        )
+
         config = DrawerCycleConfig(**asdict(config))
         task = DrawerCycleTask(model, config)
     else:
@@ -137,6 +170,8 @@ def run(args):
     )
     started = time.perf_counter()
     sample = None
+    simulation_wall_seconds = 0.0
+    loop_started = None
     try:
         print(json.dumps({"type": "loading_task", "output": str(output)}), flush=True)
         sim, scene, models, recorders = native._build_simulation(
@@ -204,13 +239,7 @@ def run(args):
             native,
             orbit.earth,
             scene_instance.get("environment", {}).get("orbit", DEFAULT_ORBIT),
-            scene_instance.get("randomization")
-            or dict(
-                target_position_m=list(native.TARGET_POS),
-                target_orientation_wxyz=list(native.TARGET_QUAT),
-                target_linear_velocity_m_s=list(native.COMMON_VELOCITY),
-                target_angular_velocity_rad_s=list(native.TARGET_SPIN),
-            ),
+            scene_instance.get("randomization") or default_target_state(model),
             initial,
             orbit.origin,
         )
@@ -218,6 +247,7 @@ def run(args):
         qadr, dadr = [j.getQposAdr() for j in joints], [j.getQvelAdr() for j in joints]
         sim.ConfigureStopTime(0)
         sim.ExecuteSimulation()
+        loop_started = time.perf_counter()
         event_count = 0
         task_epoch_ns = None if capture else int(round(args.warmup_sim_seconds * 1e9))
         frame = 0
@@ -316,7 +346,9 @@ def run(args):
                 if not capture and task.result is not None:
                     break
                 sim.ConfigureStopTime(tick_time_ns(frame + 1, SCRIPTED_TASK_HZ))
+                step_started = time.perf_counter()
                 sim.ExecuteSimulation()
+                simulation_wall_seconds += time.perf_counter() - step_started
                 frame += 1
             if task.result is None:
                 task.fail("total_simulation_timeout", sample)
@@ -347,7 +379,10 @@ def run(args):
         )
         raise
     finally:
-        report["wall_seconds"] = time.perf_counter() - started
+        finished = time.perf_counter()
+        report["wall_seconds"] = finished - started
+        report["task_loop_wall_seconds"] = None if loop_started is None else finished - loop_started
+        report["execute_simulation_wall_seconds"] = simulation_wall_seconds
         (output / "summary.json").write_text(
             json.dumps(report, indent=2), encoding="utf-8"
         )
@@ -374,9 +409,12 @@ def run(args):
 def main(default_task="drawer_lift"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--task", choices=["drawer_lift", "drawer_cycle", "plug_insert"], default=default_task
+        "--task",
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES],
+        default=default_task,
     )
-    parser.add_argument("--target-site", default="cylindrical_insert_40p5")
+    parser.add_argument("--model", type=Path, help="Offline diagnostic model override (no camera recording)")
+    parser.add_argument("--target-site", default=None)
     parser.add_argument(
         "--plug-grasp-offset", type=float, nargs=3, default=[0.0, 0.0, -0.003]
     )
@@ -401,8 +439,12 @@ def main(default_task="drawer_lift"):
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--capture-stop-file", type=Path)
     args = parser.parse_args()
+    if args.model is not None and not args.model.with_name("attitude_control.json").is_file():
+        parser.error("--model needs its companion attitude_control.json in the same directory")
+    if args.model is not None and args.capture_control_port:
+        parser.error("--model is for offline diagnostics; camera capture requires the scene catalog model")
     if args.output is None:
-        folder = {"drawer_lift": "drawer-task", "drawer_cycle": "drawer-cycle", "plug_insert": "plug-task"}[args.task]
+        folder = args.task.replace("_", "-")
         args.output = ROOT / "run" / folder / time.strftime("%Y%m%d-%H%M%S")
     if args.capture_control_port and not (
         args.capture_render_port

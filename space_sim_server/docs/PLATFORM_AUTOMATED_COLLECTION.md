@@ -10,7 +10,7 @@
 4. 点击成功记录或进入 `/datasets`，按来源、结果、任务、日期和文本筛选记录；进入详情查看两路同步视频，以及关节与夹爪、六维力、末端状态、任务状态四组曲线。支持逐帧、播放倍速、图表缩放和 CSV 导出；返回列表保留筛选。`?episode=<id>` 可直接定位记录，`?batch=<id>` 可限定批次。
 5. “停止该批次”先请求录制正常收尾。超过 180 秒则强制清理该批次进程，已验收记录保留，未完成记录不计入成功数量。
 
-本版开放抽屉完整循环：接近、抓取、抽出、放回、松爪、撤离和最终闭合检查。运动/观测/六维力噪声与光照随机化维持关闭。初始化使用项目默认操作姿态，加六轴独立均匀偏移；每次先通过模型关节限位和碰撞检查。
+任务菜单提供四个独立任务：抽屉完整循环，以及航空插头、导向插头、圆柱插头各自的拿取与插入。每条 episode 只包含所选任务，不串行操作多个插头。抽屉流程为接近、抓取、抽出、放回、松爪、撤离和最终闭合检查。插头流程为跟踪接近、抓取、提起、搬运到前方对应 40.5 mm 装配孔、对准插入、松爪撤离和就位检查。运动/观测/六维力噪声与光照随机化维持关闭。初始化使用项目默认操作姿态，加六轴独立均匀偏移；每次先通过模型关节限位和碰撞检查。
 
 录制频率沿用 400 Hz 动力学、100 Hz 在线 IK、50 Hz 状态/动作/图像与独立 200 Hz 六维力，两个相机均为 1024×1024。数据仍使用 LeRobot v3、七维 state/action（六轴+夹爪0–1）、原始诊断和力数据 sidecar，不替换采集器、不重采样。
 
@@ -21,9 +21,9 @@
 - `collection_api.py`：鉴权 API、独立场景配置创建与数据/视频读取。创建自动采集场景不会覆盖遥操作管理器的当前实例。
 - `dataset_view.py`：纯数据读取与时间轴构建，保留独立传感器时间轴，缓存签名包含力数据文件。
 - `frontend/platform_shell.js`、`platform.css`、`ui.js`：统一导航、路由、公共样式和表单。`frontend/pages/` 中的 collection、datasets、users 分别提供页面模板与 activate/deactivate/reset 生命周期，保持原生 ES modules，不引入新框架。后端四个页面入口返回同一 Vite 构建，替代原 public 下的独立 HTML。
-- `tools/collect_drawer_cycles.py`、`record_drawer_task.py`：复用已验证的真实 BSK/MuJoCo → UE 相机 → CaptureReceiver/SimulationHub → EpisodeRecorder → LeRobot 链路；增加协作停止与运行路径透传。
+- `tools/collect_scripted_tasks.py`（共享批次与验收）、`collect_drawer_cycles.py` / `collect_plug_tasks.py`（兼容入口）、`record_drawer_task.py`：复用已验证的真实 BSK/MuJoCo → UE 相机 → CaptureReceiver/SimulationHub → EpisodeRecorder → LeRobot 链路；增加协作停止与运行路径透传。
 
-新增任务在 `TASKS` 注册任务名、显示名称、场景模板和独立采集 CLI。适配 CLI 接受管理器传入的 count/max-attempts/seed/range-deg、场景/输出/数据目录、四个端口、UE/adapter 路径和 cancel-file；原子写入 summary.json，报告 attempts、accepted_episodes 和 status。各任务自行实现成功条件与数据校验，不能只依据进程退出码或录制时长判成功。后续可以扩展插头任务而不改动底层动力学和录制链路。
+新增任务在 `TASKS` 注册任务名、显示名称、场景模板和独立采集 CLI。适配 CLI 接受管理器传入的 count/max-attempts/seed/range-deg、场景/输出/数据目录、四个端口、UE/adapter 路径和 cancel-file；原子写入 summary.json，报告 attempts、accepted_episodes 和 status。各任务自行实现成功条件与数据校验，不能只依据进程退出码或录制时长判成功。插头的几何参数集中在 `simulation/scripted_tasks/plug_profiles.py`，控制器共用 `plug_insert.py`。新增插头时显式配置物体、取件位、装配孔、插入长度与键槽要求，并独立注册任务；不修改底层动力学和录制链路。
 
 离开工作台时先停止遥操作输入，再释放该页的控制连接及视频资源；返回后重新连接。离开数据详情会暂停视频。退出登录会清空当前页面数据和表单，避免切换账号后出现上一账号的内容。后台采集任务的生命周期由服务端管理。
 
@@ -64,3 +64,27 @@
 ## 验证
 
 自动化测试覆盖计划边界、四路预算和种子/端口隔离、用户权限、协作取消、持久化恢复、独占管理锁、Windows 子进程树回收、两种采样时间轴、缓存刷新、视频 Range 及路径限制。真实采集与浏览器验收结果记录于统一仓库 archive/2026_10_16_平台自动采集与数据集回放.md。
+
+## 独立插头任务与耗时
+
+- `aviation_plug_insert`：航空插头，前方 `aviation_insert_40p5` 孔；末端长度 80 mm，检查完整朝向和插入深度。
+- `guide_plug_insert`：导向插头，前方 `guide_insert_40p5` 孔；末端长度 95 mm，抓住后先对中、对正存放导槽再拔出，插入时检查键槽朝向。
+- `cylindrical_plug_insert`：圆柱插头，前方 `cylindrical_insert_40p5` 孔；末端长度 95 mm，拔出前根据实际位姿对中存放孔。旧 `plug_insert` CLI 仍指向圆柱任务。
+
+三种插头均保持自由刚体。抓取前持续跟踪实际抓取点，使用适合当前头部的稳定夹爪朝向；双侧手指接触后保持抓持，再按实际物体位姿对孔。该策略针对当前模型的上方抓取区域，不承诺任意翻滚或高速逃逸目标均可抓住。六维力用于载荷保护，尚未加入阻抗/导纳控制。
+
+新任务在仿真时间零点等待录制 ON，相机的实际启动耗时不会额外推进初始物体。录制中继续使用完成确认与背压。运动速度、关节跟踪速度和保护阈值随任务参数写入记录；无模型位置强制更新、焊接、碰撞关闭或新增阻尼。
+
+批次 `summary.json` 的 `wall_seconds` 从批次主流程开始计时，包含原生预检查、UE/仿真启动、录制、视频封装及逐帧验收；`attempts[].end_to_end_wall_seconds` 是单次尝试开始至验收完成的耗时。单次录制摘要还拆分 `recording_wall_seconds` 与 `finalization_wall_seconds`，任务的 `elapsed_sim_seconds` 为仿真时间。前端同时显示批次耗时与已验收尝试耗时。失败和重试不能计入成功条数。
+
+CLI 示例（从服务端目录，使用平台 Python）：
+
+```powershell
+python tools/collect_plug_tasks.py --task aviation_plug_insert --scene <scene.json> --output <new-output-directory> --count 1 --max-attempts 3 --range-deg 0
+```
+
+首次验收使用零关节偏移，先确认各自任务的基础流程。页面保留 ±0–10° 配置；不同随机初态需要预检查和实际重复验证，不能由单次成功推断成功率。
+
+无相机运行入口的默认自由目标位置也从当前 MJCF 读取；正式验收仍显式传入同一场景文件，避免旧抓取演示的初态影响旁边物体及接触结果。导向件保持夹持时以连续就位几何判定是否可以慢速松爪；最终成功继续要求松爪撤离后低于 2 mm/s 的相对线速和 0.03 rad/s 的相对角速。
+
+2026-10-16 固定初态正式验收：三项插头任务各有一条完整成功记录，详情见统一仓库 `archive/2026_10_16_独立悬空插拔件自动采集.md`。成功一轮从批次启动至完整校验分别约 35 分 1 秒、31 分 27 秒、28 分 57 秒；圆柱此前一轮受力保护失败已保留。以上为任务部分重叠运行时的实测。

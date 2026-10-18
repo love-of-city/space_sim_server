@@ -64,7 +64,11 @@ UE 会保留导入资产自身的多槽材质。缺失 MTL（例如仓库中的 
 
 `add_mj_scene()` 还会自动读取 `<visual><headlight>` 和 `<light>`。方向光、点/聚光、
 随 body 安装的灯以及 `targetbodycom` 目标跟踪均在 UE Game Thread 创建或更新；这些
-只影响画面，不参与或反向影响 MJScene 动力学。MJCF builtin checker/gradient 目前只保留
+只影响画面，不参与或反向影响 MJScene 动力学。
+
+非方向光统一生成 UE 聚光灯：强度为 650×`max(diffuse)`（UE 无量纲单位，不是 MJCF 颜色；场景按真实
+日照约 13 万 lux 固定曝光，近处灯具的取值通常在百到千量级），内锥 0.65×`cutoff`，外锥 `cutoff`（上限 89°），
+`castshadow` 控制投影。方向光强度为 10×`diffuse`。MJCF builtin checker/gradient 目前只保留
 描述，尚未逐种生成与 MuJoCo 完全一致的程序纹理。
 
 使用 Vizard 风格入口时，可按 `scList` 的顺序传入：

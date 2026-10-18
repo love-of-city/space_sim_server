@@ -23,6 +23,7 @@ import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "./control_status.js";
 import { createMissionPanel } from "./mission_panel.js";
 import { resolvePreviewStreams } from "./preview_streams.js";
+import { observePreviewAvailability } from "./preview_availability.js";
 
 function clearWristWrench() {
   $("wristForce").textContent = "—";
@@ -879,6 +880,9 @@ function updateWebRtcStats(aggregatedStats) {
 }
 
 function disposePixelStream() {
+  state.previewAvailability?.close();
+  state.previewAvailability = null;
+  state.previewAvailableIds = null;
   if (state.freeCameraMode) setFreeCameraMode(false);
   if (state.streamMediaTimer != null) {
     clearTimeout(state.streamMediaTimer);
@@ -999,6 +1003,19 @@ function createPixelStream() {
   updateRelativeViewControl();
   state.pixelConfig = config;
   state.pixelStreaming = stream;
+  const applyAvailableStreams = available => {
+    if (state.pixelStreaming !== stream) return;
+    const previous = state.selectedStreamerId;
+    updatePreviewStreams(available);
+    if (previous !== state.selectedStreamerId && available.includes(state.selectedStreamerId)) {
+      config.setOptionSettingValue(OptionParameters.StreamerId, state.selectedStreamerId);
+    }
+  };
+  state.previewAvailability = observePreviewAvailability(signallingUrl(), available => {
+    if (state.pixelStreaming !== stream) return;
+    state.previewAvailableIds = available;
+    applyAvailableStreams(available);
+  });
   let lastRelativeQuery = 0;
   stream.addResponseEventListener("relative-view", response => {
     if (state.pixelStreaming !== stream) return;
@@ -1038,11 +1055,7 @@ function createPixelStream() {
     if (state.pixelStreaming !== stream) return;
     const available = event?.data?.messageStreamerList?.ids;
     if (Array.isArray(available)) {
-      const previous = state.selectedStreamerId;
-      updatePreviewStreams(available);
-      if (previous !== state.selectedStreamerId && available.includes(state.selectedStreamerId)) {
-        config.setOptionSettingValue(OptionParameters.StreamerId, state.selectedStreamerId);
-      }
+      applyAvailableStreams(state.previewAvailableIds ?? available);
     }
     if (state.streamLive) return;
     // Healthy signalling / streamer discovery is progress, not a reason to

@@ -13,6 +13,7 @@ function harness() {
   let now = 100000;
   const timers = new Map();
   const players = [];
+  const discoveries = [];
   const nodes = new Map();
   const state = { pixelStreaming: null, streamReconnectTimer: null, streamLive: false };
   const $ = (id) => {
@@ -44,6 +45,11 @@ function harness() {
     }, queueMicrotask,
     TextParameters: {}, OptionParameters: {StreamerId: "StreamerId"}, NumericParameters: { WebRTCFPS: "WebRTCFPS", MinQuality: "MinQuality" }, Flags: {},
     signallingUrl: () => "ws://localhost/", setPixelStreamingInputEnabled() {},
+    observePreviewAvailability(url, onIds) {
+      const discovery = {onIds, closed: false, close() { this.closed = true; }};
+      discoveries.push(discovery);
+      return discovery;
+    },
     resetWebRtcStats() {}, updateWebRtcStats() { statsUpdates++; },
     connectPixelStreaming() { reconnects++; },
     updatePreviewStreams(ids) {
@@ -54,7 +60,7 @@ function harness() {
     clearTimeout(id) { timers.delete(id); },
   });
   vm.runInContext(relativeView + lifecycle, context);
-  return { context, state, players, $, allTimers: timers,
+  return { context, state, players, discoveries, $, allTimers: timers,
     get timers() { return new Map([...timers].filter(([id]) => id !== state.streamMediaTimer)); },
     tickMedia(ms) { now += ms; const id = state.streamMediaTimer; const timer = timers.get(id); timers.delete(id); timer?.fn(); },
     get reconnects() { return reconnects; }, get statsUpdates() { return statsUpdates; } };
@@ -94,6 +100,23 @@ test('discovering flight cameras preserves a healthy main preview', () => {
   assert.equal(h.state.selectedStreamerId, 'main');
   assert.equal(h.state.pixelConfig.optionUpdates, undefined);
   assert.equal(h.timers.size, 0);
+});
+
+test('late camera discovery updates a playing preview without replacing its peer', () => {
+  const h = harness();
+  h.state.streamConfig = {pixel_streaming_streamers: [{id:'main'}, {id:'wrist'}]};
+  h.state.selectedStreamerId = 'main';
+  h.context.createPixelStream();
+  h.players[0].emit('webRtcConnected');
+  h.discoveries[0].onIds(['main','wrist']);
+  h.players[0].emit('streamerListMessage', {data:{messageStreamerList:{ids:['main']}}});
+  assert.deepEqual(h.state.previewAvailableIds, ['main','wrist']);
+  assert.equal(h.state.pixelConfig.optionUpdates, undefined);
+  assert.equal(h.players.length, 1);
+  h.context.createPixelStream();
+  assert.equal(h.discoveries[0].closed, true);
+  h.discoveries[0].onIds(['retired']);
+  assert.equal(h.state.previewAvailableIds, null);
 });
 
 test("selected FPS is reapplied after server settings and survives reconnection", async () => {

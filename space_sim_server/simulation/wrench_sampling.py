@@ -7,11 +7,12 @@ from simulation.wrench_sensors import WRIST_SENSOR
 
 
 class WrenchSampler(sysModel.SysModel):
-    def __init__(self, stepper, clock):
+    def __init__(self, stepper, clock, transform=None):
         super().__init__()
         self.ModelTag = "wristWrench200Hz"
         self.stepper, self.clock = stepper, clock
         self.pending = deque()
+        self.transform = transform
 
     def Reset(self, CurrentSimNanos):
         self.pending.clear()
@@ -24,7 +25,7 @@ class WrenchSampler(sysModel.SysModel):
             return
         if len(self.pending) >= 1024:
             raise RuntimeError("wrist sample queue overflow; refusing silent data loss")
-        self.pending.append(reading)
+        self.pending.append(self.transform(reading) if self.transform else reading)
 
     def drain(self, stamp, capture_hz=50):
         if sample_tick(int(stamp), int(capture_hz)) is None:
@@ -35,8 +36,8 @@ class WrenchSampler(sysModel.SysModel):
         return rows
 
 
-def install_wrench_sampler(ctx):
-    model = WrenchSampler(ctx.simulation.local_stepper, ctx.clock)
+def install_wrench_sampler(ctx, transform=None):
+    model = WrenchSampler(ctx.simulation.local_stepper, ctx.clock, transform)
     # Reads native sensordata, not decimated BSK body/site messages. Self-divides
     # after physics so body publication stride never limits sensor sampling.
     ctx.add(model, Slot.SENSOR, every=1, component="wrist_wrench_sampling")

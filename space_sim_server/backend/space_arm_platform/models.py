@@ -182,7 +182,9 @@ class WrenchObservation(BaseModel):
     child_body: str = Field(min_length=1)
     frame: Literal["sensor_site"]
     sign_convention: Literal["mujoco_force_torque"]
-    measurement: Literal["raw_interface_wrench"]
+    measurement: Literal["raw_interface_wrench", "simulated_noisy_interface_wrench"]
+    ground_truth_force_n: list[FiniteFloat] | None = Field(default=None, min_length=3, max_length=3)
+    ground_truth_torque_nm: list[FiniteFloat] | None = Field(default=None, min_length=3, max_length=3)
     sample_phase: Literal["last_substep_start"]
     valid: bool
     sample_time_ns: str = Field(pattern=r"^[0-9]+$")
@@ -192,6 +194,8 @@ class WrenchObservation(BaseModel):
 
     @model_validator(mode="after")
     def validate_sample_interval(self):
+        if self.measurement == "simulated_noisy_interface_wrench" and (self.ground_truth_force_n is None or self.ground_truth_torque_nm is None):
+            raise ValueError("simulated noisy wrench must preserve ground truth")
         if self.valid and int(self.sample_time_ns) >= int(self.interval_end_time_ns):
             raise ValueError("wrench sample must precede the completed interval end")
         if not self.valid and (self.sample_time_ns != self.interval_end_time_ns or any(self.force_n + self.torque_nm)):

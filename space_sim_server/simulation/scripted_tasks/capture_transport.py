@@ -25,6 +25,8 @@ class ScriptedCaptureTransport:
         render_port,
         catalog,
         state_reader=None,
+        disturbances=None,
+        render_model_path=None,
     ):
         from simulation.components.render import RenderComponent
         from simulation.components.observation import ObservationComponent
@@ -34,6 +36,7 @@ class ScriptedCaptureTransport:
         self.model_hash = model_hash
         self.scene_instance = scene_instance
         self.state_reader = state_reader
+        self.disturbances = disturbances
         self.sequence = 0
         self.task_start_ns = None
         self.task_elapsed_s = 0.0
@@ -45,7 +48,7 @@ class ScriptedCaptureTransport:
         try:
             self.client.wait_until_ready(timeout=30.0)
             self.render = RenderComponent(
-                model_path=ctx.config.model_path,
+                model_path=render_model_path or ctx.config.model_path,
                 catalog=catalog,
                 host="127.0.0.1",
                 port=render_port,
@@ -62,7 +65,7 @@ class ScriptedCaptureTransport:
             )
             ctx.install([self.render])
             from simulation.wrench_sampling import install_wrench_sampler
-            self.wrench_sampler = install_wrench_sampler(ctx)
+            self.wrench_sampler = install_wrench_sampler(ctx, self._sensor_sample if disturbances else None)
             self.observation = ObservationComponent(self.render.bridge, self.snapshot)
             ctx.install([self.observation])
         except BaseException:
@@ -108,7 +111,7 @@ class ScriptedCaptureTransport:
         q, v = stepper.qpos[qa], stepper.qvel[va]
         p, r = self.task.chain.forward(q[:6])
         bridge = self.render.bridge
-        return dict(
+        payload = dict(
             protocol=CONTROL_PROTOCOL,
             type="observation",
             simulation_id="sarm-scripted-task",
@@ -164,6 +167,37 @@ class ScriptedCaptureTransport:
                 task_parameters=vars(self.task.config),
             ),
         )
+
+        if getattr(self, "disturbances", None) is not None:
+            d = self.disturbances
+            measured_q, measured_v, source_stamp = d.observe(q, v, stamp)
+            if any((d.options.joint_observation_noise.enabled, d.options.joint_bias.enabled, d.options.observation_delay.enabled)):
+                measured_p, measured_r = self.task.chain.forward(measured_q[:6])
+                payload.update(
+                    observation_source="authoritative_render_with_measured_proprioception",
+                    ground_truth=dict(joint_position_rad=q.tolist(), joint_velocity_rad_s=v.tolist(),
+                                      end_effector_position_body_m=p.tolist()),
+                    joint_measurement_time_ns=str(source_stamp),
+                    joint_measurement_age_ns=str(int(stamp)-source_stamp),
+                    joint_position_rad=measured_q.tolist(), joint_velocity_rad_s=measured_v.tolist(),
+                    arm_joint_position_rad=measured_q[:6].tolist(), arm_joint_velocity_rad_s=measured_v[:6].tolist(),
+                    gripper_drive_position_rad=float(measured_q[6]), gripper_drive_velocity_rad_s=float(measured_v[6]),
+                    end_effector_position_body_m=measured_p.tolist(),
+                    end_effector_orientation_body_wxyz=matrix_to_quaternion_wxyz(measured_r).tolist(),
+                    end_effector_twist_body=(self.task.chain.jacobian(measured_q[:6]) @ measured_v[:6]).tolist(),
+                    jacobian_rank=int(np.linalg.matrix_rank(self.task.chain.jacobian(measured_q[:6]))),
+                )
+            payload["wrist_wrench"] = d.wrench(payload["wrist_wrench"])
+        return payload
+
+    def _sensor_sample(self, reading):
+        stepper, scene = self.ctx.simulation.local_stepper, self.ctx.scene
+        if not hasattr(self, "_sensor_addresses"):
+            joints = [scene.getBody(b).getScalarJoint(j) for b, j in self.profile.joints]
+            self._sensor_addresses = ([j.getQposAdr() for j in joints], [j.getQvelAdr() for j in joints])
+        qa, va = self._sensor_addresses
+        self.disturbances.ingest(stepper.qpos[qa], stepper.qvel[va], int(reading["interval_end_time_ns"]))
+        return self.disturbances.wrench(reading)
 
     def _task_metrics(self, q, v, stamp):
         reader = getattr(self, "state_reader", None)

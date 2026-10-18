@@ -1,7 +1,8 @@
 """Collect independent manipulation episodes using the live production recorder.
 
-Failures and rejected initializations remain in the batch audit. No extra noise,
-lighting randomization, or simulator state edits during a task are used.
+Failures and rejected initializations remain in the batch audit. Optional noise
+and domain randomization are configured per episode; runtime state is never
+teleported to make a task succeed.
 """
 
 from __future__ import annotations
@@ -15,6 +16,10 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
+from simulation.scripted_tasks.motion_options import (
+    add_motion_options,
+    motion_arguments,
+)
 from simulation.scripted_tasks.drawer_initialization import (
     NativePoseProbe,
     randomized_scene,
@@ -214,7 +219,12 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--capture-port", type=int, default=19767)
     parser.add_argument("--render-port", type=int, default=16558)
     parser.add_argument("--signalling-port", type=int, default=19888)
+    add_motion_options(parser)
     args = parser.parse_args()
+    try:
+        motion_args = motion_arguments(args.task, args.linear_speed)
+    except ValueError as error:
+        parser.error(str(error))
     if not 1 <= args.count <= args.max_attempts <= 1000 or args.seed < 0:
         parser.error("require 1 <= count <= max-attempts <= 1000 and non-negative seed")
     args.output = args.output.resolve()
@@ -225,6 +235,9 @@ def main(default_task="drawer_cycle"):
     report = dict(
         schema="scripted-batch/2",
         task=args.task,
+        linear_speed_m_s=(args.linear_speed if args.linear_speed is not None else 0.1)
+        if args.task == "drawer_cycle"
+        else None,
         started_at_ns=str(time.time_ns()),
         status="running",
         requested_successes=args.count,
@@ -300,6 +313,7 @@ def main(default_task="drawer_cycle"):
                 "--timeout-seconds",
                 "1800",
             ]
+            command += motion_args
             command += ["--adapter", str(args.adapter), "--unreal", str(args.unreal)]
             if args.cancel_file:
                 command += ["--cancel-file", str(args.cancel_file)]

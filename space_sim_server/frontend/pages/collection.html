@@ -6,8 +6,13 @@
     <label class="field">采集任务<select id="task" name="task" required></select></label>
     <p id="task-description" class="muted"></p>
     <div class="form-grid"><label class="field">成功记录数<input name="count" type="number" min="1" max="1000" value="5" required></label><label class="field">并行实例<select id="workers" name="workers"><option value="1">1 路</option><option value="2" selected>2 路</option><option value="3">3 路</option><option value="4">4 路</option></select></label></div>
+    <label id="drawer-speed-field" class="field">移动速度（m/s）<input id="linear-speed" name="linear_speed_m_s" type="number" min="0.005" max="0.1" step="0.005" value="0.1" required><small>用于空程和抽出、放回主体行程；接近把手与最终归位时自动减速。</small></label>
     <div class="form-section">初始化与重试</div>
-    <div class="form-grid"><label class="field">关节初始偏移（±°）<input name="range_deg" type="number" min="0" max="10" step="0.5" value="10" required><small>六个关节独立采样，并检查关节限制和碰撞。</small></label><label class="field">最多尝试次数<input name="max_attempts" type="number" min="1" max="1000" value="15" required><small>达到成功记录数或尝试上限即结束。</small></label></div>
+    <label class="randomization-toggle"><input id="initialization-enabled" type="checkbox" checked><span>启用初始关节角随机化</span></label>
+    <div class="form-grid"><label class="field">关节初始偏移（±°）<input id="range-deg" name="range_deg" type="number" min="0" max="10" step="0.5" value="10" required><small>六个关节独立采样，并检查关节限制和碰撞。</small></label><label class="field">最多尝试次数<input name="max_attempts" type="number" min="1" max="1000" value="15" required><small>达到成功记录数或尝试上限即结束。</small></label></div>
+    <div class="form-section">噪声、扰动与环境随机化</div>
+    <p class="muted">各项独立启用，默认关闭。参数为工程试验起点；较强扰动可能使任务失败，安全保护和成功判据始终依据真实状态。</p>
+    <div id="randomization-options" class="randomization-options"></div>
     <details style="margin-top:18px"><summary>高级设置与采样规格</summary><label class="field" style="margin-top:14px">随机种子<input name="seed" type="number" min="0" max="2147482647" value="20261016" required></label><dl id="specifications" class="specifications"></dl></details>
     <p class="form-note">后台一次运行一个批次。切换页面不会停止采集，可在下方查看进度和停止任务。</p>
     <div class="form-actions"><button id="cancel-setup" class="button" type="button">取消</button><button id="submit" class="button primary" type="submit" disabled>开始自动采集</button></div>

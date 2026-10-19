@@ -205,3 +205,14 @@
   .platform-layout .footer { height: auto; min-height: 34px; padding: 8px 14px; }
   .platform-layout .footer .pipeline { display: none; }
 }
+
+/* Collection options use the platform form palette and spacing. */
+.randomization-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.randomization-card { min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--border, #d9e2ec); border-radius: 8px; }
+.randomization-card.is-enabled { border-color: var(--accent, #2974db); }
+.randomization-toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; font-weight: 600; }
+.randomization-toggle input[type=checkbox] { width: 17px; height: 17px; margin: 0; accent-color: var(--accent, #2974db); }
+.randomization-card .muted { margin: 8px 0 14px; line-height: 1.6; font-size: 12px; }
+.randomization-card input:disabled, .randomization-card select:disabled { opacity: .55; }
+.job-randomization { margin: 12px 0; }
+@media(max-width: 1000px) { .randomization-options { grid-template-columns: 1fr; } }

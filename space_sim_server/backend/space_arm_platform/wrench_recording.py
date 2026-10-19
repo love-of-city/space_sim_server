@@ -34,7 +34,7 @@ class WrenchStreamWriter:
                 continue  # Trim pre-roll, never assign pre-episode force to its first frame.
             if previous is not None and end != previous + 5_000_000:
                 raise ValueError("high-rate wrench stream has a gap or duplicate")
-            metadata = sample.model_dump(exclude={"force_n", "torque_nm", "sample_time_ns", "interval_end_time_ns", "valid"})
+            metadata = sample.model_dump(exclude={"force_n", "torque_nm", "sample_time_ns", "interval_end_time_ns", "valid", "ground_truth_force_n", "ground_truth_torque_nm"})
             if identity is not None and metadata != identity:
                 raise ValueError("high-rate wrench sensor identity changed")
             identity = metadata

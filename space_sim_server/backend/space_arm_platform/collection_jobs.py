@@ -56,6 +56,10 @@ for _task, _label in (
 TERMINAL = {"complete", "failed", "cancelled", "interrupted", "attempt_limit"}
 
 
+from .collection_randomization import CollectionRandomization
+from pydantic import StrictBool
+
+
 class CollectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task: str = "drawer_cycle"
@@ -63,12 +67,22 @@ class CollectionCreate(BaseModel):
     workers: int = Field(default=2, ge=1, le=4)
     max_attempts: int = Field(default=15, ge=1, le=1000)
     seed: int = Field(default=20261016, ge=0, le=2**31 - 1001)
+    initialization_enabled: StrictBool = True
+    randomization: CollectionRandomization = Field(default_factory=CollectionRandomization)
     range_deg: float = Field(default=10, ge=0, le=10, allow_inf_nan=False)
+    linear_speed_m_s: float | None = Field(
+        default=None, gt=0, le=0.1, allow_inf_nan=False
+    )
 
     @model_validator(mode="after")
     def valid_plan(self):
         if self.task not in TASKS:
             raise ValueError("未注册的采集任务")
+        if self.task == "drawer_cycle":
+            if self.linear_speed_m_s is None:
+                self.linear_speed_m_s = 0.1
+        elif self.linear_speed_m_s is not None:
+            raise ValueError("移动速度配置仅适用于抽屉完整循环任务")
         if not self.workers <= self.count <= self.max_attempts:
             raise ValueError("需满足 并发数 ≤ 成功条数 ≤ 最大尝试数")
         return self
@@ -224,6 +238,8 @@ class CollectionManager:
             directory = self.root / key
             directory.mkdir()
             scene = deepcopy(scene)
+            scene["collection_randomization"] = request.randomization.model_dump()
+            scene["initialization_enabled"] = request.initialization_enabled
             scene["created_by"] = {k: owner[k] for k in ("user_id", "username", "role")}
             write_json(directory / "scene.json", scene)
             ports = free_ports(request.workers)
@@ -332,7 +348,7 @@ class CollectionManager:
                         "--seed",
                         str(worker["seed"]),
                         "--range-deg",
-                        str(cfg["range_deg"]),
+                        str(cfg["range_deg"] if cfg.get("initialization_enabled", True) else 0),
                         "--cancel-file",
                         str(folder / "cancel.request"),
                         "--adapter",
@@ -341,6 +357,11 @@ class CollectionManager:
                         str(self.unreal),
                     ]
                     command += list(TASKS[cfg["task"]].arguments)
+                    if cfg["task"] == "drawer_cycle":
+                        command += [
+                            "--linear-speed",
+                            str(cfg.get("linear_speed_m_s") or 0.1),
+                        ]
                     for name, port in zip(
                         ("control", "capture", "render", "signalling"),
                         worker["ports"],

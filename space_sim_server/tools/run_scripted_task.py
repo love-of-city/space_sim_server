@@ -23,6 +23,10 @@ sys.path[:0] = [
     str(ROOT.parent / "space_sim_UE_Adapter/Unreal/BskUnrealRenderer/examples"),
 ]
 
+from simulation.scripted_tasks.motion_options import (
+    add_motion_options,
+    motion_arguments,
+)
 from simulation.scripted_tasks.plug_profiles import (
     PLUG_PROFILES,
     is_plug_task,
@@ -77,6 +81,15 @@ def run(args):
     )
 
     model = (args.model or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
+    from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
+    from simulation.scripted_tasks.disturbances import EpisodeDisturbances
+    source_model = model
+    scene_instance = json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
+    prepare_episode(scene_instance)
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    model = write_model_variant(source_model, output / "model.xml", scene_instance)
+    disturbances = EpisodeDisturbances(scene_instance)
     native.MODEL_PATH = model
     profile = load_model_profile(model)
     native.JOINTS, native.ACTUATORS = profile.joints, profile.arm_actuators
@@ -86,14 +99,7 @@ def run(args):
         np.full(6, 100.0),
     )
     native.TIME_STEP = 1 / DYNAMICS_HZ
-    scene_instance = (
-        json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
-    )
-    if any(
-        scene_instance.get("collection_config", {}).get("disturbances", {}).values()
-    ):
-        raise ValueError("This baseline collector supports disabled disturbances only")
-    if scene_instance and scene_instance.get("template_id") != "sarm-task-box-20261012":
+    if args.scene and scene_instance.get("template_id") != "sarm-task-box-20261012":
         raise ValueError("The scripted task requires the SARM 2026-10-12 scene")
     initial = np.r_[
         np.deg2rad(args.initial_joints_deg or DEFAULT_OPERATING_JOINT_DEG), 0.0, 0.0
@@ -102,12 +108,15 @@ def run(args):
         initial = np.asarray(
             scene_instance["randomization"]["arm_joint_position_rad"], dtype=float
         )
-    config = DrawerLiftConfig(
+    drawer_options = dict(
         lift_m=args.lift_m,
         grip_offset_m=tuple(args.grip_offset_m),
-        arm_speed_rad_s=args.arm_speed,
         force_limit_n=args.force_limit,
     )
+    if args.arm_speed is not None:
+        drawer_options["arm_speed_rad_s"] = args.arm_speed
+    if args.linear_speed is not None:
+        drawer_options["linear_speed_m_s"] = args.linear_speed
     if is_plug_task(args.task):
         from simulation.scripted_tasks.plug_insert import (
             PlugInsertTask,
@@ -117,7 +126,7 @@ def run(args):
         config = PlugInsertConfig(
             plug_body=plug_profile(args.task).body,
             target_site=args.target_site,
-            arm_speed_rad_s=args.arm_speed,
+            arm_speed_rad_s=args.arm_speed if args.arm_speed is not None else 0.08,
             grasp_offset_m=tuple(args.plug_grasp_offset),
             force_limit_n=min(args.force_limit, 40.0),
         )
@@ -128,9 +137,10 @@ def run(args):
             DrawerCycleConfig,
         )
 
-        config = DrawerCycleConfig(**asdict(config))
+        config = DrawerCycleConfig(**drawer_options)
         task = DrawerCycleTask(model, config)
     else:
+        config = DrawerLiftConfig(**drawer_options)
         task = DrawerLiftTask(model, config)
     from simulation.scripted_tasks.native_state import STATE_READERS
 
@@ -145,8 +155,6 @@ def run(args):
         )
     command, velocity = initial.copy(), np.zeros(8)
     publisher = HeldJointReferencePublisher(lambda t: (command, velocity), 8)
-    output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=False)
     sim = stepper = orbit = capture = None
     report = dict(
         task_name=args.task,
@@ -182,6 +190,7 @@ def run(args):
             defer_attitude_control=True,
         )
         stepper = sim.local_stepper
+        disturbances.install_external_force(stepper)
         ctx = AssemblyContext(
             sim,
             scene,
@@ -232,6 +241,8 @@ def run(args):
                 render_port=args.capture_render_port,
                 catalog=args.catalog,
                 state_reader=state_reader,
+                disturbances=disturbances,
+                render_model_path=source_model,
             )
         sim.InitializeSimulation()
         report["orbit"] = _apply_orbital_initial_state(
@@ -304,10 +315,16 @@ def run(args):
                             task.fail("capture_stopped_before_task_completed", sample)
                         elif elapsed >= args.max_sim_seconds:
                             task.fail("total_simulation_timeout", sample)
-                    command[:], velocity[:] = task.step(sample)
+                    nominal_command, nominal_velocity = task.step(sample)
+                    if task.result is None:
+                        command[:], velocity[:] = disturbances.action(nominal_command, nominal_velocity, elapsed, task.lower, task.upper)
+                    else:
+                        command[:], velocity[:] = nominal_command, nominal_velocity
                     if capture:
                         capture.sequence += 1
                         capture.task_elapsed_s = elapsed
+                applied_wrench = disturbances.write_external_force(elapsed, active=task_epoch_ns is not None and elapsed >= 0 and task.result is None)
+                measured_q, measured_v, measured_stamp = disturbances.observe(sample.joints, sample.joint_velocities, stamp)
                 pose, rotation = task.chain.forward(sample.joints[:6])
                 row = dict(
                     sim_time_ns=str(stamp),
@@ -321,6 +338,12 @@ def run(args):
                     tool_rotation_body=rotation.tolist(),
                     **metrics,
                     wrist_wrench=wrench,
+                    measured_wrist_wrench=disturbances.wrench(wrench),
+                    measured_joint_position=measured_q.tolist(),
+                    measured_joint_velocity=measured_v.tolist(),
+                    joint_measurement_time_ns=str(measured_stamp),
+                    nominal_joint_reference=task.reference.tolist(),
+                    applied_external_wrench=applied_wrench.tolist(),
                     local_qpos=stepper.qpos.tolist(),
                 )
                 trace.write(json.dumps(row) + "\n")
@@ -381,7 +404,9 @@ def run(args):
     finally:
         finished = time.perf_counter()
         report["wall_seconds"] = finished - started
-        report["task_loop_wall_seconds"] = None if loop_started is None else finished - loop_started
+        report["task_loop_wall_seconds"] = (
+            None if loop_started is None else finished - loop_started
+        )
         report["execute_simulation_wall_seconds"] = simulation_wall_seconds
         (output / "summary.json").write_text(
             json.dumps(report, indent=2), encoding="utf-8"
@@ -413,7 +438,11 @@ def main(default_task="drawer_lift"):
         choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES],
         default=default_task,
     )
-    parser.add_argument("--model", type=Path, help="Offline diagnostic model override (no camera recording)")
+    parser.add_argument(
+        "--model",
+        type=Path,
+        help="Offline diagnostic model override (no camera recording)",
+    )
     parser.add_argument("--target-site", default=None)
     parser.add_argument(
         "--plug-grasp-offset", type=float, nargs=3, default=[0.0, 0.0, -0.003]
@@ -427,7 +456,8 @@ def main(default_task="drawer_lift"):
     parser.add_argument("--substeps", type=int, default=None)
     parser.add_argument("--warmup-sim-seconds", type=float, default=0.0)
     parser.add_argument("--lift-m", type=float, default=0.08)
-    parser.add_argument("--arm-speed", type=float, default=0.08)
+    parser.add_argument("--arm-speed", type=float, default=None)
+    add_motion_options(parser)
     parser.add_argument("--force-limit", type=float, default=80.0)
     parser.add_argument(
         "--grip-offset-m", type=float, nargs=3, default=[0.0, 0.0, -0.005]
@@ -439,10 +469,21 @@ def main(default_task="drawer_lift"):
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--capture-stop-file", type=Path)
     args = parser.parse_args()
-    if args.model is not None and not args.model.with_name("attitude_control.json").is_file():
-        parser.error("--model needs its companion attitude_control.json in the same directory")
+    try:
+        motion_arguments(args.task, args.linear_speed)
+    except ValueError as error:
+        parser.error(str(error))
+    if (
+        args.model is not None
+        and not args.model.with_name("attitude_control.json").is_file()
+    ):
+        parser.error(
+            "--model needs its companion attitude_control.json in the same directory"
+        )
     if args.model is not None and args.capture_control_port:
-        parser.error("--model is for offline diagnostics; camera capture requires the scene catalog model")
+        parser.error(
+            "--model is for offline diagnostics; camera capture requires the scene catalog model"
+        )
     if args.output is None:
         folder = args.task.replace("_", "-")
         args.output = ROOT / "run" / folder / time.strftime("%Y%m%d-%H%M%S")

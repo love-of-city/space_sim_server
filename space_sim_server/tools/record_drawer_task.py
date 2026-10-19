@@ -37,6 +37,10 @@ from space_arm_platform.sampling import (
     SCRIPTED_TASK_HZ,
 )
 
+from simulation.scripted_tasks.motion_options import (
+    add_motion_options,
+    motion_arguments,
+)
 from simulation.scripted_tasks.plug_profiles import (
     PLUG_PROFILES,
     is_plug_task,
@@ -110,6 +114,9 @@ async def run(args):
             sock.bind(("127.0.0.1", port))
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
+    from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
+    prepare_episode(scene)
+    write_model_variant(ROOT / "model/SARM/platform/sarm_20261012.xml", out / "model.xml", scene)
     scene_path = out / "scene.json"
     scene_path.write_text(
         json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -249,6 +256,7 @@ async def run(args):
             "--warmup-sim-seconds",
             str(args.warmup_sim_seconds),
         ]
+        command += motion_arguments(args.task, args.linear_speed)
         if args.substeps is not None:
             command += ["--substeps", str(args.substeps)]
         simulation = launch(command, "simulation", env)
@@ -433,7 +441,12 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--max-sim-seconds", type=float, default=360.0)
     parser.add_argument("--substeps", type=int)
     parser.add_argument("--cancel-file", type=Path)
+    add_motion_options(parser)
     args = parser.parse_args()
+    try:
+        motion_arguments(args.task, args.linear_speed)
+    except ValueError as error:
+        parser.error(str(error))
     if args.target_site is None:
         args.target_site = (
             plug_profile(args.task).target_site

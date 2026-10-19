@@ -8,6 +8,7 @@ param(
     [double]$BuildScale = 100.0,
     [double]$ComponentScale = 1.0,
     [string]$UnrealRoot = '',
+    [string[]]$MujocoPluginLibraries = @(),
     [ValidateSet('auto', 'preserve', 'recompute')]
     [string]$NormalMode = 'auto',
     [ValidateRange(0.0, 180.0)]
@@ -35,10 +36,12 @@ $importSignatureMarker = Join-Path $ProjectRoot "Saved\AssetImport\$safeImportNa
 $meshSettingsMarker = Join-Path $ProjectRoot "Saved\AssetImport\$safeImportName.mesh_settings"
 $meshSettingsSignature = "$NormalMode|stlAngle=$StlSmoothingAngle|build=$BuildScale|component=$ComponentScale|nanite=off|lod0=full|v=3"
 
+$pluginArgs = @()
+foreach ($library in $MujocoPluginLibraries) { $pluginArgs += @('--mujoco-plugin', $library) }
 & $pythonExe (Join-Path $PSScriptRoot 'generate_mjcf_asset_catalog.py') `
     --mjcf $resolvedMjcf --destination $Destination --catalog $resolvedCatalog --import-settings $importSettings `
     --mesh-cache $meshCache --normal-mode $NormalMode --stl-smoothing-angle $StlSmoothingAngle `
-    --build-scale $BuildScale --component-scale $ComponentScale
+    --build-scale $BuildScale --component-scale $ComponentScale @pluginArgs
 if ($LASTEXITCODE -ne 0) { throw 'Failed to generate the MJCF asset catalog.' }
 
 $catalogData = Get-Content -Raw -LiteralPath $resolvedCatalog | ConvertFrom-Json

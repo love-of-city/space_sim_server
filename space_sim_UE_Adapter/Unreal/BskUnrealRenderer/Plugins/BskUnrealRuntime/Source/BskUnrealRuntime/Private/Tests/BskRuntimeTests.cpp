@@ -314,7 +314,7 @@ bool FBskProtocolV2ManifestTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("PIP camera slot"), Camera.PictureInPictureSlot, 2);
         TestEqual(TEXT("camera data products"), Camera.CaptureProducts.Num(), 1);
     }
-    for (const FString Product : {FString(TEXT("depth")), FString(TEXT("segmentation"))})
+    for (const FString& Product : {FString(TEXT("depth")), FString(TEXT("segmentation"))})
     {
         FBskRenderMessage RejectedMessage;
         FString RejectedError;

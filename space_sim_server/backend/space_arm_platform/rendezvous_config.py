@@ -2,6 +2,7 @@
 from dataclasses import asdict, dataclass, fields
 import math
 from .gnss_config import GNSSConfig
+from .orbital_physics import OrbitalPhysics
 
 
 @dataclass(frozen=True)
@@ -10,6 +11,9 @@ class FlightOptions:
     # None reproduces historical independent-receiver flights. The unified
     # mission supplies one explicit receiver contract for every phase.
     differential_gnss: dict | None = None
+    # Absent in historical runs: retain their point-mass field. New continuous
+    # missions explicitly select the team's J2 model and carry it through handoff.
+    orbital_physics: dict | None = None
     gnss_position_sigma_m: float = 3.0
     gnss_velocity_sigma_m_s: float = 0.5
     initial_position_sigma_m: float = 10.0
@@ -27,6 +31,11 @@ class FlightOptions:
     handoff_distance_m: float = 110.0
 
     def __post_init__(self):
+        if self.orbital_physics is not None:
+            physics = OrbitalPhysics.model_validate(self.orbital_physics)
+            if physics.drag is not None:
+                raise ValueError("flight drag is configured by FlightOptions; duplicate orbital_physics.drag is forbidden")
+            object.__setattr__(self, "orbital_physics", physics.model_dump(mode="json"))
         if self.differential_gnss is not None:
             cfg = GNSSConfig.from_dict(self.differential_gnss)
             object.__setattr__(self, "differential_gnss", cfg.to_dict())
@@ -64,3 +73,8 @@ class FlightOptions:
 
     def to_dict(self):
         return asdict(self)
+
+    @property
+    def physics(self):
+        return (OrbitalPhysics.legacy() if self.orbital_physics is None
+                else OrbitalPhysics.model_validate(self.orbital_physics))

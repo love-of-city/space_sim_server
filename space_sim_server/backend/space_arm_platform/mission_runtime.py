@@ -21,6 +21,7 @@ from .rendezvous_config import FlightOptions
 from .near_field_config import NearFieldOptions
 from .scene_targets import SELF_COLLISION_TEMPLATE
 from .gnss_config import GNSSConfig
+from .orbital_physics import OrbitalPhysics
 
 
 MISSION_MODES = (
@@ -146,6 +147,8 @@ class MissionRuntime:
             options = {**options, "differential_gnss": receiver.to_dict(),
                        "gnss_position_sigma_m": receiver.absolute_position_sigma_m,
                        "gnss_velocity_sigma_m_s": receiver.absolute_velocity_sigma_m_s}
+            if "orbital_physics" not in options:
+                options["orbital_physics"] = OrbitalPhysics().model_dump(mode="json")
         resolved = (NearFieldOptions if near else FlightOptions).from_dict(options).to_dict()
         if scenario not in {"legacy", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"}:
             raise ValueError("未知交会任务模式")

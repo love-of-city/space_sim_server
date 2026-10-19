@@ -95,6 +95,21 @@ def test_handoff_preserves_disturbance_and_its_next_sample():
     np.testing.assert_array_equal(source.forceOutMsg.read().forceRequestInertial, restored.forceOutMsg.read().forceRequestInertial)
 
 
+def test_flight_drag_uses_rotating_planet_frame_not_fixed_inertial_pole():
+    # Artificially rotate Earth about X: an inertial Z approximation predicts
+    # a different aerodynamic force. This exercises the production force path.
+    options = FlightOptions(srp_enabled=False, orbit_acceleration_sigma_m_s2=0)
+    model = make_model(options)
+    spin = 7.2921150e-5
+    planet = messaging.SpicePlanetStateMsg().write(messaging.SpicePlanetStateMsgPayload(
+        J20002Pfix=np.eye(3).tolist(), J20002Pfix_dot=[[0, 0, 0], [0, 0, spin], [0, -spin, 0]]))
+    model.planet = planet.addSubscriber()
+    model.UpdateState(0)
+    from simulation.components.drag import drag_force_n
+    expected = drag_force_n(2e-11, [0, 7600, 0], 1, options.drag_coefficient)
+    np.testing.assert_allclose(model.last["drag_n"], expected)
+
+
 def test_handoff_accepts_both_json_quaternion_signs():
     from types import SimpleNamespace
     from Basilisk.utilities import RigidBodyKinematics as rbk

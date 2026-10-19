@@ -1,0 +1,24 @@
+{
+  "earth_gravity": "j2",
+  "drag": {
+    "density_model": "exponential",
+    "reference_altitude_m": 500000.0,
+    "reference_density_kg_m3": 1e-12,
+    "scale_height_m": 60000.0,
+    "density_source": "SYNTHETIC sensitivity example; not a calibrated 500 km atmosphere",
+    "bodies": [
+      {
+        "body": "cubesat_bus",
+        "area_m2": 0.06,
+        "drag_coefficient": 2.2,
+        "parameter_source": "SYNTHETIC bus-only equivalent area; not measured spacecraft aerodynamics"
+      },
+      {
+        "body": "capture_target",
+        "area_m2": 0.12,
+        "drag_coefficient": 2.2,
+        "parameter_source": "SYNTHETIC target-bus-only equivalent area; panels not included"
+      }
+    ]
+  }
+}

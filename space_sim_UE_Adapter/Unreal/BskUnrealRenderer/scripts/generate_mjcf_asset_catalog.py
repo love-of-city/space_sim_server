@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 from bsk_render_adapter.mjcf_assets import parse_mjcf_geometry_metadata
@@ -22,6 +23,8 @@ def main() -> None:
     parser.add_argument("--mesh-cache", type=Path)
     parser.add_argument("--normal-mode", choices=("auto", "preserve", "recompute"), default="auto")
     parser.add_argument("--stl-smoothing-angle", type=float, default=60.0)
+    parser.add_argument("--mujoco-plugin", type=Path, action="append", default=[],
+                        help="Native plugin library to register before compiling the MJCF (repeatable)")
     args = parser.parse_args()
 
     # Only source files/materials/visibility are used below. Compiling physics

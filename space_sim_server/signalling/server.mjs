@@ -272,11 +272,25 @@ playerServer.on("connection", (ws, request) => {
 // Construction starts asynchronous binds; ready must mean both peers can connect.
 await Promise.all([once(playerServer, "listening"), once(streamerServer, "listening")]);
 console.log(JSON.stringify({ event: "ready", playerHost, playerPort, streamerHost, streamerPort, secure: true }));
+let stopping = false;
 const close = async () => {
-  await Promise.all([
-    new Promise((resolve) => playerServer.close(resolve)),
-    new Promise((resolve) => streamerServer.close(resolve)),
-  ]);
+  if (stopping) return;
+  stopping = true;
+  const servers = [playerServer, streamerServer];
+  // WebSocketServer.close stops accepting connections but waits indefinitely
+  // for existing peers. Linux SIGTERM must also close those peer sockets.
+  const closed = servers.map(server => new Promise(resolve => server.close(resolve)));
+  for (const server of servers) {
+    for (const client of server.clients) client.close(1001, "Server shutting down");
+  }
+  const forceClose = setTimeout(() => {
+    for (const server of servers) {
+      for (const client of server.clients) client.terminate();
+    }
+  }, 2000);
+  forceClose.unref();
+  await Promise.all(closed);
+  clearTimeout(forceClose);
   process.exit(0);
 };
 process.on("SIGINT", close);

@@ -24,6 +24,7 @@ from simulation.assembly import AssemblyContext, SessionConfig, Slot
 from simulation.components.orbit import OrbitComponent
 from simulation.components.orbital_gravity import OrbitalGravityComponent
 from simulation.components.flight_environment import FlightEnvironmentComponent
+from simulation.orbital_configuration import environment_metadata
 from simulation.local_mujoco_stepper import LocalMujocoStepper
 from simulation.physics_ports import PhysicsPorts
 from space_arm_platform.rendezvous_config import FlightOptions
@@ -270,7 +271,7 @@ def run(args):
         model_path=model, dynamics_backend="local", publish_stride=1,
         clock_rate_hz=1 / args.step, physics_task="flightDynamics"))
     from simulation.teleop_grasp_unreal import DEFAULT_EPHEMERIS_EPOCH_UTC, _register_celestial_bodies
-    orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC)
+    orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC, physics=options.physics)
     ctx.install([orbit])
     stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin,
                                 substeps=max(1, round(args.step * 240)), publish_every=1)
@@ -469,6 +470,7 @@ def run(args):
         **({"gnss_transport": controller.delayed_navigation.snapshot()} if controller.delayed_navigation else {}),
         "environment": "Shared BSK Earth/Sun gravity; exponential co-rotating atmosphere; eclipsed cannonball SRP; seeded Gauss-Markov acceleration",
         "mission_options": options.to_dict(),
+        "orbital_physics": environment_metadata(options.physics, orbit.earth, epoch_utc=render_epoch),
         "environment_state": [model.snapshot() for model in environment.models],
         "initial_states_eci": initial_states,
         "initial_offsets_eci": initial_offsets.tolist(),

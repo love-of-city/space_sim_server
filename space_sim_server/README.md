@@ -6,6 +6,8 @@
 
 默认 `local` 场景采用 BSK 引力模型逐刚体计算差分力，保留 MuJoCo 刚体/接触/伺服与局部坐标。扩展引力源、球谐模型和子步采样的方法见 [BSK 在轨组件](docs/BSK_ORBITAL_COMPONENTS.md)。旧线性潮汐仅通过 `SPACE_SIM_ORBITAL_MODE=linear_tidal` 显式选择用于回归。
 
+新建场景默认保存地球 **J2 + 太阳点质量** 配置；旧实例缺少 `environment.physics` 时仍按点质量重放。逐物体大气阻力需要明确提供密度、面积、Cd 及参数来源，默认关闭。配置、物理边界和验收方式见 [轨道物理配置](docs/ORBITAL_PHYSICS_CONFIGURATION.md)。
+
 ## 卫星交会接入
 
 现有工作台提供直接机械臂操作、7 km 交会、300 km 入轨后三种起始条件。连续任务使用共享 GNSS 配置；远距通过验收后接续近距，近距通过后以实际关节状态进入原操作场景，任务编号保持一致。独立 110 m 初态演示仍可通过诊断 API/CLI 使用，不作为第四个工作台入口。近距双目目前为参数化观测，捕获为逻辑代理，不代表真实图像闭环或接触力学验证。接口和验证边界见[连续任务整合说明](../archive/2026_10_17_连续任务与共享导航.md)及[近距方案](docs/NEAR_FIELD_RENDEZVOUS.md)。
@@ -23,6 +25,10 @@
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。
+
+Linux 环境、原生库和验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。Linux UE 5.6.1 双相机渲染、完整脚本录制和 LeRobot 解码已实机验收；网页场景启停仍需 Linux 适配，不能把脚本采集通过认定为整个网页平台已迁移。
+
+脚本批量采集可通过 [多进程采集](docs/PARALLEL_COLLECTION.md) 配置两路隔离并发、每路 UE 复用、离线渲染与资源统计；调度配置位于 `config/collection.json`。
 
 Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实仿真必须安装**包含 MJScene 及项目所需控制、积分和消息 API 的 Basilisk**；普通 Python `mujoco` 包不能替代 `Basilisk.simulation.mujoco`。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装发行包，也可参考其[安装文档](https://hanspeterschaub.info/basilisk/Install.html)自行编译；不限定源码版本或安装方式。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py` 检查功能。以下项目安装命令不会安装 UE、编译器或 Basilisk。
 
@@ -217,8 +223,12 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 
 ## LeRobot v3 原生采集（本分支）
 
+采集与录制默认设置统一在 [`config/recording.json`](config/recording.json)：
+相机选择、采样率、最大帧数、原始图片副本和视频编码。修改后重启后端，
+采样率修改需重新创建场景。参数含义与覆盖规则见 [采集配置](docs/LEROBOT_V3_CAPTURE.md)。
+
 新的录制通过官方 LeRobot writer 直接生成 v3 数据集，不需要事后转换。
-默认动力学 240 Hz、IK 120 Hz（每 2 个物理步）、双相机 RGB 1024×1024、30 FPS（每 8 步）。新录制图像与视频为正方形，历史 episode 保留其原始尺寸；详见 [正方形 1K 采集](docs/SQUARE_1K_CAPTURE.md)。
+默认动力学 400 Hz、在线 IK 100 Hz（每 4 个物理步）、双相机 RGB 1024×1024、50 FPS（每 8 步）。新录制图像与视频为正方形，历史 episode 保留其原始尺寸；详见 [正方形 1K 采集](docs/SQUARE_1K_CAPTURE.md)。
 使用绝对步序号的纳秒调度避免周期取整漂移；不采集深度和分割。
 参见 [采集链路、特征语义、同步规则和验证](docs/LEROBOT_V3_CAPTURE.md)。
 

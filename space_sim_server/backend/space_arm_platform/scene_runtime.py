@@ -272,8 +272,8 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
     if request.randomize_orbit_phase:
         # A versioned, independent stream preserves existing training-v1
         # samples and gives the same orbital phase for either local profile.
-        orbit_rng = random.Random(f"space-arm-orbit-phase-v1:{seed}")
-        orbit["true_anomaly_deg"] = orbit_rng.random() * 360.0
+        from .orbit_randomization import sample_orbit_phase
+        orbit["true_anomaly_deg"] = sample_orbit_phase(seed)
 
     return {
         "schema": "space-arm-scene-instance/1",
@@ -300,6 +300,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
             "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
             "orbit": orbit,
+            "physics": request.orbital_physics.model_dump(mode="json"),
             "lighting": {"sunlight_intensity_scale": request.sunlight_intensity_scale},
         },
         "runtime": {
@@ -438,8 +439,13 @@ class SceneRuntimeManager:
                 instance["randomization"]["arm_joint_position_rad"][:6] = report["joint_position_rad"]
         if handoff is not None:
             from datetime import datetime, timedelta
+            from .rendezvous_config import FlightOptions
             if request.template_id != SELF_COLLISION_TEMPLATE or handoff.get("accepted") is not True:
                 raise ValueError("handoff requires the original team model and an accepted flight")
+            physics = FlightOptions.from_dict(handoff.get("mission_options", {})).physics
+            if "orbital_physics" in request.model_fields_set and request.orbital_physics != physics:
+                raise ValueError("handoff must preserve the flight orbital physics configuration")
+            instance["environment"]["physics"] = physics.model_dump(mode="json")
             epoch = datetime.strptime(handoff["ephemeris_epoch_utc"], "%Y %B %d %H:%M:%S.%f")
             epoch += timedelta(seconds=float(handoff["state"]["sim_time_s"]))
             instance["environment"]["ephemeris_epoch_utc"] = epoch.strftime("%Y %B %d %H:%M:%S.%f")

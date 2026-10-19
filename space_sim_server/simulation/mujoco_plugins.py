@@ -3,6 +3,7 @@ from pathlib import Path
 import ctypes
 import hashlib
 import json
+import sys
 
 _LOADED = {}
 DELIVERED_SOURCE = 'model/SARM_mjcf_20261012/thread_sdf.cpp'
@@ -34,7 +35,13 @@ def validate_plugin_manifest(plugin_path: Path, manifest_path: Path, runtime_ver
 
 def ensure_sarm_plugin(runtime_path: Path, plugin_path: Path, manifest_path: Path) -> dict:
     runtime_path, plugin_path = Path(runtime_path).resolve(), Path(plugin_path).resolve()
-    runtime = ctypes.CDLL(str(runtime_path))
+    if sys.platform.startswith('linux'):
+        from bsk_render_adapter.native_plugins import loaded_mujoco_library
+        runtime = loaded_mujoco_library(global_symbols=True)
+        if Path(runtime._name).resolve() != runtime_path:
+            raise RuntimeError('Plugin runtime differs from the already loaded MuJoCo runtime')
+    else:
+        runtime = ctypes.CDLL(str(runtime_path))
     runtime.mj_version.restype = ctypes.c_int
     record = validate_plugin_manifest(plugin_path, manifest_path, runtime.mj_version())
     base = Path(__file__).resolve().parents[1]

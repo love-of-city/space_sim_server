@@ -14,6 +14,69 @@ from space_arm_platform.models import SimulationObservation
 from tools.record_drawer_task import scene_copy, validate_episode
 
 
+@pytest.mark.parametrize("raw", [False, True, None])
+def test_capture_manifest_accepts_optional_raw_images_and_rejects_bad_pairing(tmp_path, raw):
+    from PIL import Image
+    from tools.collect_drawer_cycles import validate_capture_manifest
+    from tools.record_drawer_task import CAMERAS
+
+    steps = [{"render_frame_id": "42", "render_session_id": "session", "sim_time_ns": "840000000"}]
+    meta = {} if raw is None else {"raw_camera_images_saved": raw}
+    captures = []
+    for index, camera in enumerate(CAMERAS):
+        files = {}
+        if raw is not False:
+            path = tmp_path / f"camera-{index}.png"
+            Image.new("RGB", (1024, 1024)).save(path)
+            files["rgb"] = path.name
+        captures.append(dict(
+            source_frame_id="42", sim_time_ns="840000000", files=files,
+            metadata=dict(camera_id=camera, session_id="session", resolution=[1024, 1024])))
+
+    def save(rows):
+        (tmp_path / "captures.jsonl").write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+
+    save(captures)
+    assert validate_capture_manifest(tmp_path, meta, steps) == 2
+    save([captures[0], captures[0]])
+    with pytest.raises(AssertionError):
+        validate_capture_manifest(tmp_path, meta, steps)
+    save(captures[:1])
+    with pytest.raises(AssertionError):
+        validate_capture_manifest(tmp_path, meta, steps)
+    captures[1]["sim_time_ns"] = "860000000"
+    save(captures)
+    with pytest.raises(AssertionError):
+        validate_capture_manifest(tmp_path, meta, steps)
+    captures[1]["sim_time_ns"] = "840000000"
+    captures[1]["metadata"]["camera_id"] = "unknown-camera"
+    save(captures)
+    with pytest.raises(AssertionError):
+        validate_capture_manifest(tmp_path, meta, steps)
+    if raw is not False:
+        save([captures[0], {**captures[1], "metadata": {**captures[1]["metadata"], "camera_id": CAMERAS[1]}}])
+        (tmp_path / captures[0]["files"]["rgb"]).unlink()
+        with pytest.raises(FileNotFoundError):
+            validate_capture_manifest(tmp_path, meta, steps)
+
+
+def test_scripted_recording_loads_shared_settings_and_rejects_incompatible_capture(tmp_path, monkeypatch):
+    from tools import record_drawer_task
+    monkeypatch.setattr(record_drawer_task, "ROOT", tmp_path)
+    path = tmp_path / "config/recording.json"
+    path.parent.mkdir()
+    settings = {"save_raw_camera_images": True, "max_frames": 25000,
+                "video": {"encoder_threads": 1}}
+    path.write_text(json.dumps(settings), encoding="utf-8")
+    result = record_drawer_task.recording_settings()
+    assert result.save_raw_camera_images and result.max_frames == 25000
+    assert result.video.encoder_threads == 1
+    for incompatible in ({"capture_rate_hz": 25}, {"camera_ids": []}):
+        path.write_text(json.dumps({**settings, **incompatible}), encoding="utf-8")
+        with pytest.raises(ValueError, match="Scripted collection requires"):
+            record_drawer_task.recording_settings()
+
+
 def test_scene_copy_preserves_configuration_without_mutating_original(tmp_path):
     source = tmp_path / "scene.json"
     scene = {

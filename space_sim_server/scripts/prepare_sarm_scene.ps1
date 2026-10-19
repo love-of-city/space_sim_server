@@ -11,12 +11,17 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'python_runtime.ps1')
 $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('numpy', 'Basilisk.simulation.mujoco')
 $env:SPACE_SIM_PYTHON = $pythonExe
+$pluginLibraries = @()
 if ($TemplateId -in @('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo')) {
     $fastenerModel = if ($TemplateId -eq 'sarm-task-box-20261012-sdf') { 'sdf' } else { 'captive' }
     & $pythonExe (Join-Path $projectRoot 'tools\build_sarm_20261012.py') --fastener-model $fastenerModel
     if ($LASTEXITCODE -ne 0) { throw 'SARM assembly generation failed.' }
     & $pythonExe (Join-Path $projectRoot 'tools\build_sarm_plugin.py')
     if ($LASTEXITCODE -ne 0) { throw 'SARM thread plugin build failed.' }
+    # Asset compilation runs in a separate Python MuJoCo process; registration
+    # in the simulation's Basilisk runtime does not carry over to this process.
+    $manifest = Get-Content -Raw (Join-Path $projectRoot 'run/native_acceleration/sarm_thread.json') | ConvertFrom-Json
+    $pluginLibraries = @((Join-Path $projectRoot $manifest.library))
 }
 $selectionArgs = @((Join-Path $projectRoot 'tools\select_sarm_scene.py'), '--model-root', $ModelRoot, '--check')
 if ($TemplateId) { $selectionArgs += @('--template-id', $TemplateId) }
@@ -42,5 +47,5 @@ if (!(Test-Path -LiteralPath $scene -PathType Leaf)) { throw "Selected scene is 
 & (Join-Path $ueProject 'scripts\prepare_mjcf_assets.ps1') `
     -MjcfPath $scene -Destination $destination `
     -CatalogPath (Join-Path $ueProject "Saved\AssetImport\$catalogName") `
-    -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$Force
+    -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$Force -MujocoPluginLibraries $pluginLibraries
 if ($LASTEXITCODE -ne 0) { throw 'SARM and articulated capture-target asset preparation failed.' }

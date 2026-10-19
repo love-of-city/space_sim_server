@@ -11,12 +11,15 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .recording_config import VideoEncodingConfig
 
-def _serve(connection) -> None:
+
+def _serve(connection, video_settings: dict, storage_profile: str) -> None:
     writer = None
     try:
         from .lerobot_capture import LiveLeRobotWriter
         from .models import EpisodeStart, SimulationObservation
+        video_encoding = VideoEncodingConfig.model_validate(video_settings)
         # Import explicitly before advertising readiness (not on the first sample).
         from lerobot.datasets.lerobot_dataset import CODEBASE_VERSION
         if CODEBASE_VERSION != "v3.0":
@@ -33,7 +36,8 @@ def _serve(connection) -> None:
                 if command == "begin":
                     if writer is not None:
                         raise RuntimeError("dataset writer already has an episode")
-                    writer = LiveLeRobotWriter(Path(payload[0]), EpisodeStart.model_validate(payload[1]))
+                    writer = LiveLeRobotWriter(Path(payload[0]), EpisodeStart.model_validate(payload[1]),
+                                              video_encoding=video_encoding, storage_profile=storage_profile)
                 elif command == "append":
                     if writer is None:
                         raise RuntimeError("dataset writer has no episode")
@@ -64,7 +68,10 @@ def _serve(connection) -> None:
 
 
 class DatasetWriterService:
-    def __init__(self, *, startup_timeout_s: float = 120., rpc_timeout_s: float = 120.) -> None:
+    def __init__(self, *, startup_timeout_s: float = 120., rpc_timeout_s: float = 120.,
+                 video_encoding: VideoEncodingConfig | None = None, storage_profile="diagnostic") -> None:
+        self.video_encoding = video_encoding or VideoEncodingConfig()
+        self.storage_profile = storage_profile
         self.startup_timeout_s = startup_timeout_s
         self.rpc_timeout_s = rpc_timeout_s
         self._lock = threading.Lock()
@@ -98,7 +105,8 @@ class DatasetWriterService:
             context = mp.get_context("spawn")
             parent, child = context.Pipe()
             self._connection = parent
-            self._process = context.Process(target=_serve, args=(child,), name="lerobot-dataset-writer")
+            self._process = context.Process(target=_serve, args=(child, self.video_encoding.model_dump(mode="json"), self.storage_profile),
+                                            name="lerobot-dataset-writer")
             self._process.start()
             child.close()
             try:

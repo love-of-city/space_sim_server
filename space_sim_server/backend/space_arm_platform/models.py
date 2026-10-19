@@ -14,6 +14,7 @@ from .control_defaults import (
     MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S,
 )
 from .scene_targets import DEFAULT_TEMPLATE
+from .orbital_physics import OrbitalPhysics
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
 
 
@@ -397,6 +398,8 @@ class EpisodeStop(BaseModel):
 
 class SceneInstanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    orbital_physics: OrbitalPhysics = Field(default_factory=OrbitalPhysics)
 
     template_id: str = DEFAULT_TEMPLATE
     randomization_profile: str = DEFAULT_RANDOMIZATION_PROFILE

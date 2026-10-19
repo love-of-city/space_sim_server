@@ -22,6 +22,7 @@
 #include <windows.h>
 #define API extern "C" __declspec(dllexport)
 #else
+#include <dlfcn.h>
 #define API extern "C" __attribute__((visibility("default")))
 #endif
 
@@ -81,6 +82,12 @@ bool resolve(HMODULE module, const char* name, T& target) {
     target = reinterpret_cast<T>(GetProcAddress(module, name));
     return target != nullptr;
 }
+#else
+template <typename T>
+bool resolve(void* module, const char* name, T& target) {
+    target = reinterpret_cast<T>(dlsym(module, name));
+    return target != nullptr;
+}
 #endif
 
 bool finite(const mjtNum* values, int count) {
@@ -96,7 +103,12 @@ API int lms_abi() { return ABI; }
 API int lms_header_version() { return mjVERSION_HEADER; }
 
 // runtime_path: absolute path of the mujoco.dll Basilisk already loaded.
-API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* error, int error_size) {
+#ifdef _WIN32
+using RuntimePathChar = wchar_t;
+#else
+using RuntimePathChar = char;
+#endif
+API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, char* error, int error_size) {
     if (!runtime_path || !xml_path) {
         copy_error(error, error_size, "runtime and model paths are required");
         return nullptr;
@@ -108,8 +120,12 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
     }
 #ifdef _WIN32
     HMODULE module = GetModuleHandleW(runtime_path);
+#else
+    // Acquire only an existing mapping; Basilisk owns its lifetime.
+    void* module = dlopen(runtime_path, RTLD_NOW | RTLD_NOLOAD);
+#endif
     if (!module) {
-        copy_error(error, error_size, "Basilisk mujoco.dll is not loaded in this process");
+        copy_error(error, error_size, "Basilisk MuJoCo runtime is not loaded in this process");
         delete s;
         return nullptr;
     }
@@ -121,16 +137,14 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
               resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
               resolve(module, "mj_name2id", a.name2id) &&
               resolve(module, "mj_id2name", a.id2name);
+#ifndef _WIN32
+    dlclose(module);  // Balance NOLOAD's reference; Basilisk retains its own.
+#endif
     if (!ok) {
         copy_error(error, error_size, "required MuJoCo symbol is missing from the loaded runtime");
         delete s;
         return nullptr;
     }
-#else
-    copy_error(error, error_size, "only the Windows runtime lookup is implemented");
-    delete s;
-    return nullptr;
-#endif
     if (s->api.version() != mjVERSION_HEADER) {
         copy_error(error, error_size, "loaded MuJoCo runtime does not match the compiled 3.7.0 headers");
         delete s;

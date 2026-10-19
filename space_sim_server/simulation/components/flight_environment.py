@@ -8,7 +8,7 @@ import math
 import numpy as np
 from Basilisk.architecture import messaging, sysModel
 from simulation.assembly import Slot
-from simulation.components.drag import atmosphere_velocity_n, drag_force_n
+from simulation.components.drag import atmosphere_velocity_n, planet_atmosphere_velocity_n, drag_force_n
 
 EARTH_RADIUS_M = 6378136.6
 AU_M = 149597870700.0
@@ -24,13 +24,14 @@ def solar_force_n(position, sun_position, area, coefficient, illumination):
 
 
 class FlightEnvironment(sysModel.SysModel):
-    def __init__(self, state, sun, density, shadow, *, mass, area, options, seed):
+    def __init__(self, state, sun, density, shadow, *, mass, area, options, seed, planet=None):
         super().__init__()
         self.ModelTag = "flightEnvironment"
         self.state = state.addSubscriber()
         self.sun = sun.addSubscriber()
         self.density = density.addSubscriber()
         self.shadow = shadow.addSubscriber()
+        self.planet = planet.addSubscriber() if planet is not None else None
         self.mass, self.area, self.options = mass, area, options
         self.rng = np.random.default_rng(seed)
         self.acceleration = np.zeros(3)
@@ -53,7 +54,9 @@ class FlightEnvironment(sysModel.SysModel):
             if dt > 0:
                 self.acceleration = phi * self.acceleration + math.sqrt(max(0., 1-phi*phi)) * self.rng.normal(0, opt.orbit_acceleration_sigma_m_s2, 3)
         self.last_time = nanos
-        relative = np.asarray(state.v_BN_N) - atmosphere_velocity_n(state.r_BN_N)
+        atmosphere_velocity = (planet_atmosphere_velocity_n(state.r_BN_N, self.planet())
+                               if self.planet is not None else atmosphere_velocity_n(state.r_BN_N))
+        relative = np.asarray(state.v_BN_N) - atmosphere_velocity
         drag = drag_force_n(density, relative, self.area, opt.drag_coefficient) if opt.drag_enabled else np.zeros(3)
         srp = solar_force_n(state.r_BN_N, sun.PositionVector, self.area, opt.reflection_coefficient, light) if opt.srp_enabled else np.zeros(3)
         disturbance = self.mass * self.acceleration
@@ -103,7 +106,8 @@ class FlightEnvironmentComponent:
             shadow.sunInMsg.subscribeTo(ctx.ports.planet_state("sun"))
             shadow.addPlanetToModel(ctx.ports.planet_state("earth"))
             shadow.addSpacecraftToModel(state)
-            force = FlightEnvironment(state, ctx.ports.planet_state("sun"), atmosphere.envOutMsgs[0], shadow.eclipseOutMsgs[0], mass=mass, area=area, options=self.options, seed=seed)
+            force = FlightEnvironment(state, ctx.ports.planet_state("sun"), atmosphere.envOutMsgs[0], shadow.eclipseOutMsgs[0],
+                                      mass=mass, area=area, options=self.options, seed=seed, planet=ctx.ports.planet_state("earth"))
             force.ModelTag += "/" + body
             ctx.ports.add_body_wrench(body, source=f"{self.name}/{body}", force_inertial=force.forceOutMsg)
             for module in (atmosphere, shadow, force):

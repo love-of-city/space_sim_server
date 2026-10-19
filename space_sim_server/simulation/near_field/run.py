@@ -26,6 +26,7 @@ from simulation.attitude_control import AttitudeControl
 from simulation.components.orbit import OrbitComponent
 from simulation.components.orbital_gravity import OrbitalGravityComponent
 from simulation.components.flight_environment import FlightEnvironmentComponent
+from simulation.orbital_configuration import environment_metadata
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 from simulation.local_mujoco_stepper import LocalMujocoStepper, servo_specs
 from simulation.orbital_rendezvous.assets import bind_team_catalog
@@ -99,7 +100,8 @@ def run(args):
                                                          clock_rate_hz=20., physics_task="nearDynamics"))
     epoch = datetime.strptime(incoming["ephemeris_epoch_utc"], "%Y %B %d %H:%M:%S.%f") + timedelta(seconds=incoming["state"]["sim_time_s"])
     epoch_text = epoch.strftime("%Y %B %d %H:%M:%S.%f")
-    orbit = OrbitComponent(epoch_utc=epoch_text)
+    env_options = FlightOptions.from_dict(incoming.get("mission_options", {}))
+    orbit = OrbitComponent(epoch_utc=epoch_text, physics=env_options.physics)
     ctx.install([orbit])
     stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin, substeps=12, publish_every=1)
     ctx.ports.set_stepper(stepper)
@@ -107,7 +109,6 @@ def run(args):
     # A 20 Hz outer task advances twelve 240 Hz substeps. The teleop default
     # holds gravity for eight outer steps and is not appropriate for this clock.
     ctx.install([OrbitalGravityComponent(force_every=1)])
-    env_options = FlightOptions.from_dict(incoming.get("mission_options", {}))
     environment = FlightEnvironmentComponent(env_options, [
         ("capture_target", "target_flight_center", manifest["bodies"]["capture_target"]["mass_kg"], env_options.target_area_m2),
         ("cubesat_bus", "orbital_thrust_center", manifest["bodies"]["cubesat_bus"]["mass_kg"], env_options.chaser_area_m2)])
@@ -254,6 +255,7 @@ def run(args):
               "sensor_clock_contract": "physical-message-epoch/v1",
               "outcome": final["phase"], "checks": checks, "run_id": run_id, "transitions": control.transitions,
               "guidance_frame": guidance_frame(incoming),
+              "orbital_physics": environment_metadata(env_options.physics, orbit.earth, epoch_utc=epoch_text),
               "final_time_s": final["t"], "wall_time_s": time.monotonic() - started,
               "final_center_distance_m": final["center_distance_m"], "final": final,
               "model_manifest": manifest, "mission_options": NearFieldOptions(args.seed, args.vision_loss_phase or "", args.communication_loss).to_dict(), "sensor_config": asdict(config), "local_dynamics": stepper.telemetry(),

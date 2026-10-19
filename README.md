@@ -21,7 +21,7 @@
 
 ## 首次获取与安装
 
-完整运行需要 Windows x64、PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。
+完整网页平台运行需要 Windows x64、PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。Linux UE 5.6.1 的真实双相机脚本采集已验收，安装与使用见 [Linux 基础迁移](space_sim_server/docs/LINUX_BASIC_MIGRATION.md)；网页场景启停仍需 Linux 适配。
 
 默认 local 动力学还要求 Basilisk 所带 MuJoCo 与项目内置的 3.7.0 头文件匹配。本次完整验收使用 Python 3.13 + bsk 2.11.1；安装该已验证环境时可选择 bsk[all]==2.11.1。使用其他发行版或自编译版本时也需满足这一原生 ABI 要求，单独通过 API 导入检查不足以证明兼容。
 

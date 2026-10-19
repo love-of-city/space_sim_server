@@ -1,4 +1,4 @@
-"""Build optional local acceleration DLLs; never installs/replaces Basilisk.
+"""Build optional local acceleration libraries; never installs/replaces Basilisk.
 
 No third-party build dependencies. Uses the installed MSVC x64 toolchain.
 Artifacts live under ignored run/native_acceleration and are source-hash named.
@@ -9,12 +9,14 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_FLAGS = ["/nologo", "/LD", "/O2", "/fp:strict", "/EHsc", "/std:c++17", "/MD"]
+LINUX_BUILD_FLAGS = ["-shared", "-fPIC", "-O2", "-fno-fast-math", "-ffp-contract=off", "-std=c++17"]
 # Vendored MuJoCo 3.7.0 headers (the version Basilisk 2.11.1 embeds), so a clean
 # checkout can build the MuJoCo-linked components without an offline Python
 # environment. --mujoco-include still overrides this.
@@ -26,6 +28,8 @@ def source_digest(source: Path) -> str:
 
 
 def compiler_environment() -> dict[str, str]:
+    if sys.platform.startswith("linux"):
+        return os.environ.copy()
     if sys.platform != "win32":
         raise RuntimeError("This build helper currently supports Windows/MSVC x64 only.")
     where = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / (
@@ -57,17 +61,28 @@ def build(name: str, include: Path | None = None) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     work = out / f"{name}_{digest[:16]}"
     work.mkdir(exist_ok=True)
-    dll = work / f"{name}.dll"
     env = compiler_environment()
-    compiler = Path(env["VCToolsInstallDir"]) / "bin/Hostx64/x64/cl.exe"
-    command = [str(compiler), *BUILD_FLAGS, str(source), f"/Fe:{dll}", f"/Fo:{work / (name+'.obj')}"]
-    if include is not None:
-        command.append(f"/I{include.resolve()}")
+    if sys.platform == "win32":
+        dll = work / f"{name}.dll"
+        compiler = Path(env["VCToolsInstallDir"]) / "bin/Hostx64/x64/cl.exe"
+        flags = BUILD_FLAGS
+        command = [str(compiler), *flags, str(source), f"/Fe:{dll}", f"/Fo:{work / (name+'.obj')}"]
+        if include is not None:
+            command.append(f"/I{include.resolve()}")
+    else:
+        dll = work / f"lib{name}.so"
+        compiler = shutil.which(env.get("CXX", "g++"))
+        if not compiler:
+            raise RuntimeError("Install g++/clang++ or set CXX to its executable path")
+        flags = LINUX_BUILD_FLAGS
+        command = [str(compiler), *flags, str(source), "-o", str(dll), "-ldl"]
+        if include is not None:
+            command += ["-I", str(include.resolve())]
     subprocess.run(command, cwd=work, env=env, check=True)
     manifest = {
         "name": name, "abi": 1, "source_sha256": digest, "library": str(dll.relative_to(ROOT)),
         "library_sha256": hashlib.sha256(dll.read_bytes()).hexdigest(),
-        "compiler_flags": BUILD_FLAGS, "python": sys.executable,
+        "compiler_flags": flags, "compiler": str(compiler), "platform": sys.platform, "python": sys.executable,
     }
     if include is not None:
         manifest["include"] = str(include.resolve())

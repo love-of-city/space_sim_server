@@ -1,6 +1,6 @@
 """Profile the CURRENT SARM teleop path without connecting to a live platform.
 
-Uses the production selectable dynamics backend, 240/120/30 Hz scheduling, contact, gravity, wheel safety,
+Uses the production selectable dynamics backend, 400/100/50 Hz scheduling, contact, gravity, wheel safety,
 IK, render serialization and authoritative observations. No UE/GPU, sockets,
 LeRobot writer or disk I/O are included in timed simulation intervals. Run each
 case in a fresh Basilisk-enabled Python process (never preload Python MuJoCo).
@@ -73,7 +73,8 @@ def parser() -> argparse.ArgumentParser:
                              "basilisk: MJScene + RKF45 (reference); local: fixed-step MuJoCo")
     result.add_argument("--orbital-mode", choices=("bsk", "linear_tidal"), default=None,
                         help="Native BSK orbital components or legacy tidal baseline (local only)")
-    result.add_argument("--local-substeps", type=int, default=None, help="MuJoCo substeps per 240 Hz step (local)")
+    result.add_argument("--orbital-config", type=Path, help="Explicit OrbitalPhysics JSON override")
+    result.add_argument("--local-substeps", type=int, default=None, help="MuJoCo substeps per 400 Hz step (local)")
     result.add_argument("--local-publish-stride", type=int, default=None,
                         help="Body/site kinematics publication stride (local; SPACE_SIM_LOCAL_PUBLISH_STRIDE)")
     result.add_argument("--atmospheric-drag", action="store_true",
@@ -110,6 +111,10 @@ def benchmark(args) -> dict:
     # optional operating pose is explicit, since old scenes required preparation.
     document = json.loads(args.scene_instance.read_text(encoding="utf-8-sig"))
     document["runtime"]["simulation_rate"] = 100.0
+    if args.orbital_config is not None:
+        from space_arm_platform.orbital_physics import OrbitalPhysics
+        settings = OrbitalPhysics.model_validate_json(args.orbital_config.read_text(encoding="utf-8-sig"))
+        document.setdefault("environment", {})["physics"] = settings.model_dump(mode="json")
     if args.initial_state == "operating":
         from_angles = document.get("operating_arm_joint_position_deg")
         if from_angles is None:
@@ -125,6 +130,7 @@ def benchmark(args) -> dict:
     scene_path = out.with_suffix(".scene.json")
     scene_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     sys.path[:0] = [str(ROOT), str(ROOT / "backend"), str(adapter / "Adapters"), str(examples)]
+    from space_arm_platform.sampling import DYNAMICS_HZ, DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ
     import os
     os.environ["SPACE_SIM_POSTURE_BACKEND"] = args.posture_backend
     os.environ["SPACE_SIM_DYNAMICS_BACKEND"] = args.dynamics_backend
@@ -313,7 +319,7 @@ def benchmark(args) -> dict:
             samples = []
             for index in range(20):
                 start = time.perf_counter()
-                scene.equationsOfMotion(index * 1.0e-6, 1.0 / 240.0)
+                scene.equationsOfMotion(index * 1.0e-6, 1.0 / DYNAMICS_HZ)
                 samples.append(time.perf_counter() - start)
             print(json.dumps({"type": "eom_cost_probe", "samples": len(samples),
                               "median_ms": statistics.median(samples) * 1e3,
@@ -331,10 +337,11 @@ def benchmark(args) -> dict:
         model_path=args.model_path,
         catalog=out.with_suffix(".unused"), control_host="127.0.0.1", control_port=0,
         render_host="127.0.0.1", render_port=0, duration=args.duration,
-        simulation_rate=100.0, capture_rate=30.0, ik_rate=120.0, ik_mode=args.ik_mode,
+        simulation_rate=100.0, capture_rate=DEFAULT_CAPTURE_HZ, ik_rate=DEFAULT_IK_HZ, ik_mode=args.ik_mode,
         disable_attitude_control=args.disable_attitude,
         dynamics_backend=args.dynamics_backend, local_substeps=args.local_substeps,
         atmospheric_drag=args.atmospheric_drag, orbital_mode=args.orbital_mode,
+        orbital_config=args.orbital_config,
     )
     with ExitStack() as stack:
         for obj, name, value in (

@@ -58,7 +58,14 @@ test("actual isolated signalling server enforces player Origin and gives both pe
   child.stdout.on("data", data => {output += data.toString();});
   child.stderr.on("data", data => {output += data.toString();});
   t.after(() => { if(child.exitCode !== null && child.exitCode !== 0) console.error(output); });
-  t.after(async () => {if (child.exitCode === null) {child.kill(); await once(child, "exit");}});
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.kill();
+      const watchdog = setTimeout(() => child.kill("SIGKILL"), 5000);
+      try { await exited; } finally { clearTimeout(watchdog); }
+    }
+  });
   const deadline = Date.now() + 15000;
   while (!output.includes('"event":"ready"') && Date.now() < deadline && child.exitCode === null) await delay(50);
   assert.match(output, /"event":"ready"/);
@@ -128,4 +135,15 @@ test("actual isolated signalling server enforces player Origin and gives both pe
   idle.send(JSON.stringify({type:"iceCandidate",candidate:{candidate:"",sdpMid:"0",sdpMLineIndex:0}}));
   await delay(100);
   assert.equal(messages.filter(m=>m.type==="playerConnected").length,1);
+  if (process.platform !== "win32") {
+    // Keep streamer and idle player open: shutdown must release them itself.
+    const exited = once(child, "exit");
+    child.kill("SIGTERM");
+    const watchdog = setTimeout(() => child.kill("SIGKILL"), 5000);
+    try {
+      const [code, signal] = await exited;
+      assert.equal(signal, null, "graceful shutdown exceeded its deadline");
+      assert.equal(code, 0);
+    } finally { clearTimeout(watchdog); }
+  }
 });

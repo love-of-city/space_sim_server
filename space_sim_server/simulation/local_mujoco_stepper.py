@@ -50,6 +50,7 @@ import numpy as np
 from Basilisk.architecture import messaging, sysModel
 
 from simulation.native_acceleration import load_native_library
+from simulation.mujoco_runtime import basilisk_mujoco_runtime
 from simulation.orbital_frames import OrbitalForceProvider, interpolate_origin
 
 BACKEND_BASILISK = "basilisk"
@@ -152,7 +153,8 @@ def _library():
     lib.lms_abi.restype = ctypes.c_int
     lib.lms_header_version.restype = ctypes.c_int
     lib.lms_create.restype = ctypes.c_void_p
-    lib.lms_create.argtypes = [ctypes.c_wchar_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    runtime_path_type = ctypes.c_wchar_p if os.name == "nt" else ctypes.c_char_p
+    lib.lms_create.argtypes = [runtime_path_type, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
     lib.lms_destroy.argtypes = [ctypes.c_void_p]
     lib.lms_dims.argtypes = [ctypes.c_void_p, _INT64_P]
     lib.lms_name2id.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
@@ -178,12 +180,8 @@ def _library():
 
 
 def _basilisk_mujoco_runtime() -> Path:
-    """The mujoco.dll Basilisk loaded; the stepper must share that runtime."""
-    import Basilisk
-    runtime = Path(Basilisk.__file__).resolve().parent / "mujoco.dll"
-    if not runtime.is_file():
-        raise FileNotFoundError(f"Basilisk MuJoCo runtime not found: {runtime}")
-    return runtime
+    """The runtime Basilisk loaded; the stepper must share that runtime."""
+    return basilisk_mujoco_runtime()
 
 
 def _pointer(array: np.ndarray):
@@ -298,7 +296,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         self.rebase_distance_m = float(rebase_distance_m)
         self._lib = _library()
         error = ctypes.create_string_buffer(1024)
-        handle = self._lib.lms_create(str(_basilisk_mujoco_runtime()), str(Path(model_path).resolve()).encode(),
+        runtime = str(_basilisk_mujoco_runtime())
+        handle = self._lib.lms_create(runtime if os.name == "nt" else os.fsencode(runtime), str(Path(model_path).resolve()).encode(),
                                       error, len(error))
         if not handle:
             raise RuntimeError(f"local MuJoCo stepper failed to load {model_path}: {error.value.decode(errors='replace')}")

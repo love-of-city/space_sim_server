@@ -166,6 +166,7 @@ def run(args):
     status_file = (output / "state_packets.jsonl").open("w", encoding="utf-8")
     continuity = None
     continuity_details = {}
+    safe_hold_settled_since = None
     try:
         for tick in range(round(args.duration * 20) + 1):
             sim.ConfigureStopTime(macros.sec2nano(tick * 0.05))
@@ -211,7 +212,18 @@ def run(args):
                 previous_phase = row["phase"]
             if control.phase == "CaptureHold" and row["elapsed_s"] - control.phase_start >= 5:
                 break
-            if control.phase == "SafeHold" and row["elapsed_s"] - control.phase_start >= 20:
+            # A fixed 20 s timeout may stop while the hold controller is still
+            # returning to its setpoint after braking an approach. Require a
+            # sustained navigation-speed margin before ending a fault run;
+            # independent physical-speed acceptance remains 0.003 m/s.
+            if control.phase == "SafeHold" and row["relative_speed_m_s"] < .001:
+                if safe_hold_settled_since is None:
+                    safe_hold_settled_since = row["elapsed_s"]
+            else:
+                safe_hold_settled_since = None
+            if (control.phase == "SafeHold" and row["elapsed_s"] - control.phase_start >= 20
+                    and safe_hold_settled_since is not None
+                    and row["elapsed_s"] - safe_hold_settled_since >= 5):
                 break
     finally:
         sys.setswitchinterval(switch)

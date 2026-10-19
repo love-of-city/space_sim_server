@@ -32,10 +32,11 @@ MISSION_MODES = (
 
 
 class MissionRuntime:
-    def __init__(self, root: Path, scenes, flight, telemetry, capture_busy):
+    def __init__(self, root: Path, scenes, flight, telemetry, capture_busy, *, scene_defaults=None):
         self.root = root
         self.scenes, self.flight, self.telemetry = scenes, flight, telemetry
         self.capture_busy = capture_busy
+        self.scene_defaults = dict(scene_defaults or {})
         self._record = None
         self._operation = None
         self._task = None
@@ -219,6 +220,8 @@ class MissionRuntime:
                 self._monitor = None
 
     async def start_scene(self, request, user, *, background=False):
+        request = request.model_copy(update={key: value for key, value in self.scene_defaults.items()
+                                             if key not in request.model_fields_set})
         self.require_available()
         self._new("teleop", user)
 
@@ -255,7 +258,7 @@ class MissionRuntime:
             # The flight's source model is fixed and hash-validated above. Do
             # not let the platform's selected experimental template replace it.
             result = await asyncio.to_thread(self.scenes.start, SceneInstanceCreate(
-                template_id=SELF_COLLISION_TEMPLATE, randomization_profile="none"),
+                template_id=SELF_COLLISION_TEMPLATE, randomization_profile="none", **self.scene_defaults),
                                              user, handoff=handoff, mission=self.provenance())
             self._record.update(stage="teleop", scene_instance_id=result.get("instance_id"), stopped=False)
             self._record.setdefault("scene_instance_ids", []).append(result.get("instance_id"))

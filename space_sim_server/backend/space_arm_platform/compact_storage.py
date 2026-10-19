@@ -15,6 +15,7 @@ CONTEXT_FIELDS = (
     "gripper_drive_position_rad", "target_gripper_drive_position_rad",
     "gripper_position_m", "target_gripper_position_m",
     "scripted_task", "orbital_dynamics", "attitude_control", "reaction_wheels",
+    "orbital_physics", "atmospheric_drag", "rendezvous_handoff", "flight_environment",
     "dynamics_rate_hz", "scripted_task_rate_hz", "wrist_wrench_rate_hz",
     "observation_source", "ground_truth", "joint_measurement_time_ns",
     "joint_measurement_age_ns",

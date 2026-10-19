@@ -92,9 +92,10 @@ def test_file_defaults_reach_scene_and_episode_requests(tmp_path, monkeypatch):
     scenes = app.state.scenes
     monkeypatch.setattr(scenes, "catalog", lambda: {"defaults": {}})
     monkeypatch.setattr(scenes, "create_instance", lambda payload, creator: payload.model_dump())
-    monkeypatch.setattr(scenes, "start", lambda payload, creator: payload.model_dump())
+    monkeypatch.setattr(scenes, "start", lambda payload, creator, **kwargs: {
+        **payload.model_dump(), "instance_id": "configured-scene", **kwargs})
     async def accept_recording(payload):
-        return payload.model_dump()
+        return {**payload.model_dump(), "episode_id": "configured-episode"}
     monkeypatch.setattr(app.state.capture_lifecycle, "start", accept_recording)
     with TestClient(app) as client:
         client.post("/api/auth/login", json={"username": "admin", "password": "ChangeMe123!"})

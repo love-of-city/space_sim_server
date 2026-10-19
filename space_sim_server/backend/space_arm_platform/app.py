@@ -256,7 +256,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     missions = MissionRuntime(config.data_root / ".missions", scenes, rendezvous_runtime, rendezvous,
-                              lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active))
+                              lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active),
+                              scene_defaults=capture_defaults)
     timeout_task: asyncio.Task[None] | None = None
     capture_failure_task: asyncio.Task | None = None
     policy_watchdog_task: asyncio.Task | None = None

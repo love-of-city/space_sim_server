@@ -113,9 +113,14 @@ def test_compact_preserves_noisy_measurements_ground_truth_and_delay(tmp_path):
     meta = recorder.start(EpisodeStart(fps=50, camera_ids=[]))
     ground_truth = {"joint_position_rad": [0.01] * 8, "joint_velocity_rad_s": [0.02] * 8,
                     "end_effector_position_body_m": [0.1, 0.2, 0.3]}
+    environment = {"orbital_physics": {"configuration": {"earth_gravity": "j2", "j2_coefficient": 0.001082616}},
+                   "rendezvous_handoff": {"source_run_id": "far-near-mission", "epoch_s": 6984.0},
+                   "flight_environment": [{"drag_n": [0.0, -0.0001, 0.0], "illumination": 0.0}],
+                   "atmospheric_drag": [{"body": "cubesat_bus", "density_kg_m3": 1e-12}]}
     for i in range(1, 4):
         stamp = i * 20_000_000
         data = observation(i).model_dump()
+        data.update(environment)
         data.update(sim_time_ns=str(stamp),
                     observation_source="authoritative_render_with_measured_proprioception",
                     ground_truth=ground_truth, joint_measurement_time_ns=str(stamp-10_000_000),
@@ -130,6 +135,8 @@ def test_compact_preserves_noisy_measurements_ground_truth_and_delay(tmp_path):
     assert len(restored) == 3
     for obs in restored:
         assert obs["ground_truth"] == ground_truth
+        for key, value in environment.items():
+            assert obs[key] == value
         assert obs["joint_measurement_age_ns"] == "10000000"
         assert int(obs["sim_time_ns"]) - int(obs["joint_measurement_time_ns"]) == 10_000_000
         expected = noisy_sample(int(obs["sim_time_ns"]))

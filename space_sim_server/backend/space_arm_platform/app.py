@@ -30,6 +30,7 @@ from .models import (
 )
 from .recorder import EpisodeRecorder
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
+from .recording_config import load_recording_config
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
 from .safety import ActionRejected, SafetyController
 from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
@@ -147,7 +148,17 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     )
     allowed_origins = validate_origins(config.allowed_origins)
     login_limiter = LoginRateLimiter(config.login_attempts_per_minute)
-    recorder = EpisodeRecorder(config.data_root)
+    recording_config = load_recording_config(config.project_root / "config" / "recording.json")
+    recorder = EpisodeRecorder(config.data_root, save_raw_camera_images=recording_config.save_raw_camera_images,
+                               video_encoding=recording_config.video, storage_profile=recording_config.storage_profile)
+    # Explicit file settings take precedence over legacy launcher defaults.
+    # Explicit scene requests and saved instances retain their own sampling grid.
+    capture_defaults = {
+        "capture_rate_hz": (recording_config.capture_rate_hz if "capture_rate_hz" in recording_config.model_fields_set
+                            else config.runtime_capture_rate),
+        "dataset_capture": (recording_config.dataset_capture if "dataset_capture" in recording_config.model_fields_set
+                            else config.runtime_default_dataset_capture),
+    }
     auth = AuthStore(
         config.auth_database or config.data_root.parent / "auth.sqlite3",
         config.bootstrap_admin_username,
@@ -199,8 +210,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             preview_rate=config.runtime_preview_rate, renderer_ready_timeout=config.runtime_renderer_ready_timeout,
             encoder_min_quality=config.runtime_encoder_min_quality,
             ik_rate=config.runtime_ik_rate, simulation_rate=config.runtime_simulation_rate,
-            capture_rate=config.runtime_capture_rate,
-            default_dataset_capture=config.runtime_default_dataset_capture,
+            capture_rate=capture_defaults["capture_rate_hz"],
+            default_dataset_capture=capture_defaults["dataset_capture"],
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     timeout_task: asyncio.Task[None] | None = None
@@ -468,7 +479,17 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.get("/api/scenes/catalog")
     async def scene_catalog() -> dict[str, Any]:
-        return scenes.catalog()
+        catalog = scenes.catalog()
+        catalog["defaults"].update(capture_defaults)
+        return catalog
+
+    @app.get("/api/recording/config")
+    async def recording_settings() -> dict[str, Any]:
+        return {**recording_config.model_dump(mode="json"), **capture_defaults}
+
+    def scene_recording_defaults(payload: SceneInstanceCreate) -> SceneInstanceCreate:
+        return payload.model_copy(update={key: value for key, value in capture_defaults.items()
+                                          if key not in payload.model_fields_set})
 
     @app.get("/api/scenes/runtime")
     async def scene_runtime() -> dict[str, Any]:
@@ -479,7 +500,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         user = current_user(request)
         creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
         try:
-            return await asyncio.to_thread(scenes.create_instance, payload, creator)
+            return await asyncio.to_thread(scenes.create_instance, scene_recording_defaults(payload), creator)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -490,7 +511,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail="stop the active episode before starting another scene")
         creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
         try:
-            return await asyncio.to_thread(scenes.start, payload, creator)
+            return await asyncio.to_thread(scenes.start, scene_recording_defaults(payload), creator)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except RuntimeError as error:
@@ -543,6 +564,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     def recording_request(payload: EpisodeStart, instance: dict | None) -> EpisodeStart:
+        explicit_fps = "fps" in payload.model_fields_set
+        defaults = {**recording_config.episode_defaults(), "fps": int(capture_defaults["capture_rate_hz"])}
+        payload = EpisodeStart.model_validate({**defaults, **payload.model_dump(exclude_unset=True)})
         if instance is None:
             return payload
         if instance.get("arm_preparation_required"):
@@ -555,7 +579,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         fps = runtime.get("capture_rate_hz", DEFAULT_CAPTURE_HZ)
         if fps not in LIVE_CAPTURE_FPS:
             raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{LIVE_CAPTURE_FPS}")
-        if "fps" in payload.model_fields_set and payload.fps != fps:
+        if explicit_fps and payload.fps != fps:
             raise RuntimeError("录制 FPS 必须与场景权威采样率一致")
         return EpisodeStart.model_validate({**payload.model_dump(), "fps": int(fps), "scene_instance": instance})
 
@@ -583,6 +607,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             )
         try:
             return await capture_lifecycle.start(recording_request(payload, scene_instance))
+        except ValidationError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

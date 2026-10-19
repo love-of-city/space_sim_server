@@ -300,6 +300,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
             "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
             "orbit": orbit,
+            "physics": request.orbital_physics.model_dump(mode="json"),
             "lighting": {"sunlight_intensity_scale": request.sunlight_intensity_scale},
         },
         "runtime": {

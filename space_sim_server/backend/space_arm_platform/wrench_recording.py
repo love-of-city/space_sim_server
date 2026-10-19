@@ -1,13 +1,20 @@
 """Lossless auxiliary stream for sensor samples on a different clock than RGB."""
 import json
+import hashlib
 from pathlib import Path
 
 
 class WrenchStreamWriter:
     relative_path = "high_frequency/wrist_wrench.jsonl"
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, compact=False):
         self.root = root
+        self.columnar = None
+        self.digest = hashlib.sha256()
+        if compact:
+            from .compact_storage import ParquetChunks
+            self.relative_path = "high_frequency/wrist_wrench"
+            self.columnar = ParquetChunks(root, self.relative_path, batch_size=4096)
         self.first_observation_ns = None
         self.last_end_ns = None
         self.count = 0
@@ -43,7 +50,17 @@ class WrenchStreamWriter:
             previous = end
         if stamp > 0 and previous != stamp:
             raise ValueError("high-rate wrench batch does not reach the recorded frame")
-        if rows:
+        if self.columnar is not None:
+            from .compact_storage import wrench_bytes
+            for row in rows:
+                compact_row = {key: row[key] for key in (
+                    "valid", "sample_time_ns", "interval_end_time_ns", "sim_time_ns",
+                    "timestamp", "force_n", "torque_nm")}
+                for key in ("sample_time_ns", "interval_end_time_ns", "sim_time_ns"):
+                    compact_row[key] = int(compact_row[key])
+                self.digest.update(wrench_bytes(compact_row))
+                self.columnar.append(compact_row)
+        elif rows:
             path = self.root / self.relative_path
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as stream:
@@ -51,10 +68,16 @@ class WrenchStreamWriter:
         self.last_end_ns, self.identity = previous, identity
         self.count += len(rows)
 
+    def finish(self):
+        if self.columnar is not None:
+            self.columnar.flush()
+
     def metadata(self):
         if self.rate is None:
             return None
-        return dict(schema="space-arm-wrench-stream/1", path=self.relative_path,
+        return dict(schema="space-arm-wrench-stream/2" if self.columnar is not None else "space-arm-wrench-stream/1", path=self.relative_path,
+                    format="parquet-zstd" if self.columnar is not None else "jsonl",
+                    values_sha256=self.digest.hexdigest() if self.columnar is not None else None,
                     rate_hz=self.rate, samples=self.count, sensor=self.identity,
                     first_observation_time_ns=str(self.first_observation_ns),
                     last_interval_end_time_ns=str(self.last_end_ns) if self.last_end_ns is not None else None,

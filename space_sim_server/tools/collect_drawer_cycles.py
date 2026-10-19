@@ -6,6 +6,7 @@ lighting randomization, or simulator state edits during a task are used.
 
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,13 +20,50 @@ from simulation.scripted_tasks.drawer_initialization import (
     NativePoseProbe,
     randomized_scene,
 )
+from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
+from space_arm_platform.unreal_runtime import default_unreal_root
+
+
+def validate_capture_manifest(episode, meta, steps):
+    """Audit frame pairing with or without the optional raw image copies."""
+    from PIL import Image
+    from tools.record_drawer_task import CAMERAS
+
+    by_frame = {str(obs["render_frame_id"]): obs for obs in steps}
+    if is_compact(episode) and not meta.get("raw_camera_images_saved", False):
+        captures = [dict(metadata=cm, source_frame_id=cm["source_frame_id"],
+                         sim_time_ns=cm["sim_time_ns"], files={})
+                    for cm in read_chunks(episode / "lerobot/auxiliary/cameras")]
+    else:
+        captures = [json.loads(line) for line in
+                    (episode / "captures.jsonl").read_text(encoding="utf-8").splitlines()]
+    expected = {(camera, frame) for camera in CAMERAS for frame in by_frame}
+    assert len(captures) == len(expected) == len(CAMERAS) * len(steps)
+    pairs = set()
+    raw_images = meta.get("raw_camera_images_saved", True)  # Historical episodes saved copies.
+    for capture in captures:
+        cm = capture["metadata"]
+        frame = str(capture["source_frame_id"])
+        obs = by_frame[frame]
+        assert cm["resolution"] == [1024, 1024]
+        assert cm["session_id"] == obs["render_session_id"]
+        assert capture["sim_time_ns"] == obs["sim_time_ns"]
+        pair = (cm["camera_id"], frame)
+        assert pair in expected and pair not in pairs
+        pairs.add(pair)
+        if raw_images:
+            with Image.open(episode / capture["files"]["rgb"]) as image:
+                assert image.size == (1024, 1024)
+        else:
+            assert not capture["files"], "Raw image files contradict episode metadata"
+    assert pairs == expected
+    return len(captures)
 
 
 def validate_recording(episode):
     import av
     import numpy as np
     import pyarrow.parquet as pq
-    from PIL import Image
 
     meta = json.loads((episode / "metadata.json").read_text(encoding="utf-8"))
     info = json.loads((episode / "lerobot/meta/info.json").read_text(encoding="utf-8"))
@@ -37,10 +75,8 @@ def validate_recording(episode):
     for key in ("observation.state", "action"):
         assert info["features"][key]["shape"] == [7]
         assert info["features"][key]["names"][-1] == "gripper_opening_normalized"
-    steps = [
-        json.loads(line)["observation"]
-        for line in (episode / "steps.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    compact = is_compact(episode)
+    steps = list(read_observations(episode))
     rows = []
     for path in sorted((episode / "lerobot/data").rglob("*.parquet")):
         rows.extend(pq.read_table(path).to_pylist())
@@ -86,7 +122,8 @@ def validate_recording(episode):
         )
         assert obs["wrist_wrench"]["valid"]
         assert int(obs["render_frame_id"]) == row["observation.source_frame_id"]
-        assert json.loads(row["observation.platform_json"]) == obs
+        if not compact:
+            assert json.loads(row["observation.platform_json"]) == obs
     from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask
 
     assert stages == list(DrawerCycleTask.stages), stages
@@ -99,37 +136,34 @@ def validate_recording(episode):
     high = platform.get("high_frequency_wrist_wrench")
     if meta["dataset_fps"] == 50:
         assert high and high["rate_hz"] == 200
-        force_rows = [json.loads(line) for line in
-                      (episode / "lerobot" / high["path"]).read_text(encoding="utf-8").splitlines()]
+        force_rows = list(read_wrench(episode))
         start = int(steps[0]["sim_time_ns"])
-        expected = [sample for obs in steps for sample in obs["wrist_wrench_samples"]
-                    if int(sample["interval_end_time_ns"]) >= start]
-        assert len(force_rows) == len(expected) == high["samples"]
+        assert len(force_rows) == high["samples"]
         stamps = [int(row["sim_time_ns"]) for row in force_rows]
+        assert stamps[0] == start
         assert all(b-a == 5_000_000 for a,b in zip(stamps,stamps[1:]))
         assert stamps[-1] == int(steps[-1]["sim_time_ns"])
-        for actual, original in zip(force_rows, expected):
-            assert all(actual[key] == value for key, value in original.items())
-    by_frame = {obs["render_frame_id"]: obs for obs in steps}
-    captures = [
-        json.loads(line)
-        for line in (episode / "captures.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
-    assert len(captures) == 2 * len(steps)
-    pairs = set()
-    for capture in captures:
-        cm = capture["metadata"]
-        obs = by_frame[str(capture["source_frame_id"])]
-        assert cm["resolution"] == [1024, 1024]
-        assert cm["session_id"] == obs["render_session_id"]
-        assert capture["sim_time_ns"] == obs["sim_time_ns"]
-        pair = (cm["camera_id"], obs["render_frame_id"])
-        assert pair not in pairs
-        pairs.add(pair)
-        with Image.open(episode / capture["files"]["rgb"]) as image:
-            assert image.size == (1024, 1024)
+        if compact:
+            digest = hashlib.sha256()
+            for sample in force_rows:
+                digest.update(wrench_bytes(sample))
+            assert digest.hexdigest() == high["values_sha256"], "High-rate wrench checksum mismatch"
+            assert len(force_rows) == 4 * (len(steps) - 1) + 1
+            by_time = {int(row["sim_time_ns"]): row for row in force_rows}
+            for obs in steps:
+                sample = by_time[int(obs["sim_time_ns"])]
+                assert sample["valid"] == obs["wrist_wrench"]["valid"]
+                for field in ("force_n", "torque_nm"):
+                    np.testing.assert_allclose(sample[field], obs["wrist_wrench"][field], rtol=1e-6, atol=1e-5)
+                for field in ("sample_time_ns", "interval_end_time_ns"):
+                    assert int(sample[field]) == int(obs["wrist_wrench"][field])
+        else:
+            expected = [sample for obs in steps for sample in obs["wrist_wrench_samples"]
+                        if int(sample["interval_end_time_ns"]) >= start]
+            assert len(force_rows) == len(expected)
+            for actual, original in zip(force_rows, expected):
+                assert all(actual[key] == value for key, value in original.items())
+    capture_count = validate_capture_manifest(episode, meta, steps)
     videos = list((episode / "lerobot/videos").rglob("*.mp4"))
     assert len(videos) == 2
     for path in videos:
@@ -144,13 +178,15 @@ def validate_recording(episode):
         passed=True,
         episode_id=episode.name,
         frames=len(steps),
-        images=len(captures),
+        images=capture_count,
+        raw_camera_images_saved=meta.get("raw_camera_images_saved", True),
         image_resolution=[1024, 1024],
         fps=meta["dataset_fps"],
         state_action_dimensions=7,
         stages=stages,
         final_task_state=final,
         all_source_rows_matched=True,
+        source_validation="numeric_sha256_and_camera_pairing" if compact else "full_observation_comparison",
         videos_fully_decoded=True,
     )
 
@@ -160,9 +196,10 @@ def main():
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument("--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter")
-    parser.add_argument("--unreal", type=Path, default=Path("C:/Program Files/Epic Games/UE_5.6"))
+    parser.add_argument("--unreal", type=Path, default=default_unreal_root())
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--episodes-root", type=Path, default=ROOT / "data/episodes")
+    parser.add_argument("--recording-config", type=Path)
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--max-attempts", type=int, default=15)
     parser.add_argument("--seed", type=int, default=2026101501)
@@ -174,6 +211,8 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.count <= args.max_attempts <= 1000 or args.seed < 0:
         parser.error("require 1 <= count <= max-attempts <= 1000 and non-negative seed")
+    from tools.record_drawer_task import recording_settings
+    recording_settings(args.recording_config)  # Reject incompatible settings before collision preflight/UE startup.
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
@@ -254,6 +293,8 @@ def main():
                 "1800",
             ]
             command += ["--adapter", str(args.adapter), "--unreal", str(args.unreal)]
+            if args.recording_config:
+                command += ["--recording-config", str(args.recording_config.resolve())]
             if args.cancel_file:
                 command += ["--cancel-file", str(args.cancel_file)]
             for name in (

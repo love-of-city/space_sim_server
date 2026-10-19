@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from space_arm_platform.sampling import DYNAMICS_HZ
 
 pytest.importorskip("Basilisk")
 from Basilisk.architecture import messaging
@@ -204,20 +205,16 @@ def propagate_pair(tmp_path, *, substeps=1, publish_every=2, seconds=2., rebase=
       </body></worldbody></mujoco>''', encoding="utf-8")
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("p")
-    process.addTask(simulation.CreateNewTask("t", macros.sec2nano(1/240)))
+    process.addTask(simulation.CreateNewTask("t", macros.sec2nano(1/DYNAMICS_HZ)))
     process.addTask(simulation.CreateNewTask("scene_init", 10**18))
     scene = mujoco.MJScene.fromFile(str(path))
     simulation.AddModelToTask("scene_init", scene)
     factory = simIncludeGravBody.gravBodyFactory()
     earth = factory.createEarth(); earth.isCentralBody = True
     if j2:
-        from Basilisk.simulation import sphericalHarmonicsGravityModel
-        field = sphericalHarmonicsGravityModel.SphericalHarmonicsGravityModel()
-        field.maxDeg = 2
-        field.cBar = [[1.], [0., 0.], [-1.08263e-3 / np.sqrt(5.), 0., 0.]]
-        field.sBar = [[0.], [0., 0.], [0., 0., 0.]]
-        field.radEquator, field.muBody = earth.radEquator, earth.mu
-        earth.gravityModel = field
+        from simulation.orbital_configuration import configure_earth_gravity
+        from space_arm_platform.orbital_physics import OrbitalPhysics
+        field = configure_earth_gravity(earth, OrbitalPhysics())
     origin = spacecraft.Spacecraft(); origin.ModelTag = "referenceOrbit"; origin.hub.mHub = 1.
     message = source_message()
     # This fixture has a deliberately static central body, not a live SPICE
@@ -261,10 +258,11 @@ def propagate_pair(tmp_path, *, substeps=1, publish_every=2, seconds=2., rebase=
     return result
 
 
-def test_held_differential_forces_track_per_substep_reference(tmp_path):
-    # The platform evaluates BSK forces once per 30 Hz render frame and holds them.
-    reference, truth, exact, _ = propagate_pair(tmp_path, seconds=5.)
-    held, truth_held, telemetry, _ = propagate_pair(tmp_path, seconds=5., force_every=8)
+@pytest.mark.parametrize("j2", [False, True])
+def test_held_differential_forces_track_per_substep_reference(tmp_path, j2):
+    # The platform evaluates BSK forces once per 50 Hz render frame and holds them.
+    reference, truth, exact, _ = propagate_pair(tmp_path, seconds=5., j2=j2, sun=True)
+    held, truth_held, telemetry, _ = propagate_pair(tmp_path, seconds=5., force_every=8, j2=j2, sun=True)
     exact_error = np.linalg.norm((reference[1]-reference[0]) - (truth[1]-truth[0]))
     held_error = np.linalg.norm((held[1]-held[0]) - (truth_held[1]-truth_held[0]))
     # Holding adds far less than the fixed-step integration error already accepted.
@@ -282,7 +280,7 @@ def test_orbital_force_stride_validation(monkeypatch):
     assert orbital_force_stride() == DEFAULT_ORBITAL_FORCE_STRIDE == 8
     monkeypatch.setenv("SPACE_SIM_ORBITAL_FORCE_STRIDE", "1")
     assert orbital_force_stride() == 1
-    for bad in (0, -1, 241):
+    for bad in (0, -1, DYNAMICS_HZ + 1):
         with pytest.raises(ValueError):
             orbital_force_stride(bad)
 

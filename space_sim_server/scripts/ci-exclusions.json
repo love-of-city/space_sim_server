@@ -1,5 +1,6 @@
 {
   "files": {
+    "tests/test_orbital_physics_acceptance.py": "Native BSK J2 field and two-orbit propagation acceptance; run in the simulation environment",
     "tests/test_attitude_control.py": "Basilisk attitude-control integration",
     "tests/test_celestial_alignment.py": "Basilisk celestial-state integration",
     "tests/test_ground_capture_native.py": "Basilisk MJScene integration",
@@ -29,6 +30,7 @@
     "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation"
   },
   "nodes": {
+    "tests/test_orbital_physics_config.py::test_new_scene_persists_j2_and_old_scene_replays_point_mass": "Basilisk live scene loader; pure settings tests remain in basic CI",
     "tests/test_gamepad_tool_control.py::test_ab_only_changes_j6_target_even_with_posture_preferences_enabled": "Basilisk teleoperation runtime; run gamepad tests separately with the native environment",
     "tests/test_gamepad_tool_control.py::test_right_stick_aims_in_current_tool_frame_after_wrist_rotation": "Basilisk teleoperation runtime",
     "tests/test_gamepad_tool_control.py::test_direct_joint_limit_stops_outward_motion_and_allows_reverse": "Basilisk teleoperation runtime",

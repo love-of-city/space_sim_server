@@ -43,6 +43,12 @@ Set-Location E:\mujoco_demo\space_sim_UE_adapter\Unreal\BskUnrealRenderer
   -CatalogPath .\Config\BskAssets\my_model.json
 ```
 
+若 MJCF 使用原生 MuJoCo 插件（例如螺纹 SDF），需向上述命令传入
+`-MujocoPluginLibraries @('C:\path\to\plugin.dll')`，库必须匹配资产准备所用
+Python MuJoCo 的版本。目录生成器使用独立进程编译模型，仿真进程中已注册的
+插件不会自动继承；直接调用 Python 生成器时使用可重复的 `--mujoco-plugin`。
+平台的 2026-10-12 SARM 模板会自动传入已构建并校验的螺纹插件。
+
 发送端注册场景时同时给出 MJCF 与目录：
 
 ```python

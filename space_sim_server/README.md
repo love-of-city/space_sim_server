@@ -12,7 +12,7 @@
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。
 
-Linux 基础移植的环境、原生库和验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。Linux UE 渲染、完整录制及网页场景启停仍需实机验收，不能仅以基础测试通过认定完整平台已经迁移。
+Linux 环境、原生库和验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。Linux UE 5.6.1 双相机渲染、完整脚本录制和 LeRobot 解码已实机验收；网页场景启停仍需 Linux 适配，不能把脚本采集通过认定为整个网页平台已迁移。
 
 Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实仿真必须安装**包含 MJScene 及项目所需控制、积分和消息 API 的 Basilisk**；普通 Python `mujoco` 包不能替代 `Basilisk.simulation.mujoco`。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装发行包，也可参考其[安装文档](https://hanspeterschaub.info/basilisk/Install.html)自行编译；不限定源码版本或安装方式。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py` 检查功能。以下项目安装命令不会安装 UE、编译器或 Basilisk。
 

@@ -1,6 +1,6 @@
 # Linux 基础迁移
 
-目标是先在一台 Linux RTX 4090 上建立可验证的单路环境，不预留千条训练数据，不要求扩容或多机调度。现阶段先迁移真实动力学、模型、数据保存和脚本入口；UE 图像与网页场景启停需要单独验收，Python 测试通过不代表完整平台就绪。
+目标是先在一台 Linux RTX 4090 上建立可验证的单路环境，不预留千条训练数据，不要求多机调度。2026-10-19 已跑通真实动力学、UE 双相机及完整脚本录制和 LeRobot 解码；网页场景启停仍需 Linux 适配及单独验收，不能把脚本采集通过认定为整个网页平台就绪。
 
 ## 已选环境与路径
 
@@ -101,7 +101,14 @@ npm --prefix signalling run check
 
 ## UE 准备
 
-优先使用官方 Linux UE 5.6 预编译包。GitHub 源码方式需要 Epic/GitHub 账号关联且需自行编译整个引擎，基础迁移无需优先选择它。拿到下载链接后，先核查下载与解压大小、工具链和缓存余量，再安装；当前约 83 GiB 初始可用空间是否足够完整 UE，以实际安装包为准。
+优先使用官方 Linux UE 5.6 预编译包。GitHub 源码方式需要 Epic/GitHub 账号关联且需自行编译整个引擎，基础迁移无需优先选择它。先核查下载与解压大小、工具链和缓存余量，再安装。
+
+2026-10-19 已将目标机磁盘、根分区和 ext4 扩展到约 1 TiB，UE 5.6.1 安装包约 28.75 GiB、解压约 62.76 GiB；实际解压成功，unzip 的逐文件 CRC 检查通过。Linux 包自带 clang 18 工具链。首次安装示例（目标目录应为空，已安装时不要重复解压）：
+
+```bash
+mkdir -p "$HOME/engines/UE_5.6"
+unzip -q "$HOME/migration/Linux_Unreal_Engine_5.6.1.zip" -d "$HOME/engines/UE_5.6"
+```
 
 引擎准备好后，从服务端子目录执行：
 
@@ -110,7 +117,7 @@ export UE56_ROOT="$HOME/engines/UE_5.6"
 "$SPACE_SIM_PYTHON" tools/build_unreal_linux.py
 ```
 
-此入口只构建项目编辑器目标和插件，尚需实际 Linux UE 验收。录制脚本支持 `UE56_ROOT` 或 `--unreal`，Linux 查找 `Engine/Binaries/Linux/UnrealEditor-Cmd` 或 `UnrealEditor`；Windows 原有入口保持可用。
+此入口只构建项目编辑器目标和插件，构建完成后还要执行下述资产、缓存和实际采集验收。录制脚本支持 `UE56_ROOT` 或 `--unreal`，Linux 查找 `Engine/Binaries/Linux/UnrealEditor-Cmd` 或 `UnrealEditor`；Windows 原有入口保持可用。
 
 Linux 资产准备不再需要 PowerShell。以下第一步不启动 UE，可提前生成本机绝对路径 catalog 和 STL 转换缓存；第二步必须在 UE 和项目插件编译完成后执行：
 
@@ -125,8 +132,38 @@ Linux 资产准备不再需要 PowerShell。以下第一步不启动 UE，可提
 
 完整模式检查所有预期 `.uasset`，并要求 UE Python 网格配置脚本回写包含 catalog SHA256 与配置网格数量的成功确认。仅有 UE 退出码 0 不算成功。失败或中断不保留成功标记；源 catalog、配置脚本或资产文件发生变化时重新导入；`--force` 强制重做。
 
-2026-10-19 已在目标 Linux 生成 131 个网格（其中 27 个 STL）的 catalog，6 项入口测试通过；尚未在真实 UE 中执行导入与配置。源模型中 10 个退化 STL 三角面按原策略保留，未为迁移删减几何。
+2026-10-19 已在目标 Linux 生成 131 个网格（其中 27 个 STL）的 catalog，6 项入口测试通过。源模型中 10 个退化 STL 三角面按原策略保留，未为迁移删减几何。
 
-同日官方 Linux 下载页在正常浏览器请求中返回 HTTP 403 并要求人工安全验证，尚未进入账号登录，因此未验证账号下载权限。需要用户在官方页面完成验证、登录并提供 UE 5.6 Linux 安装包链接；不将账号密码存入部署文件。
+同日随后已使用用户上传的官方 Linux UE 5.6.1 包完成安装，项目和 Runtime 插件在 Linux 编译成功；131 个网格已实际导入并收到配置校验确认。项目配置显式选择 Vulkan SM6，与 Windows 的 SM6 功能级别对齐。
 
-后续必须完成：Linux 资产 catalog、真实场景加载、双相机 5–10 秒短采集、完整任务和官方 LeRobot 解码检查。离屏采集仍须真实 GPU 渲染，不能用 NullRHI 作为图像验收。
+Windows 的着色器缓存不能用于 Linux。首次部署需要准备 Linux 的派生数据和材质着色器缓存；仅有 `.uasset` 文件、网格导入成功或 NullRHI 测试通过，不保证实际相机已经显示正确材质。缓存生成可耗时数分钟以上，保存日志并检查退出码：
+
+```bash
+project="$PWD/../space_sim_UE_Adapter/Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject"
+"$UE56_ROOT/Engine/Binaries/Linux/UnrealEditor-Cmd" "$project" \
+  -run=DerivedDataCache -fill -ProjectOnly -TargetPlatform=Linux \
+  -AllowCommandletRendering -RenderOffscreen -unattended -nop4 -nosplash \
+  -DDC=InstalledDerivedDataBackendGraph
+```
+
+随后执行真实双相机 RGB 验收，检查 idle/STOP 边界、会话重置、帧标识、颜色和图像朝向。首次着色器编译可能超过默认 60 秒启动限时，部署验收可显式延长启动等待；图像与同步断言仍照常执行：
+
+```bash
+SPACE_SIM_UE_CAPTURE_SMOKE=1 SPACE_SIM_UE_STARTUP_TIMEOUT=600 \
+  "$SPACE_SIM_PYTHON" -m pytest -q -s tests/test_capture_on_demand_renderer.py
+```
+
+部署验收还必须覆盖真实场景加载、双相机 5–10 秒短采集、完整任务和官方 LeRobot 解码。离屏采集仍须真实 GPU 渲染，不能用 NullRHI 作为图像验收。
+
+2026-10-19 实机结果：29 项 UE 自动化通过；实际 Vulkan 双相机 RGB 验收通过；5 秒有界片段保存 251 帧，数据完整但任务因人为时限标记失败；完整 `drawer-cycle/5` 成功保存 1723 帧、3446 个相机样本，两路 1024×1024、50 Hz H.264 视频完整解码、200 Hz 腕力和数值校验通过，官方 LeRobot 首/中/尾采样读取通过。完整 episode 共 17 个文件、27482165 字节，未保存 `cameras/` 原始照片。录制 34.44 秒仿真数据耗时 45.403 秒（约 0.759×），包含启动、收尾的整个进程耗时 81.201 秒；这些是一条任务的实测值，不是多次吞吐基准。
+
+已准备场景的后续单条采集示例（仍从服务端目录执行）：
+
+```bash
+"$SPACE_SIM_PYTHON" tools/record_drawer_task.py \
+  --task drawer_cycle --scene "$HOME/migration/validation-scene.json" \
+  --output "$HOME/migration/drawer-recording-$(date +%Y%m%d-%H%M%S)" \
+  --episodes-root "$HOME/data/spacesim/episodes"
+```
+
+本次详细记录见根目录 `archive/2026_10_19_Linux_UE部署与采集验收.md`，原始验收证据在目标机 `~/migration/ue-linux-20261019/`。

@@ -310,9 +310,12 @@ async def run(args):
                     plug_profile(args.task).instruction
                     if is_plug_task(args.task)
                     else (
-                        "夹住操作台最右侧抽屉，沿导轨抽出约8厘米并保持，然后放回归位、松开夹爪并撤离，确认抽屉保持关闭。"
+                        "Grasp the rightmost drawer on the workbench, pull it out approximately 8 cm "
+                        "along its guide rails, and hold it open. Push it fully closed, release it, "
+                        "and retract the gripper. Ensure the drawer remains closed."
                         if args.task == "drawer_cycle"
-                        else "移动至操作台最右侧抽屉上方，转动夹爪、张开、下降夹住抽屉并提起约8厘米。"
+                        else "Move above the rightmost drawer on the workbench, orient and open the "
+                        "gripper, then lower it to grasp the drawer and lift it approximately 8 cm."
                     )
                 ),
                 operator=owner.get("username", "scripted-task"),

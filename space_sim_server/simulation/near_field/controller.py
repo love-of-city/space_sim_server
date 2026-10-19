@@ -8,7 +8,8 @@ from simulation.navigation_gravity import PointMassNavigationGravity
 from simulation.orbital_rendezvous.model import assembly_properties
 from simulation.pose_ik import _iterate, _rotation_error, ElbowPreference
 
-from .model import JOINTS, GRASP_TARGET, NOMINAL_TCP
+from .model import JOINTS
+from .approach_plan import approach_plan, OpticalCheckpoint
 from .navigation import RelativeEKF, SensorSimulator, origin_navigation
 from .orbital_guidance import guidance_frame, vbar_frame, rotating_acceleration
 
@@ -98,6 +99,9 @@ class NearController(sysModel.SysModel):
         self.close_inhibited = False
         self.rows = []
         self.zero_tool_rotation = chain.forward(np.zeros(6))[1]
+        self.plan = approach_plan(chain)
+        self.nominal_grasp = np.array(self.plan["nominal_grasp_bus_m"])
+        self.optical_checkpoint = OpticalCheckpoint()
 
     def reference(self, _t):
         return self.qref.copy(), self.dqref.copy()
@@ -208,8 +212,13 @@ class NearController(sysModel.SysModel):
         lateral = float(np.linalg.norm(error_n - axis * gap))
         orientation_error = _rotation_error(goal_rotation @ rtool_n.T) + self.rotation_noise
         angle = float(np.linalg.norm(orientation_error))
-        final_delta = rb @ NOMINAL_TCP - self.target_rotation @ grasp_local
+        final_delta = rb @ self.nominal_grasp - self.target_rotation @ grasp_local
         platform_error = self.nav.x[:3] - final_delta
+        optical_axis = stereo_rotation[:, 2]
+        optical_depth = float(optical_axis @ estimated_grasp + .10)
+        checkpoint_delta = final_delta + optical_axis * (
+            self.plan["optical_checkpoint_depth_m"] - (optical_axis @ (rb @ self.nominal_grasp) + .10))
+        checkpoint_error = self.nav.x[:3] - checkpoint_delta
         rotating_velocity = self.nav.x[3:] - np.cross(orbital_rate, self.nav.x[:3])
         speed = float(np.linalg.norm(rotating_velocity))
         late = self.phase in {"PlatformHold", "ArmDeploy", "ArmAlign", "FinalApproach", "ContactProxy", "Grasp", "CaptureConfirm"}
@@ -226,11 +235,16 @@ class NearController(sysModel.SysModel):
                            and np.linalg.norm(target_rate_error) < .001))
         if self.phase == "FarHandoff" and now >= 5 and self.nav.sigma_m < 0.15 and link_valid and pointing_ready:
             self.transition("GNSSApproach", now)
-        if self.phase == "GNSSApproach" and visual_valid:
+        if self.phase == "GNSSApproach":
+            self.optical_checkpoint.update(error_m=checkpoint_error, speed_m_s=speed,
+                ready=pointing_ready and link_valid, dt=dt, now=now)
+        checkpoint_complete = self.optical_checkpoint.completed_at_s is not None
+        if self.phase == "GNSSApproach" and checkpoint_complete and visual_valid:
             self.transition("VisualFusion", now)
         if self.phase == "VisualFusion" and self.visual_dominant:
             self.transition("VisualApproach", now)
         if self.phase in {"GNSSApproach", "VisualFusion", "VisualApproach"}:
+            approach_error = platform_error if checkpoint_complete else checkpoint_error
             vmax = 0.10 if np.linalg.norm(platform_error) > 10 else 0.02 if np.linalg.norm(platform_error) > 1 else 0.005
             # Without accepted vision, stop with 12 m extra standoff. A lost
             # dominant visual source latches a hold before further closing.
@@ -240,8 +254,11 @@ class NearController(sysModel.SysModel):
                 self.transition("SafeHold", now)
             elif not visual_valid and np.linalg.norm(platform_error) < 12:
                 vmax = 0.
-            desired_velocity = bounded(-0.10 * platform_error, vmax)
-            if self.visual_dominant and np.linalg.norm(platform_error) < 0.006 and speed < 0.002:
+            desired_velocity = bounded(-0.10 * approach_error, vmax)
+            platform_ready = (self.visual_dominant and checkpoint_complete and pointing_ready
+                and abs(gap-self.plan["stowed_tcp_gap_m"]) < .006
+                and np.linalg.norm(platform_error) < .006 and speed < .002)
+            if platform_ready:
                 self.dwell += dt
                 if self.dwell >= 5:
                     self.transition("PlatformHold", now)
@@ -256,7 +273,12 @@ class NearController(sysModel.SysModel):
                     self.hold_delta = self.nav.x[:3].copy()
                 delta = orbital_rotation @ self.initial_hold_frame if self.orbital_guidance else self.hold_delta
             desired_velocity = bounded(-0.1 * (self.nav.x[:3] - delta), 0.005)
-        if self.phase == "PlatformHold" and now - self.phase_start > 5:
+        if self.phase == "PlatformHold":
+            platform_ready = (visual_valid and link_valid and pointing_ready
+                and abs(gap-self.plan["stowed_tcp_gap_m"]) < .006
+                and np.linalg.norm(platform_error) < .006 and speed < .002)
+            self.dwell = self.dwell + dt if platform_ready else 0.
+        if self.phase == "PlatformHold" and self.dwell >= self.plan["platform_dwell_s"]:
             target_p = rb.T @ (estimated_grasp - axis * 0.15)
             target_r = rb.T @ goal_rotation
             self.deploy_q = _iterate(self.chain, np.deg2rad([76.15, -64.33, 44.38, -70.05, 76.15, -90]), target_p, target_r,
@@ -335,6 +357,10 @@ class NearController(sysModel.SysModel):
             "truth": truth.tolist(), "estimate": self.nav.x.tolist(), "covariance": self.nav.P.tolist(),
             "center_distance_m": self.initial_center_distance if now == 0 else float(np.linalg.norm(assembly_com[1] - assembly_com[0])),
             "platform_to_grasp_m": float(np.linalg.norm(estimated_grasp)), "tcp_gap_m": gap,
+            "optical_depth_m": optical_depth,
+            "truth_optical_depth_m": float(optical_axis @ (grasp-truth[1, :3]) + .10),
+            "optical_checkpoint_complete": checkpoint_complete,
+            "optical_checkpoint_dwell_s": self.optical_checkpoint.dwell_s,
             "lateral_error_m": lateral, "alignment_error_deg": float(np.rad2deg(angle)),
             "relative_speed_m_s": speed, "position_sigma_m": self.nav.sigma_m,
             "guidance_frame": "orbital-vbar" if self.orbital_guidance else "inertial-fixture",

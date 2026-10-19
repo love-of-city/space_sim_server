@@ -38,7 +38,7 @@ from simulation.orbital_rendezvous.rendering import flight_scene_settings
 from simulation.teleop_grasp_unreal import DEFAULT_EPHEMERIS_EPOCH_UTC, _register_celestial_bodies
 
 from .controller import NearController
-from .model import prepare, JOINTS, ACTUATORS, GRASP_TARGET, NOMINAL_TCP
+from .model import prepare, JOINTS, ACTUATORS, GRASP_TARGET
 from .navigation import SensorConfig, admit_handoff
 from .orbital_guidance import guidance_frame
 
@@ -245,11 +245,13 @@ def run(args):
               "position_continuity_m": continuity < 1e-8,
               "initial_continuity": all(value < 1e-8 for item in continuity_details.values() for value in (item.values() if isinstance(item, dict) else [item])),
               "force_limit": max(np.linalg.norm(r["force_n"]) for r in rows) <= 25.000001,
+              "no_unplanned_contact": stepper.max_contacts == 0,
               "required_terminal": final["phase"] == ("CaptureHold" if normal else "SafeHold"),
               "safe_hold_no_latch": normal or (not control.latch and control.close_inhibited),
               "terminal_speed": final["relative_speed_m_s"] < 0.003}
     if normal:
         checks.update(full_phase_sequence=all(p in phases for p in ("GNSSApproach", "VisualFusion", "VisualApproach", "PlatformHold", "ArmAlign", "FinalApproach", "Grasp", "CaptureConfirm", "CaptureHold")),
+                      optical_checkpoint=control.optical_checkpoint.completed_at_s is not None,
                       final_true_lateral=final["truth_lateral_error_m"] < 0.006,
                       final_true_gap=0.01 < final["truth_tcp_gap_m"] < 0.026)
     checks = {key: bool(value) for key, value in checks.items()}
@@ -272,8 +274,10 @@ def run(args):
                   "final_gnss_transport": control.sensors.transport_snapshot()}
                  if incoming.get("gnss_transport") is not None else {}),
               "source_hashes": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob("*.py")},
-              "nominal_platform_origin_to_grasp_m": float(np.linalg.norm(NOMINAL_TCP)),
-              "nominal_origins_delta_m": (NOMINAL_TCP - GRASP_TARGET).tolist()}
+              "optical_checkpoint": {"completed_elapsed_s": control.optical_checkpoint.completed_at_s,
+                                     "dwell_s": control.optical_checkpoint.dwell_s},
+              "nominal_platform_origin_to_grasp_m": float(np.linalg.norm(control.nominal_grasp)),
+              "nominal_origins_delta_m": (control.nominal_grasp - GRASP_TARGET).tolist()}
     (output / "mission_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     # Preserve the actual articulated terminal state for the existing operator
     # scene. A logical capture remains labelled as such; no weld is introduced.
@@ -283,6 +287,7 @@ def run(args):
                    source_kind="near-field terminal; capture remains a logical proxy",
                    navigation_reference="body_origin",
                    navigation_sample_time_s=final["t"],
+                   near_approach_plan=control.plan,
                    environment_state=[module.snapshot() for module in environment.models])
     for item in handoff["stowed_joints"]:
         joint = scene.getBody(item["body"]).getScalarJoint(item["joint"]["name"])
@@ -307,6 +312,7 @@ def run(args):
         "tcp_gap_m", "truth_tcp_gap_m", "truth_lateral_error_m", "relative_speed_m_s", "position_sigma_m",
         "vision_valid", "close_inhibited", "navigation_error_m", "center_distance_m", "target_hinge_angle_rad",
         "truth_relative_speed_m_s", "truth_alignment_error_deg", "physical_observation_time_s",
+        "optical_depth_m", "truth_optical_depth_m", "optical_checkpoint_complete", "optical_checkpoint_dwell_s",
         "navigation_prediction_time_s", "navigation_truth")}
     if incoming.get("gnss_transport") is not None:
         exported.update({key: [np.nan if row[key] is None else row[key] for row in rows] for key in (

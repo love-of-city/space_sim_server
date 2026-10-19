@@ -8,11 +8,11 @@ import numpy as np
 
 from simulation.orbital_rendezvous.model import DEFAULT_MODEL, assembly_properties
 from simulation.serial_chain_kinematics import SerialChainKinematics
+from .approach_plan import approach_plan
 
 JOINTS = tuple(f"joint{i}" for i in range(1, 7)) + ("joint_finger1", "joint_finger2")
 ACTUATORS = tuple(f"sarm_{name}_motor" for name in JOINTS)
 GRASP_TARGET = np.array([-0.3745, -0.07242, 0.04707870013])
-NOMINAL_TCP = np.array([0.60, 0.10, 0.30])
 
 
 def prepare(repository: Path, output: Path):
@@ -58,9 +58,11 @@ def prepare(repository: Path, output: Path):
     settings["control_rate_hz"] = 20.0
     (output / "attitude_control.json").write_text(json.dumps(settings, indent=2))
     chain = SerialChainKinematics.from_mjcf(path, base_body="cubesat_bus", joint_names=JOINTS[:6], tool_site="sarm_ee")
+    plan = approach_plan(chain)
     manifest = {"source_model": DEFAULT_MODEL.as_posix(), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                 "bodies": properties, "meshes": hashes, "joints_inertias_geometries_unchanged": True,
                 "proxy": "original two-finger gripper; virtual contact window; logical latch, no weld or load transfer",
-                "nominal_tcp_bus_m": NOMINAL_TCP.tolist(), "grasp_target_origin_m": GRASP_TARGET.tolist()}
+                "nominal_tcp_bus_m": plan["nominal_grasp_bus_m"], "grasp_target_origin_m": GRASP_TARGET.tolist(),
+                "approach_plan": plan}
     (output / "model_manifest.json").write_text(json.dumps(manifest, indent=2))
     return path, mesh_files, manifest, chain

@@ -12,5 +12,8 @@ def publish_near_field_status(bridge, row):
         f"v {row['relative_speed_m_s']:.4f}m/s | angle {row['alignment_error_deg']:.2f}deg | sigma {row['position_sigma_m']:.4f}m",
         f"{row['capture_state']} | PARAMETRIC STEREO / LOGICAL CAPTURE / VIEW FILL",
     ]
+    if "optical_depth_m" in row:
+        checkpoint = "DONE" if row["optical_checkpoint_complete"] else "APPROACH / DWELL"
+        messages.insert(2, f"Optical Z {row['optical_depth_m']:.2f}m | 17.4m checkpoint {checkpoint}")
     for message in messages:
         bridge.publish_event("near_field_status", {"message": message, "severity": "info"})

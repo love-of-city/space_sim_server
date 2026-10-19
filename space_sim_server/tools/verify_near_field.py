@@ -13,7 +13,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from simulation.near_field.model import prepare, JOINTS, NOMINAL_TCP, GRASP_TARGET  # noqa: E402
+from simulation.near_field.model import prepare, JOINTS, GRASP_TARGET  # noqa: E402
 
 
 def rotation(ep):
@@ -29,29 +29,44 @@ def geometry():
         path, _, manifest, chain = prepare(ROOT, Path(scratch))
         m = mujoco.MjModel.from_xml_path(str(path))
         d = mujoco.MjData(m)
+        plan = manifest["approach_plan"]
+        nominal = np.array(plan["nominal_grasp_bus_m"])
+        stowed, tool_rotation = chain.forward(np.zeros(6))
+        axis = tool_rotation[:, 2]
         for j in range(m.njnt):
             if m.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE:
                 name = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, m.jnt_bodyid[j])
                 adr = m.jnt_qposadr[j]
-                d.qpos[adr:adr+3] = NOMINAL_TCP-GRASP_TARGET if name == "capture_target" else [0, 0, 0]
+                d.qpos[adr:adr+3] = nominal-GRASP_TARGET if name == "capture_target" else [0, 0, 0]
                 d.qpos[adr+3:adr+7] = [1, 0, 0, 0]
         addresses = [m.jnt_qposadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in JOINTS]
         d.qpos[addresses[6:]] = .0375
-        pre = np.deg2rad([76.1517, -64.3266, 44.3764, -70.0498, 76.1512, -90.0004])
-        end = np.deg2rad([82.0419, -82.7746, 55.6994, -62.9247, 82.0414, -90.0003])
+        from simulation.pose_ik import _iterate, ElbowPreference
+        from simulation.near_field.navigation import stereo_geometry
+        limits = np.array([3.1416] * 5 + [6.2832])
+        pre_goal, end_goal = nominal-.15*axis, nominal-.018*axis
+        pre = _iterate(chain, np.deg2rad([76.15, -64.33, 44.38, -70.05, 76.15, -90]),
+                       pre_goal, tool_rotation, -limits, limits, ElbowPreference())
+        end = None if pre is None else _iterate(chain, pre, end_goal, tool_rotation, -limits, limits, ElbowPreference())
+        if pre is None or end is None:
+            return {"passed": False, "checks": {"reachable": False}}
         contacts = []
         for start, stop in ((np.zeros(6), pre), (pre, end)):
-            for fraction in np.linspace(0, 1, 41):
+            for fraction in np.linspace(0, 1, 201):
                 d.qpos[addresses[:6]] = start*(1-fraction)+stop*fraction
                 mujoco.mj_forward(m, d)
                 contacts.append(d.ncon)
         checks = {"authored_physics_unchanged": manifest["joints_inertias_geometries_unchanged"],
                   "sampled_configuration_contacts_zero": max(contacts) == 0,
-                  "pregrasp_reachable": np.linalg.norm(chain.forward(pre)[0]-[.45, .1, .3]) < 1e-4,
-                  "endpoint_reachable": np.linalg.norm(chain.forward(end)[0]-[.582, .1, .3]) < 1e-4}
+                  "stowed_tcp_half_meter": abs(axis @ (nominal-stowed)-.5) < 1e-10,
+                  "both_marker_images_at_standoff": stereo_geometry(tool_rotation.T @ nominal)["valid"],
+                  "pregrasp_reachable": np.linalg.norm(chain.forward(pre)[0]-pre_goal) < 1e-4,
+                  "endpoint_reachable": np.linalg.norm(chain.forward(end)[0]-end_goal) < 1e-4}
         checks = {key: bool(value) for key, value in checks.items()}
         return {"checks": checks, "passed": all(checks.values()), "samples": len(contacts),
-                "max_contacts": int(max(contacts)), "scope": "static samples only; not continuous collision proof or contact mechanics"}
+                "max_contacts": int(max(contacts)), "approach_plan": plan,
+                "pregrasp_rad": pre.tolist(), "endpoint_rad": end.tolist(),
+                "scope": "static samples only; not continuous collision proof or contact mechanics"}
 
 
 def verify(folder):
@@ -69,6 +84,7 @@ def verify(folder):
     clock_aligned = report.get("sensor_clock_contract") == "physical-message-epoch/v1"
     navigation_samples_match = []
     physical_samples_match = []
+    optical_samples_match = []
     for line in (folder/"state_packets.jsonl").open(encoding="utf-8"):
         packet = json.loads(line)
         i = int(round((packet["sim_time_s"]-data["t"][0])*20))
@@ -96,6 +112,9 @@ def verify(folder):
         local = np.array([-.0145, -.07702, .04707870013])+panel@[-.36, .0046, 0]
         tcp, Rt = chain.forward(data["joints"][i, :6])
         e = np.array(a["position_m"])-b["position_m"]+Ra@local-Rb@tcp
+        if "truth_optical_depth_m" in data:
+            optical_depth = (Rb@zero_r)[:, 2] @ (e+Rb@tcp) + .10
+            optical_samples_match.append(abs(optical_depth-data["truth_optical_depth_m"][i]) < 1e-8)
         goal_r = Ra@panel@zero_r
         axis = goal_r[:, 2]
         h = axis@e
@@ -144,6 +163,29 @@ def verify(folder):
                           fingers_only_open=bool((np.diff(references[:, 6:], axis=0) >= -1e-9).all()),
                           arm_reference_held=bool(np.max(np.ptp(references[:, :6], axis=0)) < 1e-7))
     checks = {key: bool(value) for key, value in checks.items()}
+    plan = report["model_manifest"].get("approach_plan")
+    if plan:
+        checks["independent_optical_depth"] = bool(optical_samples_match) and all(optical_samples_match)
+        checks["no_unplanned_dynamic_contact"] = report["local_dynamics"]["max_contacts"] == 0
+        if normal:
+            completed = np.flatnonzero(data["optical_checkpoint_complete"])
+            checkpoint = np.arange(max(0, completed[0]-99), completed[0]+1) if len(completed) else np.array([], dtype=int)
+            hold = np.flatnonzero(data["phase"] == "PlatformHold")[-100:]
+            # Reconstruct physical rotating velocity from physical body states.
+            target = data["truth"][:, 0]
+            omega = np.cross(target[:, :3], target[:, 3:]) / np.sum(target[:, :3]**2, axis=1)[:, None]
+            physical_velocity = true_relative[:, 3:]
+            if report.get("guidance_frame") == "orbital-vbar":
+                physical_velocity = physical_velocity - np.cross(omega, true_relative[:, :3])
+            physical_speed = np.linalg.norm(physical_velocity, axis=1)
+            checks.update(
+                optical_checkpoint_true_dwell=bool(len(checkpoint) == 100
+                    and np.all(np.abs(data["truth_optical_depth_m"][checkpoint]-17.4) < .10)
+                    and np.all(physical_speed[checkpoint] < .003)),
+                stowed_tcp_half_meter_true_dwell=bool(len(hold) == 100
+                    and np.all(np.abs(data["truth_tcp_gap_m"][hold]-.5) < .010)
+                    and np.all(physical_speed[hold] < .003)
+                    and np.all(np.abs(data["joints"][hold, :6]) < .005)))
     return {"passed": all(checks.values()), "checks": checks, "phases": phases,
             "final_true_gap_m": float(h), "final_true_lateral_m": float(lateral), "final_true_angle_deg": float(angle),
             "kinematic_evaluation_time_s": float(evaluated_time),

@@ -4,6 +4,35 @@ import pytest
 
 from simulation.near_field.navigation import RelativeEKF, SensorConfig, SensorSimulator, stereo_geometry, origin_navigation, admit_handoff
 from space_arm_platform.near_field_config import NearFieldOptions
+from simulation.near_field.approach_plan import OpticalCheckpoint, approach_plan
+
+
+def test_optical_checkpoint_requires_continuous_position_speed_and_link_dwell():
+    checkpoint = OpticalCheckpoint()
+    def step(**overrides):
+        return checkpoint.update(**(dict(error_m=[.01, 0, 0], speed_m_s=.001,
+                                          ready=True, dt=.05, now=10.) | overrides))
+    for violation in ({"error_m": [.06, 0, 0]}, {"speed_m_s": .003}, {"ready": False}):
+        for _ in range(90):
+            assert not step()
+        assert not step(**violation)
+        assert checkpoint.dwell_s == 0.
+    for _ in range(101):
+        completed = step()
+    assert completed and checkpoint.completed_at_s == 10.
+    assert step(ready=False)  # completed waypoint remains in mission history
+
+
+def test_standoff_is_projected_tcp_gap_not_spacecraft_origin_distance():
+    class Chain:
+        def forward(self, _):
+            return np.array([.395, -.025, .095]), np.array([[0., 0, 1], [0, -1, 0], [1, 0, 0]])
+    plan = approach_plan(Chain())
+    grasp = np.array(plan["nominal_grasp_bus_m"])
+    stowed, rotation = Chain().forward(None)
+    assert rotation[:, 2] @ (grasp-stowed) == pytest.approx(.5)
+    assert np.linalg.norm(grasp) > .9
+    assert stereo_geometry(rotation.T @ grasp)["valid"]
 
 
 def test_stereo_has_gnss_overlap_and_retains_both_images_at_hold():

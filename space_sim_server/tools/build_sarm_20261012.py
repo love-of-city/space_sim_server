@@ -27,6 +27,26 @@ WRIST_CAMERA_POS = (0.0, 0.10, 0.12)
 WRIST_CAMERA_AIM = (0.0, 0.0, 0.22)
 WRIST_CAMERA_RIGHT = (-1.0, 0.0, 0.0)
 WRIST_CAMERA_FOVY = math.degrees(2 * math.atan(math.tan(math.radians(70) / 2) * 16 / 9))
+# Wrist lamp: a rendering-only spot light at the wrist camera, aimed along its
+# optical axis, so surfaces that get no sun/fill light (nothing scatters light in
+# orbit) are readable in the wrist image. MuJoCo ignores lights; the UE adapter
+# makes a spot light that follows ee_base. `diffuse` is NOT a colour here: the
+# adapter sets the UE intensity to 650 * max(diffuse) (inverse-square falloff),
+# and the UE scene is exposed for the real 132,821 lux sun (Config/bsk_unreal_scene.json),
+# so a lamp a few centimetres from the fingers needs a value in the hundreds.
+# Tuned on UE renders of the wrist image: 0.3 changes nothing, 100 shows the
+# gripper only as dark grey, 1000 lights fingers, linkage and housing evenly
+# (median luma 178/255, none clipped). `specular` is a fraction of `diffuse` (the
+# adapter uses the ratio). No shadows: the lamp sits at the camera, so the camera
+# never sees its shadows. The adapter makes the UE inner cone 0.65 * cutoff and
+# the outer cone the cutoff (max 89 deg), so the beam is flat out to ~58 deg and
+# still 88% at the square image's corners (60 deg). Before the adapter fix in
+# BskSceneController::SpawnVisual (cone setters need a Movable light) the cutoff
+# was ignored and every spot light had UE's default 0/44 deg cone.
+WRIST_LIGHT_NAME = 'wrist_lamp'
+WRIST_LIGHT_DIFFUSE = 1000.0
+WRIST_LIGHT_SPECULAR_FRACTION = 0.3
+WRIST_LIGHT_CUTOFF_DEG = 89.0
 
 def look_at_quat(pos, aim, right):
     """MJCF camera quaternion (w,x,y,z): local -Z towards aim, local +X ~ right."""
@@ -51,6 +71,15 @@ def set_look_at(camera, pos, aim, right):
     text=lambda values: ' '.join(repr(float(v)+0.0) for v in values)  # shortest exact, no -0
     camera.set('pos',text(pos))
     camera.set('quat',text(look_at_quat(pos,aim,right)))
+
+def wrist_lamp():
+    """The wrist lamp as an MJCF <light> in the ee_base frame (see WRIST_LIGHT_*)."""
+    text=lambda values: ' '.join(repr(float(v)+0.0) for v in values)
+    f=[a-p for a,p in zip(WRIST_CAMERA_AIM,WRIST_CAMERA_POS)]; n=math.sqrt(sum(v*v for v in f))
+    level=lambda v: ' '.join([format(v,'.12g')]*3)  # three equal colour channels, no float noise
+    return E.Element('light',name=WRIST_LIGHT_NAME,mode='fixed',pos=text(WRIST_CAMERA_POS),dir=text(v/n for v in f),
+                     diffuse=level(WRIST_LIGHT_DIFFUSE),specular=level(WRIST_LIGHT_DIFFUSE*WRIST_LIGHT_SPECULAR_FRACTION),
+                     cutoff=format(WRIST_LIGHT_CUTOFF_DEG,'.12g'),castshadow='false')
 
 def compose_platform_model(source: Path, platform_reference: Path, output: Path, *, fastener_model='captive') -> dict:
     if fastener_model not in ('captive', 'sdf'):
@@ -113,6 +142,10 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path,
             set_look_at(camera,WRIST_CAMERA_POS,WRIST_CAMERA_AIM,WRIST_CAMERA_RIGHT)
             camera.set('fovy',format(WRIST_CAMERA_FOVY,'.12g'))
         wrist.append(camera)
+        if camera.get('name') == 'sarm_wrist_cam':
+            # Stays on ee_base next to the camera: only inertial/geom/body
+            # children move across the force/torque cut below.
+            lamp=wrist_lamp(); lamp.tail=camera.tail; wrist.append(lamp)
     # Ideal, rigid, zero-added-mass load cell after joint6. Keep the joint and
     # camera names on ee_base; move the entire tool inertia/geometry/subtree
     # across the measurement cut without changing any transforms or DOFs.
@@ -154,8 +187,11 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path,
     else:
         fastener = {'model': 'sdf'}
     output.parent.mkdir(parents=True,exist_ok=True);output.write_bytes(E.tostring(r,encoding='utf-8',xml_declaration=True))
-    record={'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'model_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'model_revision':'2026-10-12','platform_additions':['free base','reaction wheels (additional mass)','capture target','cameras'],'source_base_inertia_preserved':True,'gripper_type':'four_bar_tendon','root_renames':{'base_link':'cubesat_bus'},'drawer_reparented_to':'cubesat_bus'}
+    record={'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'model_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'model_revision':'2026-10-12','platform_additions':['free base','reaction wheels (additional mass)','capture target','cameras','wrist lamp (rendering only)'],'source_base_inertia_preserved':True,'gripper_type':'four_bar_tendon','root_renames':{'base_link':'cubesat_bus'},'drawer_reparented_to':'cubesat_bus'}
     record['wrist_force_torque_sensor'] = {'site': 'wrist_ft_site', 'parent_body': 'ee_base', 'tool_body': 'wrist_ft_tool', 'added_mass_kg': 0, 'ideal_rigid_sensor': True}
+    lamp=wrist.find('light'); assert lamp is not None
+    record['wrist_lamp']={'name':lamp.get('name'),'parent_body':'ee_base','position_m':list(WRIST_CAMERA_POS),'direction':[float(v) for v in lamp.get('dir').split()],
+                          'cutoff_deg':WRIST_LIGHT_CUTOFF_DEG,'diffuse':WRIST_LIGHT_DIFFUSE,'cast_shadows':False,'rendering_only':True}
     record['orbital_free_joint_damping_overrides']=damping_overrides
     record['fastener']=fastener
     output.with_suffix('.manifest.json').write_text(json.dumps(record,indent=2)+'\n')

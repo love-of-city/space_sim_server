@@ -97,6 +97,56 @@ def test_optional_task_fields_survive_chunk_boundaries(tmp_path):
     assert len(list((tmp_path / "context").glob("*.parquet"))) == 3
 
 
+def test_compact_preserves_noisy_measurements_ground_truth_and_delay(tmp_path):
+    """The main branch's noise feature must remain auditable in compact data."""
+    import hashlib
+    from space_arm_platform.compact_storage import wrench_bytes
+
+    def noisy_sample(stamp):
+        data = sample(stamp).model_dump()
+        data.update(measurement="simulated_noisy_interface_wrench",
+                    ground_truth_force_n=data["force_n"], ground_truth_torque_nm=data["torque_nm"])
+        data["force_n"] = [v + 0.125 for v in data["force_n"]]
+        return data
+
+    recorder = EpisodeRecorder(tmp_path, storage_profile="compact")
+    meta = recorder.start(EpisodeStart(fps=50, camera_ids=[]))
+    ground_truth = {"joint_position_rad": [0.01] * 8, "joint_velocity_rad_s": [0.02] * 8,
+                    "end_effector_position_body_m": [0.1, 0.2, 0.3]}
+    for i in range(1, 4):
+        stamp = i * 20_000_000
+        data = observation(i).model_dump()
+        data.update(sim_time_ns=str(stamp),
+                    observation_source="authoritative_render_with_measured_proprioception",
+                    ground_truth=ground_truth, joint_measurement_time_ns=str(stamp-10_000_000),
+                    joint_measurement_age_ns="10000000", wrist_wrench=noisy_sample(stamp),
+                    wrist_wrench_rate_hz=200,
+                    wrist_wrench_samples=[noisy_sample(t) for t in range(stamp-15_000_000, stamp+1, 5_000_000)])
+        recorder.record_observation(SimulationObservation.model_validate(data), None)
+    result = recorder.stop(EpisodeStop(outcome="success"))
+    assert result["dataset_status"] == "complete", result
+    root = tmp_path / meta["episode_id"]
+    restored = list(read_observations(root))
+    assert len(restored) == 3
+    for obs in restored:
+        assert obs["ground_truth"] == ground_truth
+        assert obs["joint_measurement_age_ns"] == "10000000"
+        assert int(obs["sim_time_ns"]) - int(obs["joint_measurement_time_ns"]) == 10_000_000
+        expected = noisy_sample(int(obs["sim_time_ns"]))
+        assert obs["wrist_wrench"]["measurement"] == expected["measurement"]
+        assert obs["wrist_wrench"]["ground_truth_force_n"] == expected["ground_truth_force_n"]
+        np.testing.assert_allclose(obs["wrist_wrench"]["force_n"], expected["force_n"], atol=1e-5)
+    rows = list(read_wrench(root))
+    assert len(rows) == 9
+    for row in rows:
+        expected = noisy_sample(int(row["sim_time_ns"]))
+        assert row["ground_truth_force_n"] == expected["ground_truth_force_n"]
+        assert row["ground_truth_torque_nm"] == expected["ground_truth_torque_nm"]
+        assert row["force_n"] == expected["force_n"]
+    platform = json.loads((root / "lerobot/meta/platform.json").read_text(encoding="utf-8"))
+    assert hashlib.sha256(b"".join(wrench_bytes(row) for row in rows)).hexdigest() == platform["high_frequency_wrist_wrench"]["values_sha256"]
+
+
 @pytest.mark.process_writer
 def test_compact_profile_reaches_spawned_writer(tmp_path):
     recorder = EpisodeRecorder(tmp_path, storage_profile="compact")

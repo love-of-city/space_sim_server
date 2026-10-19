@@ -232,6 +232,8 @@ class Store:
                             frames=meta.get("dataset_frame_count"),
                             fps=meta.get("dataset_fps"),
                             created=meta.get("created_wall_time_ns"),
+                            source="auto" if "scripted" in (meta.get("tags") or []) or str(meta.get("task", "")).startswith("scripted ") else "manual",
+                            owner=meta.get("operator_username") or meta.get("operator", ""),
                             readable=(path / "steps.jsonl").is_file() or is_compact(path),
                         )
                     )

@@ -16,6 +16,8 @@ CONTEXT_FIELDS = (
     "gripper_position_m", "target_gripper_position_m",
     "scripted_task", "orbital_dynamics", "attitude_control", "reaction_wheels",
     "dynamics_rate_hz", "scripted_task_rate_hz", "wrist_wrench_rate_hz",
+    "observation_source", "ground_truth", "joint_measurement_time_ns",
+    "joint_measurement_age_ns",
 )
 
 
@@ -96,6 +98,10 @@ class CompactSidecars:
     def append(self, observation, captures, frame):
         extra = observation.model_extra or {}
         context = {key: getattr(observation, key, extra.get(key)) for key in CONTEXT_FIELDS}
+        if observation.wrist_wrench is not None:
+            context["wrist_wrench_context"] = observation.wrist_wrench.model_dump(
+                exclude={"force_n", "torque_nm", "valid", "sample_time_ns", "interval_end_time_ns"}
+            )
         context.update(source_frame_id=int(observation.render_frame_id),
                        sim_time_ns=int(observation.sim_time_ns),
                        source_values_sha256=numeric_digest(frame))
@@ -146,7 +152,8 @@ def read_observations(episode):
                 obs["target_gripper_opening_normalized"] = row["action"][-1]
             if "observation.wrist_wrench" in row:
                 wrench = row["observation.wrist_wrench"]
-                obs["wrist_wrench"] = dict(force_n=wrench[:3], torque_nm=wrench[3:],
+                obs["wrist_wrench"] = dict(context.get("wrist_wrench_context") or {},
+                    force_n=wrench[:3], torque_nm=wrench[3:],
                     valid=bool(row["observation.wrist_wrench_valid"]),
                     sample_time_ns=row["observation.wrist_wrench_sample_time_ns"],
                     interval_end_time_ns=row["observation.wrist_wrench_interval_end_time_ns"])

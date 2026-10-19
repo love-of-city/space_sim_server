@@ -1,5 +1,7 @@
 {
   "files": {
+    "tests/test_linux_mujoco_runtime.py": "Linux-only ELF/runtime isolation checks require Basilisk and MuJoCo; run separately on the Linux simulation host",
+    "tests/test_sarm_asset_plugins.py": "Requires the locally compiled SARM native plugin; run on each simulation host after building it",
     "tests/test_orbital_physics_acceptance.py": "Native BSK J2 field and two-orbit propagation acceptance; run in the simulation environment",
     "tests/test_attitude_control.py": "Basilisk attitude-control integration",
     "tests/test_celestial_alignment.py": "Basilisk celestial-state integration",
@@ -44,7 +46,8 @@
     "tests/test_online_elbow_ik.py::test_wrist_only_switch_does_not_disable_elbow_and_invalid_value_fails": "Basilisk live runtime",
     "tests/test_online_elbow_ik.py::test_joint3_switch_and_manual_positive_initialization": "Basilisk live runtime",
     "tests/test_linkage_gripper.py::test_live_target_opposes_linkages_and_holds_on_release": "Basilisk teleoperation runtime; run in the native simulation environment alongside test_teleop_target.py",
-    "tests/test_multirate_wrench.py::test_real_scheduler_samples_native_each_second_physics_step": "Basilisk scheduler integration for native 200 Hz wrist sampling; run in the simulation environment"
+    "tests/test_multirate_wrench.py::test_real_scheduler_samples_native_each_second_physics_step": "Basilisk scheduler integration for native 200 Hz wrist sampling; run in the simulation environment",
+    "tests/test_policy_runtime.py::test_cartesian_target_uses_governor_and_rate_limits_without_ik_or_deadman_overwrite": "Basilisk live target imports; run separately in the native simulation environment alongside the policy UE/BSK acceptance"
   },
   "groups": {
     "deploy": {

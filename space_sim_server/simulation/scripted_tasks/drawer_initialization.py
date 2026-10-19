@@ -20,9 +20,11 @@ NOISE_DISABLED = {
 }
 
 
-def randomized_scene(source, seed, half_range_deg=10.0):
+def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"):
     if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 10:
         raise ValueError("initialization range must be finite and in [0,10] degrees")
+    if not source.get("initialization_enabled", True):
+        half_range_deg = 0.0
     scene = deepcopy(source)
     baseline = np.asarray(
         source["randomization"]["arm_joint_position_rad"][:6], dtype=float
@@ -39,9 +41,13 @@ def randomized_scene(source, seed, half_range_deg=10.0):
     ]
     scene["arm_preparation_required"] = False
     scene["collection_config"] = dict(
-        schema="drawer-collection/1",
-        task="drawer_cycle",
-        task_version="drawer-cycle/1",
+        schema="drawer-collection/1"
+        if task_name == "drawer_cycle"
+        else "scripted-collection/2",
+        task=task_name,
+        task_version=DrawerCycleTask.version
+        if task_name == "drawer_cycle"
+        else "plug-insert/2",
         seed=int(seed),
         generator="numpy.PCG64",
         initialization=dict(
@@ -52,11 +58,13 @@ def randomized_scene(source, seed, half_range_deg=10.0):
             initial_joint_velocity_rad_s=[0.0] * 8,
             initial_gripper_opening=0.0,
         ),
+        randomization_options=scene.get("collection_randomization", {}),
         disturbances=NOISE_DISABLED.copy(),
         lighting_randomized=False,
         dynamics_randomized=False,
     )
-    return scene
+    from .randomization import prepare_episode
+    return prepare_episode(scene)
 
 
 class NativePoseProbe:
@@ -67,6 +75,8 @@ class NativePoseProbe:
     """
 
     def __init__(self, model_path):
+        from .gripper_preflight import ParallelogramGripper
+        self.gripper_kinematics = ParallelogramGripper(model_path)
         from simulation.mujoco_plugins import ensure_model_plugins
         from simulation.local_mujoco_stepper import (
             _library,
@@ -104,6 +114,10 @@ class NativePoseProbe:
                 "ee_link12_joint",
             ]
         ]
+        self.passive_addresses = {
+            name: self.address(name)
+            for name in self.gripper_kinematics.passive_positions([0.0, 0.0])
+        }
         self.names = {}
         for body in range(int(dims[3])):
             buf = ctypes.create_string_buffer(256)
@@ -125,6 +139,8 @@ class NativePoseProbe:
 
     def contacts(self, q):
         self.q[self.addresses] = q
+        for name, value in self.gripper_kinematics.passive_positions(q[6:8]).items():
+            self.q[self.passive_addresses[name]] = value
         self.check(
             self.lib.lms_set_state(self.handle, self.ptr(self.q), self.ptr(self.v))
         )
@@ -134,7 +150,7 @@ class NativePoseProbe:
         self.check(self.lib.lms_contacts(self.handle, self.ptr(rows), count))
         return rows
 
-    def validate(self, model, scene):
+    def validate(self, model, scene, task_name="drawer_cycle"):
         self.q[:] = self.home
         target = scene.get("randomization", {})
         if "target_position_m" in target:
@@ -142,7 +158,18 @@ class NativePoseProbe:
             self.q[address : address + 3] = target["target_position_m"]
             self.q[address + 3 : address + 7] = target["target_orientation_wxyz"]
         q = np.array(scene["randomization"]["arm_joint_position_rad"])
-        task = DrawerCycleTask(model)
+        from .plug_profiles import is_plug_task, plug_profile
+
+        is_plug = is_plug_task(task_name)
+        if is_plug:
+            from .plug_insert import PlugInsertTask, PlugInsertConfig, PlugSample
+            from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+            import xml.etree.ElementTree as ET
+
+            profile = plug_profile(task_name)
+            task = PlugInsertTask(model, PlugInsertConfig(plug_body=profile.body))
+        else:
+            task = DrawerCycleTask(model)
         if np.any(q[:6] < task.lower) or np.any(q[:6] > task.upper):
             return dict(accepted=False, reason="joint_limit")
         checked = 0
@@ -170,13 +197,52 @@ class NativePoseProbe:
                 contact=hit,
                 checked_poses=checked,
             )
-        sample = DrawerSample(0.0, q, np.zeros(8), 0.0, 0.0, 0.0, np.zeros(6), False)
+        if is_plug:
+            element = (
+                ET.parse(model)
+                .getroot()
+                .find(f'./worldbody/body[@name="{profile.body}"]')
+            )
+            sample = PlugSample(
+                0.0,
+                q,
+                np.zeros(8),
+                np.fromstring(element.get("pos"), sep=" "),
+                quaternion_wxyz_to_matrix(np.fromstring(element.get("quat"), sep=" ")),
+                np.zeros(3),
+                np.zeros(3),
+                np.zeros(6),
+                False,
+            )
+        else:
+            sample = DrawerSample(
+                0.0, q, np.zeros(8), 0.0, 0.0, 0.0, np.zeros(6), False
+            )
         task.step(sample)
         try:
-            for stage in ("raise", "above_drawer", "align"):
+            for stage in (
+                ("raise", "above_pickup", "align")
+                if is_plug
+                else task.approach_stages
+            ):
                 task._enter(stage, sample)
-                for point in task._path:
-                    candidate = np.r_[point, 0.0, 0.0]
+                path = task._path
+                if path is None:
+                    continue
+                if task._timing is not None:
+                    # Validate the executed spline, including former segment
+                    # midpoints, rather than checking only its IK knots.
+                    path = [
+                        task._timing.path.at(u)
+                        for u in np.linspace(0, 1, 2 * len(task._path) - 1)
+                    ]
+                candidates = [np.r_[point, 0.0, 0.0] for point in path]
+                if not is_plug and stage == "approach":
+                    candidates = [
+                        task.approach_reference(u)
+                        for u in np.linspace(0, 1, 2 * len(task._path) - 1)
+                    ]
+                for candidate in candidates:
                     hit = collision(candidate)
                     if hit:
                         return dict(
@@ -187,8 +253,12 @@ class NativePoseProbe:
                             checked_poses=checked,
                         )
                 task.reference[:6] = task._path[-1]
+                if not is_plug and stage == "approach":
+                    task.reference[:] = task.approach_reference(1.0)
             # Descend/lift/return IK must exist too. Contact intentionally starts here.
-            for stage in ("descend", "lift", "return", "retract"):
+            for stage in (
+                ("descend",) if is_plug else ("lift", "return", "retract")
+            ):
                 task._enter(stage, sample)
                 task.reference[:6] = task._path[-1]
         except ValueError as exc:

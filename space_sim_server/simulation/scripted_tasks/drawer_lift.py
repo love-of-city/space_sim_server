@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import math
+from typing import ClassVar
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -23,6 +24,7 @@ from simulation.serial_chain_kinematics import (
 
 @dataclass(frozen=True)
 class DrawerLiftConfig:
+    max_arm_speed_rad_s: ClassVar[float] = 0.0873
     lift_m: float = 0.08
     clearance_m: float = 0.205
     # Calibrated against the delivered handle; expressed in drawer_base coordinates.
@@ -51,8 +53,10 @@ class DrawerLiftConfig:
         ):
             if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be finite and positive")
-        if self.lift_m > 0.12 or self.arm_speed_rad_s > 0.0873:
-            raise ValueError("lift must be <= 0.12 m and arm speed <= 0.0873 rad/s")
+        if self.lift_m > 0.12 or self.arm_speed_rad_s > self.max_arm_speed_rad_s:
+            raise ValueError(
+                f"lift must be <= 0.12 m and arm speed <= {self.max_arm_speed_rad_s} rad/s"
+            )
         if (
             np.asarray(self.grip_offset_m).shape != (3,)
             or not np.isfinite(self.grip_offset_m).all()
@@ -140,6 +144,7 @@ class DrawerLiftTask:
         self._stable = 0.0
         self._overload = 0.0
         self._path = None
+        self._timing = None
         self._motion_s = 0.0
         self._initial_drawer = 0.0
         self.max_force_n = 0.0
@@ -151,6 +156,7 @@ class DrawerLiftTask:
         self._stable = 0.0
         self._motion_s = 0.0
         self._path = None
+        self._timing = None
         self._duration = 0.0
         self.events.append({"stage": name, "sim_time_s": sample.time_s})
         # Preserve the held command across stages; measured servo deflection is
@@ -159,39 +165,44 @@ class DrawerLiftTask:
         goal, rotation = self._stage_goal(name, p, r)
         self._goal, self._rotation = goal, rotation
         if goal is not None:
-            rv = rotation_matrix_to_vector(rotation @ r.T)
-            angle = np.linalg.norm(rv)
-            seed = self.reference[:6].copy()
-            path = [seed]
-            for alpha in np.linspace(0.0, 1.0, 81)[1:]:
-                rot = (
-                    axis_angle_to_matrix(rv / angle, alpha * angle) @ r
-                    if angle > 1e-12
-                    else r
-                )
-                seed = solve_pose(
-                    self.chain,
-                    p + alpha * (goal - p),
-                    rot,
-                    seed,
-                    self.lower,
-                    self.upper,
-                )
-                if np.max(np.abs(seed - path[-1])) > 0.3:
-                    raise ValueError(
-                        "IK changed branch; refusing a discontinuous joint reference"
-                    )
-                path.append(seed)
-            self._path = np.asarray(path)
+            self._path, distance, angle = self._plan_path(name, p, r, goal, rotation)
             # Quintic time scaling has maximum derivative 1.875. Bound every joint.
-            slope = np.max(np.abs(np.diff(self._path, axis=0))) * (len(path) - 1)
+            slope = np.max(np.abs(np.diff(self._path, axis=0))) * (len(self._path) - 1)
             self._duration = max(
                 1.0,
                 1.875 * slope / self.config.arm_speed_rad_s,
-                1.875 * np.linalg.norm(goal - p) / self.config.linear_speed_m_s,
+                1.875 * distance / self.config.linear_speed_m_s,
                 1.875 * angle / 0.2,
             )
+            self._timing = self._time_path(
+                name, distance, angle
+            )
+            if self._timing is not None:
+                self._duration = self._timing.duration
         self._timeout = max(20.0, 2.5 * self._duration + 10.0)
+        self.events[-1]["planned_motion_seconds"] = self._duration
+
+    def _plan_path(self, name, p, r, goal, rotation):
+        rv = rotation_matrix_to_vector(rotation @ r.T)
+        angle = float(np.linalg.norm(rv))
+        def pose(alpha):
+            rot = axis_angle_to_matrix(rv/angle, alpha*angle) @ r if angle > 1e-12 else r
+            return p + alpha*(goal-p), rot
+        return self._solve_path(pose), float(np.linalg.norm(goal-p)), angle
+
+    def _solve_path(self, pose, count=81):
+        seed = self.reference[:6].copy()
+        path = [seed]
+        for alpha in np.linspace(0.0, 1.0, count)[1:]:
+            position, rotation = pose(alpha)
+            seed = solve_pose(self.chain, position, rotation, seed, self.lower, self.upper)
+            if np.max(np.abs(seed-path[-1])) > 0.3:
+                raise ValueError("IK changed branch; refusing a discontinuous joint reference")
+            path.append(seed)
+        return np.asarray(path)
+
+    def _time_path(self, name, distance, angle):
+        return None
 
     def _stage_goal(self, name, p, r):
         goal = None
@@ -313,19 +324,22 @@ class DrawerLiftTask:
             if np.max(np.abs(self.reference[:6] - sample.joints[:6])) < 0.06:
                 self._motion_s = min(self._duration, self._motion_s + dt)
             a = self._motion_s / self._duration
-            u = (10 * a**3 - 15 * a**4 + 6 * a**5) * (len(self._path) - 1)
-            i = min(int(u), len(self._path) - 2)
-            self.reference[:6] = self._path[i] + (u - i) * (
-                self._path[i + 1] - self._path[i]
+            progress = (
+                self._timing.at(self._motion_s)
+                if self._timing is not None
+                else (10 * a**3 - 15 * a**4 + 6 * a**5)
             )
+            if self._timing is not None:
+                self.reference[:6] = self._timing.path.at(progress)
+            else:
+                u = progress * (len(self._path) - 1)
+                i = min(int(u), len(self._path) - 2)
+                self.reference[:6] = self._path[i] + (u - i) * (
+                    self._path[i + 1] - self._path[i]
+                )
         target = self._gripper_target()
         if target is not None:
-            self.reference[6] += np.clip(
-                target - self.reference[6],
-                -self.config.gripper_speed_rad_s * dt,
-                self.config.gripper_speed_rad_s * dt,
-            )
-            self.reference[7] = -self.reference[6]
+            self._step_gripper(target, dt)
         self.velocity[:] = (self.reference - old) / dt
         p, r = self.chain.forward(sample.joints[:6])
         reached = np.max(np.abs(sample.joint_velocities[:6])) < 0.015
@@ -363,6 +377,14 @@ class DrawerLiftTask:
                 except ValueError as exc:
                     self.fail(f"planning_failed: {exc}", sample)
         return self.reference.copy(), self.velocity.copy()
+
+    def _step_gripper(self, target, dt):
+        self.reference[6] += np.clip(
+            target - self.reference[6],
+            -self.config.gripper_speed_rad_s * dt,
+            self.config.gripper_speed_rad_s * dt,
+        )
+        self.reference[7] = -self.reference[6]
 
     def _stage_reached(self, sample, reached, p):
         if self.stage == "open":

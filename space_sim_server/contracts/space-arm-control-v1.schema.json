@@ -1351,9 +1351,46 @@
           "type": "string"
         },
         "measurement": {
-          "const": "raw_interface_wrench",
+          "enum": [
+            "raw_interface_wrench",
+            "simulated_noisy_interface_wrench"
+          ],
           "title": "Measurement",
           "type": "string"
+        },
+        "ground_truth_force_n": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ground Truth Force N"
+        },
+        "ground_truth_torque_nm": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ground Truth Torque Nm"
         },
         "sample_phase": {
           "const": "last_substep_start",

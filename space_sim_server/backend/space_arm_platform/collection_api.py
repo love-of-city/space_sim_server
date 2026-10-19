@@ -9,6 +9,7 @@ from .collection_jobs import CollectionCreate, CollectionManager, TASKS
 from .control_defaults import DEFAULT_OPERATING_JOINT_DEG, ZERO_START_TELEOP_PROFILE
 from .dataset_view import Store
 from .models import SceneInstanceCreate
+from .collection_randomization import randomization_catalog
 from .scene_runtime import SceneRuntimeManager
 from .sampling import DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, WRENCH_HZ
 
@@ -41,7 +42,10 @@ def install_collection_routes(app, config, scenes, current_user):
     @router.get("/collections/catalog")
     def catalog():
         return dict(
-            tasks=[dict(id=key, label=task.label) for key, task in TASKS.items()],
+            tasks=[
+                dict(id=key, label=task.label, description=task.description)
+                for key, task in TASKS.items()
+            ],
             max_workers=4,
             rates=dict(
                 dynamics=DYNAMICS_HZ,
@@ -50,6 +54,7 @@ def install_collection_routes(app, config, scenes, current_user):
                 wrench=WRENCH_HZ,
             ),
             cameras=dict(count=2, width=1024, height=1024),
+            randomization_options=randomization_catalog(),
             wrist_wrench_noise=False,
             disturbances_enabled=False,
             lighting_randomized=False,
@@ -129,17 +134,5 @@ def install_collection_routes(app, config, scenes, current_user):
         return FileResponse(file, media_type="video/mp4")
 
     app.include_router(router)
-
-    @app.get("/collection")
-    def collection_page():
-        return FileResponse(
-            Path(config.project_root) / "frontend/public/collection/index.html"
-        )
-
-    @app.get("/datasets")
-    def dataset_page():
-        return FileResponse(
-            Path(config.project_root) / "frontend/public/datasets/index.html"
-        )
 
     return manager

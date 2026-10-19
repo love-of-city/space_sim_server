@@ -31,6 +31,27 @@ function clearWristWrench() {
   $("wristWrenchDetail").textContent = "无实时测量";
 }
 
+function clearSimulationTelemetry(mission = null) {
+  clearWristWrench();
+  state.lastAckAt = 0;
+  for (const id of ["simTime", "actionSequence", "toolPosition", "jacobianRank", "ikSolver",
+    "referenceProtection", "dynamicsTiming", "attitudeMode", "attitudeError", "bodyRate",
+    "wheelSpeeds", "wheelTorques", "vx", "vy", "vz", "wx", "wy", "wz", "grip"]) {
+    $(id).textContent = "—";
+  }
+  $("motionSpeedStatus").textContent = "等待当前场景的速度测量";
+  $("motionSpeedDetail").textContent = "场景就绪后显示实测速度。";
+  $("motionSpeedDiagnostic").className = "motion-speed-diagnostic";
+  if (mission?.stage === "flight" && mission.telemetry?.connected) {
+    const time = mission.telemetry.sim_time_s;
+    if (Number.isFinite(time)) $("simTime").textContent = `${time.toFixed(3)} s`;
+    const rate = mission.telemetry.state?.bodies?.find(body => body.body_id === "rendezvous/chaser")?.angular_velocity_rad_s;
+    if (Array.isArray(rate) && rate.length === 3 && rate.every(Number.isFinite)) {
+      $("bodyRate").textContent = rate.map(value => value.toFixed(4)).join(", ") + " rad/s";
+    }
+  }
+}
+
 const gamepadInput = new GamepadInput();
 
 const state = {
@@ -240,7 +261,7 @@ function shutdownAuthenticatedApp() {
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
   disposePixelStream();
   jointAngles.clear("已退出登录");
-  clearWristWrench();
+  clearSimulationTelemetry();
   state.connected = false; state.controlGranted = false;
 }
 
@@ -307,7 +328,7 @@ function applySceneRuntime(runtime = {}) {
     (!state.sceneInstanceId || state.observationSceneId === state.sceneInstanceId);
   state.sceneReady = phase === "running" && currentObservation && !state.resetPending && !state.simulationResetting;
   if (!state.sceneReady) $("fastenerDemoStatus").hidden = true;
-  if (!state.sceneReady) clearWristWrench();
+  if (!state.sceneReady) clearSimulationTelemetry(state.mission);
   if (!state.sceneReady && state.operationActive) {
     exitOperationMode("当前场景尚未就绪，已退出操作模式");
   }
@@ -482,7 +503,7 @@ function connect() {
     setMessage("操作链路已连接；场景运行后点击画面进入操作模式");
   };
   state.ws.onclose = () => {
-    clearWristWrench();
+    clearSimulationTelemetry();
     state.connected = false;
     state.controlGranted = false;
     setOnline("backendDot", false);
@@ -526,6 +547,7 @@ function connect() {
       exitOperationMode(message.reason === "scene_reset" ? "场景正在重置，已撤销操控；完成后请重新点击画面" : "同一用户的其他页面已进入操作，本页面自动退出");
     } else if (message.type === "observation") {
       const obs = message.payload;
+      if (state.mission?.stage === "flight") return;
       if (state.sceneInstanceId && obs.scene_instance_id !== state.sceneInstanceId) return;
       const demo = obs.fastener_demo;
       $("fastenerDemoStatus").hidden = !demo;
@@ -1385,7 +1407,7 @@ async function refreshState() {
       updateOperationUI();
     }
     if (!state.simulationConnected || state.simulationResetting || !state.sceneReady) {
-      clearWristWrench();
+      clearSimulationTelemetry(data.mission);
       jointAngles.clear(state.simulationResetting ? "场景重置中" : "等待运行场景的遥测");
     }
     if (data.simulation.reset_error) setMessage(data.simulation.reset_error);
@@ -1396,6 +1418,8 @@ async function refreshState() {
     }
   } catch (_) {
     if (sequence !== state.stateRequestSequence) return;
+    clearSimulationTelemetry();
+    jointAngles.clear("连接中断，等待新遥测");
     setOnline("backendDot", false);
     if (state.activePage !== 'operate') $('backendState').textContent = '平台连接异常';
     if (state.mission) missionPanel.failed();

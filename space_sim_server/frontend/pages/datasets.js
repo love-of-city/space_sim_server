@@ -34,6 +34,7 @@ const stageNames = {
   raise: "抬高夹爪",
   above_pickup: "到达取件位上方",
   above_drawer: "到达抽屉上方",
+  approach: "连续接近 / 转向 / 张爪",
   align: "调整抓取姿态",
   open: "张开夹爪",
   descend: "下降抓取",

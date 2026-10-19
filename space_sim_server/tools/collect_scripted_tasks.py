@@ -121,7 +121,9 @@ def validate_recording(episode, task_name="drawer_cycle"):
     else:
         from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask
 
-        assert stages == list(DrawerCycleTask.stages), stages
+        assert stages == list(DrawerCycleTask.recorded_stages(final.get("task_version"))), stages
+        if final.get("task_version") in ("drawer-cycle/4", DrawerCycleTask.version):
+            assert final["released_closed_seconds"] >= final["task_parameters"]["verify_hold_s"]
         assert final["result"] == "success" and final["drawer_closed"]
         assert final["open_verified"] and final["seated_before_release_verified"]
         assert final["peak_drawer_displacement_m"] >= 0.075

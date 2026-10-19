@@ -41,6 +41,23 @@ class PathTiming:
         jerk = delta / duration**2 * (60 * x - 180 * x**2 + 120 * x**3)
         return float(u), float(speed), float(acceleration), float(jerk)
 
+    def limit_derivatives(self, bounds, speed, acceleration, jerk):
+        """Dilate time to bound another curve driven by this same progress law."""
+        m = np.asarray(bounds, dtype=float)
+        if m.shape != (3,) or not np.isfinite(m).all() or np.any(m < 0):
+            raise ValueError("Expected three finite nonnegative spatial derivative bounds")
+        if any(not math.isfinite(x) or x <= 0 for x in (speed, acceleration, jerk)):
+            raise ValueError("Derivative limits must be finite and positive")
+        durations = np.diff(self.times)
+        deltas = np.abs(np.diff(self.velocity))
+        v = float(self.velocity.max())
+        a = float(np.max(1.875*deltas/durations))
+        j = float(np.max((10/math.sqrt(3))*deltas/durations**2))
+        scale = max(1.0, m[0]*v/speed,
+                    math.sqrt((m[1]*v*v + m[0]*a)/acceleration),
+                    ((m[2]*v**3 + 3*m[1]*v*a + m[0]*j)/jerk)**(1/3))
+        return PathTiming(self.path, self.progress, self.velocity/scale, self.times*scale)
+
     def at(self, seconds):
         return self.state(seconds)[0]
 

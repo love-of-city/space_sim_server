@@ -7,6 +7,7 @@
   "max_attempts_per_worker": 4,
   "seed": 2026101900,
   "range_deg": 10.0,
+  "randomize_orbit_phase": true,
   "port_base": 21000,
   "offline": true,
   "reuse_renderer": true,

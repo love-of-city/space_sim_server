@@ -272,8 +272,8 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
     if request.randomize_orbit_phase:
         # A versioned, independent stream preserves existing training-v1
         # samples and gives the same orbital phase for either local profile.
-        orbit_rng = random.Random(f"space-arm-orbit-phase-v1:{seed}")
-        orbit["true_anomaly_deg"] = orbit_rng.random() * 360.0
+        from .orbit_randomization import sample_orbit_phase
+        orbit["true_anomaly_deg"] = sample_orbit_phase(seed)
 
     return {
         "schema": "space-arm-scene-instance/1",

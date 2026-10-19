@@ -35,6 +35,15 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
     rng = np.random.Generator(np.random.PCG64(seed))
     offset = rng.uniform(-half_range_deg, half_range_deg, 6)
     scene["seed"] = int(seed)
+    # Re-sample at the episode boundary; a copied scene otherwise retains the
+    # same saved orbital phase for every attempt. Replay never samples again.
+    orbit_randomized = scene.get("randomize_orbit_phase", False)
+    if not isinstance(orbit_randomized, bool):
+        raise ValueError("randomize_orbit_phase must be a boolean")
+    if orbit_randomized:
+        from space_arm_platform.orbit_randomization import sample_orbit_phase
+        orbit = scene.setdefault("environment", {}).setdefault("orbit", {})
+        orbit["true_anomaly_deg"] = sample_orbit_phase(int(seed))
     scene["randomization"]["arm_joint_position_rad"] = [
         *(baseline + np.deg2rad(offset)),
         0.0,
@@ -60,6 +69,11 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
             initial_gripper_opening=0.0,
         ),
         randomization_options=scene.get("collection_randomization", {}),
+        orbital_phase_randomization=(dict(
+            enabled=True, distribution="uniform_true_anomaly_deg", range_deg=[0.0, 360.0],
+            stream="space-arm-orbit-phase-v1", seed=int(seed),
+            true_anomaly_deg=scene["environment"]["orbit"]["true_anomaly_deg"],
+        ) if orbit_randomized else dict(enabled=False)),
         disturbances=NOISE_DISABLED.copy(),
         lighting_randomized=False,
         dynamics_randomized=False,

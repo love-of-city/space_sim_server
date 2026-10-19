@@ -28,10 +28,13 @@ cd ~/src/space_sim_server/space_sim_server
 | `reuse_renderer` | 每路保留 UE；每条仍重建动力学与录制器，隔离物理状态 |
 | `warmup_seconds` / `reuse_warmup_seconds` | 首条/复用后预热时间，默认都为 5 秒；缩短后需验证首帧质量 |
 | `range_deg` | 初始关节随机偏移范围，0–10 度；性能对比可用 0 固定初始姿态 |
+| `randomize_orbit_phase` | 每次尝试沿输入轨道随机选择真近点角 `[0,360)`；仓库配置开启，旧配置缺省关闭 |
 | `sample_seconds` | 资源采样间隔 |
 | `worker_timeout_seconds` | 整批最长墙钟时间，包括启动和校验 |
 
 GPU 显存不足或计算已满时，增加并发可能降低总吞吐量，应先比较一、两路。配置的 GPU 序号不是 CUDA 可见设备重映射；在不同设备枚举的多卡环境部署前必须单路核对实际 UE/NVENC 设备日志。
+
+在轨位置随机化使用与网页场景创建相同的独立种子流，每次尝试重新采样并保存 `environment.orbit.true_anomaly_deg` 和采样元数据。它改变航天器在既定轨道上的初始位置及对应轨道速度，由动力学初始化实际使用；高度、偏心率、倾角和局部机械臂/任务台布局保持输入场景设定。地球背景、相对太阳方向和遮挡可能随轨道位置改变。椭圆轨道上均匀真近点角不等于均匀时间采样。回放使用已保存的角度，不再次采样。串行批量入口可用 `--randomize-orbit-phase` / `--no-randomize-orbit-phase` 显式控制。
 
 ## UE 复用与数据完整性
 

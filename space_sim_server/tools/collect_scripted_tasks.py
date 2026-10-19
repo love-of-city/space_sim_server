@@ -253,6 +253,8 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--max-attempts", type=int, default=15)
     parser.add_argument("--seed", type=int, default=2026101501)
     parser.add_argument("--range-deg", type=float, default=10.0)
+    parser.add_argument("--randomize-orbit-phase", action=argparse.BooleanOptionalAction,
+                        default=None, help="Sample a new orbital phase per attempt; otherwise inherit scene setting")
     parser.add_argument("--control-port", type=int, default=19766)
     parser.add_argument("--capture-port", type=int, default=19767)
     parser.add_argument("--render-port", type=int, default=16558)
@@ -281,6 +283,8 @@ def main(default_task="drawer_cycle"):
     if args.cancel_file is None:
         args.cancel_file = args.output / "cancel.request"
     source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
+    if args.randomize_orbit_phase is not None:
+        source["randomize_orbit_phase"] = args.randomize_orbit_phase
     model = ROOT / "model/SARM/platform/sarm_20261012.xml"
     started = time.monotonic()
     report = dict(

@@ -47,6 +47,7 @@ class CollectionConfig(BaseModel):
     max_attempts_per_worker: int = Field(default=4, ge=1, le=1000)
     seed: int = Field(default=2026101900, ge=0)
     range_deg: float = Field(default=10.0, ge=0, le=10)
+    randomize_orbit_phase: bool = False
     port_base: int = Field(default=21000, ge=1024, le=65000)
     offline: bool = True
     reuse_renderer: bool = True
@@ -207,6 +208,8 @@ def run(args):
                        "--reuse-warmup-seconds", str(config.reuse_warmup_seconds)]
             for name, port in entry["ports"].items():
                 command += [f"--{name}-port", str(port)]
+            command.append("--randomize-orbit-phase" if config.randomize_orbit_phase
+                           else "--no-randomize-orbit-phase")
             if config.offline:
                 command.append("--offline")
             if config.reuse_renderer:

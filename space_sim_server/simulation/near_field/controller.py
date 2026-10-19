@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from Basilisk.architecture import messaging, sysModel
 from Basilisk.utilities import RigidBodyKinematics as rbk
 
-from simulation.orbital_rendezvous.reference import MU
+from simulation.navigation_gravity import PointMassNavigationGravity
 from simulation.orbital_rendezvous.model import assembly_properties
 from simulation.pose_ik import _iterate, _rotation_error, ElbowPreference
 
@@ -22,10 +22,11 @@ def config_rate(config):
 
 
 class NearController(sysModel.SysModel):
-    def __init__(self, scene, ports, chain, mass, handoff, config, model_path):
+    def __init__(self, scene, ports, chain, mass, handoff, config, model_path, *, gravity_model=None):
         super().__init__()
         self.ModelTag = "nearFieldEstimatedControl"
         self.scene, self.chain, self.mass = scene, chain, mass
+        self.gravity = gravity_model or PointMassNavigationGravity()
         root = ET.parse(model_path).getroot()
         self.assembly_com_readers = [[(float(b.find("inertial").get("mass")), ports.body_com_state(b.get("name")).addSubscriber())
                                       for b in top.iter("body")] for top in root.findall("./worldbody/body")]
@@ -140,8 +141,7 @@ class NearController(sysModel.SysModel):
         truth_relative = truth[0] - truth[1]
         stereo_rotation = rb @ self.zero_tool_rotation
         grasp_tool = stereo_rotation.T @ (grasp - truth[1, :3])
-        radius = np.linalg.norm(self.target_orbit[:3])
-        gradient = MU * (3 * np.outer(self.target_orbit[:3], self.target_orbit[:3]) / radius**5 - np.eye(3) / radius**3)
+        gradient = self.gravity.gradient(self.target_orbit[:3], now-dt)
         # Despin and arm deployment accelerate body origins relative to their
         # assembly COMs. Once pointing is acquired, use the settled-flight
         # disturbance model; retaining slew noise makes velocity estimates too
@@ -156,8 +156,9 @@ class NearController(sysModel.SysModel):
         self.target_covariance = (absolute_transition @ self.target_covariance @ absolute_transition.T
             + acceleration_noise @ acceleration_noise.T * self.nav.acceleration_sigma_m_s2**2)
         self.nav.predict(dt, -self.force / self.mass, gradient)
-        self.target_orbit[:3] += self.target_orbit[3:] * dt - 0.5 * MU * self.target_orbit[:3] / radius**3 * dt**2
-        self.target_orbit[3:] -= MU * self.target_orbit[:3] / np.linalg.norm(self.target_orbit[:3])**3 * dt
+        orbit_acceleration = self.gravity.acceleration(self.target_orbit[:3], now-dt)
+        self.target_orbit[:3] += self.target_orbit[3:] * dt + 0.5 * orbit_acceleration * dt**2
+        self.target_orbit[3:] += 0.5 * dt * (orbit_acceleration + self.gravity.acceleration(self.target_orbit[:3], now))
         # Read the physical publisher's epoch, not this pre-physics callback's
         # clock. They differ by one outer step after initialization. Poll every
         # control tick; SensorSimulator gates acquisition at the receiver rate.

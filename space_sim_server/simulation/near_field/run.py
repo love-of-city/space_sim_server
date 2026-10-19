@@ -27,6 +27,7 @@ from simulation.components.orbit import OrbitComponent
 from simulation.components.orbital_gravity import OrbitalGravityComponent
 from simulation.components.flight_environment import FlightEnvironmentComponent
 from simulation.orbital_configuration import environment_metadata
+from simulation.navigation_gravity import BskNavigationGravity
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 from simulation.local_mujoco_stepper import LocalMujocoStepper, servo_specs
 from simulation.orbital_rendezvous.assets import bind_team_catalog
@@ -116,7 +117,8 @@ def run(args):
     attitude = AttitudeControl(sim, process, scene, model, drive_task=("nearDynamics", int(Slot.ACTUATOR)),
                               reference_provider=(lambda t: control.attitude_reference(t))
                               if guidance_frame(incoming) == "orbital-vbar" else None)
-    control = NearController(scene, ctx.ports, chain, manifest["bodies"]["cubesat_bus"]["mass_kg"], incoming, config, model)
+    control = NearController(scene, ctx.ports, chain, manifest["bodies"]["cubesat_bus"]["mass_kg"], incoming, config, model,
+                             gravity_model=BskNavigationGravity(ctx.ports.orbital_environment()))
     refs = HeldJointReferencePublisher(control.reference, 8)
     specs = servo_specs(ACTUATORS, JOINTS, [32, 32, 32, 30, 30, 15, 100, 100],
                          [2, 2, 2, .7, .5, .25, 1, 1], [100] * 6 + [.5, .5], refs)

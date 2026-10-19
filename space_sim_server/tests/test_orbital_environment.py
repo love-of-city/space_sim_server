@@ -44,6 +44,50 @@ def environment(sun=False):
     return env, keep
 
 
+@pytest.mark.parametrize("mode", ["point_mass", "j2"])
+def test_navigation_native_field_matches_rotated_earth_and_indirect_sun_without_rewinding_truth(mode):
+    from simulation.navigation_gravity import BskNavigationGravity
+    from simulation.orbital_configuration import configure_earth_gravity
+    from space_arm_platform.orbital_physics import OrbitalPhysics
+
+    factory = simIncludeGravBody.gravBodyFactory()
+    earth, sun = factory.createEarth(), factory.createSun()
+    earth.isCentralBody = True
+    settings = OrbitalPhysics(earth_gravity=mode)
+    configure_earth_gravity(earth, settings)
+    center = np.array([2e6, -3e6, 1e5])
+    sun_position = np.array([1.3e11, -6e10, 2e10])
+    c, s = np.cos(.3), np.sin(.3)
+    rotation = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    payload = messaging.SpicePlanetStateMsgPayload(PositionVector=center.tolist(), J20002Pfix=rotation.tolist())
+    earth_msg = messaging.SpicePlanetStateMsg().write(payload, 1_000_000_000)
+    sun_msg = source_message(sun_position, nanos=1_000_000_000)
+    env = BskOrbitalEnvironment(spacecraft.Spacecraft())
+    env.add_gravity_source("earth", earth, earth_msg)
+    env.add_gravity_source("sun", sun, sun_msg)
+    env.begin_interval()
+    env.forces(np.array([[0., 0., 0.], [110., 2., 0.]]), np.array([0., 10.]), R, 1_000_000_000)
+    before = (env.evaluations, env.last_time_ns, tuple(x["message"].timeWritten() for x in env.sources.values()))
+    query = BskNavigationGravity(env)
+
+    def expected(position):
+        fixed = rotation @ position
+        radius = np.linalg.norm(fixed)
+        earth_acc = -earth.mu * fixed / radius**3
+        if mode == "j2":
+            z2 = (fixed[2] / radius)**2
+            earth_acc += 1.5 * settings.j2_coefficient * earth.mu * earth.radEquator**2 / radius**5 * np.array([
+                fixed[0]*(5*z2-1), fixed[1]*(5*z2-1), fixed[2]*(5*z2-3)])
+        sun_delta = position + center - sun_position
+        indirect = center - sun_position
+        return rotation.T @ earth_acc - sun.mu * sun_delta / np.linalg.norm(sun_delta)**3 + sun.mu * indirect / np.linalg.norm(indirect)**3
+
+    np.testing.assert_allclose(query.acceleration(R, .8), expected(R), atol=2e-12, rtol=0)
+    gradient = np.column_stack([(expected(R + 10*b) - expected(R - 10*b))/20 for b in np.eye(3)])
+    np.testing.assert_allclose(query.gradient(R, .8), gradient, atol=3e-14, rtol=0)
+    assert (env.evaluations, env.last_time_ns, tuple(x["message"].timeWritten() for x in env.sources.values())) == before
+
+
 def direct_acceleration(position, sources):
     result = np.zeros(3)
     for source in sources.values():

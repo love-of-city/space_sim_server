@@ -17,6 +17,27 @@ def orbit(t):
     return np.array([state, state + [0., -110., 0., 0., 0., 0.]])
 
 
+def test_delayed_prediction_uses_configured_field_at_measurement_epochs():
+    from simulation.gnss_transport import _propagate
+    class Field:
+        def __init__(self):
+            self.times = []
+        def acceleration(self, position, time_s):
+            self.times.append(time_s)
+            return np.array([.2, -.1, .05])
+        def gradient(self, position, time_s):
+            return np.zeros((3, 3))
+    field = Field()
+    initial = orbit(0.)
+    control = np.array([[.1, 0., 0.], [0., .1, 0.]])
+    state, covariance = _propagate(initial, np.eye(12), .25, control, gravity_model=field, time_s=12.)
+    a = control + [.2, -.1, .05]
+    np.testing.assert_allclose(state[:, :3], initial[:, :3] + .25*initial[:, 3:] + .5*.25**2*a)
+    np.testing.assert_allclose(state[:, 3:], initial[:, 3:] + .25*a)
+    assert field.times == [12., 12.25, 12., 12.25]
+    assert np.linalg.eigvalsh(covariance).min() > 0
+
+
 def test_transport_never_uses_a_packet_before_its_due_time():
     nav = DelayedGNSSNavigation(GNSSConfig(delay_s=.25))
     acceleration = np.zeros((2, 3))

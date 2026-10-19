@@ -25,6 +25,7 @@ from simulation.components.orbit import OrbitComponent
 from simulation.components.orbital_gravity import OrbitalGravityComponent
 from simulation.components.flight_environment import FlightEnvironmentComponent
 from simulation.orbital_configuration import environment_metadata
+from simulation.navigation_gravity import BskNavigationGravity, PointMassNavigationGravity
 from simulation.local_mujoco_stepper import LocalMujocoStepper
 from simulation.physics_ports import PhysicsPorts
 from space_arm_platform.rendezvous_config import FlightOptions
@@ -35,12 +36,12 @@ from simulation.gnss_transport import DelayedGNSSNavigation
 from .assets import bind_team_catalog
 from .model import prepare_model
 from .navigation import OrbitFilter
-from .reference import EARTH_RADIUS, FlightProfile, gravity
+from .reference import EARTH_RADIUS, FlightProfile
 from .rendering import flight_scene_settings
 
 
 class FlightControl(sysModel.SysModel):
-    def __init__(self, scene, profile, mass, limit, seed, options=None, ports=None):
+    def __init__(self, scene, profile, mass, limit, seed, options=None, ports=None, *, gravity_model=None):
         super().__init__()
         self.ModelTag = "teamOrbitalGNSSControl"
         self.scene, self.profile, self.mass, self.limit = scene, profile, mass, limit
@@ -49,14 +50,16 @@ class FlightControl(sysModel.SysModel):
             for n in ("target_flight_center", "orbital_thrust_center")
         ]
         self.options = options or FlightOptions(seed=seed)
-        self.filters = [OrbitFilter(self.options.gnss_position_sigma_m, self.options.gnss_velocity_sigma_m_s) for _ in range(2)]
+        self.gravity = gravity_model or PointMassNavigationGravity()
+        self.filters = [OrbitFilter(self.options.gnss_position_sigma_m, self.options.gnss_velocity_sigma_m_s,
+                                    gravity_model=self.gravity) for _ in range(2)]
         self.rng = np.random.default_rng(np.random.SeedSequence([seed, 0]))
         self.paired_receiver = (DifferentialGNSS(GNSSConfig.from_dict(self.options.differential_gnss), seed)
                                 if self.options.differential_gnss is not None else None)
-        self.joint_filter = JointOrbitFilter() if self.paired_receiver else None
+        self.joint_filter = JointOrbitFilter(gravity_model=self.gravity) if self.paired_receiver else None
         self.delayed_navigation = None
         if self.paired_receiver and self.paired_receiver.config.delay_s > 0:
-            self.delayed_navigation = DelayedGNSSNavigation(self.paired_receiver.config, seed)
+            self.delayed_navigation = DelayedGNSSNavigation(self.paired_receiver.config, seed, gravity_model=self.gravity)
             self.paired_receiver = self.delayed_navigation.receiver
             self.joint_filter = self.delayed_navigation.filter
             self.origin_readers = [scene.getBody(name).getOrigin().stateOutMsg.addSubscriber()
@@ -112,7 +115,7 @@ class FlightControl(sysModel.SysModel):
         elif navigation_valid:
             estimate = np.array(
                 [
-                    f.update(z, dt, self.force_n / self.mass if i else np.zeros(3))
+                    f.update(z, dt, self.force_n / self.mass if i else np.zeros(3), time_s=t)
                     for i, (f, z) in enumerate(zip(self.filters, observations))
                 ]
             )
@@ -133,12 +136,12 @@ class FlightControl(sysModel.SysModel):
         else:
             desired_r = desired_r + estimate[0, :3] - target_r
             desired_v = desired_v + estimate[0, 3:] - target_v
-            desired_a = desired_a + gravity(estimate[0, :3]) - target_a
+            desired_a = desired_a + self.gravity.acceleration(estimate[0, :3], t) - target_a
             # No truth-state feedback: commands use GNSS-filter estimates and an
             # independently constructed reference. Native dynamics owns all motion.
             acceleration = (
                 desired_a
-                - gravity(estimate[1, :3])
+                - self.gravity.acceleration(estimate[1, :3], t)
                 + 0.0004 * (desired_r - estimate[1, :3])
                 + 0.04 * (desired_v - estimate[1, 3:])
             )
@@ -239,6 +242,7 @@ def run(args):
                            "simulation/local_mujoco_stepper.py", "simulation/orbital_environment.py",
                            "simulation/attitude_control.py", "simulation/assembly.py", "simulation/physics_ports.py",
                            "simulation/differential_gnss.py", "simulation/gnss_transport.py", "backend/space_arm_platform/gnss_config.py",
+                           "simulation/navigation_gravity.py", "simulation/orbital_configuration.py", "backend/space_arm_platform/orbital_physics.py",
                            "backend/space_arm_platform/rendezvous_config.py", "native/local_mujoco_stepper.cpp"]
     integration_hashes = {name: hashlib.sha256((repository / name).read_bytes()).hexdigest() for name in integration_sources}
     model, mesh_files, manifest = prepare_model(
@@ -292,7 +296,7 @@ def run(args):
         profile,
         manifest["bodies"]["cubesat_bus"]["mass_kg"],
         args.force_limit,
-        options.seed, options, ctx.ports,
+        options.seed, options, ctx.ports, gravity_model=BskNavigationGravity(ctx.ports.orbital_environment()),
     )
     controller.navigation_loss_s = args.navigation_loss
     simulation.AddModelToTask("flightNavigation", controller)

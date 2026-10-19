@@ -10,19 +10,19 @@ import copy
 import numpy as np
 
 from simulation.differential_gnss import DifferentialGNSS, JointOrbitFilter
-from simulation.orbital_rendezvous.reference import MU, gravity
+from simulation.navigation_gravity import PointMassNavigationGravity
 
 
-def _propagate(state, covariance, dt, accelerations):
+def _propagate(state, covariance, dt, accelerations, *, gravity_model=None, time_s=0.):
+    field = gravity_model or PointMassNavigationGravity()
     state = state.copy()
     transition, noise = np.eye(12), np.zeros((12, 12))
     for i, control in enumerate(accelerations):
         r, v = state[i, :3].copy(), state[i, 3:].copy()
-        acceleration = gravity(r) + control
+        acceleration = field.acceleration(r, time_s) + control
         position = r + dt*v + .5*dt*dt*acceleration
-        state[i] = np.r_[position, v + .5*dt*(acceleration + gravity(position) + control)]
-        radius = np.linalg.norm(r)
-        gradient = MU * (3*np.outer(r, r)/radius**5 - np.eye(3)/radius**3)
+        state[i] = np.r_[position, v + .5*dt*(acceleration + field.acceleration(position, time_s+dt) + control)]
+        gradient = field.gradient(r, time_s)
         block = np.eye(6)
         block[:3, 3:] = dt*np.eye(3)
         block[3:, :3] = dt*gradient
@@ -52,9 +52,9 @@ class DelayedGNSSNavigation:
     at ``now``. The receiver runs at its configured rate; delivery/prediction may
     run faster. In-flight samples and their reference geometry survive handoff.
     """
-    def __init__(self, config, seed=7):
+    def __init__(self, config, seed=7, *, gravity_model=None):
         self.receiver = DifferentialGNSS(config, seed)
-        self.filter = JointOrbitFilter()
+        self.filter = JointOrbitFilter(gravity_model=gravity_model)
         self.pending = deque()
         self.controls = deque()
         self.now = None
@@ -80,7 +80,8 @@ class DelayedGNSSNavigation:
                 raise ValueError("GNSS prediction has a gap in command history")
             until = min(end, epoch)
             if until > cursor:
-                state, covariance = _propagate(state, covariance, until-cursor, acceleration)
+                state, covariance = _propagate(state, covariance, until-cursor, acceleration,
+                                               gravity_model=self.filter.gravity, time_s=cursor)
                 cursor = until
             if cursor >= epoch - 1e-10:
                 break

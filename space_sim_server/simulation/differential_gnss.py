@@ -7,7 +7,7 @@ fix acquisition. The filter uses measurements/covariance and commanded forces.
 import numpy as np
 
 from space_arm_platform.gnss_config import GNSSConfig
-from simulation.orbital_rendezvous.reference import MU, gravity
+from simulation.navigation_gravity import PointMassNavigationGravity
 
 
 class DifferentialGNSS:
@@ -59,7 +59,8 @@ class DifferentialGNSS:
 
 class JointOrbitFilter:
     """12-state filter retaining inter-spacecraft covariance for relative flight."""
-    def __init__(self):
+    def __init__(self, *, gravity_model=None):
+        self.gravity = gravity_model or PointMassNavigationGravity()
         self.state = None
         self.covariance = None
         self.last_stamp = None
@@ -82,11 +83,10 @@ class JointOrbitFilter:
             F, Q = np.eye(12), np.zeros((12, 12))
             for i, a_control in enumerate(acceleration):
                 r, v = self.state[i, :3].copy(), self.state[i, 3:].copy()
-                a = gravity(r) + a_control
+                a = self.gravity.acceleration(r, self.last_stamp) + a_control
                 rnew = r + dt*v + 0.5*dt*dt*a
-                self.state[i] = np.r_[rnew, v + 0.5*dt*(a + gravity(rnew) + a_control)]
-                radius = np.linalg.norm(r)
-                G = MU * (3*np.outer(r, r)/radius**5 - np.eye(3)/radius**3)
+                self.state[i] = np.r_[rnew, v + 0.5*dt*(a + self.gravity.acceleration(rnew, stamp) + a_control)]
+                G = self.gravity.gradient(r, self.last_stamp)
                 T = np.eye(6)
                 T[:3, 3:] = dt*np.eye(3)
                 T[3:, :3] = dt*G

@@ -85,6 +85,7 @@ def verify(folder):
     navigation_samples_match = []
     physical_samples_match = []
     optical_samples_match = []
+    gap_samples_match = []
     for line in (folder/"state_packets.jsonl").open(encoding="utf-8"):
         packet = json.loads(line)
         i = int(round((packet["sim_time_s"]-data["t"][0])*20))
@@ -118,6 +119,7 @@ def verify(folder):
         goal_r = Ra@panel@zero_r
         axis = goal_r[:, 2]
         h = axis@e
+        gap_samples_match.append(abs(h-data["truth_tcp_gap_m"][i]) < 1e-8)
         cosine = np.clip((np.trace(goal_r@(Rb@Rt).T)-1)/2, -1, 1)
         evaluated.append([h, np.linalg.norm(e-h*axis), np.rad2deg(np.arccos(cosine))])
         evaluated_index, evaluated_time = i, packet["sim_time_s"]
@@ -165,12 +167,19 @@ def verify(folder):
     checks = {key: bool(value) for key, value in checks.items()}
     plan = report["model_manifest"].get("approach_plan")
     if plan:
+        checks["independent_gap_all_packets"] = bool(gap_samples_match) and all(gap_samples_match)
         checks["independent_optical_depth"] = bool(optical_samples_match) and all(optical_samples_match)
         checks["no_unplanned_dynamic_contact"] = report["local_dynamics"]["max_contacts"] == 0
         if normal:
             completed = np.flatnonzero(data["optical_checkpoint_complete"])
-            checkpoint = np.arange(max(0, completed[0]-99), completed[0]+1) if len(completed) else np.array([], dtype=int)
-            hold = np.flatnonzero(data["phase"] == "PlatformHold")[-100:]
+            checkpoint = np.arange(max(0, completed[0]-100), completed[0]+1) if len(completed) else np.array([], dtype=int)
+            hold = np.flatnonzero(data["phase"] == "PlatformHold")
+            # The ArmDeploy transition row still contains the pre-command
+            # physical observation/encoders. Include it to check a full 5 s
+            # interval (101 samples), not just 100 sample points spanning 4.95 s.
+            if len(hold) and data["phase"][hold[-1]+1] == "ArmDeploy":
+                hold = np.r_[hold, hold[-1]+1]
+            hold = hold[-101:]
             # Reconstruct physical rotating velocity from physical body states.
             target = data["truth"][:, 0]
             omega = np.cross(target[:, :3], target[:, 3:]) / np.sum(target[:, :3]**2, axis=1)[:, None]
@@ -179,10 +188,12 @@ def verify(folder):
                 physical_velocity = physical_velocity - np.cross(omega, true_relative[:, :3])
             physical_speed = np.linalg.norm(physical_velocity, axis=1)
             checks.update(
-                optical_checkpoint_true_dwell=bool(len(checkpoint) == 100
+                optical_checkpoint_true_dwell=bool(len(checkpoint) == 101
+                    and np.ptp(data["elapsed_s"][checkpoint]) >= 5.-1e-8
                     and np.all(np.abs(data["truth_optical_depth_m"][checkpoint]-17.4) < .10)
                     and np.all(physical_speed[checkpoint] < .003)),
-                stowed_tcp_half_meter_true_dwell=bool(len(hold) == 100
+                stowed_tcp_half_meter_true_dwell=bool(len(hold) == 101
+                    and np.ptp(data["elapsed_s"][hold]) >= 5.-1e-8
                     and np.all(np.abs(data["truth_tcp_gap_m"][hold]-.5) < .010)
                     and np.all(physical_speed[hold] < .003)
                     and np.all(np.abs(data["joints"][hold, :6]) < .005)))

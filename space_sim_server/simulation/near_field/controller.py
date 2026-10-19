@@ -102,6 +102,7 @@ class NearController(sysModel.SysModel):
         self.plan = approach_plan(chain)
         self.nominal_grasp = np.array(self.plan["nominal_grasp_bus_m"])
         self.optical_checkpoint = OpticalCheckpoint()
+        self.platform_stable_since = None
 
     def reference(self, _t):
         return self.qref.copy(), self.dqref.copy()
@@ -237,7 +238,7 @@ class NearController(sysModel.SysModel):
             self.transition("GNSSApproach", now)
         if self.phase == "GNSSApproach":
             self.optical_checkpoint.update(error_m=checkpoint_error, speed_m_s=speed,
-                ready=pointing_ready and link_valid, dt=dt, now=now)
+                ready=pointing_ready and link_valid, now=now)
         checkpoint_complete = self.optical_checkpoint.completed_at_s is not None
         if self.phase == "GNSSApproach" and checkpoint_complete and visual_valid:
             self.transition("VisualFusion", now)
@@ -277,11 +278,15 @@ class NearController(sysModel.SysModel):
             platform_ready = (visual_valid and link_valid and pointing_ready
                 and abs(gap-self.plan["stowed_tcp_gap_m"]) < .006
                 and np.linalg.norm(platform_error) < .006 and speed < .002)
-            self.dwell = self.dwell + dt if platform_ready else 0.
+            if not platform_ready:
+                self.platform_stable_since = None
+            elif self.platform_stable_since is None:
+                self.platform_stable_since = now
+            self.dwell = 0. if self.platform_stable_since is None else now-self.platform_stable_since
         if self.phase == "PlatformHold" and self.dwell >= self.plan["platform_dwell_s"]:
             target_p = rb.T @ (estimated_grasp - axis * 0.15)
-            target_r = rb.T @ goal_rotation
-            self.deploy_q = _iterate(self.chain, np.deg2rad([76.15, -64.33, 44.38, -70.05, 76.15, -90]), target_p, target_r,
+            ik_target_r = rb.T @ goal_rotation
+            self.deploy_q = _iterate(self.chain, np.deg2rad([76.15, -64.33, 44.38, -70.05, 76.15, -90]), target_p, ik_target_r,
                                      np.array([-3.1416] * 5 + [-6.2832]), np.array([3.1416] * 5 + [6.2832]), ElbowPreference())
             if self.deploy_q is None:
                 self.close_inhibited = True

@@ -32,11 +32,16 @@ class OpticalCheckpoint:
     """Require an uninterrupted stationary dwell; completion is latched."""
     dwell_s: float = 0.
     completed_at_s: float | None = None
+    stable_since_s: float | None = None
 
-    def update(self, *, error_m, speed_m_s, ready, dt, now):
+    def update(self, *, error_m, speed_m_s, ready, now):
         if self.completed_at_s is None:
             stationary = ready and np.linalg.norm(error_m) < .05 and speed_m_s < .002
-            self.dwell_s = self.dwell_s + dt if stationary else 0.
+            if not stationary:
+                self.stable_since_s = None
+            elif self.stable_since_s is None:
+                self.stable_since_s = now
+            self.dwell_s = 0. if self.stable_since_s is None else now-self.stable_since_s
             if self.dwell_s >= 5.:
                 self.completed_at_s = now
         return self.completed_at_s is not None

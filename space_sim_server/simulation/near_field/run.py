@@ -80,6 +80,7 @@ def packet(scene, row, run_id):
 
 def run(args):
     repository = Path(__file__).resolve().parents[2]
+    source_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob("*.py")}
     output = args.output_dir.resolve()
     model, files, manifest, chain = prepare(repository, output)
     incoming = load_handoff(args.handoff, repository / DEFAULT_MODEL) if args.handoff else fixture(repository, manifest)
@@ -273,7 +274,7 @@ def run(args):
               **({"initial_gnss_transport": incoming["gnss_transport"],
                   "final_gnss_transport": control.sensors.transport_snapshot()}
                  if incoming.get("gnss_transport") is not None else {}),
-              "source_hashes": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob("*.py")},
+              "source_hashes": source_hashes,
               "optical_checkpoint": {"completed_elapsed_s": control.optical_checkpoint.completed_at_s,
                                      "dwell_s": control.optical_checkpoint.dwell_s},
               "nominal_platform_origin_to_grasp_m": float(np.linalg.norm(control.nominal_grasp)),

@@ -9,18 +9,30 @@ from simulation.near_field.approach_plan import OpticalCheckpoint, approach_plan
 
 def test_optical_checkpoint_requires_continuous_position_speed_and_link_dwell():
     checkpoint = OpticalCheckpoint()
+    tick = 0
     def step(**overrides):
+        nonlocal tick
+        tick += 1
         return checkpoint.update(**(dict(error_m=[.01, 0, 0], speed_m_s=.001,
-                                          ready=True, dt=.05, now=10.) | overrides))
+                                          ready=True, now=tick*.05) | overrides))
     for violation in ({"error_m": [.06, 0, 0]}, {"speed_m_s": .003}, {"ready": False}):
         for _ in range(90):
             assert not step()
         assert not step(**violation)
         assert checkpoint.dwell_s == 0.
-    for _ in range(101):
+    for _ in range(102):
         completed = step()
-    assert completed and checkpoint.completed_at_s == 10.
+    assert completed and checkpoint.dwell_s >= 5.
     assert step(ready=False)  # completed waypoint remains in mission history
+
+
+def test_checkpoint_does_not_count_interval_before_first_qualified_observation():
+    checkpoint = OpticalCheckpoint()
+    values = dict(error_m=np.zeros(3), speed_m_s=0., ready=True)
+    assert not checkpoint.update(**values, now=10.)
+    assert not checkpoint.update(**values, now=14.95)
+    assert checkpoint.update(**values, now=15.)
+    assert checkpoint.dwell_s == 5.
 
 
 def test_standoff_is_projected_tcp_gap_not_spacecraft_origin_distance():

@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
 
 from space_arm_platform.capture_lifecycle import CaptureLifecycle
+from space_arm_platform.collection_runtime import renderer_command, renderer_environment, check_port_available
 from space_arm_platform.camera_defaults import (
     CAPTURE_CAMERA_WIDTH,
     CAPTURE_CAMERA_HEIGHT,
@@ -108,6 +109,9 @@ def validate_episode(result):
 async def run(args):
     run_started = time.monotonic()
     settings = recording_settings(getattr(args, "recording_config", None))
+    if getattr(args, "gpu_index", None) is not None:
+        settings.video = type(settings.video).model_validate(
+            {**settings.video.model_dump(), "gpu_index": args.gpu_index})
     scene = scene_copy(args.scene, args.task)
     project = args.adapter / "Unreal/BskUnrealRenderer"
     editor = unreal_editor(args.unreal)
@@ -124,8 +128,9 @@ async def run(args):
     if len(set(ports)) != len(ports):
         raise ValueError("Isolated ports must be distinct")
     for port in ports:
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", port))
+        if getattr(args, "external_renderer", False) and port == args.render_port:
+            continue
+        check_port_available(port)
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
@@ -170,7 +175,9 @@ async def run(args):
     }
 
     def emit(stage, **values):
-        print(json.dumps({"stage": stage, **values}, ensure_ascii=False), flush=True)
+        elapsed = time.monotonic() - run_started
+        report.setdefault("stage_seconds", {})[stage] = elapsed
+        print(json.dumps({"stage": stage, "elapsed_seconds": elapsed, **values}, ensure_ascii=False), flush=True)
 
     def launch(command, name, env):
         log = (out / (name + ".log")).open("w", encoding="utf-8")
@@ -204,39 +211,10 @@ async def run(args):
         await hub.start("127.0.0.1", args.control_port)
         receiver.start()
         emit("writer_ready", output=str(out))
-        env = os.environ.copy()
-        env["UE-LocalDataCachePath"] = str(project / "Saved/DerivedDataCache")
-        env["PYTHONIOENCODING"] = "utf-8"
-        command = [
-            str(editor),
-            str(project / "BskUnrealRenderer.uproject"),
-            "-game",
-            "-RenderOffscreen",
-            "-ForceRes",
-            f"-ResX={CAPTURE_CAMERA_WIDTH}",
-            f"-ResY={CAPTURE_CAMERA_HEIGHT}",
-            "-BskListen=127.0.0.1",
-            f"-BskPort={args.render_port}",
-            "-BskCaptureHost=127.0.0.1",
-            f"-BskCapturePort={args.capture_port}",
-            f"-BskCaptureRate={DEFAULT_CAPTURE_HZ}",
-            "-BskCaptureProducts=rgb",
-            "-ExecCmds=t.MaxFPS 90,r.VSync 0",
-            "-DDC=InstalledDerivedDataBackendGraph",
-            f"-abslog={out / 'renderer.log'}",
-            f"-PixelStreamingConnectionURL=ws://127.0.0.1:{args.signalling_port}",
-            "-PixelStreamingID=BskScriptedTask",
-            f"-BskPixelStreamingURL=ws://127.0.0.1:{args.signalling_port}",
-            "-BskPixelStreamingBaseId=BskScriptedTask",
-            "-BskPixelStreamingCameras=" + "+".join(CAMERAS),
-            f"-BskPixelStreamingCameraWidth={CAPTURE_CAMERA_WIDTH}",
-            f"-BskPixelStreamingCameraHeight={CAPTURE_CAMERA_HEIGHT}",
-            "-BskPixelStreamingCameraFps=90",
-            "-PixelStreamingWebRTCFps=90",
-            "-PixelStreamingUseMediaCapture=false",
-            "-PixelStreamingWebRTCDisableTransmitAudio=true",
-        ]
-        launch(command, "renderer-process", env)
+        env = renderer_environment(args)
+        if not getattr(args, "external_renderer", False):
+            launch(renderer_command(args, out), "renderer-process", env)
+        emit("renderer_launched", reused=getattr(args, "external_renderer", False))
         env["PYTHONPATH"] = os.pathsep.join(
             [str(ROOT), str(ROOT / "backend"), str(args.adapter / "Adapters")]
         )
@@ -292,6 +270,7 @@ async def run(args):
                     raise TimeoutError("UE renderer did not start within 240 seconds")
                 await asyncio.sleep(0.25)
         deadline = time.monotonic() + 180
+        emit("renderer_listening")
         while hub.latest_observation is None:
             check_processes()
             if time.monotonic() > deadline:
@@ -303,6 +282,7 @@ async def run(args):
             raise RuntimeError(
                 "Simulation does not support completion-based capture acknowledgements"
             )
+        emit("first_observation")
         while int(hub.latest_observation.sim_time_ns) < round(
             args.warmup_sim_seconds * 1e9
         ):
@@ -476,6 +456,9 @@ def main(default_task="drawer_cycle"):
     )
     parser.add_argument("--episodes-root", type=Path, default=ROOT / "data/episodes")
     parser.add_argument("--recording-config", type=Path, help="Override config/recording.json for an isolated run")
+    parser.add_argument("--offline", action="store_true", help="Disable WebRTC and the unused offscreen viewport")
+    parser.add_argument("--gpu-index", type=int)
+    parser.add_argument("--external-renderer", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--profile-dynamics", action="store_true", help="Diagnostic CPU profile; adds timing overhead")
     parser.add_argument("--control-port", type=int, default=18766)
     parser.add_argument("--capture-port", type=int, default=18767)

@@ -1469,6 +1469,8 @@ void ABskSceneController::ConfigureCaptureOutput()
 
 void ABskSceneController::ConfigurePixelStreamingOutput()
 {
+    // Dataset capture uses its own reliable channel and needs no WebRTC producer.
+    if (FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"))) return;
     if (FParse::Value(FCommandLine::Get(), TEXT("PixelStreamingWebRTCFps="), MaximumStreamingFrameRate))
         MaximumStreamingFrameRate = FMath::Clamp(MaximumStreamingFrameRate, 1, 120);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingURL="), PixelStreamingConnectionUrl);
@@ -1657,7 +1659,8 @@ void ABskSceneController::UpdatePreviewViewportRendering()
     // In server/offscreen mode a camera subscriber does not need a second full
     // 3D view rendered into an unwatched main viewport. SceneCapture continues
     // independently. Never suppress a local editor/windowed user's viewport.
-    if (PixelStreamingConnectionUrl.IsEmpty() || !FParse::Param(FCommandLine::Get(), TEXT("RenderOffscreen"))
+    if ((PixelStreamingConnectionUrl.IsEmpty() && !FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture")))
+        || !FParse::Param(FCommandLine::Get(), TEXT("RenderOffscreen"))
         || !GEngine || !GEngine->GameViewport) return;
     if (!bManagesViewportRendering)
     {

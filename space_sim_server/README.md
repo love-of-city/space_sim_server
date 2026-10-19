@@ -14,6 +14,8 @@
 
 Linux 环境、原生库和验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。Linux UE 5.6.1 双相机渲染、完整脚本录制和 LeRobot 解码已实机验收；网页场景启停仍需 Linux 适配，不能把脚本采集通过认定为整个网页平台已迁移。
 
+脚本批量采集可通过 [多进程采集](docs/PARALLEL_COLLECTION.md) 配置两路隔离并发、每路 UE 复用、离线渲染与资源统计；调度配置位于 `config/collection.json`。
+
 Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实仿真必须安装**包含 MJScene 及项目所需控制、积分和消息 API 的 Basilisk**；普通 Python `mujoco` 包不能替代 `Basilisk.simulation.mujoco`。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装发行包，也可参考其[安装文档](https://hanspeterschaub.info/basilisk/Install.html)自行编译；不限定源码版本或安装方式。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py` 检查功能。以下项目安装命令不会安装 UE、编译器或 Basilisk。
 
 ## 1. 获取仓库

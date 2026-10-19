@@ -168,6 +168,7 @@ class LiveLeRobotWriter:
                     queue_maxsize=self.video_encoding.encoder_queue_maxsize,
                     encoder_threads=self.video_encoding.encoder_threads,
                 )
+                self.dataset._streaming_encoder.gpu_index = self.video_encoding.gpu_index
             # Explicit semantics alongside (not masquerading as) official metadata.
             (self.root / "meta" / "platform.json").write_text(json.dumps({
                 "schema": "space-arm-lerobot/2" if profile is not None else "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "sarm_ee",

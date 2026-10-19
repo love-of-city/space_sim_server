@@ -15,6 +15,7 @@ class VideoEncodingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     codec: Literal["h264", "h264_nvenc"] = "h264"
+    gpu_index: int | None = Field(default=None, ge=0, le=255)
     streaming_encoding: bool = False
     encoder_threads: int = Field(default=2, ge=1, le=64)
     image_writer_threads: int = Field(default=0, ge=0, le=64)
@@ -24,6 +25,8 @@ class VideoEncodingConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_encoding(self):
+        if self.codec == "h264_nvenc" and self.gpu_index is not None and not self.streaming_encoding:
+            raise ValueError("Explicit NVENC GPU selection requires streaming_encoding")
         if self.codec == "h264_nvenc" and self.keyframe_interval < 2:
             raise ValueError("NVENC requires keyframe_interval >= 2")
         if not self.streaming_encoding and (self.quality != 30 or self.keyframe_interval != 2):

@@ -36,6 +36,7 @@ from simulation.scripted_tasks.plug_profiles import (
 
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
 from space_arm_platform.unreal_runtime import default_unreal_root
+from space_arm_platform.collection_runtime import PersistentRenderer, check_port_available
 
 
 def validate_capture_manifest(episode, meta, steps):
@@ -243,6 +244,11 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--episodes-root", type=Path, default=ROOT / "data/episodes")
     parser.add_argument("--recording-config", type=Path)
+    parser.add_argument("--reuse-renderer", action="store_true")
+    parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--gpu-index", type=int)
+    parser.add_argument("--warmup-seconds", type=float, default=5.0)
+    parser.add_argument("--reuse-warmup-seconds", type=float, default=5.0)
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--max-attempts", type=int, default=15)
     parser.add_argument("--seed", type=int, default=2026101501)
@@ -259,10 +265,21 @@ def main(default_task="drawer_cycle"):
         parser.error(str(error))
     if not 1 <= args.count <= args.max_attempts <= 1000 or args.seed < 0:
         parser.error("require 1 <= count <= max-attempts <= 1000 and non-negative seed")
+    if any(not 0 <= value <= 60 for value in (args.warmup_seconds, args.reuse_warmup_seconds)):
+        parser.error("warmup must be between 0 and 60 seconds")
+    if args.gpu_index is not None and not 0 <= args.gpu_index <= 255:
+        parser.error("gpu-index must be between 0 and 255")
+    ports = (args.control_port, args.capture_port, args.render_port, args.signalling_port)
+    if len(set(ports)) != 4 or any(not 1024 <= port <= 65535 for port in ports):
+        parser.error("four distinct ports in 1024..65535 are required")
+    for port in ports:
+        check_port_available(port)
     from tools.record_drawer_task import recording_settings
     recording_settings(args.recording_config)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
+    if args.cancel_file is None:
+        args.cancel_file = args.output / "cancel.request"
     source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
     model = ROOT / "model/SARM/platform/sarm_20261012.xml"
     started = time.monotonic()
@@ -291,6 +308,9 @@ def main(default_task="drawer_cycle"):
         temporary.replace(args.output / "summary.json")
 
     probe = None
+    renderer = None
+    child = None
+    recorded = 0
     try:
         save()
         probe = NativePoseProbe(model)
@@ -348,6 +368,18 @@ def main(default_task="drawer_cycle"):
                 "1800",
             ]
             command += motion_args
+            command += ["--warmup-seconds", str(args.reuse_warmup_seconds
+                        if renderer is not None and recorded else args.warmup_seconds)]
+            if args.offline:
+                command.append("--offline")
+            if args.gpu_index is not None:
+                command += ["--gpu-index", str(args.gpu_index)]
+            if args.reuse_renderer:
+                if renderer is None:
+                    renderer = PersistentRenderer(args, args.output)
+                    report["renderer_pid"] = renderer.process.pid
+                renderer.check()
+                command.append("--external-renderer")
             command += ["--adapter", str(args.adapter), "--unreal", str(args.unreal)]
             if args.recording_config:
                 command += ["--recording-config", str(args.recording_config.resolve())]
@@ -367,14 +399,19 @@ def main(default_task="drawer_cycle"):
                 flush=True,
             )
             with (directory / "recording.log").open("w", encoding="utf-8") as log:
-                result = subprocess.run(
+                child = subprocess.Popen(
                     command,
                     cwd=ROOT,
                     stdout=log,
                     stderr=subprocess.STDOUT,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
-            entry["returncode"] = result.returncode
+                while child.poll() is None:
+                    if renderer is not None:
+                        renderer.check()
+                    time.sleep(0.2)
+            recorded += 1
+            entry["returncode"] = child.returncode
             entry["end_to_end_wall_seconds"] = time.monotonic() - attempt_started
             recording_summary = directory / "recording/summary.json"
             if recording_summary.is_file():
@@ -392,7 +429,7 @@ def main(default_task="drawer_cycle"):
                 entry["status"] = "cancelled"
                 report["status"] = "cancelled"
                 return 1
-            if result.returncode != 0:
+            if child.returncode != 0:
                 entry["status"] = "recording_or_task_failed"
                 save()
                 print(
@@ -402,7 +439,7 @@ def main(default_task="drawer_cycle"):
                     flush=True,
                 )
                 # Infrastructure failures must be investigated, not retried forever.
-                if result.returncode not in (0, 1) or not entry.get("task_result"):
+                if child.returncode not in (0, 1) or not entry.get("task_result"):
                     raise RuntimeError(
                         f"Recording infrastructure failed; see {directory}"
                     )
@@ -450,6 +487,25 @@ def main(default_task="drawer_cycle"):
         report["error"] = f"{type(exc).__name__}: {exc}"
         raise
     finally:
+        if child is not None and child.poll() is None:
+            args.cancel_file.write_text("collector stopping", encoding="utf-8")
+            try:
+                child.wait(120)
+            except subprocess.TimeoutExpired:
+                import psutil
+                try:
+                    descendants = psutil.Process(child.pid).children(recursive=True)
+                except psutil.NoSuchProcess:
+                    descendants = []
+                for process in reversed(descendants):
+                    try:
+                        process.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                child.kill()
+                child.wait(10)
+        if renderer is not None:
+            renderer.close()
         if probe is not None:
             probe.close()
         save()

@@ -15,6 +15,8 @@ Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真�
 
 Linux UE 5.6.1 的编译、资产缓存和双相机脚本采集已完成实机验收，步骤见[Linux 基础迁移](../space_sim_server/docs/LINUX_BASIC_MIGRATION.md)。下文 PowerShell 命令对应 Windows；Linux 网页场景进程管理仍待适配。
 
+离线脚本采集支持 `-BskOfflineCapture`：关闭 WebRTC 相机预览，在 `-RenderOffscreen` 下跳过主视口渲染，仍保留权威 RGB 采集。每路常驻 UE 可接受连续的新动力学会话，配置与验收方式见[多进程采集](../space_sim_server/docs/PARALLEL_COLLECTION.md)。
+
 ## 1. 环境与安装
 
 Windows x64、PowerShell 7、Git LFS、UE 5.6、Visual Studio 2022 C++ 游戏开发工具及 Windows SDK。图形运行需要支持 UE 的 GPU/驱动。Python 3.11+；真实仿真需匹配解释器且具备所需 API 的 Basilisk/MJScene。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装，源码编译只是可选方式，不限定源码版本。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py`。mock 与基础线协议测试不依赖 Basilisk，桥接及真实设备协议测试仍需 Basilisk。

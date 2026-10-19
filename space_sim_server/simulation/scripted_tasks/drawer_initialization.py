@@ -3,6 +3,7 @@
 from copy import deepcopy
 import ctypes
 import math
+import os
 import numpy as np
 from .drawer_cycle import DrawerCycleTask
 from .drawer_lift import DrawerSample
@@ -88,8 +89,9 @@ class NativePoseProbe:
         ensure_model_plugins(model_path)
         self.lib, self.ptr, self.i64 = _library(), _pointer, _INT64_P
         error = ctypes.create_string_buffer(1024)
+        runtime = str(_basilisk_mujoco_runtime())
         handle = self.lib.lms_create(
-            str(_basilisk_mujoco_runtime()),
+            runtime if os.name == "nt" else os.fsencode(runtime),
             str(model_path.resolve()).encode(),
             error,
             len(error),

@@ -58,6 +58,8 @@ class StrictStreamingVideoEncoder(StreamingVideoEncoder):
                         # NVENC's default B-frame count is incompatible with
                         # the short GOP used for random training frame reads.
                         options.update(rc="constqp", qp=str(self.crf), bf="0")
+                        if getattr(self, "gpu_index", None) is not None:
+                            options["gpu"] = str(self.gpu_index)
                     else:
                         options["crf"] = str(self.crf)
                     container = av.open(str(self._video_paths[key]), "w")

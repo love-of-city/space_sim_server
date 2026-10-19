@@ -37,7 +37,7 @@ function harness() {
   }
   let reconnects = 0;
   let statsUpdates = 0;
-  const context = vm.createContext({clearWristWrench() {},
+  const context = vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {},
     state, $, window: {}, document: {hidden: false}, Date: {now: () => now}, PixelStreaming: Player, Config: class {
       constructor(options) { this.initialSettings = options.initialSettings; }
       setNumericSetting(key, value) { this.initialSettings[key] = value; }

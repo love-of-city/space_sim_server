@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 import pytest
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -15,6 +16,61 @@ HELPERS=ROOT/'scripts/scene_process_helpers.ps1'
 
 def invoke(path,*args):
     return subprocess.run([PWSH,'-NoProfile','-File',str(path),*map(str,args)],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=25)
+
+
+def atomic_writer(tmp_path):
+    script=tmp_path/'replace-state.ps1'
+    script.write_text('''
+param($Helpers,$Temporary,$Destination)
+$ErrorActionPreference='Stop'
+. $Helpers
+'READY'
+Move-SceneRuntimeState $Temporary $Destination
+''',encoding='utf-8')
+    temporary=tmp_path/'state.json.tmp'
+    destination=tmp_path/'state.json'
+    temporary.write_text('{"phase":"running"}',encoding='utf-8')
+    destination.write_text('{"phase":"launching"}',encoding='utf-8')
+    return script,temporary,destination
+
+
+def test_state_replacement_retries_real_reader_lock_without_removing_old_json(tmp_path):
+    script,temporary,destination=atomic_writer(tmp_path)
+    process=None
+    try:
+        with destination.open('rb') as reader:
+            process=subprocess.Popen([PWSH,'-NoProfile','-File',str(script),str(HELPERS),str(temporary),str(destination)],
+                                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8')
+            assert process.stdout.readline().strip()=='READY'
+            time.sleep(.1)
+            assert process.poll() is None
+            assert json.loads(reader.read())=={'phase':'launching'}
+            assert json.loads(destination.read_text())=={'phase':'launching'}
+        stdout,stderr=process.communicate(timeout=10)
+        assert process.returncode==0,stdout+stderr
+        assert json.loads(destination.read_text())=={'phase':'running'}
+        assert not temporary.exists()
+    finally:
+        if process and process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+
+
+def test_persistent_reader_lock_fails_without_destroying_either_state(tmp_path):
+    script,temporary,destination=atomic_writer(tmp_path)
+    with destination.open('rb'):
+        result=invoke(script,HELPERS,temporary,destination)
+    assert result.returncode!=0
+    assert json.loads(destination.read_text())=={'phase':'launching'}
+    assert json.loads(temporary.read_text())=={'phase':'running'}
+
+
+def test_atomic_state_initial_creation(tmp_path):
+    script,temporary,destination=atomic_writer(tmp_path)
+    destination.unlink()
+    result=invoke(script,HELPERS,temporary,destination)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert json.loads(destination.read_text())=={'phase':'running'}
 
 @pytest.mark.parametrize('component', ['renderer','simulation','stopped'])
 def test_watches_renderer_and_simulation_and_honors_intentional_stop(tmp_path,component):

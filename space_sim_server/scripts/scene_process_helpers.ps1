@@ -1,4 +1,24 @@
 # Shared scene-process lifecycle helpers; dot-sourcing does not start/stop anything.
+function Move-SceneRuntimeState([string]$TemporaryPath, [string]$StatePath) {
+    $source = [IO.Path]::GetFullPath($TemporaryPath)
+    $destination = [IO.Path]::GetFullPath($StatePath)
+    if ([IO.Path]::GetDirectoryName($source) -ne [IO.Path]::GetDirectoryName($destination)) {
+        throw 'Scene state replacement must stay in the same directory.'
+    }
+    # Move-Item -Force can remove/recreate the destination and fail when the
+    # backend briefly holds a read handle. Keep the old JSON intact until an
+    # atomic overwrite succeeds; a persistent lock still fails within one second.
+    for ($attempt = 0; $attempt -lt 40; $attempt++) {
+        try {
+            [IO.File]::Move($source, $destination, $true)
+            return
+        } catch [IO.IOException] {
+            if ($attempt -eq 39) { throw }
+            [Threading.Thread]::Sleep(25)
+        }
+    }
+}
+
 function Get-SceneProcessStartTicks($Process) {
     # A recycled PID can now belong to a protected Windows process. StartTime
     # may be null or throw (including when a process exits during inspection).

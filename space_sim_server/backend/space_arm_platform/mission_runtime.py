@@ -248,6 +248,11 @@ class MissionRuntime:
                 raise PermissionError("历史结果需要管理员接续")
             self._new(self.flight.status().get("scenario", "legacy"), user)
             self._record["flight_output_dir"] = str(folder)
+        # Imported pre-coordinator results have no saved form settings. Restore
+        # their actual flight settings instead of displaying today's defaults.
+        # Also repair an already-adopted record when it is explicitly resumed.
+        if not self._record.get("options") and handoff.get("mission_options"):
+            self._record["options"] = copy.deepcopy(handoff["mission_options"])
         terminal_scene = self.scenes.status().get("phase") in {"stopped", "failed", "completed"}
         if self._record.get("scene_instance_id") and not (self._record.get("stopped") or terminal_scene):
             raise RuntimeError("本次结果已经接续，请使用当前场景或启动新任务")

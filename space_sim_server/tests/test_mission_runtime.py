@@ -396,3 +396,33 @@ def test_handoff_after_scene_launch_failure_is_retryable_without_repeating_fligh
         assert flight.calls == 1
         assert manager.status(OWNER)["mission_id"] == identity
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('already_adopted', [False, True])
+def test_imported_handoff_restores_actual_flight_settings_and_persists_them(tmp_path, monkeypatch, already_adopted):
+    async def run():
+        manager, flight, scenes, _, state = setup(tmp_path)
+        flight.output_dir = tmp_path / 'imported-native-run'
+        flight.report = {'basic_nominal_passed': True}
+        handoff = {'accepted': True, 'state': {'metadata': {'run_id': 'native-source'}},
+                   'mission_options': {'seed': 19, 'differential_gnss': {'delay_s': .2},
+                                       'orbital_physics': {'earth_gravity': 'j2'}}}
+        monkeypatch.setattr('simulation.orbital_rendezvous.handoff.load_handoff', lambda *args: handoff)
+        if already_adopted:
+            manager._new('near-field', ADMIN)
+            manager._record.update(flight_output_dir=str(flight.output_dir), stopped=True)
+        def start(*args, **kwargs):
+            state.update(active=True, phase='running')
+            return {'instance_id': 'restored-operation'}
+        scenes.start = start
+        await manager.handoff(ADMIN)
+        record = manager.status(ADMIN)
+        assert record['options'] == handoff['mission_options']
+        assert record['source_run_id'] == 'native-source'
+        restored = MissionRuntime(manager.root, scenes, flight, manager.telemetry, lambda: False)
+        assert restored.status(ADMIN)['options']['differential_gnss']['delay_s'] == .2
+        handoff['mission_options']['differential_gnss']['delay_s'] = 0
+        assert manager.status(ADMIN)['options']['differential_gnss']['delay_s'] == .2
+        assert flight.calls == 0
+        await manager.close()
+    asyncio.run(run())

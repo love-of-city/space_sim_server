@@ -36,3 +36,25 @@ main 包含统一平台导航和用户管理、独立插头采集、策略控制
 以原 source-snapshot、linux-overlay 和 ue-preparation 三份清单合成预期版本，逐文件比对增量。应用前检查 Linux 现有文件是否有未纳入的修改；任何冲突都停止。修改文件先保存回滚归档，更新后再次核对 SHA256。main 删除的旧前端页面也须按清单移除，随后重新构建前端，避免留下旧版静态入口。
 
 Linux 上必须重新运行对应 Python、前端与信令检查，并验证新版真实动力学。UE Linux 安装及完整相机/平台启停验收仍属于迁移后续工作；Windows 构建通过不替代 Linux UE 验收。
+
+## Linux 同步与实机结果
+
+2026-10-19 已将合并提交 `94620f4468f550788239742e67ad3447aced0284` 的增量应用到上述 Linux 源快照。更新包含 97 个文件变化（含删除旧前端入口），压缩包 424180 字节；更新前检查无未处理冲突，更新后全部目标 SHA256 一致。Linux 仍为源快照，本次没有在 Linux 初始化 Git 或伪造分支状态。
+
+回滚备份：`/home/spacesim-zmh/migration/before-main-merge-20261019-170344.tar.gz`。源更新凭据：源码根目录 `.migration/main-merge-20261019.json`。增量工具事先通过只读预检、冲突拒绝、注入故障后的回滚、正常更新与幂等检查。
+
+重新生成本地资产 catalog 后，只有 `sarm_20261012.xml` 中一个紧固件位姿的浮点末位及其 manifest 校验和与 Windows 不同；已逐行检查，未覆盖其他本地修改。Linux 模型 SHA256 为 `c750f498971554d9c421bd2c00bb30a1a85b972f25b5522b3d6b211f70e88b0c`。
+
+- 服务端基础检查首轮：961 通过、1 失败、177 跳过。唯一失败来自后端读取旧的 `frontend/dist`；构建新前端后，整个 collection platform 文件复查为 20 通过、1 项 Windows 专用测试跳过。未将首轮报告改写成全绿。
+- 适配器检查：76 通过、5 跳过、2 项按基础范围排除，3 项子测试通过。
+- 上述 182 个跳过项均为 Windows/PowerShell 专用入口或 Windows 进程归属测试。基础 CI 插件按设计对 skip 返回非零，故这两次 Linux 命令不算完整基础 CI 通过；对应 Windows 入口已在 Windows 验证，不以安装 PowerShell 或放宽 CI 防护掩盖平台边界。
+- Linux 原生 stepper、posture、MuJoCo 运行库隔离：32 通过；独立资产插件：1 通过。
+- 前端 180 通过，生产构建成功；信令 8 通过，语法检查成功。
+- Linux 资产 catalog 更新成功，仍只代表 catalog 就绪，未执行 Linux UE 导入。
+- 新版真实 BSK/MuJoCo `drawer-cycle/5` 成功：仿真 34.410 秒；脚本进程耗时 41.232 秒（约 0.83×）；脚本内部 wall_seconds 39.818 秒、task_loop_wall_seconds 20.222 秒、ExecuteSimulation 18.347 秒。使用与 Windows 验证相同的场景配置；未开启相机或 LeRobot 录制，不是完整数采吞吐基准。
+
+Linux 证据：`/home/spacesim-zmh/migration/main-merge-20261019/`。已回收至 Windows 服务端 `reports/main-merge-20261019/linux/`，包含原始失败与复查日志、JUnit、真实任务 summary、源更新凭据和最终文件审计。
+
+## 后续 UE 安装限制
+
+Linux 已存在用户上传的 `Linux_Unreal_Engine_5.6.1.zip`，大小 30868763590 字节（约 28.75 GiB），ZIP 中央目录可读取；尚未完成整个压缩包的 CRC/来源校验。包内解压总大小 67391736152 字节（约 62.76 GiB），当时磁盘剩余约 45.90 GiB，直接完整解压至少差约 16.86 GiB，且还需预留编译和缓存空间。本次保留原上传文件，没有启动解压。Linux UE 编译、图像录制和完整网页进程生命周期仍待后续验收。

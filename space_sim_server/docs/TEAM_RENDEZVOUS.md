@@ -40,7 +40,7 @@
 
 10/8会议的旧3m、0.5m/s在这里按每轴1σ解释，不称为接收机规格。密度、面积和系数同样是可配置仿真假设，并非实测硬件数据。
 
-大气组件采用Basilisk ExponentialAtmosphere，阻力复用团队力函数和共转大气相对速度。光压采用球形等效面积模型，1 AU太阳辐照度1361 W/m²，按距离平方反比变化，并由Basilisk Eclipse的地影因子遮挡。未知扰动力真实施加到两个刚体，控制器不读取该随机过程。轨道滤波通过动力学预测和Joseph协方差更新估计轨道，不以真值代替观测。连续任务目前拒绝非零GNSS传输延迟，避免把延迟观测误当作当前时刻更新。
+大气组件采用Basilisk ExponentialAtmosphere，阻力复用团队力函数和共转大气相对速度。光压采用球形等效面积模型，1 AU太阳辐照度1361 W/m²，按距离平方反比变化，并由Basilisk Eclipse的地影因子遮挡。未知扰动力真实施加到两个刚体，控制器不读取该随机过程。轨道滤波通过动力学预测和Joseph协方差更新估计轨道，不以真值代替观测。连续任务支持0—0.25 s的GNSS传输延迟，按观测采集历元更新并预测到控制历元；跨阶段保留在途包，禁止把迟到观测标成当前采样。
 
 模型公式参考 [Basilisk 指数大气](https://hanspeterschaub.info/basilisk/_downloads/4628ece49f0fa96a05b63562dd03bf90/Basilisk-atmosphere-20190221.pdf)、[Basilisk 地影](https://www.hanspeterschaub.info/basilisk/Documentation/simulation/environment/eclipse/eclipse.html)、[Basilisk 光压](https://hanspeterschaub.info/basilisk/_downloads/86e242b81759c9aa6b3a9f4475ed82ff/Basilisk-RadiationPressure-20170712.pdf)和 [NASA 太阳辐照度](https://earth.gsfc.nasa.gov/climate/projects/solar-irradiance/science)。
 

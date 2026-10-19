@@ -22,7 +22,7 @@
 | `lerobot/data/` | 官方训练数值表 |
 | `lerobot/videos/` | 原双相机视频 |
 | `lerobot/meta/` | 官方特征/统计/索引及平台语义和版本信息 |
-| `lerobot/auxiliary/context/` | 与主帧对应的会话、任务、BSK/姿态/轮系上下文，训练数值来源 SHA256 |
+| `lerobot/auxiliary/context/` | 与主帧对应的会话、任务、BSK/姿态/轮系、引力配置、环境施力及交会来源，训练数值来源 SHA256 |
 | `lerobot/auxiliary/cameras/` | 两路完整相机元数据，包括内外参、浮动原点、时间和源帧号 |
 | `lerobot/high_frequency/wrist_wrench/` | 原始 200 Hz 力、力矩、有效标志和整数纳秒时间 |
 

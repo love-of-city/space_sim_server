@@ -12,7 +12,9 @@ function Move-SceneRuntimeState([string]$TemporaryPath, [string]$StatePath) {
         try {
             [IO.File]::Move($source, $destination, $true)
             return
-        } catch [IO.IOException] {
+        } catch [IO.IOException], [UnauthorizedAccessException] {
+            # Windows may report a reader's missing delete-share permission as
+            # access denied. A real ACL denial remains bounded and is rethrown.
             if ($attempt -eq 39) { throw }
             [Threading.Thread]::Sleep(25)
         }

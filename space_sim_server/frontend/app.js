@@ -155,8 +155,9 @@ function requestRelativeView(mode = "query") {
 
 function updateRelativeViewControl() {
   const main = state.selectedStreamerId === state.streamConfig?.pixel_streaming_streamer_id;
-  $("relativeViewControl").hidden = !main || !state.relativeView?.mode || state.mission?.stage !== "flight";
-  $("relativeViewSelector").disabled = !state.streamLive;
+  const available = main && !!state.relativeView?.mode && state.mission?.stage === "flight" && state.streamLive;
+  $("relativeViewSelector").disabled = !available;
+  $("relativeViewSelector").title = available ? "选择双星取景方式" : "双星交会主视口就绪后可调整取景";
 }
 
 function setFreeCameraMode(enabled, message = "") {

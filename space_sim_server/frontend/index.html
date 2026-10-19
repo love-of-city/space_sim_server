@@ -63,7 +63,7 @@
             <option value="BskRenderer">主视口</option>
           </select>
           <button id="reconnectStream" class="quiet-button" type="button">重新连接</button>
-          <label id="relativeViewControl" hidden title="只改变观察相机，不改变双星位置；总览自动取景，以画内距离和比例尺为准。共享此UE主视口的页面会同时改变视角。">
+          <label id="relativeViewControl" title="只改变观察相机，不改变双星位置；总览自动取景，以画内距离和比例尺为准。共享此UE主视口的页面会同时改变视角。">
             <span class="sr-only">交会观察视角</span>
             <select id="relativeViewSelector" aria-label="交会观察视角">
               <option value="overview">双星交会总览 · 自动取景</option>
@@ -120,7 +120,9 @@
             <select id="sceneTemplate" aria-describedby="sceneCollisionWarning"><option value="sarm-ground-validation-self-collision-grasp">SARM + 地面验证星（粗碰撞体·内部碰撞）</option></select>
           </label>
           <small id="sceneCollisionWarning">默认粗碰撞体版已启用目标内部碰撞；铰链附近采用近似间隙，接触角度不代表真实限位。旧粗盒版不计算目标内部碰撞；高精度三角网格版仅供实验，运行速度显著低于实时。</small>
-          <div id="teleopSettings" class="scene-form">
+          <p id="teleopSettingsNote" class="mission-note">以下初始配置用于从末端操作开始。</p>
+          <fieldset id="teleopSettings" class="scene-form" disabled>
+          <legend>末端操作初始参数</legend>
           <label>随机化配置
             <select id="randomizationProfile"><option value="teleop-zero-prepare-v2">六轴零位自动展开</option></select>
           </label>
@@ -194,9 +196,10 @@
             <span>启用 LeRobot v3 权威 RGB 采集能力</span>
           </label>
           <small id="sceneDatasetCaptureHelp">未开始采集时仅预览；点击“开始采集”后才开启严格截图与记录，结束后恢复预览。</small>
-          </div>
-          <div id="flightSettings" class="scene-form" hidden>
-            <p id="missionSettingsNote" class="mission-note">使用团队双星模型，在 100 m 外保持后可接续遥操作。飞行期间自动导航与控制，机械臂输入停用。</p>
+          </fieldset>
+          <p id="missionSettingsNote" class="mission-note">远距交会 → 近距接近 → 末端操作；全过程使用同一工作台，自动交会期间机械臂输入停用。</p>
+          <fieldset id="flightSettings" class="scene-form" disabled>
+            <legend>交会初始参数</legend>
             <div class="initial-joint-grid">
               <label>随机种子<input id="missionSeed" type="number" min="0" max="4294967295" step="1" value="7" required></label>
               <label id="missionHoldField">保持距离（m）<input id="missionHold" type="number" min="100.5" max="1000" step="any" value="110" required></label>
@@ -218,12 +221,12 @@
               <label class="scene-checkbox"><input id="missionSrp" type="checkbox" checked>太阳光压（含地影）</label>
               <small>远近距共享双星 GNSS 配置和差分观测；误差按各轴 1σ 设置。随机扰动实际作用于动力学，地影可能使画面变暗。</small>
             </details>
-          </div>
+          </fieldset>
         </div>
         <div class="scene-actions">
-          <button id="startScene" class="primary" type="button">生成并启动场景</button>
-          <button id="stopScene" type="button" disabled>停止场景</button>
-          <button id="continueMission" class="primary" type="button" hidden>接续遥操作</button>
+          <button id="startScene" class="primary" type="button" disabled>启动任务</button>
+          <button id="stopScene" type="button" disabled>停止任务</button>
+          <button id="continueMission" class="primary" type="button" disabled title="连续任务会自动接续；手动交会通过验收后可在此接续">接续遥操作</button>
         </div>
         <details class="scene-parameters"><summary>任务来源与记录</summary><div id="missionStageFiles" class="mission-files"></div><pre id="missionProvenance">尚未创建任务</pre></details>
         <dl id="sceneInstanceSummary" class="scene-instance-summary">
@@ -239,7 +242,7 @@
         </details>
       </section>
 
-      <section id="flightTelemetry" class="control-section telemetry" hidden>
+      <section id="flightTelemetry" class="control-section telemetry">
         <div class="section-heading"><h2>交会遥测</h2><span id="missionConnection" class="section-status">等待任务</span></div>
         <dl>
           <div><dt>任务阶段</dt><dd id="missionPhase">—</dd></div>

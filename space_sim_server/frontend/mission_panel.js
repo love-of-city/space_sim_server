@@ -25,10 +25,8 @@ export function missionArtifactLinks(mission) {
   });
 }
 
-export function missionPresentation(mission = {}, selectedMode = 'teleop') {
-  const inFlight = mission.stage === 'flight' && mission.phase !== 'stopped';
-  const flightView = inFlight || (!mission.active && selectedMode !== 'teleop');
-  return {flightView, label: phases[mission.phase] || '平台空闲',
+export function missionPresentation(mission = {}) {
+  return {label: phases[mission.phase] || '平台空闲',
     canStart: !mission.active, canStop: (!!mission.active || mission.phase === 'ready') && !!mission.can_manage && mission.phase !== 'stopping',
     canHandoff: !!mission.can_handoff && !!mission.can_manage && !mission.active,
     showHandoff: !!mission.can_handoff};
@@ -41,47 +39,45 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
   let points = [];
   let available = false;
   let stateFailed = true;
-  const intro = $('controlDescription').textContent;
 
   function configure() {
     state.missionMode = $('missionMode').value || 'teleop';
     const flight = state.missionMode !== 'teleop';
     const near = state.missionMode.startsWith('near-field');
-    $('missionSettingsNote').textContent = near
+    const locked = !!snapshot.active || stateFailed || !!state.sceneTransitionPending;
+    $('missionSettingsNote').textContent = !flight
+      ? '从末端操作开始；交会参数不参与本次启动。远距交会、近距接近和末端操作始终使用同一工作台。'
+      : near
       ? '自动接近、机械臂对准及逻辑捕获保持。主视窗使用演示补光；暗处视觉能力尚未验证。'
       : '使用团队双星模型，按同一任务推进远距交会、近距接近与操作。当前近距视觉仍为参数化观测，捕获结果需区分逻辑代理与真实接触。';
-    $('nearFieldSettings').hidden = !near;
-    $('orbitalFlightOptions').hidden = near;
-    $('missionGnssDelayField').hidden = near || catalog.continuous_default !== true;
-    $('missionHoldField').hidden = near;
-    $('nearFieldFailure').disabled = !!snapshot.active;
+    // Starting conditions change applicable inputs, never the workbench layout.
+    // The legacy fault selector is available only when that capability exists.
+    $('nearFieldSettings').hidden = !catalog.modes.some(m => m.id.startsWith('near-field'));
+    $('nearFieldFailure').disabled = locked || !near;
     const templateIds = catalog.modes.find(m => m.id === state.missionMode)?.template_ids;
     if (templateIds && !templateIds.includes($('sceneTemplate').value)) {
       $('sceneTemplate').value = templateIds[0];
       configureScene();
     }
-    $('teleopSettings').hidden = flight;
-    $('flightSettings').hidden = !flight || !!snapshot.active;
-    $('sceneTemplate').disabled = !!snapshot.active || flight;
-    for (const input of $('flightSettings').querySelectorAll('input')) input.disabled = !!snapshot.active;
+    // A disabled fieldset also covers nested controls managed by preparation
+    // and scene modules without overriding their individual readiness gates.
+    $('teleopSettings').disabled = flight || stateFailed || !!state.sceneTransitionPending;
+    $('teleopSettingsNote').textContent = flight
+      ? '交会后继承实际轨道与机械臂状态；以下初始配置仅用于从末端操作开始的任务。'
+      : '以下初始配置用于从末端操作开始；运行后按场景状态锁定。';
+    $('flightSettings').disabled = locked || !flight;
+    $('sceneTemplate').disabled = locked || flight;
+    for (const input of $('flightSettings').querySelectorAll('input')) {
+      input.disabled = locked || !flight || (near && input.id !== 'missionSeed')
+        || (input.id === 'missionGnssDelay' && catalog.continuous_default !== true);
+    }
     // A restored task may replace the mode on its first state response. Do not
     // accept a user selection before that response (including login recovery).
-    $('missionMode').disabled = !!snapshot.active || !available || stateFailed;
-    const view = missionPresentation(snapshot, state.missionMode);
-    $('sceneCollisionWarning').hidden = view.flightView;
-    $('sceneInstanceSummary').hidden = view.flightView;
-    $('sceneDetails').hidden = view.flightView;
-    document.body.classList.toggle('flight-mode', view.flightView);
-    $('flightTelemetry').hidden = !view.flightView;
-    $('controlHeading').textContent = view.flightView ? '双星交会任务' : '末端六维遥操作';
-    $('controlDescription').textContent = view.flightView
-      ? near ? '近距闭环演示：GNSS → 视觉融合与接管 → 驻留 → 机械臂对准 → 夹取与逻辑捕获保持。双目为参数化观测。' : '连续任务在原工作台推进，当前阶段与导航质量见遥测。C 进入自由视角，Home 返回主视角。' : intro;
-    $('startScene').textContent = flight ? '启动连续任务' : '生成并启动场景';
-    $('stopScene').textContent = '停止任务';
+    $('missionMode').disabled = locked || !available;
+    const view = missionPresentation(snapshot);
     const configured = flight ? snapshot.runtime?.configured !== false : snapshot.scene?.enabled !== false;
     $('startScene').disabled = !available || !configured || stateFailed || !view.canStart || !!state.sceneTransitionPending;
     $('stopScene').disabled = stateFailed || !view.canStop || !!state.sceneTransitionPending;
-    $('continueMission').hidden = !view.showHandoff;
     $('continueMission').disabled = stateFailed || !view.canHandoff || !!state.sceneTransitionPending;
   }
 
@@ -124,7 +120,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       }
     }
     configure();
-    const view = missionPresentation(mission, state.missionMode);
+    const view = missionPresentation(mission);
     if (mission.phase !== previousPhase) {
       if (['flight', 'ready', 'failed'].includes(mission.phase)) message(mission.error || view.label);
       // A background cold start acknowledges before UE is ready. Reconnect
@@ -142,7 +138,8 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     const telemetry = mission.telemetry || {}, meta = telemetry.state?.metadata || {}, report = mission.report;
     const t = telemetry.sim_time_s ?? report?.final_time_s;
     const distance = meta.center_distance_m ?? telemetry.separation_m ?? report?.final_center_distance_m;
-    $('missionConnection').textContent = telemetry.connected ? '遥测在线' : mission.phase === 'flight' ? '等待遥测' : '保存结果';
+    $('missionConnection').textContent = telemetry.connected && mission.stage === 'flight' ? '遥测在线'
+      : mission.phase === 'flight' ? '等待遥测' : report ? '保存结果' : '等待交会';
     $('missionPhase').textContent = flightPhases[telemetry.phase || report?.outcome] || (report?.basic_nominal_passed ? '100 m 外保持' : view.label);
     $('missionTime').textContent = number(t, 1, 's');
     $('missionRange').textContent = number(distance, 3, 'm');

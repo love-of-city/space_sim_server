@@ -209,20 +209,22 @@ test("relative view discovers a late manifest without resetting a shared camera"
   const player = h.players[0];
   player.emit("dataChannelOpen");
   player.responses.get("relative-view")('{"type":"BskRelativeView","mode":""}');
-  assert.equal(h.$("relativeViewControl").hidden, true);
+  assert.equal(h.$("relativeViewSelector").disabled, true);
   player.emit("webRtcConnected");
   player.emit("statsReceived");
   assert.equal(player.commands.length, 2);
   for (const command of player.commands) assert.equal(JSON.parse(command.BskRelativeView).mode, "query");
   player.responses.get("relative-view")('{"type":"BskRelativeView","mode":"overview-fixed","range_m":30000}');
-  assert.equal(h.$("relativeViewControl").hidden, false);
+  h.state.streamLive = true;
+  h.context.updateRelativeViewControl();
+  assert.equal(h.$("relativeViewSelector").disabled, false);
   assert.equal(h.$("relativeViewSelector").value, "overview-fixed");
   assert.equal(h.state.relativeView.range_m, 30000);
   player.emit("statsReceived");
   assert.equal(player.commands.length, 2, "statistics cannot flood the data channel");
   h.state.mission.stage = "teleop";
   h.context.updateRelativeViewControl();
-  assert.equal(h.$("relativeViewControl").hidden, true);
+  assert.equal(h.$("relativeViewSelector").disabled, true);
 });
 
 test("retired and malformed camera responses cannot replace the current view", () => {

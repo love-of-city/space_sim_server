@@ -2,6 +2,72 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {missionPresentation, createMissionPanel, missionArtifactLinks} from '../mission_panel.js';
 
+test('starting conditions and the full mission lifecycle keep the same workbench and gate inputs', async () => {
+  const previousOption = globalThis.Option;
+  globalThis.Option = class { constructor(label, value) { this.value = value; } };
+  const nodes = new Map(), requests = [];
+  const ctx = {clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}};
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {id, hidden: false, disabled: false, value: '', textContent: '',
+      addEventListener() {}, replaceChildren() {}, querySelectorAll: () => [], getContext: () => ctx,
+      width: 620, height: 200});
+    return nodes.get(id);
+  };
+  const stable = ['controlHeading', 'controlDescription', 'teleopSettings', 'flightSettings',
+    'flightTelemetry', 'sceneCollisionWarning', 'sceneInstanceSummary', 'sceneDetails', 'continueMission'];
+  $('controlHeading').textContent = '团队末端六维遥操作';
+  $('controlDescription').textContent = '团队操作说明';
+  $('missionMode').value = 'teleop';
+  const original = stable.map(id => [id, $(id).hidden, $(id).textContent]);
+  const state = {streamLive: true};
+  const modes = ['teleop', 'team-in-orbit', 'team-orbit-raise'];
+  const panel = createMissionPanel({$, state, message() {}, reconnect() {}, configureScene() {},
+    apiRequest: async path => {
+      requests.push(path);
+      return {ok: true, status: 200, json: async () => ({modes: modes.map(id => ({id})), continuous_default: true})};
+    }});
+  const assertStable = () => assert.deepEqual(stable.map(id => [id, $(id).hidden, $(id).textContent]), original);
+  try {
+    await panel.load(); panel.render({});
+    for (const mode of modes) {
+      $('missionMode').value = mode; panel.configure();
+      assertStable();
+      assert.equal($('teleopSettings').disabled, mode !== 'teleop');
+      assert.equal($('flightSettings').disabled, mode === 'teleop');
+      assert.equal($('startScene').disabled, false);
+      assert.equal($('stopScene').disabled, true);
+      assert.equal($('continueMission').disabled, true);
+    }
+    assert.deepEqual(requests, ['/api/mission/catalog'], 'selection must not start or stop a task');
+    const mission = {mission_id:'continuous', mode:'team-in-orbit', can_manage:true};
+    for (const [stage, phase, flight_phase] of [['flight','starting','far'], ['flight','flight','far'],
+      ['flight','transitioning','near'], ['flight','flight','near'], ['flight','handoff','near'], ['teleop','running','near']]) {
+      panel.render({...mission, stage, phase, flight_phase, active:true});
+      assertStable();
+      assert.equal($('missionMode').disabled, true);
+      assert.equal($('flightSettings').disabled, true);
+      assert.equal($('teleopSettings').disabled, true, 'inherited state must not expose ignored initial inputs');
+      assert.equal($('stopScene').disabled, false);
+      assert.equal($('continueMission').disabled, true);
+    }
+    panel.render({...mission, stage:'flight', phase:'ready', active:false, can_handoff:true});
+    assert.equal($('continueMission').disabled, false);
+    panel.render({...mission, stage:'flight', phase:'ready', active:false, can_handoff:true, can_manage:false});
+    assert.equal($('continueMission').disabled, true);
+    panel.failed(); assertStable();
+    assert.equal($('missionMode').disabled, true);
+    assert.equal($('flightSettings').disabled, true);
+    for (const phase of ['failed', 'stopped']) {
+      panel.render({...mission, stage:'flight', phase, active:false}); assertStable();
+      assert.equal($('missionMode').disabled, false);
+    }
+    state.sceneTransitionPending = true; panel.configure();
+    assert.equal($('missionMode').disabled, true);
+    assert.equal($('startScene').disabled, true);
+    panel.reset(); assertStable();
+  } finally { globalThis.Option = previousOption; }
+});
+
 test('completed stages keep separate downloads after entering the original operator scene', () => {
   const links = missionArtifactLinks({mission_id:'mission-123', stage:'teleop', stages:[{phase:'far'}, {phase:'near'}]});
   assert.equal(links.length, 6);
@@ -11,9 +77,8 @@ test('completed stages keep separate downloads after entering the original opera
   assert.deepEqual(missionArtifactLinks({mission_id:'id', stages:[{phase:'unexpected'}]}), []);
 });
 
-test('flight keeps robot controls closed and exposes stop only to its owner', () => {
+test('an active flight exposes stop only to its owner and cannot be restarted', () => {
   const run = {stage: 'flight', phase: 'flight', active: true, can_manage: true};
-  assert.equal(missionPresentation(run).flightView, true);
   assert.equal(missionPresentation(run).canStart, false);
   assert.equal(missionPresentation(run).canStop, true);
   assert.equal(missionPresentation({...run, can_manage: false}).canStop, false);
@@ -33,7 +98,6 @@ test('delayed missions expose acquisition audit only after the far stage complet
 test('an accepted manual flight offers an explicit owned handoff', () => {
   const ready = {stage: 'flight', phase: 'ready', active: false, can_manage: true, can_handoff: true};
   assert.equal(missionPresentation(ready).canHandoff, true);
-  assert.equal(missionPresentation(ready).flightView, true);
   assert.equal(missionPresentation({...ready, can_manage: false}).canHandoff, false);
   assert.equal(missionPresentation({...ready, can_handoff: false}).showHandoff, false);
 });
@@ -76,9 +140,10 @@ test('continuous start uses the shared receiver defaults in the existing mission
   } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
 });
 
-test('the same mission returns to original teleoperation panels only after handoff', () => {
+test('handoff preserves the owned mission lifecycle', () => {
   const run = {stage: 'teleop', phase: 'running', active: true, mode: 'team-in-orbit', can_manage: true};
-  assert.equal(missionPresentation(run, 'team-in-orbit').flightView, false);
+  assert.equal(missionPresentation(run).canStart, false);
+  assert.equal(missionPresentation(run).canStop, true);
   assert.equal(missionPresentation(run, 'team-in-orbit').canHandoff, false);
 });
 
@@ -139,16 +204,14 @@ for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, tr
   });
 }
 
-test('idle selection changes panels without starting a task; stopping stays disabled', () => {
-  assert.equal(missionPresentation({}, 'team-orbit-raise').flightView, true);
-  assert.equal(missionPresentation({}, 'teleop').flightView, false);
+test('idle selection does not change lifecycle permissions; stopping stays disabled', () => {
+  assert.deepEqual(missionPresentation({}, 'team-orbit-raise'), missionPresentation({}, 'teleop'));
   assert.equal(missionPresentation({active: true, phase: 'stopping', can_manage: true}).canStop, false);
 });
 
 test('completed logical capture keeps its result view and does not offer distant-flight handoff', () => {
   const mission = {stage: 'flight', phase: 'completed', active: false, mode: 'near-field', can_manage: true, can_handoff: false};
   const view = missionPresentation(mission, 'near-field');
-  assert.equal(view.flightView, true);
   assert.equal(view.canStart, true);
   assert.equal(view.canStop, false);
   assert.equal(view.showHandoff, false);

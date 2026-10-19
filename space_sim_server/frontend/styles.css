@@ -273,8 +273,8 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 #missionProvenance { overflow-wrap: anywhere; white-space: pre-wrap; }
 .admin-users > summary { cursor: pointer; margin: 0; }
 .admin-users[open] > summary { margin-bottom: 14px; }
-.flight-mode .command-section, .flight-mode .joint-angle-section,
-.flight-mode .episode-controls, .flight-mode .telemetry:not(#flightTelemetry) { display: none; }
+fieldset.scene-form { min-width: 0; margin: 0; padding: 0; border: 0; }
+fieldset.scene-form > legend { padding: 0; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; }
   .system-status { flex-wrap: wrap; }

@@ -67,7 +67,8 @@ def test_navigation_native_field_matches_rotated_earth_and_indirect_sun_without_
     env.add_gravity_source("sun", sun, sun_msg)
     env.begin_interval()
     env.forces(np.array([[0., 0., 0.], [110., 2., 0.]]), np.array([0., 10.]), R, 1_000_000_000)
-    before = (env.evaluations, env.last_time_ns, tuple(x["message"].timeWritten() for x in env.sources.values()))
+    readers = [x["message"].addSubscriber() for x in env.sources.values()]
+    before = (env.evaluations, env.last_time_ns, tuple(reader.timeWritten() for reader in readers))
     query = BskNavigationGravity(env)
 
     def expected(position):
@@ -85,7 +86,7 @@ def test_navigation_native_field_matches_rotated_earth_and_indirect_sun_without_
     np.testing.assert_allclose(query.acceleration(R, .8), expected(R), atol=2e-12, rtol=0)
     gradient = np.column_stack([(expected(R + 10*b) - expected(R - 10*b))/20 for b in np.eye(3)])
     np.testing.assert_allclose(query.gradient(R, .8), gradient, atol=3e-14, rtol=0)
-    assert (env.evaluations, env.last_time_ns, tuple(x["message"].timeWritten() for x in env.sources.values())) == before
+    assert (env.evaluations, env.last_time_ns, tuple(reader.timeWritten() for reader in readers)) == before
 
 
 def direct_acceleration(position, sources):

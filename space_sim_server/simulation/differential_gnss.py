@@ -107,3 +107,32 @@ class JointOrbitFilter:
     def relative_covariance(self):
         H = np.hstack((np.eye(6), -np.eye(6)))
         return H @ self.covariance @ H.T
+
+    def update_projected(self, packet, prior_state, prior_covariance):
+        """Correct a prior propagated to the packet's acquisition epoch.
+
+        Delayed delivery must not relabel an old measurement as current. The
+        transport supplies a prior propagated with the recorded control history;
+        the posterior stays at the acquisition epoch until another packet arrives.
+        """
+        z = np.asarray(packet["observations"], dtype=float)
+        R = np.asarray(packet["covariance"], dtype=float)
+        state = np.asarray(prior_state, dtype=float)
+        prior = np.asarray(prior_covariance, dtype=float)
+        stamp = float(packet["stamp"])
+        if (z.shape != (2, 6) or state.shape != (2, 6)
+                or R.shape != (12, 12) or prior.shape != (12, 12)
+                or not all(np.isfinite(v).all() for v in (z, R, state, prior))
+                or not np.isfinite(stamp)
+                or not np.allclose(R, R.T) or not np.allclose(prior, prior.T)
+                or np.linalg.eigvalsh(R).min() <= 0 or np.linalg.eigvalsh(prior).min() < -1e-10):
+            raise ValueError("invalid delayed GNSS prior or measurement")
+        if self.last_stamp is not None and stamp <= self.last_stamp:
+            raise ValueError("duplicate or out-of-order GNSS observation")
+        gain = np.linalg.solve((prior + R).T, prior.T).T
+        self.state = (state.reshape(12) + gain @ (z-state).reshape(12)).reshape(2, 6)
+        left = np.eye(12) - gain
+        covariance = left @ prior @ left.T + gain @ R @ gain.T
+        self.covariance = .5 * (covariance + covariance.T)
+        self.last_stamp = stamp
+        return self.state.copy()

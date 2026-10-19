@@ -177,6 +177,10 @@ class RendezvousRuntime:
         if near and mode != "simulation":
             raise ValueError("近距任务需使用实际仿真入口；轨迹回放请使用独立回放工具")
         resolved_options = (NearFieldOptions if near else FlightOptions).from_dict(options or {})
+        if (not near and resolved_options.differential_gnss
+                and resolved_options.differential_gnss["delay_s"] > 0
+                and (scenario not in {"team-in-orbit", "team-orbit-raise"} or mode != "simulation")):
+            raise ValueError("通信时延仅支持团队模型的实际远距仿真；历史演示和回放不能应用此参数")
         handoff_path = None
         if scenario == "near-field-resume":
             from simulation.orbital_rendezvous.handoff import load_handoff

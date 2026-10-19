@@ -24,6 +24,10 @@ def verify(folder, repository=ROOT):
         d = {key: archive[key] for key in archive.files}
     t, truth = d["time_s"], d["truth"]
     count = len(t)
+    integrated = "mission_options" in report
+    options = FlightOptions.from_dict(report["mission_options"]) if integrated else None
+    differential = GNSSConfig.from_dict(options.differential_gnss) if options and options.differential_gnss is not None else None
+    delayed = differential is not None and differential.delay_s > 0
     expected_shapes = {"time_s": (count,), "truth": (count, 2, 6),
                        "gnss": (count, 2, 6), "estimate": (count, 2, 6),
                        "force_n": (count, 3), "range_m": (count,),
@@ -33,12 +37,17 @@ def verify(folder, repository=ROOT):
                        "attitude_error_rad": (count,), "angular_velocity_rad_s": (count, 3),
                        "navigation_valid": (count,)}
     for name, shape in expected_shapes.items():
-        if name not in d or d[name].shape != shape or not np.isfinite(d[name]).all():
+        if name not in d or d[name].shape != shape:
+            raise ValueError(f"Missing, malformed or nonfinite telemetry: {name}")
+        if name == "gnss" and delayed:
+            valid = d["navigation_valid"].astype(bool)
+            finite = np.isfinite(d[name][valid]).all() and np.isnan(d[name][~valid]).all()
+        else:
+            finite = np.isfinite(d[name]).all()
+        if not finite:
             raise ValueError(f"Missing, malformed or nonfinite telemetry: {name}")
     if count < 2 or not np.allclose(np.diff(t), 0.5, rtol=0, atol=1e-8):
         raise ValueError("Incomplete 2 Hz telemetry")
-    integrated = "mission_options" in report
-    options = FlightOptions.from_dict(report["mission_options"]) if integrated else None
     profile = FlightProfile(**report["profile"])
     target, chaser = truth[:, 0], truth[:, 1]
     relative = chaser[:, :3] - target[:, :3]
@@ -48,7 +57,6 @@ def verify(folder, repository=ROOT):
     speed = np.linalg.norm(chaser[:, 3:] - target[:, 3:] - np.cross(orbit_rate, relative), axis=1)
     references = np.array([profile.chaser(float(value))[0] for value in t])
     if integrated:
-        differential = GNSSConfig.from_dict(options.differential_gnss) if options.differential_gnss is not None else None
         position_sigma = differential.absolute_position_sigma_m if differential else options.gnss_position_sigma_m
         velocity_sigma = differential.absolute_velocity_sigma_m_s if differential else options.gnss_velocity_sigma_m_s
         references += target[:, :3] - np.array([profile.target(float(value))[0] for value in t])
@@ -58,8 +66,67 @@ def verify(folder, repository=ROOT):
     xml = ET.parse(source).getroot()
     max_speeds = np.fromstring(xml.find('./custom/numeric[@name="rw_max_speed_rad_s"]').get("data"), sep=" ")
     max_torques = np.array([float(xml.find(f'./actuator/motor[@name="rw_{a}_motor"]').get("ctrlrange").split()[1]) for a in "xyz"])
-    raw_error, estimate_error = d["gnss"] - truth, d["estimate"] - truth
-    raw_rmse = np.sqrt(np.mean(np.sum(raw_error[20:, :, :3]**2, axis=2), axis=0))
+    raw_truth, raw_observations = truth, d["gnss"]
+    transport_checks = {}
+    if delayed:
+        with np.load(folder / "gnss_measurements.npz", allow_pickle=False) as archive:
+            measured = {key: archive[key] for key in archive.files}
+        samples = len(measured["stamp"])
+        for key, shape in {"stamp": (samples,), "due": (samples,), "sequence": (samples,),
+                           "received": (samples,), "truth": (samples, 2, 6), "observations": (samples, 2, 6)}.items():
+            if key not in measured or measured[key].shape != shape:
+                raise ValueError(f"Malformed GNSS acquisition audit: {key}")
+            if key != "received" and not np.isfinite(measured[key]).all():
+                raise ValueError(f"Nonfinite GNSS acquisition audit: {key}")
+        raw_truth, raw_observations = measured["truth"], measured["observations"]
+        valid = d["navigation_valid"].astype(bool)
+        if not np.any(valid):
+            raise ValueError("No delivered GNSS navigation solution")
+        for key in ("gnss_sample_time_s", "gnss_receive_time_s", "gnss_measurement_age_s", "gnss_delivered_sequence",
+                    "gnss_acquired_sequence", "gnss_pending_count", "gnss_delivered_count", "gnss_requested_delay_s"):
+            if key not in d or d[key].shape != (count,) or not np.isfinite(d[key][valid]).all():
+                raise ValueError(f"Malformed GNSS delivery telemetry: {key}")
+        sequences = d["gnss_delivered_sequence"][valid]
+        if not np.all(sequences == np.floor(sequences)) or not np.all((sequences >= 1) & (sequences <= samples)):
+            raise ValueError("Invalid delivered GNSS sequence")
+        indices = sequences.astype(int)-1
+        delivered = np.isfinite(measured["received"])
+        period = float(report["control_period_s"])
+        expected_first = np.ceil(differential.delay_s/period-1e-8)*period
+        audit_indices = np.searchsorted(measured["stamp"], t-1e-8)
+        bounded_indices = np.minimum(audit_indices, samples-1)
+        common_epochs = (audit_indices < samples) & np.isclose(measured["stamp"][bounded_indices], t, rtol=0, atol=1e-8)
+        pending = handoff["gnss_transport"]["pending"]
+        transport_checks = {
+            "acquisition_grid_complete": samples == round(t[-1]*differential.sample_rate_hz)+1
+                and abs(measured["stamp"][0]) < 1e-9
+                and np.allclose(np.diff(measured["stamp"]), 1/differential.sample_rate_hz, rtol=0, atol=1e-8),
+            "receiver_sequences_contiguous": np.array_equal(measured["sequence"], np.arange(1, samples+1)),
+            "acquisition_truth_matches_physics": common_epochs[0] and common_epochs[-1] and np.count_nonzero(common_epochs) >= 2
+                and np.allclose(raw_truth[audit_indices[common_epochs]], truth[common_epochs], rtol=0, atol=1e-5),
+            "requested_latency_applied": np.allclose(measured["due"]-measured["stamp"], differential.delay_s, rtol=0, atol=1e-8)
+                and np.allclose(d["gnss_requested_delay_s"], differential.delay_s, rtol=0, atol=1e-12),
+            "no_early_or_late_delivery": np.all(measured["received"][delivered] >= measured["due"][delivered]-1e-8)
+                and np.all(measured["received"][delivered] < measured["due"][delivered]+period+1e-8),
+            "only_inflight_samples_undelivered": np.array_equal(~delivered, measured["due"] > t[-1]+1e-8)
+                and np.isnan(measured["received"][~delivered]).all(),
+            "startup_waits_for_navigation": np.array_equal(valid, t >= expected_first-1e-8)
+                and abs(report["gnss_transport"]["first_receive_time_s"]-expected_first) < 1e-8
+                and np.all(d["force_n"][~valid] == 0),
+            "delivered_samples_match_audit": np.allclose(d["gnss"][valid], raw_observations[indices], rtol=0, atol=0)
+                and np.allclose(d["gnss_sample_time_s"][valid], measured["stamp"][indices], rtol=0, atol=1e-8)
+                and np.allclose(d["gnss_receive_time_s"][valid], measured["received"][indices], rtol=0, atol=1e-8)
+                and np.all(d["gnss_receive_time_s"][valid] <= t[valid]+1e-8),
+            "measurement_age_is_explicit": np.allclose(d["gnss_measurement_age_s"][valid],
+                                                       t[valid]-measured["stamp"][indices], rtol=0, atol=1e-8),
+            "packet_accounting_continuous": np.all(d["gnss_acquired_sequence"] == d["gnss_delivered_count"]+d["gnss_pending_count"])
+                and d["gnss_acquired_sequence"][-1] == samples,
+            "inflight_handoff_preserved": [packet["sequence"] for packet in pending] == measured["sequence"][~delivered].tolist()
+                and all(np.array_equal(packet["observations"], raw_observations[packet["sequence"]-1]) for packet in pending),
+        }
+    raw_error, estimate_error = raw_observations-raw_truth, d["estimate"]-truth
+    noise_samples = raw_error[measured["stamp"] >= 10] if delayed else raw_error[20:]
+    raw_rmse = np.sqrt(np.mean(np.sum(noise_samples[:, :, :3]**2, axis=2), axis=0))
     filtered_rmse = np.sqrt(np.mean(np.sum(estimate_error[20:, :, :3]**2, axis=2), axis=0))
     source_match = all(
         hashlib.sha256((repository / "simulation/orbital_rendezvous" / name).read_bytes()).hexdigest() == digest
@@ -98,6 +165,9 @@ def verify(folder, repository=ROOT):
         "report_final_distance_matches": abs(report["final_center_distance_m"] - distance[-1]) < 1e-6,
         "producer_report_passed": report["basic_nominal_passed"] is True and all(report["checks"].values()) and handoff["accepted"] is True,
     }
+    if delayed:
+        checks.pop("both_gnss_available")
+        checks.update(transport_checks)
     if integrated:
         force_parts = d["environment_force_n"]
         offsets = np.random.default_rng(np.random.SeedSequence([options.seed, 1])).normal(size=(2, 6)) * np.array(
@@ -124,7 +194,7 @@ def verify(folder, repository=ROOT):
         })
     if integrated and differential:
         checks.pop("independent_receiver_noise")
-        baseline = np.linalg.norm(target[:, :3] - chaser[:, :3], axis=1)
+        baseline = np.linalg.norm(raw_truth[:, 0, :3] - raw_truth[:, 1, :3], axis=1)
         rho = np.exp(-0.5*(baseline/differential.correlation_length_m)**2)
         absolute_sigma = np.array([position_sigma]*3 + [velocity_sigma]*3)
         relative_sigma = np.array([differential.relative_position_sigma_m]*3 + [differential.relative_velocity_sigma_m_s]*3)
@@ -137,7 +207,9 @@ def verify(folder, repository=ROOT):
         cross = np.asarray(handoff.get("gnss_cross_covariance_eci"))
         checks.update({
             "differential_noise_statistics": np.allclose(standardized.std(axis=0), 1, rtol=.08),
-            "differential_covariance_recorded": relative_P.shape == (count, 6, 6) and np.isfinite(relative_P).all(),
+            "differential_covariance_recorded": relative_P.shape == (count, 6, 6) and (
+                np.isfinite(relative_P[d["navigation_valid"]]).all()
+                and np.isnan(relative_P[~d["navigation_valid"]]).all() if delayed else np.isfinite(relative_P).all()),
             "receiver_state_continues": handoff.get("gnss_receiver_state", {}).get("last_time") == t[-1],
             "cross_covariance_preserved": cross.shape == (6, 6) and np.allclose(
                 marginal.sum(axis=0)-cross-cross.T, relative_P[-1], atol=1e-12, rtol=1e-8),

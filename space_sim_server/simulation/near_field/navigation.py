@@ -182,7 +182,7 @@ def stereo_geometry(grasp_in_tool, config=SensorConfig()):
 
 
 class SensorSimulator:
-    def __init__(self, config, *, receiver_state=None, epoch_s=0.0):
+    def __init__(self, config, *, receiver_state=None, epoch_s=0.0, transport_state=None):
         self.config = config
         streams = np.random.SeedSequence(config.seed).spawn(2)
         self.gnss_rng, self.vision_rng = [np.random.default_rng(s) for s in streams]
@@ -197,40 +197,137 @@ class SensorSimulator:
             self.receiver.restore(receiver_state)
         self.last_gnss_acquisition = -float('inf')
         self.last_vision_acquisition = -float('inf')
+        self.last_delivery_stamp = None
+        self.last_delivery_time = None
+        self.last_delivery_sequence = None
+        self.delivery_count = 0
+        self.now = 0.
+        self.last_source_time = None
+        if transport_state is not None:
+            self._restore_transport(transport_state)
 
-    def acquire(self, now, phase, relative_truth, grasp_in_tool, tool_to_inertial, cooperative=None, *, absolute_truth=None):
+    def _restore_transport(self, saved):
+        if (self.receiver is None or saved.get("schema") != "spacesim-gnss-transport/1"
+                or not np.isfinite(saved.get("epoch_s", float('nan')))
+                or abs(saved["epoch_s"]-self.epoch_s) > 1e-8
+                or saved.get("reference") not in {"assembled_center_of_mass", "body_origin"}):
+            raise ValueError("GNSS transport handoff has an incompatible epoch or reference")
+        pending = saved.get("pending")
+        if not isinstance(pending, list) or len(pending) > np.ceil(self.receiver.config.delay_s*self.receiver.config.sample_rate_hz)+1:
+            raise ValueError("invalid in-flight GNSS packet count")
+        previous_sequence = saved.get("gnss_delivered_sequence") or 0
+        previous_stamp = saved.get("gnss_sample_time_s")
+        restored = []
+        for packet in pending:
+            stamp, due = float(packet["stamp"]), float(packet["due"])
+            sequence = packet["sequence"]
+            if (not np.isfinite([stamp, due]).all() or stamp > self.epoch_s+1e-8
+                    or due <= self.epoch_s+1e-9 or due < stamp
+                    or abs(due-stamp-self.receiver.config.delay_s) > 1e-8
+                    or type(sequence) is not int or not previous_sequence < sequence <= self.receiver.sequence
+                    or (previous_stamp is not None and stamp <= previous_stamp)
+                    or self.receiver.last_time is None or stamp > self.receiver.last_time+1e-8):
+                raise ValueError("invalid in-flight GNSS timestamp or sequence")
+            if saved["reference"] == "assembled_center_of_mass":
+                observations = np.asarray(packet["observations"], dtype=float)
+                offsets = np.asarray(packet["origin_offsets"], dtype=float)
+                if observations.shape != (2, 6) or offsets.shape != (2, 6):
+                    raise ValueError("invalid in-flight GNSS reference-point geometry")
+                origins = observations-offsets
+                measurement = origins[0]-origins[1]
+                covariance = np.asarray(packet["relative_covariance"], dtype=float)
+            else:
+                measurement = np.asarray(packet["z"], dtype=float)
+                covariance = np.asarray(packet["R"], dtype=float)
+            cooperative = packet["cooperative"]
+            rotation = np.asarray(cooperative["rotation"], dtype=float)
+            hinge = float(cooperative["hinge"])
+            if (measurement.shape != (6,) or covariance.shape != (6, 6) or rotation.shape != (3, 3)
+                    or not all(np.isfinite(value).all() for value in (measurement, covariance, rotation))
+                    or not np.isfinite(hinge) or not np.allclose(covariance, covariance.T)
+                    or np.linalg.eigvalsh(covariance).min() <= 0
+                    or not np.allclose(rotation.T@rotation, np.eye(3), atol=1e-7)
+                    or not np.isclose(np.linalg.det(rotation), 1., atol=1e-7)):
+                raise ValueError("invalid in-flight GNSS measurement or cooperative telemetry")
+            restored.append({"source": "gnss", "stamp": stamp-self.epoch_s, "due": due-self.epoch_s,
+                             "sequence": sequence, "z": measurement.copy(), "R": covariance.copy(),
+                             "cooperative": {"rotation": rotation.copy(), "hinge": hinge}})
+            previous_sequence, previous_stamp = sequence, stamp
+        self.pending.extend(restored)
+        self.last_gnss_acquisition = self.receiver.last_time-self.epoch_s
+        self.last_delivery_stamp = saved.get("gnss_sample_time_s")
+        self.last_delivery_time = saved.get("gnss_receive_time_s")
+        self.last_delivery_sequence = saved.get("gnss_delivered_sequence")
+        self.delivery_count = saved.get("gnss_delivered_count", 0)
+
+    def transport_snapshot(self):
+        if self.receiver is None:
+            return None
+        pending = []
+        for packet in self.pending:
+            if packet["source"] != "gnss":
+                continue
+            pending.append({"stamp": self.epoch_s+packet["stamp"], "due": self.epoch_s+packet["due"],
+                            "sequence": packet["sequence"], "z": packet["z"].tolist(), "R": packet["R"].tolist(),
+                            "cooperative": {"rotation": packet["cooperative"]["rotation"].tolist(),
+                                            "hinge": packet["cooperative"]["hinge"]}})
+        return {"schema": "spacesim-gnss-transport/1", "epoch_s": self.epoch_s+self.now,
+                "reference": "body_origin", "pending": pending,
+                **self.transport_telemetry()}
+
+    def transport_telemetry(self):
+        return {
+                "gnss_sample_time_s": self.last_delivery_stamp,
+                "gnss_receive_time_s": self.last_delivery_time,
+                "gnss_measurement_age_s": (self.epoch_s+self.now-self.last_delivery_stamp
+                                           if self.last_delivery_stamp is not None else None),
+                "gnss_delivered_sequence": self.last_delivery_sequence,
+                "gnss_acquired_sequence": self.receiver.sequence if self.receiver else 0,
+                "gnss_delivered_count": self.delivery_count,
+                "gnss_pending_count": sum(packet["source"] == "gnss" for packet in self.pending),
+                "gnss_requested_delay_s": self.receiver.config.delay_s if self.receiver else self.config.gnss_delay_s}
+
+    def acquire(self, now, phase, relative_truth, grasp_in_tool, tool_to_inertial, cooperative=None, *, absolute_truth=None,
+                acquisition_time_s=None):
         cfg = self.config
+        self.now = float(now)
+        captured = self.now if acquisition_time_s is None else float(acquisition_time_s)
+        if (not np.isfinite([self.now, captured]).all() or captured < 0 or captured > self.now+1e-9
+                or (self.last_source_time is not None and captured < self.last_source_time-1e-9)):
+            raise ValueError("sensor source time must be finite, monotonic and no later than delivery time")
+        self.last_source_time = captured
         link = cfg.communication_loss_s is None or now < cfg.communication_loss_s
         if phase == cfg.loss_after_phase:
             self.failed = True
         period = 1 / cfg.receiver_config.sample_rate_hz if self.receiver else .1
-        if link and now - self.last_gnss_acquisition >= period - 1e-9:
-            self.last_gnss_acquisition = now
+        if link and captured - self.last_gnss_acquisition >= period - 1e-9:
+            self.last_gnss_acquisition = captured
             sigmas = np.array([cfg.gnss_sigma_m] * 3 + [cfg.gnss_velocity_sigma_m_s] * 3)
             if self.receiver:
                 if absolute_truth is None:
                     raise ValueError("differential observations require both receiver states")
-                stamp = self.epoch_s + now
+                stamp = self.epoch_s + captured
                 # The first near-field tick is the already-measured terminal
                 # far-field epoch. Preserve it instead of generating it twice.
                 if self.receiver.last_time is None or stamp > self.receiver.last_time + 1e-9:
                     pair = self.receiver.measure(absolute_truth, stamp)
-                    self.pending.append({"source": "gnss", "stamp": now, "due": now + cfg.receiver_config.delay_s,
-                                         "z": pair["relative"], "R": pair["relative_covariance"], "cooperative": cooperative})
+                    self.pending.append({"source": "gnss", "stamp": captured, "due": captured + cfg.receiver_config.delay_s,
+                                         "sequence": pair["sequence"], "z": pair["relative"],
+                                         "R": pair["relative_covariance"], "cooperative": cooperative})
             else:
-                self.pending.append({"source": "gnss", "stamp": now, "due": now + cfg.gnss_delay_s,
+                self.pending.append({"source": "gnss", "stamp": captured, "due": captured + cfg.gnss_delay_s,
                                      "z": relative_truth + self.gnss_rng.normal(size=6) * sigmas,
                                      "R": np.diag(sigmas**2), "cooperative": cooperative})
         geom = stereo_geometry(grasp_in_tool, cfg)
         self.geometry = geom
-        if geom["valid"] and not self.failed and now - self.last_vision_acquisition >= .1 - 1e-9:
-            self.last_vision_acquisition = now
+        if geom["valid"] and not self.failed and captured - self.last_vision_acquisition >= .1 - 1e-9:
+            self.last_vision_acquisition = captured
             sigmas = np.array([max(0.0003, geom["camera_depth_m"] * 0.2 / cfg.focal_px)] * 2 + [geom["depth_sigma_m"]])
             covariance = tool_to_inertial @ np.diag(sigmas**2) @ tool_to_inertial.T
             # Equivalent relative-origin observation after calibrated transforms
             # and exact encoder/attitude navigation, an explicit platform assumption.
             z = relative_truth[:3] + tool_to_inertial @ (self.vision_rng.normal(size=3) * sigmas)
-            self.pending.append({"source": "stereo", "stamp": now, "due": now + cfg.vision_delay_s,
+            self.pending.append({"source": "stereo", "stamp": captured, "due": captured + cfg.vision_delay_s,
                                  "z": z, "R": covariance, "geometry": geom,
                                  "rotation_noise": self.vision_rng.normal(0, np.deg2rad(0.05), 3)})
         ready, waiting = [], deque()
@@ -238,4 +335,10 @@ class SensorSimulator:
             packet = self.pending.popleft()
             (ready if packet["due"] <= now + 1e-8 else waiting).append(packet)
         self.pending = waiting
+        for packet in ready:
+            if packet["source"] == "gnss" and self.receiver:
+                self.last_delivery_stamp = self.epoch_s+packet["stamp"]
+                self.last_delivery_time = self.epoch_s+now
+                self.last_delivery_sequence = packet["sequence"]
+                self.delivery_count += 1
         return ready, link

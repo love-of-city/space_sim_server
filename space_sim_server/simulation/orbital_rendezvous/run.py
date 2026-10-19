@@ -29,6 +29,7 @@ from simulation.physics_ports import PhysicsPorts
 from space_arm_platform.rendezvous_config import FlightOptions
 from space_arm_platform.gnss_config import GNSSConfig
 from simulation.differential_gnss import DifferentialGNSS, JointOrbitFilter
+from simulation.gnss_transport import DelayedGNSSNavigation
 
 from .assets import bind_team_catalog
 from .model import prepare_model
@@ -52,6 +53,13 @@ class FlightControl(sysModel.SysModel):
         self.paired_receiver = (DifferentialGNSS(GNSSConfig.from_dict(self.options.differential_gnss), seed)
                                 if self.options.differential_gnss is not None else None)
         self.joint_filter = JointOrbitFilter() if self.paired_receiver else None
+        self.delayed_navigation = None
+        if self.paired_receiver and self.paired_receiver.config.delay_s > 0:
+            self.delayed_navigation = DelayedGNSSNavigation(self.paired_receiver.config, seed)
+            self.paired_receiver = self.delayed_navigation.receiver
+            self.joint_filter = self.delayed_navigation.filter
+            self.origin_readers = [scene.getBody(name).getOrigin().stateOutMsg.addSubscriber()
+                                   for name in ("capture_target", "cubesat_bus")]
         self.messages = [messaging.SingleActuatorMsg() for _ in range(3)]
         for i, message in enumerate(self.messages):
             message.write(messaging.SingleActuatorMsgPayload(input=0.0))
@@ -68,11 +76,34 @@ class FlightControl(sysModel.SysModel):
         self.previous_time = t
         payloads = [read() for read in self.readers]
         truth = np.array([np.r_[p.r_BN_N, p.v_BN_N] for p in payloads])
-        packet = self.paired_receiver.measure(truth, t) if self.paired_receiver else None
-        observations = (packet["observations"] if packet else truth + self.rng.normal(size=(2, 6)) * np.array(
-            [self.options.gnss_position_sigma_m] * 3 + [self.options.gnss_velocity_sigma_m_s] * 3))
+        packet = self.paired_receiver.measure(truth, t) if self.paired_receiver and not self.delayed_navigation else None
+        observations = (None if self.delayed_navigation else
+                        packet["observations"] if packet else truth + self.rng.normal(size=(2, 6)) * np.array(
+                            [self.options.gnss_position_sigma_m] * 3 + [self.options.gnss_velocity_sigma_m_s] * 3))
         navigation_valid = self.navigation_loss_s is None or t < self.navigation_loss_s
-        if navigation_valid and self.joint_filter:
+        if navigation_valid and self.delayed_navigation:
+            origins = [read() for read in self.origin_readers]
+            origin_states = np.array([np.r_[p.r_BN_N, p.v_BN_N] for p in origins])
+            estimate = self.delayed_navigation.step(
+                truth, t, np.array([np.zeros(3), self.force_n / self.mass]),
+                origin_offsets=truth-origin_states,
+                cooperative={"rotation": rbk.MRP2C(origins[0].sigma_BN).T,
+                             # The distant model removes articulated joints at
+                             # authored zero. The receiving model restores the
+                             # hinge and starts reporting its measured motion.
+                             "hinge": 0.0})
+            navigation_valid = estimate is not None
+            packet = self.delayed_navigation.last_packet
+            observations = packet["observations"] if packet else None
+            if navigation_valid:
+                for i, f in enumerate(self.filters):
+                    f.state = estimate[i].copy()
+                    f.covariance = self.delayed_navigation.covariance[i*6:(i+1)*6, i*6:(i+1)*6].copy()
+            else:
+                # Until the first delivery there is no navigation solution.
+                # Keep translation off; never bootstrap it from current truth.
+                estimate = np.zeros((2, 6))
+        elif navigation_valid and self.joint_filter:
             estimate = self.joint_filter.update(packet, np.array([np.zeros(3), self.force_n / self.mass]))
             for i, f in enumerate(self.filters):
                 f.state = estimate[i].copy()
@@ -95,18 +126,22 @@ class FlightControl(sysModel.SysModel):
         # Only used for evaluation: compare against a reference following the
         # propagated passive target, not an undisturbed target known in advance.
         evaluation_r = nominal_r + truth[0, :3] - target_r
-        desired_r = desired_r + estimate[0, :3] - target_r
-        desired_v = desired_v + estimate[0, 3:] - target_v
-        desired_a = desired_a + gravity(estimate[0, :3]) - target_a
-        # No truth-state feedback: commands use GNSS-filter estimates and an
-        # independently constructed reference. Native dynamics owns all motion.
-        acceleration = (
-            desired_a
-            - gravity(estimate[1, :3])
-            + 0.0004 * (desired_r - estimate[1, :3])
-            + 0.04 * (desired_v - estimate[1, 3:])
-        )
-        requested = self.mass * acceleration
+        acquiring = self.delayed_navigation is not None and self.delayed_navigation.estimate is None
+        if acquiring:
+            requested = np.zeros(3)
+        else:
+            desired_r = desired_r + estimate[0, :3] - target_r
+            desired_v = desired_v + estimate[0, 3:] - target_v
+            desired_a = desired_a + gravity(estimate[0, :3]) - target_a
+            # No truth-state feedback: commands use GNSS-filter estimates and an
+            # independently constructed reference. Native dynamics owns all motion.
+            acceleration = (
+                desired_a
+                - gravity(estimate[1, :3])
+                + 0.0004 * (desired_r - estimate[1, :3])
+                + 0.04 * (desired_v - estimate[1, 3:])
+            )
+            requested = self.mass * acceleration
         norm = np.linalg.norm(requested)
         applied = requested * min(1.0, self.limit / max(norm, 1e-15))
         if not np.isfinite(applied).all() or not np.isfinite(truth).all():
@@ -125,13 +160,15 @@ class FlightControl(sysModel.SysModel):
         self.rows.append(
             {
                 "t": t,
-                "phase": "Abort" if self.aborted else self.profile.phase(t),
+                "phase": "Abort" if self.aborted else "NavigationAcquire" if acquiring else self.profile.phase(t),
                 "truth": truth.tolist(),
                 "gnss": observations.tolist() if navigation_valid else None,
                 "navigation_valid": navigation_valid,
-                "gnss_model": "paired correlated solutions" if packet else "independent receiver solutions",
-                "relative_navigation_covariance": (self.joint_filter.relative_covariance.tolist()
-                    if self.joint_filter and self.joint_filter.covariance is not None else None),
+                "gnss_model": "paired correlated solutions" if self.paired_receiver else "independent receiver solutions",
+                "relative_navigation_covariance": (
+                    self.delayed_navigation.relative_covariance.tolist() if self.delayed_navigation and navigation_valid else
+                    np.full((6, 6), np.nan).tolist() if self.delayed_navigation else
+                    self.joint_filter.relative_covariance.tolist() if self.joint_filter and self.joint_filter.covariance is not None else None),
                 "estimate": estimate.tolist(),
                 "force_n": applied.tolist(),
                 "requested_force_n": requested.tolist(),
@@ -140,6 +177,7 @@ class FlightControl(sysModel.SysModel):
                 "tracking_error_m": float(np.linalg.norm(truth[1, :3] - evaluation_r)),
                 "target_prediction_error_m": float(np.linalg.norm(truth[0, :3] - estimate[0, :3])),
                 "altitude_m": float(np.linalg.norm(truth[1, :3]) - EARTH_RADIUS),
+                **(self.delayed_navigation.telemetry(t) if self.delayed_navigation else {}),
             }
         )
 
@@ -180,6 +218,7 @@ def state_packet(scene, controller, row, run_id):
             "navigation_valid": row["navigation_valid"],
             "center_distance_m": row["range_m"],
             "mission_options": controller.options.to_dict(),
+            **(controller.delayed_navigation.telemetry(row["t"]) if controller.delayed_navigation else {}),
         },
     }
 
@@ -198,7 +237,7 @@ def run(args):
                            "simulation/components/orbit.py", "simulation/components/orbital_gravity.py",
                            "simulation/local_mujoco_stepper.py", "simulation/orbital_environment.py",
                            "simulation/attitude_control.py", "simulation/assembly.py", "simulation/physics_ports.py",
-                           "simulation/differential_gnss.py", "backend/space_arm_platform/gnss_config.py",
+                           "simulation/differential_gnss.py", "simulation/gnss_transport.py", "backend/space_arm_platform/gnss_config.py",
                            "backend/space_arm_platform/rendezvous_config.py", "native/local_mujoco_stepper.cpp"]
     integration_hashes = {name: hashlib.sha256((repository / name).read_bytes()).hexdigest() for name in integration_sources}
     model, mesh_files, manifest = prepare_model(
@@ -212,11 +251,13 @@ def run(args):
                          if options.differential_gnss is not None else 0.5)
     if navigation_period < args.step or not np.isclose(navigation_period / args.step, round(navigation_period / args.step)):
         raise ValueError("GNSS period must be an integer multiple of the outer physics step")
+    control_period = (args.step if options.differential_gnss is not None
+                      and options.differential_gnss["delay_s"] > 0 else navigation_period)
     process.addTask(
         simulation.CreateNewTask("flightDynamics", macros.sec2nano(args.step)), 30
     )
     process.addTask(
-        simulation.CreateNewTask("flightNavigation", macros.sec2nano(navigation_period)), 10
+        simulation.CreateNewTask("flightNavigation", macros.sec2nano(control_period)), 10
     )
     scene = mujoco.MJScene.fromFile(str(model), files=mesh_files)
     scene.ModelTag = "teamFlightMJScene"
@@ -424,6 +465,8 @@ def run(args):
         "max_tracking_error_m": max(r["tracking_error_m"] for r in rows),
         "dynamics_step_s": args.step,
         "navigation_period_s": navigation_period,
+        "control_period_s": control_period,
+        **({"gnss_transport": controller.delayed_navigation.snapshot()} if controller.delayed_navigation else {}),
         "environment": "Shared BSK Earth/Sun gravity; exponential co-rotating atmosphere; eclipsed cannonball SRP; seeded Gauss-Markov acceleration",
         "mission_options": options.to_dict(),
         "environment_state": [model.snapshot() for model in environment.models],
@@ -448,6 +491,11 @@ def run(args):
     (output / "mission_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    if controller.delayed_navigation:
+        audit = controller.delayed_navigation.measurement_audit
+        np.savez_compressed(output / "gnss_measurements.npz",
+                            **{key: [sample[key] for sample in audit]
+                               for key in ("stamp", "due", "sequence", "truth", "observations", "received")})
     np.savez_compressed(
         output / "team_telemetry.npz",
         time_s=[r["t"] for r in rows],
@@ -472,6 +520,10 @@ def run(args):
         illumination=[[b["illumination"] for b in sample] for sample in environment_rows],
         **({"relative_navigation_covariance": [r["relative_navigation_covariance"] for r in rows]}
            if controller.joint_filter else {}),
+        **({key: [np.nan if r[key] is None else r[key] for r in rows] for key in (
+            "gnss_sample_time_s", "gnss_receive_time_s", "gnss_measurement_age_s", "gnss_delivered_sequence",
+            "gnss_acquired_sequence", "gnss_pending_count", "gnss_delivered_count", "gnss_requested_delay_s")}
+           if controller.delayed_navigation else {}),
     )
     handoff = {
         "schema": "spacesim-near-field-handoff/1",
@@ -495,9 +547,12 @@ def run(args):
         ],
         "gnss_estimates_eci": rows[-1]["estimate"],
         "covariances": [f.covariance.tolist() for f in controller.filters],
-        "gnss_cross_covariance_eci": (controller.joint_filter.covariance[:6, 6:].tolist()
-                                     if controller.joint_filter else None),
+        "gnss_cross_covariance_eci": (controller.delayed_navigation.covariance[:6, 6:].tolist()
+                                     if controller.delayed_navigation and controller.delayed_navigation.covariance is not None else
+                                     controller.joint_filter.covariance[:6, 6:].tolist()
+                                     if controller.joint_filter and controller.joint_filter.covariance is not None else None),
         "gnss_receiver_state": controller.paired_receiver.snapshot() if controller.paired_receiver else None,
+        **({"gnss_transport": controller.delayed_navigation.snapshot()} if controller.delayed_navigation else {}),
         "mission_options": options.to_dict(),
         "environment_state": [model.snapshot() for model in environment.models],
     }

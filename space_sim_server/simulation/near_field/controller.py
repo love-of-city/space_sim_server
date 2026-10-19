@@ -39,6 +39,9 @@ class NearController(sysModel.SysModel):
             initial_com.append(np.array(body["position_m"]) + rbk.EP2C(np.array(body["attitude_wxyz"])).T @ offset)
         self.initial_center_distance = float(np.linalg.norm(initial_com[0] - initial_com[1]))
         self.handoff_time = float(handoff["state"]["sim_time_s"])
+        if (config.receiver_config is not None and config.receiver_config.delay_s > 0
+                and handoff.get("gnss_transport") is None):
+            raise ValueError("nonzero GNSS latency requires an explicit in-flight transport handoff")
         estimates, covariance = origin_navigation(handoff)
         self.target_orbit = estimates[0].copy()
         self.target_covariance = np.asarray(handoff["covariances"][0], dtype=float).copy()
@@ -50,7 +53,8 @@ class NearController(sysModel.SysModel):
                                acceleration_sigma_m_s2=.05 if self.orbital_guidance else .0003)
         self.initial_navigation = {"state": self.nav.x.tolist(), "covariance": self.nav.P.tolist()}
         self.initial_hold_frame = vbar_frame(self.target_orbit)[0].T @ self.nav.x[:3] if self.orbital_guidance else None
-        self.sensors = SensorSimulator(config, receiver_state=handoff.get("gnss_receiver_state"), epoch_s=self.handoff_time)
+        self.sensors = SensorSimulator(config, receiver_state=handoff.get("gnss_receiver_state"), epoch_s=self.handoff_time,
+                                       transport_state=handoff.get("gnss_transport"))
         self.config = config
         self.readers = [scene.getBody(n).getOrigin().stateOutMsg.addSubscriber() for n in ("capture_target", "cubesat_bus")]
         self.grasp_reader = scene.getSite("capture_target_grasp").stateOutMsg.addSubscriber()
@@ -154,13 +158,19 @@ class NearController(sysModel.SysModel):
         self.nav.predict(dt, -self.force / self.mass, gradient)
         self.target_orbit[:3] += self.target_orbit[3:] * dt - 0.5 * MU * self.target_orbit[:3] / radius**3 * dt**2
         self.target_orbit[3:] -= MU * self.target_orbit[:3] / np.linalg.norm(self.target_orbit[:3])**3 * dt
-        # Acquisition is 10 Hz; actuator/controller clock remains 20 Hz.
-        if round(now * 20) % 2 == 0 or config_rate(self.config) > 10:
+        # Read the physical publisher's epoch, not this pre-physics callback's
+        # clock. They differ by one outer step after initialization. Poll every
+        # control tick; SensorSimulator gates acquisition at the receiver rate.
+        message_epochs = [int(reader.timeWritten()) for reader in self.readers]
+        if message_epochs[0] != message_epochs[1]:
+            raise ValueError("paired GNSS body messages have different physical epochs")
+        acquisition_time = message_epochs[0]*1e-9
+        if acquisition_time <= now+1e-9:
             # Ideal onboard attitude/encoder measurements are time-tagged and
             # delayed with the cooperative state packet, not read by guidance.
             cooperative = {"rotation": target_r.copy(), "hinge": hinge}
             packets, link = self.sensors.acquire(now, self.phase, truth_relative, grasp_tool, stereo_rotation, cooperative,
-                                                 absolute_truth=truth)
+                                                 absolute_truth=truth, acquisition_time_s=acquisition_time)
             for packet in packets:
                 if self.nav.update(packet, now):
                     if packet["source"] == "gnss":
@@ -175,6 +185,8 @@ class NearController(sysModel.SysModel):
                         self.rotation_noise = packet["rotation_noise"]
                         quality = self.optical["marker_px"] >= 24 and self.optical["depth_sigma_m"] < 0.03 and self.nav.sigma_m < 0.04
                         self.visual_streak = self.visual_streak + 1 if quality else 0
+        else:
+            raise ValueError("sensor body messages are from a future physical epoch")
         # All guidance below this boundary uses estimated state, accepted
         # observations and platform attitude/encoders. Truth above is sensor/evaluation only.
         visual_valid = now - self.last_vision <= 0.35
@@ -317,6 +329,8 @@ class NearController(sysModel.SysModel):
         assembly_com = [sum(m * np.array(read().r_BN_N) for m, read in group) / sum(m for m, _ in group)
                         for group in self.assembly_com_readers]
         self.rows.append({"t": self.handoff_time + now, "elapsed_s": now, "phase": self.phase,
+            "physical_observation_time_s": self.handoff_time+acquisition_time,
+            "navigation_prediction_time_s": self.handoff_time+now,
             "truth": truth.tolist(), "estimate": self.nav.x.tolist(), "covariance": self.nav.P.tolist(),
             "center_distance_m": self.initial_center_distance if now == 0 else float(np.linalg.norm(assembly_com[1] - assembly_com[0])),
             "platform_to_grasp_m": float(np.linalg.norm(estimated_grasp)), "tcp_gap_m": gap,
@@ -338,4 +352,6 @@ class NearController(sysModel.SysModel):
             "target_aocs_torque_nm": target_torque.tolist(),
             "target_hinge_angle_rad": hinge, "target_hinge_torque_nm": hinge_torque,
             "truth_lateral_error_m": float(np.linalg.norm(true_error - true_axis * (true_axis @ true_error))),
-            "navigation_error_m": float(np.linalg.norm(self.nav.x[:3] - truth_relative[:3]))})
+            "navigation_error_m": float(np.linalg.norm(self.nav.x[:3] - truth_relative[:3])),
+            **(self.sensors.transport_telemetry() if self.config.receiver_config is not None
+               and self.config.receiver_config.delay_s > 0 else {})})

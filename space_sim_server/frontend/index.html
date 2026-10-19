@@ -209,6 +209,7 @@
               <summary>环境与误差参数</summary>
               <div class="initial-joint-grid">
                 <label>GNSS 绝对位置每轴 σ（m）<input id="missionGnssPosition" type="number" min="0.001" max="100" step="any" value="0.5773502692" required></label>
+                <label id="missionGnssDelayField">GNSS 通信时延（s）<input id="missionGnssDelay" type="number" min="0" max="0.25" step="any" value="0" required></label>
                 <label>GNSS 绝对速度每轴 σ（m/s）<input id="missionGnssVelocity" type="number" min="0.00001" max="10" step="any" value="0.0011547005" required></label>
                 <label>初始位置 σ（m）<input id="missionInitialPosition" type="number" min="0" max="1000" step="any" value="10" required></label>
                 <label>轨道扰动 σ（m/s²）<input id="missionOrbitNoise" type="number" min="0" max="0.001" step="any" value="0.00002" required></label>

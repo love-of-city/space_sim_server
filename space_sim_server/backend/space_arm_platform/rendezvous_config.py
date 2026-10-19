@@ -29,8 +29,6 @@ class FlightOptions:
     def __post_init__(self):
         if self.differential_gnss is not None:
             cfg = GNSSConfig.from_dict(self.differential_gnss)
-            if cfg.delay_s != 0:
-                raise ValueError("distant flight currently requires zero GNSS transport delay")
             object.__setattr__(self, "differential_gnss", cfg.to_dict())
         if type(self.seed) is not int or not 0 <= self.seed < 2**32:
             raise ValueError("seed must be an integer in [0, 2^32)")

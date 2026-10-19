@@ -608,7 +608,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.get("/api/rendezvous/artifact/{name}")
     async def rendezvous_artifact(name: str, mission_id: str | None = None, phase: str | None = None) -> FileResponse:
-        if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz"}:
+        if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz", "gnss_measurements.npz"}:
             raise HTTPException(status_code=404, detail="Unknown rendezvous artifact")
         if mission_id:
             try:

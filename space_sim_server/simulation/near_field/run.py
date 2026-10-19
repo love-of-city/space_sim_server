@@ -71,7 +71,7 @@ def packet(scene, row, run_id):
         bodies.append({"body_id": f"rendezvous/{role}", "position_m": list(p.r_BN_N), "velocity_m_s": list(p.v_BN_N),
                        "attitude_wxyz": list(rbk.MRP2EP(p.sigma_BN)), "angular_velocity_rad_s": list(p.omega_BN_B)})
     return {"protocol": "space-sim-state/1", "type": "state", "sim_time_s": row["t"], "bodies": bodies,
-            "metadata": {"run_id": run_id, **{k: v for k, v in row.items() if k not in {"truth", "covariance", "joints", "joint_reference"}},
+            "metadata": {"run_id": run_id, **{k: v for k, v in row.items() if k not in {"truth", "navigation_truth", "covariance", "joints", "joint_reference"}},
                          "navigation_valid": row["communication_valid"], "vision_mode": "parameterized; no left/right images processed",
                          "capture_mode": "logical proxy; no physical connection or three-finger mechanics validation"}}
 
@@ -171,6 +171,13 @@ def run(args):
             sim.ConfigureStopTime(macros.sec2nano(tick * 0.05))
             sim.ExecuteSimulation()
             row = control.rows[-1]
+            # Evaluation only, after physics reaches the navigation prediction
+            # epoch. Pre-physics sensor/encoder truth remains separately tagged.
+            current = [reader() for reader in control.readers]
+            current_relative = np.r_[np.array(current[0].r_BN_N)-current[1].r_BN_N,
+                                     np.array(current[0].v_BN_N)-current[1].v_BN_N]
+            row["navigation_truth"] = current_relative.tolist()
+            row["navigation_error_m"] = float(np.linalg.norm(np.array(row["estimate"][:3])-current_relative[:3]))
             if continuity is None:
                 for name, role in (("capture_target", "target"), ("cubesat_bus", "chaser")):
                     restored = scene.getBody(name).getOrigin().stateOutMsg.read()
@@ -232,6 +239,7 @@ def run(args):
                       final_true_gap=0.01 < final["truth_tcp_gap_m"] < 0.026)
     checks = {key: bool(value) for key, value in checks.items()}
     report = {"schema": "spacesim-near-field/1", "scenario": "near-field", "basic_nominal_passed": all(checks.values()),
+              "sensor_clock_contract": "physical-message-epoch/v1",
               "outcome": final["phase"], "checks": checks, "run_id": run_id, "transitions": control.transitions,
               "guidance_frame": guidance_frame(incoming),
               "final_time_s": final["t"], "wall_time_s": time.monotonic() - started,
@@ -244,6 +252,9 @@ def run(args):
               "initial_navigation": control.initial_navigation, "initial_physical_position_error_m": continuity,
               "continuity": continuity_details,
               "navigation_updates": control.nav.accepted, "navigation_rejections": control.nav.rejected,
+              **({"initial_gnss_transport": incoming["gnss_transport"],
+                  "final_gnss_transport": control.sensors.transport_snapshot()}
+                 if incoming.get("gnss_transport") is not None else {}),
               "source_hashes": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob("*.py")},
               "nominal_platform_origin_to_grasp_m": float(np.linalg.norm(NOMINAL_TCP)),
               "nominal_origins_delta_m": (NOMINAL_TCP - GRASP_TARGET).tolist()}
@@ -255,7 +266,7 @@ def run(args):
                    model_configuration="restore recorded articulated joint positions and velocities",
                    source_kind="near-field terminal; capture remains a logical proxy",
                    navigation_reference="body_origin",
-                   navigation_sample_time_s=final["t"] - (.05 if final["elapsed_s"] > 0 else 0),
+                   navigation_sample_time_s=final["t"],
                    environment_state=[module.snapshot() for module in environment.models])
     for item in handoff["stowed_joints"]:
         joint = scene.getBody(item["body"]).getScalarJoint(item["joint"]["name"])
@@ -272,12 +283,20 @@ def run(args):
     handoff["gnss_cross_covariance_eci"] = target_P.tolist()
     handoff["navigation_absolute_source"] = "propagated target estimate with conservative uncertainty; relative EKF updated"
     handoff["gnss_receiver_state"] = control.sensors.receiver.snapshot() if control.sensors.receiver else None
+    if incoming.get("gnss_transport") is not None:
+        handoff["gnss_transport"] = control.sensors.transport_snapshot()
     (output / "handoff.json").write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8")
-    np.savez_compressed(output / "team_telemetry.npz", **{k: [r[k] for r in rows] for k in (
+    exported = {k: [r[k] for r in rows] for k in (
         "t", "elapsed_s", "phase", "truth", "estimate", "covariance", "force_n", "joints", "joint_reference",
         "tcp_gap_m", "truth_tcp_gap_m", "truth_lateral_error_m", "relative_speed_m_s", "position_sigma_m",
         "vision_valid", "close_inhibited", "navigation_error_m", "center_distance_m", "target_hinge_angle_rad",
-        "truth_relative_speed_m_s", "truth_alignment_error_deg")})
+        "truth_relative_speed_m_s", "truth_alignment_error_deg", "physical_observation_time_s",
+        "navigation_prediction_time_s", "navigation_truth")}
+    if incoming.get("gnss_transport") is not None:
+        exported.update({key: [np.nan if row[key] is None else row[key] for row in rows] for key in (
+            "gnss_sample_time_s", "gnss_receive_time_s", "gnss_measurement_age_s", "gnss_delivered_sequence",
+            "gnss_acquired_sequence", "gnss_pending_count", "gnss_delivered_count", "gnss_requested_delay_s")})
+    np.savez_compressed(output / "team_telemetry.npz", **exported)
     print(json.dumps({"checks": checks, "output": str(output)}), flush=True)
     stepper.close()
     return 0 if all(checks.values()) else 2

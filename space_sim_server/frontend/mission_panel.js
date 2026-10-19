@@ -5,7 +5,7 @@ const phases = {idle: '平台空闲', starting: '正在启动任务', flight: '�
   handoff: '正在接续遥操作', launching: '正在启动场景', starting_renderer: '正在启动 UE',
   starting_simulation: '正在启动仿真', running: '遥操作场景运行中', stopping: '正在停止任务',
   stopped: '任务已停止', failed: '任务未完成', completed: '任务已结束', unknown: '状态未知'};
-const flightPhases = {'Orbit raising': '升轨飞行', 'Team approach': '双星接近', '100 m handoff hold': '100 m 外保持', Abort: '已中止',
+const flightPhases = {'Orbit raising': '升轨飞行', 'Team approach': '双星接近', '100 m handoff hold': '100 m 外保持', Abort: '已中止', NavigationAcquire: '等待首次导航观测',
   FarHandoff: '远距状态交接', GNSSApproach: '相对 GNSS 接近', VisualFusion: '视觉融合', VisualApproach: '视觉主导接近',
   PlatformHold: '平台驻留', ArmDeploy: '机械臂展开', ArmAlign: '机械臂视觉对准', FinalApproach: '末段接近',
   ContactProxy: '进入虚拟接触窗口', Grasp: '夹取代理', CaptureConfirm: '捕获确认代理', CaptureHold: '捕获保持（逻辑代理）', SafeHold: '安全保持 · 闭合已禁止'};
@@ -15,11 +15,14 @@ const number = (value, digits, unit) => Number.isFinite(value) ? `${value.toFixe
 
 export function missionArtifactLinks(mission) {
   if (!mission.mission_id) return [];
-  return (mission.stages || []).filter(stage => ['far', 'near'].includes(stage.phase)).flatMap(stage =>
-    [['mission_report.json', '验收报告'], ['handoff.json', '交接状态'], ['team_telemetry.npz', '原始遥测']].map(([file, label]) => ({
+  return (mission.stages || []).filter(stage => ['far', 'near'].includes(stage.phase)).flatMap(stage => {
+    const files = [['mission_report.json', '验收报告'], ['handoff.json', '交接状态'], ['team_telemetry.npz', '原始遥测']];
+    if (stage.phase === 'far' && mission.options?.differential_gnss?.delay_s > 0) files.push(['gnss_measurements.npz', 'GNSS 观测']);
+    return files.map(([file, label]) => ({
       label: `${stage.phase === 'far' ? '远距' : '近距'}${label}`,
       href: `/api/rendezvous/artifact/${file}?mission_id=${encodeURIComponent(mission.mission_id)}&phase=${stage.phase}`,
-    })));
+    }));
+  });
 }
 
 export function missionPresentation(mission = {}, selectedMode = 'teleop') {
@@ -49,6 +52,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       : '使用团队双星模型，按同一任务推进远距交会、近距接近与操作。当前近距视觉仍为参数化观测，捕获结果需区分逻辑代理与真实接触。';
     $('nearFieldSettings').hidden = !near;
     $('orbitalFlightOptions').hidden = near;
+    $('missionGnssDelayField').hidden = near || catalog.continuous_default !== true;
     $('missionHoldField').hidden = near;
     $('nearFieldFailure').disabled = !!snapshot.active;
     const templateIds = catalog.modes.find(m => m.id === state.missionMode)?.template_ids;
@@ -114,6 +118,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       for (const [id, key] of Object.entries(fields)) {
         if (mission.options?.[key] != null) $(id).value = String(mission.options[key]);
       }
+      $('missionGnssDelay').value = String(mission.options?.differential_gnss?.delay_s ?? catalog.flight_defaults?.differential_gnss?.delay_s ?? 0);
       for (const [id, key] of [['missionDrag', 'drag_enabled'], ['missionSrp', 'srp_enabled']]) {
         if (mission.options?.[key] != null) $(id).checked = mission.options[key];
       }
@@ -142,7 +147,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     $('missionTime').textContent = number(t, 1, 's');
     $('missionRange').textContent = number(distance, 3, 'm');
     const nearMeta = meta.navigation_source ? meta : report?.final || {};
-    $('missionNavigation').textContent = nearMeta.navigation_source || (meta.navigation_valid === true && meta.gnss?.length === 2
+    $('missionNavigation').textContent = nearMeta.navigation_source || (meta.phase === 'NavigationAcquire' ? '等待观测到达' : meta.navigation_valid === true && meta.gnss?.length === 2
       ? '双星有效' : meta.navigation_valid === false ? '导航失效' : '—');
     $('nearPlatformDistance').textContent = number(nearMeta.platform_to_grasp_m, 4, 'm');
     $('nearTcpGap').textContent = number(nearMeta.tcp_gap_m, 4, 'm');
@@ -199,6 +204,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
         const value = snapshot.options?.[key] ?? catalog.flight_defaults?.[key];
         if (value != null) $(id).value = String(value);
       }
+      $('missionGnssDelay').value = String(snapshot.options?.differential_gnss?.delay_s ?? catalog.flight_defaults?.differential_gnss?.delay_s ?? 0);
       available = true;
       configure();
     },
@@ -215,7 +221,8 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       if (!near) { options.drag_enabled = $('missionDrag').checked; options.srp_enabled = $('missionSrp').checked; }
       const continuous = !near && catalog.continuous_default === true;
       if (continuous) options.differential_gnss = {...catalog.flight_defaults.differential_gnss,
-        absolute_position_sigma_m: options.gnss_position_sigma_m, absolute_velocity_sigma_m_s: options.gnss_velocity_sigma_m_s};
+        absolute_position_sigma_m: options.gnss_position_sigma_m, absolute_velocity_sigma_m_s: options.gnss_velocity_sigma_m_s,
+        delay_s: Number($('missionGnssDelay').value)};
       await act('/api/mission/start', {mode: state.missionMode, scene: {template_id: $('sceneTemplate').value}, options, continuous});
     },
   };

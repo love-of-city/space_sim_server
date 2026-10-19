@@ -19,6 +19,17 @@ test('flight keeps robot controls closed and exposes stop only to its owner', ()
   assert.equal(missionPresentation({...run, can_manage: false}).canStop, false);
 });
 
+test('delayed missions expose acquisition audit only after the far stage completes', () => {
+  const mission = {mission_id:'mission-delayed', options:{differential_gnss:{delay_s:.2}}, stages:[]};
+  assert.deepEqual(missionArtifactLinks(mission), []);
+  const links = missionArtifactLinks({...mission, stages:[{phase:'far'}, {phase:'near'}]});
+  assert.equal(links.length, 7);
+  const samples = links.filter(link => link.href.includes('gnss_measurements.npz'));
+  assert.equal(samples.length, 1);
+  assert.ok(samples[0].href.endsWith('phase=far'));
+  assert.equal(missionArtifactLinks({...mission, options:{differential_gnss:{delay_s:0}}, stages:[{phase:'far'}, {phase:'near'}]}).length, 6);
+});
+
 test('an accepted manual flight offers an explicit owned handoff', () => {
   const ready = {stage: 'flight', phase: 'ready', active: false, can_manage: true, can_handoff: true};
   assert.equal(missionPresentation(ready).canHandoff, true);
@@ -53,12 +64,14 @@ test('continuous start uses the shared receiver defaults in the existing mission
     await panel.load();
     panel.render({});
     $('missionGnssPosition').value = '.6';
+    assert.equal(Number($('missionGnssDelay').value), 0);
+    $('missionGnssDelay').value = '.12';
     await panel.startFlight();
     const [path, init] = requests.at(-1), request = JSON.parse(init.body);
     assert.equal(path, '/api/mission/start');
     assert.equal(request.continuous, true);
     assert.equal(request.mode, 'team-in-orbit');
-    assert.deepEqual(request.options.differential_gnss, {...receiver, absolute_position_sigma_m: .6});
+    assert.deepEqual(request.options.differential_gnss, {...receiver, absolute_position_sigma_m: .6, delay_s: .12});
     assert.equal(request.options.gnss_position_sigma_m, .6);
   } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
 });
@@ -69,8 +82,8 @@ test('the same mission returns to original teleoperation panels only after hando
   assert.equal(missionPresentation(run, 'team-in-orbit').canHandoff, false);
 });
 
-for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, true]) {
-  test(`restored ${hasSavedOptions ? 'flight' : 'teleop'} options with ${stateFirst ? 'state' : 'catalog'} arriving first`, async () => {
+for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, true]) for (const savedDelay of [undefined, .17]) {
+  test(`restored ${hasSavedOptions ? 'flight' : 'teleop'} options with ${stateFirst ? 'state' : 'catalog'} arriving first, delay ${savedDelay}`, async () => {
     const previousDocument = globalThis.document, previousOption = globalThis.Option;
     globalThis.document = {body: {classList: {toggle() {}}}};
     globalThis.Option = class { constructor(label, value) { this.value = value; } };
@@ -89,7 +102,8 @@ for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, tr
       differential_gnss:{relative_position_sigma_m:.03, relative_velocity_sigma_m_s:.0015, sample_rate_hz:10, delay_s:0}};
     const saved = {mission_id:'saved', mode:hasSavedOptions ? 'team-in-orbit' : 'teleop',
       stage:'teleop', phase:'stopped', active:false,
-      ...(hasSavedOptions ? {options:{seed:0, gnss_position_sigma_m:3, gnss_velocity_sigma_m_s:.5}} : {})};
+      ...(hasSavedOptions ? {options:{seed:0, gnss_position_sigma_m:3, gnss_velocity_sigma_m_s:.5,
+        ...(savedDelay != null ? {differential_gnss:{...defaults.differential_gnss, delay_s:savedDelay}} : {})}} : {})};
     let releaseCatalog;
     const pendingCatalog = new Promise(resolve => { releaseCatalog = resolve; });
     try {
@@ -108,15 +122,19 @@ for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, tr
       assert.equal(Number($('missionGnssPosition').value), hasSavedOptions ? 3 : defaults.gnss_position_sigma_m);
       assert.equal(Number($('missionGnssVelocity').value), hasSavedOptions ? .5 : defaults.gnss_velocity_sigma_m_s);
       assert.equal(Number($('missionSeed').value), hasSavedOptions ? 0 : 7);
+      assert.equal(Number($('missionGnssDelay').value), hasSavedOptions ? savedDelay ?? 0 : 0);
       $('missionMode').value = 'team-in-orbit'; panel.configure();
+      $('missionGnssDelay').value = '.12';
       $('missionGnssPosition').value = '.8'; panel.render(saved);
       assert.equal($('missionGnssPosition').value, '.8', 'later state polls preserve user edits');
+      assert.equal($('missionGnssDelay').value, '.12', 'later state polls preserve delay edits');
       await panel.startFlight();
       const request = JSON.parse(requests.at(-1)[1].body);
       assert.equal(request.continuous, true);
       assert.equal(request.options.gnss_position_sigma_m, .8);
       assert.equal(request.options.differential_gnss.absolute_position_sigma_m, .8);
       assert.equal(request.options.differential_gnss.absolute_velocity_sigma_m_s, hasSavedOptions ? .5 : defaults.gnss_velocity_sigma_m_s);
+      assert.equal(request.options.differential_gnss.delay_s, .12);
     } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
   });
 }

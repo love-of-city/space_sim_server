@@ -66,17 +66,29 @@ def verify(folder):
     zero_r = chain.forward(np.zeros(6))[1]
     # Independently reconstruct TCP/grasp from source FK, physical packets and hinge encoders.
     evaluated = []
+    clock_aligned = report.get("sensor_clock_contract") == "physical-message-epoch/v1"
+    navigation_samples_match = []
+    physical_samples_match = []
     for line in (folder/"state_packets.jsonl").open(encoding="utf-8"):
         packet = json.loads(line)
         i = int(round((packet["sim_time_s"]-data["t"][0])*20))
+        bodies = {b["body_id"]: b for b in packet["bodies"]}
+        a, b = bodies["rendezvous/target"], bodies["rendezvous/chaser"]
+        if clock_aligned:
+            physical = np.array([np.r_[body["position_m"], body["velocity_m_s"]] for body in (a, b)])
+            navigation_samples_match.append(
+                abs(data["navigation_prediction_time_s"][i]-packet["sim_time_s"]) < 1e-8
+                and np.allclose(data["navigation_truth"][i], physical[0]-physical[1], rtol=0, atol=1e-8))
+            if i+1 < len(data["t"]):
+                physical_samples_match.append(
+                    abs(data["physical_observation_time_s"][i+1]-packet["sim_time_s"]) < 1e-8
+                    and np.allclose(data["truth"][i+1], physical, rtol=0, atol=1e-8))
         # Guidance runs before physics; packets are published after physics.
         # The NEXT guidance row therefore contains this packet's encoder sample.
         # Omit the very last packet, whose matching next row was not recorded.
         if i+1 >= len(data["t"]):
             continue
         i += 1
-        bodies = {b["body_id"]: b for b in packet["bodies"]}
-        a, b = bodies["rendezvous/target"], bodies["rendezvous/chaser"]
         Ra, Rb = rotation(a["attitude_wxyz"]), rotation(b["attitude_wxyz"])
         hinge = data["target_hinge_angle_rad"][i]
         c, s = np.cos(hinge), np.sin(hinge)
@@ -92,7 +104,8 @@ def verify(folder):
         evaluated_index, evaluated_time = i, packet["sim_time_s"]
     h, lateral, angle = evaluated[-1]
     true_relative = data["truth"][:, 0]-data["truth"][:, 1]
-    error = np.linalg.norm(data["estimate"][:, :3]-true_relative[:, :3], axis=1)
+    navigation_truth = data["navigation_truth"] if clock_aligned else true_relative
+    error = np.linalg.norm(data["estimate"][:, :3]-navigation_truth[:, :3], axis=1)
     inertial_speed = float(np.linalg.norm(true_relative[-1, 3:]))
     velocity = true_relative[-1, 3:]
     if report.get("guidance_frame") == "orbital-vbar":
@@ -109,6 +122,13 @@ def verify(folder):
               "terminal_true_speed": speed < .003,
               "independent_gap_matches_telemetry": abs(h-data["truth_tcp_gap_m"][evaluated_index]) < 1e-8,
               "independent_navigation_matches": bool(np.allclose(error, data["navigation_error_m"], atol=1e-8))}
+    if clock_aligned:
+        checks.update(physical_acquisition_epochs=bool(physical_samples_match) and all(physical_samples_match)
+                      and np.allclose(data["physical_observation_time_s"],
+                                      data["t"][0]+np.maximum(0, data["elapsed_s"]-.05), rtol=0, atol=1e-8),
+                      navigation_evaluated_at_prediction_epoch=bool(navigation_samples_match) and all(navigation_samples_match)
+                      and np.allclose(data["navigation_prediction_time_s"], data["t"], rtol=0, atol=1e-8)
+                      and np.isfinite(navigation_truth).all())
     if normal:
         capture = np.flatnonzero(data["phase"] == "CaptureHold")
         required = ["FarHandoff", "GNSSApproach", "VisualFusion", "VisualApproach", "PlatformHold", "ArmDeploy",

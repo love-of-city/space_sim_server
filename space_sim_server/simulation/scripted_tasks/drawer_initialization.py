@@ -75,6 +75,8 @@ class NativePoseProbe:
     """
 
     def __init__(self, model_path):
+        from .gripper_preflight import ParallelogramGripper
+        self.gripper_kinematics = ParallelogramGripper(model_path)
         from simulation.mujoco_plugins import ensure_model_plugins
         from simulation.local_mujoco_stepper import (
             _library,
@@ -112,6 +114,10 @@ class NativePoseProbe:
                 "ee_link12_joint",
             ]
         ]
+        self.passive_addresses = {
+            name: self.address(name)
+            for name in self.gripper_kinematics.passive_positions([0.0, 0.0])
+        }
         self.names = {}
         for body in range(int(dims[3])):
             buf = ctypes.create_string_buffer(256)
@@ -133,6 +139,8 @@ class NativePoseProbe:
 
     def contacts(self, q):
         self.q[self.addresses] = q
+        for name, value in self.gripper_kinematics.passive_positions(q[6:8]).items():
+            self.q[self.passive_addresses[name]] = value
         self.check(
             self.lib.lms_set_state(self.handle, self.ptr(self.q), self.ptr(self.v))
         )
@@ -215,10 +223,12 @@ class NativePoseProbe:
             for stage in (
                 ("raise", "above_pickup", "align")
                 if is_plug
-                else ("raise", "above_drawer", "align")
+                else task.approach_stages
             ):
                 task._enter(stage, sample)
                 path = task._path
+                if path is None:
+                    continue
                 if task._timing is not None:
                     # Validate the executed spline, including former segment
                     # midpoints, rather than checking only its IK knots.
@@ -226,8 +236,13 @@ class NativePoseProbe:
                         task._timing.path.at(u)
                         for u in np.linspace(0, 1, 2 * len(task._path) - 1)
                     ]
-                for point in path:
-                    candidate = np.r_[point, 0.0, 0.0]
+                candidates = [np.r_[point, 0.0, 0.0] for point in path]
+                if not is_plug and stage == "approach":
+                    candidates = [
+                        task.approach_reference(u)
+                        for u in np.linspace(0, 1, 2 * len(task._path) - 1)
+                    ]
+                for candidate in candidates:
                     hit = collision(candidate)
                     if hit:
                         return dict(
@@ -238,9 +253,11 @@ class NativePoseProbe:
                             checked_poses=checked,
                         )
                 task.reference[:6] = task._path[-1]
+                if not is_plug and stage == "approach":
+                    task.reference[:] = task.approach_reference(1.0)
             # Descend/lift/return IK must exist too. Contact intentionally starts here.
             for stage in (
-                ("descend",) if is_plug else ("descend", "lift", "return", "retract")
+                ("descend",) if is_plug else ("lift", "return", "retract")
             ):
                 task._enter(stage, sample)
                 task.reference[:6] = task._path[-1]

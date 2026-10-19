@@ -165,45 +165,41 @@ class DrawerLiftTask:
         goal, rotation = self._stage_goal(name, p, r)
         self._goal, self._rotation = goal, rotation
         if goal is not None:
-            rv = rotation_matrix_to_vector(rotation @ r.T)
-            angle = np.linalg.norm(rv)
-            seed = self.reference[:6].copy()
-            path = [seed]
-            for alpha in np.linspace(0.0, 1.0, 81)[1:]:
-                rot = (
-                    axis_angle_to_matrix(rv / angle, alpha * angle) @ r
-                    if angle > 1e-12
-                    else r
-                )
-                seed = solve_pose(
-                    self.chain,
-                    p + alpha * (goal - p),
-                    rot,
-                    seed,
-                    self.lower,
-                    self.upper,
-                )
-                if np.max(np.abs(seed - path[-1])) > 0.3:
-                    raise ValueError(
-                        "IK changed branch; refusing a discontinuous joint reference"
-                    )
-                path.append(seed)
-            self._path = np.asarray(path)
+            self._path, distance, angle = self._plan_path(name, p, r, goal, rotation)
             # Quintic time scaling has maximum derivative 1.875. Bound every joint.
-            slope = np.max(np.abs(np.diff(self._path, axis=0))) * (len(path) - 1)
+            slope = np.max(np.abs(np.diff(self._path, axis=0))) * (len(self._path) - 1)
             self._duration = max(
                 1.0,
                 1.875 * slope / self.config.arm_speed_rad_s,
-                1.875 * np.linalg.norm(goal - p) / self.config.linear_speed_m_s,
+                1.875 * distance / self.config.linear_speed_m_s,
                 1.875 * angle / 0.2,
             )
             self._timing = self._time_path(
-                name, float(np.linalg.norm(goal - p)), float(angle)
+                name, distance, angle
             )
             if self._timing is not None:
                 self._duration = self._timing.duration
         self._timeout = max(20.0, 2.5 * self._duration + 10.0)
         self.events[-1]["planned_motion_seconds"] = self._duration
+
+    def _plan_path(self, name, p, r, goal, rotation):
+        rv = rotation_matrix_to_vector(rotation @ r.T)
+        angle = float(np.linalg.norm(rv))
+        def pose(alpha):
+            rot = axis_angle_to_matrix(rv/angle, alpha*angle) @ r if angle > 1e-12 else r
+            return p + alpha*(goal-p), rot
+        return self._solve_path(pose), float(np.linalg.norm(goal-p)), angle
+
+    def _solve_path(self, pose, count=81):
+        seed = self.reference[:6].copy()
+        path = [seed]
+        for alpha in np.linspace(0.0, 1.0, count)[1:]:
+            position, rotation = pose(alpha)
+            seed = solve_pose(self.chain, position, rotation, seed, self.lower, self.upper)
+            if np.max(np.abs(seed-path[-1])) > 0.3:
+                raise ValueError("IK changed branch; refusing a discontinuous joint reference")
+            path.append(seed)
+        return np.asarray(path)
 
     def _time_path(self, name, distance, angle):
         return None

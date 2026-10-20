@@ -10,6 +10,46 @@ import numpy as np
 from space_arm_platform.gnss_config import GNSSConfig
 from simulation.differential_gnss import DifferentialGNSS
 from .orbital_guidance import guidance_frame, rotating_relative_state
+from .parameters import PARAMETERS
+
+
+class VisualReadiness:
+    """Current accepted distinct-sample quality, never an information weight."""
+    def __init__(self):
+        self.streak = 0
+        self.last_stamp = None
+        self.last_receive = None
+        self.geometry = {}
+
+    def observe(self, packet, accepted, sigma, now=None):
+        stamp = packet['stamp']
+        different = self.last_stamp is None or stamp > self.last_stamp+1e-9
+        geometry = packet.get('geometry', {})
+        quality = (accepted and geometry.get('valid', False) and geometry.get('common_fov', False)
+                   and geometry.get('marker_px', 0) >= PARAMETERS.marker_px
+                   and geometry.get('depth_sigma_m', np.inf) < PARAMETERS.depth_sigma_m
+                   and sigma < PARAMETERS.visual_sigma_m)
+        if not quality or not different:
+            self.streak = 0
+        else:
+            uninterrupted = self.last_stamp is None or stamp-self.last_stamp <= PARAMETERS.max_update_gap_s+1e-9
+            self.streak = self.streak+1 if uninterrupted else 1
+        if different:
+            self.last_stamp = stamp
+            self.geometry = dict(geometry) if accepted else {}
+            self.last_receive = now
+
+    def current(self, now, sigma):
+        fresh = self.last_stamp is not None and 0 <= now-self.last_stamp <= PARAMETERS.visual_age_s+1e-9
+        if self.last_receive is not None:
+            fresh = fresh and 0 <= now-self.last_receive <= PARAMETERS.max_update_gap_s+1e-9
+        quality = (fresh and sigma < PARAMETERS.visual_sigma_m and self.geometry.get('valid', False)
+                   and self.geometry.get('common_fov', False)
+                   and self.geometry.get('marker_px', 0) >= PARAMETERS.marker_px
+                   and self.geometry.get('depth_sigma_m', np.inf) < PARAMETERS.depth_sigma_m)
+        if not quality:
+            self.streak = 0
+        return bool(quality and self.streak >= PARAMETERS.visual_samples)
 
 
 def origin_navigation(handoff):
@@ -249,9 +289,16 @@ class SensorSimulator:
                     or not np.allclose(rotation.T@rotation, np.eye(3), atol=1e-7)
                     or not np.isclose(np.linalg.det(rotation), 1., atol=1e-7)):
                 raise ValueError("invalid in-flight GNSS measurement or cooperative telemetry")
+            extra = {}
+            if 'angular_rate' in cooperative and 'hinge_rate' in cooperative:
+                angular_rate = np.asarray(cooperative['angular_rate'], dtype=float)
+                hinge_rate = float(cooperative['hinge_rate'])
+                if angular_rate.shape != (3,) or not np.isfinite(angular_rate).all() or not np.isfinite(hinge_rate):
+                    raise ValueError('invalid cooperative rate telemetry')
+                extra = {'angular_rate': angular_rate.tolist(), 'hinge_rate': hinge_rate}
             restored.append({"source": "gnss", "stamp": stamp-self.epoch_s, "due": due-self.epoch_s,
                              "sequence": sequence, "z": measurement.copy(), "R": covariance.copy(),
-                             "cooperative": {"rotation": rotation.copy(), "hinge": hinge}})
+                             "cooperative": {"rotation": rotation.copy(), "hinge": hinge, **extra}})
             previous_sequence, previous_stamp = sequence, stamp
         self.pending.extend(restored)
         self.last_gnss_acquisition = self.receiver.last_time-self.epoch_s
@@ -269,8 +316,8 @@ class SensorSimulator:
                 continue
             pending.append({"stamp": self.epoch_s+packet["stamp"], "due": self.epoch_s+packet["due"],
                             "sequence": packet["sequence"], "z": packet["z"].tolist(), "R": packet["R"].tolist(),
-                            "cooperative": {"rotation": packet["cooperative"]["rotation"].tolist(),
-                                            "hinge": packet["cooperative"]["hinge"]}})
+                            "cooperative": {**packet['cooperative'],
+                                            "rotation": packet["cooperative"]["rotation"].tolist()}})
         return {"schema": "spacesim-gnss-transport/1", "epoch_s": self.epoch_s+self.now,
                 "reference": "body_origin", "pending": pending,
                 **self.transport_telemetry()}

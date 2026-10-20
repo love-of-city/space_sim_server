@@ -10,8 +10,11 @@ from simulation.pose_ik import _iterate, _rotation_error, ElbowPreference
 
 from .model import JOINTS
 from .approach_plan import approach_plan, OpticalCheckpoint
-from .navigation import RelativeEKF, SensorSimulator, origin_navigation
+from .navigation import RelativeEKF, SensorSimulator, VisualReadiness, origin_navigation
 from .orbital_guidance import guidance_frame, vbar_frame, rotating_acceleration
+from .center_kinematics import CenterKinematics, center_relative, skew
+from .parameters import PARAMETERS
+from .vbar_approach import VbarApproach
 
 
 def bounded(v, limit):
@@ -29,6 +32,16 @@ class NearController(sysModel.SysModel):
         self.scene, self.chain, self.mass = scene, chain, mass
         self.gravity = gravity_model or PointMassNavigationGravity()
         root = ET.parse(model_path).getroot()
+        self.centers = [CenterKinematics(root.find(f'./worldbody/body[@name="{name}"]'))
+                        for name in ('capture_target', 'cubesat_bus')]
+        self.vbar = VbarApproach()
+        self.visual_quality = VisualReadiness()
+        self.pointing_stable_since = None
+        self.cooperative_stamp = None
+        self.cooperative_rate = None
+        self.cooperative_hinge_rate = None
+        self.cooperative_rotation = None
+        self.cooperative_hinge = 0.
         self.assembly_com_readers = [[(float(b.find("inertial").get("mass")), ports.body_com_state(b.get("name")).addSubscriber())
                                       for b in top.iter("body")] for top in root.findall("./worldbody/body")]
         # COM publishers are primed by the first physics step, after t=0
@@ -61,6 +74,7 @@ class NearController(sysModel.SysModel):
         self.readers = [scene.getBody(n).getOrigin().stateOutMsg.addSubscriber() for n in ("capture_target", "cubesat_bus")]
         self.grasp_reader = scene.getSite("capture_target_grasp").stateOutMsg.addSubscriber()
         self.joint_readers = [ports.joint_state(j).addSubscriber() for j in JOINTS]
+        self.joint_rate_readers = [ports.joint_rate(j).addSubscriber() for j in JOINTS]
         self.hinge_reader = ports.joint_state("outer_panel_hinge").addSubscriber()
         self.hinge_rate_reader = ports.joint_rate("outer_panel_hinge").addSubscriber()
         # Cooperative target holds its existing articulated panel. Equal and
@@ -87,12 +101,17 @@ class NearController(sysModel.SysModel):
         self.previous = None
         self.last_gnss, self.last_vision = -1e6, -1e6
         self.visual_streak, self.visual_dominant = 0, False
+        self.visual_ready = False
         self.optical = {}
         self.rotation_noise = np.zeros(3)
         self.dwell = 0.
         self.hold_delta = None
         self.deploy_q = None
-        self.target_rotation = np.eye(3)
+        self.target_rotation = self.target_reference_rotation.copy()
+        self.cooperative_rotation = self.target_rotation.copy()
+        self.cooperative_rate = list(target_initial['angular_velocity_rad_s'])
+        self.cooperative_hinge_rate = 0.
+        self.cooperative_stamp = 0.
         self.target_hinge_observation = 0.
         self.arm_goal_gap = 0.15
         self.latch = False
@@ -103,6 +122,16 @@ class NearController(sysModel.SysModel):
         self.nominal_grasp = np.array(self.plan["nominal_grasp_bus_m"])
         self.optical_checkpoint = OpticalCheckpoint()
         self.platform_stable_since = None
+
+    def fail(self, reason, now, state=None):
+        if self.phase in {'SafeHold', 'CaptureHold'}:
+            return
+        self.close_inhibited = True
+        self.pending_failure_reason = reason
+        self.hold_delta = self.nav.x[:3].copy()
+        if self.orbital_guidance and state is not None:
+            self.vbar.fail(reason, state)
+        self.transition('SafeHold', now)
 
     def reference(self, _t):
         return self.qref.copy(), self.dqref.copy()
@@ -138,6 +167,7 @@ class NearController(sysModel.SysModel):
         self.target_torque.write(messaging.CmdTorqueBodyMsgPayload(torqueRequestBody=target_torque.tolist()), nanos)
         truth = np.array([np.r_[p.r_BN_N, p.v_BN_N] for p in payloads])
         q = np.array([r().state for r in self.joint_readers])
+        dq = np.array([r().state for r in self.joint_rate_readers])
         rb = rbk.MRP2C(payloads[1].sigma_BN).T  # existing perfect attitude measurement assumption
         ptcp, rtool = self.chain.forward(q[:6])  # existing exact encoder assumption
         rtool_n = rb @ rtool
@@ -152,7 +182,8 @@ class NearController(sysModel.SysModel):
         # disturbance model; retaining slew noise makes velocity estimates too
         # noisy to certify a five-second stationary hold. Never reset P or x.
         if self.orbital_guidance:
-            self.nav.acceleration_sigma_m_s2 = .05 if self.phase in {"FarHandoff", "ArmDeploy"} else .003
+            settled = self.pointing_stable_since is not None and now-self.pointing_stable_since >= 2.
+            self.nav.acceleration_sigma_m_s2 = .05 if self.phase == 'ArmDeploy' or (self.phase == 'FarHandoff' and not settled) else .003
         absolute_transition = np.eye(6)
         absolute_transition[:3, 3:] = dt*np.eye(3)
         absolute_transition[3:, :3] = dt*gradient
@@ -160,6 +191,7 @@ class NearController(sysModel.SysModel):
         acceleration_noise = np.vstack((.5*dt*dt*np.eye(3), dt*np.eye(3)))
         self.target_covariance = (absolute_transition @ self.target_covariance @ absolute_transition.T
             + acceleration_noise @ acceleration_noise.T * self.nav.acceleration_sigma_m_s2**2)
+        self.target_covariance = .5*(self.target_covariance+self.target_covariance.T)
         self.nav.predict(dt, -self.force / self.mass, gradient)
         orbit_acceleration = self.gravity.acceleration(self.target_orbit[:3], now-dt)
         self.target_orbit[:3] += self.target_orbit[3:] * dt + 0.5 * orbit_acceleration * dt**2
@@ -174,23 +206,36 @@ class NearController(sysModel.SysModel):
         if acquisition_time <= now+1e-9:
             # Ideal onboard attitude/encoder measurements are time-tagged and
             # delayed with the cooperative state packet, not read by guidance.
-            cooperative = {"rotation": target_r.copy(), "hinge": hinge}
+            cooperative = {"rotation": target_r.copy(), "hinge": hinge,
+                           "angular_rate": list(payloads[0].omega_BN_B), "hinge_rate": hinge_rate}
             packets, link = self.sensors.acquire(now, self.phase, truth_relative, grasp_tool, stereo_rotation, cooperative,
                                                  absolute_truth=truth, acquisition_time_s=acquisition_time)
+            vision_updates = []
             for packet in packets:
-                if self.nav.update(packet, now):
+                accepted = self.nav.update(packet, now)
+                if packet['source'] == 'stereo':
+                    self.visual_quality.observe(packet, accepted, self.nav.sigma_m, now)
+                    vision_updates.append({'stamp': packet['stamp'], 'accepted': bool(accepted),
+                                           'sigma_m': self.nav.sigma_m, 'geometry': packet['geometry'],
+                                           'nis': self.nav.last_nis})
+                if accepted:
                     if packet["source"] == "gnss":
                         self.last_gnss = packet["stamp"]
                         # Cooperative attitude telemetry; perfect measurement
                         # assumption is shared with platform AOCS, not optical validation.
                         self.target_rotation = packet["cooperative"]["rotation"]
                         self.target_hinge_observation = packet["cooperative"]["hinge"]
+                        self.cooperative_stamp = packet['stamp']
+                        self.cooperative_rotation = self.target_rotation.copy()
+                        self.cooperative_hinge = self.target_hinge_observation
+                        # Old in-flight packets are not completed from current
+                        # truth. Wait for timestamped rate-bearing telemetry.
+                        self.cooperative_rate = packet['cooperative'].get('angular_rate')
+                        self.cooperative_hinge_rate = packet['cooperative'].get('hinge_rate')
                     else:
                         self.last_vision = packet["stamp"]
                         self.optical = packet["geometry"]
                         self.rotation_noise = packet["rotation_noise"]
-                        quality = self.optical["marker_px"] >= 24 and self.optical["depth_sigma_m"] < 0.03 and self.nav.sigma_m < 0.04
-                        self.visual_streak = self.visual_streak + 1 if quality else 0
         else:
             raise ValueError("sensor body messages are from a future physical epoch")
         # All guidance below this boundary uses estimated state, accepted
@@ -199,8 +244,17 @@ class NearController(sysModel.SysModel):
         link_age_limit = (max(.5, 1.5 / config_rate(self.config) + self.config.receiver_config.delay_s)
                           if self.config.receiver_config else .5)
         link_valid = now - self.last_gnss <= link_age_limit
-        if self.visual_streak >= 10 and visual_valid:
-            self.visual_dominant = True
+        self.visual_ready = self.visual_quality.current(now, self.nav.sigma_m)
+        self.visual_streak = self.visual_quality.streak
+        self.visual_dominant = self.visual_ready  # legacy fixture compatibility; never a fusion weight
+        geometry_ready = self.cooperative_rate is not None and self.cooperative_hinge_rate is not None
+        if geometry_ready:
+            age = now-self.cooperative_stamp
+            spin = np.asarray(self.cooperative_rate)*age
+            magnitude = np.linalg.norm(spin)
+            K = skew(spin/max(magnitude, 1e-15))
+            self.target_rotation = self.cooperative_rotation@(np.eye(3)+np.sin(magnitude)*K+(1-np.cos(magnitude))*(K@K))
+            self.target_hinge_observation = self.cooperative_hinge+age*self.cooperative_hinge_rate
         # Cooperative target encoder telemetry assumption.
         c, s = np.cos(self.target_hinge_observation), np.sin(self.target_hinge_observation)
         panel_r = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
@@ -220,62 +274,142 @@ class NearController(sysModel.SysModel):
         checkpoint_delta = final_delta + optical_axis * (
             self.plan["optical_checkpoint_depth_m"] - (optical_axis @ (rb @ self.nominal_grasp) + .10))
         checkpoint_error = self.nav.x[:3] - checkpoint_delta
+        checkpoint_complete = self.optical_checkpoint.completed_at_s is not None
         rotating_velocity = self.nav.x[3:] - np.cross(orbital_rate, self.nav.x[:3])
         speed = float(np.linalg.norm(rotating_velocity))
+        if now >= PARAMETERS.duration_s:
+            self.fail('near_mission_timeout', now)
+        if self.phase == 'PlatformHold' and now-self.phase_start >= PARAMETERS.node_timeout_s:
+            self.fail('platform_residence_timeout', now)
         late = self.phase in {"PlatformHold", "ArmDeploy", "ArmAlign", "FinalApproach", "ContactProxy", "Grasp", "CaptureConfirm"}
-        if ((late and not visual_valid) or (now > 0.6 and not link_valid)
+        if ((late and (not visual_valid or (self.orbital_guidance and not self.visual_ready))) or (now > 0.6 and not link_valid)
                 or (self.phase != "FarHandoff" and self.nav.sigma_m > 2.0)):
             if self.phase not in {"SafeHold", "CaptureHold"}:
-                self.hold_delta = self.nav.x[:3].copy()
-                self.close_inhibited = True
-                self.transition("SafeHold", now)
+                reason = ('visual_stale_or_not_ready' if late and not self.visual_ready
+                          else 'link_age' if not link_valid else 'navigation_uncertainty')
+                self.fail(reason, now)
         chaser_angle = np.linalg.norm(_rotation_error(orbital_rotation @ rb.T))
         target_angle = np.linalg.norm(target_error_body)
         pointing_ready = (not self.orbital_guidance or
                           (chaser_angle < np.deg2rad(1) and target_angle < np.deg2rad(1)
                            and np.linalg.norm(target_rate_error) < .001))
-        if self.phase == "FarHandoff" and now >= 5 and self.nav.sigma_m < 0.15 and link_valid and pointing_ready:
-            self.transition("GNSSApproach", now)
-        if self.phase == "GNSSApproach":
-            self.optical_checkpoint.update(error_m=checkpoint_error, speed_m_s=speed,
-                ready=pointing_ready and link_valid, now=now)
-        checkpoint_complete = self.optical_checkpoint.completed_at_s is not None
-        if self.phase == "GNSSApproach" and checkpoint_complete and visual_valid:
-            self.transition("VisualFusion", now)
-        if self.phase == "VisualFusion" and self.visual_dominant:
-            self.transition("VisualApproach", now)
-        if self.phase in {"GNSSApproach", "VisualFusion", "VisualApproach"}:
-            approach_error = platform_error if checkpoint_complete else checkpoint_error
-            vmax = 0.10 if np.linalg.norm(platform_error) > 10 else 0.02 if np.linalg.norm(platform_error) > 1 else 0.005
-            # Without accepted vision, stop with 12 m extra standoff. A lost
-            # dominant visual source latches a hold before further closing.
-            if self.visual_dominant and not visual_valid:
-                self.hold_delta = self.nav.x[:3].copy()
-                self.close_inhibited = True
-                self.transition("SafeHold", now)
-            elif not visual_valid and np.linalg.norm(platform_error) < 12:
-                vmax = 0.
-            desired_velocity = bounded(-0.10 * approach_error, vmax)
-            platform_ready = (self.visual_dominant and checkpoint_complete and pointing_ready
-                and abs(gap-self.plan["stowed_tcp_gap_m"]) < .006
-                and np.linalg.norm(platform_error) < .006 and speed < .002)
-            if platform_ready:
-                self.dwell += dt
-                if self.dwell >= 5:
-                    self.transition("PlatformHold", now)
-            else:
-                self.dwell = 0.
+        chaser_rate_error = np.array(payloads[1].omega_BN_B)-rb.T@orbital_rate
+        pointing_ready = pointing_ready and (not self.orbital_guidance or np.linalg.norm(chaser_rate_error) < .001)
+        if pointing_ready:
+            if self.pointing_stable_since is None:
+                self.pointing_stable_since = now
         else:
-            delta = self.hold_delta if self.phase == "SafeHold" else final_delta
-            if self.phase == "SafeHold" and self.orbital_guidance:
-                delta = orbital_rotation @ self.safe_hold_frame
-            if self.phase == "FarHandoff":
-                if self.hold_delta is None:
+            self.pointing_stable_since = None
+        vbar_acceleration = None
+        near_guidance = {}
+        if self.orbital_guidance:
+            target_center = self.centers[0].evaluate({'outer_panel_hinge': self.target_hinge_observation},
+                {'outer_panel_hinge': self.cooperative_hinge_rate or 0.})
+            chaser_center = self.centers[1].evaluate(dict(zip(JOINTS, q)), dict(zip(JOINTS, dq)))
+            com_state, com_covariance = center_relative(self.nav.x, self.nav.P, orbital_rotation, orbital_rate,
+                self.target_rotation, rb, np.asarray(self.cooperative_rate or [0., 0., 0.]),
+                np.array(payloads[1].omega_BN_B), target_center, chaser_center)
+            early = self.phase in {'FarHandoff', 'GNSSApproach', 'VisualFusion', 'VisualApproach', 'SafeHold'}
+            if self.phase == 'SafeHold' and self.vbar.failure_reason is None:
+                self.vbar.fail(getattr(self, 'pending_failure_reason', 'navigation_or_link_failure'), com_state)
+            if early:
+                # Freeze the authored stowed geometry in TNR. Runtime COM
+                # measurements still use current encoders and timestamped rates.
+                ct, cb = target_center[0], chaser_center[0]
+                hold_com = self.nominal_grasp-grasp_local+ct-cb
+                depth_origin = float(self.zero_tool_rotation[:, 2]@(grasp_local-ct+cb)+.10)
+                optical_s = lambda depth: (depth-depth_origin)/self.zero_tool_rotation[0, 2]
+                platform_ready = (abs(gap-.5) < .006 and np.linalg.norm(platform_error) < .006)
+                common = (pointing_ready and link_valid and np.max(np.abs(q[:6])) < .005
+                          and abs(self.target_hinge_observation) < .005
+                          and geometry_ready and abs(self.cooperative_hinge_rate or 0.) < .001)
+                if self.phase == 'SafeHold':
+                    common = pointing_ready and link_valid and geometry_ready
+                reserve = np.linalg.norm(gradient@self.nav.x[:3]
+                    - rotating_acceleration(orbital_rate, self.nav.x[:3], rotating_velocity))
+                old_phase = self.phase
+                reference, ref_velocity, ref_acceleration = self.vbar.update(now, com_state, com_covariance,
+                    common=common, sigma=self.nav.sigma_m, visual_valid=visual_valid,
+                    visual_ready=self.visual_ready, optical_depth=optical_depth, optical_s=optical_s,
+                    hold=hold_com, offset_end_s=optical_s(PARAMETERS.offset_end_depth_m),
+                    geometry_ready=geometry_ready, available_acceleration=PARAMETERS.force_limit_n/self.mass-reserve,
+                    observation_age=max(0., now-self.last_gnss), platform_ready=platform_ready)
+                near_guidance = self.vbar.telemetry
+                near_guidance['covariance'] = com_covariance.tolist()
+                if self.vbar.failure_reason:
+                    self.fail(self.vbar.failure_reason, now, com_state)
+                elif old_phase == 'FarHandoff' and self.vbar.acquire.completed_at_s is not None:
+                    self.transition('GNSSApproach', now)
+                elif old_phase == 'GNSSApproach' and self.vbar.gates['Optical17p4m'].completed_at_s is not None:
+                    self.transition('VisualFusion', now)
+                elif old_phase == 'VisualFusion' and self.visual_ready:
+                    self.transition('VisualApproach', now)
+                elif old_phase == 'VisualApproach' and self.vbar.gates['PlatformStandoff'].completed_at_s is not None:
+                    self.transition('PlatformHold', now)
+                self.optical_checkpoint.completed_at_s = self.vbar.gates['Optical17p4m'].completed_at_s
+                self.optical_checkpoint.dwell_s = self.vbar.gates['Optical17p4m'].dwell_s
+                checkpoint_complete = self.optical_checkpoint.completed_at_s is not None
+                # Relative sign is target minus chaser: chaser thrust is the
+                # negative requested relative acceleration. Include all rotating
+                # terms once and evaluate gravity at COM, not the body origin.
+                commanded_relative = (ref_acceleration-PARAMETERS.kp_s2*(com_state[:3]-reference)
+                                      -PARAMETERS.kd_s*(com_state[3:]-ref_velocity))
+                com_delta_n = orbital_rotation@com_state[:3]
+                com_velocity_n = orbital_rotation@com_state[3:]
+                orbital_accel = self.gravity.acceleration(self.target_orbit[:3], now)
+                omega_dot = (np.cross(self.target_orbit[:3], orbital_accel)/(self.target_orbit[:3]@self.target_orbit[:3])
+                             -2*(self.target_orbit[:3]@self.target_orbit[3:])/(self.target_orbit[:3]@self.target_orbit[:3])*orbital_rate)
+                vbar_acceleration = (gradient@com_delta_n-orbital_rotation@commanded_relative
+                    -rotating_acceleration(orbital_rate, com_delta_n, com_velocity_n)-np.cross(omega_dot, com_delta_n))
+            else:
+                near_guidance = dict(self.vbar.telemetry, subsegment=self.phase,
+                    algorithm='original platform origin hold and arm PBVS/IK', state=com_state.tolist(),
+                    covariance=com_covariance.tolist())
+            speed = float(np.linalg.norm(com_state[3:])) if early else speed
+            desired_velocity = bounded(-.1*platform_error, .005)
+        else:
+            if self.phase == "FarHandoff" and now >= 5 and self.nav.sigma_m < 0.15 and link_valid and pointing_ready:
+                self.transition("GNSSApproach", now)
+            if self.phase == "GNSSApproach":
+                self.optical_checkpoint.update(error_m=checkpoint_error, speed_m_s=speed,
+                    ready=pointing_ready and link_valid, now=now)
+            checkpoint_complete = self.optical_checkpoint.completed_at_s is not None
+            if self.phase == "GNSSApproach" and checkpoint_complete and visual_valid:
+                self.transition("VisualFusion", now)
+            if self.phase == "VisualFusion" and self.visual_dominant:
+                self.transition("VisualApproach", now)
+            if self.phase in {"GNSSApproach", "VisualFusion", "VisualApproach"}:
+                approach_error = platform_error if checkpoint_complete else checkpoint_error
+                vmax = 0.10 if np.linalg.norm(platform_error) > 10 else 0.02 if np.linalg.norm(platform_error) > 1 else 0.005
+                # Without accepted vision, stop with 12 m extra standoff. A lost
+                # dominant visual source latches a hold before further closing.
+                if self.visual_dominant and not visual_valid:
                     self.hold_delta = self.nav.x[:3].copy()
-                delta = orbital_rotation @ self.initial_hold_frame if self.orbital_guidance else self.hold_delta
-            desired_velocity = bounded(-0.1 * (self.nav.x[:3] - delta), 0.005)
+                    self.close_inhibited = True
+                    self.transition("SafeHold", now)
+                elif not visual_valid and np.linalg.norm(platform_error) < 12:
+                    vmax = 0.
+                desired_velocity = bounded(-0.10 * approach_error, vmax)
+                platform_ready = (self.visual_dominant and checkpoint_complete and pointing_ready
+                    and abs(gap-self.plan["stowed_tcp_gap_m"]) < .006
+                    and np.linalg.norm(platform_error) < .006 and speed < .002)
+                if platform_ready:
+                    self.dwell += dt
+                    if self.dwell >= 5:
+                        self.transition("PlatformHold", now)
+                else:
+                    self.dwell = 0.
+            else:
+                delta = self.hold_delta if self.phase == "SafeHold" else final_delta
+                if self.phase == "SafeHold" and self.orbital_guidance:
+                    delta = orbital_rotation @ self.safe_hold_frame
+                if self.phase == "FarHandoff":
+                    if self.hold_delta is None:
+                        self.hold_delta = self.nav.x[:3].copy()
+                    delta = orbital_rotation @ self.initial_hold_frame if self.orbital_guidance else self.hold_delta
+                desired_velocity = bounded(-0.1 * (self.nav.x[:3] - delta), 0.005)
         if self.phase == "PlatformHold":
-            platform_ready = (visual_valid and link_valid and pointing_ready
+            platform_ready = (visual_valid and self.visual_ready and link_valid and pointing_ready
                 and abs(gap-self.plan["stowed_tcp_gap_m"]) < .006
                 and np.linalg.norm(platform_error) < .006 and speed < .002)
             if not platform_ready:
@@ -289,9 +423,7 @@ class NearController(sysModel.SysModel):
             self.deploy_q = _iterate(self.chain, np.deg2rad([76.15, -64.33, 44.38, -70.05, 76.15, -90]), target_p, ik_target_r,
                                      np.array([-3.1416] * 5 + [-6.2832]), np.array([3.1416] * 5 + [6.2832]), ElbowPreference())
             if self.deploy_q is None:
-                self.close_inhibited = True
-                self.hold_delta = self.nav.x[:3].copy()
-                self.transition("SafeHold", now)
+                self.fail('deployment_ik_failed', now)
             else:
                 self.transition("ArmDeploy", now)
         self.dqref[:] = 0.
@@ -322,16 +454,12 @@ class NearController(sysModel.SysModel):
             if self.phase == "ContactProxy" and contact and now - self.phase_start > 1:
                 self.transition("Grasp", now)
             if self.phase == "Grasp" and not contact:
-                self.close_inhibited = True
-                self.hold_delta = self.nav.x[:3].copy()
-                self.transition("SafeHold", now)
+                self.fail('grasp_contact_window_lost', now)
             if self.phase == "Grasp" and np.max(q[6:]) < 0.006 and now - self.phase_start > 2:
                 self.transition("CaptureConfirm", now)
             if self.phase == "CaptureConfirm":
                 if not contact or np.max(q[6:]) > 0.008:
-                    self.close_inhibited = True
-                    self.hold_delta = self.nav.x[:3].copy()
-                    self.transition("SafeHold", now)
+                    self.fail('capture_confirmation_failed', now)
                 elif now - self.phase_start >= 3:
                     self.latch = True
                     self.transition("CaptureHold", now)
@@ -346,7 +474,9 @@ class NearController(sysModel.SysModel):
         self.qref[6:] = np.clip(self.qref[6:], 0, 0.0375)
         acceleration = (gradient @ self.nav.x[:3] + 0.6 * (rotating_velocity - desired_velocity)
                         - rotating_acceleration(orbital_rate, self.nav.x[:3], rotating_velocity))
-        self.force = bounded(self.mass * acceleration, 25.)
+        if vbar_acceleration is not None:
+            acceleration = vbar_acceleration
+        self.force = bounded(self.mass * acceleration, PARAMETERS.force_limit_n)
         body_force = rb.T @ self.force
         for message, value in zip(self.force_messages, body_force):
             message.write(messaging.SingleActuatorMsgPayload(input=float(value)), nanos)
@@ -375,7 +505,15 @@ class NearController(sysModel.SysModel):
             "chaser_pointing_error_deg": float(np.rad2deg(chaser_angle)) if self.orbital_guidance else None,
             "target_pointing_error_deg": float(np.rad2deg(target_angle)),
             "vision_valid": visual_valid, "communication_valid": link_valid,
-            "navigation_source": "GNSS + stereo dominant" if self.visual_dominant and visual_valid else "GNSS + stereo fusion" if visual_valid else "relative GNSS" if link_valid else "prediction only",
+            "navigation_source": "GNSS + stereo fusion; visual ready" if self.visual_ready else "GNSS + stereo fusion; visual not ready" if visual_valid else "relative GNSS" if link_valid else "prediction only",
+            "near_guidance": near_guidance, "visual_ready": self.visual_ready,
+            "visual_streak": self.visual_streak, "vision_updates": vision_updates,
+            "last_vision_stamp_s": self.last_vision, "last_gnss_stamp_s": self.last_gnss,
+            "chaser_rate_error_rad_s": float(np.linalg.norm(chaser_rate_error)),
+            "target_rate_error_rad_s": float(np.linalg.norm(target_rate_error)),
+            "truth_rotations": [target_r.tolist(), rb.tolist()],
+            "truth_angular_rates": [list(payloads[0].omega_BN_B), list(payloads[1].omega_BN_B)],
+            "joint_rates": dq.tolist(), "target_hinge_rate_rad_s": hinge_rate,
             "optical": self.optical, "capture_state": "LOGICAL_PROXY_HOLD" if self.latch else self.phase,
             "close_inhibited": self.close_inhibited, "joints": q.tolist(), "joint_reference": self.qref.tolist(),
             "force_n": self.force.tolist(), "truth_tcp_gap_m": float(true_axis @ true_error),

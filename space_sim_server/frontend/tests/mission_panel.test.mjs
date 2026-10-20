@@ -274,3 +274,29 @@ test('login recovery waits for restored state before accepting a different missi
     assert.equal($('missionMode').value, 'teleop');
   } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
 });
+
+
+test('near-field telemetry shows the physical node clock and current readiness without claiming fusion weights', () => {
+  const nodes = new Map();
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value: '', textContent: '', addEventListener() {},
+      querySelectorAll: () => [], getContext: () => ({clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}}),
+      width: 620, height: 200});
+    return nodes.get(id);
+  };
+  const panel = createMissionPanel({$, state: {streamLive:true}, message() {}, reconnect() {}});
+  const meta = {phase:'VisualApproach', navigation_source:'GNSS + stereo fusion', visual_ready:false,
+    optical_depth_m:5.5, near_guidance:{node_id:'VisualReady5p5m', subsegment:'VisualReady5p5mHold',
+    nodes:{VisualReady5p5m:{dwell_s:1.2,wait_s:13.4,completed:false}}}};
+  const mission = {mission_id:'near',stage:'flight',phase:'flight',active:true,mode:'team-in-orbit',
+    telemetry:{phase:'VisualApproach',state:{metadata:meta}}};
+  panel.render(mission);
+  assert.match($('missionPhase').textContent, /5.50 m/);
+  assert.match($('missionPhase').textContent, /1.20 s.*13.40 s/);
+  assert.match($('missionNavigation').textContent, /视觉未就绪/);
+  assert.equal($('nearCameraDepth').textContent, '5.5000 m');
+  meta.visual_ready = true;
+  panel.render(mission);
+  assert.match($('missionNavigation').textContent, /视觉就绪/);
+  assert.doesNotMatch($('missionPhase').textContent, /主导/);
+});

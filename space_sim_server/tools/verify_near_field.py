@@ -197,7 +197,14 @@ def verify(folder):
                     and np.all(np.abs(data["truth_tcp_gap_m"][hold]-.5) < .010)
                     and np.all(physical_speed[hold] < .003)
                     and np.all(np.abs(data["joints"][hold, :6]) < .005)))
-    return {"passed": all(checks.values()), "checks": checks, "phases": phases,
+    vbar_audit = None
+    if normal and report.get('guidance_frame') == 'orbital-vbar' and 'near_guidance_json' in data:
+        from simulation.near_field.acceptance import audit_vbar
+        receiver = report['sensor_config'].get('receiver_config')
+        age_limit = max(.5, 1.5/receiver['sample_rate_hz']+receiver['delay_s']) if receiver else .5
+        vbar_audit = audit_vbar(data, ROOT/report['model_manifest']['source_model'], plan, link_age_limit=age_limit)
+        checks['independent_vbar_trajectory_and_nodes'] = vbar_audit['passed']
+    return {"passed": all(checks.values()), "checks": checks, "phases": phases, 'vbar_acceptance': vbar_audit,
             "final_true_gap_m": float(h), "final_true_lateral_m": float(lateral), "final_true_angle_deg": float(angle),
             "kinematic_evaluation_time_s": float(evaluated_time),
             "kinematic_timing": "post-physics packet paired with next pre-physics encoder row; last unmatched packet omitted",

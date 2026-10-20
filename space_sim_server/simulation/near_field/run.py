@@ -28,7 +28,6 @@ from simulation.components.orbital_gravity import OrbitalGravityComponent
 from simulation.components.flight_environment import FlightEnvironmentComponent
 from simulation.orbital_configuration import environment_metadata
 from simulation.navigation_gravity import BskNavigationGravity
-from simulation.relative_navigation import near_navigation_solution
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 from simulation.local_mujoco_stepper import LocalMujocoStepper, servo_specs
 from simulation.orbital_rendezvous.assets import bind_team_catalog
@@ -41,7 +40,9 @@ from simulation.teleop_grasp_unreal import DEFAULT_EPHEMERIS_EPOCH_UTC, _registe
 from .controller import NearController
 from .model import prepare, JOINTS, ACTUATORS, GRASP_TARGET
 from .navigation import SensorConfig, admit_handoff
-from .orbital_guidance import guidance_frame
+from .orbital_guidance import guidance_frame, vbar_frame
+from .parameters import PARAMETERS
+from .telemetry import near_navigation_solution
 
 
 def fixture(repository, manifest):
@@ -74,9 +75,27 @@ def packet(scene, row, run_id):
         bodies.append({"body_id": f"rendezvous/{role}", "position_m": list(p.r_BN_N), "velocity_m_s": list(p.v_BN_N),
                        "attitude_wxyz": list(rbk.MRP2EP(p.sigma_BN)), "angular_velocity_rad_s": list(p.omega_BN_B)})
     return {"protocol": "space-sim-state/1", "type": "state", "sim_time_s": row["t"], "bodies": bodies,
-            "metadata": {"run_id": run_id, **{k: v for k, v in row.items() if k not in {"truth", "navigation_truth", "covariance", "joints", "joint_reference"}},
+            "metadata": {"run_id": run_id, **{k: v for k, v in row.items() if k not in {"truth", "navigation_truth", "covariance", "joints", "joint_reference", "truth_rotations", "truth_angular_rates", "joint_rates"}},
                          "navigation_valid": row["communication_valid"], "vision_mode": "parameterized; no left/right images processed",
                          "capture_mode": "logical proxy; no physical connection or three-finger mechanics validation"}}
+
+
+def orbital_fixture(repository, manifest):
+    """Co-orbiting synthetic fixture, independent of distant-flight acceptance."""
+    incoming = fixture(repository, manifest)
+    incoming['guidance_frame'] = 'orbital-vbar'
+    incoming['source_kind'] = 'synthetic orbital 110 m fixture; not evidence of phases 1-3'
+    bodies = incoming['state']['bodies']
+    target = np.r_[bodies[0]['position_m'], bodies[0]['velocity_m_s']]
+    Q, omega = vbar_frame(target)
+    delta = Q@np.array([110., 0., 0.])
+    bodies[1]['position_m'] = (target[:3]-delta).tolist()
+    bodies[1]['velocity_m_s'] = (target[3:]-np.cross(omega, delta)).tolist()
+    for body in bodies:
+        body['attitude_wxyz'] = rbk.C2EP(Q.T).tolist()
+        body['angular_velocity_rad_s'] = (Q.T@omega).tolist()
+    incoming['gnss_estimates_eci'] = [np.r_[b['position_m'], b['velocity_m_s']].tolist() for b in bodies]
+    return incoming
 
 
 def run(args):
@@ -85,7 +104,8 @@ def run(args):
     source_hashes["relative_navigation.py"] = hashlib.sha256((repository / "simulation/relative_navigation.py").read_bytes()).hexdigest()
     output = args.output_dir.resolve()
     model, files, manifest, chain = prepare(repository, output)
-    incoming = load_handoff(args.handoff, repository / DEFAULT_MODEL) if args.handoff else fixture(repository, manifest)
+    incoming = (load_handoff(args.handoff, repository / DEFAULT_MODEL) if args.handoff else
+                orbital_fixture(repository, manifest) if getattr(args, 'orbital_fixture', False) else fixture(repository, manifest))
     admit_handoff(incoming)
     from space_arm_platform.gnss_config import GNSSConfig
     shared_gnss = incoming.get("mission_options", {}).get("differential_gnss")
@@ -261,11 +281,22 @@ def run(args):
                       optical_checkpoint=control.optical_checkpoint.completed_at_s is not None,
                       final_true_lateral=final["truth_lateral_error_m"] < 0.006,
                       final_true_gap=0.01 < final["truth_tcp_gap_m"] < 0.026)
+        if control.orbital_guidance:
+            # Publish a failed/provisional artifact until independent physical
+            # trajectory acceptance has finished, even if capture was reached.
+            checks['independent_vbar_trajectory_and_nodes'] = False
+    elif control.orbital_guidance:
+        checks['safe_hold_verified'] = control.vbar.safe_verified
     checks = {key: bool(value) for key, value in checks.items()}
     report = {"schema": "spacesim-near-field/1", "scenario": "near-field", "basic_nominal_passed": all(checks.values()),
+              "mission_success": normal and final['phase'] == 'CaptureHold' and all(checks.values()),
               "sensor_clock_contract": "physical-message-epoch/v1",
               "outcome": final["phase"], "checks": checks, "run_id": run_id, "transitions": control.transitions,
               "guidance_frame": guidance_frame(incoming),
+              "near_parameters": PARAMETERS.metadata(), "near_approach_plan": control.plan,
+              "failure_reason": control.vbar.failure_reason if control.orbital_guidance else None,
+              "safe_hold_verified": control.vbar.safe_verified if final['phase'] == 'SafeHold' and control.orbital_guidance else None,
+              "trajectory_evidence": 'orbital COM V-bar' if control.orbital_guidance else 'inertial diagnostic; not V-bar acceptance',
               "orbital_physics": environment_metadata(env_options.physics, orbit.earth, epoch_utc=epoch_text),
               "final_time_s": final["t"], "wall_time_s": time.monotonic() - started,
               "final_center_distance_m": final["center_distance_m"], "final": final,
@@ -322,11 +353,34 @@ def run(args):
         "truth_relative_speed_m_s", "truth_alignment_error_deg", "physical_observation_time_s",
         "optical_depth_m", "truth_optical_depth_m", "optical_checkpoint_complete", "optical_checkpoint_dwell_s",
         "navigation_prediction_time_s", "navigation_truth")}
+    # Optional non-orbital attitude metrics stay numeric in NPZ. Encoding None
+    # would create an object array and break the pickle-free offline verifier.
+    exported.update({key: [np.nan if r[key] is None else r[key] for r in rows] for key in (
+        'truth_rotations', 'truth_angular_rates', 'joint_rates', 'target_hinge_rate_rad_s',
+        'visual_ready', 'visual_streak', 'last_vision_stamp_s', 'last_gnss_stamp_s',
+        'chaser_pointing_error_deg', 'target_pointing_error_deg', 'chaser_rate_error_rad_s',
+        'target_rate_error_rad_s', 'communication_valid')})
+    if control.orbital_guidance:
+        exported['near_guidance_json'] = [json.dumps(r['near_guidance'], allow_nan=False) for r in rows]
+    exported['vision_updates_json'] = [json.dumps(r['vision_updates'], allow_nan=False) for r in rows]
     if incoming.get("gnss_transport") is not None:
         exported.update({key: [np.nan if row[key] is None else row[key] for row in rows] for key in (
             "gnss_sample_time_s", "gnss_receive_time_s", "gnss_measurement_age_s", "gnss_delivered_sequence",
             "gnss_acquired_sequence", "gnss_pending_count", "gnss_delivered_count", "gnss_requested_delay_s")})
     np.savez_compressed(output / "team_telemetry.npz", **exported)
+    if normal and control.orbital_guidance:
+        from .acceptance import audit_vbar
+        age_limit = max(.5, 1.5/config.receiver_config.sample_rate_hz+config.receiver_config.delay_s) if config.receiver_config else .5
+        audit = audit_vbar({k: np.asarray(v) for k, v in exported.items()}, repository/DEFAULT_MODEL,
+                          control.plan, link_age_limit=age_limit)
+        (output/'vbar_acceptance.json').write_text(json.dumps(audit, indent=2), encoding='utf-8')
+        checks['independent_vbar_trajectory_and_nodes'] = audit['passed']
+        report['vbar_acceptance'] = audit
+        report['basic_nominal_passed'] = all(checks.values())
+        report['mission_success'] = final['phase'] == 'CaptureHold' and all(checks.values())
+        handoff['accepted'] = final['phase'] == 'CaptureHold' and all(checks.values())
+        (output/'mission_report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+        (output/'handoff.json').write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({"checks": checks, "output": str(output)}), flush=True)
     stepper.close()
     return 0 if all(checks.values()) else 2
@@ -336,9 +390,10 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     source = p.add_mutually_exclusive_group(required=True)
     source.add_argument("--fixture", action="store_true")
+    source.add_argument("--orbital-fixture", action="store_true")
     source.add_argument("--handoff", type=Path)
     p.add_argument("--output-dir", type=Path, required=True)
-    p.add_argument("--duration", type=float, default=2500.)
+    p.add_argument("--duration", type=float, default=PARAMETERS.duration_s)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--config", type=Path)
     p.add_argument("--vision-loss-phase", choices=("VisualApproach", "FinalApproach", "Grasp"))

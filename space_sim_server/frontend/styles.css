@@ -177,6 +177,7 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .telemetry dl div:nth-last-child(-n + 2) { border-bottom: 0; }
 .telemetry dt { margin-bottom: 4px; color: var(--subtle); font-size: 9px; }
 .telemetry dd { margin: 0; overflow: hidden; color: #394752; text-overflow: ellipsis; white-space: nowrap; font: 10px ui-monospace, Consolas, monospace; }
+.telemetry #missionPhase, .telemetry #missionNavigation { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .episode-controls > label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 10px; }
 .episode-controls > input { width: 100%; min-height: 38px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 7px; color: var(--text); background: var(--surface-soft); font-size: 11px; }
 .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 9px; }

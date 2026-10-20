@@ -6,7 +6,7 @@ const phases = {idle: '平台空闲', starting: '正在启动任务', flight: '�
   starting_simulation: '正在启动仿真', running: '遥操作场景运行中', stopping: '正在停止任务',
   stopped: '任务已停止', failed: '任务未完成', completed: '任务已结束', unknown: '状态未知'};
 const flightPhases = {'Orbit raising': '升轨飞行', 'Team approach': '双星接近', '100 m handoff hold': '100 m 外保持', Abort: '已中止', NavigationAcquire: '等待首次导航观测',
-  FarHandoff: '远距状态交接', GNSSApproach: '相对 GNSS 接近', VisualFusion: '视觉融合', VisualApproach: '视觉主导接近',
+  FarHandoff: '远距状态交接', GNSSApproach: '相对 GNSS 接近', VisualFusion: '视觉融合', VisualApproach: '视觉融合接近',
   PlatformHold: '平台驻留', ArmDeploy: '机械臂展开', ArmAlign: '机械臂视觉对准', FinalApproach: '末段接近',
   ContactProxy: '进入虚拟接触窗口', Grasp: '夹取代理', CaptureConfirm: '捕获确认代理', CaptureHold: '捕获保持（逻辑代理）', SafeHold: '安全保持 · 闭合已禁止'};
 const fields = {missionSeed: 'seed', missionHold: 'handoff_distance_m', missionGnssPosition: 'gnss_position_sigma_m',
@@ -140,15 +140,27 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     const distance = meta.center_distance_m ?? telemetry.separation_m ?? report?.final_center_distance_m;
     $('missionConnection').textContent = telemetry.connected && mission.stage === 'flight' ? '遥测在线'
       : mission.phase === 'flight' ? '等待遥测' : report ? '保存结果' : '等待交会';
-    $('missionPhase').textContent = flightPhases[telemetry.phase || report?.outcome] || (report?.basic_nominal_passed ? '100 m 外保持' : view.label);
+    const guidance = meta.near_guidance || report?.final?.near_guidance;
+    const nodeLabels = {Vbar50m: '50 m 质心停泊', Optical17p4m: '17.4 m 光学检查',
+      VisualReady5p5m: '5.50 m 视觉就绪停泊', PlatformStandoff: '0.5 m TCP 平台驻留'};
+    const phaseLabel = flightPhases[telemetry.phase || report?.outcome] || (report?.basic_nominal_passed ? '100 m 外保持' : view.label);
+    const node = guidance?.nodes?.[guidance.node_id];
+    const segment = guidance?.subsegment || '';
+    const segmentLabel = segment === 'OpticalBoundaryHold' ? '光学边界等待'
+      : segment === 'SafeHoldBrake' ? '故障制动' : segment === 'SafeHold' ? '安全保持'
+      : segment.endsWith('Brake') ? '制动' : segment.endsWith('Approach') ? '接近' : segment.endsWith('Hold') ? '保持' : '';
+    $('missionPhase').textContent = guidance?.subsegment === 'NearAcquire' ? `${phaseLabel} · V-bar 入口捕获`
+      : guidance && node ? `${phaseLabel} · ${nodeLabels[guidance.node_id] || guidance.node_id} · ${segmentLabel ? `${segmentLabel} · ` : ''}${node.completed ? '已通过' : `驻留 ${number(node.dwell_s, 2, 's')} / 等待 ${number(node.wait_s, 2, 's')}`}` : phaseLabel;
     $('missionTime').textContent = number(t, 1, 's');
     $('missionRange').textContent = number(distance, 3, 'm');
     const nearMeta = meta.navigation_source ? meta : report?.final || {};
-    $('missionNavigation').textContent = nearMeta.navigation_source || (meta.phase === 'NavigationAcquire' ? '等待观测到达' : meta.navigation_valid === true && meta.gnss?.length === 2
+    $('missionNavigation').textContent = typeof nearMeta.visual_ready === 'boolean'
+      ? `GNSS + 双目融合 · 视觉${nearMeta.visual_ready ? '就绪' : '未就绪'}`
+      : nearMeta.navigation_source || (meta.phase === 'NavigationAcquire' ? '等待观测到达' : meta.navigation_valid === true && meta.gnss?.length === 2
       ? '双星有效' : meta.navigation_valid === false ? '导航失效' : '—');
     $('nearPlatformDistance').textContent = number(nearMeta.platform_to_grasp_m, 4, 'm');
     $('nearTcpGap').textContent = number(nearMeta.tcp_gap_m, 4, 'm');
-    $('nearCameraDepth').textContent = number(nearMeta.optical?.camera_depth_m, 4, 'm');
+    $('nearCameraDepth').textContent = number(nearMeta.optical_depth_m ?? nearMeta.optical?.camera_depth_m, 4, 'm');
     $('nearAlignment').textContent = `${number(nearMeta.lateral_error_m, 4, 'm')} / ${number(nearMeta.alignment_error_deg, 3, '°')}`;
     $('nearQuality').textContent = number(nearMeta.position_sigma_m, 4, 'm');
     $('nearCapture').textContent = nearMeta.capture_state || '—';

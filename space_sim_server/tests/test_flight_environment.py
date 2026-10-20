@@ -9,7 +9,8 @@ from simulation.components.flight_environment import FlightEnvironment, solar_fo
 from space_arm_platform.rendezvous_config import FlightOptions
 
 
-def test_flight_entry_uses_native_substep_gravity_despite_teleop_stride(tmp_path, monkeypatch):
+@pytest.mark.parametrize('gnss_delay', [None, .2])
+def test_flight_entry_uses_native_substep_gravity_despite_teleop_stride(tmp_path, monkeypatch, gnss_delay):
     """Exercise the real assembly boundary; a mocked stepper misses API wiring errors."""
     import json
     from pathlib import Path
@@ -18,9 +19,14 @@ def test_flight_entry_uses_native_substep_gravity_despite_teleop_stride(tmp_path
 
     monkeypatch.setenv('SPACE_SIM_ORBITAL_FORCE_STRIDE', '8')
     folder = tmp_path / 'short-flight'
+    options = []
+    if gnss_delay is not None:
+        config_file = tmp_path / 'options.json'
+        config_file.write_text(json.dumps({'differential_gnss': {'delay_s': gnss_delay}}))
+        options = ['--config', str(config_file)]
     result = subprocess.run(
         [sys.executable, '-m', 'simulation.orbital_rendezvous.run', '--scenario', 'in-orbit',
-         '--seed', '19', '--duration', '1', '--output-dir', str(folder)],
+         '--seed', '19', '--duration', '1', '--output-dir', str(folder), *options],
         cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
         encoding='utf-8', errors='replace', timeout=180)
     # A deliberately shortened flight must remain unaccepted for handoff.
@@ -31,6 +37,16 @@ def test_flight_entry_uses_native_substep_gravity_despite_teleop_stride(tmp_path
     assert gravity['force_stride_steps'] == 1 and gravity['evaluations'] == 240
     assert report['checks']['gravity_at_every_substep'] and report['checks']['finite_states']
     assert not json.loads((folder / 'handoff.json').read_text(encoding='utf-8'))['accepted']
+    solution = report['relative_navigation']
+    assert solution['epoch_s'] == 1 and solution['roe']['available']
+    assert not solution['attitude']['available']
+    telemetry = np.load(folder / 'team_telemetry.npz')
+    np.testing.assert_allclose(solution['position_m'], telemetry['estimate'][-1, 0, :3]-telemetry['estimate'][-1, 1, :3])
+    np.testing.assert_allclose(solution['roe']['values'], telemetry['roe'][-1])
+    assert solution == json.loads((folder / 'handoff.json').read_text(encoding='utf-8'))['relative_navigation']
+    if gnss_delay is not None:
+        assert not telemetry['navigation_valid'][0] and np.isnan(telemetry['roe'][0]).all()
+        assert report['gnss_transport']['epoch_s'] == 1
 
 
 def make_model(options, seed=13, illumination=1.0):

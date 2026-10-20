@@ -32,6 +32,7 @@ from space_arm_platform.rendezvous_config import FlightOptions
 from space_arm_platform.gnss_config import GNSSConfig
 from simulation.differential_gnss import DifferentialGNSS, JointOrbitFilter
 from simulation.gnss_transport import DelayedGNSSNavigation
+from simulation.relative_navigation import navigation_solution
 
 from .assets import bind_team_catalog
 from .model import prepare_model
@@ -220,6 +221,7 @@ def state_packet(scene, controller, row, run_id):
             "gnss": row["gnss"],
             "navigation": row["estimate"],
             "navigation_valid": row["navigation_valid"],
+            "relative_navigation": row.get("relative_navigation"),
             "center_distance_m": row["range_m"],
             "mission_options": controller.options.to_dict(),
             **(controller.delayed_navigation.telemetry(row["t"]) if controller.delayed_navigation else {}),
@@ -242,6 +244,7 @@ def run(args):
                            "simulation/local_mujoco_stepper.py", "simulation/orbital_environment.py",
                            "simulation/attitude_control.py", "simulation/assembly.py", "simulation/physics_ports.py",
                            "simulation/differential_gnss.py", "simulation/gnss_transport.py", "backend/space_arm_platform/gnss_config.py",
+                           "simulation/relative_navigation.py",
                            "simulation/navigation_gravity.py", "simulation/orbital_configuration.py", "backend/space_arm_platform/orbital_physics.py",
                            "backend/space_arm_platform/rendezvous_config.py", "native/local_mujoco_stepper.cpp"]
     integration_hashes = {name: hashlib.sha256((repository / name).read_bytes()).hexdigest() for name in integration_sources}
@@ -365,6 +368,20 @@ def run(args):
             simulation.ConfigureStopTime(macros.sec2nano(tick * 0.5))
             simulation.ExecuteSimulation()
             row = controller.rows[-1]
+            if row["navigation_valid"]:
+                if controller.delayed_navigation:
+                    joint_covariance = controller.delayed_navigation.covariance
+                elif controller.joint_filter:
+                    joint_covariance = controller.joint_filter.covariance
+                else:
+                    joint_covariance = np.zeros((12, 12))
+                    for i, estimator in enumerate(controller.filters):
+                        joint_covariance[i*6:(i+1)*6, i*6:(i+1)*6] = estimator.covariance
+                row["relative_navigation"] = navigation_solution(
+                    row["estimate"], joint_covariance, row["t"], reference_point="assembled_center_of_mass",
+                    source=row["gnss_model"] + "; filtered and predicted to epoch")
+            else:
+                row["relative_navigation"] = None
             sampled_rows.append(row)
             telemetry = attitude.telemetry()
             actuator_rows.append(telemetry)
@@ -484,6 +501,7 @@ def run(args):
         "navigation": ("paired correlated GNSS solutions and joint 12-state filter; no raw carrier processing"
                        if controller.paired_receiver else
                        "independent noisy GNSS position/velocity receivers and six-state filters; attitude uses platform truth-navigation hold"),
+        "relative_navigation": rows[-1]["relative_navigation"],
         "capture": {"latch_time_s": None},
         "source_hashes": source_hashes,
         "integration_source_hashes": integration_hashes,
@@ -511,6 +529,11 @@ def run(args):
             for r in rows
         ],
         navigation_valid=[r["navigation_valid"] for r in rows],
+        roe=[r["relative_navigation"]["roe"]["values"]
+             if r["relative_navigation"] and r["relative_navigation"]["roe"]["available"] else [np.nan]*6 for r in rows],
+        roe_covariance=[r["relative_navigation"]["roe"]["covariance"]
+                        if r["relative_navigation"] and r["relative_navigation"]["roe"]["available"]
+                        else np.full((6, 6), np.nan) for r in rows],
         estimate=[r["estimate"] for r in rows],
         force_n=[r["force_n"] for r in rows],
         range_m=[r["range_m"] for r in rows],
@@ -552,6 +575,7 @@ def run(args):
             for w, j in zip(attitude.wheels, attitude.joints)
         ],
         "gnss_estimates_eci": rows[-1]["estimate"],
+        "relative_navigation": rows[-1]["relative_navigation"],
         "covariances": [f.covariance.tolist() for f in controller.filters],
         "gnss_cross_covariance_eci": (controller.delayed_navigation.covariance[:6, 6:].tolist()
                                      if controller.delayed_navigation and controller.delayed_navigation.covariance is not None else

@@ -28,6 +28,7 @@ from simulation.components.orbital_gravity import OrbitalGravityComponent
 from simulation.components.flight_environment import FlightEnvironmentComponent
 from simulation.orbital_configuration import environment_metadata
 from simulation.navigation_gravity import BskNavigationGravity
+from simulation.relative_navigation import near_navigation_solution
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 from simulation.local_mujoco_stepper import LocalMujocoStepper, servo_specs
 from simulation.orbital_rendezvous.assets import bind_team_catalog
@@ -81,6 +82,7 @@ def packet(scene, row, run_id):
 def run(args):
     repository = Path(__file__).resolve().parents[2]
     source_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob("*.py")}
+    source_hashes["relative_navigation.py"] = hashlib.sha256((repository / "simulation/relative_navigation.py").read_bytes()).hexdigest()
     output = args.output_dir.resolve()
     model, files, manifest, chain = prepare(repository, output)
     incoming = load_handoff(args.handoff, repository / DEFAULT_MODEL) if args.handoff else fixture(repository, manifest)
@@ -200,6 +202,8 @@ def run(args):
                 continuity_details["time_s"] = abs(row["t"]-incoming["state"]["sim_time_s"])
                 continuity_details["wheel_speed_rad_s"] = max((abs(scene.getBody(w["body"]).getScalarJoint(w["joint"]).stateDotOutMsg.read().state-w["speed_rad_s"]) for w in incoming["reaction_wheels"]), default=0.)
             if tick % 2 == 0:
+                row["relative_navigation"] = near_navigation_solution(
+                    control.target_orbit, control.nav.x, control.target_covariance, control.nav.P, row["t"])
                 state = packet(scene, row, run_id)
                 status_file.write(json.dumps(state, allow_nan=False) + "\n")
                 if channel:
@@ -238,6 +242,8 @@ def run(args):
             bridge.close()
     rows = control.rows
     final = rows[-1]
+    final["relative_navigation"] = near_navigation_solution(
+        control.target_orbit, control.nav.x, control.target_covariance, control.nav.P, final["t"])
     phases = [x["phase"] for x in control.transitions]
     normal = not args.vision_loss_phase and args.communication_loss is None
     checks = {"finite_states": bool(np.isfinite([r["truth"] for r in rows]).all()),
@@ -300,6 +306,7 @@ def run(args):
     # Only relative navigation is updated by this phase. Preserve that estimate
     # exactly; absolute target propagation is explicitly identified, not truth.
     handoff["gnss_estimates_eci"] = [control.target_orbit.tolist(), (control.target_orbit-control.nav.x).tolist()]
+    handoff["relative_navigation"] = final["relative_navigation"]
     target_P = control.target_covariance
     handoff["covariances"] = [target_P.tolist(), (target_P+control.nav.P).tolist()]
     handoff["gnss_cross_covariance_eci"] = target_P.tolist()

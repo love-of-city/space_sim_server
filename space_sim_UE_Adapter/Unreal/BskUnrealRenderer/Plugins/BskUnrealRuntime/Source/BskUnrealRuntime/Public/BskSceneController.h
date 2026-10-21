@@ -88,6 +88,7 @@ public:
     int32 GetObjectCount() const { return BoundActors.Num(); }
     int32 GetVisualCount() const { return VisualActors.Num(); }
     int32 GetCameraCount() const { return CameraActors.Num(); }
+    FString GetLightingStatus() const;
     bool GetRelativeViewState(FBskRelativeViewState& Out) const;
     int32 GetPendingCommandCount() const { return PendingCommandIds.Num(); }
     FString GetLastCommandStatus() const { return LastCommandStatus; }

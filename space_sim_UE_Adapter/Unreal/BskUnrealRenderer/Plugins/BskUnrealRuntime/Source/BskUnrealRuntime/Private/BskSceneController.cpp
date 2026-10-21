@@ -2605,6 +2605,21 @@ void ABskSceneController::ApplyVisualMountTransform(AActor* Actor, const FBskVis
     Actor->SetActorRelativeRotation(Rotation);
 }
 
+FString ABskSceneController::GetLightingStatus() const
+{
+    if (bUseManifestSceneLighting) return TEXT("SCENE LIGHTING | explicit manifest light settings");
+    if (!bEphemerisDirectionalLightActive) return TEXT("LIGHTING | waiting for ephemeris");
+    const bool bAuxiliary = (FillLight && FillLight->GetLightComponent()->Intensity > 0.0f) ||
+        (Headlight && !Headlight->IsHidden() && Headlight->GetLightComponent()->Intensity > 0.0f);
+    FString Status = CurrentSolarVisibility <= 1.0e-6
+        ? TEXT("ECLIPSE | physical sunlight is zero")
+        : SceneSunlightIntensityScale <= 0.0
+        ? TEXT("SUNLIGHT DISABLED | scene intensity scale is zero")
+        : FString::Printf(TEXT("PHYSICAL SUNLIGHT | visibility %.3f"), CurrentSolarVisibility);
+    Status += bAuxiliary ? TEXT(" | auxiliary lighting enabled") : TEXT(" | no auxiliary lighting");
+    return Status;
+}
+
 void ABskSceneController::ConfigureManifestLighting(const FBskSceneManifest& Manifest)
 {
     bUseManifestSceneLighting = Manifest.bUseSceneLighting;

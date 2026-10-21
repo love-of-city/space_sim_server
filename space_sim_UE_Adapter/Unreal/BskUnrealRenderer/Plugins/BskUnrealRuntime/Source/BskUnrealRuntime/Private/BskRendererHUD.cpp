@@ -204,7 +204,7 @@ void ABskRendererHUD::DrawHUD()
         CameraStatus += FString::Printf(TEXT("%d %s:%s"), View.Slot + 3, *View.DisplayName, View.bVisible ? TEXT("ON") : TEXT("OFF"));
     }
     const FString Text = FString::Printf(
-        TEXT("BSK Unreal Renderer\n%s\nSim: %.3f s   Frame: %lld   Objects: %d   Visuals: %d   Cameras: %d\nW/S A/D Q/E move | Mouse look | M panel | TAB interact\n1 CSS:%s | 2 Sensor:%s | 3 Comms:%s%s%s"),
+        TEXT("BSK Unreal Renderer\n%s\nScene elapsed: %.3f s   Frame: %lld   Objects: %d   Helpers: %d   Cameras: %d\nW/S A/D Q/E move | Mouse look | M panel | TAB interact\n1 CSS:%s | 2 Sensor:%s | 3 Comms:%s%s%s\n%s"),
         *Status,
         SimulationSeconds,
         Scene ? Scene->GetLastFrameId() : -1,
@@ -215,7 +215,8 @@ void ABskRendererHUD::DrawHUD()
         SensorStatus,
         TransceiverStatus,
         CameraStatus.IsEmpty() ? TEXT("") : TEXT("\n"),
-        *CameraStatus);
+        *CameraStatus,
+        Scene ? *Scene->GetLightingStatus() : TEXT("LIGHTING | renderer not ready"));
     if (!DrawRelativeView(Scene) || FParse::Param(FCommandLine::Get(), TEXT("BskCameraDiagnostics")))
     {
         Canvas->SetDrawColor(FColor(178, 230, 255));

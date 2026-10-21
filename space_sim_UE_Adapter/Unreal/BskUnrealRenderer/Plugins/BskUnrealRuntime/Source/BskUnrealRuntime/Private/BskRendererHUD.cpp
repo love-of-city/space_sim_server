@@ -133,9 +133,10 @@ bool ABskRendererHUD::DrawRelativeView(const ABskSceneController* Scene)
     });
     // Relative-view anchors use the catalog's stowed COM offsets. Near-field
     // telemetry below computes the live articulated COM independently.
-    Label(FString::Printf(TEXT("%s: %s | t=%.1f s | models 1:1 | markers not to scale"),
+    Label(FString::Printf(TEXT("%s: %s | %s=%.1f s | models 1:1 | markers not to scale"),
         bNearField ? TEXT("Stowed reference distance") : TEXT("Center distance"),
-        *BskRelativeView::Distance(View.DistanceMeters), View.SimulationSeconds), FVector2D(24, 49), FLinearColor(0.75f, 0.85f, 0.92f));
+        *BskRelativeView::Distance(View.DistanceMeters), bNearField ? TEXT("near elapsed") : TEXT("mission t"),
+        View.SimulationSeconds), FVector2D(24, 49), FLinearColor(0.75f, 0.85f, 0.92f));
     const bool bDark = View.PrimarySunlight < 0.001 && View.SecondarySunlight < 0.001;
     Label(bNearField ? (bDark ? TEXT("VIEW FILL | ECLIPSE; physical sunlight is zero")
                                              : TEXT("VIEW FILL | physical sunlight plus display lighting"))

@@ -112,8 +112,15 @@ class CameraVisual:
     capture_rate_hz: float = 15.0
     picture_in_picture_slot: int = 0
     capture_products: Sequence[str] = ()
+    camera_mode: str = "rgb"
 
     def to_payload(self) -> dict[str, Any]:
+        if self.camera_mode not in ("rgb", "fisheye", "monochrome"):
+            raise ValueError("unsupported camera_mode")
+        if self.camera_mode == "fisheye" and (
+            not math.isfinite(self.field_of_view_rad) or not 0 < self.field_of_view_rad < math.pi
+        ):
+            raise ValueError("fisheye field_of_view_rad must be between 0 and pi (exclusive)")
         products = [str(value).strip().lower() for value in self.capture_products]
         unknown = sorted(set(products) - {"rgb"})
         if unknown:
@@ -133,6 +140,7 @@ class CameraVisual:
             "capture_rate_hz": float(self.capture_rate_hz),
             "picture_in_picture_slot": int(self.picture_in_picture_slot),
             "capture_products": list(dict.fromkeys(products)),
+            "camera_mode": self.camera_mode,
         }
 
 

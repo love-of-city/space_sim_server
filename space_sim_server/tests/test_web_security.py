@@ -44,6 +44,30 @@ def test_https_session_cookie_and_same_origin_control(tmp_path):
         assert client.get("/api/auth/me").status_code == 401
 
 
+def test_account_login_authorizes_stream_and_control_without_url_key(tmp_path):
+    with TestClient(make_app(tmp_path, stream_access_jwt_secret="test-stream-secret"),
+                    base_url=ORIGIN, headers={"Origin": ORIGIN}) as client:
+        assert client.get("/api/client-config").status_code == 401
+        with pytest.raises(WebSocketDisconnect) as rejected:
+            with client.websocket_connect("wss://sim.test/ws/operator"):
+                pass
+        assert rejected.value.code == 4401
+        assert login(client).status_code == 200
+        config = client.get("/api/client-config")
+        assert config.status_code == 200
+        assert config.json()["pixel_streaming_access_token"]
+        with client.websocket_connect("wss://sim.test/ws/operator") as socket:
+            assert socket.receive_json()["type"] == "session"
+            socket.send_json({"type": "ping"})
+            assert socket.receive_json()["type"] == "pong"
+        assert client.post("/api/auth/logout").status_code == 200
+        assert client.get("/api/client-config").status_code == 401
+        with pytest.raises(WebSocketDisconnect) as rejected:
+            with client.websocket_connect("wss://sim.test/ws/operator"):
+                pass
+        assert rejected.value.code == 4401
+
+
 @pytest.mark.parametrize("origin", [None, "null", "https://evil.test", "https://sim.test.evil.test"])
 def test_http_writes_and_browser_ws_require_allowed_origin(tmp_path, origin):
     with TestClient(make_app(tmp_path), base_url=ORIGIN) as client:

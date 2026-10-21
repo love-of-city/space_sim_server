@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "parameters": {
+    "static_friction_n": 20.0,
+    "sliding_friction_n": 20.0,
+    "friction_travel_m": 0.008
+  }
+}

@@ -184,7 +184,9 @@ def test_quality_plumbed_through_all_launch_scripts():
 
 
 @pytest.mark.parametrize("quality", [None, 0, 75, 100])
-def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality):
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality, platform):
+    import sys
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
     from space_arm_platform.app import PlatformConfig, create_app
@@ -203,6 +205,8 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
         return SimpleNamespace(pid=12345, returncode=0, poll=lambda: 0)
 
     monkeypatch.setattr("space_arm_platform.scene_runtime.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("space_arm_platform.app.sys",
+                        SimpleNamespace(platform=platform, executable=sys.executable))
     overrides = {} if quality is None else {"runtime_encoder_min_quality": quality}
     app = create_app(PlatformConfig(
         project_root=project, data_root=tmp_path / "episodes", simulation_port=0, capture_port=0,
@@ -219,8 +223,14 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
         app.state.scenes.start(SceneInstanceCreate())
         assert len(commands) == 1
         command = commands[0]
-        assert command[command.index("-EncoderMinQuality") + 1] == str(expected)
-        assert command[command.index("-PreviewRate") + 1] == "90.0"
+        if platform == "linux":
+            assert command[:4] == [sys.executable, "-m", "space_arm_platform.linux_scene", "start"]
+            launch_config = json.loads(Path(command[command.index("--config") + 1]).read_text())
+            assert launch_config["encoder_min_quality"] == expected
+            assert launch_config["preview_rate"] == 90.0
+        else:
+            assert command[command.index("-EncoderMinQuality") + 1] == str(expected)
+            assert command[command.index("-PreviewRate") + 1] == "90.0"
 
 
 @pytest.mark.parametrize("quality", [-1, 101, True, "60", 60.5, None])

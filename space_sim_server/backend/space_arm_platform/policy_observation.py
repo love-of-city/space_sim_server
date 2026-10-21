@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import threading
 from collections import OrderedDict
 from typing import Any
@@ -111,7 +112,9 @@ class PolicyObservationCache:
                 self.fail("duplicate authoritative policy camera frame")
                 return
             images[camera] = {"camera_id": camera, "encoding": encoding, "bytes": rgb,
-                              "width": resolution[0], "height": resolution[1]}
+                              "width": resolution[0], "height": resolution[1],
+                              "camera_mode": metadata.get("camera_mode", "rgb"),
+                              "intrinsics": copy.deepcopy(metadata.get("intrinsics", {}))}
             self._condition.notify_all()
 
     def wait_for_pair(self, observation: SimulationObservation) -> None:
@@ -138,7 +141,7 @@ class PolicyObservationCache:
             state = entry["state"]
             if not encode_images:
                 return {}
-            images = {view: dict(entry["images"][camera]) for view, camera in POLICY_CAMERAS.items()}
+            images = {view: copy.deepcopy(entry["images"][camera]) for view, camera in POLICY_CAMERAS.items()}
         opening = state.gripper_opening_normalized
         if opening is None:
             raise RuntimeError("policy requires the calibrated SARM 6+1 gripper representation")

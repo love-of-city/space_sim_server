@@ -1,6 +1,6 @@
 # Linux 基础迁移
 
-目标是先在一台 Linux RTX 4090 上建立可验证的单路环境，不预留千条训练数据，不要求多机调度。2026-10-19 已跑通真实动力学、UE 双相机及完整脚本录制和 LeRobot 解码；网页场景启停仍需 Linux 适配及单独验收，不能把脚本采集通过认定为整个网页平台就绪。
+目标是先在一台 Linux RTX 4090 上建立可验证的单路环境，不预留千条训练数据，不要求多机调度。2026-10-19 已跑通真实动力学、UE 双相机及完整脚本录制和 LeRobot 解码。随后新增的网页场景管理和平台启动/停止入口见 [Linux 一键部署](LINUX_DEPLOYMENT.md)。
 
 ## 已选环境与路径
 
@@ -97,7 +97,7 @@ npm --prefix signalling test
 npm --prefix signalling run check
 ```
 
-这些步骤只验证网页构建和信令代码。网页场景管理仍有 PowerShell 启停路径；完整 Linux 平台启动、进程回收和 WebRTC 画面需后续联调。不要将只启动 HTTP 后端误报为可用的仿真平台。
+这些步骤只验证网页构建和信令代码。完整运行使用 [Linux 一键部署](LINUX_DEPLOYMENT.md) 的原生入口；HTTP、真实场景、进程回收和浏览器 WebRTC 仍须分别验收。
 
 ## UE 准备
 

@@ -1,6 +1,7 @@
 {
   "files": {
     "tests/test_flight_environment.py": "Basilisk messages; run in the native simulation acceptance suite",
+    "tests/test_linux_deployment.py": "Linux UID/start-time ownership and native deployment lifecycle; run on the Linux deployment host",
     "tests/test_linux_mujoco_runtime.py": "Linux-only ELF/runtime isolation checks require Basilisk and MuJoCo; run separately on the Linux simulation host",
     "tests/test_sarm_asset_plugins.py": "Requires the locally compiled SARM native plugin; run on each simulation host after building it",
     "tests/test_orbital_physics_acceptance.py": "Native BSK J2 field and two-orbit propagation acceptance; run in the simulation environment",
@@ -33,6 +34,16 @@
     "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation"
   },
   "nodes": {
+    "tests/test_wrist_camera_modes.py::test_mode_roundtrip_and_recording_provenance": "Basilisk live scene loader; run on the simulation host; pure camera descriptor validation remains in basic CI",
+    "tests/test_wrist_camera_modes.py::test_legacy_scene_defaults_to_rgb": "Basilisk live scene loader; run on the simulation host",
+    "tests/test_wrist_camera_modes.py::test_invalid_mode_rejected_in_api_and_saved_scene": "Basilisk live scene loader; run on the simulation host",
+    "tests/test_plug_retention.py::test_native_small_load_holds_large_load_releases_and_free_plug_keeps_drifting": "Basilisk MJScene and locally built native friction solver; run on the simulation host",
+    "tests/test_plug_retention.py::test_native_static_friction_holds_partially_inserted_without_creep": "Basilisk MJScene and locally built native friction solver; run on the simulation host",
+    "tests/test_plug_retention.py::test_native_sliding_force_is_constant_across_depth_speed_and_direction": "Basilisk MJScene and locally built native friction solver; run on the simulation host",
+    "tests/test_plug_retention.py::test_native_release_during_motion_stops_mid_stroke_without_axial_return": "Basilisk MJScene and locally built native friction solver; run on the simulation host",
+    "tests/test_plug_retention.py::test_native_rotated_interface_with_offset_coms_conserves_internal_momentum": "Basilisk MJScene and locally built native friction solver; run on the simulation host",
+    "tests/test_plug_retention.py::test_native_initial_capture_uses_final_scene_pose_instead_of_reset_message": "Basilisk MJScene and locally built native friction solver; run on the simulation host",
+    "tests/test_plug_retention.py::test_native_stiction_prevents_midpoint_drift_against_an_articulated_base": "Basilisk MJScene and locally built native friction solver; run on the simulation host",
     "tests/test_orbital_physics_config.py::test_new_scene_persists_j2_and_old_scene_replays_point_mass": "Basilisk live scene loader; pure settings tests remain in basic CI",
     "tests/test_gamepad_tool_control.py::test_ab_only_changes_j6_target_even_with_posture_preferences_enabled": "Basilisk teleoperation runtime; run gamepad tests separately with the native environment",
     "tests/test_gamepad_tool_control.py::test_right_stick_aims_in_current_tool_frame_after_wrist_rotation": "Basilisk teleoperation runtime",

@@ -1,6 +1,8 @@
 # 自动化公网部署（自动 TURN + 隧道入口）
 
-在仓库根目录的 PowerShell 7 终端中使用以下命令：
+Linux 使用 `./start_deployment.sh`、`./stop_deployment.sh` 和 `./show_deployment_access.sh`，详见 [Linux 一键公网部署](LINUX_DEPLOYMENT.md)。下文 `.cmd` / PowerShell / DPAPI 说明适用于 Windows。
+
+Windows 在服务端目录的 PowerShell 7 终端中使用以下命令：
 
 - **启动**：在 PowerShell 7 中执行 `./scripts/deployment_launcher.ps1 -Action Start`
 - **停止**：在 PowerShell 7 中执行 `./scripts/deployment_launcher.ps1 -Action Stop`

@@ -126,7 +126,8 @@ bool FBskSceneSunlightIntensityTest::RunTest(const FString& Parameters)
     {
         Error.Reset();
         const FString Json = Prefix + FString::Printf(TEXT("\"sunlight_intensity_scale\":%.4f}}"), Scale);
-        TestTrue(*Error, FBskFrameParser::ParseMessageJson(Json, Message, Error));
+        const bool bParsed = FBskFrameParser::ParseMessageJson(Json, Message, Error);
+        TestTrue(*Error, bParsed);
         TestEqual(TEXT("scale retained by parser"), Message.Manifest.SunlightIntensityScale, Scale);
         Controller->ConfigureManifestLighting(Message.Manifest);
         TestEqual(TEXT("local sunlight is scaled, including zero"),
@@ -330,6 +331,37 @@ bool FBskProtocolV2ManifestTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("UI command name"), CaptureCameraMessage.Manifest.UiCommands[0].Command, FString(TEXT("mission.pause")));
         TestTrue(TEXT("dangerous command confirmation"), CaptureCameraMessage.Manifest.UiCommands[0].bRequiresConfirmation);
         TestTrue(TEXT("command payload retained"), CaptureCameraMessage.Manifest.UiCommands[0].PayloadJson.Contains(TEXT("hold")));
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FBskCameraModeManifestTest,
+    "BSK.Protocol.CameraModes",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBskCameraModeManifestTest::RunTest(const FString& Parameters)
+{
+    for (const FString& Mode : {FString(TEXT("rgb")), FString(TEXT("fisheye")), FString(TEXT("monochrome"))})
+    {
+        FBskRenderMessage Message;
+        FString Error;
+        const FString Json = FString::Printf(
+            TEXT("{\"protocol\":\"bsk-render/2\",\"type\":\"scene_manifest\",\"session_id\":\"lens\",\"revision\":\"1\",\"objects\":[],\"cameras\":[{\"camera_id\":\"wrist\",\"camera_mode\":\"%s\",\"field_of_view_rad\":2.7925268032}]}"), *Mode);
+        const bool bParsed = FBskFrameParser::ParseMessageJson(Json, Message, Error);
+        TestTrue(*Error, bParsed);
+        if (Message.Manifest.Cameras.Num() == 1)
+            TestEqual(TEXT("camera mode retained"), Message.Manifest.Cameras[0].CameraMode, Mode);
+    }
+    for (const FString& Fields : {FString(TEXT("\"camera_mode\":\"invalid\"")),
+         FString(TEXT("\"camera_mode\":null")), FString(TEXT("\"camera_mode\":\"fisheye\",\"field_of_view_rad\":3.14159265359")),
+         FString(TEXT("\"camera_mode\":\"fisheye\",\"field_of_view_rad\":0"))})
+    {
+        FBskRenderMessage Message;
+        FString Error;
+        const FString Json = FString::Printf(
+            TEXT("{\"protocol\":\"bsk-render/2\",\"type\":\"scene_manifest\",\"session_id\":\"lens\",\"revision\":\"1\",\"objects\":[],\"cameras\":[{\"camera_id\":\"wrist\",%s}]}"), *Fields);
+        TestFalse(TEXT("invalid lens rejects manifest"), FBskFrameParser::ParseMessageJson(Json, Message, Error));
     }
     return true;
 }

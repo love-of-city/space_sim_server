@@ -231,6 +231,9 @@ def run(args):
                 AttitudeComponent(model),
             ]
         )
+        from simulation.components.plug_retention import install_configured_plug_retention
+        plug_retention = install_configured_plug_retention(ctx)
+        report["plug_retention"] = (plug_retention.configuration() if plug_retention else {"enabled": False})
         if orbital_physics.drag is not None:
             from simulation.components.drag import configured_drag_components
             ctx.install(configured_drag_components(
@@ -359,6 +362,7 @@ def run(args):
                         joint_measurement_time_ns=str(measured_stamp),
                         nominal_joint_reference=task.reference.tolist(),
                         applied_external_wrench=applied_wrench.tolist(),
+                        plug_retention=plug_retention.telemetry() if plug_retention else {},
                         local_qpos=stepper.qpos.tolist(),
                     )
                     trace.write(json.dumps(row) + "\n")
@@ -412,6 +416,7 @@ def run(args):
             substeps=stepper.substeps,
             dynamics=stepper.telemetry(),
             schedule=ctx.summary(),
+            plug_retention_final=plug_retention.telemetry() if plug_retention else {},
         )
         _ = models, recorders, ctx
     except (Exception, KeyboardInterrupt) as exc:

@@ -301,6 +301,7 @@ async function loadSceneCatalog() {
     $("sceneDatasetCapture").checked = Boolean(defaults.dataset_capture);
     $("sceneRandomizeOrbitPhase").checked = defaults.randomize_orbit_phase === true;
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
+    $("sceneWristCameraMode").value = defaults.wrist_camera_mode || "rgb";
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
       capture_rate_hz: Number(defaults.capture_rate_hz || 50),
@@ -342,7 +343,7 @@ function applySceneRuntime(runtime = {}) {
   $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在复原…" : "一键复原初始位置";
   $("resetScene").title = state.activeEpisode ? "请先结束当前采集，再重置状态"
     : "恢复机械臂、夹爪、目标物和仿真时间到本次场景初态；不是规划机械臂返航轨迹";
-  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity"].forEach((id) => {
+  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity", "sceneWristCameraMode"].forEach((id) => {
     $(id).disabled = active;
   });
   $("linearSpeed").disabled = !state.sceneReady;
@@ -362,6 +363,7 @@ function applySceneRuntime(runtime = {}) {
     if (instance.capture_target?.runtime_warning) $("sceneCollisionWarning").textContent = instance.capture_target.runtime_warning;
     if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
     $("sceneSunlightIntensity").value = String(instanceSunlight);
+    $("sceneWristCameraMode").value = instance.wrist_camera_mode || "rgb";
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
   }
   configureInitialJoints();
@@ -369,7 +371,7 @@ function applySceneRuntime(runtime = {}) {
   armPreparation.setRuntime(active ? instance : null, state.sceneReady);
   if (["failed", "stopping", "stopped"].includes(phase)) armPreparation.cancel("场景停止或失败，请显式重试");
   $("sceneParameters").textContent = instance.randomization
-    ? JSON.stringify({ capture_target: instance.capture_target || {}, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
+    ? JSON.stringify({ capture_target: instance.capture_target || {}, wrist_camera_mode: instance.wrist_camera_mode || "rgb", randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
   if (runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
@@ -415,6 +417,7 @@ async function startScene() {
     ik_rate_hz: state.sceneDefaults.ik_rate_hz,
     dataset_capture: $("sceneDatasetCapture").checked,
     sunlight_intensity_scale: sunlightScale,
+    wrist_camera_mode: $("sceneWristCameraMode").value,
     initial_arm_joint_position_deg: initialAngles,
     ...(operatingProfile ? {operating_arm_joint_position_deg: operatingAngles} : {}),
   };
@@ -661,15 +664,13 @@ function updatePreviewStreams(availableIds) {
 }
 
 function signallingUrl() {
-  if (state.streamConfig.pixel_streaming_signalling_url) {
-    const url = new URL(state.streamConfig.pixel_streaming_signalling_url, location.href);
-    if (state.streamConfig.pixel_streaming_access_token) {
-      url.searchParams.set("token", state.streamConfig.pixel_streaming_access_token);
-    }
-    return url.toString();
-  }
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${location.hostname}:${state.streamConfig.pixel_streaming_player_port}`;
+  const url = new URL(state.streamConfig.pixel_streaming_signalling_url
+    || `${scheme}//${location.hostname}:${state.streamConfig.pixel_streaming_player_port}`, location.href);
+  if (state.streamConfig.pixel_streaming_access_token) {
+    url.searchParams.set("token", state.streamConfig.pixel_streaming_access_token);
+  }
+  return url.toString();
 }
 
 function resetWebRtcStats() {

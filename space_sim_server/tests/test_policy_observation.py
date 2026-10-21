@@ -70,6 +70,22 @@ def complete(cache, observation):
     camera(cache, observation, 1)
 
 
+def test_lens_metadata_reaches_policy_and_is_owned_by_cache(cache):
+    observation = state()
+    cache.record_observation(observation)
+    camera(cache, observation, 0)
+    lens = {"model": "equidistant_fisheye", "fx_px": 366.7}
+    camera(cache, observation, 1, {"camera_mode": "fisheye", "intrinsics": lens})
+    lens["fx_px"] = 0
+    result = cache.get(identity(observation))
+    assert result["images"]["base"]["camera_mode"] == "rgb"
+    wrist = result["images"]["left_wrist"]
+    assert wrist["camera_mode"] == "fisheye"
+    assert wrist["intrinsics"]["fx_px"] == 366.7
+    wrist["intrinsics"]["fx_px"] = 1
+    assert cache.get(identity(observation))["images"]["left_wrist"]["intrinsics"]["fx_px"] == 366.7
+
+
 @pytest.fixture
 def cache():
     value = PolicyObservationCache(capacity=4, timeout=0.03)

@@ -16,7 +16,11 @@ class RenderComponent:
                  render_rate_hz: int, capture_rate_hz: float,
                  capture_state_provider: Any,
                  sunlight_intensity_scale: float = 1.0,
-                 camera_display_names: dict[str, str] | None = None) -> None:
+                 camera_display_names: dict[str, str] | None = None,
+                 wrist_camera_mode: str = "rgb") -> None:
+        if wrist_camera_mode not in ("rgb", "fisheye", "monochrome"):
+            raise ValueError("unsupported wrist_camera_mode")
+        self.wrist_camera_mode = wrist_camera_mode
         self.model_path = model_path
         self.catalog = catalog
         self.host = host
@@ -54,6 +58,14 @@ class RenderComponent:
             camera_picture_in_picture_start_slot=1,
             camera_display_names=self.camera_display_names,
         )
+        for camera in bridge._cameras:
+            if camera.camera_id == "teleop/camera/sarm_wrist_cam":
+                camera.camera_mode = self.wrist_camera_mode
+                if self.wrist_camera_mode == "fisheye":
+                    import math
+                    camera.field_of_view_rad = math.radians(160.0)
+                camera.display_name += {"rgb": "", "fisheye": " (Fisheye 160°)",
+                                        "monochrome": " (Monochrome)"}[self.wrist_camera_mode]
         if ctx.extra.get('template_id') == 'sarm-task-box-20261012-demo':
             # Reuse the existing overview stream slot for a body-fixed close-up.
             # Pose derived from the validated MuJoCo side-view camera, in rod axes.

@@ -37,6 +37,9 @@ class ScriptedCaptureTransport:
         self.scene_instance = scene_instance
         self.state_reader = state_reader
         self.disturbances = disturbances
+        self.plug_retention = ctx.extra.get("plug_retention")
+        self.retention_configuration = (self.plug_retention.configuration()
+                                        if self.plug_retention else {"enabled": False})
         self.sequence = 0
         self.task_start_ns = None
         self.task_elapsed_s = 0.0
@@ -128,6 +131,8 @@ class ScriptedCaptureTransport:
             scene_template_id=self.scene_instance.get("template_id"),
             observation_source="authoritative_render_snapshot",
             orbital_dynamics=stepper.telemetry()["orbital_environment"],
+            plug_retention={**self.retention_configuration,
+                            "bodies": self.plug_retention.telemetry() if self.plug_retention else {}},
             joint_position_rad=q.tolist(),
             joint_velocity_rad_s=v.tolist(),
             target_joint_position_rad=self.command.tolist(),

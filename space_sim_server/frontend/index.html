@@ -123,6 +123,14 @@
           <p id="teleopSettingsNote" class="mission-note">以下初始配置用于从末端操作开始。</p>
           <fieldset id="teleopSettings" class="scene-form" disabled>
           <legend>末端操作初始参数</legend>
+          <label>腕部相机类型
+            <select id="sceneWristCameraMode">
+              <option value="rgb">彩色相机</option>
+              <option value="fisheye">鱼眼相机（160°）</option>
+              <option value="monochrome">黑白相机</option>
+            </select>
+          </label>
+          <small>创建场景时生效；腕部预览、录制和模型观测使用同一种画面。鱼眼为圆形等距投影，圆外留黑。</small>
           <label>随机化配置
             <select id="randomizationProfile"><option value="teleop-zero-prepare-v2">六轴零位自动展开</option></select>
           </label>

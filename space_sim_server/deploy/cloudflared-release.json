@@ -1,5 +1,9 @@
 {
   "version": "2026.9.0",
+  "linux_sha256": {
+    "amd64": "53b7a7a5420d188758d24341294acb0d1bca54296548ac05e38811a694ac6134",
+    "arm64": "98aca3173f73248fad6180fc75dade2d186a6e54fa807e088108cb4345de8efe"
+  },
   "sha256": {
     "amd64": "547057326266f0e1c7d50d102dbd22ff283d740c055bd61e94f10e2c606f89af"
   }

@@ -349,6 +349,20 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
             ReadQuaternion(Object, TEXT("orientation_body_from_camera_wxyz"), Definition.OrientationBodyFromCameraWxyz, false, Error);
             if (!Error.IsEmpty()) return false;
             Object->TryGetNumberField(TEXT("field_of_view_rad"), Definition.FieldOfViewRadians);
+            if (Object->Values.Contains(TEXT("camera_mode"))
+                && !Object->TryGetStringField(TEXT("camera_mode"), Definition.CameraMode))
+            {
+                Error = TEXT("camera_mode must be a string");
+                return false;
+            }
+            if ((Definition.CameraMode != TEXT("rgb") && Definition.CameraMode != TEXT("fisheye")
+                && Definition.CameraMode != TEXT("monochrome"))
+                || (Definition.CameraMode == TEXT("fisheye") && (!FMath::IsFinite(Definition.FieldOfViewRadians)
+                    || Definition.FieldOfViewRadians <= 0.0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI)))
+            {
+                Error = TEXT("invalid camera_mode or fisheye field_of_view_rad (requires 0 < fov < pi)");
+                return false;
+            }
             const TArray<TSharedPtr<FJsonValue>>* Resolution = nullptr;
             if (Object->TryGetArrayField(TEXT("resolution"), Resolution) && Resolution != nullptr && Resolution->Num() == 2)
             {

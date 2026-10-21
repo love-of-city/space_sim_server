@@ -97,6 +97,37 @@ def test_optional_task_fields_survive_chunk_boundaries(tmp_path):
     assert len(list((tmp_path / "context").glob("*.parquet"))) == 3
 
 
+def test_compact_preserves_plug_retention_configuration_and_telemetry(tmp_path):
+    recorder = EpisodeRecorder(tmp_path, storage_profile="compact")
+    try:
+        metadata = recorder.start(EpisodeStart(fps=50, camera_ids=[]))
+        expected = []
+        for i, status in enumerate(("retained", "free", "inserting", "retained"), 1):
+            retention = {
+                "enabled": True, "version": "plug-retention/1",
+                "parameters": {"pull_out_peak_n": 5.0, "insertion_peak_n": 4.0},
+                "sockets": {"aviation_plug": [{"name": "aviation_insert_40p5",
+                                               "position_body_m": [.535, .195, .03]}]},
+                "bodies": {"aviation_plug": {
+                    "status": status,
+                    "socket": None if status == "free" else "aviation_insert_40p5",
+                    "axial_displacement_m": i * .001,
+                    "force_inertial_n": [0.0, 0.0, float(i)],
+                    "sample_time_ns": str(i * 20_000_000),
+                }},
+            }
+            expected.append(retention)
+            data = observation(i).model_dump()
+            data.update(sim_time_ns=str(i * 20_000_000), plug_retention=retention)
+            recorder.record_observation(SimulationObservation.model_validate(data), None)
+        result = recorder.stop(EpisodeStop(outcome="success"))
+        assert result["dataset_status"] == "complete", result
+        restored = list(read_observations(tmp_path / metadata["episode_id"]))
+        assert [obs["plug_retention"] for obs in restored] == expected
+    finally:
+        recorder.close()
+
+
 def test_compact_preserves_noisy_measurements_ground_truth_and_delay(tmp_path):
     """The main branch's noise feature must remain auditable in compact data."""
     import hashlib

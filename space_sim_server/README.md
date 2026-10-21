@@ -8,11 +8,15 @@
 
 新建场景默认保存地球 **J2 + 太阳点质量** 配置；旧实例缺少 `environment.physics` 时仍按点质量重放。逐物体大气阻力需要明确提供密度、面积、Cd 及参数来源，默认关闭。配置、物理边界和验收方式见 [轨道物理配置](docs/ORBITAL_PHYSICS_CONFIGURATION.md)。
 
+插拔件使用静摩擦保持与恒定滑动阻力，复用现有结构及孔位；默认配置与动力学验证见 [插拔件保持力](docs/PLUG_RETENTION.md)。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。
 
-Linux 环境、原生库和验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。Linux UE 5.6.1 双相机渲染、完整脚本录制和 LeRobot 解码已实机验收；网页场景启停仍需 Linux 适配，不能把脚本采集通过认定为整个网页平台已迁移。
+腕部相机支持彩色、160° 鱼眼和黑白，创建场景前选择；使用与模型输入说明见 [腕部相机类型](docs/WRIST_CAMERA_MODES.md)。
+
+Linux 原生一键启动/停止及网页场景管理见 [Linux 一键部署](docs/LINUX_DEPLOYMENT.md)。已有环境可在本目录执行 `./start_deployment.sh`，停止执行 `./stop_deployment.sh`。Linux 环境、原生库和真实采集验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。
 
 脚本批量采集可通过 [多进程采集](docs/PARALLEL_COLLECTION.md) 配置两路隔离并发、每路 UE 复用、离线渲染与资源统计；调度配置位于 `config/collection.json`。
 

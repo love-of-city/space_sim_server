@@ -102,6 +102,7 @@ struct BSKUNREALRUNTIME_API FBskCameraDefinition
     FString ParentId;
     FVector3d PositionBodyMeters = FVector3d::ZeroVector;
     FQuat4d OrientationBodyFromCameraWxyz = FQuat4d::Identity;
+    FString CameraMode = TEXT("rgb");
     double FieldOfViewRadians = PI / 3.0;
     FIntPoint Resolution = FIntPoint(1920, 1080);
     FString SemanticLabel;

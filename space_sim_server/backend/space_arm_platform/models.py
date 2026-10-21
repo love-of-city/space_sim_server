@@ -399,6 +399,8 @@ class EpisodeStop(BaseModel):
 class SceneInstanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    wrist_camera_mode: Literal["rgb", "fisheye", "monochrome"] = "rgb"
+
     orbital_physics: OrbitalPhysics = Field(default_factory=OrbitalPhysics)
 
     template_id: str = DEFAULT_TEMPLATE

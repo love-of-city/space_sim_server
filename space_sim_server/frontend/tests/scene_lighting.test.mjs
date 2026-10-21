@@ -67,3 +67,21 @@ test("legacy catalog supplies default one without replacing zero",async()=>{
   h.ctx.apiRequest=async()=>({ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{sunlight_intensity_scale:0}})});
   await h.ctx.loadSceneCatalog();assert.equal(h.$("sceneSunlightIntensity").value,"0");
 });
+
+test("wrist camera selection is submitted, restored and locked for an active scene",async()=>{
+  for(const mode of ["rgb","fisheye","monochrome"]){
+    const h=setup();h.$("sceneWristCameraMode").value=mode;
+    await h.ctx.startScene();
+    assert.equal(JSON.parse(h.requests[0].options.body).wrist_camera_mode,mode);
+    vm.runInContext(applySource,h.ctx);
+    h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"s1",randomization:{},wrist_camera_mode:mode}});
+    assert.equal(h.$("sceneWristCameraMode").value,mode);
+    assert.equal(h.$("sceneWristCameraMode").disabled,true);
+    assert.equal(JSON.parse(h.$("sceneParameters").textContent).wrist_camera_mode,mode);
+    h.ctx.applySceneRuntime({phase:"idle",active:false});
+    assert.equal(h.$("sceneWristCameraMode").disabled,false);
+  }
+  const h=setup();vm.runInContext(applySource,h.ctx);
+  h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"legacy",randomization:{}}});
+  assert.equal(h.$("sceneWristCameraMode").value,"rgb");
+});

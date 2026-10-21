@@ -145,6 +145,9 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
         raise ValueError(f"unable to read scene instance {resolved}: {error}") from error
     if document.get("schema") != "space-arm-scene-instance/1":
         raise ValueError(f"unsupported scene instance schema: {document.get('schema')}")
+    mode = document.setdefault("wrist_camera_mode", "rgb")
+    if mode not in ("rgb", "fisheye", "monochrome"):
+        raise ValueError("wrist_camera_mode must be rgb, fisheye or monochrome")
     target = capture_target(document.get("template_id"))
     randomize_orbit_phase = document.get("randomize_orbit_phase", False)
     if not isinstance(randomize_orbit_phase, bool):
@@ -1162,6 +1165,7 @@ def _run_session(
                                     lambda: {"capture_episode_id": "", "capture_request_id": ""}),
             sunlight_intensity_scale=ephemeris_environment.get("lighting", {}).get(
                 "sunlight_intensity_scale", DEFAULT_SUNLIGHT_INTENSITY_SCALE),
+            wrist_camera_mode=(scene_instance or {}).get("wrist_camera_mode", "rgb"),
             camera_display_names={
                 "spacecraft_overview": "Spacecraft Overview",
                 "sarm_wrist_cam": "SARM Wrist Camera",
@@ -1185,6 +1189,9 @@ def _run_session(
                 enabled=False if getattr(args, "disable_attitude_control", False) else None),
             render,
         ])
+        from simulation.components.plug_retention import install_configured_plug_retention
+        plug_retention = install_configured_plug_retention(assembly)
+        retention_configuration = (plug_retention.configuration() if plug_retention else {"enabled": False})
         if template_id == 'sarm-task-box-20261012-demo':
             from simulation.components.fastener_demo import FastenerDemoComponent
             assembly.install([FastenerDemoComponent()])
@@ -1287,6 +1294,10 @@ def _run_session(
                         simulation.local_stepper.telemetry()["orbital_environment"]
                         if local_backend else {"mode": "basilisk"}),
                     "orbital_physics": orbital_metadata,
+                    "plug_retention": {
+                        **retention_configuration,
+                        "bodies": plug_retention.telemetry() if plug_retention else {},
+                    },
                     "atmospheric_drag": [component.telemetry() for component in drag_components],
                     "wrist_wrench": (
                         WRIST_SENSOR.observation(simulation.local_stepper, render_sim_time_ns)

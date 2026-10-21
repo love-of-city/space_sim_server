@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import logging
 from pathlib import Path
 
 import uvicorn
@@ -12,6 +13,24 @@ import uvicorn
 from .app import PlatformConfig, create_app
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ
+
+
+class RedactWebSocketSecrets(logging.Filter):
+    """Uvicorn's WebSocket connection messages bypass its HTTP access-log toggle."""
+
+    def filter(self, record):
+        from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+        if isinstance(record.args, tuple):
+            values = []
+            for value in record.args:
+                if isinstance(value, str) and "?" in value:
+                    parsed = urlsplit(value)
+                    query = [(key, "REDACTED" if key.lower() in {"access_key", "token"} else item)
+                             for key, item in parse_qsl(parsed.query, keep_blank_values=True)]
+                    value = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+                values.append(value)
+            record.args = tuple(values)
+        return True
 
 
 def main() -> None:
@@ -123,6 +142,7 @@ def main() -> None:
         )
     )
     # Simulation ownership and TCP listeners are process-local: one worker only.
+    logging.getLogger("uvicorn.error").addFilter(RedactWebSocketSecrets())
     uvicorn.run(
         app, host=args.host, port=args.port, log_level=args.log_level,
         proxy_headers=True, forwarded_allow_ips=args.forwarded_allow_ips,

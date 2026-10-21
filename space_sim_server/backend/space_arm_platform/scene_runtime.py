@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -164,7 +164,7 @@ class SceneLaunchConfig:
     adapter_root: Path
     model_root: Path
     unreal_root: Path
-    powershell_exe: Path
+    powershell_exe: Path | None
     control_port: int
     capture_port: int
     render_port: int
@@ -180,6 +180,7 @@ class SceneLaunchConfig:
     capture_rate: float
     default_dataset_capture: bool
     encoder_min_quality: int = 60
+    python_exe: Path | None = None
 
 
 def _normalize_quaternion(values: list[float] | tuple[float, ...]) -> list[float]:
@@ -281,6 +282,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "template_id": request.template_id,
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
+        "wrist_camera_mode": request.wrist_camera_mode,
         "initial_arm_joint_position_deg": request.initial_arm_joint_position_deg,
         "arm_preparation_required": request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE,
         "operating_arm_joint_position_deg": list(request.operating_arm_joint_position_deg),
@@ -377,6 +379,7 @@ class SceneRuntimeManager:
             "defaults": {
                 "operating_arm_joint_position_deg": list(DEFAULT_OPERATING_JOINT_DEG),
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
+                "wrist_camera_mode": "rgb",
                 "template_id": DEFAULT_TEMPLATE,
                 "randomization_profile": AUTO_PREPARE_TELEOP_PROFILE,
                 "randomize_orbit_phase": False,
@@ -446,12 +449,13 @@ class SceneRuntimeManager:
     def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.launch:
             raise RuntimeError("scene runtime launching is not configured")
-        if not self.launch.powershell_exe.is_file():
+        linux = self.launch.python_exe is not None
+        if not linux and (not self.launch.powershell_exe or not self.launch.powershell_exe.is_file()):
             raise RuntimeError(
                 f"PowerShell executable does not exist: {self.launch.powershell_exe}"
             )
         launch_script = self.launch.project_root / "scripts" / "start_scene_instance.ps1"
-        if not launch_script.is_file():
+        if not linux and not launch_script.is_file():
             raise RuntimeError(f"scene launch script does not exist: {launch_script}")
         with self._lock:
             status = self.status()
@@ -479,6 +483,15 @@ class SceneRuntimeManager:
                 "-EncoderMinQuality", str(self.launch.encoder_min_quality),
                 "-RendererReadyTimeout", str(self.launch.renderer_ready_timeout),
             ]
+            if linux:
+                from .linux_processes import write_json
+                config_path = self.run_root / "linux_scene_config.json"
+                write_json(config_path, {
+                    key: str(value) if isinstance(value, Path) else value
+                    for key, value in asdict(self.launch).items()
+                })
+                command = [str(self.launch.python_exe), "-m", "space_arm_platform.linux_scene",
+                           "start", "--config", str(config_path), "--instance", str(instance_path)]
             stamp = instance["instance_id"]
             self._stdout = (self.log_root / f"{stamp}.launcher.out.log").open("wb")
             self._stderr = (self.log_root / f"{stamp}.launcher.err.log").open("wb")
@@ -490,6 +503,7 @@ class SceneRuntimeManager:
                     stdout=self._stdout,
                     stderr=self._stderr,
                     creationflags=flags,
+                    start_new_session=linux,
                 )
             except OSError as error:
                 self._close_logs()
@@ -505,9 +519,17 @@ class SceneRuntimeManager:
             script = self.launch.project_root / "scripts" / "stop_scene_instance.ps1"
             flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             try:
+                if self.launch.python_exe is not None and self._process and self._process.poll() is None:
+                    # This also covers STOP arriving before the new launcher writes its state.
+                    self._process.terminate()
+                    self._process.wait(timeout=65)
+                command = [str(self.launch.powershell_exe), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+                           "-Quiet", "-AdapterRoot", str(self.launch.adapter_root)]
+                if self.launch.python_exe is not None:
+                    command = [str(self.launch.python_exe), "-m", "space_arm_platform.linux_scene", "stop",
+                               "--project-root", str(self.launch.project_root)]
                 subprocess.run(
-                    [str(self.launch.powershell_exe), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
-                     "-Quiet", "-AdapterRoot", str(self.launch.adapter_root)],
+                    command,
                     cwd=self.launch.project_root,
                     check=True,
                     timeout=90,

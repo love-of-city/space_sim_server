@@ -156,6 +156,7 @@ private:
     AActor* SpawnCamera(const FBskCameraDefinition& Definition);
     void ConfigureCamera(AActor* Actor, const FBskCameraDefinition& Definition);
     void ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture) const;
+    void CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture);
     void ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const;
     void UpdatePictureInPictureCaptures();
     void ConfigurePixelStreamingOutput();
@@ -202,6 +203,8 @@ private:
     TMap<FString, TObjectPtr<USceneCaptureComponent2D>> CameraCaptureComponents;
     UPROPERTY(Transient)
     TMap<FString, TObjectPtr<UTextureRenderTarget2D>> CameraRenderTargets;
+    UPROPERTY(Transient)
+    TMap<FString, TObjectPtr<UTextureRenderTarget2D>> CameraEffectSources;
     UPROPERTY(Transient)
     TMap<FString, TObjectPtr<USceneCaptureComponent2D>> PixelStreamingCameraCaptures;
     UPROPERTY(Transient)

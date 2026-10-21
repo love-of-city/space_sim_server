@@ -177,6 +177,24 @@ to one on every manifest, including after a zero-light scene. The receiver
 rejects strings, booleans, nulls and out-of-range values. Update/rebuild the UE
 runtime to use this additive version-2 setting; older receivers ignore it.
 
+`camera_mode` selects `rgb` (default), `monochrome`, or `fisheye` per camera.
+Monochrome uses Rec.709 luminance on the GPU and repeats it in all three RGB
+channels. Fisheye uses circular equidistant projection (`r = f * theta`), with
+black pixels outside the inscribed image circle. Its `field_of_view_rad` is the
+full angular diameter and must satisfy `0 < fov < pi`. The platform wrist preset
+uses 160 degrees. A square perspective render at twice the output's longer side
+(capped at 4096) supplies the GPU remap; this approximates an ideal lens, without
+sensor noise, lens calibration, or coverage beyond 180 degrees. All modes retain
+the same RGB product name, camera ID and output dimensions. HUD, WebRTC, disk,
+network readback and policy observations consume the canonical processed target.
+
+Capture metadata includes `camera_mode` and `color_model`. For fisheye,
+`intrinsics.model = equidistant_fisheye`, `distortion_model = equidistant`,
+`fx_px = fy_px = min(width,height)/fov`, plus `valid_circle_radius_px`.
+These focal lengths use the equidistant equation, not a pinhole matrix.
+Pinhole RGB/monochrome retain the existing pinhole metadata. Rebuild the UE plugin
+when adding this field: earlier receivers ignore unknown camera fields.
+
 `capture_products` is strict: this implementation supports only `rgb`.
 Depth, segmentation and unknown values reject the manifest with a clear error.
 The sender requests products, while the UE host retains authority over local

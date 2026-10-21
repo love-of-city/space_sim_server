@@ -129,8 +129,15 @@ def test_incomplete_recording_is_not_accepted_as_success():
             validate_episode({**good, **changes})
 
 
-def test_scripted_snapshot_uses_actual_held_commands_and_production_sensor_schema():
+@pytest.mark.parametrize("retention_enabled", [False, True])
+def test_scripted_snapshot_uses_actual_held_commands_and_production_sensor_schema(retention_enabled):
     transport = ScriptedCaptureTransport.__new__(ScriptedCaptureTransport)
+    from simulation.plug_retention import RetentionParameters
+    retention_bodies = {"cylindrical_plug": {"status": "retained", "socket": "cylindrical_initial"}}
+    transport.plug_retention = SimpleNamespace(telemetry=lambda: retention_bodies) if retention_enabled else None
+    transport.retention_configuration = ({"enabled": True, "version": "plug-retention/1",
+                                          "parameters": asdict(RetentionParameters())}
+                                         if retention_enabled else {"enabled": False})
     stamp = 20_000_000
     transport.wrench_sampler = SimpleNamespace(drain=lambda stamp: [])
     q = np.linspace(0.0, 0.7, 10)
@@ -185,6 +192,8 @@ def test_scripted_snapshot_uses_actual_held_commands_and_production_sensor_schem
     transport.sequence, transport.task_start_ns, transport.task_elapsed_s = 8, 0, 1 / 30
     packet = transport.snapshot(1, stamp)
     observation = SimulationObservation.model_validate(packet)
+    assert json.loads(observation.model_dump_json())["plug_retention"] == {
+        **transport.retention_configuration, "bodies": retention_bodies if retention_enabled else {}}
     np.testing.assert_array_equal(
         observation.target_joint_position_rad, transport.command
     )

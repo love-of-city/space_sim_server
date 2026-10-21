@@ -48,8 +48,9 @@ def prepare(args):
     plugin_args = []
     catalog_name, destination = "sarm_platform", "/Game/BSK/Generated/SARM"
     if args.template_id in SARM_TEMPLATES:
-        subprocess.run([sys.executable, str(ROOT / "tools/build_sarm_20261012.py"),
-                        "--fastener-model", "sdf" if args.template_id.endswith("-sdf") else "captive"], check=True)
+        if not getattr(args, "use_existing_model", False):
+            subprocess.run([sys.executable, str(ROOT / "tools/build_sarm_20261012.py"),
+                            "--fastener-model", "sdf" if args.template_id.endswith("-sdf") else "captive"], check=True)
         subprocess.run([sys.executable, str(ROOT / "tools/build_sarm_plugin.py")], check=True)
         manifest = json.loads((ROOT / "run/native_acceleration/sarm_thread.json").read_text())
         plugin_args = ["--mujoco-plugin", str(ROOT / manifest["library"])]
@@ -130,6 +131,8 @@ def main():
     parser.add_argument("--template-id", default=DEFAULT_TEMPLATE)
     parser.add_argument("--catalog-only", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--use-existing-model", action="store_true",
+                        help="Validate the selected model provenance without regenerating tracked XML at startup")
     prepare(parser.parse_args())
 
 

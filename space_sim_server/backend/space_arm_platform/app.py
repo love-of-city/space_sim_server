@@ -6,6 +6,7 @@ import asyncio
 import logging
 import contextlib
 import hmac
+import sys
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -205,7 +206,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         capture_failed,
     )
     launch_config = None
-    if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root, config.runtime_powershell_exe)):
+    if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root)) and (
+        sys.platform.startswith("linux") or config.runtime_powershell_exe
+    ):
         launch_config = SceneLaunchConfig(
             project_root=config.project_root, adapter_root=config.runtime_adapter_root,
             model_root=config.runtime_model_root, unreal_root=config.runtime_unreal_root,
@@ -221,6 +224,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             ik_rate=config.runtime_ik_rate, simulation_rate=config.runtime_simulation_rate,
             capture_rate=capture_defaults["capture_rate_hz"],
             default_dataset_capture=capture_defaults["dataset_capture"],
+            python_exe=Path(sys.executable) if sys.platform.startswith("linux") else None,
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     timeout_task: asyncio.Task[None] | None = None

@@ -1,4 +1,5 @@
 #include "BskSceneController.h"
+#include "BskCameraEffects.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #endif
@@ -1546,6 +1547,39 @@ void ABskSceneController::ConfigureFixedRgbExposure(USceneCaptureComponent2D* Ca
     Capture->PostProcessSettings.AutoExposureBias = static_cast<float>(MaterialExposureBias);
 }
 
+void ABskSceneController::CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture)
+{
+    const FBskCameraDefinition* Definition = ManifestCameras.Find(CameraId);
+    if (!Capture || !Capture->TextureTarget || !Definition) return;
+    if (Definition->CameraMode == TEXT("rgb"))
+    {
+        CameraEffectSources.Remove(CameraId);
+        Capture->CaptureScene();
+        return;
+    }
+    // Keep the canonical output target shared by HUD, WebRTC, readback and policy.
+    // Only the scene render writes to the private intermediate texture.
+    UTextureRenderTarget2D* Output = Capture->TextureTarget;
+    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const int32 Side = FMath::Min(4096, FMath::Max(Output->SizeX, Output->SizeY) * 2);
+    const FIntPoint Size = bFisheye ? FIntPoint(Side, Side) : FIntPoint(Output->SizeX, Output->SizeY);
+    UTextureRenderTarget2D* Source = CameraEffectSources.FindRef(CameraId);
+    if (!Source || Source->SizeX != Size.X || Source->SizeY != Size.Y)
+    {
+        Source = NewObject<UTextureRenderTarget2D>(this);
+        Source->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+        Source->bAutoGenerateMips = false;
+        Source->InitAutoFormat(Size.X, Size.Y);
+        ConfigureRgbRenderTarget(Source);
+        Source->UpdateResourceImmediate(true);
+        CameraEffectSources.Add(CameraId, Source);
+    }
+    Capture->TextureTarget = Source;
+    Capture->CaptureScene();
+    Capture->TextureTarget = Output;
+    BskApplyCameraEffect(Source, Output, bFisheye, static_cast<float>(Definition->FieldOfViewRadians));
+}
+
 void ABskSceneController::ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const
 {
     if (!Target) return;
@@ -1685,7 +1719,7 @@ void ABskSceneController::UpdatePixelStreamingCameraCaptures()
         if (bVisibleInHud || !HasPixelStreamingCameraViewers(Pair.Key)) continue;
         double& NextSeconds = PixelStreamingCameraNextCaptureSeconds.FindOrAdd(Pair.Key);
         if (!BskPreviewCaptureDue(Now, PixelStreamingCameraRateHertz, NextSeconds)) continue;
-        Pair.Value->CaptureScene();
+        CaptureRgbCamera(Pair.Key, Pair.Value);
         if (bVideoDiagnostics) ++VideoDiagnosticsCaptures.FindOrAdd(Pair.Key);
     }
 }
@@ -2628,6 +2662,7 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
     {
         if (Capture) Capture->Deactivate();
         CameraRenderTargets.Remove(Definition.CameraId);
+        CameraEffectSources.Remove(Definition.CameraId);
         CameraNextCaptureSeconds.Remove(Definition.CameraId);
         CameraNextDataCaptureSimulationNanoseconds.Remove(Definition.CameraId);
         CameraPictureInPictureVisibility.Remove(Definition.CameraId);
@@ -2698,7 +2733,7 @@ void ABskSceneController::UpdatePictureInPictureCaptures()
         }
         double& NextSeconds = CameraNextCaptureSeconds.FindOrAdd(Pair.Key);
         if (!BskPreviewCaptureDue(NowSeconds, FMath::Max(1.0, PreviewRate), NextSeconds)) continue;
-        Capture->CaptureScene();
+        CaptureRgbCamera(Pair.Key, Capture);
         if (bVideoDiagnostics) ++VideoDiagnosticsCaptures.FindOrAdd(Pair.Key);
         if (PreviewRateOverrideHertz > 0.0 && CaptureNetworkSender && bHasPresentationFrame)
         {
@@ -2712,6 +2747,7 @@ void ABskSceneController::UpdatePictureInPictureCaptures()
             Request.OriginInertialMeters = PresentationFrame.OriginInertialMeters;
             Request.LocalFromInertial = PresentationFrame.LocalFromInertial;
             Request.Purpose = EBskCapturePurpose::Preview;
+            Request.bWriteToDisk = false;
             Request.bReuseExistingRgbTarget = true;
             Request.bSendToNetwork = true;
             FString Error;
@@ -2899,7 +2935,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 OutError = TEXT("could not create RGB capture resources");
                 return false;
             }
-            Capture->CaptureScene();
+            CaptureRgbCamera(Request.CameraId, Capture);
         }
         return true;
     }
@@ -2918,7 +2954,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 OutError = TEXT("could not create RGB capture resources");
                 return false;
             }
-            if (!Request.bReuseExistingRgbTarget) Capture->CaptureScene();
+            if (!Request.bReuseExistingRgbTarget) CaptureRgbCamera(Request.CameraId, Capture);
             if (bAsyncCaptureEnabled && Request.Purpose == EBskCapturePurpose::AuthoritativeDataset)
             {
                 const uint64 Bytes = static_cast<uint64>(Resolution.X) * Resolution.Y * sizeof(FColor) + 65536;
@@ -2991,6 +3027,8 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
     Metadata->SetStringField(TEXT("type"), TEXT("camera_frame"));
     Metadata->SetStringField(TEXT("session_id"), ActiveSessionId);
     Metadata->SetStringField(TEXT("camera_id"), Request.CameraId);
+    Metadata->SetStringField(TEXT("camera_mode"), Definition->CameraMode);
+    Metadata->SetStringField(TEXT("color_model"), Definition->CameraMode == TEXT("monochrome") ? TEXT("monochrome_rgb") : TEXT("rgb"));
     Metadata->SetStringField(TEXT("capture_episode_id"), Request.CaptureEpisodeId);
     Metadata->SetBoolField(TEXT("ack_required"), Request.Purpose == EBskCapturePurpose::AuthoritativeDataset);
     Metadata->SetStringField(TEXT("stream_kind"),
@@ -3020,12 +3058,15 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
         MakeShared<FJsonValueNumber>(Resolution.X), MakeShared<FJsonValueNumber>(Resolution.Y)});
 
     const double FovX = Definition->FieldOfViewRadians;
-    const double Fx = 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
+    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const double Fx = bFisheye ? FMath::Min(Resolution.X, Resolution.Y) / FovX
+        : 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
     const double Fy = Fx;
-    const double FovY = 2.0 * FMath::Atan(0.5 * Resolution.Y / Fy);
+    const double FovY = bFisheye ? FovX : 2.0 * FMath::Atan(0.5 * Resolution.Y / Fy);
     TSharedPtr<FJsonObject> Intrinsics = MakeShared<FJsonObject>();
-    Intrinsics->SetStringField(TEXT("model"), TEXT("pinhole"));
-    Intrinsics->SetStringField(TEXT("distortion_model"), TEXT("none"));
+    Intrinsics->SetStringField(TEXT("model"), bFisheye ? TEXT("equidistant_fisheye") : TEXT("pinhole"));
+    Intrinsics->SetStringField(TEXT("distortion_model"), bFisheye ? TEXT("equidistant") : TEXT("none"));
+    if (bFisheye) Intrinsics->SetNumberField(TEXT("valid_circle_radius_px"), 0.5 * FMath::Min(Resolution.X, Resolution.Y));
     Intrinsics->SetNumberField(TEXT("fx_px"), Fx);
     Intrinsics->SetNumberField(TEXT("fy_px"), Fy);
     Intrinsics->SetNumberField(TEXT("cx_px"), 0.5 * (Resolution.X - 1));

@@ -4,7 +4,7 @@
 
 ## 任务来源
 
-- [项目表](https://acndpm3fvl11.feishu.cn/wiki/KXyiw0KMgiWJGhktSKocw5EznAf)：任务表 revision 1065，共 97 条；本人直接或共同执行 10 条，8 条标为已完成，2 条进行中。姿轨控与远程交会项目截止时间为 2026-10-31。
+- [项目表](https://acndpm3fvl11.feishu.cn/wiki/KXyiw0KMgiWJGhktSKocw5EznAf)：最近核对 revision 1083，共 97 条；本人直接或共同执行 10 条，8 条标为已完成，2 条进行中。姿轨控与远程交会项目截止时间为 2026-10-31。
 - [10/15 人工分工](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=112)与[差分 GNSS 补充](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=116)：负责远距交会、差分 GNSS、远近距传感器同步及仿真合并。
 - [10/15 会议](https://acndpm3fvl11.feishu.cn/docx/Pou4dAxcrozvqqxVaYNcPydcnEH)及[原文](https://acndpm3fvl11.feishu.cn/docx/UgZqdB6fjoqERzxMNepcxeornkc)：恢复全局和手眼相机，统一 UI，验证大气阻力实际施力，与张怿心共同完成仓库合并。人工分工优先于智能纪要中的模糊归属。
 - [10/8 原文](https://acndpm3fvl11.feishu.cn/docx/I1OPdBVJsorEAAxAsz6cfKvdnAh)与[迁移指南](https://lcnrp8hlo6f2.feishu.cn/docx/Yo0FdbIxWoO7gBxViPdcpqVenRg)：沿用团队统一仓库、原工作台、真实模型与动力学。通信时延现已接入，不再沿用早期“暂缓”口径。
@@ -54,11 +54,11 @@
 
 | 负责人 | 集成需要的数据与依据 |
 |---|---|
-| 张怿心：近距总体、V-bar/CW | 接近侧、停泊点参考坐标与距离定义、到达时间、17.4 m 检查点和 0.5 m 抓取停泊条件、故障行为 |
+| 张怿心：近距总体、V-bar/CW | PR27 已交付组合质心 V-bar、四节点联合驻留、视觉就绪门控与锁存 SafeHold；实际算法、参考点和接口见[近距实现](NEAR_FIELD_RENDEZVOUS.md)，不将其改称计划到达时间的 CW 求解器 |
 | 李一辉：腕部双目 | 左右真实图像及曝光时刻、内参/畸变、双目外参、相机到腕部/TCP 变换、同步精度 |
 | 席梓杰：PnP 与目标姿态 | 靶点几何及编码、相对位姿/时间戳/协方差/失效标志、靶点到抓取接口变换、靶面朝向 |
 | 刘丹旭：抓取机构 | 实际夹爪与目标几何、允许载荷、禁触区、接触/锁定/捕获确认条件 |
 
-本人继续负责这些接口的接入和全流程验证。当前固定本体参数化双目、两指夹爪和逻辑 CaptureHold 不证明真实腕部图像闭环、物理锁定或载荷传递。[1009 调研](https://lcnrp8hlo6f2.feishu.cn/docx/M65TdsVeDoH7YdxgkA9cAIT5nag)中的选型及安装参数属于工程初值，必须与最终实际资产和标定对应。
+本人负责已交付模块的接口接入和全流程验证；其他成员尚未交付的算法、相机及机构不列为本人当前未完成开发任务。当前固定本体参数化双目、两指夹爪和逻辑 CaptureHold 不证明真实腕部图像闭环、物理锁定或载荷传递。[1009 调研](https://lcnrp8hlo6f2.feishu.cn/docx/M65TdsVeDoH7YdxgkA9cAIT5nag)中的选型及安装参数属于工程初值，必须与最终实际资产和标定对应。
 
-双星装配质心距离、本体原点距离、原点到抓取点模长、相机光轴深度与 TCP 间隙必须分开。当前工程计划将0.5 m明确为收拢TCP到抓取面的轴向间隙，并在光学深度17.4 m设置连续5 s检查点；几何由原模型FK求得，随manifest与交接保存。该参考定义依据用户授权作工程选择，不能称为团队已签署约定；参数化导航也不代表真实图像识别。控制条件与独立复核见[近距接口](NEAR_FIELD_RENDEZVOUS.md)。
+双星装配质心距离、本体原点距离、原点到抓取点模长、相机光轴深度与 TCP 间隙必须分开。当前近距依次通过质心沿轨50 m、光学深度17.4 m、光学深度5.50 m和收拢TCP抓取面间隙0.5 m四节点，每点满足联合条件连续5 s。5.50 m放行前保持质心 V-bar，之后平滑引入抓取偏置；几何由原模型质量和FK求得，随manifest与交接保存。0.5 m参考定义依据用户授权作工程选择，不能称为团队已签署约定；参数化导航也不代表真实图像识别。控制条件与独立复核见[近距接口](NEAR_FIELD_RENDEZVOUS.md)。

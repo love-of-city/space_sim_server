@@ -6,6 +6,8 @@
 
 默认 `local` 场景采用 BSK 引力模型逐刚体计算差分力，保留 MuJoCo 刚体/接触/伺服与局部坐标。扩展引力源、球谐模型和子步采样的方法见 [BSK 在轨组件](docs/BSK_ORBITAL_COMPONENTS.md)。旧线性潮汐仅通过 `SPACE_SIM_ORBITAL_MODE=linear_tidal` 显式选择用于回归。
 
+原操作场景提供 50 Hz 服务星模拟陀螺角速度观测，包含白噪声、偏置与饱和标志，随原观测通道录制。配置、时间与坐标定义及接入边界见[服务星陀螺反馈](docs/SERVICE_GYROSCOPE.md)。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。

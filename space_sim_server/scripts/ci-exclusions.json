@@ -1,5 +1,6 @@
 {
   "files": {
+    "tests/test_gyroscope_native.py": "Basilisk scheduler and real SCStatesMsg; run in the native simulation environment. Pure sensor statistics, wire validation and recording remain in basic CI.",
     "tests/test_orbit_attitude_reference.py": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
     "tests/test_attitude_control.py": "Basilisk attitude-control integration",
     "tests/test_celestial_alignment.py": "Basilisk celestial-state integration",

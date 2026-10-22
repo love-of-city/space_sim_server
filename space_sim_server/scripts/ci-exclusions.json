@@ -30,6 +30,8 @@
     "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation"
   },
   "nodes": {
+    "tests/test_formation_hold.py::test_component_uses_distinct_wrench_sources_and_restoring_torque": "Basilisk messaging and body-wrench integration; run separately in the native simulation environment",
+    "tests/test_visual_attachments.py::test_attachment_keeps_body_local_pose_and_existing_geometry": "Real Basilisk SysModel bridge and messages; pure attachment layout tests remain in basic CI",
     "tests/test_adjacent_coorbital.py::test_attitude_guidance_keeps_configured_body_rotation": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
     "tests/test_com_coorbital.py::test_authoritative_compiled_mass_centres_include_arm_and_inferred_mass": "Basilisk MJScene and locally built MuJoCo helper; run separately in the native simulation environment",
     "tests/test_com_coorbital.py::test_orbital_setters_use_whole_assembly_com_after_initial_arm_pose": "Basilisk orbital state and MJScene initialization; run separately in the native simulation environment",

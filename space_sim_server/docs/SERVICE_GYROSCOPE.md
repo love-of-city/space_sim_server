@@ -6,6 +6,8 @@
 
 `space-arm-control/1` 的 observation 可包含 `service_gyro`；老记录和禁用配置为 null。原有 Hub/API/WebSocket 及 `steps.jsonl` 保存该字段。当前不新增 LeRobot 张量特征，算法可读取同帧 JSON 观测。进程内通过 `assembly.extra['service_gyro'].latest` 读取最新样本，读取不会重新抽噪声。
 
+连续交会集成分支的默认 compact 录制将该字段保存到 `lerobot/auxiliary/context` Parquet，`read_observations()` 还原测量、方差、饱和与原时间戳；双臂、相对状态和编队保持上下文同时保留。独立传感器 PR29 基于团队 main 的诊断 JSON 录制，compact 兼容改动随 PR20 交付。
+
 | 字段 | 含义 |
 |---|---|
 | `angular_velocity_body_rad_s` | 服务星相对 J2000 的角速度，表达在服务星本体轴，rad/s |

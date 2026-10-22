@@ -1,3 +1,4 @@
+import { WorkLight } from "../work_light.js";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -18,13 +19,16 @@ function harness() {
   };
   class Player {
     constructor() { this.handlers = new Map(); players.push(this); }
+    addResponseEventListener(name, fn) { this.handlers.set("response:" + name, fn); }
     addEventListener(name, fn) { this.handlers.set(name, fn); }
     emit(name, data = {}) { this.handlers.get(name)?.(data); }
     disconnect() { this.emit("webRtcDisconnected"); }
   }
   let reconnects = 0;
   let statsUpdates = 0;
-  const context = vm.createContext({clearWristWrench() {},
+  const context = vm.createContext({mainCompanion:{update(){},dispose(){}},clearWristWrench() {},
+    workLight: new WorkLight({send: () => true}), updateWorkLight() {},
+    previewOrbit: {reset() {}, select() {}, restore() {}},
     state, $, window: {}, PixelStreaming: Player, Config: class {
       constructor(options) { this.initialSettings = options.initialSettings; }
       setNumericSetting(key, value) { this.initialSettings[key] = value; }
@@ -145,7 +149,7 @@ test("a renderer becoming running does not tear down its waiting player", () => 
   const block = source.slice(start, end);
   for (const waiting of [true, false]) {
     let reconnects = 0;
-    const context = vm.createContext({phase: "running", previousPhase: "starting_renderer",
+    const context = vm.createContext({mainCompanion:{update(){},dispose(){}},phase: "running", previousPhase: "starting_renderer",
       instance: {}, state: {pixelStreaming: waiting ? {} : null, pixelConnectPromise: null},
       setMessage() {}, connectPixelStreaming() { reconnects++; }});
     vm.runInContext(block, context);
@@ -177,4 +181,15 @@ test("frontend SDK preserves the server quality floor including explicit zero", 
     h.context.createPixelStream();
     assert.equal(h.state.pixelConfig.initialSettings.MinQuality, 60);
   }
+});
+
+test("retired player cannot overwrite current renderer work-light state", () => {
+  const h = harness();
+  h.context.createPixelStream();
+  const old = h.players[0];
+  h.context.createPixelStream();
+  h.players[1].emit("response:work-light", JSON.stringify({type:"bsk_work_light",supported:true,enabled:false}));
+  old.emit("response:work-light", JSON.stringify({type:"bsk_work_light",supported:true,enabled:true}));
+  assert.equal(h.context.workLight.enabled, false);
+  assert.equal(h.context.workLight.available, true);
 });

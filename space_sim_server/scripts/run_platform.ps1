@@ -276,6 +276,11 @@ if ((Split-Path -Leaf $ModelRoot) -eq 'platform') {
 & (Join-Path $ueScripts 'prepare_runtime_materials.ps1') -UnrealRoot $UnrealRoot
 
 $cameraStreamers = @()
+# Register every supported scene camera even when callers omit optional arguments.
+. (Join-Path $PSScriptRoot 'scene_render_profiles.ps1')
+foreach ($profile in (Get-SceneRenderProfiles).PSObject.Properties) {
+    $PixelStreamingCameraIds = @(Resolve-SceneCameraIds $profile.Name $PixelStreamingCameraIds)
+}
 foreach ($cameraId in $PixelStreamingCameraIds) {
     $safeId = $cameraId -replace '[^A-Za-z0-9_-]', '_'
     $label = if ($cameraId -match 'wrist') { 'WristCamera' } elseif ($cameraId -match 'overview') { 'SpacecraftOverview' } else { $cameraId }

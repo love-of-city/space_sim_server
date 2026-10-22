@@ -1,0 +1,50 @@
+{
+  "schema": "space-arm-new-arm-calibration/1",
+  "status": "unconfigured",
+  "units": "metres",
+  "point_target_m": [
+    0.1755,
+    0.073,
+    0.04207870013
+  ],
+  "gripper_frame": {
+    "frame_id": null,
+    "definition": null,
+    "parent_body": null,
+    "position_in_parent_m": null,
+    "rotation_parent_from_gripper": null,
+    "jaw_configuration": null
+  },
+  "camera_frame": {
+    "camera_id": null,
+    "optical_axes": "+X right, +Y down, +Z forward",
+    "rigid_relative_to_gripper": null
+  },
+  "relative_transform_mode": null,
+  "rotation_gripper_from_optical": null,
+  "camera_in_gripper_m": null,
+  "intrinsics": {
+    "width_px": null,
+    "height_px": null,
+    "fx_px": null,
+    "fy_px": null,
+    "cx_px": null,
+    "cy_px": null,
+    "distortion_model": null,
+    "distortion_coefficients": null
+  },
+  "stereo": {
+    "enabled": null,
+    "right_intrinsics": null,
+    "rotation_right_from_left": null,
+    "translation_right_from_left_m": null,
+    "timestamp_pairing": null
+  },
+  "notes": [
+    "Parameter handoff template only; not connected to a runtime loader.",
+    "All null values must be determined from the new model or calibration; do not replace with assumed zeros or identity.",
+    "p_gripper = rotation_gripper_from_optical @ p_optical + camera_in_gripper_m",
+    "Use a constant transform only for a camera rigidly mounted to the gripper; otherwise compute it from synchronized joint states.",
+    "The target reference is the fixed WF10 assembly AABB center, not an agreed physical grasp contact."
+  ]
+}

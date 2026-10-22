@@ -48,6 +48,8 @@ foreach ($path in @($SceneInstancePath, $AdapterRoot, $ModelRoot, $UnrealRoot, $
 }
 
 $instance = Get-Content -Raw -LiteralPath $SceneInstancePath | ConvertFrom-Json
+. (Join-Path $PSScriptRoot 'scene_render_profiles.ps1')
+$PixelStreamingCameraIds = @(Resolve-SceneCameraIds $instance.template_id $PixelStreamingCameraIds)
 if ([string]$instance.schema -ne 'space-arm-scene-instance/1') {
     throw "Unsupported scene instance schema: $($instance.schema)"
 }
@@ -55,6 +57,8 @@ $simulationRate = [double]$instance.runtime.simulation_rate
 $captureRate = [double]$instance.runtime.capture_rate_hz
 $ikRate = [double]$instance.runtime.ik_rate_hz
 $datasetCapture = [bool]$instance.runtime.dataset_capture
+$visionCapture = [bool]($instance.render_profile -and $instance.render_profile.vision_capture -and
+                        $instance.render_profile.vision_capture.enabled)
 if ($datasetCapture -and $captureRate -notin @(1, 2, 5, 10, 25, 50)) {
     throw 'LeRobot capture rate must be 1, 2, 5, 10, 25 or 50 Hz on the 400 Hz dynamics / 50 Hz render clock.'
 }
@@ -141,6 +145,8 @@ try {
     if ($datasetCapture) {
         $rendererArgs.CaptureProducts = @('rgb')
         $rendererArgs.CaptureRate = $captureRate
+    }
+    if ($datasetCapture -or $visionCapture) {
         $rendererArgs.CaptureNetworkHost = '127.0.0.1'
         $rendererArgs.CaptureNetworkPort = $CapturePort
     }

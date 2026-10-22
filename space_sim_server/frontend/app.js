@@ -1,3 +1,7 @@
+import { WorkLight } from "./work_light.js";
+import { WristVisionOverlay } from "./wrist_vision.js";
+import { PreviewOrbit } from "./preview_orbit.js";
+import { armObservation, MainCompanion } from "./dual_arm.js";
 import { formatWristWrench } from "./wrist_wrench.js";
 import { createArmPreparation, AUTO_PREPARE_PROFILE, ZERO_START_PROFILE } from "./arm_preparation.js";
 import { createInitialJointAngles } from "./initial_joint_angles.js";
@@ -73,6 +77,21 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+state.controlledArm = 'operating';
+state.captureTool = {radial:0, axial:0};
+const mainCompanion = new MainCompanion({
+  status: text => { $('mainCompanionTitle').textContent=text; $('mainCompanionVideo').style.visibility=mainCompanion.live?'visible':'hidden'; },
+  show: visible => { $('mainCompanion').hidden=!visible; if(!visible)$('mainCompanionVideo').replaceChildren(); },
+  create: id => {
+    const config = new Config({initialSettings:{
+      [TextParameters.SignallingServerUrl]:signallingUrl(), [OptionParameters.StreamerId]:id,
+      [Flags.AutoConnect]:true,[Flags.AutoPlayVideo]:true,[Flags.StartVideoMuted]:true,
+      [Flags.WaitForStreamer]:true,[Flags.KeyboardInput]:false,[Flags.MouseInput]:false,
+      [Flags.TouchInput]:false,[Flags.GamepadInput]:false,
+    }});
+    return new PixelStreaming(config,{videoElementParent:$('mainCompanionVideo')});
+  },
+});
 const initialJoints = createInitialJointAngles({
   toggle: $("sceneCustomInitialJoints"), fields: $("sceneInitialJointFields"),
   presetButton: $("sceneInitialJointPreset"), help: $("sceneInitialJointsHelp"),
@@ -118,6 +137,19 @@ function setPixelStreamingInputEnabled(keyboardEnabled, mouseEnabled) {
   stream.config.setFlagEnabled(Flags.KeyboardInput, keyboardEnabled);
   stream.config.setFlagEnabled(Flags.MouseInput, mouseEnabled);
 }
+
+const workLight = new WorkLight({send: command => state.streamLive && state.pixelStreaming?.emitCommand(command) === true});
+function updateWorkLight() {
+  const button = $("workLightToggle");
+  button.disabled = !state.streamLive || !workLight.available;
+  button.textContent = !state.streamLive ? "工作灯：未连接" : !workLight.available ? "工作灯：不可用" : workLight.enabled ? "工作灯：开（点击关闭）" : "工作灯：关（点击开启）";
+  button.setAttribute("aria-pressed", String(workLight.available && workLight.enabled));
+}
+$("workLightToggle").addEventListener("click", event => {
+  event.stopPropagation();
+  if (workLight.toggle()) setMessage("已请求切换工作灯，等待渲染器确认；只改变预览补光。");
+});
+setInterval(() => { if (state.streamLive) workLight.query(); updateWorkLight(); }, 2000);
 
 const freeCamera = new FreeCameraController({
   element: $("pixelStream"),
@@ -495,7 +527,26 @@ function connect() {
       $("controlAuthority").textContent = "其他页面正在操作";
       exitOperationMode(message.reason === "scene_reset" ? "场景正在重置，已撤销操控；完成后请重新点击画面" : "同一用户的其他页面已进入操作，本页面自动退出");
     } else if (message.type === "observation") {
-      const obs = message.payload;
+      const raw = message.payload;
+      state.renderSessionId = raw.render_session_id;
+      const relative = raw.target_relative_state;
+      $('relativeDistance').textContent = relative ? `${Math.hypot(...relative.position_inertial_m).toFixed(4)} m` : '—';
+      const formation = raw.formation_hold;
+      $('formationHold').textContent = formation?.enabled ? '开启 · 限幅推力/力矩' : '关闭';
+      $('formationError').textContent = formation?.enabled ? formation.position_error_m.map(e=>(Math.hypot(...e)*1000).toFixed(2)).join(' / ')+' mm（服务 / 目标）' : '—';
+      const rotatingVelocity=formation?.enabled ? formation.relative_velocity_rotating_m_s : relative?.velocity_rotating_m_s;
+      $('formationVelocity').textContent = rotatingVelocity ? (Math.hypot(...rotatingVelocity)*1000).toFixed(3)+' mm/s' : '—';
+      $('relativeVelocity').textContent = relative ? relative.velocity_inertial_m_s.map(x=>(x*1000).toFixed(3)).join(', ')+' mm/s' : '—';
+      $('relativeAngularVelocity').textContent = relative ? relative.angular_velocity_inertial_rad_s.map(x=>x.toFixed(6)).join(', ')+' rad/s' : '—';
+      state.hasCaptureArm = !!raw.capture_arm;
+      state.visualProbe = raw.capture_arm?.visual_probe_enabled===true;
+      $('captureArmOption').disabled = !state.hasCaptureArm;
+      if (!state.hasCaptureArm && state.controlledArm === 'capture') {
+        exitOperationMode('当前场景没有抓取臂');state.controlledArm='operating';$('controlledArm').value='operating';
+      }
+      $('captureToolControls').hidden = state.controlledArm !== 'capture';
+      if(raw.capture_arm) $('captureToolStatus').textContent = `轴向 ${(raw.capture_arm.axial_position_m*1000).toFixed(1)} mm · 径向 ${(raw.capture_arm.radial_position_m*1000).toFixed(1)} mm · ${raw.capture_arm.controller_status}`;
+      const obs = armObservation(raw,state.controlledArm);
       const demo = obs.fastener_demo;
       $("fastenerDemoStatus").hidden = !demo;
       if (demo) {
@@ -503,7 +554,7 @@ function connect() {
         $("fastenerDemoStatus").textContent = `防脱演示 · ${phase} · 行程 ${Number(demo.travel_mm).toFixed(2)} mm · 转角 ${Number(demo.angle_deg).toFixed(1)}°`;
       }
       jointAngles.update(obs);
-      armPreparation.update(obs.arm_preparation, obs);
+      armPreparation.update(raw.arm_preparation, raw);
       setOnline("simDot", true);
       $("simState").textContent = "仿真在线";
       $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
@@ -526,10 +577,14 @@ function connect() {
       $("wristWrenchDetail").textContent = wrench.detail;
       const attitude = obs.attitude_control;
       $("referenceProtection").textContent = referenceProtectionLabel(obs);
+      if(state.controlledArm==='capture') {
+        $('ikSolver').textContent=`抓取臂阻尼 IK · ${obs.ik_status || '等待遥测'}`;
+        $('referenceProtection').textContent='关节限速 0.25 rad/s · 参考超前限制 0.05 rad · 松键保持实测位置';
+      }
       $("dynamicsTiming").textContent = dynamicsTimingLabel(obs);
       const wheels = obs.reaction_wheels;
       $("attitudeMode").textContent = !attitude ? "—" : !attitude.enabled ? "控制关闭" :
-        !attitude.reference_initialized ? "初始化" : attitude.saturated ? "惯性保持 · 饱和" : "惯性保持";
+        !attitude.reference_initialized ? "初始化" : (formation?.enabled || raw.coorbital_initialization ? "轨道定向保持" : "惯性保持") + (attitude.saturated ? " · 饱和" : "");
       $("attitudeError").textContent = attitude ? `${(attitude.attitude_error_angle_rad * 180 / Math.PI).toFixed(3)} °` : "—";
       $("bodyRate").textContent = attitude ? attitude.angular_velocity_body_rad_s.map(v => Number(v).toFixed(4)).join(", ") + " rad/s" : "—";
       $("wheelSpeeds").textContent = wheels ? wheels.speed_rad_s.map(v => (v * 60 / (2 * Math.PI)).toFixed(1)).join(", ") + " rpm" : "—";
@@ -584,7 +639,7 @@ async function connectPixelStreaming() {
       const option = document.createElement("option");
       option.value = item.id;
       const labels = { WristCamera: "机械臂腕部相机", SpacecraftOverview: "卫星总览相机" };
-      option.textContent = labels[item.label] || item.label || item.id;
+      option.textContent = item.id.endsWith('__teleop_camera_capture_wrist_cam') ? '抓取臂末端相机' : labels[item.label] || item.label || item.id;
       selector.append(option);
     }
     if ([...selector.options].some((option) => option.value === previousStreamerId)) {
@@ -845,6 +900,7 @@ function updateWebRtcStats(aggregatedStats) {
 }
 
 function disposePixelStream() {
+  mainCompanion.dispose();
   if (state.freeCameraMode) setFreeCameraMode(false);
   if (state.streamReconnectTimer != null) {
     clearTimeout(state.streamReconnectTimer);
@@ -886,6 +942,7 @@ function armPixelStreamingWatchdog(stream, delayMs = 60000) {
 
 function createPixelStream() {
   disposePixelStream();
+  mainCompanion.update(state.selectedStreamerId,state.streamConfig?.pixel_streaming_streamer_id);
   $("frameState").textContent = "CONNECTING";
   $("frameState").style.color = "var(--danger)";
   $("previewEmpty").style.display = "grid";
@@ -915,6 +972,22 @@ function createPixelStream() {
   const stream = new PixelStreaming(config, { videoElementParent: $("pixelStream") });
   state.pixelConfig = config;
   state.pixelStreaming = stream;
+  workLight.reset();
+  updateWorkLight();
+  stream.addResponseEventListener("work-light", response => {
+    if (state.pixelStreaming !== stream) return;
+    workLight.receive(response);
+    updateWorkLight();
+  });
+  stream.addResponseEventListener("preview-orbit", response => {
+    if(state.pixelStreaming !== stream)return;
+    try {
+      const reply=JSON.parse(response);
+      if(reply.type==='bsk_preview_orbit' && Number.isFinite(reply.yaw) && Number.isFinite(reply.pitch))
+        setMessage(reply.yaw===0 && reply.pitch===0 ? '已恢复当前视角'
+          : `展示视角偏转 ${reply.yaw.toFixed(1)}° / ${reply.pitch.toFixed(1)}°；Home 恢复，卫星姿态不变`);
+    } catch (_) { /* Ignore unrelated renderer responses. */ }
+  });
   stream.addEventListener("initialSettings", () => {
     queueMicrotask(() => {
       if (state.pixelStreaming === stream && state.requestedVideoFps != null) {
@@ -951,6 +1024,8 @@ function createPixelStream() {
   stream.addEventListener("videoInitialized", () => {
     if (state.pixelStreaming !== stream) return;
     state.streamLive = true;
+    previewOrbit.select(state.selectedStreamerId);
+    previewOrbit.restore();
     $("previewEmpty").style.display = "none";
     $("pixelStream").style.display = "block";
     $("frameState").textContent = "LIVE WEBRTC";
@@ -1049,6 +1124,9 @@ function transmitAction(action, deadman, allowReferenceRecovery = false) {
     client_sequence: state.sequence,
     client_time_ns: String(BigInt(Date.now()) * 1000000n),
     deadman,
+    active_arm: state.controlledArm,
+    capture_radial_velocity: deadman && state.controlledArm==='capture' ? state.captureTool.radial || action.grip || 0 : 0,
+    capture_axial_velocity: deadman && state.controlledArm==='capture' ? state.captureTool.axial : 0,
     ...(action.preparation ? {arm_preparation: action.preparation} : {}),
     allow_reference_recovery: allowReferenceRecovery && !deadman,
     end_effector_linear_speed_m_s: state.linearSpeed,
@@ -1056,7 +1134,7 @@ function transmitAction(action, deadman, allowReferenceRecovery = false) {
     end_effector_angular_velocity: action.angular,
     angular_control_frame: action.angularFrame || "spacecraft_body",
     joint6_velocity: action.joint6 || 0,
-    gripper_velocity: action.grip,
+    gripper_velocity: state.controlledArm==='capture' ? 0 : action.grip,
     input_source: action.source,
   }));
   return true;
@@ -1108,7 +1186,7 @@ function updateOperationUI() {
     hintDetail.textContent = "WASD / QE 控制，F/R 夹爪；按 C 进入自由视角，Esc 退出操作";
   } else {
     hintTitle.textContent = "点击画面进入操作";
-    hintDetail.textContent = "C 进入自由视角；Home 返回主视角；点击画面后可操作机械臂";
+    hintDetail.textContent = "中键拖动观察，Home 复位；左键进入机械臂操作";
   }
 
   const directStatus = $("directControl");
@@ -1155,6 +1233,7 @@ function completeEnterOperationMode() {
 }
 
 function exitOperationMode(message = "已退出操作模式，点击实时画面可重新进入") {
+  state.captureTool = {radial:0,axial:0};
   armPreparation.cancel("已停止准备运动");
   const wasActive = state.operationActive;
   const wasFreeCamera = state.freeCameraMode;
@@ -1178,7 +1257,7 @@ function sendAction() {
   const keyboard = keyboardAction();
   const gamepadActive = gamepad && [...gamepad.linear, ...gamepad.angular, gamepad.joint6 || 0, gamepad.grip].some((value) => Math.abs(value) > 0.01);
   const action = gamepadActive ? gamepad : keyboard;
-  const motionActive = [...action.linear, ...action.angular, action.joint6 || 0, action.grip].some((value) => Math.abs(value) > 0.01);
+  const motionActive = [...action.linear, ...action.angular, action.joint6 || 0, action.grip, state.captureTool?.radial || 0, state.captureTool?.axial || 0].some((value) => Math.abs(value) > 0.01);
   transmitAction(action, motionActive, !motionActive);
   $("directControl").classList.toggle("active", motionActive);
   $("directControl").textContent = motionActive
@@ -1283,9 +1362,37 @@ async function stopEpisode(outcome) {
   await refreshState();
 }
 
+const previewOrbit = new PreviewOrbit({
+  storage: window.sessionStorage,
+  available: () => state.streamLive && !state.freeCameraMode,
+  send: command => state.pixelStreaming?.emitCommand(command) === true,
+  stopRobot: () => exitOperationMode("中键拖动观察；松开保持，Home 恢复当前视角"),
+});
+// Presentation offsets are separate from the body-fixed camera transforms.
+$("viewport").addEventListener("pointerdown", event => {
+  if(event.button!==1 || event.target.closest('button, select, .viewport-toolbar, .webrtc-stats, .main-companion'))return;
+  event.preventDefault();event.stopImmediatePropagation();
+  if(previewOrbit.begin(event.button,event.clientX,event.clientY))
+    $("viewport").setPointerCapture(event.pointerId);
+  else setMessage("请先连接视频；C 自由视角模式下请先按 Home 返回");
+},true);
+$("viewport").addEventListener("pointermove", event => {
+  if(!previewOrbit.dragging)return;
+  if(!(event.buttons&4)){previewOrbit.end();return;}
+  event.preventDefault();event.stopImmediatePropagation();
+  previewOrbit.move(event.clientX,event.clientY);
+},true);
+for(const name of ['pointerup','pointercancel','lostpointercapture'])
+  $("viewport").addEventListener(name,()=>previewOrbit.end(),true);
+$("viewport").addEventListener('auxclick',event=>{if(event.button===1)event.preventDefault();});
+window.addEventListener('blur',()=>previewOrbit.end());
+document.addEventListener('visibilitychange',()=>{if(document.hidden)previewOrbit.end();});
+$("streamSelector").addEventListener('change',()=>previewOrbit.end());
+$("viewport").title = '中键拖动当前视角，Home 复位；相机安装位姿不变';
+
 $("viewport").addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;
-  if (event.target.closest("button, select, .viewport-toolbar, .webrtc-stats")) return;
+  if (event.target.closest("button, select, .viewport-toolbar, .webrtc-stats, .main-companion")) return;
   if (state.freeCameraMode) {
     freeCamera.requestPointerLock();
     return;
@@ -1296,7 +1403,10 @@ $("viewport").addEventListener("pointerdown", (event) => {
 window.addEventListener("keydown", (event) => {
   if (state.activePage && state.activePage !== "operate") return;
   if (event.code === "Escape") armPreparation.cancel();
-  const editing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable;
+  // The camera selector retains focus after selection. C is a viewport command,
+  // not text entry in that selector; keep every actual editing field protected.
+  const cameraShortcut = event.code === "KeyC" && event.target?.id === "streamSelector";
+  const editing = !cameraShortcut && (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName) || event.target?.isContentEditable);
   if (editing) {
     // Typing into page forms must never reach UE keyboard shortcuts.
     event.stopImmediatePropagation();
@@ -1306,6 +1416,7 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     event.stopImmediatePropagation(); // Do not toggle a second time in UE.
     if (event.repeat || !state.streamLive) return;
+    if(event.code === 'Home') previewOrbit.reset();
     if (event.code === "KeyC") {
       const enabled = !state.freeCameraMode;
       setFreeCameraMode(enabled, enabled
@@ -1386,7 +1497,65 @@ $("failureEpisode").addEventListener("click", () => stopEpisode("failure"));
 $("streamSelector").addEventListener("change", (event) => {
   state.selectedStreamerId = event.target.value;
   createPixelStream();
+  $("viewport").focus({ preventScroll: true });
 });
+$('controlledArm').addEventListener('change', event => {
+  exitOperationMode('已切换控制臂；点击画面后控制所选机械臂');
+  state.controlledArm = event.target.value;
+  $('captureToolControls').hidden = state.controlledArm !== 'capture';
+  jointAngles.clear('等待所选机械臂遥测');
+});
+// Image-derived display only. No sendAction, IK or renderer command is passed in.
+const wristVisionOverlay = new WristVisionOverlay({
+  viewport:$('viewport'),canvas:$('wristVisionCanvas'),panel:$('wristVisionPanel'),
+  video:()=>$('pixelStream').querySelector('video'),request:apiRequest,
+  getContext:()=>({selected:state.selectedStreamerId.endsWith('__teleop_camera_capture_wrist_cam'),
+    visible:state.activePage==='operate' && !document.hidden,
+    ready:state.streamLive && state.simulationConnected && state.sceneReady && !state.resetPending && !state.simulationResetting,
+    orbitShifted:Math.abs(previewOrbit.yaw)>1e-6 || Math.abs(previewOrbit.pitch)>1e-6,
+    session:state.renderSessionId||'',visualProbe:state.visualProbe===true}),
+});
+for (const button of document.querySelectorAll('[data-capture-axis]')) {
+  button.addEventListener('pointerdown', event => {
+    if(event.button!==0 || state.controlledArm!=='capture') return;
+    if(!state.operationActive) {setMessage('请先点击实时画面进入操作，再按住抓夹按钮');return;}
+    event.preventDefault();button.setPointerCapture(event.pointerId);
+    state.captureTool[button.dataset.captureAxis]=Number(button.dataset.rate);
+    sendAction();
+  });
+  for(const name of ['pointerup','pointercancel','lostpointercapture']) button.addEventListener(name,()=>{
+    state.captureTool[button.dataset.captureAxis]=0;sendAction();
+  });
+}
+// Share the main viewport's angle cache, but never send orbit on subscription.
+const companionOrbit = new PreviewOrbit({
+  storage: window.sessionStorage,
+  available:()=>mainCompanion.live,
+  send:command=>mainCompanion.stream?.emitCommand(command)===true,
+  stopRobot:()=>exitOperationMode('中键调整主视口小窗；抓取相机保持原观察角度'),
+});
+companionOrbit.views=previewOrbit.views;
+$('mainCompanion').addEventListener('pointerdown',event=>{
+  if(event.button!==1)return;
+  event.preventDefault();event.stopPropagation();
+  companionOrbit.end();
+  companionOrbit.key=state.streamConfig.pixel_streaming_streamer_id;
+  [companionOrbit.yaw,companionOrbit.pitch]=previewOrbit.views.get(companionOrbit.key)||[0,0];
+  if(companionOrbit.begin(1,event.clientX,event.clientY))$('mainCompanion').setPointerCapture(event.pointerId);
+});
+$('mainCompanion').addEventListener('pointermove',event=>{
+  if(!(event.buttons&4)){companionOrbit.end();return;}
+  companionOrbit.move(event.clientX,event.clientY);
+  if(companionOrbit.dragging)previewOrbit.views.set(companionOrbit.key,[companionOrbit.yaw,companionOrbit.pitch]);
+});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])$('mainCompanion').addEventListener(event,()=>companionOrbit.end());
+window.addEventListener('blur',()=>companionOrbit.end());
+$('mainCompanion').addEventListener('dblclick',()=>{
+  exitOperationMode('已返回主视口');state.selectedStreamerId=state.streamConfig.pixel_streaming_streamer_id;
+  $('streamSelector').value=state.selectedStreamerId;createPixelStream();
+});
+// Never pass companion input to robot controls in the parent viewport.
+for(const name of ['pointerdown','pointermove','click','auxclick']) $('mainCompanion').addEventListener(name,event=>event.stopPropagation());
 $("reconnectStream").addEventListener("click", () => {
   connectPixelStreaming();
 });

@@ -40,6 +40,17 @@ def request(seed: int | None, profile: str = "training-v1") -> SceneInstanceCrea
     return SceneInstanceCreate(seed=seed, randomization_profile=profile, template_id="spacecraft-arm-teleop")
 
 
+def test_dual_capture_scene_starts_without_automatic_grasp(tmp_path: Path) -> None:
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    instance = manager.create_instance(SceneInstanceCreate(
+        seed=26, template_id='sarm-dual-capture26', randomization_profile='none'))
+    assert instance['randomization']['capture_window_trial'] is False
+    assert instance['render_profile']['camera_ids'] == [
+        'teleop/camera/spacecraft_overview', 'teleop/camera/sarm_wrist_cam',
+        'teleop/camera/capture_wrist_cam']
+    assert instance['render_profile']['asset_catalog'] == 'sarm_dual_capture26.catalog.json'
+
+
 def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     first = manager.create_instance(request(12345))

@@ -17,6 +17,8 @@ class USceneCaptureComponent2D;
 class UStaticMeshComponent;
 class UTextureRenderTarget2D;
 class IPixelStreaming2Streamer;
+class IPixelStreaming2InputHandler;
+class ULightComponent;
 class IPixelStreaming2VideoProducer;
 class IBskCaptureProvider;
 class FBskCaptureNetworkSender;
@@ -118,6 +120,7 @@ protected:
 private:
     friend class FBskBuiltinCaptureProvider;
     friend class FBskEmptyManifestBodyTest;
+    friend class FBskFlushPlaneGeometryTest;
     friend class FBskLocalFrameExtrapolationTest;
     friend class FBskSceneResetTest;
     friend class FBskSceneSunlightIntensityTest;
@@ -155,7 +158,7 @@ private:
     AActor* SpawnVisual(const FBskVisualDefinition& Definition);
     AActor* SpawnCamera(const FBskCameraDefinition& Definition);
     void ConfigureCamera(AActor* Actor, const FBskCameraDefinition& Definition);
-    void ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture) const;
+    void ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture, const FBskCameraDefinition* Definition = nullptr) const;
     void ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const;
     void UpdatePictureInPictureCaptures();
     void ConfigurePixelStreamingOutput();
@@ -181,6 +184,12 @@ private:
     void UpdateCelestialBodies(const FBskRenderFrame& Frame);
     double SolarVisibilityAt(const FVector3d& ReceiverMeters) const;
     void UpdateVisualStates(const FBskRenderFrame& Frame);
+    void RegisterWorkLightInput(const TSharedPtr<IPixelStreaming2Streamer>& Streamer);
+    void CapturePreview(const FString& CameraId, USceneCaptureComponent2D* Capture);
+    TMap<FString, FVector2D> PreviewOrbitDegrees;
+    TMap<FString, TWeakObjectPtr<ULightComponent>> CameraWorkLights;
+    ULightComponent* ResolveCameraWorkLight(const FString& StreamerId);
+    TMap<FString, TWeakPtr<IPixelStreaming2InputHandler>> WorkLightInputHandlers;
     void UpdateLightTargets();
     void ConfigureManifestLighting(const FBskSceneManifest& Manifest);
     void DrawOrbitLines(const FBskRenderFrame& Frame) const;
@@ -335,6 +344,9 @@ private:
     TMap<FString, int32> VideoDiagnosticsCaptures;
     TArray<FString> CaptureProductOverride;
     int64 CaptureSequence = 0;
+    int64 VisionCaptureFramesRequested = 0;
+    int64 VisionCapturePacketsQueued = 0;
+    int64 VisionCaptureErrors = 0;
     bool bAsyncCaptureEnabled = true;
     static constexpr int32 MaxAsyncCaptureJobs = 16;
     static constexpr uint64 MaxAsyncCaptureBytes = 256ull * 1024 * 1024;

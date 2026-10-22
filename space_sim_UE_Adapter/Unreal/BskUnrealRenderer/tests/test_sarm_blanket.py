@@ -100,6 +100,10 @@ def test_config_only_attaches_to_arm_carrying_bus():
     assert entries=={
         '/Game/BSK/Generated/SARM/base_link.base_link':overlay,
         '/Game/BSK/Generated/Sarm20261012/base_link_mujoco.base_link_mujoco':overlay,
+        '/Game/BSK/Generated/Capture26/capture26_trim_base_link_mujoco.capture26_trim_base_link_mujoco':
+            '/Game/BSK/VisualOverlays/Capture26/SM_Capture26_MLI.SM_Capture26_MLI',
+        '/Game/BSK/Generated/Capture26SideV1/side_v1_capture26_trim_base_link_mujoco.side_v1_capture26_trim_base_link_mujoco':
+            '/Game/BSK/VisualOverlays/Capture26SideV1/SM_Capture26_Side_MLI.SM_Capture26_Side_MLI',
     }
     assert 'part_001_color_00' in next(k for k in config['Bsk.MaterialOverrides'] if k.startswith('/Game/'))
 

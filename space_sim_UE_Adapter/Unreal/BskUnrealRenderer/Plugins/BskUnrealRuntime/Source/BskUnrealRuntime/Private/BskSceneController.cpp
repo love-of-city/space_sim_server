@@ -4,6 +4,7 @@
 #endif
 #include "BskPreviewCadence.h"
 #include "BskLeRobotSampling.h"
+#include "BskCaptureRouting.h"
 #include "BskCelestialLighting.h"
 
 #include "BskTcpReceiver.h"
@@ -64,6 +65,7 @@
 #include "Modules/ModuleManager.h"
 #include "IPixelStreaming2Module.h"
 #include "IPixelStreaming2Streamer.h"
+#include "IPixelStreaming2InputHandler.h"
 #include "IPixelStreaming2VideoProducer.h"
 #include "PixelStreaming2Delegates.h"
 #include "VideoProducerRenderTarget.h"
@@ -303,7 +305,7 @@ struct FCapturedDataProduct
 };
 
 // All UObject/camera access and metadata snapshots stay on the game thread.
-// Workers own only pixel buffers and an independent JPEG wrapper. GPU commands
+// Workers own only pixel buffers and an independent image wrapper. GPU commands
 // retain the job/readback until submission; no render target is read after reuse.
 struct FBskAsyncCaptureJob
 {
@@ -537,6 +539,10 @@ FName SafeActorName(const FString& Value)
 
 const TCHAR* PrimitiveMeshPath(const FString& Shape)
 {
+    if (Shape.Equals(TEXT("plane"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("/Engine/BasicShapes/Plane.Plane");
+    }
     if (Shape.Equals(TEXT("sphere"), ESearchCase::IgnoreCase) || Shape.Equals(TEXT("ellipsoid"), ESearchCase::IgnoreCase))
     {
         return TEXT("/Engine/BasicShapes/Sphere.Sphere");
@@ -812,7 +818,10 @@ void ApplyGeometryMaterial(UStaticMeshComponent* Component, UObject* Owner, cons
     Material->SetScalarParameterValue(TEXT("Specular"), Specular);
     Material->SetScalarParameterValue(TEXT("Metallic"), 0.0f);
     Material->SetScalarParameterValue(TEXT("Emission"), static_cast<float>(FMath::Max(0.0, Geometry.MaterialEmission)));
-    Material->SetScalarParameterValue(TEXT("Ambient"), static_cast<float>(FMath::Max(0.0, Ambient)));
+    // Legacy PBR assets add Ambient to Emissive. Scene/headlight ambient is
+    // illumination, not material emission: let actual lights illuminate geometry.
+    // Keep explicit MJCF emission above for intentionally luminous objects.
+    Material->SetScalarParameterValue(TEXT("Ambient"), 0.0f);
     Material->SetScalarParameterValue(TEXT("Opacity"), Geometry.Color.A);
     Material->SetScalarParameterValue(TEXT("UseTexture"), 0.0f);
     Material->SetVectorParameterValue(TEXT("TextureRepeat"), FLinearColor(
@@ -907,9 +916,156 @@ void ABskSceneController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     Super::EndPlay(EndPlayReason);
 }
 
+// Work lights share the exact optical transform, including preview orbit offsets.
+ULightComponent* ABskSceneController::ResolveCameraWorkLight(const FString& StreamerId)
+{
+    if (auto Existing = CameraWorkLights.FindRef(StreamerId).Get()) return Existing;
+    USceneComponent* OpticalComponent = nullptr;
+    if (IPixelStreaming2Module::IsAvailable() && StreamerId == IPixelStreaming2Module::Get().GetDefaultStreamerID())
+    {
+        APlayerController* Player = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+        ABskCameraPawn* Pawn = Player ? Cast<ABskCameraPawn>(Player->GetPawn()) : nullptr;
+        OpticalComponent = Pawn ? Pawn->GetBskCameraComponent() : nullptr;
+    }
+    else
+    {
+        for (const auto& Pair : PixelStreamingCameraCaptures)
+        {
+            if (PixelStreamingIdForCamera(Pair.Key) == StreamerId)
+            {
+                OpticalComponent = Pair.Value;
+                break;
+            }
+        }
+    }
+    if (!OpticalComponent) return nullptr;
+    auto* Light = NewObject<USpotLightComponent>(OpticalComponent->GetOwner());
+    Light->SetupAttachment(OpticalComponent);
+    Light->SetRelativeTransform(FTransform::Identity);
+    Light->SetMobility(EComponentMobility::Movable);
+    // Explicit photometric units: legacy Unitless 1500 is only about 2.4 cd.
+    // Inspection-preview settings, not a calibrated flight lamp specification.
+    const bool bMainViewport = IPixelStreaming2Module::IsAvailable()
+        && StreamerId == IPixelStreaming2Module::Get().GetDefaultStreamerID();
+    Light->SetIntensityUnits(ELightUnits::Candelas);
+    Light->SetIntensity(bMainViewport ? 150000.0f : 1500.0f);
+    Light->SetAttenuationRadius(1000.0f);
+    Light->SetInnerConeAngle(35.0f);
+    Light->SetOuterConeAngle(65.0f);
+    Light->SetCastShadows(false);
+    Light->RegisterComponent();
+    CameraWorkLights.Add(StreamerId, Light);
+    UE_LOG(LogBskUnreal, Display, TEXT("Camera work light mounted streamer=%s parent=%s relative_location=%s relative_rotation=%s"),
+        *StreamerId, *OpticalComponent->GetName(), *Light->GetRelativeLocation().ToString(), *Light->GetRelativeRotation().ToString());
+    return Light;
+}
+
+// Preview lights only: solar illumination and spacecraft dynamics are unchanged.
+void ABskSceneController::RegisterWorkLightInput(const TSharedPtr<IPixelStreaming2Streamer>& Streamer)
+{
+    const auto Handler = Streamer ? Streamer->GetInputHandler().Pin() : nullptr;
+    if (!Handler || WorkLightInputHandlers.FindRef(Streamer->GetId()).Pin() == Handler) return;
+    const TWeakObjectPtr<ABskSceneController> WeakThis(this);
+    const TWeakPtr<IPixelStreaming2Streamer> WeakStreamer(Streamer);
+    Handler->SetCommandHandler(TEXT("BskWorkLight"),
+        [WeakThis, WeakStreamer](FString SourceId, FString, FString Payload)
+        {
+            if (Payload.Len() > 256) return;
+            const auto Apply = [WeakThis, WeakStreamer, SourceId, Payload]()
+            {
+                auto* Self = WeakThis.Get();
+                const auto Target = WeakStreamer.Pin();
+                if (!Self || !Target) return;
+                TSharedPtr<FJsonObject> Request;
+                if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Payload), Request) || !Request) return;
+                if (Request->HasField(TEXT("enabled")) && !Request->HasTypedField<EJson::Boolean>(TEXT("enabled"))) return;
+                ULightComponent* Light = Self->ResolveCameraWorkLight(Target->GetId());
+                bool bEnabled = false;
+                if (Light && Request->TryGetBoolField(TEXT("enabled"), bEnabled))
+                {
+                    Light->SetVisibility(bEnabled);
+                    UE_LOG(LogBskUnreal, Display, TEXT("Camera work light streamer=%s enabled=%d intensity_cd=%.1f (render only)"), *Target->GetId(), bEnabled, Light->Intensity);
+                }
+                auto Reply = MakeShared<FJsonObject>();
+                Reply->SetStringField(TEXT("type"), TEXT("bsk_work_light"));
+                Reply->SetBoolField(TEXT("supported"), Light != nullptr);
+                Reply->SetBoolField(TEXT("enabled"), Light && Light->IsVisible());
+                FString Json;
+                FJsonSerializer::Serialize(Reply, TJsonWriterFactory<>::Create(&Json));
+                Target->SendPlayerMessage(SourceId, TEXT("Response"), Json);
+            };
+            if (IsInGameThread()) Apply(); else AsyncTask(ENamedThreads::GameThread, Apply);
+        });
+    Handler->SetCommandHandler(TEXT("BskPreviewOrbit"),
+        [WeakThis, WeakStreamer](FString SourceId, FString, FString Payload)
+        {
+            if (Payload.Len() > 256) return;
+            const auto Apply = [WeakThis, WeakStreamer, SourceId, Payload]()
+            {
+                auto* Self = WeakThis.Get();
+                const auto Target = WeakStreamer.Pin();
+                if (!Self || !Target) return;
+                TSharedPtr<FJsonObject> Request;
+                double Yaw = 0, Pitch = 0;
+                if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Payload), Request) || !Request
+                    || !Request->TryGetNumberField(TEXT("yaw"), Yaw) || !Request->TryGetNumberField(TEXT("pitch"), Pitch)
+                    || !FMath::IsFinite(Yaw) || !FMath::IsFinite(Pitch) || FMath::Abs(Yaw)>360 || FMath::Abs(Pitch)>180) return;
+                Self->PreviewOrbitDegrees.Add(Target->GetId(), FVector2D(Yaw, Pitch));
+                if (Target->GetId() == IPixelStreaming2Module::Get().GetDefaultStreamerID())
+                {
+                    APlayerController* Player = Self->GetWorld()->GetFirstPlayerController();
+                    auto* Pawn = Player ? Cast<ABskCameraPawn>(Player->GetPawn()) : nullptr;
+                    if (Pawn) Pawn->ApplyPreviewOrbit(Yaw, Pitch);
+                }
+                auto Reply = MakeShared<FJsonObject>();
+                Reply->SetStringField(TEXT("type"), TEXT("bsk_preview_orbit"));
+                Reply->SetNumberField(TEXT("yaw"), Yaw);
+                Reply->SetNumberField(TEXT("pitch"), Pitch);
+                FString Json;
+                FJsonSerializer::Serialize(Reply, TJsonWriterFactory<>::Create(&Json));
+                Target->SendPlayerMessage(SourceId, TEXT("Response"), Json);
+            };
+            if (IsInGameThread()) Apply(); else AsyncTask(ENamedThreads::GameThread, Apply);
+        });
+    WorkLightInputHandlers.Add(Streamer->GetId(), Handler);
+}
+
+void ABskSceneController::CapturePreview(const FString& CameraId, USceneCaptureComponent2D* Capture)
+{
+    if (!Capture) return;
+    AActor* CameraActor = CameraActors.FindRef(CameraId);
+    AActor* Bus = BoundActors.FindRef(TEXT("teleop/cubesat_bus"));
+    const FVector2D Offset = PreviewOrbitDegrees.FindRef(PixelStreamingIdForCamera(CameraId));
+    if (!CameraActor || !Bus || Offset.IsNearlyZero())
+    {
+        Capture->CaptureScene();
+        return;
+    }
+    // Only the preview component moves, for this capture call. Restore it before
+    // authoritative dataset rendering; neither the camera actor nor its manifest changes.
+    const FTransform Saved = Capture->GetRelativeTransform();
+    const FTransform Base = CameraActor->GetActorTransform();
+    const FBox Bounds = Bus->GetComponentsBoundingBox(true);
+    const FVector Center = CameraId == TEXT("teleop/camera/spacecraft_overview")
+        ? (Bounds.IsValid ? Bounds.GetCenter() : Bus->GetActorLocation())
+        : Base.GetLocation() + Base.GetRotation().GetForwardVector() * 30.0;
+    const FQuat Yaw(Base.GetRotation().GetUpVector(), FMath::DegreesToRadians(Offset.X));
+    const FQuat Pitch(Base.GetRotation().GetRightVector(), FMath::DegreesToRadians(Offset.Y));
+    const FQuat Orbit = Yaw * Pitch;
+    Capture->SetWorldLocationAndRotation(Center + Orbit.RotateVector(Base.GetLocation()-Center), Orbit * Base.GetRotation());
+    Capture->CaptureScene();
+    Capture->SetRelativeTransform(Saved);
+}
+
 void ABskSceneController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (IPixelStreaming2Module::IsAvailable() && IPixelStreaming2Module::Get().IsReady())
+    {
+        auto& Module = IPixelStreaming2Module::Get();
+        RegisterWorkLightInput(Module.FindStreamer(Module.GetDefaultStreamerID()));
+        for (const auto& Pair : PixelStreamingCameraStreamers) RegisterWorkLightInput(Pair.Value);
+    }
     // Drain after STOP too: accepted strict jobs retain their original episode.
     PollCaptureJobs();
     const double TickStart = bVideoDiagnostics ? FPlatformTime::Seconds() : 0.0;
@@ -968,7 +1124,7 @@ void ABskSceneController::Tick(float DeltaSeconds)
             {
                 // Dataset products are rendered from the exact received frame before
                 // presentation interpolation/extrapolation is allowed to touch it.
-                const bool bCaptureActive = (!Latest.bCaptureOnDemand || !Latest.CaptureEpisodeId.IsEmpty())
+                const bool bCaptureActive = (Latest.bVisionCaptureRequested || !Latest.bCaptureOnDemand || !Latest.CaptureEpisodeId.IsEmpty())
                     && (!CaptureOutputDirectory.IsEmpty() || CaptureNetworkSender.IsValid());
                 const double PreviewRate = bCaptureActive && RequestedPixelStreamingCameraRateHertz > 30.0
                     ? 5.0 : RequestedPixelStreamingCameraRateHertz;
@@ -1522,7 +1678,7 @@ FString ABskSceneController::PixelStreamingIdForCamera(const FString& CameraId) 
     return FString::Printf(TEXT("%s__%s"), *PixelStreamingBaseId, *Safe);
 }
 
-void ABskSceneController::ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture) const
+void ABskSceneController::ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture, const FBskCameraDefinition* Definition) const
 {
     if (!Capture) return;
     Capture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
@@ -1542,6 +1698,12 @@ void ABskSceneController::ConfigureFixedRgbExposure(USceneCaptureComponent2D* Ca
     Capture->PostProcessSettings.DepthOfFieldFstop = 16.0f;
     Capture->PostProcessSettings.bOverride_AutoExposureBias = true;
     Capture->PostProcessSettings.AutoExposureBias = static_cast<float>(MaterialExposureBias);
+    // Photometric exposure only: this does not integrate moving geometry over
+    // the exposure interval or model physical sensor shutter timing.
+    if (Definition && Definition->ExposureTimeSeconds > 0.0)
+        Capture->PostProcessSettings.CameraShutterSpeed = static_cast<float>(1.0 / Definition->ExposureTimeSeconds);
+    if (Definition && Definition->ApertureFNumber > 0.0)
+        Capture->PostProcessSettings.DepthOfFieldFstop = static_cast<float>(Definition->ApertureFNumber);
 }
 
 void ABskSceneController::ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const
@@ -1566,7 +1728,7 @@ void ABskSceneController::ConfigurePixelStreamingCamera(AActor* Actor, const FBs
             *Definition.CameraId);
         return;
     }
-    ConfigureFixedRgbExposure(Capture);
+    ConfigureFixedRgbExposure(Capture, &Definition);
     ConfigureRgbRenderTarget(Target);
     Capture->bAlwaysPersistRenderingState = true;
     Capture->TextureTarget = Target;
@@ -1682,7 +1844,7 @@ void ABskSceneController::UpdatePixelStreamingCameraCaptures()
         if (bVisibleInHud || !HasPixelStreamingCameraViewers(Pair.Key)) continue;
         double& NextSeconds = PixelStreamingCameraNextCaptureSeconds.FindOrAdd(Pair.Key);
         if (!BskPreviewCaptureDue(Now, PixelStreamingCameraRateHertz, NextSeconds)) continue;
-        Pair.Value->CaptureScene();
+        CapturePreview(Pair.Key, Pair.Value);
         if (bVideoDiagnostics) ++VideoDiagnosticsCaptures.FindOrAdd(Pair.Key);
     }
 }
@@ -2084,6 +2246,9 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
 void ABskSceneController::ResetPresentationState()
 {
     check(IsInGameThread());
+    VisionCaptureFramesRequested = 0;
+    VisionCapturePacketsQueued = 0;
+    VisionCaptureErrors = 0;
     LastFrameId = -1;
     bHasTargetFrame = false;
     bHasPresentationFrame = false;
@@ -2244,13 +2409,19 @@ AActor* ABskSceneController::SpawnManifestObject(const FBskObjectDefinition& Def
         UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(Actor, *FString::Printf(TEXT("Geometry_%d"), Index));
         Component->SetMobility(EComponentMobility::Movable);
         Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        Component->SetCastShadow(true);
+        const bool bPlane = Geometry.Shape.Equals(TEXT("plane"), ESearchCase::IgnoreCase);
+        Component->SetCastShadow(!bPlane);
         Component->SetStaticMesh(Mesh);
         Component->SetupAttachment(Root);
         Component->RegisterComponent();
         Component->SetRelativeLocation(FVector(Converter.LocalMetersToUnrealCentimeters(Geometry.PositionBodyMeters)));
         Component->SetRelativeRotation(FQuat(Converter.ActiveLocalWxyzToUnreal(Geometry.OrientationBodyFromGeometryWxyz)));
-        Component->SetRelativeScale3D(FVector(ResolvedMeshAssets.Contains(Index) ? Geometry.Scale : Geometry.DimensionsMeters));
+        // Engine Plane is a centered 1m square in local XY, normal +Z.
+        // dimensions_m carries full width/height; z is ignored, never thickness.
+        const FVector3d GeometryScale = bPlane
+            ? FVector3d(Geometry.DimensionsMeters.X, Geometry.DimensionsMeters.Y, 1.0)
+            : (ResolvedMeshAssets.Contains(Index) ? Geometry.Scale : Geometry.DimensionsMeters);
+        Component->SetRelativeScale3D(FVector(GeometryScale));
         ApplyGeometryMaterial(Component, Actor, Geometry, ActiveMaterialAmbient);
         AttachConfiguredVisualOverlay(Component, Geometry);
     }
@@ -2645,7 +2816,7 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
         Capture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
         CameraCaptureComponents.Add(Definition.CameraId, Capture);
     }
-    ConfigureFixedRgbExposure(Capture);
+    ConfigureFixedRgbExposure(Capture, &Definition);
     Capture->bAlwaysPersistRenderingState = true;
     Capture->Activate();
     Capture->FOVAngle = FieldOfViewDegrees;
@@ -2695,7 +2866,7 @@ void ABskSceneController::UpdatePictureInPictureCaptures()
         }
         double& NextSeconds = CameraNextCaptureSeconds.FindOrAdd(Pair.Key);
         if (!BskPreviewCaptureDue(NowSeconds, FMath::Max(1.0, PreviewRate), NextSeconds)) continue;
-        Capture->CaptureScene();
+        CapturePreview(Pair.Key, Capture);
         if (bVideoDiagnostics) ++VideoDiagnosticsCaptures.FindOrAdd(Pair.Key);
         if (PreviewRateOverrideHertz > 0.0 && CaptureNetworkSender && bHasPresentationFrame)
         {
@@ -2724,21 +2895,40 @@ void ABskSceneController::UpdatePictureInPictureCaptures()
 void ABskSceneController::UpdateAuthoritativeDataProductCaptures(const FBskRenderFrame& AuthoritativeFrame)
 {
     // Capability alone never triggers dataset readback; only tagged active frames do.
-    if (AuthoritativeFrame.bCaptureOnDemand && AuthoritativeFrame.CaptureEpisodeId.IsEmpty()) return;
+    if (!AuthoritativeFrame.bVisionCaptureRequested
+        && AuthoritativeFrame.bCaptureOnDemand && AuthoritativeFrame.CaptureEpisodeId.IsEmpty()) return;
     if (!GetWorld() || (CaptureOutputDirectory.IsEmpty() && !CaptureNetworkSender)) return;
     UBskRenderWorldSubsystem* RenderSubsystem = GetWorld()->GetSubsystem<UBskRenderWorldSubsystem>();
     if (!RenderSubsystem) return;
     TArray<FString> DueCameras;
+    TMap<FString, FBskCaptureSelection> Selections;
     for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
     {
-        const TArray<FString>& Products = CaptureProductOverride.IsEmpty() ? Pair.Value.CaptureProducts : CaptureProductOverride;
-        if (Products.IsEmpty()) continue;
-        const double DatasetRate = CaptureRateOverrideHertz > 0.0 ? CaptureRateOverrideHertz : Pair.Value.CaptureRateHertz;
-        int64 DatasetSampleIndex = 0;
-        if (!BskLeRobotSample(AuthoritativeFrame.SimulationTimeNanoseconds, DatasetRate, DatasetSampleIndex)) continue;
+        FBskCaptureSelection Selection;
+        if (!BskSelectCameraCapture(AuthoritativeFrame, Pair.Value,
+            CaptureRateOverrideHertz, CaptureProductOverride, Selection)) continue;
         const int64 NextCaptureNanoseconds = CameraNextDataCaptureSimulationNanoseconds.FindRef(Pair.Key);
         if (AuthoritativeFrame.SimulationTimeNanoseconds < NextCaptureNanoseconds) continue;
         DueCameras.Add(Pair.Key);
+        Selections.Add(Pair.Key, MoveTemp(Selection));
+    }
+    if (AuthoritativeFrame.bVisionCaptureRequested)
+    {
+        ++VisionCaptureFramesRequested;
+        for (const FString& CameraId : AuthoritativeFrame.VisionCaptureCameraIds)
+        {
+            const auto* Definition = ManifestCameras.Find(CameraId);
+            if (!Definition || Definition->CaptureConsumer != TEXT("vision"))
+            {
+                ++VisionCaptureErrors;
+                UE_LOG(LogBskUnreal, Error, TEXT("Vision camera is missing or not a vision consumer: %s source_frame=%lld"),
+                    *CameraId, AuthoritativeFrame.FrameId);
+            }
+        }
+        if (VisionCaptureFramesRequested == 1 || VisionCaptureFramesRequested % 100 == 0)
+            UE_LOG(LogBskUnreal, Display, TEXT("VisionCapture session=%s requested_frames=%lld queued_packets=%lld errors=%lld source_frame=%lld sim_time_ns=%lld"),
+                *ActiveSessionId, VisionCaptureFramesRequested, VisionCapturePacketsQueued, VisionCaptureErrors,
+                AuthoritativeFrame.FrameId, AuthoritativeFrame.SimulationTimeNanoseconds);
     }
     if (DueCameras.IsEmpty()) return;
 
@@ -2756,18 +2946,18 @@ void ABskSceneController::UpdateAuthoritativeDataProductCaptures(const FBskRende
         Request.SimulationTimeNanoseconds = AuthoritativeFrame.SimulationTimeNanoseconds;
         Request.SourceWallTimeNanoseconds = AuthoritativeFrame.WallTimeNanoseconds;
         Request.FrameId = AuthoritativeFrame.FrameId;
-        Request.CaptureEpisodeId = AuthoritativeFrame.CaptureEpisodeId;
+        const FBskCaptureSelection& Selection = Selections.FindChecked(CameraId);
+        Request.CaptureEpisodeId = Selection.Purpose == EBskCapturePurpose::AuthoritativeVision
+            ? FString() : AuthoritativeFrame.CaptureEpisodeId;
         Request.OriginInertialMeters = AuthoritativeFrame.OriginInertialMeters;
         Request.LocalFromInertial = AuthoritativeFrame.LocalFromInertial;
-        Request.Purpose = EBskCapturePurpose::AuthoritativeDataset;
+        Request.Purpose = Selection.Purpose;
         Request.OutputDirectory = CaptureOutputDirectory;
-        Request.bWriteToDisk = !CaptureOutputDirectory.IsEmpty();
+        Request.bWriteToDisk = Selection.Purpose == EBskCapturePurpose::AuthoritativeDataset && !CaptureOutputDirectory.IsEmpty();
         Request.bSendToNetwork = CaptureNetworkSender.IsValid();
         Request.bSkipReadback = bRenderOnly;
         Request.bReuseExistingRgbTarget = !bRenderOnly;
-        const TArray<FString>& Products = CaptureProductOverride.IsEmpty()
-            ? Definition.CaptureProducts : CaptureProductOverride;
-        for (const FString& Product : Products)
+        for (const FString& Product : Selection.Products)
         {
             if (Product == TEXT("rgb")) Request.Channels.Add(EBskCaptureChannel::Rgb);
         }
@@ -2814,6 +3004,8 @@ void ABskSceneController::UpdateAuthoritativeDataProductCaptures(const FBskRende
 bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Request, FString& OutError)
 {
     check(IsInGameThread());
+    const bool bVision = Request.Purpose == EBskCapturePurpose::AuthoritativeVision;
+    const bool bAuthoritative = Request.Purpose != EBskCapturePurpose::Preview;
     const FBskCameraDefinition* Definition = ManifestCameras.Find(Request.CameraId);
     AActor* CameraActor = CameraActors.FindRef(Request.CameraId);
     if (!Definition || !CameraActor)
@@ -2857,7 +3049,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
             Components.Add(Request.CameraId, Capture);
         }
         Capture->CaptureSource = Source;
-        if (Source == ESceneCaptureSource::SCS_FinalColorLDR) ConfigureFixedRgbExposure(Capture);
+        if (Source == ESceneCaptureSource::SCS_FinalColorLDR) ConfigureFixedRgbExposure(Capture, Definition);
         Capture->FOVAngle = FieldOfViewDegrees;
         Capture->Activate();
         UTextureRenderTarget2D* Target = Targets.FindRef(Request.CameraId);
@@ -2916,7 +3108,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 return false;
             }
             if (!Request.bReuseExistingRgbTarget) Capture->CaptureScene();
-            if (bAsyncCaptureEnabled && Request.Purpose == EBskCapturePurpose::AuthoritativeDataset)
+            if (bAsyncCaptureEnabled && bAuthoritative)
             {
                 const uint64 Bytes = static_cast<uint64>(Resolution.X) * Resolution.Y * sizeof(FColor) + 65536;
                 if (PendingCaptureJobs.Num() >= MaxAsyncCaptureJobs || PendingCaptureBytes + Bytes > MaxAsyncCaptureBytes)
@@ -2938,7 +3130,8 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 AsyncJob->bRgba = Texture->GetFormat() == PF_R8G8B8A8;
                 AsyncJob->Readback = MakeShared<FRHIGPUTextureReadback, ESPMode::ThreadSafe>(TEXT("BskStrictRgb"));
                 // Load the module/create the wrapper here, never from a worker.
-                AsyncJob->Wrapper = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper")).CreateImageWrapper(EImageFormat::JPEG);
+                AsyncJob->Wrapper = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper")).CreateImageWrapper(
+                    bVision ? EImageFormat::PNG : EImageFormat::JPEG);
                 ENQUEUE_RENDER_COMMAND(BskEnqueueRgbReadback)([Job = AsyncJob, Texture](FRHICommandListImmediate& RHICmdList)
                 {
                     Job->Readback->EnqueueCopy(RHICmdList, Texture);
@@ -2955,18 +3148,15 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 return false;
             }
             const bool bPreview = Request.Purpose == EBskCapturePurpose::Preview;
-            // PNG compression on the game thread can take long enough to block
-            // the authoritative render receiver. RGB training frames do not
-            // require lossless storage, so use high-quality JPEG for both the
-            // preview and authoritative dataset paths. JPEG is lossy; decoding
-            // produces an RGB tensor, not pixel-identical lossless RGB.
+            // Vision preserves rendered pixels in PNG. Existing training and
+            // preview consumers retain their lossy JPEG formats unchanged.
             const int32 JpegQuality = bPreview ? 75 : 95;
-            FCapturedDataProduct Product{
-                TEXT("rgb"),
-                FString::Printf(TEXT("jpeg/bgra8_srgb/quality%d"), JpegQuality),
-                TEXT("jpg")};
-            const bool bCompressed = CompressJpeg(
-                Pixels, Resolution.X, Resolution.Y, JpegQuality, Product.Bytes);
+            FCapturedDataProduct Product{TEXT("rgb"),
+                bVision ? FString(TEXT("png/bgra8_srgb")) : FString::Printf(TEXT("jpeg/bgra8_srgb/quality%d"), JpegQuality),
+                bVision ? TEXT("png") : TEXT("jpg")};
+            const bool bCompressed = bVision
+                ? CompressPng(Pixels, Resolution.X, Resolution.Y, Product.Bytes)
+                : CompressJpeg(Pixels, Resolution.X, Resolution.Y, JpegQuality, Product.Bytes);
             if (!bCompressed)
             {
                 OutError = TEXT("RGB image encoding failed");
@@ -2989,11 +3179,11 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
     Metadata->SetStringField(TEXT("session_id"), ActiveSessionId);
     Metadata->SetStringField(TEXT("camera_id"), Request.CameraId);
     Metadata->SetStringField(TEXT("capture_episode_id"), Request.CaptureEpisodeId);
-    Metadata->SetBoolField(TEXT("ack_required"), Request.Purpose == EBskCapturePurpose::AuthoritativeDataset);
+    Metadata->SetBoolField(TEXT("ack_required"), bAuthoritative);
     Metadata->SetStringField(TEXT("stream_kind"),
-        Request.Purpose == EBskCapturePurpose::AuthoritativeDataset ? TEXT("authoritative") : TEXT("preview"));
+        bVision ? TEXT("vision") : (bAuthoritative ? TEXT("authoritative") : TEXT("preview")));
     Metadata->SetStringField(TEXT("state_kind"),
-        Request.Purpose == EBskCapturePurpose::AuthoritativeDataset ? TEXT("authoritative") : TEXT("presentation"));
+        bAuthoritative ? TEXT("authoritative") : TEXT("presentation"));
     if (Request.Purpose == EBskCapturePurpose::AuthoritativeDataset)
     {
         const double DatasetRate = CaptureRateOverrideHertz > 0.0 ? CaptureRateOverrideHertz : Definition->CaptureRateHertz;
@@ -3007,6 +3197,16 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
         Metadata->SetNumberField(TEXT("sampling_fps"), DatasetRate);
         Metadata->SetStringField(TEXT("sample_index"), LexToString(DatasetSampleIndex));
         Metadata->SetStringField(TEXT("sampling_clock"), TEXT("simulation"));
+    }
+    if (bVision)
+    {
+        Metadata->SetNumberField(TEXT("sampling_fps"), Definition->CaptureRateHertz);
+        Metadata->SetStringField(TEXT("sampling_clock"), TEXT("simulation"));
+        Metadata->SetStringField(TEXT("sensor_model"), TEXT("render_pinhole"));
+        Metadata->SetBoolField(TEXT("temporal_exposure_integration"), false);
+        Metadata->SetStringField(TEXT("exposure_semantics"), TEXT("render_photometric_only"));
+        Metadata->SetNumberField(TEXT("exposure_time_s"), Definition->ExposureTimeSeconds);
+        Metadata->SetNumberField(TEXT("aperture_fnumber"), Definition->ApertureFNumber);
     }
     Metadata->SetStringField(TEXT("capture_sequence"), LexToString(Sequence));
     Metadata->SetStringField(TEXT("source_frame_id"), LexToString(Request.FrameId));
@@ -3135,13 +3335,15 @@ bool ABskSceneController::WriteCaptureProducts(const FBskCaptureRequest& Request
         AddBigEndianUint32(Packet, static_cast<uint32>(MetadataUtf8.Length()));
         Packet.Append(reinterpret_cast<const uint8*>(MetadataUtf8.Get()), MetadataUtf8.Length());
         for (const FCapturedDataProduct& Product : Products) Packet.Append(Product.Bytes);
-        if (Request.Purpose == EBskCapturePurpose::AuthoritativeDataset)
+        if (Request.Purpose != EBskCapturePurpose::Preview)
         {
             if (!CaptureNetworkSender->EnqueueReliable(MoveTemp(Packet)))
             {
                 OutError = TEXT("authoritative capture admission failed; output capacity must be reserved before consuming the source frame");
                 return false;
             }
+            if (Request.Purpose == EBskCapturePurpose::AuthoritativeVision
+                && Metadata->GetStringField(TEXT("type")) == TEXT("camera_frame")) ++VisionCapturePacketsQueued;
         }
         else
         {
@@ -3205,13 +3407,16 @@ void ABskSceneController::PollCaptureJobs()
         // Independent image wrapper and owned pixels only; no scene/UObject
         // access in the worker. Bound parallel work by MaxAsyncCaptureJobs.
         Job->Encoded = Async(EAsyncExecution::ThreadPool,
-            [Pixels = MoveTemp(Pixels), Wrapper = MoveTemp(Job->Wrapper), Size = Job->Resolution]() mutable
+            [Pixels = MoveTemp(Pixels), Wrapper = MoveTemp(Job->Wrapper), Size = Job->Resolution,
+             bVision = Job->Request.Purpose == EBskCapturePurpose::AuthoritativeVision]() mutable
             {
-                FCapturedDataProduct Product{TEXT("rgb"), TEXT("jpeg/bgra8_srgb/quality95"), TEXT("jpg")};
+                FCapturedDataProduct Product{TEXT("rgb"),
+                    bVision ? TEXT("png/bgra8_srgb") : TEXT("jpeg/bgra8_srgb/quality95"),
+                    bVision ? TEXT("png") : TEXT("jpg")};
                 if (Wrapper && Wrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor),
                                                Size.X, Size.Y, ERGBFormat::BGRA, 8))
                 {
-                    const TArray64<uint8>& Bytes = Wrapper->GetCompressed(95);
+                    const TArray64<uint8>& Bytes = Wrapper->GetCompressed(bVision ? -3 : 95);
                     if (Bytes.Num() <= MAX_int32) Product.Bytes.Append(Bytes.GetData(), static_cast<int32>(Bytes.Num()));
                 }
                 return Product;
@@ -3228,7 +3433,7 @@ void ABskSceneController::PollCaptureJobs()
             if (!Job->Encoded.IsReady()) break;
             FCapturedDataProduct Product = Job->Encoded.Get();
             Job->Encoded = TFuture<FCapturedDataProduct>();
-            if (Product.Bytes.IsEmpty()) Job->Error = TEXT("background JPEG encoding failed");
+            if (Product.Bytes.IsEmpty()) Job->Error = TEXT("background image encoding failed");
             else Job->Products.Add(MoveTemp(Product));
         }
         uint64 Bytes = 65536;
@@ -3241,6 +3446,7 @@ void ABskSceneController::PollCaptureJobs()
         Job->Metadata->SetNumberField(TEXT("capture_pending_jobs"), PendingCaptureJobs.Num());
         if (!Job->Error.IsEmpty())
         {
+            if (Job->Request.Purpose == EBskCapturePurpose::AuthoritativeVision) ++VisionCaptureErrors;
             Job->Metadata->SetStringField(TEXT("type"), TEXT("capture_error"));
             Job->Metadata->SetStringField(TEXT("error"), Job->Error);
         }
@@ -3268,6 +3474,8 @@ void ABskSceneController::CancelCaptureJobs()
 
 void ABskSceneController::ReportCaptureFailure(const FBskCaptureRequest& Request, const FString& Error)
 {
+    const bool bVision = Request.Purpose == EBskCapturePurpose::AuthoritativeVision;
+    if (bVision) ++VisionCaptureErrors;
     if (!Request.bSendToNetwork || !CaptureNetworkSender) return;
     auto Metadata = MakeShared<FJsonObject>();
     const int64 Sequence = ++CaptureSequence;
@@ -3279,7 +3487,7 @@ void ABskSceneController::ReportCaptureFailure(const FBskCaptureRequest& Request
     Metadata->SetStringField(TEXT("capture_sequence"), LexToString(Sequence));
     Metadata->SetStringField(TEXT("source_frame_id"), LexToString(Request.FrameId));
     Metadata->SetStringField(TEXT("sim_time_ns"), LexToString(Request.SimulationTimeNanoseconds));
-    Metadata->SetStringField(TEXT("stream_kind"), TEXT("authoritative"));
+    Metadata->SetStringField(TEXT("stream_kind"), bVision ? TEXT("vision") : TEXT("authoritative"));
     Metadata->SetStringField(TEXT("state_kind"), TEXT("authoritative"));
     Metadata->SetBoolField(TEXT("ack_required"), true);
     Metadata->SetStringField(TEXT("error"), Error);

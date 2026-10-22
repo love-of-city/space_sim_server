@@ -1,0 +1,186 @@
+{
+  "schema": "space-arm-fiducial-handoff/1",
+  "version": "2026-10-21-black-5cm-surface-plate",
+  "status": "near-range simulation integration baseline",
+  "units": "metres",
+  "parent_body": "capture_target",
+  "dictionary": "DICT_4X4_50",
+  "black_border_m": 0.05,
+  "white_margin_per_side_m": 0.008333333333333333,
+  "total_sheet_m": 0.06666666666666667,
+  "outward_normal": [
+    0,
+    1,
+    0
+  ],
+  "image_right": [
+    -1,
+    0,
+    0
+  ],
+  "image_down": [
+    0,
+    0,
+    -1
+  ],
+  "corner_order": [
+    "top-left",
+    "top-right",
+    "bottom-right",
+    "bottom-left"
+  ],
+  "marker_centers_and_corners": [
+    {
+      "id": 0,
+      "center_m": [
+        0.1,
+        0.0578,
+        0.15
+      ],
+      "corners_m": [
+        [
+          0.125,
+          0.0578,
+          0.175
+        ],
+        [
+          0.07500000000000001,
+          0.0578,
+          0.175
+        ],
+        [
+          0.07500000000000001,
+          0.0578,
+          0.125
+        ],
+        [
+          0.125,
+          0.0578,
+          0.125
+        ]
+      ]
+    },
+    {
+      "id": 1,
+      "center_m": [
+        0.25,
+        0.0578,
+        0.15
+      ],
+      "corners_m": [
+        [
+          0.275,
+          0.0578,
+          0.175
+        ],
+        [
+          0.225,
+          0.0578,
+          0.175
+        ],
+        [
+          0.225,
+          0.0578,
+          0.125
+        ],
+        [
+          0.275,
+          0.0578,
+          0.125
+        ]
+      ]
+    },
+    {
+      "id": 2,
+      "center_m": [
+        0.1,
+        0.0578,
+        -0.13
+      ],
+      "corners_m": [
+        [
+          0.125,
+          0.0578,
+          -0.10500000000000001
+        ],
+        [
+          0.07500000000000001,
+          0.0578,
+          -0.10500000000000001
+        ],
+        [
+          0.07500000000000001,
+          0.0578,
+          -0.155
+        ],
+        [
+          0.125,
+          0.0578,
+          -0.155
+        ]
+      ]
+    },
+    {
+      "id": 3,
+      "center_m": [
+        0.25,
+        0.0578,
+        -0.13
+      ],
+      "corners_m": [
+        [
+          0.275,
+          0.0578,
+          -0.10500000000000001
+        ],
+        [
+          0.225,
+          0.0578,
+          -0.10500000000000001
+        ],
+        [
+          0.225,
+          0.0578,
+          -0.155
+        ],
+        [
+          0.275,
+          0.0578,
+          -0.155
+        ]
+      ]
+    }
+  ],
+  "mounting": {
+    "mode": "surface-plate",
+    "layout_version": "original-four-points-3mm-plate-v1",
+    "hull_geometry": "target_instance_0006_part_001_color_00",
+    "hull_surface_y_m": 0.05475,
+    "plate_thickness_m": 0.003,
+    "film_thickness_m": 5e-05,
+    "support_posts": false,
+    "mounting_plate": true
+  },
+  "footprint_xz_m": {
+    "x": [
+      0.06666666666666668,
+      0.2833333333333333
+    ],
+    "z": [
+      -0.16333333333333333,
+      0.18333333333333332
+    ]
+  },
+  "separation_reference": {
+    "center_target_m": [
+      0.1755,
+      0.073,
+      0.04207870013
+    ],
+    "definition": "fixed WF10 assembly axis-aligned bounding-box center; not confirmed grasp contact"
+  },
+  "visual_only": true,
+  "future_camera_extrinsics": "requires calibration on the new arm",
+  "handoff_revision": 2,
+  "new_arm_calibration_template": "new_arm_calibration.template.json"
+}

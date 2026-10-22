@@ -23,6 +23,7 @@ function harness() {
   const state = { freeCameraMode: false, operationActive: true, pressed: new Set(), streamLive: true,
     selectedStreamerId: "BskRenderer", pixelStreaming: {emitCommand(command) {packets.push(JSON.parse(command.BskCameraInput)); return true;}} };
   const ctx = vm.createContext({ ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  state, $, document: doc,
+    previewOrbit: {reset() {}},
     window: {addEventListener(type, fn) {listeners.set(`window:${type}`, fn);}},
     controlKeys: new Set(["KeyW", "KeyS", "KeyA", "KeyD", "KeyQ", "KeyE", "KeyF", "KeyR", "ShiftLeft", "ShiftRight", "Escape"]),
     FreeCameraController: class extends FreeCameraController {
@@ -107,4 +108,11 @@ test("free-camera UI exposes actual mouse lock even without robot/scene readines
   ctx.updateOperationUI();
   assert.match($("operationHintTitle").textContent, /鼠标已锁定/);
   assert.match($("directControl").textContent, /鼠标已锁定/);
+});
+
+test("C works after choosing a viewport while other form fields stay protected", () => {
+  const h = harness();
+  h.dispatch("window:keydown", "KeyC", {target: {tagName: "SELECT", id: "streamSelector"}});
+  assert.equal(h.state.freeCameraMode, true);
+  assert.equal(h.packets.at(-1).active, true);
 });

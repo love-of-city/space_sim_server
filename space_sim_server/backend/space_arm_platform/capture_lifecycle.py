@@ -17,7 +17,7 @@ class CaptureLifecycle:
     def busy(self):
         return self._lock.locked()
 
-    async def start(self, request: EpisodeStart):
+    async def start(self, request: EpisodeStart, *, before_enable=None):
         async with self._lock:
             if self.hub.resetting:
                 raise RuntimeError("场景正在重置，暂不能开始采集")
@@ -43,6 +43,8 @@ class CaptureLifecycle:
                 return metadata
             self._gated_episode = metadata["episode_id"]
             try:
+                if before_enable is not None:
+                    before_enable(self._gated_episode)
                 await self.hub.set_capture_episode(self._gated_episode)
             except (Exception, asyncio.CancelledError):
                 await asyncio.to_thread(self.recorder.freeze_observations)

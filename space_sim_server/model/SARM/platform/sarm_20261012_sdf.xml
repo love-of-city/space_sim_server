@@ -1471,6 +1471,7 @@
                 <body name="ee_base" pos="0 -0.095 0.135" quat="0.49999816339744829 0.49999999999662686 -0.5000018366025516 0.49999999999662686">
                   <joint name="joint6" class="robot_joint" type="hinge" axis="0 0 1" range="-6.2832 6.2832" actuatorfrcrange="-100 100" />
                   <camera name="sarm_wrist_cam" mode="fixed" pos="0.0 0.1 0.12" quat="0.0 0.0 0.9238795325112867 0.3826834323650897" fovy="102.447857778" resolution="1024 1024" />
+         <light name="wrist_lamp" mode="fixed" pos="0.0 0.1 0.12" dir="0.0 -0.7071067811865475 0.7071067811865475" diffuse="1000 1000 1000" specular="300 300 300" cutoff="89" castshadow="false" />
          <body name="wrist_ft_tool" pos="0 0 0"><inertial pos="0 0 0.0636159692368" quat="0.706325435355 0 0 0.707887264591" mass="3.2325900237452" diaginertia="0.005059570785947 0.0049292995108171 0.0016709776347182" />
                   <geom name="ee_base_geom" class="robot_geom" mesh="ee_base_mesh" density="0" rgba="0.41176 0.41176 0.41176 1" contype="1" conaffinity="1" group="2" />
                   

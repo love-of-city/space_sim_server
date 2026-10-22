@@ -39,6 +39,10 @@ ADMIN = dict(user_id="admin", username="admin", role="admin")
         dict(task="shell"),
         dict(range_deg=11),
         dict(range_deg=float("nan")),
+        dict(linear_speed_m_s=0),
+        dict(linear_speed_m_s=0.2),
+        dict(linear_speed_m_s=float("nan")),
+        dict(task="aviation_plug_insert", linear_speed_m_s=0.1),
         dict(seed=-1),
         dict(owner=ADMIN),
     ],
@@ -52,10 +56,11 @@ FAKE_COLLECTOR = r"""
 import argparse,json,time
 from pathlib import Path
 p=argparse.ArgumentParser()
-for name in ('output','count','seed','cancel-file'):
+for name in ('output','count','seed','cancel-file','linear-speed'):
     p.add_argument('--'+name)
 a,_=p.parse_known_args()
 folder=Path(a.output);folder.mkdir()
+(folder/'motion.json').write_text(json.dumps(dict(linear_speed_m_s=a.linear_speed)))
 seed=int(a.seed)
 if seed==99:
     while not Path(a.cancel_file).exists(): time.sleep(.05)
@@ -335,3 +340,30 @@ def test_windows_group_cleans_orphan_descendant(tmp_path):
         group.close()
         if process.poll() is None:
             process.kill()
+
+
+def test_drawer_speed_reaches_spawned_collector_and_is_persisted(manager):
+    job = manager.start(CollectionCreate(workers=1, count=1, max_attempts=1,
+                                        linear_speed_m_s=0.05), OWNER, {})
+    result = wait_job(manager, job["id"])
+    assert result["status"] == "complete"
+    assert result["config"]["linear_speed_m_s"] == 0.05
+    received = json.loads((manager.root / job["id"] / "worker-0" / "motion.json").read_text())
+    assert float(received["linear_speed_m_s"]) == 0.05
+    assert CollectionCreate().linear_speed_m_s == 0.1
+    assert CollectionCreate(task="aviation_plug_insert").linear_speed_m_s is None
+
+
+def test_worker_configuration_preserves_independent_options_and_disabled_initialization(manager):
+    options={"joint_bias":{"enabled":True,"max_abs_deg":.2},"wrist_wrench_noise":{"enabled":True,"force_std_n":.3}}
+    source={"created_by":ADMIN}
+    request=CollectionCreate(workers=1,count=1,max_attempts=1,seed=40,initialization_enabled=False,randomization=options)
+    job=manager.start(request,OWNER,source)
+    result=wait_job(manager,job["id"])
+    assert result["status"]=="complete"
+    saved=json.loads((manager.root/job["id"]/"scene.json").read_text(encoding="utf-8"))
+    assert saved["collection_randomization"]["wrist_wrench_noise"]["force_std_n"]==.3
+    assert saved["collection_randomization"]["joint_bias"]["enabled"]
+    assert saved["initialization_enabled"] is False
+    assert result["config"]["randomization"]==request.randomization.model_dump()
+    assert "collection_randomization" not in source

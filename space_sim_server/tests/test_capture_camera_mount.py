@@ -31,10 +31,15 @@ def test_camera_optical_center_is_on_outer_end_face_and_just_outside_shell():
     assert camera.get('quat') is not None  # Renderer reads quat, not xyaxes.
     assert camera.get('xyaxes') is None
 
-def test_capture_camera_is_mounted_on_new_gripper_and_matches_startup_profile():
+def test_capture_camera_is_mounted_on_new_gripper_and_matches_startup_profile(tmp_path):
+    from space_arm_platform.models import SceneInstanceCreate
+    from space_arm_platform.scene_runtime import SceneRuntimeManager
     model = ET.parse(ROOT / 'model/SARM/platform/sarm_dual_capture26.xml').getroot()
     profile = json.loads((ROOT / 'config/scene_render_profiles.json').read_text())['sarm-dual-capture26']
-    scene = json.loads((ROOT / 'run/scenes/capture26_import_preview.json').read_text(encoding='utf-8'))
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    created = manager.create_instance(SceneInstanceCreate(
+        template_id='sarm-dual-capture26', seed=1, randomization_profile='none'))
+    scene = json.loads(Path(created['config_path']).read_text(encoding='utf-8'))
     assert scene['render_profile']['camera_mounts'] == profile['camera_mounts']
     for name, mount in profile['camera_mounts'].items():
         camera = model.find(f".//body[@name='{mount['body']}']/camera[@name='{name}']")

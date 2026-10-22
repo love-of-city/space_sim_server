@@ -18,6 +18,7 @@
 - 增加原生 SO-101 PID/纯接触抓取的 UE 实时包装，并规避 Windows Python MuJoCo/Basilisk MuJoCo DLL 预加载冲突。
 - UR5e 示例改为六个关节依次平滑转动固定角度并保持，默认每关节 20°。
 - MJCF 动态目标灯设为 Movable，避免每帧 Mobility 警告造成 Game Thread 卡顿。
+- 修复 MJCF 聚光灯 `cutoff` 被忽略：新生成的聚光灯是 Stationary，而 `USpotLightComponent::SetInnerConeAngle/SetOuterConeAngle` 对 Stationary 灯静默不生效，所有 MJCF 聚光灯此前都固定为 UE 默认的 0°/44° 锥角。现在先改为 Movable 再设置强度和锥角（内锥 0.65×cutoff、外锥 cutoff，上限 89°）。已有场景里带 `cutoff` 的聚光灯画面会随之改变；需重新编译 UE 插件并重启场景。
 
 ## 0.2.0 - 2026-08-10
 

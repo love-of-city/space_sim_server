@@ -40,9 +40,10 @@ def test_seeded_reset_preserves_scene_and_disables_all_noise():
 
 def test_opening_is_not_cycle_success_and_return_allows_pressed_latch():
     task, sample = setup_cycle()
-    for stage in ("raise", "above_drawer", "align", "descend", "lift"):
+    for stage in (*task.approach_stages, "descend", "lift"):
         task._enter(stage, sample)
-        task.reference[:6] = task._path[-1]
+        if task._path is not None:
+            task.reference[:6] = task._path[-1]
     task._enter("return", sample)
     task.reference[:6] = task._path[-1]
     q = np.r_[task.reference[:6], 0.047, -0.047]
@@ -72,6 +73,8 @@ def test_final_verification_requires_closed_stationary_latch_and_open_hand():
     task.stage = "verify"
     task.open_verified = task.closed_verified = True
     opened = replace(sample, joints=np.r_[sample.joints[:6], 1.0, -1.0])
+    assert not task._stage_reached(opened, True, task.hover)
+    opened = replace(opened, time_s=task.config.verify_hold_s)
     assert task._stage_reached(opened, True, task.hover)
     for bad in (
         replace(opened, drawer_m=0.01),
@@ -89,4 +92,138 @@ def test_cycle_config_rejects_invalid_close_tolerance():
     with pytest.raises(ValueError):
         DrawerCycleConfig(close_tolerance_m=-1)
     with pytest.raises(ValueError, match="overtravel"):
-        DrawerCycleConfig(seating_overtravel_m=.01)
+        DrawerCycleConfig(seating_overtravel_m=0.01)
+
+
+def test_smooth_interpolation_keeps_real_drawer_cartesian_path():
+    from simulation.serial_chain_kinematics import (
+        axis_angle_to_matrix,
+        rotation_matrix_to_vector,
+    )
+
+    task, sample = setup_cycle()
+    for stage in (
+        "raise",
+        "above_drawer",
+        "descend",
+        "lift",
+        "return",
+        "seat",
+        "retract",
+    ):
+        task._enter(stage, sample)
+        if task._path is None:
+            assert stage == "raise" and task._goal is not None
+            continue
+        p0, r0 = task.chain.forward(task._path[0])
+        rv = rotation_matrix_to_vector(task._rotation @ r0.T)
+        angle = np.linalg.norm(rv)
+        # Include the midpoint of every former straight interpolation segment.
+        for u in np.linspace(0, 1, 161):
+            q = task._timing.path.at(u)
+            assert np.all(q >= task.lower) and np.all(q <= task.upper)
+            p, r = task.chain.forward(q)
+            expected_r = (
+                axis_angle_to_matrix(rv / angle, u * angle) @ r0
+                if angle > 1e-12
+                else r0
+            )
+            assert np.linalg.norm(p - (p0 + u * (task._goal - p0))) < 5e-6
+            assert np.linalg.norm(rotation_matrix_to_vector(expected_r @ r.T)) < 5e-6
+        task.reference[:6] = task._path[-1]
+
+
+def test_gripper_is_smooth_and_contact_still_does_not_imply_completion():
+    task, sample = setup_cycle()
+    for stage, start, target, speed in (
+        ("open", 0.0, 1.0, 0.2),
+        ("grip", 1.0, 0.0, 0.2),
+        ("release", 0.0, 1.0, 0.2),
+    ):
+        task.reference[6:] = [start, -start]
+        task._enter(stage, sample)
+        timing = task._gripper_timing
+        assert timing is not None
+        for t in np.linspace(0, timing.duration, 1001):
+            q, v, a, j = timing.joint_state(t)
+            assert 0 <= q[0] <= 1
+            assert abs(v[0]) <= speed + 1e-9
+            if stage == "grip" and q[0] <= task.config.grip_contact_range_rad:
+                assert abs(v[0]) <= task.config.grip_contact_speed_rad_s + 1e-9
+            assert abs(a[0]) <= task.config.gripper_acceleration_rad_s2 + 1e-9
+            assert abs(j[0]) <= task.config.gripper_jerk_rad_s3 + 1e-9
+        task._step_gripper(target, timing.duration)
+        np.testing.assert_allclose(task.reference[6:], [target, -target], atol=1e-12)
+    task.reference[6:] = [1.0, -1.0]
+    task._enter("grip", sample)
+    task.reference[6:] = 0.0
+    contact = replace(
+        sample,
+        joints=np.r_[sample.joints[:6], 0.047, -0.047],
+        finger_drawer_contacts=(3, 4),
+    )
+    assert not task._stage_reached(contact, True, task.grasp)
+
+
+def test_approach_translates_and_rotates_on_the_same_smooth_path():
+    from simulation.serial_chain_kinematics import rotation_matrix_to_vector
+
+    task, sample = setup_cycle()
+    task._enter("above_drawer", sample)
+    p0, r0 = task.chain.forward(task._path[0])
+    pm, rm = task.chain.forward(task._timing.path.at(0.5))
+    assert "align" not in task.stages
+    assert np.linalg.norm(pm - p0) > 0.01
+    assert np.linalg.norm(rotation_matrix_to_vector(rm @ r0.T)) > 0.1
+    np.testing.assert_allclose(pm, (p0 + task.hover) / 2, atol=5e-6)
+    assert pm[2] >= task.hover[2] - 5e-6
+
+
+def test_initial_wait_enters_direct_approach_and_requires_valid_sensor():
+    task, sample = setup_cycle()
+    assert not task._stage_reached(replace(sample, wrench_valid=False), True, task.hover)
+    for tick in range(1, 73):
+        task.step(replace(sample, time_s=tick * 0.005))
+    assert task.stage == "approach"
+    assert [event["stage"] for event in task.events] == ["settle", "approach"]
+    assert task.config.initial_settle_s == 0.25
+
+
+@pytest.mark.parametrize("fault", [
+    {"drawer_velocity_m_s": 0.01}, {"buckle_rad": 0.1},
+    {"finger_drawer_contacts": (1, 0)}, {"finger_drawer_contacts": None},
+])
+def test_retreat_counts_towards_closure_window_but_contact_or_motion_resets_it(fault):
+    task, sample = setup_cycle()
+    task.open_verified = task.closed_verified = True
+    opened = replace(sample, joints=np.r_[sample.joints[:6], 1.0, -1.0])
+    task.stage = "retract"
+    # The arm need not be stationary for the released drawer to be observed.
+    assert not task._stage_reached(opened, False, task.hover + 0.1)
+    task.stage = "verify"
+    later = replace(opened, time_s=2.1)
+    assert task._stage_reached(later, True, task.hover)
+    assert task._stable_time() == task.config.terminal_confirm_s
+    assert not task._stage_reached(replace(later, **fault), True, task.hover)
+    assert not task._stage_reached(later, True, task.hover)
+    assert not task._stage_reached(replace(later, time_s=4.0), True, task.hover)
+    assert task._stage_reached(replace(later, time_s=4.2), True, task.hover)
+
+
+def test_recorded_stage_versions_preserve_existing_episode_validation():
+    assert "align" in DrawerCycleTask.recorded_stages("drawer-cycle/3")
+    assert "align" not in DrawerCycleTask.recorded_stages("drawer-cycle/4")
+    with pytest.raises(ValueError, match="Unsupported drawer task version"):
+        DrawerCycleTask.recorded_stages("drawer-cycle/unknown")
+
+
+def test_empty_raise_still_requires_measured_pose_tracking():
+    task, sample = setup_cycle()
+    task._enter("raise", sample)
+    assert task._path is None and task._goal is not None
+    wrong = sample.joints.copy()
+    wrong[0] += 0.1
+    for tick in range(1, 50):
+        task.step(replace(sample, time_s=tick * 0.005, joints=wrong))
+    assert task.stage == "raise"
+    assert task._stable == 0

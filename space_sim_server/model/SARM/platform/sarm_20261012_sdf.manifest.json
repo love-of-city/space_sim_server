@@ -1,12 +1,13 @@
 {
   "source_sha256": "edd0426c24fec4ba1a4946f6a767310014dc077dd88cdd6b3064ff4916f34a19",
-  "model_sha256": "06d5068837a7de7d9b700fba0864ffe5bd6773b6972397dc5c5ffc64cf453245",
+  "model_sha256": "0e6ad70dd1f67ea83aca24f071f0e712ae3c5bd592bc055acdf23f90474a0587",
   "model_revision": "2026-10-12",
   "platform_additions": [
     "free base",
     "reaction wheels (additional mass)",
     "capture target",
-    "cameras"
+    "cameras",
+    "wrist lamp (rendering only)"
   ],
   "source_base_inertia_preserved": true,
   "gripper_type": "four_bar_tendon",
@@ -20,6 +21,24 @@
     "tool_body": "wrist_ft_tool",
     "added_mass_kg": 0,
     "ideal_rigid_sensor": true
+  },
+  "wrist_lamp": {
+    "name": "wrist_lamp",
+    "parent_body": "ee_base",
+    "position_m": [
+      0.0,
+      0.1,
+      0.12
+    ],
+    "direction": [
+      0.0,
+      -0.7071067811865475,
+      0.7071067811865475
+    ],
+    "cutoff_deg": 89.0,
+    "diffuse": 1000.0,
+    "cast_shadows": false,
+    "rendering_only": true
   },
   "orbital_free_joint_damping_overrides": [
     {

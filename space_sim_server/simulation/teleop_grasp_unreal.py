@@ -1303,6 +1303,18 @@ def _run_session(
             assembly.install([AtmosphericDragComponent()])
         gravity_factory, earth, sun = orbit_component.gravity_factory, orbit_component.earth, orbit_component.sun
         bridge = render.bridge
+        from dataclasses import asdict
+        from simulation.components.gyroscope import GyroscopeComponent
+
+        sensor_options = scene_instance.get("sensors", {}) if scene_instance else {}
+        if not isinstance(sensor_options, dict):
+            raise ValueError("scene sensors must be an object")
+        gyro = GyroscopeComponent(sensor_options.get("service_gyro", {}),
+                                  seed=scene_instance["seed"] if scene_instance else 0)
+        assembly.install([gyro])
+        print(json.dumps({"type": "service_gyro_configuration", "seed": gyro.sensor.seed,
+                          "sample_rate_hz": 50, "settings": asdict(gyro.sensor.config),
+                          "scope": "passive_rate_feedback"}), flush=True)
         ephemeris = orbit_component.ephemeris
         orbit_origin = orbit_component.origin
         gravity_target_names = orbit_component.gravity_targets
@@ -1465,6 +1477,7 @@ def _run_session(
                         "gripper_velocity_m_s": joint_velocity[6:],
                         "target_gripper_position_m": targets.position[6:].tolist()}),
                     **simulation.attitude_control.telemetry(),
+                    "service_gyro": gyro.observation(),
                     "joint_position_rad": joint_position,
                     "joint_velocity_rad_s": joint_velocity,
                     "target_joint_position_rad": targets.position.tolist(),

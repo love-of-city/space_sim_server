@@ -9,8 +9,8 @@ function setup() {
   const state = {};
   let time = 0, total = 0, dropped = 0;
   const player = { getVideoPlaybackQuality: () => ({ totalVideoFrames: total, droppedVideoFrames: dropped }) };
-  const $ = id => { if (!nodes.has(id)) nodes.set(id, { textContent: "", querySelector: () => player }); return nodes.get(id); };
-  const document = { hidden: false };
+  const $ = id => { if (!nodes.has(id)) nodes.set(id, { textContent: "", querySelector: () => player, replaceChildren() {}, append() {} }); return nodes.get(id); };
+  const document = { hidden: false, createElement: () => ({}) };
   const context = vm.createContext({ state, $, document, NumericParameters: { WebRTCFPS: "WebRTCFPS" }, performance: { now: () => time } });
   vm.runInContext(code, context);
   context.resetWebRtcStats();
@@ -135,6 +135,17 @@ test("FPS choices honor the deployment ceiling and send only valid targets", () 
   assert.deepEqual(sent, [["WebRTCFPS", 30]]);
   for (const invalid of [90, 0, "bad", 31]) assert.equal(harness.context.selectVideoFps(invalid), false);
   assert.equal(sent.length, 1);
+});
+
+test("preview defaults to 60 within the ceiling and retains explicit higher choices", () => {
+  for (const [ceiling, expected] of [[30, 30], [45, 45], [60, 60], [90, 60], [120, 60]]) {
+    const h = setup(); h.state.streamConfig = {pixel_streaming_fps: ceiling};
+    h.context.configureVideoFps();
+    assert.equal(h.state.requestedVideoFps, expected);
+    h.context.selectVideoFps(ceiling);
+    h.context.configureVideoFps();
+    assert.equal(h.state.requestedVideoFps, ceiling);
+  }
 });
 
 test("diagnostics retain 60 real samples and expose no candidate address or credential", () => {

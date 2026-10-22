@@ -5,6 +5,7 @@
 #include "BskCoordinateConverter.h"
 #include "BskFrameSource.h"
 #include "BskProtocolTypes.h"
+#include "BskPresentationClock.h"
 #include "BskSceneController.generated.h"
 
 class ADirectionalLight;
@@ -141,7 +142,7 @@ private:
     void ResetPresentationState();
     void ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame = true);
     FBskRenderFrame InterpolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double Alpha) const;
-    FBskRenderFrame ExtrapolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double SecondsBeyondTarget) const;
+    FBskRenderFrame ExtrapolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double SecondsBeyondTarget, double SimulationRate = 1.0) const;
     AActor* GetOrCreateActor(const FBskRenderObjectState& State);
     AActor* FindBoundActor(const FString& ObjectName) const;
     AActor* SpawnFromSpec(const FString& ObjectName, const FObjectSpec& Spec);
@@ -306,12 +307,8 @@ private:
     FString TimeMode = TEXT("interpolated");
     double InterpolationDelaySeconds = 0.1;
     double MaxExtrapolationSeconds = 0.1;
-    double LastFrameArrivalSeconds = 0.0;
-    double BlendElapsedSeconds = 0.0;
-    double BlendDurationSeconds = 1.0 / 30.0;
-    bool bHasTargetFrame = false;
-    FBskRenderFrame PreviousFrame;
-    FBskRenderFrame TargetFrame;
+    FBskPresentationClock PresentationClock;
+    TArray<FBskRenderFrame> PresentationFrames;
     FBskRenderFrame PresentationFrame;
     bool bHasPresentationFrame = false;
     bool bScreenshotRequested = false;

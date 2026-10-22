@@ -347,8 +347,8 @@ test("retired player cannot overwrite current renderer work-light state", () => 
   h.context.createPixelStream();
   const old = h.players[0];
   h.context.createPixelStream();
-  h.players[1].emit("response:work-light", JSON.stringify({type:"bsk_work_light",supported:true,enabled:false}));
-  old.emit("response:work-light", JSON.stringify({type:"bsk_work_light",supported:true,enabled:true}));
+  h.players[1].responses.get("work-light")(JSON.stringify({type:"bsk_work_light",supported:true,enabled:false}));
+  old.responses.get("work-light")(JSON.stringify({type:"bsk_work_light",supported:true,enabled:true}));
   assert.equal(h.context.workLight.enabled, false);
   assert.equal(h.context.workLight.available, true);
 });

@@ -25,6 +25,8 @@
 后端默认使用自身 Python（需具备 Basilisk 及渲染适配器），也可通过 `SPACE_SIM_RENDEZVOUS_PYTHON` 指定仿真解释器。在本机 8768 端口接收只读 `space-sim-state/1`；UE 接收端监听 5558。团队模型任务不依赖旧示例仓库。需要历史通用模型示例时，再设置 `SPACE_SIM_RENDEZVOUS_REPO` 指向 `basilisk-rendezvous-demo`，并使用安装其依赖的 Python。
 插拔件使用静摩擦保持与恒定滑动阻力，复用现有结构及孔位；默认配置与动力学验证见 [插拔件保持力](docs/PLUG_RETENTION.md)。
 
+原操作场景提供 50 Hz 服务星模拟陀螺角速度观测，包含白噪声、偏置与饱和标志，随原观测通道录制。配置、时间与坐标定义及接入边界见[服务星陀螺反馈](docs/SERVICE_GYROSCOPE.md)。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。

@@ -5,6 +5,8 @@
     "tests/test_linux_mujoco_runtime.py": "Linux-only ELF/runtime isolation checks require Basilisk and MuJoCo; run separately on the Linux simulation host",
     "tests/test_sarm_asset_plugins.py": "Requires the locally compiled SARM native plugin; run on each simulation host after building it",
     "tests/test_orbital_physics_acceptance.py": "Native BSK J2 field and two-orbit propagation acceptance; run in the simulation environment",
+
+    "tests/test_gyroscope_native.py": "Basilisk scheduler and real SCStatesMsg; run in the native simulation environment. Pure sensor statistics, wire validation and recording remain in basic CI.",
     "tests/test_orbit_attitude_reference.py": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
     "tests/test_attitude_control.py": "Basilisk attitude-control integration",
     "tests/test_celestial_alignment.py": "Basilisk celestial-state integration",

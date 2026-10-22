@@ -1,0 +1,75 @@
+{
+  "schema": "bsk-continuous-visual-blanket/1",
+  "source_mesh": "SARM/meshes/base_link.obj",
+  "source_sha256": "955368ff505612ff34ae8b50c93120029d7188d051410ace415409e8736ef94a",
+  "notes": "Continuous visual wrap: one uninterrupted sheet per face, no artificial center gaps or exposed perimeter strips. Corners meet; hardware cutouts and open arm platform retained. No physics changes.",
+  "units": "m",
+  "grid_spacing": 0.012,
+  "outer_inset": 0,
+  "seam_gap": 0,
+  "keepout_clearance": 0.012,
+  "hem_width": 0.003,
+  "standoff": 0.003,
+  "visual_thickness": 0.0006,
+  "atlas_scale_per_m": 0.45,
+  "faces": [
+    {
+      "name": "capture_bottom",
+      "axis": 2,
+      "sign": -1,
+      "plane": -0.49,
+      "uaxis": 0,
+      "vaxis": 1,
+      "urange": [
+        -0.2,
+        0.6
+      ],
+      "vrange": [
+        -0.113,
+        0.643
+      ],
+      "hardware_bounds": [
+        [
+          0.015,
+          0.135,
+          0.445,
+          0.565
+        ]
+      ],
+      "outer_inset": 0,
+      "keepout_clearance": 0.006
+    },
+    {
+      "name": "task_face_exposed_bus",
+      "axis": 2,
+      "sign": 1,
+      "plane": 0,
+      "uaxis": 0,
+      "vaxis": 1,
+      "urange": [
+        -0.2,
+        0.6
+      ],
+      "vrange": [
+        -0.113,
+        0.643
+      ],
+      "hardware_bounds": [
+        [
+          0.125,
+          0.575,
+          0.065,
+          0.615
+        ],
+        [
+          -0.055,
+          0.055,
+          -0.055,
+          0.055
+        ]
+      ],
+      "outer_inset": 0,
+      "keepout_clearance": 0.006
+    }
+  ]
+}

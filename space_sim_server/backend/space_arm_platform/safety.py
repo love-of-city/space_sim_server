@@ -127,6 +127,9 @@ class SafetyController:
             grip = 0.0
             joint6 = 0.0
         return AppliedAction(
+            active_arm=request.active_arm,
+            capture_radial_velocity_m_s=request.capture_radial_velocity*.003 if deadman and request.active_arm == 'capture' and request.arm_preparation is None else 0.,
+            capture_axial_velocity_m_s=request.capture_axial_velocity*.003 if deadman and request.active_arm == 'capture' and request.arm_preparation is None else 0.,
             episode_id=episode_id,
             server_sequence=str(self._server_sequence),
             server_time_ns=str(time.time_ns()),

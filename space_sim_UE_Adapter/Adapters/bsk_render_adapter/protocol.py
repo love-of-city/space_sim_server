@@ -48,6 +48,7 @@ class PublisherStats:
     frames_queued: int = 0
     frames_sent: int = 0
     frames_dropped: int = 0
+    vision_frames_queued: int = 0
     controls_sent: int = 0
     events_dropped: int = 0
     reconnects: int = 0
@@ -166,11 +167,13 @@ class RenderPublisher:
 
         packet = encode_packet(message)
         on_demand = "capture_episode_id" in message
-        strict = bool(message.get("capture_episode_id")) if on_demand else self.reliable_frames
+        vision_requested = message.get("vision_capture_requested") is True
+        tagged = on_demand or "vision_capture_requested" in message
+        strict = vision_requested or (bool(message.get("capture_episode_id")) if on_demand else self.reliable_frames)
         if strict:
             self.start()
-            target = self._strict_frames if on_demand else self._latest_frame
-            if on_demand:
+            target = self._strict_frames if tagged else self._latest_frame
+            if tagged:
                 # An unsent pre-start preview is not an authoritative sample.
                 try:
                     while True:
@@ -183,11 +186,13 @@ class RenderPublisher:
                 # sleeping inside a Basilisk/SWIG dynamics callback.
                 target.put_nowait(packet)
             except queue.Full as error:
-                raise RuntimeError("authoritative render queue full; refusing to drop a dataset frame") from error
+                raise RuntimeError("authoritative render queue full; refusing to drop an authoritative frame") from error
             self.stats.frames_queued += 1
+            if vision_requested:
+                self.stats.vision_frames_queued += 1
             self._wake.set()
             return
-        target = self._preview_frames if on_demand else self._latest_frame
+        target = self._preview_frames if tagged else self._latest_frame
         try:
             target.put_nowait(packet)
         except queue.Full:

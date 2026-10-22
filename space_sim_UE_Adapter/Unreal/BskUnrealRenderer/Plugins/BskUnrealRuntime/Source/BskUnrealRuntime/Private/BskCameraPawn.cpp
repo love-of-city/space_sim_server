@@ -451,3 +451,13 @@ void ABskCameraPawn::ToggleMissionUiVisibility()
         if (ABskRendererHUD* Hud = Cast<ABskRendererHUD>(Player->GetHUD())) Hud->ToggleMissionUiVisibility();
     }
 }
+
+void ABskCameraPawn::ApplyPreviewOrbit(double Yaw, double Pitch)
+{
+    if (FMath::IsNearlyZero(Yaw) && FMath::IsNearlyZero(Pitch)) { ReturnToMainView(); return; }
+    if (bFreeCameraActive) ReturnToMainView();
+    CameraMode = EBskCameraMode::Orbit;
+    OrbitYawDegrees = MainOrbitYawDegrees + Yaw;
+    OrbitPitchDegrees = FMath::Clamp(MainOrbitPitchDegrees + Pitch, -89.0, 89.0);
+    UpdateTrackingCamera();
+}

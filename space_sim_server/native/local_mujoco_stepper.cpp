@@ -49,6 +49,8 @@ struct Api {
     void (*step)(const mjModel*, mjData*);
     void (*kinematics)(const mjModel*, mjData*);
     void (*comPos)(const mjModel*, mjData*);
+    void (*contactForce)(const mjModel*, const mjData*, int, mjtNum*);
+    void (*objectVelocity)(const mjModel*, const mjData*, int, int, mjtNum*, int);
     int (*name2id)(const mjModel*, int, const char*);
     const char* (*id2name)(const mjModel*, int, int);
 };
@@ -120,7 +122,9 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
               resolve(module, "mj_forward", a.forward) && resolve(module, "mj_step", a.step) &&
               resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
               resolve(module, "mj_name2id", a.name2id) &&
-              resolve(module, "mj_id2name", a.id2name);
+              resolve(module, "mj_id2name", a.id2name) &&
+              resolve(module, "mj_contactForce", a.contactForce) &&
+              resolve(module, "mj_objectVelocity", a.objectVelocity);
     if (!ok) {
         copy_error(error, error_size, "required MuJoCo symbol is missing from the loaded runtime");
         delete s;
@@ -489,4 +493,29 @@ API int lms_contacts(void* handle, double* out, int capacity) {
         out[5*i+4] = c.dist;
     }
     return s->d->ncon;
+}
+
+// Read-only diagnostic samples in the local inertial axes. No forward/step calls.
+API int lms_contact_detail(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    for (int i=0; i<s->d->ncon && i<capacity; ++i) {
+        const auto& c=s->d->contact[i]; double* r=out+23*i;
+        r[0]=c.geom[0]; r[1]=c.geom[1]; r[2]=c.dist;
+        for(int k=0;k<3;++k) r[3+k]=c.pos[k];
+        mjtNum force[6]={}; s->api.contactForce(s->m,s->d,i,force);
+        for(int k=0;k<6;++k) r[6+k]=force[k];
+        for(int k=0;k<9;++k) r[12+k]=c.frame[k];
+        r[21]=c.efc_address; r[22]=s->d->time;
+    }
+    return s->d->ncon;
+}
+API int lms_body_detail(void* handle, int body, double* out) {
+    auto* s=static_cast<Stepper*>(handle);
+    if(!s || !out || body<0 || body>=s->m->nbody) return ERR_ARGUMENT;
+    for(int k=0;k<3;++k) out[k]=s->d->xpos[3*body+k];
+    for(int k=0;k<4;++k) out[3+k]=s->d->xquat[4*body+k];
+    mjtNum vel[6]={}; s->api.objectVelocity(s->m,s->d,mjOBJ_BODY,body,vel,0);
+    for(int k=0;k<6;++k) out[7+k]=vel[k];
+    out[13]=s->d->time; return OK;
 }

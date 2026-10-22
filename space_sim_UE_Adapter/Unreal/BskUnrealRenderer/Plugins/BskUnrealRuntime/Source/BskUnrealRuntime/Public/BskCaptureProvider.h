@@ -12,7 +12,8 @@ enum class EBskCaptureChannel : uint8
 enum class EBskCapturePurpose : uint8
 {
     AuthoritativeDataset,
-    Preview
+    Preview,
+    AuthoritativeVision
 };
 
 struct BSKUNREALRUNTIME_API FBskCaptureRequest

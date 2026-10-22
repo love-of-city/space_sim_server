@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 import sys
 import time
 import uuid
@@ -164,6 +165,8 @@ class BasiliskRenderBridge(_BridgeBase):
         recording_path: str | Path | None = None,
         frame_period_ns: int | None = None,
         frame_rate_hz: int | None = None,
+        vision_capture_camera_ids: Sequence[str] = (),
+        vision_capture_rate_hz: int = 10,
     ) -> None:
         super().__init__()
         if frame_period_ns is not None and int(frame_period_ns) <= 0:
@@ -173,6 +176,20 @@ class BasiliskRenderBridge(_BridgeBase):
         if frame_period_ns is not None and frame_rate_hz is not None:
             raise ValueError("choose frame_period_ns or frame_rate_hz, not both")
         self.frame_rate_hz = int(frame_rate_hz) if frame_rate_hz is not None else None
+        if (isinstance(vision_capture_rate_hz, bool)
+                or not isinstance(vision_capture_rate_hz, (int, float))
+                or not math.isfinite(vision_capture_rate_hz)
+                or vision_capture_rate_hz not in {1, 2, 5, 10, 25, 30, 50}):
+            raise ValueError("vision_capture_rate_hz must be one of 1, 2, 5, 10, 25, 30, 50")
+        if isinstance(vision_capture_camera_ids, str):
+            raise ValueError("vision_capture_camera_ids must be a sequence of camera IDs")
+        self.vision_capture_camera_ids = tuple(dict.fromkeys(_safe_id(value) for value in vision_capture_camera_ids))
+        if len(self.vision_capture_camera_ids) > 16 or any(not value or len(value) > 256 for value in self.vision_capture_camera_ids):
+            raise ValueError("vision_capture_camera_ids must contain 1 to 16 valid camera IDs <=256 characters")
+        self.vision_capture_rate_hz = int(vision_capture_rate_hz)
+        if self.vision_capture_camera_ids and self.frame_rate_hz is not None:
+            if self.frame_rate_hz % self.vision_capture_rate_hz:
+                raise ValueError("vision capture grid must divide frame_rate_hz")
         self.ModelTag = "BasiliskRenderBridge"
         self.session_id = str(uuid.uuid4())
         self.origin_object = origin_object
@@ -874,6 +891,15 @@ class BasiliskRenderBridge(_BridgeBase):
                     raise ValueError(f"invalid {key}")
                 capture_state[key] = value
         message.update(capture_state)
+        if self.vision_capture_camera_ids:
+            # Exact rational-nanosecond grid, evaluated only after publication
+            # admission above. Never invent a camera sample between source frames.
+            tick = (current_sim_ns * self.vision_capture_rate_hz + 500_000_000) // 1_000_000_000
+            expected = (tick * 1_000_000_000 + self.vision_capture_rate_hz // 2) // self.vision_capture_rate_hz
+            requested = current_sim_ns == expected
+            message["vision_capture_requested"] = requested
+            if requested:
+                message["vision_capture_camera_ids"] = list(self.vision_capture_camera_ids)
         self.publisher.publish_frame(message)
         self.last_capture_state = capture_state
         if self.recorder:

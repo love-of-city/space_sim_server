@@ -112,8 +112,18 @@ class CameraVisual:
     capture_rate_hz: float = 15.0
     picture_in_picture_slot: int = 0
     capture_products: Sequence[str] = ()
+    capture_consumer: str = "dataset"
+    # Zero preserves the renderer's existing exposure settings.
+    exposure_time_s: float = 0.0
+    aperture_fnumber: float = 0.0
 
     def to_payload(self) -> dict[str, Any]:
+        if self.capture_consumer not in {"dataset", "vision"}:
+            raise ValueError("capture_consumer must be dataset or vision")
+        for name in ("exposure_time_s", "aperture_fnumber"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
         products = [str(value).strip().lower() for value in self.capture_products]
         unknown = sorted(set(products) - {"rgb"})
         if unknown:
@@ -133,6 +143,9 @@ class CameraVisual:
             "capture_rate_hz": float(self.capture_rate_hz),
             "picture_in_picture_slot": int(self.picture_in_picture_slot),
             "capture_products": list(dict.fromkeys(products)),
+            "capture_consumer": self.capture_consumer,
+            "exposure_time_s": float(self.exposure_time_s),
+            "aperture_fnumber": float(self.aperture_fnumber),
         }
 
 

@@ -344,6 +344,7 @@ class AttitudeControl:
         nav = add(simpleNav.SimpleNav(), 'sarmTruthNavigation', 900)
         nav.scStateInMsg.subscribeTo(self.bus.getCenterOfMass().stateOutMsg)
         error = add(attTrackingError.attTrackingError(), 'sarmAttitudeError', 700)
+        self.tracking_error = error  # Optional orbit-frame reference uses the same wheel controller.
         error.attNavInMsg.subscribeTo(nav.attOutMsg)
         error.attRefInMsg.subscribeTo(self.reference.attRefOutMsg)
         speeds = add(scalarJointStatesToRWSpeed.ScalarJointStatesToRWSpeed(), 'sarmWheelSpeeds', 600)

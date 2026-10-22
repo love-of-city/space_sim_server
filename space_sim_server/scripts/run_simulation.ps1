@@ -41,6 +41,11 @@ if ($SceneInstancePath) {
     if ($selectedInstance.template_id -in @('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo')) {
         $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_20261012.catalog.json'
     }
+    . (Join-Path $PSScriptRoot 'scene_render_profiles.ps1')
+    $renderProfile=Get-SceneRenderProfile $selectedInstance.template_id
+    if ($renderProfile) {
+        $catalog = Join-Path $AdapterRoot ('Unreal\BskUnrealRenderer\Saved\AssetImport\' + $renderProfile.asset_catalog)
+    }
     if ($selectedInstance.template_id -eq 'sarm-task-box-contacts') {
         $catalog = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer\Saved\AssetImport\sarm_task_box.catalog.json'
     }

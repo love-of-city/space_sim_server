@@ -1,0 +1,37 @@
+{
+  "sarm-dual-capture26": {
+    "camera_ids": [
+      "teleop/camera/spacecraft_overview",
+      "teleop/camera/sarm_wrist_cam",
+      "teleop/camera/capture_wrist_cam"
+    ],
+    "asset_catalog": "sarm_dual_capture26.catalog.json",
+    "source_catalogs": [
+      "sarm_20261012.catalog.json",
+      "capture26.catalog.json",
+      "capture26_trim.catalog.json"
+    ],
+    "automatic_capture_default": false,
+    "camera_mounts": {
+      "capture_wrist_cam": {
+        "body": "gripper",
+        "mode": "fixed",
+        "pos": "0.075 0 0.031",
+        "quat": "0.707106781187 -0.000000000000 0.000000000000 -0.707106781187",
+        "fovy": "100"
+      }
+    },
+    "visual_attachments": [
+      {
+        "parent_id": "teleop/capture_target",
+        "geometry_file": "config/visual_attachments/target_aruco_flush_5cm_v2/geometry_metres.json",
+        "sha256": "51024580e81c93014cd3e41264d5568d05547e2ad3026f46324ce47a22cb281c"
+      }
+    ],
+    "vision_capture": {
+      "enabled": true,
+      "config_file": "config/vision/capture26_stereo.json",
+      "wrist_alignment_enabled": true
+    }
+  }
+}

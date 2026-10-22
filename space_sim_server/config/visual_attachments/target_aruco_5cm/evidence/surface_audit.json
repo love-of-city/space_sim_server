@@ -1,0 +1,218 @@
+{
+  "reference": "Target fixed-body +Y source meshes; front-to-back ray along -Y",
+  "limitation": "51x51 sampled points per region; boards bridge recesses. Tiny white-perimeter intersections are retained and reported; no structural validation.",
+  "rig_sha256": "068a317e139b3f1a0f2af923fbcd2da004f672b02cd427d4070a4509e0f6252b",
+  "mounting": {
+    "mode": "surface-plate",
+    "layout_version": "original-four-points-3mm-plate-v1",
+    "hull_geometry": "target_instance_0006_part_001_color_00",
+    "hull_surface_y_m": 0.05475,
+    "plate_thickness_m": 0.003,
+    "film_thickness_m": 5e-05,
+    "support_posts": false,
+    "mounting_plate": true
+  },
+  "print_y_m": 0.0578,
+  "results": [
+    {
+      "id": 0,
+      "region": "black",
+      "samples": 2601,
+      "no_surface": 26,
+      "max_y_m": 0.05721489167749879,
+      "min_y_m": 0.05474999999999999,
+      "points_above_print": 0,
+      "most_common_y": [
+        [
+          0.05475,
+          2431
+        ],
+        [
+          "hole",
+          26
+        ],
+        [
+          0.05721489,
+          6
+        ],
+        [
+          0.05713156,
+          6
+        ],
+        [
+          0.05704823,
+          6
+        ]
+      ]
+    },
+    {
+      "id": 0,
+      "region": "sheet",
+      "samples": 2601,
+      "no_surface": 18,
+      "max_y_m": 0.05790933612194264,
+      "min_y_m": 0.05474999999999999,
+      "points_above_print": 17,
+      "most_common_y": [
+        [
+          0.05475,
+          2122
+        ],
+        [
+          "hole",
+          18
+        ],
+        [
+          0.05790934,
+          17
+        ],
+        [
+          0.05779823,
+          17
+        ],
+        [
+          0.05768711,
+          17
+        ]
+      ]
+    },
+    {
+      "id": 1,
+      "region": "black",
+      "samples": 2601,
+      "no_surface": 23,
+      "max_y_m": 0.05721489167749874,
+      "min_y_m": 0.05474999999999999,
+      "points_above_print": 0,
+      "most_common_y": [
+        [
+          0.05475,
+          2398
+        ],
+        [
+          "hole",
+          23
+        ],
+        [
+          0.05721489,
+          6
+        ],
+        [
+          0.05713156,
+          6
+        ],
+        [
+          0.05704823,
+          6
+        ]
+      ]
+    },
+    {
+      "id": 1,
+      "region": "sheet",
+      "samples": 2601,
+      "no_surface": 23,
+      "max_y_m": 0.05790933612194532,
+      "min_y_m": 0.054749999999999986,
+      "points_above_print": 17,
+      "most_common_y": [
+        [
+          0.05475,
+          2088
+        ],
+        [
+          "hole",
+          23
+        ],
+        [
+          0.05790934,
+          17
+        ],
+        [
+          0.05779823,
+          17
+        ],
+        [
+          0.05768711,
+          17
+        ]
+      ]
+    },
+    {
+      "id": 2,
+      "region": "black",
+      "samples": 2601,
+      "no_surface": 26,
+      "max_y_m": 0.054750000000000014,
+      "min_y_m": 0.05474999999999999,
+      "points_above_print": 0,
+      "most_common_y": [
+        [
+          0.05475,
+          2575
+        ],
+        [
+          "hole",
+          26
+        ]
+      ]
+    },
+    {
+      "id": 2,
+      "region": "sheet",
+      "samples": 2601,
+      "no_surface": 167,
+      "max_y_m": 0.05475000000000001,
+      "min_y_m": 0.05474999999999999,
+      "points_above_print": 0,
+      "most_common_y": [
+        [
+          0.05475,
+          2434
+        ],
+        [
+          "hole",
+          167
+        ]
+      ]
+    },
+    {
+      "id": 3,
+      "region": "black",
+      "samples": 2601,
+      "no_surface": 1673,
+      "max_y_m": 0.05475000000000001,
+      "min_y_m": 0.05474999999999999,
+      "points_above_print": 0,
+      "most_common_y": [
+        [
+          "hole",
+          1673
+        ],
+        [
+          0.05475,
+          928
+        ]
+      ]
+    },
+    {
+      "id": 3,
+      "region": "sheet",
+      "samples": 2601,
+      "no_surface": 1266,
+      "max_y_m": 0.05475000000000001,
+      "min_y_m": 0.05474999999999999,
+      "points_above_print": 0,
+      "most_common_y": [
+        [
+          0.05475,
+          1335
+        ],
+        [
+          "hole",
+          1266
+        ]
+      ]
+    }
+  ]
+}

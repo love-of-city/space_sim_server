@@ -1,0 +1,400 @@
+{
+  "base_commit": "7f01764",
+  "base_model": "model\\SARM\\platform\\sarm_20261012.xml",
+  "base_sha256": "0d6e28ea9c0e1255ce19f41292269500dffdfd5560050c2086d0a95ac8057cc0",
+  "source_gripper_sha256": "ff37fbe67069d5038104fef01a97465c6b3af89f0282c7cb043424a032eac3f6",
+  "model_sha256": "1485987b90df5eff177743fbe6d34985d262f56dfa94b676d6c62627d3867c9c",
+  "added_actuators": [
+    "bottom_joint1_act",
+    "bottom_joint2_act",
+    "bottom_joint3_act",
+    "bottom_joint4_act",
+    "bottom_joint5_act",
+    "bottom_joint6_act",
+    "axial_act",
+    "cam_act",
+    "jaw_act_0",
+    "jaw_act_1",
+    "jaw_act_2",
+    "jaw_act_3"
+  ],
+  "preserved": "Explicit body inertials, original operating arm/cameras, compliant gripper and target collision pieces preserved. Base face protrusions removed, bus height 680mm, capture mount moved to adjacent side.",
+  "limitations": [
+    "One nominal coorbital open/extend/approach/close/tighten trial observed; not a capture robustness or load qualification",
+    "Soft contact parameters are provisional and uncalibrated; no visible continuum pad deformation."
+  ],
+  "sha256": "1485987b90df5eff177743fbe6d34985d262f56dfa94b676d6c62627d3867c9c",
+  "sources": {
+    "model\\SARM\\platform\\sarm_20261012.xml": "0d6e28ea9c0e1255ce19f41292269500dffdfd5560050c2086d0a95ac8057cc0"
+  },
+  "mount_clearance_changes": [
+    {
+      "geom": "base_link_geom",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco.stl",
+      "before_bounds": [
+        -295.00006103515625,
+        725.0000610351562,
+        -265.0,
+        768.7426147460938,
+        -490.0,
+        40.70001220703125
+      ],
+      "after_bounds": [
+        -295.00006103515625,
+        725.0000610351562,
+        -110.0,
+        768.7426147460938,
+        -680.0,
+        40.700008392333984
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_000",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_000.stl",
+      "before_bounds": [
+        231.13870239257812,
+        605.685546875,
+        -123.09318542480469,
+        -64.06543731689453,
+        -490.0,
+        -305.29132080078125
+      ],
+      "after_bounds": [
+        231.13870239257812,
+        605.685546875,
+        -110.0,
+        -64.06543731689453,
+        -680.0,
+        -423.66961669921875
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_001",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_001.stl",
+      "before_bounds": [
+        -274.8223876953125,
+        457.0436096191406,
+        -79.07315063476562,
+        503.6678466796875,
+        -490.0,
+        -403.1259765625
+      ],
+      "after_bounds": [
+        -274.8223876953125,
+        457.0436096191406,
+        -79.07315063476562,
+        503.6678466796875,
+        -680.0,
+        -559.4401245117188
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_003",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_003.stl",
+      "before_bounds": [
+        457.0436096191406,
+        672.7450561523438,
+        -115.68560791015625,
+        679.095947265625,
+        -490.0,
+        5.672145843505859
+      ],
+      "after_bounds": [
+        457.0436096191406,
+        672.7450561523438,
+        -110.0,
+        679.095947265625,
+        -680.0,
+        5.672145843505859
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_004",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_004.stl",
+      "before_bounds": [
+        1.2593830823898315,
+        231.07994079589844,
+        -184.27398681640625,
+        605.9821166992188,
+        -490.0,
+        -177.18746948242188
+      ],
+      "after_bounds": [
+        1.2593830823898315,
+        231.07994079589844,
+        -110.0,
+        605.9821166992188,
+        -680.0,
+        -245.892822265625
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_007",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_007.stl",
+      "before_bounds": [
+        -167.93222045898438,
+        166.49429321289062,
+        -188.64512634277344,
+        -52.258113861083984,
+        -490.0,
+        -305.29132080078125
+      ],
+      "after_bounds": [
+        -163.97882080078125,
+        166.49429321289062,
+        -110.0,
+        -52.258113861083984,
+        -680.0,
+        -423.66961669921875
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_008",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_008.stl",
+      "before_bounds": [
+        -273.3357849121094,
+        -55.91884231567383,
+        -115.69219970703125,
+        596.5018920898438,
+        -490.0,
+        -32.42414093017578
+      ],
+      "after_bounds": [
+        -273.3357849121094,
+        -55.91884231567383,
+        -110.0,
+        596.5018920898438,
+        -680.0,
+        -44.996768951416016
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_011",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_011.stl",
+      "before_bounds": [
+        -205.68556213378906,
+        569.0388793945312,
+        475.68896484375,
+        714.2617797851562,
+        -490.0,
+        41.18275451660156
+      ],
+      "after_bounds": [
+        -205.68556213378906,
+        569.0388793945312,
+        475.68896484375,
+        714.2617797851562,
+        -680.0,
+        41.18275451660156
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_015",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_capture26_trim_base_link_mujoco_ec9f7fce_convex_015.stl",
+      "before_bounds": [
+        -294.74542236328125,
+        -39.25551223754883,
+        26.23476219177246,
+        771.4006958007812,
+        -490.0,
+        -177.15240478515625
+      ],
+      "after_bounds": [
+        -294.74542236328125,
+        -39.25551223754883,
+        26.23476219177246,
+        771.4006958007812,
+        -680.0,
+        -245.8441619873047
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_002",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_base_link_mujoco_ec9f7fce_convex_002.stl",
+      "before_bounds": [
+        1.1485669612884521,
+        337.45660400390625,
+        -79.20951080322266,
+        645.685546875,
+        -381.7971496582031,
+        -32.760963439941406
+      ],
+      "after_bounds": [
+        1.1485669612884521,
+        337.45660400390625,
+        -79.20951080322266,
+        645.685546875,
+        -529.8409423828125,
+        -45.464195251464844
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_005",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_base_link_mujoco_ec9f7fce_convex_005.stl",
+      "before_bounds": [
+        -262.4894104003906,
+        569.072998046875,
+        -267.6518249511719,
+        82.75111389160156,
+        -305.25714111328125,
+        43.85947036743164
+      ],
+      "after_bounds": [
+        -224.7122802734375,
+        569.072998046875,
+        -110.0,
+        82.75111389160156,
+        -423.6221618652344,
+        35.656707763671875
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_006",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_base_link_mujoco_ec9f7fce_convex_006.stl",
+      "before_bounds": [
+        -209.6332244873047,
+        166.80105590820312,
+        -119.61506652832031,
+        688.9502563476562,
+        -60.37303161621094,
+        18.43963050842285
+      ],
+      "after_bounds": [
+        -209.6332244873047,
+        166.80105590820312,
+        -110.0,
+        688.9502563476562,
+        -83.78298950195312,
+        18.43963050842285
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_009",
+      "action": "removed_mount_face_protrusion"
+    },
+    {
+      "geom": "base_link_geom_collision_010",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_base_link_mujoco_ec9f7fce_convex_010.stl",
+      "before_bounds": [
+        605.7706298828125,
+        724.3741455078125,
+        372.1171569824219,
+        452.9721374511719,
+        -360.5770263671875,
+        -305.29132080078125
+      ],
+      "after_bounds": [
+        605.7706298828125,
+        724.3741455078125,
+        372.1171569824219,
+        452.9721374511719,
+        -500.39263916015625,
+        -423.66961669921875
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_012",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_base_link_mujoco_ec9f7fce_convex_012.stl",
+      "before_bounds": [
+        541.0732421875,
+        673.4476318359375,
+        -151.31497192382812,
+        -11.483941078186035,
+        -278.8312072753906,
+        -177.1523895263672
+      ],
+      "after_bounds": [
+        541.0732421875,
+        673.4476318359375,
+        -110.0,
+        -11.483941078186035,
+        -386.9494323730469,
+        -245.84414672851562
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_013",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_base_link_mujoco_ec9f7fce_convex_013.stl",
+      "before_bounds": [
+        96.24468231201172,
+        250.43093872070312,
+        -115.68560791015625,
+        591.633544921875,
+        -221.06568908691406,
+        -19.174449920654297
+      ],
+      "after_bounds": [
+        96.24468231201172,
+        250.43093872070312,
+        -110.0,
+        591.633544921875,
+        -306.7850646972656,
+        -26.60944175720215
+      ]
+    },
+    {
+      "geom": "base_link_geom_collision_014",
+      "action": "clipped_and_height_extended",
+      "file": "D:\\mingti\\outputs\\gripper_platform_integration\\adjacent_face_v1\\assets\\side_v1_base_link_mujoco_ec9f7fce_convex_014.stl",
+      "before_bounds": [
+        74.13802337646484,
+        174.0920867919922,
+        138.3015594482422,
+        163.03994750976562,
+        -143.7395477294922,
+        -131.47030639648438
+      ],
+      "after_bounds": [
+        74.13802337646484,
+        174.0920867919922,
+        138.3015594482422,
+        163.03994750976562,
+        -199.4752960205078,
+        -182.44859313964844
+      ]
+    }
+  ],
+  "added_cameras": [
+    "capture_wrist_cam"
+  ],
+  "real_window_collision": {
+    "source": "dual_arm_mujoco_14mm_stroke26/scene.xml",
+    "convex_pieces": 898,
+    "mass_inertia": "unchanged",
+    "old_hull": "internal explicit pair only"
+  },
+  "capture_camera_mount": "Fixed to new gripper housing front-side, oblique toward grasp centre",
+  "soft_pad_trial": {
+    "model": "Equivalent compliant contact, not continuum foam",
+    "solref": [
+      0.03,
+      1
+    ],
+    "solimp": [
+      0.3,
+      0.95,
+      0.002,
+      0.5,
+      2
+    ],
+    "max_compression_m": 0.002,
+    "target_force_n": 5,
+    "mass_inertia_unchanged": true
+  },
+  "layout_variant": "adjacent_face_v1"
+}

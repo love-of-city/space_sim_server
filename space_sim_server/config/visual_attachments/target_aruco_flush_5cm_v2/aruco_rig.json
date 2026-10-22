@@ -1,0 +1,164 @@
+{
+  "schema": "space-arm-fiducials/2",
+  "dictionary": "DICT_4X4_50",
+  "body": "capture_target",
+  "face": "+Y",
+  "units": "metres",
+  "size_definition": "outer black border; white margin is one extra module per edge",
+  "markers": [
+    {
+      "id": 0,
+      "size_m": 0.05,
+      "center_m": [
+        0.11549999999999999,
+        0.05476,
+        0.1920787001299893
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "010110",
+        "001010",
+        "000110",
+        "000100",
+        "000000"
+      ],
+      "surface_center_m": [
+        0.11549999999999999,
+        0.05475,
+        0.1920787001299893
+      ]
+    },
+    {
+      "id": 1,
+      "size_m": 0.05,
+      "center_m": [
+        0.2355,
+        0.05476,
+        0.1920787001299893
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "000000",
+        "011110",
+        "010010",
+        "010100",
+        "000000"
+      ],
+      "surface_center_m": [
+        0.2355,
+        0.05475,
+        0.1920787001299893
+      ]
+    },
+    {
+      "id": 2,
+      "size_m": 0.05,
+      "center_m": [
+        0.11549999999999999,
+        0.05476,
+        -0.1079212998700107
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "000110",
+        "000110",
+        "000100",
+        "011010",
+        "000000"
+      ],
+      "surface_center_m": [
+        0.11549999999999999,
+        0.05475,
+        -0.1079212998700107
+      ]
+    },
+    {
+      "id": 3,
+      "size_m": 0.05,
+      "center_m": [
+        0.2355,
+        0.05476,
+        -0.1079212998700107
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "010010",
+        "010010",
+        "001000",
+        "001100",
+        "000000"
+      ],
+      "surface_center_m": [
+        0.2355,
+        0.05475,
+        -0.1079212998700107
+      ]
+    }
+  ],
+  "mounting": {
+    "mounting_plate": false,
+    "plate_thickness_m": 0,
+    "physical_film_thickness_m": 0,
+    "surface_y_m": 0.05475,
+    "render_depth_bias_m": 1e-05,
+    "layout_version": "flush_5cm_v2"
+  },
+  "black_side_m": 0.05,
+  "white_side_m": 0.06666666666666667,
+  "surface_y_m": 0.05475,
+  "render_depth_bias_m": 1e-05,
+  "physical_thickness_m": 0,
+  "grasp_center_target_m": [
+    0.1755,
+    0.05475,
+    0.0420787001299893
+  ],
+  "symmetric_offsets_m": [
+    0.06,
+    0.15
+  ],
+  "attachment": "zero-thickness visual film; no mounting boards",
+  "hole_bridging_authorized": true,
+  "physical_support": "partial, film bridges unused holes; no film structural model",
+  "numerical_surface_tolerance_m": 1e-07
+}

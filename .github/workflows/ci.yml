@@ -42,7 +42,7 @@ jobs:
         if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python -m venv ../.venv-ci
-          ../.venv-ci/Scripts/python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
+          ../.venv-ci/Scripts/python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture,vision]" "ruff==0.15.7"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Save right after installing so a failing test run still warms the cache.
       - name: Save Python environment

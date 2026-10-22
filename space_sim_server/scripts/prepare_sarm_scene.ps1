@@ -29,6 +29,11 @@ $selected = @(& $pythonExe @selectionArgs)
 if ($LASTEXITCODE -ne 0 -or $selected.Count -ne 1) { throw 'Selected SARM scene/assets failed validation; see the model diagnostic above.' }
 $scene = [string]$selected[0]
 $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
+if ($TemplateId -eq 'sarm-dual-capture26') {
+    & $pythonExe (Join-Path $projectRoot 'tools\verify_capture26_import.py') --adapter-root $AdapterRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Capture26 model/assets validation failed.' }
+    return
+}
 $catalogName = 'sarm_platform.catalog.json'
 $destination = '/Game/BSK/Generated/SARM'
 if ($TemplateId -in @('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo')) {

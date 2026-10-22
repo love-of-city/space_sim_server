@@ -114,6 +114,11 @@ class CameraVisual:
     capture_products: Sequence[str] = ()
     camera_mode: str = "rgb"
 
+    capture_consumer: str = "dataset"
+    # Zero preserves the renderer's existing exposure settings.
+    exposure_time_s: float = 0.0
+    aperture_fnumber: float = 0.0
+
     def to_payload(self) -> dict[str, Any]:
         if self.camera_mode not in ("rgb", "fisheye", "monochrome"):
             raise ValueError("unsupported camera_mode")
@@ -121,6 +126,12 @@ class CameraVisual:
             not math.isfinite(self.field_of_view_rad) or not 0 < self.field_of_view_rad < math.pi
         ):
             raise ValueError("fisheye field_of_view_rad must be between 0 and pi (exclusive)")
+        if self.capture_consumer not in {"dataset", "vision"}:
+            raise ValueError("capture_consumer must be dataset or vision")
+        for name in ("exposure_time_s", "aperture_fnumber"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
         products = [str(value).strip().lower() for value in self.capture_products]
         unknown = sorted(set(products) - {"rgb"})
         if unknown:
@@ -141,6 +152,9 @@ class CameraVisual:
             "picture_in_picture_slot": int(self.picture_in_picture_slot),
             "capture_products": list(dict.fromkeys(products)),
             "camera_mode": self.camera_mode,
+            "capture_consumer": self.capture_consumer,
+            "exposure_time_s": float(self.exposure_time_s),
+            "aperture_fnumber": float(self.aperture_fnumber),
         }
 
 

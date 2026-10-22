@@ -34,6 +34,9 @@ class OperatorAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["operator_action"] = "operator_action"
+    active_arm: Literal["operating", "capture"] = "operating"
+    capture_radial_velocity: Annotated[FiniteFloat, Field(ge=-1, le=1)] = 0.0
+    capture_axial_velocity: Annotated[FiniteFloat, Field(ge=-1, le=1)] = 0.0
     client_sequence: int = Field(ge=0)
     client_time_ns: str
     deadman: bool
@@ -60,6 +63,9 @@ class AppliedAction(BaseModel):
 
     protocol: Literal[CONTROL_PROTOCOL] = CONTROL_PROTOCOL
     type: Literal["action"] = "action"
+    active_arm: Literal["operating", "capture"] = "operating"
+    capture_radial_velocity_m_s: FiniteFloat = 0.0
+    capture_axial_velocity_m_s: FiniteFloat = 0.0
     reset_generation: str = ""
     episode_id: str | None = None
     server_sequence: str

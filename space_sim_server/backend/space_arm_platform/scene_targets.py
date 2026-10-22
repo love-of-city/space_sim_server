@@ -110,3 +110,12 @@ def capture_target(template_id: str) -> CaptureTarget:
         return TARGETS[template_id]
     except KeyError as error:
         raise ValueError(f"unsupported scene template: {template_id}") from error
+
+
+DUAL_CAPTURE_TEMPLATE = 'sarm-dual-capture26'
+TARGETS[DUAL_CAPTURE_TEMPLATE] = replace(
+    TARGETS[SARM_20261012_TEMPLATE], model_file='sarm_dual_capture26.xml',
+    collision_model='dual_capture26_import_preview',
+    runtime_warning='新版带贴图 SARM 与任务盒 + 底部四 L 爪。两臂可独立选择遥操作，抓取臂初始收起；精细目标碰撞和完整抓取轨迹尚待平台验证。')
+
+SARM_TEMPLATES += (DUAL_CAPTURE_TEMPLATE,)

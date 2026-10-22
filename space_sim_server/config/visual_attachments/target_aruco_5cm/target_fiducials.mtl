@@ -1,0 +1,21 @@
+newmtl black
+Kd 0 0 0
+Ka 0 0 0
+Ks 0 0 0
+Ns 0
+illum 1
+
+newmtl white
+Kd 1 1 1
+Ka 0 0 0
+Ks 0 0 0
+Ns 0
+illum 1
+
+newmtl mount
+Kd 0.3 0.3 0.3
+Ka 0 0 0
+Ks 0 0 0
+Ns 0
+illum 1
+

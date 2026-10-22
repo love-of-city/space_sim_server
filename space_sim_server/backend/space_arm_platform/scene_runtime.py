@@ -30,6 +30,9 @@ from .control_defaults import (
     ZERO_START_TELEOP_PROFILE, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG,
 )
 from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
+
+SCENE_RENDER_PROFILES = json.loads(
+    (Path(__file__).resolve().parents[2] / 'config/scene_render_profiles.json').read_text(encoding='utf-8'))
 from .scene_targets import SARM_20261012_TEMPLATE, SARM_SDF_TEMPLATE, SARM_DEMO_TEMPLATE, SARM_TEMPLATES
 
 
@@ -83,6 +86,13 @@ SCENE_TEMPLATES += tuple(dict(id=name, label=label,
     camera_ids=['teleop/camera/spacecraft_overview', 'teleop/camera/sarm_wrist_cam'])
     for name, label in ((SARM_DEMO_TEMPLATE, '防脱紧固件 · 自动拧紧/拧松演示'),
                         (SARM_SDF_TEMPLATE, '新版 SARM · 原始 SDF 螺纹对照')))
+
+SCENE_TEMPLATES += ({
+    'id': 'sarm-dual-capture26',
+    'label': '双臂 SARM + 四 L 爪（26 mm 行程·导入预览）',
+    'description': capture_target('sarm-dual-capture26').runtime_warning,
+    'camera_ids': SCENE_RENDER_PROFILES['sarm-dual-capture26']['camera_ids'],
+},)
 
 RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     {
@@ -420,6 +430,10 @@ class SceneRuntimeManager:
         instance = _sample_instance(request, seed, created_by)
         if mission is not None:
             instance["mission"] = dict(mission)
+        if request.template_id in SCENE_RENDER_PROFILES:
+            profile = SCENE_RENDER_PROFILES[request.template_id]
+            instance['render_profile'] = dict(profile)
+            instance['randomization']['capture_window_trial'] = profile['automatic_capture_default']
         if request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE:
             from .preparation_planning import prepare_arm_plan
             model_root = self.launch.model_root if self.launch else self.project_root / "model/SARM/platform"
@@ -493,7 +507,10 @@ class SceneRuntimeManager:
                 "-RenderPort", str(self.launch.render_port),
                 "-PixelStreamerPort", str(self.launch.pixel_streamer_port),
                 "-PixelStreamingId", self.launch.pixel_streaming_id,
-                "-PixelStreamingCameraIds", ",".join(self.launch.pixel_streaming_camera_ids),
+                "-PixelStreamingCameraIds", ",".join(dict.fromkeys([
+                    *self.launch.pixel_streaming_camera_ids,
+                    *SCENE_RENDER_PROFILES.get(request.template_id, {}).get('camera_ids', []),
+                ])),
                 "-PixelStreamingCameraWidth", str(self.launch.pixel_streaming_camera_width),
                 "-PixelStreamingCameraHeight", str(self.launch.pixel_streaming_camera_height),
                 "-PreviewRate", str(self.launch.preview_rate),

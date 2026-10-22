@@ -51,6 +51,12 @@
   <main id="operatePage" class="workspace" data-platform-page="operate">
     <section id="viewport" class="viewport" tabindex="0" role="button" aria-pressed="false" aria-label="点击进入机械臂键盘或手柄操作模式；按 C 进入自由视角，Home 返回主视角">
       <div id="pixelStream" tabindex="-1" class="pixel-stream" title="UE Pixel Streaming 实时画面"></div>
+      <canvas id="wristVisionCanvas" class="wrist-vision-canvas" hidden aria-hidden="true"></canvas>
+      <aside id="wristVisionPanel" class="wrist-vision-panel" hidden aria-label="抓夹视觉对准误差">等待末端相机识别</aside>
+      <aside id="mainCompanion" class="main-companion" hidden aria-label="实时主视口小窗">
+        <strong id="mainCompanionTitle">主视口 · 保留中键观察角度</strong>
+        <div id="mainCompanionVideo"></div>
+      </aside>
       <div id="previewEmpty" class="preview-empty">
         <span class="signal-mark" aria-hidden="true"></span>
         <strong id="previewEmptyTitle">等待实时画面</strong>
@@ -75,7 +81,9 @@
           <button id="resetScene" class="quiet-button" type="button" disabled title="恢复本次场景的机械臂、夹爪、目标物及仿真时间；保持原随机种子">一键复原初始位置</button>
           <label class="sr-only" for="videoFpsSelector">视频目标帧率</label>
           <select id="videoFpsSelector" aria-label="视频目标帧率" title="目标而非保证帧率；网络较差选 30/60，高刷屏可选 90。影响共享 UE 实例。"></select>
+          <button id="workLightToggle" class="quiet-button" type="button" disabled aria-pressed="false" title="控制当前视角对应的工作灯，各灯独立；不改变太阳、质量或姿控">工作灯：未连接</button>
           <button id="copyVideoDiagnostics" class="quiet-button" type="button">复制诊断</button>
+          <a class="quiet-button" href="/api/vision/view" target="_blank" rel="noopener">双目定位</a>
         </div>
         <span id="frameState" class="frame-state">NO SIGNAL</span>
       </div>
@@ -105,7 +113,21 @@
           <p class="eyebrow">OPERATOR CONTROL</p>
           <h1 id="controlHeading">末端六维遥操作</h1>
         </div>
-        <p id="controlDescription">点击画面操作机械臂，Shift 切换姿态；C 进入全局自由视角，WASD/QE 移动、Shift 加速、鼠标观察；C/Home 返回主视角，Esc 停止输入并退出。</p>
+        <p id="controlDescription">各视角均可按住中键拖动观察，Home 恢复；相机安装位姿不变。左键点击画面操作机械臂，Shift 切换姿态；主视口按 C 进入自由视角，WASD/QE 移动；Esc 停止输入。</p>
+      </section>
+
+      <section class="control-section">
+        <label>控制机械臂（与相机选择独立）
+          <select id="controlledArm"><option value="operating">原操作臂</option><option id="captureArmOption" value="capture" disabled>底部抓取臂</option></select>
+        </label>
+        <div id="captureToolControls" hidden>
+          <p>点击画面进入操作后，按住按钮运动，松开停止。F/R 也可控制径向开合。</p>
+          <button type="button" data-capture-axis="radial" data-rate="1">张开四爪</button>
+          <button type="button" data-capture-axis="radial" data-rate="-1">收拢四爪</button>
+          <button type="button" data-capture-axis="axial" data-rate="-1">伸出爪架</button>
+          <button type="button" data-capture-axis="axial" data-rate="1">回拉爪架</button>
+          <small id="captureToolStatus"></small>
+        </div>
       </section>
 
       <section id="mission" class="control-section scene-controls">
@@ -336,6 +358,12 @@
           <div><dt>仿真时间</dt><dd id="simTime">—</dd></div>
           <div><dt>动作序号</dt><dd id="actionSequence">—</dd></div>
           <div><dt>末端位置</dt><dd id="toolPosition">—</dd></div>
+          <div><dt>两星原点距离</dt><dd id="relativeDistance">—</dd></div>
+          <div><dt>编队保持（理想推力）</dt><dd id="formationHold">—</dd></div>
+          <div><dt>保持位置误差</dt><dd id="formationError">—</dd></div>
+          <div><dt>轨道系相对速度</dt><dd id="formationVelocity">—</dd></div>
+          <div><dt>两星相对速度（惯性系）</dt><dd id="relativeVelocity">—</dd></div>
+          <div><dt>两星相对角速度（惯性系）</dt><dd id="relativeAngularVelocity">—</dd></div>
           <div><dt>腕部力 X/Y/Z</dt><dd id="wristForce">—</dd></div>
           <div><dt>腕部力矩 X/Y/Z</dt><dd id="wristTorque">—</dd></div>
           <div><dt>测力坐标与时刻</dt><dd id="wristWrenchDetail">—</dd></div>

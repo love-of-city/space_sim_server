@@ -396,6 +396,31 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
             Object->TryGetStringField(TEXT("semantic_label"), Definition.SemanticLabel);
             Object->TryGetBoolField(TEXT("picture_in_picture"), Definition.bPictureInPicture);
             Object->TryGetNumberField(TEXT("capture_rate_hz"), Definition.CaptureRateHertz);
+            if (Object->HasField(TEXT("capture_consumer"))
+                && !Object->TryGetStringField(TEXT("capture_consumer"), Definition.CaptureConsumer))
+            {
+                Error = TEXT("camera capture_consumer must be a string");
+                return false;
+            }
+            if (Definition.CaptureConsumer != TEXT("dataset") && Definition.CaptureConsumer != TEXT("vision"))
+            {
+                Error = TEXT("camera capture_consumer must be dataset or vision");
+                return false;
+            }
+            if ((Object->HasField(TEXT("exposure_time_s"))
+                 && !Object->TryGetNumberField(TEXT("exposure_time_s"), Definition.ExposureTimeSeconds))
+                || (Object->HasField(TEXT("aperture_fnumber"))
+                    && !Object->TryGetNumberField(TEXT("aperture_fnumber"), Definition.ApertureFNumber)))
+            {
+                Error = TEXT("camera exposure/aperture must be numeric");
+                return false;
+            }
+            if (!FMath::IsFinite(Definition.ExposureTimeSeconds) || Definition.ExposureTimeSeconds < 0.0
+                || !FMath::IsFinite(Definition.ApertureFNumber) || Definition.ApertureFNumber < 0.0)
+            {
+                Error = TEXT("camera exposure/aperture must be finite and non-negative");
+                return false;
+            }
             double PictureInPictureSlot = 0.0;
             if (Object->TryGetNumberField(TEXT("picture_in_picture_slot"), PictureInPictureSlot))
             {
@@ -486,6 +511,33 @@ bool ParseFrame(const TSharedPtr<FJsonObject>& Root, FBskRenderFrame& Out, FStri
         return false;
     }
     TryReadInt64(Root, TEXT("wall_time_ns"), Out.WallTimeNanoseconds);
+    if (Root->HasField(TEXT("vision_capture_requested"))
+        && !Root->TryGetBoolField(TEXT("vision_capture_requested"), Out.bVisionCaptureRequested))
+    {
+        Error = TEXT("vision_capture_requested must be a boolean");
+        return false;
+    }
+    if (Out.bVisionCaptureRequested)
+    {
+        const TArray<TSharedPtr<FJsonValue>>* CameraIds = nullptr;
+        if (!Root->TryGetArrayField(TEXT("vision_capture_camera_ids"), CameraIds)
+            || CameraIds == nullptr || CameraIds->IsEmpty() || CameraIds->Num() > 16)
+        {
+            Error = TEXT("vision capture requires 1 to 16 camera ids");
+            return false;
+        }
+        for (const auto& CameraId : *CameraIds)
+        {
+            FString Id;
+            if (!CameraId.IsValid() || !CameraId->TryGetString(Id) || Id.IsEmpty()
+                || Id.Len() > 256 || Out.VisionCaptureCameraIds.Contains(Id))
+            {
+                Error = TEXT("vision camera ids must be unique non-empty strings <=256 characters");
+                return false;
+            }
+            Out.VisionCaptureCameraIds.Add(MoveTemp(Id));
+        }
+    }
     TryReadInt64(Root, TEXT("manifest_revision"), Out.ManifestRevision);
     if (!ReadVector3(Root, TEXT("origin_N_m"), Out.OriginInertialMeters, true, Error)) return false;
 

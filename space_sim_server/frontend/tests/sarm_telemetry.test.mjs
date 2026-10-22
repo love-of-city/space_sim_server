@@ -1,3 +1,4 @@
+import {armObservation} from "../dual_arm.js";
 import { formatWristWrench } from "../wrist_wrench.js";
 import { formatMotionSpeedDiagnostics } from "../motion_diagnostics.js";
 import { readFileSync } from "node:fs";
@@ -7,7 +8,7 @@ import assert from "node:assert/strict";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "../control_status.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const start = source.indexOf('const obs = message.payload;', source.indexOf('message.type === "observation"'));
+const start = source.indexOf('const raw = message.payload;', source.indexOf('message.type === "observation"'));
 const observationHandler = source.slice(start, source.indexOf('} else if (message.type === "action_ack")', start));
 
 function observe(payload, state = {}) {
@@ -19,7 +20,7 @@ function observe(payload, state = {}) {
     return nodes.get(id);
   };
   vm.runInNewContext(`(()=>{${observationHandler}})()`, {
-    state,
+    state: {controlledArm: "operating", ...state}, armObservation,
     armPreparation: { update() {} },
     referenceProtectionLabel, dynamicsTimingLabel, formatWristWrench,
     message: { payload }, $, setOnline() {}, formatMotionSpeedDiagnostics,

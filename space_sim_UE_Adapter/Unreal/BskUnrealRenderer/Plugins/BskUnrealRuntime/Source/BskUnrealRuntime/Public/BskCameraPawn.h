@@ -33,6 +33,7 @@ public:
     bool IsFreeCameraActive() const { return bFreeCameraActive; }
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
+    void ApplyPreviewOrbit(double Yaw, double Pitch);
     void SetMainViewTransform(const FVector& Location, const FRotator& Rotation);
 
     UFUNCTION(BlueprintCallable, Category="BSK Renderer|Camera")

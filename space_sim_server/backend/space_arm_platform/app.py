@@ -26,6 +26,8 @@ from .auth import SESSION_COOKIE, AuthError, AuthStore
 from .policy_api import PolicySessions, install_policy_routes
 from .policy_observation import PolicyObservationCache
 from .capture_receiver import CaptureReceiver
+from .vision_service import StereoVisionService
+from .wrist_vision_service import WristVisionService
 from .jobs import JobManager
 from .models import (
     EpisodeStart, EpisodeStop, LoginRequest, OperatorAction, OperatorCreate,
@@ -213,6 +215,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     )
     capture_lifecycle = CaptureLifecycle(hub, recorder)
     sessions = OperatorSessions()
+    vision = StereoVisionService(config.project_root)
+    wrist_vision = WristVisionService(config.project_root)
     policy_cache = PolicyObservationCache()
 
     def record_current_capture(metadata: dict[str, Any], products: dict[str, bytes]) -> None:
@@ -227,6 +231,16 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         policy_cache.record_capture(metadata, products)
         recorder.record_authoritative_capture(metadata, products)
 
+    def accept_vision_capture(metadata, products):
+        if hub.resetting:
+            return
+        observation = hub.latest_observation
+        if (observation and observation.render_session_id
+                and metadata.get('session_id') != observation.render_session_id):
+            return
+        vision.on_capture(metadata, products)
+        wrist_vision.on_capture(metadata, products)
+
     def capture_failed(reason: str) -> None:
         policy_cache.fail(reason)
         recorder.fail(reason)
@@ -236,6 +250,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         config.capture_port,
         record_current_capture,
         capture_failed,
+        on_vision_capture=accept_vision_capture,
     )
     launch_config = None
     if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root)) and (
@@ -330,6 +345,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         await hub.start(config.simulation_host, config.simulation_port)
         if config.rendezvous_port:
             await rendezvous.start("127.0.0.1", config.rendezvous_port)
+        vision.start()
+        wrist_vision.start()
         captures.start()
         timeout_task = asyncio.create_task(watchdog(), name="deadman-watchdog")
         policy_watchdog_task = asyncio.create_task(policy_watchdog(), name="policy-watchdog")
@@ -362,6 +379,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             await asyncio.to_thread(scenes.close)
             policy.scene_stopped()
             await asyncio.to_thread(captures.close)
+            await asyncio.to_thread(vision.close)
+            await asyncio.to_thread(wrist_vision.close)
             await asyncio.to_thread(recorder.close)
             await hub.close()
             await rendezvous.close()
@@ -380,6 +399,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     app.state.rendezvous = rendezvous
     app.state.rendezvous_runtime = rendezvous_runtime
     app.state.captures = captures
+    app.state.vision = vision
     app.state.sessions = sessions
     app.state.jobs = jobs
     app.state.tasks = tasks
@@ -977,6 +997,39 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     @app.get("/api/cameras")
     async def cameras() -> dict[str, Any]:
         return {"cameras": captures.camera_ids()}
+
+    @app.get('/api/vision/status')
+    async def vision_status():
+        return vision.status()
+
+    @app.get('/api/vision/wrist/status')
+    async def wrist_vision_status():
+        if hub.resetting or not hub.connected or scenes.status().get('phase')!='running':
+            wrist_vision.invalidate('waiting','场景未就绪或正在复位')
+        observation=hub.latest_observation
+        state=wrist_vision.status()
+        if (observation and observation.render_session_id and state['session_id']
+                and state['session_id']!=observation.render_session_id):
+            wrist_vision.invalidate('waiting','等待新场景图像')
+            state=wrist_vision.status()
+        return state
+
+    @app.get('/api/vision/view')
+    async def vision_view():
+        return FileResponse(config.project_root / 'frontend' / 'stereo_vision.html')
+
+    @app.get('/api/vision/diagnostics')
+    async def vision_diagnostics():
+        return vision.diagnostics()
+
+    @app.get('/api/vision/image/{eye}')
+    async def vision_image(eye: str):
+        if eye not in {'left', 'right'}:
+            raise HTTPException(status_code=404, detail='unknown stereo eye')
+        image = vision.latest_image(eye)
+        if image is None:
+            raise HTTPException(status_code=404, detail='stereo camera has not produced an image')
+        return Response(image, media_type='image/png', headers={'Cache-Control': 'no-store'})
 
     @app.get("/api/preview/{camera_id:path}")
     async def preview(camera_id: str) -> Response:

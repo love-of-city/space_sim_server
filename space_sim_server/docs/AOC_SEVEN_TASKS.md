@@ -4,7 +4,7 @@
 
 ## 任务来源
 
-- [项目表](https://acndpm3fvl11.feishu.cn/wiki/KXyiw0KMgiWJGhktSKocw5EznAf)：最近核对 revision 1083，共 97 条；本人直接或共同执行 10 条，8 条标为已完成，2 条进行中。姿轨控与远程交会项目截止时间为 2026-10-31。
+- [项目表](https://acndpm3fvl11.feishu.cn/wiki/KXyiw0KMgiWJGhktSKocw5EznAf)：2026-10-22 核对任务表 revision 1188，共 101 条；按成员记录 `recvuDNd6JROUn` 关联，本人直接或共同执行 11 条，9 条已完成、2 条进行中。项目截止以项目表为准；以下保留逐项核对结果。
 - [10/15 人工分工](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=112)与[差分 GNSS 补充](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=116)：负责远距交会、差分 GNSS、远近距传感器同步及仿真合并。
 - [10/15 会议](https://acndpm3fvl11.feishu.cn/docx/Pou4dAxcrozvqqxVaYNcPydcnEH)及[原文](https://acndpm3fvl11.feishu.cn/docx/UgZqdB6fjoqERzxMNepcxeornkc)：恢复全局和手眼相机，统一 UI，验证大气阻力实际施力，与张怿心共同完成仓库合并。人工分工优先于智能纪要中的模糊归属。
 - [10/8 原文](https://acndpm3fvl11.feishu.cn/docx/I1OPdBVJsorEAAxAsz6cfKvdnAh)与[迁移指南](https://lcnrp8hlo6f2.feishu.cn/docx/Yo0FdbIxWoO7gBxViPdcpqVenRg)：沿用团队统一仓库、原工作台、真实模型与动力学。通信时延现已接入，不再沿用早期“暂缓”口径。
@@ -21,10 +21,13 @@
 | recvw5Z4qlhkrf | 300→500 km 升轨及双星 GNSS／已完成 | 从 300 km **在轨初态**开始；有限推力升轨、接近、保持和独立数值复核；不代表火箭发射仿真 |
 | reczz28KuW3GWuBG | GNSS 与随机轨道误差／已完成 | 共享接收机配置、联合协方差、随机初态及独立扰动力；噪声统计与种子复现 |
 | reczz28MIzMlzVW1 | 大气阻力等物理量／已完成 | 阻力、太阳光压及扰动进入物理端口；外力闭合和轨迹响应检查，不仅检查参数存在 |
-| reczz28NVX8mZCV2 | 合并三个任务模式／进行中 | 三起点共用工作台已验证；两条交会完成全程数值验收，7 km 实际网页连续接续、控制、采集及数据回读通过 |
+| reczz28NUNEauWol | 对接阶段一：差分 GPS、100 m～17.4 m（真实姿轨控）／进行中 | 当前新增关联；已有定位结果层差分 GNSS 与近距制导，姿控仍使用独立真值链路，不能声称带误差姿态估计闭环已完成；线上截止 2026-10-22 |
+| reczz28NVX8mZCV2 | 合并三个任务模式／已完成 | 三起点共用工作台已验证；两条交会完成全程数值验收，7 km 实际网页连续接续、控制、采集及数据回读通过 |
 | recvw6cgNrMWw5 | 代码管理与仓库合并／进行中 | 本人分支已同步团队底座及 PR27，服务端与适配器在同一 PR 交付并完成云端联调；团队 main 的合并仍由维护者审查 |
 
-本人当前职责内的代码交付与已交付模块联调已完成，实际验证范围见 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。表中线上状态保留核对结果，不因工程验收通过自动改写。三起点始终保留遥操作与采集区；真实图像导航、物理锁定等外部模块不计为本人当前未完成开发任务。
+截至 10/21 的既有交会集成验证范围见 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。10/22 主线 PR28 新增双臂模型与图像位姿实验，本次同步保留连续交会工作台及团队新增功能；旧版验证不自动覆盖本次合并后的运行行为。
+
+[10/22 群聊](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=133)向本人及张怿心提出模拟陀螺反馈，刘丹旭补充用于修正抓取残余运动。[PR29](https://github.com/love-of-city/space_sim_server/pull/29)单独交付带误差和物理时戳的服务星角速度接口，尚待云端原生与场景验收，未接入姿态估计及盲区抓取闭环。表中线上状态不随代码提交自动改写；其他成员尚未交付的算法仍按实际协作边界管理。
 
 [项目群的周报要求](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=44)：每周日 20:00 前提交覆盖周一至周日的进度，每份关联一个任务，实验结果附链接；工时按本人实际投入填写。线上周报与任务状态不随源码修改自动更新。
 
@@ -59,6 +62,6 @@
 | 席梓杰：PnP 与目标姿态 | 靶点几何及编码、相对位姿/时间戳/协方差/失效标志、靶点到抓取接口变换、靶面朝向 |
 | 刘丹旭：抓取机构 | 实际夹爪与目标几何、允许载荷、禁触区、接触/锁定/捕获确认条件 |
 
-本人负责已交付模块的接口接入和全流程验证；其他成员尚未交付的算法、相机及机构不列为本人当前未完成开发任务。当前固定本体参数化双目、两指夹爪和逻辑 CaptureHold 不证明真实腕部图像闭环、物理锁定或载荷传递。[1009 调研](https://lcnrp8hlo6f2.feishu.cn/docx/M65TdsVeDoH7YdxgkA9cAIT5nag)中的选型及安装参数属于工程初值，必须与最终实际资产和标定对应。
+本人负责已交付模块的接口接入和全流程验证；其他成员尚未交付的算法、相机及机构不列为本人当前未完成开发任务。PR28 已交付双臂模型、靶标与真实图像位姿实验快照，尚未完成与连续交会模型、相机标定和阶段交接的运行联调。当前连续交会的固定本体参数化双目、两指夹爪和逻辑 CaptureHold 不证明真实腕部图像闭环、物理锁定或载荷传递。[1009 调研](https://lcnrp8hlo6f2.feishu.cn/docx/M65TdsVeDoH7YdxgkA9cAIT5nag)中的选型及安装参数属于工程初值，必须与最终实际资产和标定对应。
 
 双星装配质心距离、本体原点距离、原点到抓取点模长、相机光轴深度与 TCP 间隙必须分开。当前近距依次通过质心沿轨50 m、光学深度17.4 m、光学深度5.50 m和收拢TCP抓取面间隙0.5 m四节点，每点满足联合条件连续5 s。5.50 m放行前保持质心 V-bar，之后平滑引入抓取偏置；几何由原模型质量和FK求得，随manifest与交接保存。0.5 m参考定义依据用户授权作工程选择，不能称为团队已签署约定；参数化导航也不代表真实图像识别。控制条件与独立复核见[近距接口](NEAR_FIELD_RENDEZVOUS.md)。

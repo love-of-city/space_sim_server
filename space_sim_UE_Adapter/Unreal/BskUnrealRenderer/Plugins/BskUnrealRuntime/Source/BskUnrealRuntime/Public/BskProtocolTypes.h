@@ -110,6 +110,9 @@ struct BSKUNREALRUNTIME_API FBskCameraDefinition
     double CaptureRateHertz = 15.0;
     int32 PictureInPictureSlot = 0;
     TArray<FString> CaptureProducts;
+    FString CaptureConsumer = TEXT("dataset");
+    double ExposureTimeSeconds = 0.0;
+    double ApertureFNumber = 0.0;
 };
 
 struct BSKUNREALRUNTIME_API FBskUiCommandDefinition
@@ -227,6 +230,8 @@ struct BSKUNREALRUNTIME_API FBskRenderFrame
     // Presence distinguishes on-demand peers from legacy always-capture peers.
     bool bCaptureOnDemand = false;
     FString CaptureEpisodeId;
+    bool bVisionCaptureRequested = false;
+    TArray<FString> VisionCaptureCameraIds;
     int64 SimulationTimeNanoseconds = 0;
     int64 WallTimeNanoseconds = 0;
     FVector3d OriginInertialMeters = FVector3d::ZeroVector;

@@ -18,14 +18,15 @@ function harness(data, fail = false) {
     return nodes.get(id);
   };
   const state = {stateRequestSequence: 0, activePage: 'operate', sceneReady: true, lastAckAt: 123};
+  const sceneMissions = [];
   const context = vm.createContext({$, state,
     apiRequest: async () => {if (fail) throw new Error('disconnected'); return {ok: true, json: async () => data};},
     setOnline() {}, setMessage() {}, updateOperationUI() {},
-    applySceneRuntime(runtime) {state.sceneReady = runtime.ready;},
+    applySceneRuntime(runtime, mission) {state.sceneReady = runtime.ready; sceneMissions.push(mission);},
     jointAngles: {clear() {}}, missionPanel: {render(mission) {state.mission = mission;}, failed() {}},
   });
   vm.runInContext(functions, context);
-  return {$, state, refresh: () => context.refreshState()};
+  return {$, state, sceneMissions, refresh: () => context.refreshState()};
 }
 
 test('flight refresh clears previous scene values and displays only live flight telemetry', async () => {
@@ -37,6 +38,8 @@ test('flight refresh clears previous scene values and displays only live flight 
   assert.equal(h.$('simTime').textContent, '123.500 s');
   assert.equal(h.$('bodyRate').textContent, '0.0000, 0.0000, 0.0010 rad/s');
   assert.equal(h.state.lastAckAt, 0);
+  assert.equal(h.sceneMissions[0].stage, 'flight');
+  assert.equal(h.sceneMissions[0].telemetry.sim_time_s, 123.5);
 });
 
 test('disconnected and resetting scenes do not retain old measured state', async () => {

@@ -352,12 +352,15 @@ async function loadSceneCatalog() {
   }
 }
 
-function applySceneRuntime(runtime = {}) {
+function applySceneRuntime(runtime = {}, mission = state.mission) {
   const previousPhase = state.scenePhase;
-  const phase = runtime.phase || "idle";
-  const active = Boolean(runtime.active);
+  // The arm executor retains its last instance after stopping. During flight
+  // it is not the current task's scene, even on the first state poll.
+  const flight = mission?.stage === "flight";
+  const phase = flight ? "idle" : runtime.phase || "idle";
+  const active = !flight && Boolean(runtime.active);
   const enabled = runtime.enabled !== false;
-  const instance = runtime.instance || {};
+  const instance = flight ? {} : runtime.instance || {};
   const ownerId = instance.created_by?.user_id;
   state.canManageScene = Boolean(state.currentUser) && (
     state.currentUser.role === "admin" || !ownerId || ownerId === state.currentUser.user_id
@@ -412,7 +415,7 @@ function applySceneRuntime(runtime = {}) {
   $("sceneParameters").textContent = instance.randomization
     ? JSON.stringify({ capture_target: instance.capture_target || {}, wrist_camera_mode: instance.wrist_camera_mode || "rgb", randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
-  if (runtime.error) setMessage(`场景失败：${runtime.error}`);
+  if (!flight && runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
     const readiness = instance.arm_preparation_required
       ? '等待机械臂准备实测到位后操作或采集' : '可进入操作或开始采集';
@@ -1484,7 +1487,7 @@ async function refreshState() {
     $("simState").textContent = data.simulation.connected ? "仿真在线" : "仿真未连接";
     state.activeEpisode = data.active_episode;
     $("episodePath").textContent = data.episode_directory || "—";
-    applySceneRuntime(data.scene_runtime || {});
+    applySceneRuntime(data.scene_runtime || {}, data.mission);
     if (data.mission) {
       setOnline("backendDot", true);
       $("backendState").textContent = "后端在线";

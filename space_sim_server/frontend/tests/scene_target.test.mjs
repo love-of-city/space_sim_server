@@ -36,6 +36,37 @@ function setup() {
   return { $, ctx, requests };
 }
 
+test("a new flight clears previous arm instance details and restores the actual handoff scene", () => {
+  const h = setup();
+  h.ctx.state.simulationConnected = true;
+  h.ctx.state.observationSceneId = "old-scene";
+  h.ctx.state.mission = {stage: "teleop", mission_id: "old-mission"};
+  const runtime = {phase: "running", active: true, instance: {
+    instance_id: "old-scene", seed: 91, template_id: current,
+    environment: {lighting: {sunlight_intensity_scale: 2}, orbit: {true_anomaly_deg: 45}},
+    randomization: {name: "previous"}, rendezvous_handoff: {source_run_id: "old-flight"},
+  }};
+  h.ctx.applySceneRuntime(runtime);
+  assert.equal(h.$("sceneInstanceId").textContent, "old-scene");
+  assert.equal(h.ctx.state.sceneReady, true);
+
+  h.ctx.applySceneRuntime(runtime, {stage: "flight", mission_id: "new-mission"});
+  for (const id of ["sceneInstanceId", "sceneInstanceSeed", "sceneInstanceTarget",
+    "sceneInstanceSunlight", "sceneInstanceOrbitPhase"]) assert.equal(h.$(id).textContent, "—", id);
+  assert.equal(h.$("sceneParameters").textContent, "尚未生成实例");
+  assert.equal(h.ctx.state.sceneInstanceId, null);
+  assert.equal(h.ctx.state.sceneReady, false);
+  assert.equal(h.$("resetScene").disabled, true);
+
+  h.ctx.state.observationSceneId = "new-scene";
+  h.ctx.applySceneRuntime({...runtime, instance: {...runtime.instance, instance_id: "new-scene", seed: 23}},
+    {stage: "teleop", mission_id: "new-mission"});
+  assert.equal(h.$("sceneInstanceId").textContent, "new-scene");
+  assert.equal(h.$("sceneInstanceSeed").textContent, 23);
+  assert.equal(h.$("sceneInstanceOrbitPhase").textContent, "继承交会终态");
+  assert.equal(h.ctx.state.sceneReady, true);
+});
+
 test("HTML and catalog default to coarse satellite self-contact, not the old boxes or triangles", async () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   assert.match(html, /<option value="sarm-ground-validation-self-collision-grasp">/);

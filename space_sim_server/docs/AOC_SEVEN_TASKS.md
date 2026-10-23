@@ -25,9 +25,9 @@
 | reczz28NVX8mZCV2 | 合并三个任务模式／已完成 | 三起点共用工作台已验证；两条交会完成全程数值验收，7 km 实际网页连续接续、控制、采集及数据回读通过 |
 | recvw6cgNrMWw5 | 代码管理与仓库合并／进行中 | 本人分支已同步团队底座及 PR27，服务端与适配器在同一 PR 交付并完成云端联调；团队 main 的合并仍由维护者审查 |
 
-截至 10/21 的既有交会集成验证范围见 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。10/22 主线 PR28 新增双臂模型与图像位姿实验，本次同步保留连续交会工作台及团队新增功能；旧版验证不自动覆盖本次合并后的运行行为。
+当前集成验证范围见 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。同步 PR28 后，`7a2bfac` 已完成云端真实浏览器的 7 km 连续任务：0.125 s GNSS 时延、远近距独立验收、四节点驻留、遥操作、双相机采集回读及重置通过。双臂场景另完成四路预览、两臂控制、陀螺观测和采集回读。300 km 在轨起点的完整任务仍以 10/21 旧版结果为基线，不能视为当前版本已重跑。
 
-[10/22 群聊](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=133)向本人及张怿心提出模拟陀螺反馈，刘丹旭补充用于修正抓取残余运动。[PR29](https://github.com/love-of-city/space_sim_server/pull/29)单独交付带误差和物理时戳的服务星角速度接口，尚待云端原生与场景验收，未接入姿态估计及盲区抓取闭环。表中线上状态不随代码提交自动改写；其他成员尚未交付的算法仍按实际协作边界管理。
+[10/22 群聊](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=133)向本人及张怿心提出模拟陀螺反馈，刘丹旭补充用于修正抓取残余运动。[PR29](https://github.com/love-of-city/space_sim_server/pull/29)单独交付带误差和物理时戳的服务星角速度接口，已完成云端原生调度、两种团队模型的运动响应及被动性检查，并结合实际场景核验重置与录制回读，现可评审；尚未接入姿态估计及盲区抓取闭环。表中线上状态不随代码提交自动改写；其他成员尚未交付的算法仍按实际协作边界管理。
 
 [项目群的周报要求](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=44)：每周日 20:00 前提交覆盖周一至周日的进度，每份关联一个任务，实验结果附链接；工时按本人实际投入填写。线上周报与任务状态不随源码修改自动更新。
 

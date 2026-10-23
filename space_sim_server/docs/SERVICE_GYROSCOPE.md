@@ -52,4 +52,4 @@
 & $env:SPACE_SIM_PYTHON -m pytest tests/test_gyroscope.py tests/test_gyro_observation.py tests/test_gyroscope_native.py tests/test_sarm_observation.py
 ```
 
-`test_gyroscope_native.py` 使用真实 Basilisk 消息与调度器验证发布顺序、时戳和过期拒绝；不替代整个平台动力学验收。完整验收还需在既有云端启动原模型与双臂场景，给机械臂运动输入，比较独立真值诊断与带噪观测，检查场景重置、录制回读及实际抓取消费端。运行结果以 PR 的验证证据为准。
+`test_gyroscope_native.py` 使用真实 Basilisk 消息与调度器验证发布顺序、时戳和过期拒绝；不替代整个平台动力学验收。云端已在原模型与双臂模型中施加机械臂运动，检查带噪观测及启用／禁用传感器时物理终态一致，并在实际网页场景核验重置和录制回读；证据见 [PR29](https://github.com/love-of-city/space_sim_server/pull/29) 与 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。实际抓取消费端仍需联调，以上检查不证明姿态估计或盲抓闭环完成。

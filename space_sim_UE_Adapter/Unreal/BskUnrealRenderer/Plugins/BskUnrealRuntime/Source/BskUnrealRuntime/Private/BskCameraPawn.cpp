@@ -2,6 +2,7 @@
 
 #include "BskSceneController.h"
 #include "BskRendererHUD.h"
+#include "BskRelativeView.h"
 #include "Async/Async.h"
 #include "IPixelStreaming2Module.h"
 #include "IPixelStreaming2Streamer.h"
@@ -102,7 +103,8 @@ void ABskCameraPawn::Tick(float DeltaSeconds)
 
 FRotator ABskCameraPawn::GetViewRotation() const
 {
-    return bFreeCameraActive ? FreeCameraOrientation.Rotator() : Super::GetViewRotation();
+    if (bFreeCameraActive) return FreeCameraOrientation.Rotator();
+    return RelativeViewMode.IsEmpty() ? Super::GetViewRotation() : GetActorQuat().Rotator();
 }
 
 void ABskCameraPawn::ApplyFreeLook(const FVector2D& Displacement)
@@ -117,6 +119,32 @@ void ABskCameraPawn::ApplyFreeLook(const FVector2D& Displacement)
 
 void ABskCameraPawn::UpdateTrackingCamera()
 {
+    if (!RelativeViewMode.IsEmpty())
+    {
+        if (!RelativeScene.IsValid()) RelativeScene = Cast<ABskSceneController>(UGameplayStatics::GetActorOfClass(GetWorld(), ABskSceneController::StaticClass()));
+        FBskRelativeViewState View;
+        if (RelativeScene.IsValid() && RelativeScene->GetRelativeViewState(View))
+        {
+            FTransform Pose;
+            if (RelativeViewMode == TEXT("overview") || RelativeViewMode == TEXT("overview-fixed"))
+            {
+                const bool bFixed = RelativeViewMode == TEXT("overview-fixed");
+                Pose = BskRelativeView::Overview(View.PrimaryCentimeters, View.SecondaryCentimeters, Camera->FieldOfView,
+                    bFixed ? FixedOverviewDistanceCentimeters : 0.0);
+                if (bFixed && FixedOverviewDistanceCentimeters <= 0.0)
+                    FixedOverviewDistanceCentimeters = (Pose.GetLocation() - (View.PrimaryCentimeters + View.SecondaryCentimeters) * 0.5).Length();
+            }
+            else
+            {
+                const FVector Center = RelativeViewMode == TEXT("target") ? View.SecondaryCentimeters : View.PrimaryCentimeters;
+                const FRotator Rotation(OrbitPitchDegrees, OrbitYawDegrees, 0.0);
+                Pose = FTransform(Rotation, Center - Rotation.Vector() * OrbitDistanceCentimeters);
+            }
+            SetActorLocationAndRotation(Pose.GetLocation(), Pose.GetRotation());
+            if (Controller) Controller->SetControlRotation(Pose.Rotator());
+            return;
+        }
+    }
     if (!IsValid(TargetActor)) return;
     const FVector TargetLocation = TargetActor->GetActorLocation();
     FVector CameraLocation;
@@ -143,6 +171,61 @@ void ABskCameraPawn::RegisterRemoteCameraInput()
     const TSharedPtr<IPixelStreaming2InputHandler> Handler = Streamer ? Streamer->GetInputHandler().Pin() : nullptr;
     if (!Handler || RemoteInputHandler.Pin() == Handler) return;
     const TWeakObjectPtr<ABskCameraPawn> WeakPawn(this);
+    const TWeakPtr<IPixelStreaming2Streamer> ViewStreamer(Streamer);
+    Handler->SetCommandHandler(TEXT("BskRelativeView"),
+        [WeakPawn, ViewStreamer](FString SourceId, FString, FString Payload)
+        {
+            if (Payload.Len() > 256) return;
+            const auto Apply = [WeakPawn, ViewStreamer, SourceId, Payload]()
+            {
+                TSharedPtr<FJsonObject> Request;
+                if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Payload), Request) || !Request.IsValid()) return;
+                FString Mode;
+                if (!Request->TryGetStringField(TEXT("mode"), Mode)) return;
+                ABskCameraPawn* Pawn = WeakPawn.Get();
+                const auto Stream = ViewStreamer.Pin();
+                if (!Pawn || !Stream) return;
+                if (Mode != TEXT("query") && !Pawn->SetRelativeViewMode(Mode)) return;
+                const TSharedRef<FJsonObject> Response = MakeShared<FJsonObject>();
+                Response->SetStringField(TEXT("type"), TEXT("BskRelativeView"));
+                Response->SetStringField(TEXT("mode"), Pawn->GetRelativeViewMode());
+                const ABskSceneController* Scene = Cast<ABskSceneController>(UGameplayStatics::GetActorOfClass(Pawn->GetWorld(), ABskSceneController::StaticClass()));
+                FBskRelativeViewState View;
+                if (Scene && Scene->GetRelativeViewState(View))
+                {
+                    Response->SetNumberField(TEXT("range_m"), View.DistanceMeters);
+                    Response->SetNumberField(TEXT("sim_time_s"), View.SimulationSeconds);
+                    Response->SetNumberField(TEXT("primary_sunlight"), View.PrimarySunlight);
+                    Response->SetNumberField(TEXT("secondary_sunlight"), View.SecondarySunlight);
+                    Response->SetNumberField(TEXT("horizontal_fov_deg"), Pawn->Camera->FieldOfView);
+                    const auto AddVector = [&Response](const TCHAR* Key, const FVector& V)
+                    {
+                        Response->SetArrayField(Key, {MakeShared<FJsonValueNumber>(V.X), MakeShared<FJsonValueNumber>(V.Y), MakeShared<FJsonValueNumber>(V.Z)});
+                    };
+                    AddVector(TEXT("primary_cm"), View.PrimaryCentimeters);
+                    AddVector(TEXT("secondary_cm"), View.SecondaryCentimeters);
+                    AddVector(TEXT("camera_cm"), Pawn->GetActorLocation());
+                    if (const APlayerController* Player = Cast<APlayerController>(Pawn->Controller))
+                    {
+                        int32 Width, Height;
+                        Player->GetViewportSize(Width, Height);
+                        Response->SetArrayField(TEXT("viewport_px"), {MakeShared<FJsonValueNumber>(Width), MakeShared<FJsonValueNumber>(Height)});
+                        const auto AddProjection = [&Response, Player](const TCHAR* Name, const FVector& Position)
+                        {
+                            FVector2D Point;
+                            if (Player->ProjectWorldLocationToScreen(Position, Point, true))
+                                Response->SetArrayField(Name, {MakeShared<FJsonValueNumber>(Point.X), MakeShared<FJsonValueNumber>(Point.Y)});
+                        };
+                        AddProjection(TEXT("primary_px"), View.PrimaryCentimeters);
+                        AddProjection(TEXT("secondary_px"), View.SecondaryCentimeters);
+                    }
+                }
+                FString Json;
+                FJsonSerializer::Serialize(Response, TJsonWriterFactory<>::Create(&Json));
+                Stream->SendPlayerMessage(SourceId, TEXT("Response"), Json);
+            };
+            if (IsInGameThread()) Apply(); else AsyncTask(ENamedThreads::GameThread, Apply);
+        });
     Handler->SetCommandHandler(TEXT("BskCameraInput"),
         [WeakPawn](FString, FString, FString Payload)
         {
@@ -276,6 +359,31 @@ void ABskCameraPawn::SetOrbitDistanceMeters(double DistanceMeters)
     OrbitDistanceCentimeters = DistanceCentimeters;
 }
 
+void ABskCameraPawn::ConfigureRelativeView(bool bEnabled)
+{
+    RelativeViewMode = bEnabled ? TEXT("overview") : TEXT("");
+    FixedOverviewDistanceCentimeters = 0.0;
+    RelativeScene.Reset();
+    // Pair framing needs the full camera orientation, including roll. The
+    // default PlayerCameraManager clamps control roll and can clip a pair
+    // whose separation is nearly vertical in the inertial frame.
+    bUseControllerRotationPitch = !bEnabled;
+    bUseControllerRotationYaw = !bEnabled;
+    Camera->bUsePawnControlRotation = !bEnabled;
+    Camera->SetRelativeRotation(FQuat::Identity);
+    if (bFreeCameraActive) ReturnToMainView();
+}
+
+bool ABskCameraPawn::SetRelativeViewMode(const FString& Mode)
+{
+    if (RelativeViewMode.IsEmpty() || (Mode != TEXT("overview") && Mode != TEXT("overview-fixed") && Mode != TEXT("chaser") && Mode != TEXT("target"))) return false;
+    if (Mode != RelativeViewMode) FixedOverviewDistanceCentimeters = 0.0;
+    RelativeViewMode = Mode;
+    ReturnToMainView();
+    UpdateTrackingCamera();
+    return true;
+}
+
 void ABskCameraPawn::ToggleFreeCamera()
 {
     if (bFreeCameraActive)
@@ -304,10 +412,10 @@ void ABskCameraPawn::ReturnToMainView()
     bRemoteCameraControl = false;
     RemoteCameraInput = FBskCameraInput();
     bFreeCameraActive = false;
-    bUseControllerRotationPitch = true;
-    bUseControllerRotationYaw = true;
+    bUseControllerRotationPitch = RelativeViewMode.IsEmpty();
+    bUseControllerRotationYaw = RelativeViewMode.IsEmpty();
     bUseControllerRotationRoll = false;
-    Camera->bUsePawnControlRotation = true;
+    Camera->bUsePawnControlRotation = RelativeViewMode.IsEmpty();
     Camera->SetRelativeRotation(FQuat::Identity);
     TargetActor = MainTargetActor;
     CameraMode = MainCameraMode;

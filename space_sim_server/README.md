@@ -6,9 +6,36 @@
 
 默认 `local` 场景采用 BSK 引力模型逐刚体计算差分力，保留 MuJoCo 刚体/接触/伺服与局部坐标。扩展引力源、球谐模型和子步采样的方法见 [BSK 在轨组件](docs/BSK_ORBITAL_COMPONENTS.md)。旧线性潮汐仅通过 `SPACE_SIM_ORBITAL_MODE=linear_tidal` 显式选择用于回归。
 
+新建场景默认保存地球 **J2 + 太阳点质量** 配置；旧实例缺少 `environment.physics` 时仍按点质量重放。逐物体大气阻力需要明确提供密度、面积、Cd 及参数来源，默认关闭。配置、物理边界和验收方式见 [轨道物理配置](docs/ORBITAL_PHYSICS_CONFIGURATION.md)。
+
+## 卫星交会接入
+
+现有工作台提供直接机械臂操作、7 km 交会、300 km 入轨后三种起始条件。连续任务使用共享 GNSS 配置；远距通过验收后接续近距，近距通过后以实际关节状态进入原操作场景，任务编号保持一致。独立 110 m 初态演示仍可通过诊断 API/CLI 使用，不作为第四个工作台入口。近距双目目前为参数化观测，捕获为逻辑代理，不代表真实图像闭环或接触力学验证。接口和验证边界见[连续任务整合说明](../archive/2026_10_17_连续任务与共享导航.md)及[近距方案](docs/NEAR_FIELD_RENDEZVOUS.md)。
+
+原工作台高级参数支持0—0.25 s GNSS通信时延，默认0。观测按物理采集时刻标记，交付后预测到当前控制时刻；跨阶段保留在途包、采样序号和联合不确定性。非零时延的远距阶段增加原始GNSS观测下载。模型范围、物理采样时钟修正及复验记录见[GNSS时延说明](../archive/2026_10_19_GNSS时延与物理采样时钟.md)。
+
+个人全部关联任务、会议分工、算法输入输出及协作所需数据见[任务与集成依据](docs/AOC_SEVEN_TASKS.md)。
+
+三个起始条件始终共用“末端六维遥操作”工作台。控制、关节角、采集、场景详情与交会遥测固定保留；自动交会期间控制入口禁用，进入操作阶段后按实际就绪状态开放。不适用的初始参数显示为禁用，避免把未使用的参数误认为本次配置。
+
+切换阶段、重置或断线会清理上一场景的末端、IK、轮系与动作读数。原仿真状态区在交会时显示当前任务的时间和本体角速度；未提供的机械臂遥测显示为“—”，不以历史值冒充实时值。
+
+登录原控制台，在“任务与场景”选择交会模式，使用默认 **SARM＋地面验证星** 运行 7 km 接近或约 300→500 km 升轨后接近，在 100 m 外保持。交会使用团队 LocalMujocoStepper、Basilisk 在轨组件与原生飞轮，包含大气阻力、太阳光压、双星 GNSS 误差和未知轨道扰动。创建者及管理员可配置、启停任务，在原主视窗查看 UE 画面、下载结果，并在同一页面接续遥操作与采集。任务编号贯穿交会、场景和数据集；旧 `/static/rendezvous.html` 链接自动进入控制台。模型、工程参数和验证标准见 [团队双星交会](docs/TEAM_RENDEZVOUS.md)。
+
+后端默认使用自身 Python（需具备 Basilisk 及渲染适配器），也可通过 `SPACE_SIM_RENDEZVOUS_PYTHON` 指定仿真解释器。在本机 8768 端口接收只读 `space-sim-state/1`；UE 接收端监听 5558。团队模型任务不依赖旧示例仓库。需要历史通用模型示例时，再设置 `SPACE_SIM_RENDEZVOUS_REPO` 指向 `basilisk-rendezvous-demo`，并使用安装其依赖的 Python。
+插拔件使用静摩擦保持与恒定滑动阻力，复用现有结构及孔位；默认配置与动力学验证见 [插拔件保持力](docs/PLUG_RETENTION.md)。
+
+原操作场景提供 50 Hz 服务星模拟陀螺角速度观测，包含白噪声、偏置与饱和标志，随原观测通道录制。配置、时间与坐标定义及接入边界见[服务星陀螺反馈](docs/SERVICE_GYROSCOPE.md)。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。
+
+腕部相机支持彩色、160° 鱼眼和黑白，创建场景前选择；使用与模型输入说明见 [腕部相机类型](docs/WRIST_CAMERA_MODES.md)。
+
+Linux 原生一键启动/停止及网页场景管理见 [Linux 一键部署](docs/LINUX_DEPLOYMENT.md)。已有环境可在本目录执行 `./start_deployment.sh`，停止执行 `./stop_deployment.sh`。Linux 环境、原生库和真实采集验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。
+
+脚本批量采集可通过 [多进程采集](docs/PARALLEL_COLLECTION.md) 配置两路隔离并发、每路 UE 复用、离线渲染与资源统计；调度配置位于 `config/collection.json`。
 
 Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实仿真必须安装**包含 MJScene 及项目所需控制、积分和消息 API 的 Basilisk**；普通 Python `mujoco` 包不能替代 `Basilisk.simulation.mujoco`。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装发行包，也可参考其[安装文档](https://hanspeterschaub.info/basilisk/Install.html)自行编译；不限定源码版本或安装方式。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py` 检查功能。以下项目安装命令不会安装 UE、编译器或 Basilisk。
 
@@ -209,8 +236,12 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 
 ## LeRobot v3 原生采集（本分支）
 
+采集与录制默认设置统一在 [`config/recording.json`](config/recording.json)：
+相机选择、采样率、最大帧数、原始图片副本和视频编码。修改后重启后端，
+采样率修改需重新创建场景。参数含义与覆盖规则见 [采集配置](docs/LEROBOT_V3_CAPTURE.md)。
+
 新的录制通过官方 LeRobot writer 直接生成 v3 数据集，不需要事后转换。
-默认动力学 240 Hz、IK 120 Hz（每 2 个物理步）、双相机 RGB 1024×1024、30 FPS（每 8 步）。新录制图像与视频为正方形，历史 episode 保留其原始尺寸；详见 [正方形 1K 采集](docs/SQUARE_1K_CAPTURE.md)。
+默认动力学 400 Hz、在线 IK 100 Hz（每 4 个物理步）、双相机 RGB 1024×1024、50 FPS（每 8 步）。新录制图像与视频为正方形，历史 episode 保留其原始尺寸；详见 [正方形 1K 采集](docs/SQUARE_1K_CAPTURE.md)。
 使用绝对步序号的纳秒调度避免周期取整漂移；不采集深度和分割。
 参见 [采集链路、特征语义、同步规则和验证](docs/LEROBOT_V3_CAPTURE.md)。
 

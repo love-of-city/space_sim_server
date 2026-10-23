@@ -177,6 +177,7 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .telemetry dl div:nth-last-child(-n + 2) { border-bottom: 0; }
 .telemetry dt { margin-bottom: 4px; color: var(--subtle); font-size: 9px; }
 .telemetry dd { margin: 0; overflow: hidden; color: #394752; text-overflow: ellipsis; white-space: nowrap; font: 10px ui-monospace, Consolas, monospace; }
+.telemetry #missionPhase, .telemetry #missionNavigation { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .episode-controls > label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 10px; }
 .episode-controls > input { width: 100%; min-height: 38px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 7px; color: var(--text); background: var(--surface-soft); font-size: 11px; }
 .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 9px; }
@@ -260,6 +261,26 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .initial-joint-grid[hidden] { display: none; }
 .initial-joint-grid button { grid-column: 1 / -1; }
 .initial-joint-grid small { font-size: 10px; overflow-wrap: anywhere; }
+
+/* Mission panels use the existing control rail and the single shared viewport. */
+[hidden] { display: none !important; }
+.mission-note { color: var(--muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.mission-options { font-size: 11px; }
+.mission-options summary { cursor: pointer; margin-bottom: 10px; }
+.mission-options small { display: block; line-height: 1.6; color: var(--muted); }
+.mission-files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: 11px; }
+#missionChart { width: 100%; height: auto; margin: 12px 0 4px; }
+#continueMission { grid-column: 1 / -1; }
+#missionProvenance { overflow-wrap: anywhere; white-space: pre-wrap; }
+.admin-users > summary { cursor: pointer; margin: 0; }
+.admin-users[open] > summary { margin-bottom: 14px; }
+fieldset.scene-form { min-width: 0; margin: 0; padding: 0; border: 0; }
+fieldset.scene-form > legend { padding: 0; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
+@media (max-width: 560px) {
+  .topbar { flex-wrap: wrap; }
+  .system-status { flex-wrap: wrap; }
+  .stream-controls { flex-wrap: wrap; }
+}
 /* Companion uses the existing main stream and its retained renderer angle. */
 .main-companion { position:absolute;right:12px;top:100px;width:30%;z-index:12;background:#101820;border:1px solid #50677a;border-radius:6px;overflow:hidden; }
 .main-companion[hidden] { display:none; }

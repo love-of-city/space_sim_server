@@ -158,11 +158,30 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
     }
     // Reset this optional field even when a caller reuses an output message.
     Out.SunlightIntensityScale = 1.0;
+    Out.RelativeView = FBskRelativeView{};
     const TSharedPtr<FJsonObject>* Settings = nullptr;
     if (Root->TryGetObjectField(TEXT("settings"), Settings) && Settings != nullptr)
     {
         (*Settings)->TryGetStringField(TEXT("origin_object_id"), Out.OriginObjectId);
         (*Settings)->TryGetStringField(TEXT("default_camera_target"), Out.DefaultCameraTarget);
+        if ((*Settings)->HasField(TEXT("relative_view")))
+        {
+            const TSharedPtr<FJsonObject>* View = nullptr;
+            if (!(*Settings)->TryGetObjectField(TEXT("relative_view"), View) || !View ||
+                !(*View)->TryGetStringField(TEXT("primary_object_id"), Out.RelativeView.PrimaryObjectId) ||
+                !(*View)->TryGetStringField(TEXT("secondary_object_id"), Out.RelativeView.SecondaryObjectId) ||
+                !Out.RelativeView.IsConfigured() || Out.RelativeView.PrimaryObjectId == Out.RelativeView.SecondaryObjectId)
+            {
+                Error = TEXT("relative_view requires two distinct object IDs");
+                return false;
+            }
+            ReadVector3(*View, TEXT("primary_center_body_m"), Out.RelativeView.PrimaryCenterBodyMeters, false, Error);
+            if (!Error.IsEmpty()) return false;
+            ReadVector3(*View, TEXT("secondary_center_body_m"), Out.RelativeView.SecondaryCenterBodyMeters, false, Error);
+            if (!Error.IsEmpty()) return false;
+            (*View)->TryGetStringField(TEXT("primary_label"), Out.RelativeView.PrimaryLabel);
+            (*View)->TryGetStringField(TEXT("secondary_label"), Out.RelativeView.SecondaryLabel);
+        }
         (*Settings)->TryGetBoolField(TEXT("use_scene_lighting"), Out.bUseSceneLighting);
         (*Settings)->TryGetBoolField(TEXT("headlight_enabled"), Out.bHeadlightEnabled);
         ReadVector3(*Settings, TEXT("headlight_diffuse_rgb"), Out.HeadlightDiffuseRgb, false, Error);
@@ -227,6 +246,12 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
         Out.Objects.Add(MoveTemp(Definition));
     }
 
+    if (Out.RelativeView.IsConfigured() &&
+        (!ObjectIds.Contains(Out.RelativeView.PrimaryObjectId) || !ObjectIds.Contains(Out.RelativeView.SecondaryObjectId)))
+    {
+        Error = TEXT("relative_view references an object absent from the manifest");
+        return false;
+    }
     const TArray<TSharedPtr<FJsonValue>>* CelestialBodies = nullptr;
     if (Root->TryGetArrayField(TEXT("celestial_bodies"), CelestialBodies) && CelestialBodies != nullptr)
     {
@@ -349,6 +374,20 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
             ReadQuaternion(Object, TEXT("orientation_body_from_camera_wxyz"), Definition.OrientationBodyFromCameraWxyz, false, Error);
             if (!Error.IsEmpty()) return false;
             Object->TryGetNumberField(TEXT("field_of_view_rad"), Definition.FieldOfViewRadians);
+            if (Object->Values.Contains(TEXT("camera_mode"))
+                && !Object->TryGetStringField(TEXT("camera_mode"), Definition.CameraMode))
+            {
+                Error = TEXT("camera_mode must be a string");
+                return false;
+            }
+            if ((Definition.CameraMode != TEXT("rgb") && Definition.CameraMode != TEXT("fisheye")
+                && Definition.CameraMode != TEXT("monochrome"))
+                || (Definition.CameraMode == TEXT("fisheye") && (!FMath::IsFinite(Definition.FieldOfViewRadians)
+                    || Definition.FieldOfViewRadians <= 0.0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI)))
+            {
+                Error = TEXT("invalid camera_mode or fisheye field_of_view_rad (requires 0 < fov < pi)");
+                return false;
+            }
             const TArray<TSharedPtr<FJsonValue>>* Resolution = nullptr;
             if (Object->TryGetArrayField(TEXT("resolution"), Resolution) && Resolution != nullptr && Resolution->Num() == 2)
             {

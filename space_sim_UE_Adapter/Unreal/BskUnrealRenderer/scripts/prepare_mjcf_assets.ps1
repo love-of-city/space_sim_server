@@ -8,6 +8,7 @@ param(
     [double]$BuildScale = 100.0,
     [double]$ComponentScale = 1.0,
     [string]$UnrealRoot = '',
+    [string[]]$MujocoPluginLibraries = @(),
     [ValidateSet('auto', 'preserve', 'recompute')]
     [string]$NormalMode = 'auto',
     [ValidateRange(0.0, 180.0)]
@@ -35,10 +36,12 @@ $importSignatureMarker = Join-Path $ProjectRoot "Saved\AssetImport\$safeImportNa
 $meshSettingsMarker = Join-Path $ProjectRoot "Saved\AssetImport\$safeImportName.mesh_settings"
 $meshSettingsSignature = "$NormalMode|stlAngle=$StlSmoothingAngle|build=$BuildScale|component=$ComponentScale|nanite=off|lod0=full|v=3"
 
+$pluginArgs = @()
+foreach ($library in $MujocoPluginLibraries) { $pluginArgs += @('--mujoco-plugin', $library) }
 & $pythonExe (Join-Path $PSScriptRoot 'generate_mjcf_asset_catalog.py') `
     --mjcf $resolvedMjcf --destination $Destination --catalog $resolvedCatalog --import-settings $importSettings `
     --mesh-cache $meshCache --normal-mode $NormalMode --stl-smoothing-angle $StlSmoothingAngle `
-    --build-scale $BuildScale --component-scale $ComponentScale
+    --build-scale $BuildScale --component-scale $ComponentScale @pluginArgs
 if ($LASTEXITCODE -ne 0) { throw 'Failed to generate the MJCF asset catalog.' }
 
 $catalogData = Get-Content -Raw -LiteralPath $resolvedCatalog | ConvertFrom-Json
@@ -64,7 +67,7 @@ $needsImport = $Force -or $missingAssetFiles.Count -gt 0 -or $configuredImportSi
 if ($needsImport) {
     $stlMeshes = @($catalogData.assets.PSObject.Properties | Where-Object { $_.Value.source_format -eq 'stl' }).Count
     Write-Output "Importing $expectedMeshes MJCF meshes ($stlMeshes STL) and $expectedTextures textures into $Destination ..."
-    & $editorCmd $ProjectFile -run=ImportAssets "-importsettings=$importSettings" "-dest=$Destination" -replaceexisting -nosourcecontrol -unattended -nop4 -nosplash
+    & $editorCmd $ProjectFile @BskDerivedDataCacheArguments -run=ImportAssets "-importsettings=$importSettings" "-dest=$Destination" -replaceexisting -nosourcecontrol -unattended -nop4 -nosplash
     $importExitCode = $LASTEXITCODE
     $missingAssetFiles = @($expectedAssetFiles | Where-Object { !(Test-Path -LiteralPath $_) })
     $existingAssets = $expectedAssets - $missingAssetFiles.Count
@@ -85,7 +88,7 @@ if ($needsImport -or $configuredSignature -ne $meshSettingsSignature) {
         # StaticMeshEditorSubsystem rejects changes from PythonScriptCommandlet.
         # Execute in a headless editor session so LOD build settings are really
         # written, rebuilt, and saved rather than only logged as configured.
-        & $editorCmd $ProjectFile "-ExecutePythonScript=$meshConfigScript" -nullrhi -unattended -nop4 -nosplash
+        & $editorCmd $ProjectFile @BskDerivedDataCacheArguments "-ExecutePythonScript=$meshConfigScript" -nullrhi -unattended -nop4 -nosplash
         if ($LASTEXITCODE -ne 0) { throw "MJCF mesh build-setting configuration failed with exit code $LASTEXITCODE." }
         Set-Content -LiteralPath $meshSettingsMarker -Value $meshSettingsSignature -Encoding ascii
     } finally {

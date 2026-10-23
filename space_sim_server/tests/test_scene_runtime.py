@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from space_arm_platform.app import PlatformConfig, create_app
 from space_arm_platform.models import SceneInstanceCreate
+from space_arm_platform.orbital_physics import OrbitalPhysics
 from space_arm_platform.control_defaults import (
     BALANCED_TELEOP_HOME,
     BALANCED_TELEOP_JOINT_SPANS,
@@ -51,6 +52,23 @@ def test_dual_capture_scene_starts_without_automatic_grasp(tmp_path: Path) -> No
     assert instance['render_profile']['asset_catalog'] == 'sarm_dual_capture26.catalog.json'
 
 
+def test_dual_capture_defaults_to_supported_direct_start(tmp_path: Path) -> None:
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    template_id = 'sarm-dual-capture26'
+    template = next(item for item in manager.catalog()['templates'] if item['id'] == template_id)
+    assert template['default_randomization_profile'] == ZERO_START_TELEOP_PROFILE
+    assert AUTO_PREPARE_TELEOP_PROFILE in template['unsupported_randomization_profiles']
+    instance = manager.create_instance(SceneInstanceCreate(template_id=template_id, seed=26))
+    assert instance['randomization_profile'] == ZERO_START_TELEOP_PROFILE
+    assert instance['arm_preparation_required'] is False
+    assert instance['randomization']['capture_window_trial'] is False
+    before = set(manager.scene_root.iterdir())
+    with pytest.raises(ValueError, match='SARM.*teleop-zero-prepare-v1'):
+        manager.create_instance(SceneInstanceCreate(
+            template_id=template_id, randomization_profile=AUTO_PREPARE_TELEOP_PROFILE, seed=26))
+    assert set(manager.scene_root.iterdir()) == before
+
+
 def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     first = manager.create_instance(request(12345))
@@ -66,6 +84,7 @@ def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
         "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
         "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
         "orbit": _DEFAULT_ORBIT,
+        "physics": OrbitalPhysics().model_dump(mode="json"),
         "lighting": {"sunlight_intensity_scale": 1.0},
     }
 

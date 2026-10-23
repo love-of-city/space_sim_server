@@ -89,6 +89,27 @@ use an empty `parent_id`; body-mounted lights retain the normal parent rule.
 Scene settings additionally carry `use_scene_lighting`, `headlight_enabled`,
 and the headlight diffuse/ambient/specular RGB triples.
 
+Optional `settings.relative_view` declares a pair for the native rendezvous
+overview. `primary_object_id` and `secondary_object_id` must reference distinct
+manifest objects. `primary_center_body_m` and `secondary_center_body_m` are
+finite three-component offsets in each body's coordinates (default zero);
+the flight sender uses assembly centers of mass. `primary_label` and
+`secondary_label` default to `Chaser` and `Target`. Omit the field to retain
+the original camera behavior. This setting never scales or relocates bodies.
+
+The main Pixel Streaming data channel accepts command `BskRelativeView` with a
+JSON string payload containing `mode`: `overview`, `overview-fixed`, `chaser`, `target`, or
+read-only `query`. Its `Response` has `type: BskRelativeView` and the actual
+mode (empty when unavailable; `free` during free flight). When a pair is loaded,
+it also returns `range_m`, presentation `sim_time_s`, both sunlight factors,
+`horizontal_fov_deg`, and UE-local `primary_cm`, `secondary_cm`, `camera_cm`.
+`viewport_px`, `primary_px` and `secondary_px` expose actual viewport projection
+for display verification; a point behind the camera has no projected entry.
+The positions use the renderer's converted centimeter coordinates. Range is
+computed from bound Actor transforms and center offsets, not copied from a
+dashboard value. Camera commands affect only the shared spectator viewport;
+installed cameras and authoritative capture remain unchanged.
+
 ```json
 {
   "protocol": "bsk-render/2",
@@ -176,6 +197,24 @@ legacy default reference illuminance. Missing fields reset the scene multiplier
 to one on every manifest, including after a zero-light scene. The receiver
 rejects strings, booleans, nulls and out-of-range values. Update/rebuild the UE
 runtime to use this additive version-2 setting; older receivers ignore it.
+
+`camera_mode` selects `rgb` (default), `monochrome`, or `fisheye` per camera.
+Monochrome uses Rec.709 luminance on the GPU and repeats it in all three RGB
+channels. Fisheye uses circular equidistant projection (`r = f * theta`), with
+black pixels outside the inscribed image circle. Its `field_of_view_rad` is the
+full angular diameter and must satisfy `0 < fov < pi`. The platform wrist preset
+uses 160 degrees. A square perspective render at twice the output's longer side
+(capped at 4096) supplies the GPU remap; this approximates an ideal lens, without
+sensor noise, lens calibration, or coverage beyond 180 degrees. All modes retain
+the same RGB product name, camera ID and output dimensions. HUD, WebRTC, disk,
+network readback and policy observations consume the canonical processed target.
+
+Capture metadata includes `camera_mode` and `color_model`. For fisheye,
+`intrinsics.model = equidistant_fisheye`, `distortion_model = equidistant`,
+`fx_px = fy_px = min(width,height)/fov`, plus `valid_circle_radius_px`.
+These focal lengths use the equidistant equation, not a pinhole matrix.
+Pinhole RGB/monochrome retain the existing pinhole metadata. Rebuild the UE plugin
+when adding this field: earlier receivers ignore unknown camera fields.
 
 `capture_products` is strict: this implementation supports only `rgb`.
 Depth, segmentation and unknown values reject the manifest with a clear error.
@@ -407,6 +446,18 @@ simulation-clock capture deadlines and scene-capture temporal history. Events
 and frames wait until their pending manifest has been consumed on the game
 thread. The first new frame is applied directly; old-session frames/events are
 rejected rather than blended into the new state.
+
+The interpolated preview uses a continuous simulation-time playhead and a
+bounded buffer of at most 64 received frames. Arrival intervals estimate the
+simulation/wall-clock rate; new packets do not restart interpolation. The
+buffer allows at least 1.5 average source intervals (bounded at 500 ms) or the
+configured interpolation delay, whichever is greater. Gradual clock correction
+absorbs arrival jitter. Extrapolation is limited by the configured wall-clock
+budget and converted to simulation seconds using the estimated playback rate.
+Repeated/rewound timestamps and session resets discard the preview history.
+The first state and paused snapshots remain exact. Authoritative image capture
+still consumes the exact received frames before this preview-only processing;
+its simulation timestamps and strict FIFO are unchanged.
 
 The existing `scene_reset` event also clears presentation/capture history; it
 never changes authoritative physics or independently moves the simulation's

@@ -106,7 +106,8 @@ def test_wrist_view_contains_horizontal_fingers_entering_from_below():
 
 
 @pytest.mark.parametrize("template", ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf", "sarm-task-box-20261012-demo"])
-def test_only_demo_overrides_overview_camera_and_focus(monkeypatch, template):
+@pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome"])
+def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, template, mode):
     import sys
     from types import SimpleNamespace
     import importlib.util
@@ -123,7 +124,7 @@ def test_only_demo_overrides_overview_camera_and_focus(monkeypatch, template):
     overview = SimpleNamespace(camera_id="teleop/camera/spacecraft_overview", parent_id="teleop/cubesat_bus",
                                position_body_m=(1, 2, 3), field_of_view_rad=0.9)
     wrist = SimpleNamespace(camera_id="teleop/camera/sarm_wrist_cam", parent_id="teleop/ee_base",
-                            position_body_m=(4, 5, 6), field_of_view_rad=1.2)
+                            position_body_m=(4, 5, 6), field_of_view_rad=1.2, display_name="Wrist")
     bridge = SimpleNamespace(_cameras=[overview, wrist], add_mj_scene=lambda *a, **kw: None)
     bridge.set_scene_settings = lambda settings: setattr(bridge, "settings", settings)
     monkeypatch.setitem(sys.modules, "bsk_render_adapter", SimpleNamespace(
@@ -133,9 +134,12 @@ def test_only_demo_overrides_overview_camera_and_focus(monkeypatch, template):
     ctx = SimpleNamespace(scene=object(), extra={"template_id": template},
                           add=lambda *a, **kw: None, keep_alive=lambda *a: None)
     RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,
-                    render_rate_hz=60, capture_rate_hz=30, capture_state_provider=None).install(ctx)
+                    render_rate_hz=60, capture_rate_hz=30, capture_state_provider=None,
+                    wrist_camera_mode=mode).install(ctx)
     assert wrist.parent_id == "teleop/ee_base"
     assert wrist.position_body_m == (4, 5, 6)
+    assert wrist.camera_mode == mode
+    assert wrist.field_of_view_rad == pytest.approx(math.radians(160) if mode == "fisheye" else 1.2)
     if template.endswith("-demo"):
         assert overview.parent_id == "teleop/locking_rod"
         assert bridge.settings.default_camera_target == "teleop/fastener"

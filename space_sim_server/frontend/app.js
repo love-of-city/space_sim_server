@@ -25,11 +25,42 @@ import {askDialog, userLabel} from './ui.js';
 import { FreeCameraController } from "./free_camera.js";
 import { GamepadInput, gamepadControlBlockReason } from "./gamepad_input.js";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "./control_status.js";
+import { createMissionPanel } from "./mission_panel.js";
+import { resolvePreviewStreams } from "./preview_streams.js";
+import { observePreviewAvailability } from "./preview_availability.js";
 
 function clearWristWrench() {
   $("wristForce").textContent = "—";
   $("wristTorque").textContent = "—";
   $("wristWrenchDetail").textContent = "无实时测量";
+}
+
+function clearSimulationTelemetry(mission = null) {
+  clearWristWrench();
+  state.lastAckAt = 0;
+  for (const id of ["simTime", "actionSequence", "toolPosition", "jacobianRank", "ikSolver",
+    "referenceProtection", "dynamicsTiming", "attitudeMode", "attitudeError", "bodyRate",
+    "wheelSpeeds", "wheelTorques", "vx", "vy", "vz", "wx", "wy", "wz", "grip",
+    "relativeDistance", "relativeVelocity", "relativeAngularVelocity", "formationHold",
+    "formationError", "formationVelocity", "captureToolStatus"]) {
+    $(id).textContent = "—";
+  }
+  $("motionSpeedStatus").textContent = "等待当前场景的速度测量";
+  $("motionSpeedDetail").textContent = "场景就绪后显示实测速度。";
+  $("motionSpeedDiagnostic").className = "motion-speed-diagnostic";
+  state.renderSessionId = "";
+  state.visualProbe = false;
+  state.hasCaptureArm = false;
+  $("captureArmOption").disabled = true;
+  $("captureToolControls").hidden = true;
+  if (mission?.stage === "flight" && mission.telemetry?.connected) {
+    const time = mission.telemetry.sim_time_s;
+    if (Number.isFinite(time)) $("simTime").textContent = `${time.toFixed(3)} s`;
+    const rate = mission.telemetry.state?.bodies?.find(body => body.body_id === "rendezvous/chaser")?.angular_velocity_rad_s;
+    if (Array.isArray(rate) && rate.length === 3 && rate.every(Number.isFinite)) {
+      $("bodyRate").textContent = rate.map(value => value.toFixed(4)).join(", ") + " rad/s";
+    }
+  }
 }
 
 const gamepadInput = new GamepadInput();
@@ -45,6 +76,7 @@ const state = {
   estopped: false,
   operationActive: false,
   freeCameraMode: false,
+  relativeView: null,
   lastAckAt: 0,
   linearSpeed: 0.05,
   pixelStreaming: null,
@@ -73,6 +105,9 @@ const state = {
   stateTimer: null,
   stateRequestSequence: 0,
   sceneTransitionPending: false,
+  missionMode: "teleop",
+  mission: null,
+  stateReadPending: false,
   gamepadSnapshot: null,
 };
 
@@ -129,6 +164,9 @@ function configureSceneSelection() {
   configureInitialJoints();
 }
 const jointAngles = createJointAnglePanel($("jointAngleGrid"), $("jointAngleState"));
+const missionPanel = createMissionPanel({$, state, apiRequest, refresh: refreshState,
+  message: setMessage, configureScene: configureSceneSelection,
+  reconnect: () => { if (!state.streamLive) connectPixelStreaming(); }});
 const controlKeys = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "KeyQ", "KeyE", "KeyR", "KeyF", "ShiftLeft", "ShiftRight", "Escape"]);
 
 function setPixelStreamingInputEnabled(keyboardEnabled, mouseEnabled) {
@@ -169,6 +207,18 @@ const freeCamera = new FreeCameraController({
 
 // Read-only mouse diagnostics; does not expose camera mutation or robot input.
 window.__freeCameraDiagnostics = () => freeCamera.getDiagnostics();
+window.__relativeViewDiagnostics = () => state.relativeView ? structuredClone(state.relativeView) : null;
+
+function requestRelativeView(mode = "query") {
+  return state.pixelStreaming?.emitCommand({BskRelativeView: JSON.stringify({mode})}) === true;
+}
+
+function updateRelativeViewControl() {
+  const main = state.selectedStreamerId === state.streamConfig?.pixel_streaming_streamer_id;
+  const available = main && !!state.relativeView?.mode && state.mission?.stage === "flight" && state.streamLive;
+  $("relativeViewSelector").disabled = !available;
+  $("relativeViewSelector").title = available ? "选择双星取景方式" : "双星交会主视口就绪后可调整取景";
+}
 
 function setFreeCameraMode(enabled, message = "") {
   if (state.freeCameraMode === enabled) return;
@@ -238,7 +288,9 @@ function applyAuthenticatedUser(user) {
 }
 
 function shutdownAuthenticatedApp() {
-  state.stateRequestSequence++;
+  state.stateRequestSequence += 1;
+  state.stateReadPending = false;
+  missionPanel.reset();
   exitOperationMode("");
   Object.values(pages).forEach(page=>page.reset());
   document.querySelectorAll("dialog.platform-dialog").forEach(dialog=>dialog.close());
@@ -248,18 +300,17 @@ function shutdownAuthenticatedApp() {
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
   disposePixelStream();
   jointAngles.clear("已退出登录");
-  clearWristWrench();
+  clearSimulationTelemetry();
   state.connected = false; state.controlGranted = false;
 }
 
 async function startAuthenticatedApp() {
-  // Render the requested page immediately; its data does not depend on the
-  // workbench catalog. Deep links must not briefly expose the workbench.
-  await Promise.all([loadSceneCatalog(), refreshState(), platform.activateCurrent()]);
+  // Keep the team shell and deep links; load mission settings after the scene catalog.
+  await Promise.all([loadSceneCatalog().then(() => missionPanel.load()), refreshState(), platform.activateCurrent()]);
   if (!state.currentUser) return;
   updateOperationUI();
   if (!state.actionTimer) state.actionTimer = setInterval(sendAction, 33);
-  if (!state.stateTimer) state.stateTimer = setInterval(() => { jointAngles.checkFreshness(); refreshState(); }, 1500);
+  if (!state.stateTimer) state.stateTimer = setInterval(() => { jointAngles.checkFreshness(); refreshState(); }, 500);
 }
 
 async function initialize() {
@@ -289,6 +340,7 @@ async function loadSceneCatalog() {
     $("sceneDatasetCapture").checked = Boolean(defaults.dataset_capture);
     $("sceneRandomizeOrbitPhase").checked = defaults.randomize_orbit_phase === true;
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
+    $("sceneWristCameraMode").value = defaults.wrist_camera_mode || "rgb";
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
       capture_rate_hz: Number(defaults.capture_rate_hz || 50),
@@ -300,22 +352,28 @@ async function loadSceneCatalog() {
   }
 }
 
-function applySceneRuntime(runtime = {}) {
+function applySceneRuntime(runtime = {}, mission = state.mission) {
   const previousPhase = state.scenePhase;
-  const phase = runtime.phase || "idle";
-  const active = Boolean(runtime.active);
+  // The arm executor retains its last instance after stopping. During flight
+  // it is not the current task's scene, even on the first state poll.
+  const flight = mission?.stage === "flight";
+  const phase = flight ? "idle" : runtime.phase || "idle";
+  const active = !flight && Boolean(runtime.active);
   const enabled = runtime.enabled !== false;
-  const instance = runtime.instance || {};
+  const instance = flight ? {} : runtime.instance || {};
   const ownerId = instance.created_by?.user_id;
   state.canManageScene = Boolean(state.currentUser) && (
     state.currentUser.role === "admin" || !ownerId || ownerId === state.currentUser.user_id
   );
   state.scenePhase = phase;
-  state.sceneReady = phase === "running" && !state.resetPending && !state.simulationResetting;
+  state.sceneInstanceId = instance.instance_id || null;
+  const currentObservation = state.simulationConnected &&
+    (!state.sceneInstanceId || state.observationSceneId === state.sceneInstanceId);
+  state.sceneReady = phase === "running" && currentObservation && !state.resetPending && !state.simulationResetting;
   if (!state.sceneReady) $("fastenerDemoStatus").hidden = true;
-  if (!state.sceneReady) clearWristWrench();
+  if (!state.sceneReady) clearSimulationTelemetry(state.mission);
   if (!state.sceneReady && state.operationActive) {
-    exitOperationMode("场景已结束，已退出操作模式");
+    exitOperationMode("当前场景尚未就绪，已退出操作模式");
   }
   $("scenePhase").textContent = state.resetPending || state.simulationResetting ? "正在重置" : enabled ? (scenePhaseLabels[phase] || phase) : "运行时未配置";
   $("scenePhase").classList.toggle("scene-running", state.sceneReady);
@@ -327,7 +385,7 @@ function applySceneRuntime(runtime = {}) {
   $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在复原…" : "一键复原初始位置";
   $("resetScene").title = state.activeEpisode ? "请先结束当前采集，再重置状态"
     : "恢复机械臂、夹爪、目标物和仿真时间到本次场景初态；不是规划机械臂返航轨迹";
-  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity"].forEach((id) => {
+  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity", "sceneWristCameraMode"].forEach((id) => {
     $(id).disabled = active;
   });
   $("linearSpeed").disabled = !state.sceneReady;
@@ -335,17 +393,19 @@ function applySceneRuntime(runtime = {}) {
   updateOperationUI();
   $("sceneInstanceId").textContent = instance.instance_id || "—";
   $("sceneInstanceSeed").textContent = instance.seed ?? "—";
-  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id?.startsWith("sarm-task-box-20261012") ? "新版 SARM 完整任务盒 + 地面验证星" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
+  $("sceneInstanceTarget").textContent = !instance.instance_id ? "—" : instance.template_id === "sarm-dual-capture26" ? "双臂 SARM + 地面验证星" : instance.template_id?.startsWith("sarm-task-box-20261012") ? "新版 SARM 完整任务盒 + 地面验证星" : instance.template_id === "sarm-ground-validation-self-collision-grasp" ? "地面验证星（粗碰撞体·内部碰撞）" : instance.template_id === "sarm-ground-validation-mesh-grasp" ? "地面验证星（高精度三角网格·实验）" : instance.template_id === "sarm-ground-validation-grasp" ? "地面验证星（粗碰撞盒·无内部碰撞）" : "原小方块目标";
   const instanceSunlight = instance.environment?.lighting?.sunlight_intensity_scale ?? 1;
   $("sceneInstanceSunlight").textContent = instance.instance_id ? `${instanceSunlight} 倍` : "—";
   const instanceOrbitPhase = instance.environment?.orbit?.true_anomaly_deg ?? 180;
   const randomizeOrbitPhase = instance.randomize_orbit_phase === true;
-  $("sceneInstanceOrbitPhase").textContent = instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
+  $("sceneInstanceOrbitPhase").textContent = instance.rendezvous_handoff ? "继承交会终态"
+    : instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
   if (active && instance.instance_id) {
     if (instance.template_id) $("sceneTemplate").value = instance.template_id;
     if (instance.capture_target?.runtime_warning) $("sceneCollisionWarning").textContent = instance.capture_target.runtime_warning;
     if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
     $("sceneSunlightIntensity").value = String(instanceSunlight);
+    $("sceneWristCameraMode").value = instance.wrist_camera_mode || "rgb";
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
   }
   configureInitialJoints();
@@ -353,11 +413,13 @@ function applySceneRuntime(runtime = {}) {
   armPreparation.setRuntime(active ? instance : null, state.sceneReady);
   if (["failed", "stopping", "stopped"].includes(phase)) armPreparation.cancel("场景停止或失败，请显式重试");
   $("sceneParameters").textContent = instance.randomization
-    ? JSON.stringify({ capture_target: instance.capture_target || {}, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
+    ? JSON.stringify({ capture_target: instance.capture_target || {}, wrist_camera_mode: instance.wrist_camera_mode || "rgb", randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
-  if (runtime.error) setMessage(`场景失败：${runtime.error}`);
+  if (!flight && runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
-    setMessage(`场景 ${instance.instance_id || ""} 已运行，等待机械臂准备实测到位后操作或采集`);
+    const readiness = instance.arm_preparation_required
+      ? '等待机械臂准备实测到位后操作或采集' : '可进入操作或开始采集';
+    setMessage(`场景 ${instance.instance_id || ""} ${instance.rendezvous_handoff ? '已接续交会终态' : '已运行'}，${readiness}`);
     // The waiting player may have subscribed milliseconds ago. Moving from
     // launcher startup to running is not a reason to destroy its RTC handshake.
     if (!state.pixelStreaming && !state.pixelConnectPromise) connectPixelStreaming();
@@ -373,6 +435,7 @@ async function readApiResponse(response) {
 
 async function startScene() {
   if (state.sceneTransitionPending) return;
+  if (state.missionMode && state.missionMode !== "teleop") return missionPanel.startFlight();
   let initialAngles;
   let operatingAngles;
   const operatingProfile = [ZERO_START_PROFILE, "teleop-zero-prepare-v2"].includes($("randomizationProfile").value);
@@ -396,6 +459,7 @@ async function startScene() {
     ik_rate_hz: state.sceneDefaults.ik_rate_hz,
     dataset_capture: $("sceneDatasetCapture").checked,
     sunlight_intensity_scale: sunlightScale,
+    wrist_camera_mode: $("sceneWristCameraMode").value,
     initial_arm_joint_position_deg: initialAngles,
     ...(operatingProfile ? {operating_arm_joint_position_deg: operatingAngles} : {}),
   };
@@ -484,7 +548,7 @@ function connect() {
     setMessage("操作链路已连接；场景运行后点击画面进入操作模式");
   };
   state.ws.onclose = () => {
-    clearWristWrench();
+    clearSimulationTelemetry();
     state.connected = false;
     state.controlGranted = false;
     setOnline("backendDot", false);
@@ -528,6 +592,8 @@ function connect() {
       exitOperationMode(message.reason === "scene_reset" ? "场景正在重置，已撤销操控；完成后请重新点击画面" : "同一用户的其他页面已进入操作，本页面自动退出");
     } else if (message.type === "observation") {
       const raw = message.payload;
+      if (state.mission?.stage === "flight") return;
+      if (state.sceneInstanceId && raw.scene_instance_id !== state.sceneInstanceId) return;
       state.renderSessionId = raw.render_session_id;
       const relative = raw.target_relative_state;
       $('relativeDistance').textContent = relative ? `${Math.hypot(...relative.position_inertial_m).toFixed(4)} m` : '—';
@@ -630,22 +696,7 @@ async function connectPixelStreaming() {
     const config = await response.json();
     state.streamConfig = config;
     configureVideoFps();
-    const selector = $("streamSelector");
-    const previousStreamerId = state.selectedStreamerId;
-    selector.replaceChildren();
-    for (const item of config.pixel_streaming_streamers || [
-      { id: config.pixel_streaming_streamer_id, label: "主视口" },
-    ]) {
-      const option = document.createElement("option");
-      option.value = item.id;
-      const labels = { WristCamera: "机械臂腕部相机", SpacecraftOverview: "卫星总览相机" };
-      option.textContent = item.id.endsWith('__teleop_camera_capture_wrist_cam') ? '抓取臂末端相机' : labels[item.label] || item.label || item.id;
-      selector.append(option);
-    }
-    if ([...selector.options].some((option) => option.value === previousStreamerId)) {
-      selector.value = previousStreamerId;
-    }
-    state.selectedStreamerId = selector.value || config.pixel_streaming_streamer_id;
+    updatePreviewStreams(null);
     createPixelStream();
     } catch (error) {
       console.warn("Pixel Streaming configuration is unavailable", error);
@@ -659,16 +710,33 @@ async function connectPixelStreaming() {
   return pending;
 }
 
-function signallingUrl() {
-  if (state.streamConfig.pixel_streaming_signalling_url) {
-    const url = new URL(state.streamConfig.pixel_streaming_signalling_url, location.href);
-    if (state.streamConfig.pixel_streaming_access_token) {
-      url.searchParams.set("token", state.streamConfig.pixel_streaming_access_token);
-    }
-    return url.toString();
+function updatePreviewStreams(availableIds) {
+  const config = state.streamConfig;
+  const configured = config.pixel_streaming_streamers || [{id: config.pixel_streaming_streamer_id, label: "主视口"}];
+  const resolved = resolvePreviewStreams(configured, availableIds, state.selectedStreamerId);
+  const selector = $("streamSelector");
+  selector.replaceChildren();
+  for (const item of resolved.streams) {
+    const option = document.createElement("option");
+    const labels = {WristCamera: "机械臂腕部相机", SpacecraftOverview: "卫星总览相机"};
+    option.value = item.id;
+    option.textContent = item.id.endsWith("__teleop_camera_capture_wrist_cam")
+      ? "抓取臂末端相机" : labels[item.label] || item.label || item.id;
+    option.disabled = item.disabled;
+    selector.append(option);
   }
+  selector.value = resolved.selectedId;
+  state.selectedStreamerId = resolved.selectedId;
+}
+
+function signallingUrl() {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${location.hostname}:${state.streamConfig.pixel_streaming_player_port}`;
+  const url = new URL(state.streamConfig.pixel_streaming_signalling_url
+    || `${scheme}//${location.hostname}:${state.streamConfig.pixel_streaming_player_port}`, location.href);
+  if (state.streamConfig.pixel_streaming_access_token) {
+    url.searchParams.set("token", state.streamConfig.pixel_streaming_access_token);
+  }
+  return url.toString();
 }
 
 function resetWebRtcStats() {
@@ -704,7 +772,9 @@ function videoFpsOptions() {
 
 function configureVideoFps() {
   const options = videoFpsOptions();
-  if (!options.includes(state.requestedVideoFps)) state.requestedVideoFps = options.at(-1);
+  // Most browser/RDP displays present 60 Hz; keep higher server-supported
+  // choices available without decoding/rendering discarded frames by default.
+  if (!options.includes(state.requestedVideoFps)) state.requestedVideoFps = options.filter(fps => fps <= 60).at(-1) ?? options[0];
   const selector = $("videoFpsSelector");
   selector.replaceChildren();
   for (const fps of options) {
@@ -900,8 +970,15 @@ function updateWebRtcStats(aggregatedStats) {
 }
 
 function disposePixelStream() {
+  state.previewAvailability?.close();
+  state.previewAvailability = null;
+  state.previewAvailableIds = null;
   mainCompanion.dispose();
   if (state.freeCameraMode) setFreeCameraMode(false);
+  if (state.streamMediaTimer != null) {
+    clearTimeout(state.streamMediaTimer);
+    state.streamMediaTimer = null;
+  }
   if (state.streamReconnectTimer != null) {
     clearTimeout(state.streamReconnectTimer);
     state.streamReconnectTimer = null;
@@ -930,6 +1007,50 @@ function schedulePixelStreamingReconnect(delayMs = 1500) {
     state.streamReconnectTimer = null;
     connectPixelStreaming();
   }, delayMs);
+}
+
+function showReceivedVideo(stream) {
+  if (state.pixelStreaming !== stream) return false;
+  const video = $("pixelStream").querySelector("video");
+  const frames = video?.getVideoPlaybackQuality?.().totalVideoFrames;
+  if (!video || video.readyState < 2 || !video.videoWidth || video.paused === true || frames === 0) return false;
+  $("previewEmpty").style.display = "none";
+  $("pixelStream").style.display = "block";
+  $("frameState").textContent = "LIVE WEBRTC";
+  $("frameState").style.color = "var(--accent)";
+  return true;
+}
+
+function monitorPixelStream(stream) {
+  let previousTime;
+  let progressedAt = Date.now();
+  const check = () => {
+    if (state.pixelStreaming !== stream) return;
+    const video = $("pixelStream").querySelector("video");
+    const mediaTime = video?.currentTime;
+    if (!state.streamLive || document.hidden || video?.paused === true
+        || (Number.isFinite(mediaTime) && mediaTime !== previousTime)) {
+      progressedAt = Date.now();
+    }
+    previousTime = mediaTime;
+    // ICE can remain connected after a renderer restart while the media/data
+    // channels have stopped. A historic frame count is not current video.
+    // Allow slow cold asset loading without repeatedly interrupting negotiation.
+    if (state.streamLive && Date.now() - progressedAt >= 60000) {
+      state.streamLive = false;
+      if (state.freeCameraMode) setFreeCameraMode(false);
+      $("frameState").textContent = "VIDEO RECOVERING";
+      $("previewEmpty").style.display = "grid";
+      $("previewEmptyTitle").textContent = "视频暂时中断，正在重新连接";
+      $("previewEmptyHint").textContent = "仿真继续运行；收到新画面后自动恢复。";
+      updateRelativeViewControl();
+      schedulePixelStreamingReconnect(0);
+      state.streamMediaTimer = null;
+      return;
+    }
+    state.streamMediaTimer = setTimeout(check, 5000);
+  };
+  state.streamMediaTimer = setTimeout(check, 5000);
 }
 
 function armPixelStreamingWatchdog(stream, delayMs = 60000) {
@@ -970,8 +1091,44 @@ function createPixelStream() {
     },
   });
   const stream = new PixelStreaming(config, { videoElementParent: $("pixelStream") });
+  state.relativeView = null;
+  updateRelativeViewControl();
   state.pixelConfig = config;
   state.pixelStreaming = stream;
+  const applyAvailableStreams = available => {
+    if (state.pixelStreaming !== stream) return;
+    const previous = state.selectedStreamerId;
+    updatePreviewStreams(available);
+    if (previous !== state.selectedStreamerId && available.includes(state.selectedStreamerId)) {
+      config.setOptionSettingValue(OptionParameters.StreamerId, state.selectedStreamerId);
+    }
+  };
+  state.previewAvailability = observePreviewAvailability(signallingUrl(), available => {
+    if (state.pixelStreaming !== stream) return;
+    state.previewAvailableIds = available;
+    applyAvailableStreams(available);
+  });
+  let lastRelativeQuery = 0;
+  stream.addResponseEventListener("relative-view", response => {
+    if (state.pixelStreaming !== stream) return;
+    let data;
+    try { data = JSON.parse(response); } catch { return; }
+    if (data?.type !== "BskRelativeView" || !["", "overview", "overview-fixed", "chaser", "target", "free"].includes(data.mode)) return;
+    state.relativeView = data;
+    if (["overview", "overview-fixed", "chaser", "target"].includes(data.mode)) $("relativeViewSelector").value = data.mode;
+    updateRelativeViewControl();
+  });
+  stream.addEventListener("dataChannelOpen", () => {
+    if (state.pixelStreaming === stream) requestRelativeView();
+  });
+  stream.addEventListener("dataChannelClose", () => {
+    if (state.pixelStreaming !== stream) return;
+    state.streamLive = false;
+    if (state.freeCameraMode) setFreeCameraMode(false);
+    $("frameState").textContent = "CHANNEL RECONNECTING";
+    updateRelativeViewControl();
+    schedulePixelStreamingReconnect();
+  });
   workLight.reset();
   updateWorkLight();
   stream.addResponseEventListener("work-light", response => {
@@ -1002,8 +1159,13 @@ function createPixelStream() {
     // Give negotiation its own deadline, independent of how long UE took to load.
     armPixelStreamingWatchdog(stream);
   });
-  stream.addEventListener("streamerListMessage", () => {
-    if (state.pixelStreaming !== stream || state.streamLive) return;
+  stream.addEventListener("streamerListMessage", (event) => {
+    if (state.pixelStreaming !== stream) return;
+    const available = event?.data?.messageStreamerList?.ids;
+    if (Array.isArray(available)) {
+      applyAvailableStreams(state.previewAvailableIds ?? available);
+    }
+    if (state.streamLive) return;
     // Healthy signalling / streamer discovery is progress, not a reason to
     // periodically replace a player while the renderer is coming online.
     armPixelStreamingWatchdog(stream);
@@ -1026,10 +1188,15 @@ function createPixelStream() {
     state.streamLive = true;
     previewOrbit.select(state.selectedStreamerId);
     previewOrbit.restore();
-    $("previewEmpty").style.display = "none";
-    $("pixelStream").style.display = "block";
-    $("frameState").textContent = "LIVE WEBRTC";
-    $("frameState").style.color = "var(--accent)";
+    requestRelativeView();
+    // Media setup can precede the first decoded frame during a cold asset
+    // load. Keep the waiting view until actual video arrives.
+    if (!showReceivedVideo(stream)) {
+      $("frameState").textContent = "WAITING FOR FRAMES";
+      $("previewEmptyTitle").textContent = "等待视频首帧";
+      $("previewEmptyHint").textContent = "首次载入模型时可能较慢，收到实际画面后会自动显示。";
+      $("pixelStream").querySelector("video")?.requestVideoFrameCallback?.(() => showReceivedVideo(stream));
+    }
   });
   stream.addEventListener("playStreamRejected", () => {
     if (state.pixelStreaming !== stream) return;
@@ -1063,10 +1230,18 @@ function createPixelStream() {
   stream.addEventListener("statsReceived", (event) => {
     if (state.pixelStreaming !== stream) return;
     updateWebRtcStats(event?.data?.aggregatedStats);
+    if (state.streamLive) showReceivedVideo(stream);
+    // Discover manifests arriving after WebRTC and camera changes made by
+    // another viewer. Reuse the SDK cadence instead of adding a timer.
+    if (state.streamLive && Date.now() - lastRelativeQuery >= 2000) {
+      lastRelativeQuery = Date.now();
+      requestRelativeView();
+    }
   });
   // Bound a genuinely stalled setup, but never recycle players on an absolute
   // 10-second cycle: UE startup and public ICE negotiation can take much longer.
   armPixelStreamingWatchdog(stream);
+  monitorPixelStream(stream);
 }
 
 function applyControlLimits(limits = {}) {
@@ -1148,6 +1323,7 @@ function sendNeutralAction(source = "keyboard") {
 }
 
 function updateOperationUI() {
+  updateRelativeViewControl();
   const viewport = $("viewport");
   const hintTitle = $("operationHintTitle");
   const hintDetail = $("operationHintDetail");
@@ -1164,8 +1340,9 @@ function updateOperationUI() {
       ? `${freeCamera.inputMode === "raw" ? "原始输入 · 固定增益" : "兼容输入 · 受系统指针设置影响"}；WASD / QE 移动；C / Home / Esc 返回`
       : "点击视频画面锁定鼠标后再转动；C / Home / Esc 返回";
   } else if (!state.sceneReady) {
-    hintTitle.textContent = "等待场景运行";
-    hintDetail.textContent = "场景运行后点击画面进入操作";
+    const flight = state.mission?.stage === "flight";
+    hintTitle.textContent = flight ? state.mission.active ? "交会自动控制" : "交会任务已结束" : "等待场景运行";
+    hintDetail.textContent = flight ? "C 查看自由视角；可在右侧查看结果或接续遥操作" : "场景运行后点击画面进入操作";
   } else if (!state.connected) {
     hintTitle.textContent = "操作链路未连接";
     hintDetail.textContent = "等待后端 WebSocket 恢复";
@@ -1289,10 +1466,13 @@ function highlightKeys() {
 
 async function refreshState() {
   if (state.sceneTransitionPending) return;
+  if (state.stateReadPending && state.stateReadPending === state.stateRequestSequence) return;
   const sequence = ++state.stateRequestSequence;
+  state.stateReadPending = sequence;
   try {
-    const response = await apiRequest("/api/state", { cache: "no-store" });
+    const response = await apiRequest("/api/state", { cache: "no-store", signal: globalThis.AbortSignal?.timeout(10000) });
     const data = await response.json();
+    if (response.ok === false) throw new Error(data.detail || "无法读取任务状态");
     if (sequence !== state.stateRequestSequence) return;
     if (!response.ok) throw new Error(`state ${response.status}`);
     if (state.activePage !== 'operate') {
@@ -1300,15 +1480,25 @@ async function refreshState() {
       $('backendState').textContent = '平台已连接';
     }
     state.simulationConnected = data.simulation.connected;
+    state.observationSceneId = data.simulation.latest_observation?.scene_instance_id || null;
     state.simulationResetting = data.simulation.resetting === true;
     state.resetSupported = data.simulation.reset_supported === true;
     setOnline("simDot", data.simulation.connected);
     $("simState").textContent = data.simulation.connected ? "仿真在线" : "仿真未连接";
     state.activeEpisode = data.active_episode;
     $("episodePath").textContent = data.episode_directory || "—";
-    applySceneRuntime(data.scene_runtime || {});
+    applySceneRuntime(data.scene_runtime || {}, data.mission);
+    if (data.mission) {
+      setOnline("backendDot", true);
+      $("backendState").textContent = "后端在线";
+      missionPanel.render(data.mission);
+      const flightOnline = data.mission.stage === "flight" && data.mission.telemetry?.connected;
+      setOnline("simDot", data.simulation.connected || flightOnline);
+      $("simState").textContent = flightOnline ? "交会仿真在线" : data.simulation.connected ? "仿真在线" : "仿真未连接";
+      updateOperationUI();
+    }
     if (!state.simulationConnected || state.simulationResetting || !state.sceneReady) {
-      clearWristWrench();
+      clearSimulationTelemetry(data.mission);
       jointAngles.clear(state.simulationResetting ? "场景重置中" : "等待运行场景的遥测");
     }
     if (data.simulation.reset_error) setMessage(data.simulation.reset_error);
@@ -1319,8 +1509,13 @@ async function refreshState() {
     }
   } catch (_) {
     if (sequence !== state.stateRequestSequence) return;
+    clearSimulationTelemetry();
+    jointAngles.clear("连接中断，等待新遥测");
     setOnline("backendDot", false);
     if (state.activePage !== 'operate') $('backendState').textContent = '平台连接异常';
+    if (state.mission) missionPanel.failed();
+  } finally {
+    if (state.stateReadPending === sequence) state.stateReadPending = false;
   }
 }
 
@@ -1498,6 +1693,15 @@ $("streamSelector").addEventListener("change", (event) => {
   state.selectedStreamerId = event.target.value;
   createPixelStream();
   $("viewport").focus({ preventScroll: true });
+});
+$("relativeViewSelector").addEventListener("change", event => {
+  if (state.freeCameraMode) setFreeCameraMode(false);
+  if (!requestRelativeView(event.target.value)) setMessage("视频控制通道尚未就绪，请稍后重试视角切换。");
+  else setMessage(event.target.value === "overview"
+    ? "总览保持双星真实位置和模型尺寸；标记用于辨认，自动取景时请以距离和比例尺判断尺度。"
+    : event.target.value === "overview-fixed"
+    ? "已固定总览尺度，两星会随实际接近在画面上靠拢。切回自动取景可重新放大；相机仍跟随双星中点。"
+    : "近景用于查看单颗卫星。双星间距请以质心距离为准，切回总览可同时定位两颗卫星。");
 });
 $('controlledArm').addEventListener('change', event => {
   exitOperationMode('已切换控制臂；点击画面后控制所选机械臂');

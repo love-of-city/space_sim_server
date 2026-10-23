@@ -50,6 +50,7 @@ import numpy as np
 from Basilisk.architecture import messaging, sysModel
 
 from simulation.native_acceleration import load_native_library
+from simulation.mujoco_runtime import basilisk_mujoco_runtime
 from simulation.orbital_frames import OrbitalForceProvider, interpolate_origin
 
 BACKEND_BASILISK = "basilisk"
@@ -152,7 +153,8 @@ def _library():
     lib.lms_abi.restype = ctypes.c_int
     lib.lms_header_version.restype = ctypes.c_int
     lib.lms_create.restype = ctypes.c_void_p
-    lib.lms_create.argtypes = [ctypes.c_wchar_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    runtime_path_type = ctypes.c_wchar_p if os.name == "nt" else ctypes.c_char_p
+    lib.lms_create.argtypes = [runtime_path_type, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
     lib.lms_destroy.argtypes = [ctypes.c_void_p]
     lib.lms_dims.argtypes = [ctypes.c_void_p, _INT64_P]
     lib.lms_name2id.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
@@ -173,6 +175,10 @@ def _library():
     lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, _DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
+    lib.lms_add_axial_friction.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+                                          ctypes.c_double, ctypes.c_double, ctypes.c_double]
+    lib.lms_set_axial_friction.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
+    lib.lms_axial_friction_state.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
     if lib.lms_abi() != 1 or lib.lms_header_version() != 3007000:
         raise RuntimeError("local MuJoCo stepper ABI/header mismatch; rebuild it")
     lib._lms_bound = True
@@ -180,16 +186,35 @@ def _library():
 
 
 def _basilisk_mujoco_runtime() -> Path:
-    """The mujoco.dll Basilisk loaded; the stepper must share that runtime."""
-    import Basilisk
-    runtime = Path(Basilisk.__file__).resolve().parent / "mujoco.dll"
-    if not runtime.is_file():
-        raise FileNotFoundError(f"Basilisk MuJoCo runtime not found: {runtime}")
-    return runtime
+    """The runtime Basilisk loaded; the stepper must share that runtime."""
+    return basilisk_mujoco_runtime()
 
 
 def _pointer(array: np.ndarray):
     return array.ctypes.data_as(_DOUBLE_P)
+
+
+class AxialFrictionChannel:
+    """Relative dry friction solved inside each native physics substep."""
+
+    def __init__(self, stepper, index):
+        self.stepper, self.index = stepper, index
+
+    def configure(self, *, enabled=False, axis=(0., 0., 1.), seat=(0., 0., 0.)):
+        axis, seat = (np.ascontiguousarray(v, dtype=np.float64) for v in (axis, seat))
+        if axis.shape != (3,) or seat.shape != (3,):
+            raise ValueError("axial friction axis and seat must have three components")
+        core = self.stepper
+        core._check(core._lib.lms_set_axial_friction(core._handle, self.index, int(enabled),
+                                                   _pointer(axis), _pointer(seat)), "axial friction configuration")
+
+    def telemetry(self):
+        values = np.zeros(6)
+        core = self.stepper
+        core._check(core._lib.lms_axial_friction_state(core._handle, self.index, _pointer(values)),
+                    "axial friction sample")
+        return dict(force_inertial_n=values[:3].tolist(), axial_force_n=float(values[3]),
+                    axial_velocity_m_s=float(values[4]), friction_mode=("free", "static", "sliding")[int(values[5])])
 
 
 @dataclass(frozen=True)
@@ -300,7 +325,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         self.rebase_distance_m = float(rebase_distance_m)
         self._lib = _library()
         error = ctypes.create_string_buffer(1024)
-        handle = self._lib.lms_create(str(_basilisk_mujoco_runtime()), str(Path(model_path).resolve()).encode(),
+        runtime = str(_basilisk_mujoco_runtime())
+        handle = self._lib.lms_create(runtime if os.name == "nt" else os.fsencode(runtime), str(Path(model_path).resolve()).encode(),
                                       error, len(error))
         if not handle:
             raise RuntimeError(f"local MuJoCo stepper failed to load {model_path}: {error.value.decode(errors='replace')}")
@@ -381,6 +407,20 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._check(self._lib.lms_contacts(self._handle, _pointer(rows), count), "contacts")
         return rows
 
+    @property
+    def state_initialized(self) -> bool:
+        """The first update has adopted the scene's final initial conditions."""
+        return self._last_nanos is not None
+
+    def add_axial_friction(self, plug: str, base: str, *, static_n: float, kinetic_n: float,
+                          travel_m: float) -> AxialFrictionChannel:
+        """Register one connector interface before initialization, once per plug."""
+        if self._last_nanos is not None:
+            raise ValueError("axial friction must be registered before stepping")
+        bodies = [self._lib.lms_name2id(self._handle, _OBJ_BODY, name.encode()) for name in (plug, base)]
+        index = self._lib.lms_add_axial_friction(self._handle, *bodies, static_n, kinetic_n, travel_m)
+        self._check(index, "register axial friction")
+        return AxialFrictionChannel(self, index)
     def contact_detail(self):
         count = self._lib.lms_contact_detail(self._handle, None, 0)
         self._check(count, 'contact detail count')
@@ -601,6 +641,25 @@ class LocalMujocoStepper(sysModel.SysModel):
     def body_mass(self, name: str) -> float:
         return float(self.body_inertial(name)[0])
 
+    def free_body_layout(self, name: str):
+        """Static addresses from the already compiled core, before scene Reset.
+
+        MJScene's joint address accessors require its registered dynamic states;
+        calling them while assembling components can abort the native runtime.
+        """
+        body = self.scene.getBody(name)
+        if not body.isFree():
+            raise ValueError(f"body {name!r} must have an independent free joint")
+        joint_name = body.getFreeJoint().getName()
+        joint_id = self._lib.lms_name2id(self._handle, _OBJ_JOINT, joint_name.encode())
+        if joint_id < 0:
+            raise ValueError(f"free joint for {name!r} must have a name in the compiled model")
+        address = np.zeros(3, dtype=np.int64)
+        self._check(self._lib.lms_joint(self._handle, joint_id, address.ctypes.data_as(_INT64_P)), name)
+        if int(address[2]) != _JOINT_FREE:
+            raise ValueError(f"body {name!r} does not have a compiled free joint")
+        return int(address[0]), int(address[1]), self.body_inertial(name)[1:4].copy()
+
     def body_inertial(self, name: str):
         for index in range(self.nbody):
             if self._name(_OBJ_BODY, index) == name:
@@ -795,6 +854,9 @@ class LocalMujocoStepper(sysModel.SysModel):
                                        qpos, qvel, qacc, force, stats)
         else:
             status = self._step_with_orbital_environment(now, dt, r_o, v_o)
+        if status == -6:
+            raise RuntimeError(f"axial dry-friction solve did not converge at t={now * 1e-9:.6f}s; "
+                               "see native friction diagnostics")
         if status < 0:
             raise FloatingPointError(
                 f"local MuJoCo dynamics diverged at t={now * 1e-9:.6f}s (status {status}, "

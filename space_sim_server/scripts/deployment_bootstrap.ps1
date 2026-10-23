@@ -1,6 +1,6 @@
 # Bootstrap helpers only. Dot-sourcing this file never starts/stops the platform.
 function Read-LauncherText([string]$Prompt, [switch]$NonInteractive) {
-    if ($NonInteractive) { throw "First-run input required: $Prompt. Run start_deployment.cmd interactively once." }
+    if ($NonInteractive) { throw "First-run input required: $Prompt. Run ./scripts/deployment_launcher.ps1 -Action Start interactively once." }
     $value = Read-Host $Prompt
     if ([string]::IsNullOrWhiteSpace($value)) { throw 'No value entered; existing services were not changed.' }
     return $value.Trim()
@@ -81,7 +81,7 @@ function Read-LauncherSecrets([string]$SecretPath, $Settings, [switch]$NonIntera
             $values[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
         }
         if ($values[$name]) { continue }
-        if ($ReadOnly) { throw "Missing saved secret or environment variable: $name. Run start_deployment.cmd once to configure it." }
+        if ($ReadOnly) { throw "Missing saved secret or environment variable: $name. Run ./scripts/deployment_launcher.ps1 -Action Start once to configure it." }
         if ($GenerateAdmin -and $name -eq 'SPACE_SIM_ADMIN_PASSWORD') {
             $values[$name] = New-LauncherSecret 24
             continue
@@ -90,7 +90,7 @@ function Read-LauncherSecrets([string]$SecretPath, $Settings, [switch]$NonIntera
             'SPACE_SIM_STREAM_JWT_SECRET' { $values[$name] = New-LauncherSecret 48 }
             'SPACE_SIM_STREAM_ACCESS_KEY' { $values[$name] = New-LauncherSecret 24 }
             default {
-                if ($NonInteractive) { throw "First-run secret required: $name. Run start_deployment.cmd interactively once." }
+                if ($NonInteractive) { throw "First-run secret required: $name. Run ./scripts/deployment_launcher.ps1 -Action Start interactively once." }
                 $prompt = if ($name -eq 'SPACE_SIM_ADMIN_PASSWORD') {
                     '管理员初始化密码（12～256 字符；不会替换已有账号密码）'
                 } else { 'TURN 服务的 REST shared secret（必须与 TURN 服务一致）' }
@@ -247,7 +247,7 @@ function Receive-DeploymentFile([string]$Uri, [string]$Destination, [int]$Timeou
         $null=$response.EnsureSuccessStatusCode()
         $inputStream=$response.Content.ReadAsStreamAsync($cancel.Token).GetAwaiter().GetResult()
         $outputStream=[IO.File]::Open($Destination,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-        $inputStream.CopyToAsync($outputStream,81920,$cancel.Token).GetAwaiter().GetResult()
+        $null = $inputStream.CopyToAsync($outputStream,81920,$cancel.Token).GetAwaiter().GetResult()
     } finally {
         if($outputStream){$outputStream.Dispose()}; if($inputStream){$inputStream.Dispose()}; if($response){$response.Dispose()}
         $cancel.Dispose(); $client.Dispose(); $handler.Dispose()

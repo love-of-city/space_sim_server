@@ -9,9 +9,21 @@
 
 团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](space_sim_server/README.md)。
 
+原工作台提供机械臂操作、7 km交会、300 km入轨后三种起始条件。连续任务保留同一任务编号，远距通过后接续近距，再以实际关节终态进入标准操作场景；两阶段共享GNSS配置和导航不确定性。近距仍是参数化视觉与逻辑捕获，未验证真实图像闭环或物理锁定。详细流程见[连续任务说明](archive/2026_10_17_连续任务与共享导航.md)和[远距物理参数](space_sim_server/docs/TEAM_RENDEZVOUS.md)。
+
+交会使用原控制台与原 UE 主视口，可在真实尺度的双星总览、追踪星近景、目标星近景间切换；总览显示身份、质心距离、比例尺与地影状态。团队最新 SARM 实验模型仍在直接遥操作的场景选择器中，保留其独立模型身份和夹爪角度单位，见[新模型说明](space_sim_server/docs/SARM_20261012_PLATFORM.md)。
+
+整合跟随团队 main，沿用原导航、自动采集、数据集回放和用户管理页面，包含团队 Linux 基础迁移、原生轨道物理、紧凑存储、插头采集和策略控制。当前交互场景的策略会话与任务切换互斥，策略录制保留同一任务来源；批量自动采集继续使用独立场景和进程，详见[策略接入](space_sim_server/docs/ENACTIVE_SARM_INTEGRATION.md)。
+
+新连续任务完整继承团队 J2 配置；导航及制导查询同一原生引力场，GNSS 时延与在途包跨阶段保留。近距在光学深度17.4 m检查点驻留，随后在收拢TCP距抓取面0.5 m处稳姿，再展开机械臂。距离定义、模型假设及验证边界见[近距接口](space_sim_server/docs/NEAR_FIELD_RENDEZVOUS.md)。
+
+动画预览使用连续播放时钟；当前主线启动脚本默认目标90 FPS，网页可选择30/60/90 FPS，实际帧率取决于运行负载。同轨迹对照、权威采集兼容性和此前实测结果见[动画性能优化](archive/2026_10_13_交会动画播放时钟与预览性能优化.md)。
+
+平台碰撞、预览时钟与短录制编码的性能改进及验证方法见[性能优化记录](archive/2026_10_14_平台碰撞与预览采集性能优化.md)。更新后需重新构建 SARM 原生插件与 UE 运行时。
+
 ## 首次获取与安装
 
-完整运行需要 Windows x64、PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。
+Windows 完整网页平台使用 PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。Linux 已提供原生一键启动、停止和网页场景管理，见 [Linux 一键部署](space_sim_server/docs/LINUX_DEPLOYMENT.md)；环境安装与真实采集见 [Linux 基础迁移](space_sim_server/docs/LINUX_BASIC_MIGRATION.md)。
 
 默认 local 动力学还要求 Basilisk 所带 MuJoCo 与项目内置的 3.7.0 头文件匹配。本次完整验收使用 Python 3.13 + bsk 2.11.1；安装该已验证环境时可选择 bsk[all]==2.11.1。使用其他发行版或自编译版本时也需满足这一原生 ABI 要求，单独通过 API 导入检查不足以证明兼容。
 

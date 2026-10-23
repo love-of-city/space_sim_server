@@ -6,6 +6,7 @@ training episode. Original contacts, latch, free base, servos and SDFs are kept.
 
 from __future__ import annotations
 import argparse
+from contextlib import nullcontext
 from dataclasses import asdict
 import hashlib
 import json
@@ -79,6 +80,7 @@ def run(args):
         RENDER_HZ,
         WRENCH_HZ,
     )
+    from simulation.orbital_configuration import resolve_orbital_physics, environment_metadata
 
     model = (args.model or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
     from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
@@ -99,6 +101,7 @@ def run(args):
         np.full(6, 100.0),
     )
     native.TIME_STEP = 1 / DYNAMICS_HZ
+    orbital_physics = resolve_orbital_physics(scene_instance)
     if args.scene and scene_instance.get("template_id") != "sarm-task-box-20261012":
         raise ValueError("The scripted task requires the SARM 2026-10-12 scene")
     initial = np.r_[
@@ -142,6 +145,8 @@ def run(args):
     else:
         config = DrawerLiftConfig(**drawer_options)
         task = DrawerLiftTask(model, config)
+    if getattr(args, "native_geometry", False):
+        task.chain.enable_native_geometry()
     from simulation.scripted_tasks.native_state import STATE_READERS
 
     if (
@@ -167,6 +172,7 @@ def run(args):
         initial_arm_joint_deg=np.rad2deg(initial[:6]).tolist(),
         physics_hz=DYNAMICS_HZ,
         task_hz=SCRIPTED_TASK_HZ,
+        native_geometry=getattr(args, "native_geometry", False),
         capture_hz=RENDER_HZ,
         wrench_hz=WRENCH_HZ,
         environment="BSK Earth/Sun + differential gravity",
@@ -203,14 +209,15 @@ def run(args):
         orbit = OrbitComponent(
             epoch_utc=scene_instance.get("environment", {}).get(
                 "ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC
-            )
+            ),
+            physics=orbital_physics,
         )
         ctx.install(
             [
                 ClockComponent(),
                 orbit,
                 DynamicsCoreComponent(model),
-                OrbitalGravityComponent(),
+                OrbitalGravityComponent(mode="bsk"),
                 JointReferenceComponent(
                     publisher,
                     joints=profile.joint_names[:6],
@@ -224,6 +231,15 @@ def run(args):
                 AttitudeComponent(model),
             ]
         )
+        from simulation.components.plug_retention import install_configured_plug_retention
+        plug_retention = install_configured_plug_retention(ctx)
+        report["plug_retention"] = (plug_retention.configuration() if plug_retention else {"enabled": False})
+        if orbital_physics.drag is not None:
+            from simulation.components.drag import configured_drag_components
+            ctx.install(configured_drag_components(
+                orbital_physics.drag, planet_radius_m=float(orbit.earth.radEquator)))
+        report["orbital_physics"] = environment_metadata(
+            orbital_physics, orbit.earth, epoch_utc=orbit.epoch_utc)
         state_reader = STATE_READERS[args.task](task, scene, stepper)
         if args.capture_control_port:
             from simulation.scripted_tasks.capture_transport import (
@@ -262,7 +278,8 @@ def run(args):
         event_count = 0
         task_epoch_ns = None if capture else int(round(args.warmup_sim_seconds * 1e9))
         frame = 0
-        with (output / "trace.jsonl").open("w", encoding="utf-8") as trace:
+        trace_context = (output / "trace.jsonl").open("w", encoding="utf-8") if getattr(args, "save_trace", True) else nullcontext(None)
+        with trace_context as trace:
             while True:
                 if capture:
                     capture.flush()
@@ -279,7 +296,7 @@ def run(args):
                         time.sleep(0.01)
                         continue
                     if not capture.can_advance():
-                        time.sleep(0.01)
+                        time.sleep(getattr(args, "capture_backpressure_poll_s", 0.002))
                         continue
                 stamp = tick_time_ns(frame, SCRIPTED_TASK_HZ)
                 if (
@@ -325,34 +342,39 @@ def run(args):
                         capture.task_elapsed_s = elapsed
                 applied_wrench = disturbances.write_external_force(elapsed, active=task_epoch_ns is not None and elapsed >= 0 and task.result is None)
                 measured_q, measured_v, measured_stamp = disturbances.observe(sample.joints, sample.joint_velocities, stamp)
-                pose, rotation = task.chain.forward(sample.joints[:6])
-                row = dict(
-                    sim_time_ns=str(stamp),
-                    stage=task.stage,
-                    result=task.result,
-                    joint_position=sample.joints.tolist(),
-                    joint_velocity=sample.joint_velocities.tolist(),
-                    joint_reference=command.tolist(),
-                    joint_reference_velocity=velocity.tolist(),
-                    tool_position_body_m=pose.tolist(),
-                    tool_rotation_body=rotation.tolist(),
-                    **metrics,
-                    wrist_wrench=wrench,
-                    measured_wrist_wrench=disturbances.wrench(wrench),
-                    measured_joint_position=measured_q.tolist(),
-                    measured_joint_velocity=measured_v.tolist(),
-                    joint_measurement_time_ns=str(measured_stamp),
-                    nominal_joint_reference=task.reference.tolist(),
-                    applied_external_wrench=applied_wrench.tolist(),
-                    local_qpos=stepper.qpos.tolist(),
-                )
-                trace.write(json.dumps(row) + "\n")
+                if trace is not None:
+                    pose, rotation = task.chain.forward(sample.joints[:6])
+                    row = dict(
+                        sim_time_ns=str(stamp),
+                        stage=task.stage,
+                        result=task.result,
+                        joint_position=sample.joints.tolist(),
+                        joint_velocity=sample.joint_velocities.tolist(),
+                        joint_reference=command.tolist(),
+                        joint_reference_velocity=velocity.tolist(),
+                        tool_position_body_m=pose.tolist(),
+                        tool_rotation_body=rotation.tolist(),
+                        **metrics,
+                        wrist_wrench=wrench,
+                        measured_wrist_wrench=disturbances.wrench(wrench),
+                        measured_joint_position=measured_q.tolist(),
+                        measured_joint_velocity=measured_v.tolist(),
+                        joint_measurement_time_ns=str(measured_stamp),
+                        nominal_joint_reference=task.reference.tolist(),
+                        applied_external_wrench=applied_wrench.tolist(),
+                        plug_retention=plug_retention.telemetry() if plug_retention else {},
+                        local_qpos=stepper.qpos.tolist(),
+                    )
+                    trace.write(json.dumps(row) + "\n")
                 if len(task.events) > event_count:
                     for event in task.events[event_count:]:
                         print(json.dumps({"type": "task_stage", **event}), flush=True)
                     event_count = len(task.events)
-                    trace.flush()
+                    if trace is not None:
+                        trace.flush()
                 if frame % 150 == 0:
+                    if trace is None:
+                        pose, _ = task.chain.forward(sample.joints[:6])
                     print(
                         json.dumps(
                             {
@@ -394,6 +416,7 @@ def run(args):
             substeps=stepper.substeps,
             dynamics=stepper.telemetry(),
             schedule=ctx.summary(),
+            plug_retention_final=plug_retention.telemetry() if plug_retention else {},
         )
         _ = models, recorders, ctx
     except (Exception, KeyboardInterrupt) as exc:
@@ -454,6 +477,9 @@ def main(default_task="drawer_lift"):
     )
     parser.add_argument("--max-sim-seconds", type=float, default=360.0)
     parser.add_argument("--substeps", type=int, default=None)
+    parser.add_argument("--save-trace", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--native-geometry", action="store_true", help="Use the installed exact C++ FK/Jacobian helper")
+    parser.add_argument("--capture-backpressure-poll-s", type=float, default=0.002)
     parser.add_argument("--warmup-sim-seconds", type=float, default=0.0)
     parser.add_argument("--lift-m", type=float, default=0.08)
     parser.add_argument("--arm-speed", type=float, default=None)
@@ -501,6 +527,8 @@ def main(default_task="drawer_lift"):
         parser.error("--warmup-sim-seconds must be finite and in [0,60]")
     if not np.isfinite(args.max_sim_seconds) or args.max_sim_seconds <= 0:
         parser.error("--max-sim-seconds must be finite and positive")
+    if not 0.001 <= args.capture_backpressure_poll_s <= 0.1:
+        parser.error("--capture-backpressure-poll-s must be in [0.001, 0.1]")
     return run(args)
 
 

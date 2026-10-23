@@ -4,6 +4,18 @@ import xml.etree.ElementTree as E
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
+def test_trim_import_uses_the_current_portable_visual_mesh():
+    scene_path = ROOT / 'model/SARM/platform/sarm_dual_capture26.xml'
+    import_path = ROOT / 'model/dual_arm_capture26/import_trimmed_base.xml'
+    scene_mesh = E.parse(scene_path).find("./asset/mesh[@name='base_link_mesh']")
+    import_mesh = E.parse(import_path).find("./asset/mesh[@name='base_link_mesh']")
+    source = Path(import_mesh.get('file'))
+    assert not source.is_absolute()
+    assert (import_path.parent / source).resolve() == (scene_path.parent / scene_mesh.get('file')).resolve()
+    assert import_mesh.get('scale') == scene_mesh.get('scale')
+    assert (import_path.parent / source).is_file()
+
+
 def test_original_bodies_unchanged():
     base=E.parse(ROOT/'model/SARM/platform/sarm_20261012.xml')
     new=E.parse(ROOT/'model/SARM/platform/sarm_dual_capture26.xml')
@@ -33,11 +45,13 @@ def test_original_bodies_unchanged():
             assert canon(b.findall(tag))==canon(match.findall(tag))
 
 def test_capture_joints_and_scene_registration():
+    from tools.select_sarm_scene import selected_scene
     from space_arm_platform.scene_targets import capture_target,SARM_TEMPLATES
     from space_arm_platform.scene_runtime import SCENE_TEMPLATES
     assert 'sarm-dual-capture26' in SARM_TEMPLATES
     assert any(x['id']=='sarm-dual-capture26' for x in SCENE_TEMPLATES)
     p=capture_target('sarm-dual-capture26').resolve_model(ROOT/'model/SARM/platform')
+    assert selected_scene(ROOT/'model/SARM/platform', 'sarm-dual-capture26', check=True) == p
     r=E.parse(p)
     assert r.find(".//joint[@name='axial']").get('range')=='-.006 .02'
     assert len([a for a in r.findall('./actuator/position') if a.get('name','').startswith('bottom_')])==6

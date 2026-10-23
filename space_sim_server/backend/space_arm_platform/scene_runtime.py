@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -132,10 +132,12 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
 # validate flex contacts without ignoring the experiment's core collision.
 TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES: dict[str, str] = {
     SARM_20261012_TEMPLATE: ZERO_START_TELEOP_PROFILE,
+    'sarm-dual-capture26': ZERO_START_TELEOP_PROFILE,
     FREE_PLUG_TEMPLATE: ZERO_START_TELEOP_PROFILE,
 }
 TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
     SARM_20261012_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE, BALANCED_TELEOP_PROFILE, 'none', 'training-v1'),
+    'sarm-dual-capture26': (AUTO_PREPARE_TELEOP_PROFILE,),
     FREE_PLUG_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE,),
 }
 
@@ -174,7 +176,7 @@ class SceneLaunchConfig:
     adapter_root: Path
     model_root: Path
     unreal_root: Path
-    powershell_exe: Path
+    powershell_exe: Path | None
     control_port: int
     capture_port: int
     render_port: int
@@ -190,6 +192,7 @@ class SceneLaunchConfig:
     capture_rate: float
     default_dataset_capture: bool
     encoder_min_quality: int = 60
+    python_exe: Path | None = None
 
 
 def _normalize_quaternion(values: list[float] | tuple[float, ...]) -> list[float]:
@@ -282,8 +285,8 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
     if request.randomize_orbit_phase:
         # A versioned, independent stream preserves existing training-v1
         # samples and gives the same orbital phase for either local profile.
-        orbit_rng = random.Random(f"space-arm-orbit-phase-v1:{seed}")
-        orbit["true_anomaly_deg"] = orbit_rng.random() * 360.0
+        from .orbit_randomization import sample_orbit_phase
+        orbit["true_anomaly_deg"] = sample_orbit_phase(seed)
 
     return {
         "schema": "space-arm-scene-instance/1",
@@ -291,6 +294,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         "template_id": request.template_id,
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
+        "wrist_camera_mode": request.wrist_camera_mode,
         "initial_arm_joint_position_deg": request.initial_arm_joint_position_deg,
         "arm_preparation_required": request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE,
         "operating_arm_joint_position_deg": list(request.operating_arm_joint_position_deg),
@@ -310,6 +314,7 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
             "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
             "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
             "orbit": orbit,
+            "physics": request.orbital_physics.model_dump(mode="json"),
             "lighting": {"sunlight_intensity_scale": request.sunlight_intensity_scale},
         },
         "runtime": {
@@ -386,6 +391,7 @@ class SceneRuntimeManager:
             "defaults": {
                 "operating_arm_joint_position_deg": list(DEFAULT_OPERATING_JOINT_DEG),
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
+                "wrist_camera_mode": "rgb",
                 "template_id": DEFAULT_TEMPLATE,
                 "randomization_profile": AUTO_PREPARE_TELEOP_PROFILE,
                 "randomize_orbit_phase": False,
@@ -396,13 +402,18 @@ class SceneRuntimeManager:
             },
         }
 
-    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         if request.template_id not in {item["id"] for item in SCENE_TEMPLATES}:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
         unsupported_profiles = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES.get(request.template_id, ())
         if request.randomization_profile in unsupported_profiles:
+            if request.template_id in SARM_TEMPLATES:
+                raise ValueError(
+                    '当前 SARM 场景不支持所选启动配置；请选择“指定操作姿态直接启动”'
+                    '（teleop-zero-prepare-v1）'
+                )
             raise ValueError(
                 "本地任务盒（两个活动插头·实验）包含 flexcomp 接触网格，"
                 "当前不支持“零位启动并自动展开”（teleop-zero-prepare-v2）；"
@@ -424,6 +435,8 @@ class SceneRuntimeManager:
                     raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
+        if mission is not None:
+            instance["mission"] = dict(mission)
         if request.template_id in SCENE_RENDER_PROFILES:
             profile = SCENE_RENDER_PROFILES[request.template_id]
             instance['render_profile'] = dict(profile)
@@ -448,6 +461,21 @@ class SceneRuntimeManager:
             instance["ik_initialization"] = report
             if report["status"] in {"selected", "kept"}:
                 instance["randomization"]["arm_joint_position_rad"][:6] = report["joint_position_rad"]
+        if handoff is not None:
+            from datetime import datetime, timedelta
+            from .rendezvous_config import FlightOptions
+            if request.template_id != SELF_COLLISION_TEMPLATE or handoff.get("accepted") is not True:
+                raise ValueError("handoff requires the original team model and an accepted flight")
+            physics = FlightOptions.from_dict(handoff.get("mission_options", {})).physics
+            if "orbital_physics" in request.model_fields_set and request.orbital_physics != physics:
+                raise ValueError("handoff must preserve the flight orbital physics configuration")
+            instance["environment"]["physics"] = physics.model_dump(mode="json")
+            epoch = datetime.strptime(handoff["ephemeris_epoch_utc"], "%Y %B %d %H:%M:%S.%f")
+            epoch += timedelta(seconds=float(handoff["state"]["sim_time_s"]))
+            instance["environment"]["ephemeris_epoch_utc"] = epoch.strftime("%Y %B %d %H:%M:%S.%f")
+            instance["rendezvous_handoff"] = handoff
+            instance["randomization"]["arm_joint_position_rad"] = [0.0] * 8
+            instance["arm_preparation_required"] = False
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -456,21 +484,22 @@ class SceneRuntimeManager:
         self._last_instance = instance
         return instance
 
-    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         if not self.launch:
             raise RuntimeError("scene runtime launching is not configured")
-        if not self.launch.powershell_exe.is_file():
+        linux = self.launch.python_exe is not None
+        if not linux and (not self.launch.powershell_exe or not self.launch.powershell_exe.is_file()):
             raise RuntimeError(
                 f"PowerShell executable does not exist: {self.launch.powershell_exe}"
             )
         launch_script = self.launch.project_root / "scripts" / "start_scene_instance.ps1"
-        if not launch_script.is_file():
+        if not linux and not launch_script.is_file():
             raise RuntimeError(f"scene launch script does not exist: {launch_script}")
         with self._lock:
             status = self.status()
             if status["active"]:
                 raise RuntimeError("a scene instance is already starting or running")
-            instance = self.create_instance(request, created_by)
+            instance = self.create_instance(request, created_by, handoff=handoff, mission=mission)
             instance_path = Path(instance["config_path"])
             script = launch_script
             command = [
@@ -495,6 +524,15 @@ class SceneRuntimeManager:
                 "-EncoderMinQuality", str(self.launch.encoder_min_quality),
                 "-RendererReadyTimeout", str(self.launch.renderer_ready_timeout),
             ]
+            if linux:
+                from .linux_processes import write_json
+                config_path = self.run_root / "linux_scene_config.json"
+                write_json(config_path, {
+                    key: str(value) if isinstance(value, Path) else value
+                    for key, value in asdict(self.launch).items()
+                })
+                command = [str(self.launch.python_exe), "-m", "space_arm_platform.linux_scene",
+                           "start", "--config", str(config_path), "--instance", str(instance_path)]
             stamp = instance["instance_id"]
             self._stdout = (self.log_root / f"{stamp}.launcher.out.log").open("wb")
             self._stderr = (self.log_root / f"{stamp}.launcher.err.log").open("wb")
@@ -506,6 +544,7 @@ class SceneRuntimeManager:
                     stdout=self._stdout,
                     stderr=self._stderr,
                     creationflags=flags,
+                    start_new_session=linux,
                 )
             except OSError as error:
                 self._close_logs()
@@ -521,9 +560,17 @@ class SceneRuntimeManager:
             script = self.launch.project_root / "scripts" / "stop_scene_instance.ps1"
             flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             try:
+                if self.launch.python_exe is not None and self._process and self._process.poll() is None:
+                    # This also covers STOP arriving before the new launcher writes its state.
+                    self._process.terminate()
+                    self._process.wait(timeout=65)
+                command = [str(self.launch.powershell_exe), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+                           "-Quiet", "-AdapterRoot", str(self.launch.adapter_root)]
+                if self.launch.python_exe is not None:
+                    command = [str(self.launch.python_exe), "-m", "space_arm_platform.linux_scene", "stop",
+                               "--project-root", str(self.launch.project_root)]
                 subprocess.run(
-                    [str(self.launch.powershell_exe), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
-                     "-Quiet", "-AdapterRoot", str(self.launch.adapter_root)],
+                    command,
                     cwd=self.launch.project_root,
                     check=True,
                     timeout=90,

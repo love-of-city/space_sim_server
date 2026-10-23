@@ -20,7 +20,7 @@ function setup(value = "1") {
   $("randomizationProfile").value = "none";
   const requests=[], messages=[];
   const state={stateRequestSequence:0,sceneDefaults:{simulation_rate:1,capture_rate_hz:30,ik_rate_hz:120}, currentUser:{role:"admin",user_id:"admin"}, scenePhase:"idle"};
-  const ctx=vm.createContext({clearWristWrench() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+  const ctx=vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
     initialJoints: { read: () => null, setRuntime() {} },$,state,console,Option:function(){}, scenePhaseLabels:{running:"运行中"},
     setMessage:m=>messages.push(m), updateOperationUI(){},updateEpisodeUI(){},connectPixelStreaming(){},exitOperationMode(){},refreshState:async()=>{},
     apiRequest:async (path, options={})=>{requests.push({path,options});return {ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{}})};},
@@ -66,4 +66,39 @@ test("legacy catalog supplies default one without replacing zero",async()=>{
   assert.equal(h.$("sceneSunlightIntensity").value,"1");
   h.ctx.apiRequest=async()=>({ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{sunlight_intensity_scale:0}})});
   await h.ctx.loadSceneCatalog();assert.equal(h.$("sceneSunlightIntensity").value,"0");
+});
+
+test("a running process cannot enable controls using absent or previous-scene telemetry",()=>{
+  const h=setup();vm.runInContext(applySource,h.ctx);
+  const runtime={phase:"running",active:true,instance:{instance_id:"current",randomization:{}}};
+  for(const [connected,id] of [[false,null],[false,"current"],[true,null],[true,"previous"]]){
+    h.state.simulationConnected=connected;h.state.observationSceneId=id;
+    h.ctx.applySceneRuntime(runtime);
+    assert.equal(h.state.sceneReady,false);
+    assert.equal(h.$("linearSpeed").disabled,true);
+  }
+  h.state.simulationConnected=true;h.state.observationSceneId="current";
+  h.ctx.applySceneRuntime(runtime);
+  assert.equal(h.state.sceneReady,true);
+  assert.equal(h.$("linearSpeed").disabled,false);
+  h.state.simulationResetting=true;h.ctx.applySceneRuntime(runtime);
+  assert.equal(h.state.sceneReady,false);
+});
+
+test("wrist camera selection is submitted, restored and locked for an active scene",async()=>{
+  for(const mode of ["rgb","fisheye","monochrome"]){
+    const h=setup();h.$("sceneWristCameraMode").value=mode;
+    await h.ctx.startScene();
+    assert.equal(JSON.parse(h.requests[0].options.body).wrist_camera_mode,mode);
+    vm.runInContext(applySource,h.ctx);
+    h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"s1",randomization:{},wrist_camera_mode:mode}});
+    assert.equal(h.$("sceneWristCameraMode").value,mode);
+    assert.equal(h.$("sceneWristCameraMode").disabled,true);
+    assert.equal(JSON.parse(h.$("sceneParameters").textContent).wrist_camera_mode,mode);
+    h.ctx.applySceneRuntime({phase:"idle",active:false});
+    assert.equal(h.$("sceneWristCameraMode").disabled,false);
+  }
+  const h=setup();vm.runInContext(applySource,h.ctx);
+  h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"legacy",randomization:{}}});
+  assert.equal(h.$("sceneWristCameraMode").value,"rgb");
 });

@@ -106,3 +106,19 @@ def test_all_deployment_powershell_files_parse_without_execution(tmp_path):
         "if($errors.Count){$errors | Out-String | Write-Output; $failed=$true}\n}\nif($failed){exit 1}\n", encoding="utf-8")
     result = subprocess.run([PWSH, "-NoProfile", "-File", str(helper), str(ROOT)], capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("flags", [
+    ["-RemoteAccess"], ["-ApiHost", "0.0.0.0"], ["-PixelPlayerHost", "0.0.0.0"], [],
+])
+def test_ssh_streaming_rejects_unsafe_bindings_or_missing_turn_before_stopping_platform(tmp_path, flags):
+    paths = [ROOT / "run/platform.json", ROOT / "run/pixel_streaming.json"]
+    before = {p: p.read_bytes() if p.exists() else None for p in paths}
+    env = {**environment(), "SPACE_SIM_ETURNAL_CONFIG": str(tmp_path / "missing-turn.yml")}
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-File", str(ROOT / "scripts/run_platform.ps1"), "-SshStreaming", *flags],
+        cwd=ROOT, env=env, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=15,
+    )
+    assert result.returncode != 0
+    assert "SshStreaming requires" in result.stderr
+    assert before == {p: p.read_bytes() if p.exists() else None for p in paths}

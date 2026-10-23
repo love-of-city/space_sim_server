@@ -5,6 +5,7 @@
 #include "BskCoordinateConverter.h"
 #include "BskFrameSource.h"
 #include "BskProtocolTypes.h"
+#include "BskPresentationClock.h"
 #include "BskSceneController.generated.h"
 
 class ADirectionalLight;
@@ -89,6 +90,8 @@ public:
     int32 GetObjectCount() const { return BoundActors.Num(); }
     int32 GetVisualCount() const { return VisualActors.Num(); }
     int32 GetCameraCount() const { return CameraActors.Num(); }
+    FString GetLightingStatus() const;
+    bool GetRelativeViewState(FBskRelativeViewState& Out) const;
     int32 GetPendingCommandCount() const { return PendingCommandIds.Num(); }
     FString GetLastCommandStatus() const { return LastCommandStatus; }
 
@@ -141,7 +144,7 @@ private:
     void ResetPresentationState();
     void ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame = true);
     FBskRenderFrame InterpolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double Alpha) const;
-    FBskRenderFrame ExtrapolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double SecondsBeyondTarget) const;
+    FBskRenderFrame ExtrapolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double SecondsBeyondTarget, double SimulationRate = 1.0) const;
     AActor* GetOrCreateActor(const FBskRenderObjectState& State);
     AActor* FindBoundActor(const FString& ObjectName) const;
     AActor* SpawnFromSpec(const FString& ObjectName, const FObjectSpec& Spec);
@@ -159,6 +162,7 @@ private:
     AActor* SpawnCamera(const FBskCameraDefinition& Definition);
     void ConfigureCamera(AActor* Actor, const FBskCameraDefinition& Definition);
     void ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture, const FBskCameraDefinition* Definition = nullptr) const;
+    void CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture);
     void ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const;
     void UpdatePictureInPictureCaptures();
     void ConfigurePixelStreamingOutput();
@@ -198,6 +202,7 @@ private:
     FObjectSpec ResolveSpec(const FBskRenderObjectState& State) const;
 
     TUniquePtr<IBskFrameSource> Receiver;
+    FBskRelativeView RelativeView;
     FOnBskFrameApplied FrameAppliedEvent;
     TMap<FString, TObjectPtr<AActor>> BoundActors;
     TMap<FString, TObjectPtr<AActor>> CelestialActors;
@@ -211,6 +216,8 @@ private:
     TMap<FString, TObjectPtr<USceneCaptureComponent2D>> CameraCaptureComponents;
     UPROPERTY(Transient)
     TMap<FString, TObjectPtr<UTextureRenderTarget2D>> CameraRenderTargets;
+    UPROPERTY(Transient)
+    TMap<FString, TObjectPtr<UTextureRenderTarget2D>> CameraEffectSources;
     UPROPERTY(Transient)
     TMap<FString, TObjectPtr<USceneCaptureComponent2D>> PixelStreamingCameraCaptures;
     UPROPERTY(Transient)
@@ -306,12 +313,8 @@ private:
     FString TimeMode = TEXT("interpolated");
     double InterpolationDelaySeconds = 0.1;
     double MaxExtrapolationSeconds = 0.1;
-    double LastFrameArrivalSeconds = 0.0;
-    double BlendElapsedSeconds = 0.0;
-    double BlendDurationSeconds = 1.0 / 30.0;
-    bool bHasTargetFrame = false;
-    FBskRenderFrame PreviousFrame;
-    FBskRenderFrame TargetFrame;
+    FBskPresentationClock PresentationClock;
+    TArray<FBskRenderFrame> PresentationFrames;
     FBskRenderFrame PresentationFrame;
     bool bHasPresentationFrame = false;
     bool bScreenshotRequested = false;

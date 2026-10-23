@@ -126,7 +126,8 @@ bool FBskSceneSunlightIntensityTest::RunTest(const FString& Parameters)
     {
         Error.Reset();
         const FString Json = Prefix + FString::Printf(TEXT("\"sunlight_intensity_scale\":%.4f}}"), Scale);
-        TestTrue(*Error, FBskFrameParser::ParseMessageJson(Json, Message, Error));
+        const bool bParsed = FBskFrameParser::ParseMessageJson(Json, Message, Error);
+        TestTrue(*Error, bParsed);
         TestEqual(TEXT("scale retained by parser"), Message.Manifest.SunlightIntensityScale, Scale);
         Controller->ConfigureManifestLighting(Message.Manifest);
         TestEqual(TEXT("local sunlight is scaled, including zero"),
@@ -314,7 +315,7 @@ bool FBskProtocolV2ManifestTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("PIP camera slot"), Camera.PictureInPictureSlot, 2);
         TestEqual(TEXT("camera data products"), Camera.CaptureProducts.Num(), 1);
     }
-    for (const FString Product : {FString(TEXT("depth")), FString(TEXT("segmentation"))})
+    for (const FString& Product : {FString(TEXT("depth")), FString(TEXT("segmentation"))})
     {
         FBskRenderMessage RejectedMessage;
         FString RejectedError;
@@ -330,6 +331,37 @@ bool FBskProtocolV2ManifestTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("UI command name"), CaptureCameraMessage.Manifest.UiCommands[0].Command, FString(TEXT("mission.pause")));
         TestTrue(TEXT("dangerous command confirmation"), CaptureCameraMessage.Manifest.UiCommands[0].bRequiresConfirmation);
         TestTrue(TEXT("command payload retained"), CaptureCameraMessage.Manifest.UiCommands[0].PayloadJson.Contains(TEXT("hold")));
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FBskCameraModeManifestTest,
+    "BSK.Protocol.CameraModes",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBskCameraModeManifestTest::RunTest(const FString& Parameters)
+{
+    for (const FString& Mode : {FString(TEXT("rgb")), FString(TEXT("fisheye")), FString(TEXT("monochrome"))})
+    {
+        FBskRenderMessage Message;
+        FString Error;
+        const FString Json = FString::Printf(
+            TEXT("{\"protocol\":\"bsk-render/2\",\"type\":\"scene_manifest\",\"session_id\":\"lens\",\"revision\":\"1\",\"objects\":[],\"cameras\":[{\"camera_id\":\"wrist\",\"camera_mode\":\"%s\",\"field_of_view_rad\":2.7925268032}]}"), *Mode);
+        const bool bParsed = FBskFrameParser::ParseMessageJson(Json, Message, Error);
+        TestTrue(*Error, bParsed);
+        if (Message.Manifest.Cameras.Num() == 1)
+            TestEqual(TEXT("camera mode retained"), Message.Manifest.Cameras[0].CameraMode, Mode);
+    }
+    for (const FString& Fields : {FString(TEXT("\"camera_mode\":\"invalid\"")),
+         FString(TEXT("\"camera_mode\":null")), FString(TEXT("\"camera_mode\":\"fisheye\",\"field_of_view_rad\":3.14159265359")),
+         FString(TEXT("\"camera_mode\":\"fisheye\",\"field_of_view_rad\":0"))})
+    {
+        FBskRenderMessage Message;
+        FString Error;
+        const FString Json = FString::Printf(
+            TEXT("{\"protocol\":\"bsk-render/2\",\"type\":\"scene_manifest\",\"session_id\":\"lens\",\"revision\":\"1\",\"objects\":[],\"cameras\":[{\"camera_id\":\"wrist\",%s}]}"), *Fields);
+        TestFalse(TEXT("invalid lens rejects manifest"), FBskFrameParser::ParseMessageJson(Json, Message, Error));
     }
     return true;
 }
@@ -633,6 +665,10 @@ bool FBskLocalFrameExtrapolationTest::RunTest(const FString& Parameters)
         Controller->ExtrapolateFrame(To, To, 0.02).Objects[1].PositionMeters.Equals(To.Objects[1].PositionMeters));
     TestTrue(TEXT("negative prediction duration holds the target"),
         Controller->ExtrapolateFrame(From, To, -1.0).Objects[1].PositionMeters.Equals(To.Objects[1].PositionMeters));
+    TestTrue(TEXT("four-times playback converts wall seconds to simulation seconds"),
+        FMath::IsNearlyEqual(Controller->ExtrapolateFrame(From, To, 0.02, 4.0).Objects[1].PositionMeters.X, 0.012, 1.e-9));
+    TestEqual(TEXT("accelerated prediction timestamp follows the same rate"),
+        Controller->ExtrapolateFrame(From, To, 0.02, 4.0).SimulationTimeNanoseconds, int64(1120000000));
     return true;
 }
 
@@ -646,12 +682,14 @@ bool FBskSceneResetTest::RunTest(const FString& Parameters)
     ABskSceneController* Controller = NewObject<ABskSceneController>();
     Controller->ActiveSessionId = TEXT("new-session");
     Controller->LastFrameId = 100;
-    Controller->bHasTargetFrame = true;
     Controller->bHasPresentationFrame = true;
-    Controller->PreviousFrame.FrameId = 99;
-    Controller->TargetFrame.FrameId = 100;
-    Controller->BlendElapsedSeconds = 2.0;
-    Controller->LastFrameArrivalSeconds = 50.0;
+    FBskRenderFrame Previous, Latest;
+    Previous.FrameId = 99;
+    Latest.FrameId = 100;
+    Controller->PresentationFrames.Add(Previous);
+    Controller->PresentationFrames.Add(Latest);
+    Controller->PresentationClock.Observe(50.0, 10.0);
+    Controller->PresentationClock.Observe(50.5, 10.1);
     Controller->CameraNextDataCaptureSimulationNanoseconds.Add(TEXT("wrist"), 9000000000);
     FBskRenderEvent Event;
     Event.SessionId = TEXT("old-session");
@@ -661,9 +699,9 @@ bool FBskSceneResetTest::RunTest(const FString& Parameters)
     Event.SessionId = TEXT("new-session");
     Controller->ApplyEvent(Event);
     TestEqual(TEXT("frame id cleared"), Controller->LastFrameId, int64(-1));
-    TestFalse(TEXT("no interpolation across reset"), Controller->bHasTargetFrame);
     TestFalse(TEXT("no old presentation during capture"), Controller->bHasPresentationFrame);
-    TestEqual(TEXT("arrival clock cleared"), Controller->LastFrameArrivalSeconds, 0.0);
+    TestEqual(TEXT("playback clock cleared"), Controller->PresentationClock.GetRate(), 0.0);
+    TestEqual(TEXT("old preview buffer cleared"), Controller->PresentationFrames.Num(), 0);
     TestEqual(TEXT("capture deadlines cleared"), Controller->CameraNextDataCaptureSimulationNanoseconds.Num(), 0);
 
     UBskRenderWorldSubsystem* Subsystem = NewObject<UBskRenderWorldSubsystem>();

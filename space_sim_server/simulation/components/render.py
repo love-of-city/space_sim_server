@@ -17,8 +17,12 @@ class RenderComponent:
                  capture_state_provider: Any,
                  sunlight_intensity_scale: float = 1.0,
                  camera_display_names: dict[str, str] | None = None,
+                 wrist_camera_mode: str = "rgb",
                  visual_attachments: list[dict[str, str]] | None = None,
                  vision_capture: dict | None = None) -> None:
+        if wrist_camera_mode not in ("rgb", "fisheye", "monochrome"):
+            raise ValueError("unsupported wrist_camera_mode")
+        self.wrist_camera_mode = wrist_camera_mode
         self.model_path = model_path
         self.catalog = catalog
         self.host = host
@@ -67,6 +71,14 @@ class RenderComponent:
             camera_picture_in_picture_start_slot=1,
             camera_display_names=self.camera_display_names,
         )
+        for camera in bridge._cameras:
+            if camera.camera_id == "teleop/camera/sarm_wrist_cam":
+                camera.camera_mode = self.wrist_camera_mode
+                if self.wrist_camera_mode == "fisheye":
+                    import math
+                    camera.field_of_view_rad = math.radians(160.0)
+                camera.display_name += {"rgb": "", "fisheye": " (Fisheye 160°)",
+                                        "monochrome": " (Monochrome)"}[self.wrist_camera_mode]
         # Added after MJCF registration to preserve full stereo resolution and all
         # existing preview-camera poses, dimensions and product settings.
         register_stereo_cameras(bridge, stereo)

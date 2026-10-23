@@ -20,11 +20,12 @@ class OrbitComponent:
     name = "orbit"
 
     def __init__(self, *, epoch_utc: str, central_body: str = "Earth", frame: str = "J2000",
-                 fixed_frames: tuple[str, ...] = ("IAU_EARTH", "IAU_SUN")) -> None:
+                 fixed_frames: tuple[str, ...] = ("IAU_EARTH", "IAU_SUN"), physics=None) -> None:
         self.epoch_utc = epoch_utc
         self.central_body = central_body
         self.frame = frame
         self.fixed_frames = fixed_frames
+        self.physics = physics
         self.gravity_factory: Any = None
         self.earth: Any = None
         self.sun: Any = None
@@ -42,10 +43,16 @@ class OrbitComponent:
 
         from simulation.teleop_grasp_unreal import _create_ephemeris_interface
 
+        if self.physics is not None and self.physics.earth_gravity != "point_mass" and ctx.config.dynamics_backend != "local":
+            raise ValueError("configured J2 gravity requires the local BSK orbital adapter")
+
         gravity_factory = simIncludeGravBody.gravBodyFactory()
         earth = gravity_factory.createEarth()
         sun = gravity_factory.createSun()
         earth.isCentralBody = True
+        if self.physics is not None:
+            from simulation.orbital_configuration import configure_earth_gravity
+            self.earth_model = configure_earth_gravity(earth, self.physics)
         ephemeris = _create_ephemeris_interface(gravity_factory, self.epoch_utc)
         self.gravity_factory, self.earth, self.sun, self.ephemeris = (
             gravity_factory, earth, sun, ephemeris)
@@ -103,7 +110,7 @@ class OrbitComponent:
 
     def enable_gravity(self) -> None:
         """Turn on the real field strengths (basilisk backend only)."""
-        if self.earth_model is None:
+        if self.gravity is None:
             return
         self.earth_model.muBody = float(self.earth.mu)
         self.sun_model.muBody = float(self.sun.mu)

@@ -116,14 +116,17 @@ def test_project_caps_adaptive_video_bitrate_without_forcing_a_high_floor():
 @pytest.mark.skipif(os.name != "nt" or not PWSH, reason="Windows PowerShell required")
 # Default, both bounds and both out-of-range sides; each case costs a cold pwsh start.
 @pytest.mark.parametrize("quality", [None, 0, 100, -1, 101])
-def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality):
+def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality, monkeypatch):
+    monkeypatch.delenv('SSH_CONNECTION', raising=False)
     adapter = ROOT.parent / "space_sim_UE_Adapter"
     source = adapter / "Unreal/BskUnrealRenderer/scripts/start_renderer.ps1"
     if not source.is_file():
         pytest.skip("Paired UE adapter checkout not present")
     (tmp_path / "start_renderer.ps1").write_text(source.read_text(encoding="utf-8-sig"), encoding="utf-8")
-    (tmp_path / "common.ps1").write_text("$ProjectFile=Join-Path $PSScriptRoot 'fake.uproject'\n"
-        "$ProjectRoot=$PSScriptRoot\nfunction Resolve-UnrealRoot($Requested){ return $PSScriptRoot }\n", encoding="utf-8")
+    (tmp_path / "common.ps1").write_text("param([string]$RequestedDerivedDataCachePath='')\n"
+        "$ProjectFile=Join-Path $PSScriptRoot 'fake.uproject'\n"
+        "$ProjectRoot=$PSScriptRoot\n$script:BskDerivedDataCachePath=$PSScriptRoot\n"
+        "function Resolve-UnrealRoot($Requested){ return $PSScriptRoot }\n", encoding="utf-8")
     quality_arg = "" if quality is None else f" -EncoderMinQuality {quality}"
     wrapper = tmp_path / "wrapper.ps1"
     wrapper.write_text("$ErrorActionPreference='Stop'\n"
@@ -181,7 +184,9 @@ def test_quality_plumbed_through_all_launch_scripts():
 
 
 @pytest.mark.parametrize("quality", [None, 0, 75, 100])
-def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality):
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality, platform):
+    import sys
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
     from space_arm_platform.app import PlatformConfig, create_app
@@ -200,6 +205,8 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
         return SimpleNamespace(pid=12345, returncode=0, poll=lambda: 0)
 
     monkeypatch.setattr("space_arm_platform.scene_runtime.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("space_arm_platform.app.sys",
+                        SimpleNamespace(platform=platform, executable=sys.executable))
     overrides = {} if quality is None else {"runtime_encoder_min_quality": quality}
     app = create_app(PlatformConfig(
         project_root=project, data_root=tmp_path / "episodes", simulation_port=0, capture_port=0,
@@ -216,8 +223,14 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
         app.state.scenes.start(SceneInstanceCreate())
         assert len(commands) == 1
         command = commands[0]
-        assert command[command.index("-EncoderMinQuality") + 1] == str(expected)
-        assert command[command.index("-PreviewRate") + 1] == "90.0"
+        if platform == "linux":
+            assert command[:4] == [sys.executable, "-m", "space_arm_platform.linux_scene", "start"]
+            launch_config = json.loads(Path(command[command.index("--config") + 1]).read_text())
+            assert launch_config["encoder_min_quality"] == expected
+            assert launch_config["preview_rate"] == 90.0
+        else:
+            assert command[command.index("-EncoderMinQuality") + 1] == str(expected)
+            assert command[command.index("-PreviewRate") + 1] == "90.0"
 
 
 @pytest.mark.parametrize("quality", [-1, 101, True, "60", 60.5, None])

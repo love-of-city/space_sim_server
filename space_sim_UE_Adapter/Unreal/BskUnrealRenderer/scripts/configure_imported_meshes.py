@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 
@@ -125,3 +126,12 @@ unreal.log(
     f"validated_stl_triangles={validated_stl_triangles}; "
     "Nanite=off, LOD0=full, remove_degenerates=false, tangents=MikkTSpace"
 )
+
+# Optional acknowledgement for unattended launchers: UE can report exit code 0
+# even when an editor Python script raises before finishing its mesh checks.
+if os.environ.get("BSK_MJCF_RESULT_PATH"):
+    Path(os.environ["BSK_MJCF_RESULT_PATH"]).write_text(
+        json.dumps({"configured": configured,
+                    "catalog_sha256": hashlib.sha256(catalog_path.read_bytes()).hexdigest()}),
+        encoding="utf-8",
+    )

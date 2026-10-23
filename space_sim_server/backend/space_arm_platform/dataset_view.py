@@ -12,6 +12,8 @@ import statistics
 import threading
 from urllib.parse import quote
 
+from .compact_storage import is_compact, read_observations, read_wrench
+
 COLORS = ["#64d9c4", "#779cff", "#f2bb69", "#d397ed", "#ef8395", "#92c878"]
 
 
@@ -232,7 +234,7 @@ class Store:
                             created=meta.get("created_wall_time_ns"),
                             source="auto" if "scripted" in (meta.get("tags") or []) or str(meta.get("task", "")).startswith("scripted ") else "manual",
                             owner=meta.get("operator_username") or meta.get("operator", ""),
-                            readable=(path / "steps.jsonl").is_file(),
+                            readable=(path / "steps.jsonl").is_file() or is_compact(path),
                         )
                     )
                 except (OSError, ValueError):
@@ -243,16 +245,20 @@ class Store:
 
     def load(self, key):
         path = self.episode(key)
-        steps = path / "steps.jsonl"
-        wrench_path = path / "lerobot/high_frequency/wrist_wrench.jsonl"
-        wrench_stat = wrench_path.stat() if wrench_path.is_file() else None
-        signature = (
-            key,
-            (wrench_stat.st_mtime_ns, wrench_stat.st_size) if wrench_stat else None,
-            steps.stat().st_mtime_ns,
-            steps.stat().st_size,
-            (path / "metadata.json").stat().st_mtime_ns,
-        )
+        source_files = [path / "metadata.json"]
+        if is_compact(path):
+            source_files += sorted((path / "lerobot/data").rglob("*.parquet"))
+            source_files += sorted((path / "lerobot/auxiliary").rglob("*.parquet"))
+            source_files += sorted((path / "lerobot/high_frequency").rglob("*.parquet"))
+        else:
+            source_files += [path / "steps.jsonl"]
+            high_file = path / "lerobot/high_frequency/wrist_wrench.jsonl"
+            if high_file.is_file():
+                source_files.append(high_file)
+        if any(not file.resolve().is_relative_to(path) for file in source_files):
+            raise ValueError("Dataset source path escapes episode")
+        signature = (key, tuple((str(file), file.stat().st_mtime_ns, file.stat().st_size)
+                                for file in source_files))
         with self.lock:
             if signature in self.cache:
                 return self.cache[signature]
@@ -264,39 +270,33 @@ class Store:
         times, frames, stages, valid_wrench = [], [], [], []
         start = None
         absolute_times = []
-        with steps.open(encoding="utf-8-sig") as stream:
-            for line_no, line in enumerate(stream, 1):
-                if not line.strip():
-                    continue
-                try:
-                    obs = json.loads(line)["observation"]
-                    stamp = int(obs["sim_time_ns"])
-                except (KeyError, ValueError, TypeError) as exc:
-                    raise ValueError(
-                        f"第 {line_no} 行缺少有效观察或仿真时间，无法可靠对齐"
-                    ) from exc
-                if start is None:
-                    start = stamp
-                if absolute_times and stamp <= absolute_times[-1]:
-                    raise ValueError(f"第 {line_no} 行仿真时间未递增，不能直接回放")
-                absolute_times.append(stamp)
-                times.append((stamp - start) / 1e9)
-                frames.append(str(obs.get("render_frame_id", "")))
-                stages.append((obs.get("scripted_task") or {}).get("stage", ""))
-                valid = (obs.get("wrist_wrench") or {}).get("valid") is True
-                valid_wrench.append(valid)
-                for s in flat:
-                    value = get_path(obs, s["path"])
-                    if s["path"][0] == "wrist_wrench" and not valid:
-                        value = None
-                    values[s["id"]].append(
+        for line_no, obs in enumerate(read_observations(path), 1):
+            try:
+                stamp = int(obs["sim_time_ns"])
+            except (KeyError, ValueError, TypeError) as exc:
+                raise ValueError(f"第 {line_no} 行缺少有效仿真时间") from exc
+            if start is None:
+                start = stamp
+            if absolute_times and stamp <= absolute_times[-1]:
+                raise ValueError(f"第 {line_no} 行仿真时间未递增，不能直接回放")
+            absolute_times.append(stamp)
+            times.append((stamp - start) / 1e9)
+            frames.append(str(obs.get("render_frame_id", "")))
+            stages.append((obs.get("scripted_task") or {}).get("stage", ""))
+            valid = (obs.get("wrist_wrench") or {}).get("valid") is True
+            valid_wrench.append(valid)
+            for s in flat:
+                value = get_path(obs, s["path"])
+                if s["path"][0] == "wrist_wrench" and not valid:
+                    value = None
+                values[s["id"]].append(
+                    value * s["scale"] if value is not None else None
+                )
+                if s["target"]:
+                    value = get_path(obs, s["target"])
+                    targets[s["id"]].append(
                         value * s["scale"] if value is not None else None
                     )
-                    if s["target"]:
-                        value = get_path(obs, s["target"])
-                        targets[s["id"]].append(
-                            value * s["scale"] if value is not None else None
-                        )
         if not times:
             raise ValueError("该记录还没有可显示的观察数据")
         for g in groups:
@@ -306,13 +306,8 @@ class Store:
                 s["available"] = any(v is not None for v in s["values"])
                 del s["path"], s["target"], s["scale"]
         # Auxiliary sensor stream has its own clock; never upsample RGB values.
-        high_path = path / "lerobot/high_frequency/wrist_wrench.jsonl"
-        if high_path.is_file() and high_path.resolve().is_relative_to(path):
-            high_rows = [
-                json.loads(line)
-                for line in high_path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
+        high_rows = list(read_wrench(path))
+        if high_rows:
             high_times = [(int(row["sim_time_ns"]) - start) / 1e9 for row in high_rows]
             if any(
                 abs(b - a - 0.005) > 1e-8 for a, b in zip(high_times, high_times[1:])

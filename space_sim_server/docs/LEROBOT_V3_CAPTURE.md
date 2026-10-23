@@ -10,9 +10,62 @@ Parquet、视频、任务、统计及 episode 索引。没有读取 `steps.jsonl
 ## RGB-only 采集（2026-09-21）
 
 视觉采集仅支持 `rgb`，已移除深度和实例分割的生成、传输、校验与保存链路。
-默认保留总览、腕部两个相机，30 FPS（仿真时间），以及同步状态、动作和相机内外参。
+默认保留总览、腕部两个相机，50 FPS（仿真时间；旧数据可为 30 FPS），以及同步状态、动作和相机内外参。
 `capture_products` 默认 `["rgb"]`，请求深度或分割会被拒绝。RGB 仍编码为 H.264/MP4，
-原始 RGB 文件仍保存在平台 `cameras/` 审计目录。历史采集数据不修改、不删除。
+原始 RGB 文件默认不另存到平台 `cameras/` 审计目录；LeRobot 视频仍正常生成。
+采集、录制及视频编码默认设置统一位于服务端 `config/recording.json`。
+后端启动时读取，与启动工作目录无关：
+
+```json
+{
+  "dataset_capture": true,
+  "capture_rate_hz": 50,
+  "camera_ids": [
+    "teleop/camera/spacecraft_overview",
+    "teleop/camera/sarm_wrist_cam"
+  ],
+  "capture_products": ["rgb"],
+  "max_frames": 18000,
+  "save_raw_camera_images": false,
+  "video": {
+    "codec": "h264",
+    "streaming_encoding": false,
+    "encoder_threads": 2,
+    "image_writer_threads": 0,
+    "encoder_queue_maxsize": 30
+  }
+}
+```
+
+| 配置项 | 作用 |
+|---|---|
+| `dataset_capture` | 新场景是否默认启用权威相机采集；关闭后仍可纯数值录制 |
+| `capture_rate_hz` | 新场景的仿真采样率，允许 1、2、5、10、25、50 Hz；不是预览视频 FPS |
+| `camera_ids` | 默认写入数据集的相机 ID，空数组表示纯数值录制；不创建或移除模型中的相机传感器 |
+| `capture_products` | 当前只支持 RGB；启用相机时必须包含 `rgb` |
+| `max_frames` | 每个 episode 的样本数上限，1～108000；应在上限前结束，超限按现有逻辑报错 |
+| `save_raw_camera_images` | 是否在外层 `cameras/` 另存 JPEG/PNG，默认关闭，不影响 LeRobot 视频 |
+| `video.codec` | `h264` 为软件编码；`h264_nvenc` 要求本机支持 NVIDIA NVENC，不会自动降级 |
+| `video.streaming_encoding` | `false` 先存临时图片、结束时编码；`true` 使用 LeRobot 流式编码，避免中间 PNG |
+| `video.encoder_threads` | 每路编码器的 CPU 线程参数，1～64；硬件编码器可能忽略它 |
+| `video.image_writer_threads` | 非流式模式的图片写入线程数，0～64，0 表示同步写入；流式模式不依赖临时图片 |
+| `video.encoder_queue_maxsize` | 流式编码的有界帧队列长度，1～1024；吞吐不足仍可能失败，不允许静默丢帧 |
+
+配置修改后重启后端；采样率及采集开关的修改还需重新创建场景。
+后端向网页场景目录提供相同默认值；登录后的 `GET /api/recording/config`
+返回实际加载的配置。编码设置会传到独立 LeRobot 子进程。
+
+优先级：新场景/录制请求中显式传入的参数覆盖文件默认值。
+文件中的 `capture_rate_hz`、`dataset_capture` 覆盖旧启动器对应的默认值；
+文件未提供这些项时兼容旧启动参数。已有场景继续使用保存的采样率，
+录制自动继承该频率，显式请求不一致 FPS 会被拒绝，不重写已有场景。
+录制时默认相机、采集产品和最大帧数来自文件；编码及原始图片保存为后端统一设置。
+
+文件缺失时使用兼容默认值；非法 JSON、未知配置项、错误类型或越界值会明确报错。
+`metadata.json` 记录实际 FPS、相机、最大帧数、`raw_camera_images_saved` 和 `video_encoding`；
+LeRobot 的 `meta/platform.json` 同样保存编码设置。
+关闭原始图片保存时 `captures.jsonl` 仍记录来源与配对信息，但 `files` 为空。
+历史采集数据不修改、不删除。
 
 升级时先结束录制并停止场景，重新构建 UE 插件，重启后端并重新创建场景。
 旧 UE 发送深度/分割产品时，后端会明确报错并将本次录制标记为失败，而非静默丢弃。
@@ -50,7 +103,7 @@ data/episodes/episode-.../
 ├── actions.jsonl                     # 原始控制审计，非训练数据的主存储
 ├── steps.jsonl                       # 保留完整诊断和非采样时刻状态
 ├── captures.jsonl                    # 原始相机标定/来源关联
-└── cameras/                          # 原始产品，便于故障调查
+└── cameras/                          # 可选的原始图片副本，默认关闭
 ```
 
 只有结束接口返回 `dataset_status="complete"` 才是可发布的数据集。

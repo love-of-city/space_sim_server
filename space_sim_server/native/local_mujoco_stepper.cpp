@@ -11,6 +11,8 @@
 // the uniform part of the Earth/Sun field is carried by O (Basilisk), and the
 // optional Earth tidal term is applied here as a body force.
 #include <cmath>
+#include <algorithm>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <new>
@@ -19,9 +21,13 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #define API extern "C" __declspec(dllexport)
 #else
+#include <dlfcn.h>
 #define API extern "C" __attribute__((visibility("default")))
 #endif
 
@@ -36,6 +42,7 @@ enum Status {
     ERR_VERSION = -3,
     ERR_LOAD = -4,
     ERR_DIVERGED = -5,
+    ERR_FRICTION = -6,
 };
 
 struct Api {
@@ -44,21 +51,42 @@ struct Api {
     void (*deleteModel)(mjModel*);
     mjData* (*makeData)(const mjModel*);
     void (*deleteData)(mjData*);
+    mjData* (*copyData)(mjData*, const mjModel*, const mjData*);
     void (*resetData)(const mjModel*, mjData*);
     void (*forward)(const mjModel*, mjData*);
     void (*step)(const mjModel*, mjData*);
+    void (*step1)(const mjModel*, mjData*);
+    void (*step2)(const mjModel*, mjData*);
     void (*kinematics)(const mjModel*, mjData*);
     void (*comPos)(const mjModel*, mjData*);
+    void (*quat2Mat)(mjtNum*, const mjtNum*);
     void (*contactForce)(const mjModel*, const mjData*, int, mjtNum*);
     void (*objectVelocity)(const mjModel*, const mjData*, int, int, mjtNum*, int);
     int (*name2id)(const mjModel*, int, const char*);
     const char* (*id2name)(const mjModel*, int, int);
 };
 
+struct AxialFriction {
+    int plug, base;
+    bool enabled = false;
+    double axis[3] = {0, 0, 1};  // outward, in the base frame
+    double seat[3] = {0, 0, 0};  // seated plug origin in the base frame
+    double travel, static_n, kinetic_n;
+    double force[3] = {0, 0, 0};  // last applied inertial force on the plug
+    double axial_force = 0, velocity = 0;
+    double start_z = 0;
+    int mode = 0;  // 0 free, 1 sticking/stopping, 2 sliding
+};
+
 struct Stepper {
     Api api{};
     mjModel* m = nullptr;
     mjData* d = nullptr;
+    mjData* friction_trial = nullptr;  // discarded predictions, never published
+    std::vector<AxialFriction> friction;
+    std::vector<int> friction_ids;
+    std::vector<double> friction_response;
+    double friction_timestep = 0;
     std::vector<int> free_bodies;  // bodies whose root joint is free
     // Held external wrench per body: force in the inertial/local axes [N] at
     // the body COM, torque in the BODY frame [N*m] (Basilisk CmdForceInertial /
@@ -83,6 +111,12 @@ bool resolve(HMODULE module, const char* name, T& target) {
     target = reinterpret_cast<T>(GetProcAddress(module, name));
     return target != nullptr;
 }
+#else
+template <typename T>
+bool resolve(void* module, const char* name, T& target) {
+    target = reinterpret_cast<T>(dlsym(module, name));
+    return target != nullptr;
+}
 #endif
 
 bool finite(const mjtNum* values, int count) {
@@ -98,7 +132,12 @@ API int lms_abi() { return ABI; }
 API int lms_header_version() { return mjVERSION_HEADER; }
 
 // runtime_path: absolute path of the mujoco.dll Basilisk already loaded.
-API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* error, int error_size) {
+#ifdef _WIN32
+using RuntimePathChar = wchar_t;
+#else
+using RuntimePathChar = char;
+#endif
+API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, char* error, int error_size) {
     if (!runtime_path || !xml_path) {
         copy_error(error, error_size, "runtime and model paths are required");
         return nullptr;
@@ -110,8 +149,12 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
     }
 #ifdef _WIN32
     HMODULE module = GetModuleHandleW(runtime_path);
+#else
+    // Acquire only an existing mapping; Basilisk owns its lifetime.
+    void* module = dlopen(runtime_path, RTLD_NOW | RTLD_NOLOAD);
+#endif
     if (!module) {
-        copy_error(error, error_size, "Basilisk mujoco.dll is not loaded in this process");
+        copy_error(error, error_size, "Basilisk MuJoCo runtime is not loaded in this process");
         delete s;
         return nullptr;
     }
@@ -119,22 +162,22 @@ API void* lms_create(const wchar_t* runtime_path, const char* xml_path, char* er
     bool ok = resolve(module, "mj_version", a.version) && resolve(module, "mj_loadXML", a.loadXML) &&
               resolve(module, "mj_deleteModel", a.deleteModel) && resolve(module, "mj_makeData", a.makeData) &&
               resolve(module, "mj_deleteData", a.deleteData) && resolve(module, "mj_resetData", a.resetData) &&
+              resolve(module, "mj_copyData", a.copyData) && resolve(module, "mju_quat2Mat", a.quat2Mat) &&
               resolve(module, "mj_forward", a.forward) && resolve(module, "mj_step", a.step) &&
+              resolve(module, "mj_step1", a.step1) && resolve(module, "mj_step2", a.step2) &&
               resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
               resolve(module, "mj_name2id", a.name2id) &&
               resolve(module, "mj_id2name", a.id2name) &&
               resolve(module, "mj_contactForce", a.contactForce) &&
               resolve(module, "mj_objectVelocity", a.objectVelocity);
+#ifndef _WIN32
+    dlclose(module);  // Balance NOLOAD's reference; Basilisk retains its own.
+#endif
     if (!ok) {
         copy_error(error, error_size, "required MuJoCo symbol is missing from the loaded runtime");
         delete s;
         return nullptr;
     }
-#else
-    copy_error(error, error_size, "only the Windows runtime lookup is implemented");
-    delete s;
-    return nullptr;
-#endif
     if (s->api.version() != mjVERSION_HEADER) {
         copy_error(error, error_size, "loaded MuJoCo runtime does not match the compiled 3.7.0 headers");
         delete s;
@@ -176,6 +219,7 @@ API void lms_destroy(void* handle) {
     auto* s = static_cast<Stepper*>(handle);
     if (!s) return;
     if (s->d) s->api.deleteData(s->d);
+    if (s->friction_trial) s->api.deleteData(s->friction_trial);
     if (s->m) s->api.deleteModel(s->m);
     delete s;
 }
@@ -322,6 +366,54 @@ API int lms_set_body_wrench(void* handle, int body, const double* force_world, c
     return OK;
 }
 
+// One relative dry-friction interface. It must connect two independent free
+// bodies; it never adds a joint, changes geometry, or edits an integrated state.
+API int lms_add_axial_friction(void* handle, int plug, int base, double static_n,
+                              double kinetic_n, double travel) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || plug == base || plug < 1 || base < 1 || plug >= s->m->nbody || base >= s->m->nbody ||
+        !(static_n >= kinetic_n) || !(kinetic_n > 0) || !(travel > 0) ||
+        !std::isfinite(static_n + kinetic_n + travel)) return ERR_ARGUMENT;
+    for (int b : {plug, base}) {
+        if (s->m->body_jntnum[b] != 1 || s->m->jnt_type[s->m->body_jntadr[b]] != mjJNT_FREE)
+            return ERR_ARGUMENT;
+    }
+    for (const auto& f : s->friction) if (f.plug == plug) return ERR_ARGUMENT;
+    if (!s->friction_trial) s->friction_trial = s->api.makeData(s->m);
+    if (!s->friction_trial) return ERR_RUNTIME;
+    AxialFriction f{};
+    f.plug = plug; f.base = base; f.static_n = static_n; f.kinetic_n = kinetic_n; f.travel = travel;
+    s->friction.push_back(f);
+    return static_cast<int>(s->friction.size()) - 1;
+}
+
+API int lms_set_axial_friction(void* handle, int id, int enabled, const double* axis, const double* seat) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || id < 0 || id >= static_cast<int>(s->friction.size()) || !axis || !seat ||
+        !finite(axis, 3) || !finite(seat, 3)) return ERR_ARGUMENT;
+    double length = std::sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
+    if (std::abs(length - 1) > 1e-8) return ERR_ARGUMENT;
+    auto& f = s->friction[id];
+    f.enabled = enabled != 0;
+    std::copy(axis, axis+3, f.axis);
+    std::copy(seat, seat+3, f.seat);
+    if (!f.enabled) {
+        f.mode = 0; f.axial_force = f.velocity = 0;
+        std::fill(f.force, f.force+3, 0);
+    }
+    return OK;
+}
+
+// Last completed substep, not a fresh force evaluation: Fx,Fy,Fz,axial F,v,mode.
+API int lms_axial_friction_state(void* handle, int id, double* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || id < 0 || id >= static_cast<int>(s->friction.size()) || !out) return ERR_ARGUMENT;
+    const auto& f = s->friction[id];
+    std::copy(f.force, f.force+3, out);
+    out[3] = f.axial_force; out[4] = f.velocity; out[5] = f.mode;
+    return OK;
+}
+
 // Refresh only kinematics, never collision/constraint solving. Export all COMs
 // from the authoritative local model, independent of MJScene publication stride.
 API int lms_body_coms(void* handle, double* positions, double* masses) {
@@ -371,6 +463,263 @@ static void apply_tidal(Stepper* s, const double* origin, double mu) {
     }
 }
 
+static void rotate(const double* R, const double* x, double* y) {
+    for (int i=0; i<3; ++i) y[i] = R[3*i]*x[0] + R[3*i+1]*x[1] + R[3*i+2]*x[2];
+}
+
+static double dot3(const double* a, const double* b) {
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+static void cross3(const double* a, const double* b, double* out) {
+    out[0] = a[1]*b[2] - a[2]*b[1];
+    out[1] = a[2]*b[0] - a[0]*b[2];
+    out[2] = a[0]*b[1] - a[1]*b[0];
+}
+
+// Relative axial velocity includes the moving/rotating base. Read integrated
+// free-joint states directly: xmat/cvel still describe the start of a mj_step.
+static double axial_velocity(Stepper* s, const mjData* d, const AxialFriction& f,
+                             double* z = nullptr, double* axis_out = nullptr) {
+    int pj = s->m->body_jntadr[f.plug], bj = s->m->body_jntadr[f.base];
+    const double* pp = d->qpos + s->m->jnt_qposadr[pj];
+    const double* bp = d->qpos + s->m->jnt_qposadr[bj];
+    const double* pv = d->qvel + s->m->jnt_dofadr[pj];
+    const double* bv = d->qvel + s->m->jnt_dofadr[bj];
+    double R[9], axis[3], omega[3], offset[3], frame_speed[3], rel[3], seat[3];
+    s->api.quat2Mat(R, bp+3);
+    rotate(R, f.axis, axis); rotate(R, bv+3, omega); rotate(R, f.seat, seat);
+    for (int k=0; k<3; ++k) offset[k] = pp[k] - bp[k];
+    cross3(omega, offset, frame_speed);
+    for (int k=0; k<3; ++k) rel[k] = pv[k] - bv[k] - frame_speed[k];
+    if (z) *z = dot3(axis, offset) - dot3(axis, seat);
+    if (axis_out) std::copy(axis, axis+3, axis_out);
+    return dot3(axis, rel);
+}
+
+// Equal/opposite wrenches at the plug origin, shifted to BOTH centres of mass.
+// The reaction includes base torque; never tie a floating socket to the world.
+static void friction_wrench(Stepper* s, mjData* d, const AxialFriction& f,
+                            const double* axis, double force) {
+    const double* point = s->d->qpos + s->m->jnt_qposadr[s->m->body_jntadr[f.plug]];
+    for (int b : {f.plug, f.base}) {
+        const double* pose = s->d->qpos + s->m->jnt_qposadr[s->m->body_jntadr[b]];
+        double R[9], com_offset[3], arm[3], applied[3], torque[3];
+        s->api.quat2Mat(R, pose+3);
+        rotate(R, s->m->body_ipos+3*b, com_offset);
+        for (int k=0; k<3; ++k) {
+            arm[k] = point[k] - pose[k] - com_offset[k];
+            applied[k] = (b == f.plug ? force : -force) * axis[k];
+        }
+        cross3(arm, applied, torque);
+        for (int k=0; k<3; ++k) {
+            d->xfrc_applied[6*b+k] += applied[k];
+            d->xfrc_applied[6*b+3+k] += torque[k];
+        }
+    }
+}
+
+// Bounded time-step friction solve. Predict the SAME implicitfast/contact step
+// in scratch mjData, solve for the force that stops relative slip, then discard
+// the prediction. Only the usual mj_step on s->d advances the physical state.
+// This avoids sign(v) chatter and viscous creep without an axial position spring.
+// Sliding uses a fixed kinetic limit; the last stopping impulse may be smaller.
+static int apply_axial_friction(Stepper* s) {
+    std::vector<int> ids;
+    std::vector<double> axes, start_speed, previous_forces;
+    for (int i=0; i<static_cast<int>(s->friction.size()); ++i) {
+        auto& f = s->friction[i];
+        double previous = f.axial_force;
+        double previous_slip = f.velocity;
+        int previous_mode = f.mode;
+        f.axial_force = 0; f.mode = 0; std::fill(f.force, f.force+3, 0);
+        double z, axis[3];
+        f.velocity = axial_velocity(s, s->d, f, &z, axis);
+        f.start_z = z;
+        if (f.enabled && z < f.travel) {
+            ids.push_back(i); axes.insert(axes.end(), axis, axis+3);
+            start_speed.push_back(previous_mode == 1 ? previous_slip : f.velocity);
+            previous_forces.push_back(previous);
+        }
+    }
+    int n = static_cast<int>(ids.size());
+    if (!n) return OK;
+    auto predict = [&](const std::vector<double>& forces, std::vector<double>& speeds) {
+        mjData* d = s->api.copyData(s->friction_trial, s->m, s->d);
+        for (int j=0; j<n; ++j) friction_wrench(s, d, s->friction[ids[j]], axes.data()+3*j, forces[j]);
+        // All candidates start at the same qpos/qvel/control. Reuse the real
+        // step1's collision detection, mass factorization and velocity terms;
+        // only applied forces, constraint solve and integration differ.
+        s->api.step2(s->m, d);
+        if (!finite(d->qpos, s->m->nq) || !finite(d->qvel, s->m->nv) ||
+            d->warning[mjWARN_BADQACC].number != s->d->warning[mjWARN_BADQACC].number) return false;
+        // MuJoCo 3.7 midpoint-integrates eligible free bodies but uses endpoint
+        // velocities for articulated bases. Endpoint relative velocity == 0
+        // therefore need not mean zero slip. Use the actual integrated relative
+        // displacement / h; this is a per-step friction condition, not a spring
+        // to a stored target pose or a correction of a past position error.
+        for (int j=0; j<n; ++j) {
+            double z;
+            axial_velocity(s, d, s->friction[ids[j]], &z);
+            speeds[j] = (z-s->friction[ids[j]].start_z) / s->m->opt.timestep;
+        }
+        return true;
+    };
+    constexpr double tolerance = 1e-6;  // m/s, contact-solver stiction tolerance
+    std::vector<double> forces = previous_forces;
+    std::vector<double> free_speed(n), measured(n), probe(n), response(n*n), limits(n);
+    std::vector<bool> sliding(n, false);
+    auto apply = [&]() {
+        for (int i=0; i<n; ++i) {
+            auto& f = s->friction[ids[i]];
+            f.axial_force = forces[i]; f.mode = sliding[i] ? 2 : 1;
+            for (int k=0; k<3; ++k) f.force[k] = forces[i] * axes[3*i+k];
+            friction_wrench(s, s->d, f, axes.data()+3*i, forces[i]);
+        }
+    };
+    // Validate a previous solution against this substep's actual contact solve.
+    // Usually loads change slowly: one discarded prediction is sufficient.
+    if (!predict(forces, measured)) return ERR_DIVERGED;
+    bool warm_valid = true;
+    for (int i=0; i<n; ++i) {
+        const auto& f = s->friction[ids[i]];
+        double limit = std::abs(start_speed[i]) <= tolerance ? f.static_n : f.kinetic_n;
+        bool stopped = std::abs(measured[i]) <= tolerance && std::abs(forces[i]) <= limit;
+        sliding[i] = std::abs(start_speed[i]) > tolerance && forces[i]*measured[i] < 0 &&
+                     std::abs(std::abs(forces[i])-f.kinetic_n) < 1e-8;
+        if (!stopped && !sliding[i]) warm_valid = false;
+    }
+    if (warm_valid) { apply(); return OK; }
+    bool cached = s->friction_ids == ids && s->friction_response.size() == response.size() &&
+                  s->friction_timestep == s->m->opt.timestep;
+    for (int j=0; j<n; ++j) {
+        const auto& f = s->friction[ids[j]];
+        limits[j] = std::abs(start_speed[j]) <= tolerance ? f.static_n : f.kinetic_n;
+    }
+    if (cached) {
+        response = s->friction_response;
+        for (int i=0; i<n; ++i) {
+            free_speed[i] = measured[i];
+            for (int j=0; j<n; ++j) free_speed[i] -= response[i*n+j]*forces[j];
+        }
+    } else {
+        std::fill(forces.begin(), forces.end(), 0);
+        if (!predict(forces, free_speed)) return ERR_DIVERGED;
+        // Measure the coupled force-to-slip response, including servo damping,
+        // contact constraints, COM offsets, and the free base's reaction motion.
+        for (int j=0; j<n; ++j) {
+            double test = s->friction[ids[j]].kinetic_n;
+            forces[j] = test;
+            if (!predict(forces, probe)) return ERR_DIVERGED;
+            for (int i=0; i<n; ++i) response[i*n+j] = (probe[i] - free_speed[i]) / test;
+            forces[j] = 0;
+        }
+    }
+    for (int outer=0; outer<12; ++outer) {
+        for (int pass=0; pass<100; ++pass) {
+            double change = 0;
+            for (int i=0; i<n; ++i) {
+                double residual = free_speed[i];
+                for (int j=0; j<n; ++j) residual += response[i*n+j] * forces[j];
+                double diagonal = response[i*n+i];
+                double next = diagonal > 1e-12 ? forces[i] - residual/diagonal : 0;
+                next = std::clamp(next, -limits[i], limits[i]);
+                change = std::max(change, std::abs(next-forces[i]));
+                forces[i] = next;
+            }
+            if (change < 1e-10) break;
+        }
+        if (!predict(forces, measured)) return ERR_DIVERGED;
+        bool solved = true;
+        for (int i=0; i<n; ++i) {
+            const auto& f = s->friction[ids[i]];
+            bool capped = std::abs(forces[i]) >= limits[i] - 1e-7;
+            if (capped && std::abs(measured[i]) > tolerance && forces[i]*measured[i] < 0) {
+                // Breakaway: kinetic friction replaces the larger static bound.
+                if (limits[i] > f.kinetic_n) { limits[i] = f.kinetic_n; solved = false; }
+                sliding[i] = true;
+            } else if (std::abs(measured[i]) > tolerance) {
+                solved = false;
+                sliding[i] = false;
+            } else sliding[i] = false;
+            // A contact mode change makes the response piecewise affine.
+            // Correct its intercept with the actual trial, then resolve.
+            free_speed[i] = measured[i];
+            for (int j=0; j<n; ++j) free_speed[i] -= response[i*n+j] * forces[j];
+        }
+        if (solved) break;
+        // A large probe can cross a contact's breakaway point and overestimate
+        // the local stopping response. Refresh the Jacobian near the candidate
+        // instead of repeatedly applying that incorrect slope.
+        if (outer >= 1 && outer < 11) {
+            std::vector<double> minus(n), candidate = forces;
+            for (int j=0; j<n; ++j) {
+                double delta = .001 * std::max(1.0, s->friction[ids[j]].kinetic_n);
+                candidate[j] = forces[j] + delta;
+                if (!predict(candidate, probe)) return ERR_DIVERGED;
+                candidate[j] = forces[j] - delta;
+                if (!predict(candidate, minus)) return ERR_DIVERGED;
+                candidate[j] = forces[j];
+                for (int i=0; i<n; ++i) response[i*n+j] = (probe[i]-minus[i]) / (2*delta);
+            }
+            for (int i=0; i<n; ++i) {
+                free_speed[i] = measured[i];
+                for (int j=0; j<n; ++j) free_speed[i] -= response[i*n+j]*forces[j];
+            }
+        }
+        // Safeguarded coordinate roots at contact mode switches. The contact
+        // solver can have a tiny discontinuity where a local derivative is not
+        // useful; a bracketed solve is slower but cannot take a Newton leap.
+        if (outer == 11) {
+            bool valid = false;
+            for (int sweep=0; sweep<12; ++sweep) {
+                for (int i=0; i<n; ++i) {
+                    const auto& f = s->friction[ids[i]];
+                    double low = -limits[i], high = limits[i];
+                    forces[i] = low;
+                    if (!predict(forces, probe)) return ERR_DIVERGED;
+                    double vlo = probe[i];
+                    forces[i] = high;
+                    if (!predict(forces, probe)) return ERR_DIVERGED;
+                    double vhi = probe[i];
+                    sliding[i] = false;
+                    if (vlo > tolerance || vhi < -tolerance) {
+                        limits[i] = f.kinetic_n;
+                        forces[i] = vlo > tolerance ? -f.kinetic_n : f.kinetic_n;
+                        sliding[i] = true;
+                    } else {
+                        for (int bisect=0; bisect<40; ++bisect) {
+                            forces[i] = (low+high)*.5;
+                            if (!predict(forces, probe)) return ERR_DIVERGED;
+                            if (std::abs(probe[i]) <= tolerance*.5) break;
+                            if (probe[i] > 0) high = forces[i]; else low = forces[i];
+                        }
+                    }
+                }
+                if (!predict(forces, measured)) return ERR_DIVERGED;
+                valid = true;
+                for (int i=0; i<n; ++i) {
+                    bool stopped = std::abs(measured[i]) <= tolerance;
+                    bool slip = sliding[i] && forces[i]*measured[i] < 0;
+                    if (!stopped && !slip) valid = false;
+                    if (stopped) sliding[i] = false;
+                }
+                if (valid) break;
+            }
+            if (!valid) {
+                for (int i=0; i<n; ++i) std::fprintf(stderr, "friction failure: t=%.6g id=%d v0=%.9g f=%.9g v=%.9g lim=%.9g\n",
+                    s->d->time, ids[i], start_speed[i], forces[i], measured[i], limits[i]);
+                return ERR_FRICTION;
+            }
+        }
+    }
+    s->friction_response = response;
+    s->friction_ids = ids;
+    s->friction_timestep = s->m->opt.timestep;
+    apply();
+    return OK;
+}
+
 // Advance by `substeps` fixed steps of dt/substeps with ctrl held.
 // stats (optional, 6): max ncon, max nefc, max solver iterations, last ncon,
 //                      bad-acceleration warnings, substeps executed.
@@ -389,7 +738,25 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
     int bad_before = d->warning[mjWARN_BADQACC].number;
     for (int k = 0; k < substeps; ++k) {
         apply_tidal(s, origin, mu);
-        s->api.step(m, d);
+        bool friction_enabled = std::any_of(s->friction.begin(), s->friction.end(),
+                                             [](const AxialFriction& f) { return f.enabled; });
+        if (friction_enabled) {
+            // This split is the same implicitfast step used by mj_step. Its
+            // position/velocity stages run ONCE on the authoritative data.
+            s->api.step1(m, d);
+            apply_tidal(s, origin, mu);  // fresh body rotations for held torques
+            int friction_status = apply_axial_friction(s);
+            if (friction_status != OK) return friction_status;
+            s->api.step2(m, d);
+        } else {
+            apply_axial_friction(s);  // clear samples and start_z for free interfaces
+            s->api.step(m, d);
+        }
+        for (auto& f : s->friction) {
+            double z;
+            axial_velocity(s, d, f, &z);
+            f.velocity = (z-f.start_z) / m->opt.timestep;
+        }
         ++executed;
         if (d->ncon > max_ncon) max_ncon = d->ncon;
         if (d->nefc > max_nefc) max_nefc = d->nefc;

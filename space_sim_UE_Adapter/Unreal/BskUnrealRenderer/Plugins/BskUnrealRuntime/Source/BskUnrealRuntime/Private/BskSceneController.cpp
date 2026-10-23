@@ -1,4 +1,5 @@
 #include "BskSceneController.h"
+#include "BskCameraEffects.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #endif
@@ -1038,7 +1039,7 @@ void ABskSceneController::CapturePreview(const FString& CameraId, USceneCaptureC
     const FVector2D Offset = PreviewOrbitDegrees.FindRef(PixelStreamingIdForCamera(CameraId));
     if (!CameraActor || !Bus || Offset.IsNearlyZero())
     {
-        Capture->CaptureScene();
+        CaptureRgbCamera(CameraId, Capture);
         return;
     }
     // Only the preview component moves, for this capture call. Restore it before
@@ -1053,7 +1054,7 @@ void ABskSceneController::CapturePreview(const FString& CameraId, USceneCaptureC
     const FQuat Pitch(Base.GetRotation().GetRightVector(), FMath::DegreesToRadians(Offset.Y));
     const FQuat Orbit = Yaw * Pitch;
     Capture->SetWorldLocationAndRotation(Center + Orbit.RotateVector(Base.GetLocation()-Center), Orbit * Base.GetRotation());
-    Capture->CaptureScene();
+    CaptureRgbCamera(CameraId, Capture);
     Capture->SetRelativeTransform(Saved);
 }
 
@@ -1135,39 +1136,37 @@ void ABskSceneController::Tick(float DeltaSeconds)
                         PreviewRate, bCaptureActive ? TEXT("on") : TEXT("off"), *Latest.CaptureEpisodeId);
                 }
                 UpdateAuthoritativeDataProductCaptures(Latest);
-                if (TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) || !bHasTargetFrame)
+                if (!PresentationClock.Observe(static_cast<double>(Latest.SimulationTimeNanoseconds) * 1.e-9, NowSeconds))
                 {
-                    PreviousFrame = Latest;
-                    TargetFrame = Latest;
-                    bHasTargetFrame = true;
+                    PresentationFrames.Reset();
+                }
+                if (TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) || PresentationFrames.IsEmpty())
+                {
                     ApplyFrame(Latest);
                 }
-                else
-                {
-                    PreviousFrame = TargetFrame;
-                    TargetFrame = MoveTemp(Latest);
-                    BlendElapsedSeconds = 0.0;
-                    if (LastFrameArrivalSeconds > 0.0)
-                    {
-                        BlendDurationSeconds = FMath::Clamp(NowSeconds - LastFrameArrivalSeconds, 1.0 / 240.0, InterpolationDelaySeconds);
-                    }
-                }
-                LastFrameArrivalSeconds = NowSeconds;
+                PresentationFrames.Add(MoveTemp(Latest));
+                if (PresentationFrames.Num() > 64) PresentationFrames.RemoveAt(0, PresentationFrames.Num() - 64, EAllowShrinking::No);
             }
         }
-        if (bHasTargetFrame && !TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) && PreviousFrame.FrameId != TargetFrame.FrameId)
+        if (PresentationFrames.Num() >= 2 && !TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase))
         {
-            BlendElapsedSeconds += DeltaSeconds;
-            const double BlendDuration = FMath::Max(BlendDurationSeconds, UE_DOUBLE_SMALL_NUMBER);
-            const double Alpha = BlendElapsedSeconds / BlendDuration;
-            if (Alpha <= 1.0)
+            const double Cursor = PresentationClock.Advance(DeltaSeconds, FPlatformTime::Seconds(),
+                InterpolationDelaySeconds, MaxExtrapolationSeconds);
+            while (PresentationFrames.Num() > 2 && static_cast<double>(PresentationFrames[1].SimulationTimeNanoseconds) * 1.e-9 <= Cursor)
+                PresentationFrames.RemoveAt(0, 1, EAllowShrinking::No);
+            const FBskRenderFrame& From = PresentationFrames[0];
+            const FBskRenderFrame& To = PresentationFrames[1];
+            const double FromSeconds = static_cast<double>(From.SimulationTimeNanoseconds) * 1.e-9;
+            const double ToSeconds = static_cast<double>(To.SimulationTimeNanoseconds) * 1.e-9;
+            if (Cursor <= ToSeconds)
             {
-                ApplyFrame(InterpolateFrame(PreviousFrame, TargetFrame, Alpha));
+                const double Alpha = FMath::Clamp((Cursor - FromSeconds) / FMath::Max(ToSeconds - FromSeconds, 1.e-9), 0.0, 1.0);
+                ApplyFrame(InterpolateFrame(From, To, Alpha));
             }
             else
             {
-                const double ExtrapolationSeconds = FMath::Min(BlendElapsedSeconds - BlendDuration, MaxExtrapolationSeconds);
-                ApplyFrame(ExtrapolateFrame(PreviousFrame, TargetFrame, ExtrapolationSeconds));
+                const double Rate = FMath::Max(PresentationClock.GetRate(), 1.e-9);
+                ApplyFrame(ExtrapolateFrame(From, To, (Cursor - ToSeconds) / Rate, Rate));
             }
         }
     }
@@ -1625,6 +1624,8 @@ void ABskSceneController::ConfigureCaptureOutput()
 
 void ABskSceneController::ConfigurePixelStreamingOutput()
 {
+    // Dataset capture uses its own reliable channel and needs no WebRTC producer.
+    if (FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"))) return;
     if (FParse::Value(FCommandLine::Get(), TEXT("PixelStreamingWebRTCFps="), MaximumStreamingFrameRate))
         MaximumStreamingFrameRate = FMath::Clamp(MaximumStreamingFrameRate, 1, 120);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingURL="), PixelStreamingConnectionUrl);
@@ -1704,6 +1705,39 @@ void ABskSceneController::ConfigureFixedRgbExposure(USceneCaptureComponent2D* Ca
         Capture->PostProcessSettings.CameraShutterSpeed = static_cast<float>(1.0 / Definition->ExposureTimeSeconds);
     if (Definition && Definition->ApertureFNumber > 0.0)
         Capture->PostProcessSettings.DepthOfFieldFstop = static_cast<float>(Definition->ApertureFNumber);
+}
+
+void ABskSceneController::CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture)
+{
+    const FBskCameraDefinition* Definition = ManifestCameras.Find(CameraId);
+    if (!Capture || !Capture->TextureTarget || !Definition) return;
+    if (Definition->CameraMode == TEXT("rgb"))
+    {
+        CameraEffectSources.Remove(CameraId);
+        Capture->CaptureScene();
+        return;
+    }
+    // Keep the canonical output target shared by HUD, WebRTC, readback and policy.
+    // Only the scene render writes to the private intermediate texture.
+    UTextureRenderTarget2D* Output = Capture->TextureTarget;
+    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const int32 Side = FMath::Min(4096, FMath::Max(Output->SizeX, Output->SizeY) * 2);
+    const FIntPoint Size = bFisheye ? FIntPoint(Side, Side) : FIntPoint(Output->SizeX, Output->SizeY);
+    UTextureRenderTarget2D* Source = CameraEffectSources.FindRef(CameraId);
+    if (!Source || Source->SizeX != Size.X || Source->SizeY != Size.Y)
+    {
+        Source = NewObject<UTextureRenderTarget2D>(this);
+        Source->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+        Source->bAutoGenerateMips = false;
+        Source->InitAutoFormat(Size.X, Size.Y);
+        ConfigureRgbRenderTarget(Source);
+        Source->UpdateResourceImmediate(true);
+        CameraEffectSources.Add(CameraId, Source);
+    }
+    Capture->TextureTarget = Source;
+    Capture->CaptureScene();
+    Capture->TextureTarget = Output;
+    BskApplyCameraEffect(Source, Output, bFisheye, static_cast<float>(Definition->FieldOfViewRadians));
 }
 
 void ABskSceneController::ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const
@@ -1819,7 +1853,8 @@ void ABskSceneController::UpdatePreviewViewportRendering()
     // In server/offscreen mode a camera subscriber does not need a second full
     // 3D view rendered into an unwatched main viewport. SceneCapture continues
     // independently. Never suppress a local editor/windowed user's viewport.
-    if (PixelStreamingConnectionUrl.IsEmpty() || !FParse::Param(FCommandLine::Get(), TEXT("RenderOffscreen"))
+    if ((PixelStreamingConnectionUrl.IsEmpty() && !FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture")))
+        || !FParse::Param(FCommandLine::Get(), TEXT("RenderOffscreen"))
         || !GEngine || !GEngine->GameViewport) return;
     if (!bManagesViewportRendering)
     {
@@ -2044,8 +2079,55 @@ AActor* ABskSceneController::SpawnPlaceholder(const FString& ObjectName, const F
 
 void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
 {
+    RelativeView = Manifest.RelativeView;
     if (ActiveSessionId != Manifest.SessionId) CancelCaptureJobs();
     check(IsInGameThread());
+    // A manifest is a complete scene, not an additive object update. Without
+    // pruning, switching from a docking demo to SARM leaves old spacecraft at
+    // the floating origin and displays them alongside the new physical model.
+    auto PruneActors = [](auto& Actors, const TSet<FString>& Keep)
+    {
+        for (auto It = Actors.CreateIterator(); It; ++It)
+        {
+            if (Keep.Contains(It.Key())) continue;
+            if (IsValid(It.Value()))
+            {
+                It.Value()->SetActorHiddenInGame(true);
+                It.Value()->Destroy();
+            }
+            It.RemoveCurrent();
+        }
+    };
+    TSet<FString> ObjectIds, VisualIds, CelestialIds, CameraIds;
+    for (const auto& Definition : Manifest.Objects) ObjectIds.Add(Definition.ObjectId);
+    for (const auto& Definition : Manifest.Visuals) VisualIds.Add(Definition.VisualId);
+    for (const auto& Definition : Manifest.CelestialBodies) CelestialIds.Add(Definition.BodyId);
+    for (const auto& Definition : Manifest.Cameras) CameraIds.Add(Definition.CameraId);
+    for (auto It = CameraActors.CreateIterator(); It; ++It)
+    {
+        if (CameraIds.Contains(It.Key())) continue;
+        const FString CameraId = It.Key();
+        if (TSharedPtr<IPixelStreaming2Streamer> Streamer = PixelStreamingCameraStreamers.FindRef(CameraId))
+        {
+            Streamer->StopStreaming();
+            Streamer->SetVideoProducer(nullptr);
+            IPixelStreaming2Module::Get().DeleteStreamer(Streamer);
+        }
+        PixelStreamingCameraStreamers.Remove(CameraId);
+        PixelStreamingCameraProducers.Remove(CameraId);
+        PixelStreamingCameraCaptures.Remove(CameraId);
+        PixelStreamingCameraTargets.Remove(CameraId);
+        PixelStreamingCameraNextCaptureSeconds.Remove(CameraId);
+        CameraCaptureComponents.Remove(CameraId);
+        CameraRenderTargets.Remove(CameraId);
+        CameraNextCaptureSeconds.Remove(CameraId);
+        CameraNextDataCaptureSimulationNanoseconds.Remove(CameraId);
+        CameraPictureInPictureVisibility.Remove(CameraId);
+    }
+    PruneActors(CameraActors, CameraIds);
+    PruneActors(VisualActors, VisualIds);
+    PruneActors(BoundActors, ObjectIds);
+    PruneActors(CelestialActors, CelestialIds);
     if (!ActiveSessionId.IsEmpty() && ActiveSessionId != Manifest.SessionId)
     {
         PendingCommandIds.Reset();
@@ -2212,11 +2294,11 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
         if (ABskCameraPawn* Pawn = Cast<ABskCameraPawn>(Player->GetPawn()))
         {
             Pawn->SetOrbitDistanceMeters(Manifest.DefaultCameraDistanceMeters);
+            Pawn->ConfigureRelativeView(RelativeView.IsConfigured());
         }
     }
-    const FString CameraTarget = Manifest.DefaultCameraTarget.IsEmpty()
-        ? Manifest.OriginObjectId
-        : Manifest.DefaultCameraTarget;
+    const FString CameraTarget = RelativeView.IsConfigured() ? RelativeView.PrimaryObjectId
+        : Manifest.DefaultCameraTarget.IsEmpty() ? Manifest.OriginObjectId : Manifest.DefaultCameraTarget;
     if (!CameraTarget.IsEmpty()) FocusObject(CameraTarget, false);
     if (UBskRenderWorldSubsystem* RenderSubsystem = GetWorld()->GetSubsystem<UBskRenderWorldSubsystem>())
     {
@@ -2250,14 +2332,10 @@ void ABskSceneController::ResetPresentationState()
     VisionCapturePacketsQueued = 0;
     VisionCaptureErrors = 0;
     LastFrameId = -1;
-    bHasTargetFrame = false;
     bHasPresentationFrame = false;
-    PreviousFrame = FBskRenderFrame{};
-    TargetFrame = FBskRenderFrame{};
     PresentationFrame = FBskRenderFrame{};
-    LastFrameArrivalSeconds = 0.0;
-    BlendElapsedSeconds = 0.0;
-    BlendDurationSeconds = 1.0 / 30.0;
+    PresentationClock.Reset();
+    PresentationFrames.Reset();
     // Simulation time goes back to zero: old deadlines would stall capture
     // until the new session caught up with the previous one.
     CameraNextDataCaptureSimulationNanoseconds.Reset();
@@ -2366,7 +2444,11 @@ AActor* ABskSceneController::SpawnManifestObject(const FBskObjectDefinition& Def
     State.ObjectId = Definition.ObjectId;
     State.Name = Definition.DisplayName;
     State.AssetPath = Definition.AssetPath;
-    const bool bHasConfiguredSpec = ObjectSpecs.Contains(Definition.ObjectId) || ObjectSpecs.Contains(Definition.DisplayName) || !Definition.AssetPath.IsEmpty();
+    // A legacy display-name placeholder (e.g. "target") must not replace an
+    // explicit v2 scene's geometry. Stable-ID overrides remain intentional.
+    const bool bHasConfiguredSpec = ObjectSpecs.Contains(Definition.ObjectId) ||
+        (Definition.Geometries.IsEmpty() && ObjectSpecs.Contains(Definition.DisplayName)) ||
+        !Definition.AssetPath.IsEmpty();
     if (bHasConfiguredSpec) return SpawnFromSpec(Definition.ObjectId, ResolveSpec(State));
     // An explicit empty manifest body is a transform anchor, not a missing
     // asset. Keep it mesh-free so joints/sites cannot occlude the scene.
@@ -2694,6 +2776,21 @@ void ABskSceneController::ApplyVisualMountTransform(AActor* Actor, const FBskVis
     Actor->SetActorRelativeRotation(Rotation);
 }
 
+FString ABskSceneController::GetLightingStatus() const
+{
+    if (bUseManifestSceneLighting) return TEXT("SCENE LIGHTING | explicit manifest light settings");
+    if (!bEphemerisDirectionalLightActive) return TEXT("LIGHTING | waiting for ephemeris");
+    const bool bAuxiliary = (FillLight && FillLight->GetLightComponent()->Intensity > 0.0f) ||
+        (Headlight && !Headlight->IsHidden() && Headlight->GetLightComponent()->Intensity > 0.0f);
+    FString Status = CurrentSolarVisibility <= 1.0e-6
+        ? TEXT("ECLIPSE | physical sunlight is zero")
+        : SceneSunlightIntensityScale <= 0.0
+        ? TEXT("SUNLIGHT DISABLED | scene intensity scale is zero")
+        : FString::Printf(TEXT("PHYSICAL SUNLIGHT | visibility %.3f"), CurrentSolarVisibility);
+    Status += bAuxiliary ? TEXT(" | auxiliary lighting enabled") : TEXT(" | no auxiliary lighting");
+    return Status;
+}
+
 void ABskSceneController::ConfigureManifestLighting(const FBskSceneManifest& Manifest)
 {
     bUseManifestSceneLighting = Manifest.bUseSceneLighting;
@@ -2709,8 +2806,35 @@ void ABskSceneController::ConfigureManifestLighting(const FBskSceneManifest& Man
     const double ManifestFillIntensity = Manifest.FillLightIntensityLux >= 0.0
         ? Manifest.FillLightIntensityLux
         : FillLightIntensityLux;
+    // A launch config can disable the initial fill. A later manifest must still
+    // be able to request presentation lighting without editing project assets.
+    if (!FillLight && ManifestFillIntensity > 0.0 && !Manifest.bUseSceneLighting)
+    {
+        FActorSpawnParameters Params;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        FRotator FillRotation = SunLight ? SunLight->GetActorRotation() : FRotator(-35.0, 45.0, 0.0);
+        FillRotation.Pitch *= -0.5;
+        FillRotation.Yaw += 165.0;
+        FillLight = GetWorld()->SpawnActor<ADirectionalLight>(ADirectionalLight::StaticClass(), FVector::ZeroVector, FillRotation, Params);
+        if (FillLight)
+        {
+            FillLight->GetLightComponent()->SetMobility(EComponentMobility::Movable);
+            FillLight->GetLightComponent()->SetLightColor(FLinearColor(0.55f, 0.68f, 1.0f));
+            FillLight->GetLightComponent()->SetCastShadows(false);
+        }
+    }
     if (FillLight) FillLight->GetLightComponent()->SetIntensity(
         Manifest.bUseSceneLighting ? 0.0f : static_cast<float>(ManifestFillIntensity));
+    if (FillLight)
+    {
+        if (UDirectionalLightComponent* Directional = Cast<UDirectionalLightComponent>(FillLight->GetLightComponent()))
+        {
+            // Forward shading selects one directional light. An eclipsed Sun
+            // must not outrank an explicitly requested demonstration fill.
+            Directional->SetForwardShadingPriority(!Manifest.bUseSceneLighting && ManifestFillIntensity > 0.0 ? 2 : 0);
+            Directional->SetAtmosphereSunLight(false);
+        }
+    }
     if (!Manifest.bHeadlightEnabled)
     {
         if (Headlight) Headlight->SetActorHiddenInGame(true);
@@ -2796,6 +2920,7 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
     {
         if (Capture) Capture->Deactivate();
         CameraRenderTargets.Remove(Definition.CameraId);
+        CameraEffectSources.Remove(Definition.CameraId);
         CameraNextCaptureSeconds.Remove(Definition.CameraId);
         CameraNextDataCaptureSimulationNanoseconds.Remove(Definition.CameraId);
         CameraPictureInPictureVisibility.Remove(Definition.CameraId);
@@ -2880,6 +3005,7 @@ void ABskSceneController::UpdatePictureInPictureCaptures()
             Request.OriginInertialMeters = PresentationFrame.OriginInertialMeters;
             Request.LocalFromInertial = PresentationFrame.LocalFromInertial;
             Request.Purpose = EBskCapturePurpose::Preview;
+            Request.bWriteToDisk = false;
             Request.bReuseExistingRgbTarget = true;
             Request.bSendToNetwork = true;
             FString Error;
@@ -3088,7 +3214,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 OutError = TEXT("could not create RGB capture resources");
                 return false;
             }
-            Capture->CaptureScene();
+            CaptureRgbCamera(Request.CameraId, Capture);
         }
         return true;
     }
@@ -3107,7 +3233,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 OutError = TEXT("could not create RGB capture resources");
                 return false;
             }
-            if (!Request.bReuseExistingRgbTarget) Capture->CaptureScene();
+            if (!Request.bReuseExistingRgbTarget) CaptureRgbCamera(Request.CameraId, Capture);
             if (bAsyncCaptureEnabled && bAuthoritative)
             {
                 const uint64 Bytes = static_cast<uint64>(Resolution.X) * Resolution.Y * sizeof(FColor) + 65536;
@@ -3178,6 +3304,8 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
     Metadata->SetStringField(TEXT("type"), TEXT("camera_frame"));
     Metadata->SetStringField(TEXT("session_id"), ActiveSessionId);
     Metadata->SetStringField(TEXT("camera_id"), Request.CameraId);
+    Metadata->SetStringField(TEXT("camera_mode"), Definition->CameraMode);
+    Metadata->SetStringField(TEXT("color_model"), Definition->CameraMode == TEXT("monochrome") ? TEXT("monochrome_rgb") : TEXT("rgb"));
     Metadata->SetStringField(TEXT("capture_episode_id"), Request.CaptureEpisodeId);
     Metadata->SetBoolField(TEXT("ack_required"), bAuthoritative);
     Metadata->SetStringField(TEXT("stream_kind"),
@@ -3217,12 +3345,15 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
         MakeShared<FJsonValueNumber>(Resolution.X), MakeShared<FJsonValueNumber>(Resolution.Y)});
 
     const double FovX = Definition->FieldOfViewRadians;
-    const double Fx = 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
+    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const double Fx = bFisheye ? FMath::Min(Resolution.X, Resolution.Y) / FovX
+        : 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
     const double Fy = Fx;
-    const double FovY = 2.0 * FMath::Atan(0.5 * Resolution.Y / Fy);
+    const double FovY = bFisheye ? FovX : 2.0 * FMath::Atan(0.5 * Resolution.Y / Fy);
     TSharedPtr<FJsonObject> Intrinsics = MakeShared<FJsonObject>();
-    Intrinsics->SetStringField(TEXT("model"), TEXT("pinhole"));
-    Intrinsics->SetStringField(TEXT("distortion_model"), TEXT("none"));
+    Intrinsics->SetStringField(TEXT("model"), bFisheye ? TEXT("equidistant_fisheye") : TEXT("pinhole"));
+    Intrinsics->SetStringField(TEXT("distortion_model"), bFisheye ? TEXT("equidistant") : TEXT("none"));
+    if (bFisheye) Intrinsics->SetNumberField(TEXT("valid_circle_radius_px"), 0.5 * FMath::Min(Resolution.X, Resolution.Y));
     Intrinsics->SetNumberField(TEXT("fx_px"), Fx);
     Intrinsics->SetNumberField(TEXT("fy_px"), Fy);
     Intrinsics->SetNumberField(TEXT("cx_px"), 0.5 * (Resolution.X - 1));
@@ -3517,6 +3648,30 @@ void ABskSceneController::AttachManifestChildren()
     }
 }
 
+bool ABskSceneController::GetRelativeViewState(FBskRelativeViewState& Out) const
+{
+    if (!RelativeView.IsConfigured() || !bHasPresentationFrame) return false;
+    const AActor* Primary = BoundActors.FindRef(RelativeView.PrimaryObjectId);
+    const AActor* Secondary = BoundActors.FindRef(RelativeView.SecondaryObjectId);
+    if (!IsValid(Primary) || !IsValid(Secondary)) return false;
+    Out.PrimaryCentimeters = Primary->GetActorTransform().TransformPosition(
+        FVector(Converter.LocalMetersToUnrealCentimeters(RelativeView.PrimaryCenterBodyMeters)));
+    Out.SecondaryCentimeters = Secondary->GetActorTransform().TransformPosition(
+        FVector(Converter.LocalMetersToUnrealCentimeters(RelativeView.SecondaryCenterBodyMeters)));
+    Out.PrimaryLabel = RelativeView.PrimaryLabel;
+    Out.SecondaryLabel = RelativeView.SecondaryLabel;
+    Out.DistanceMeters = FVector::Distance(Out.PrimaryCentimeters, Out.SecondaryCentimeters) / Converter.GetCentimetersPerMeter();
+    Out.SimulationSeconds = static_cast<double>(PresentationFrame.SimulationTimeNanoseconds) * 1e-9;
+    const auto LocalMeters = [this](const FVector& Position)
+    {
+        const double YSign = Converter.MirrorsLocalY() ? -1.0 : 1.0;
+        return FVector3d(Position.X, Position.Y * YSign, Position.Z) / Converter.GetCentimetersPerMeter();
+    };
+    Out.PrimarySunlight = SolarVisibilityAt(LocalMeters(Out.PrimaryCentimeters));
+    Out.SecondarySunlight = SolarVisibilityAt(LocalMeters(Out.SecondaryCentimeters));
+    return true;
+}
+
 void ABskSceneController::ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame)
 {
     check(IsInGameThread());
@@ -3643,11 +3798,12 @@ FBskRenderFrame ABskSceneController::InterpolateFrame(const FBskRenderFrame& Fro
 FBskRenderFrame ABskSceneController::ExtrapolateFrame(
     const FBskRenderFrame& From,
     const FBskRenderFrame& To,
-    double SecondsBeyondTarget) const
+    double SecondsBeyondTarget,
+    double SimulationRate) const
 {
     FBskRenderFrame Result = To;
     const double SourceDeltaSeconds = static_cast<double>(To.SimulationTimeNanoseconds - From.SimulationTimeNanoseconds) * 1.0e-9;
-    const double ExtraSeconds = FMath::Clamp(SecondsBeyondTarget, 0.0, MaxExtrapolationSeconds);
+    const double ExtraSeconds = FMath::Clamp(SecondsBeyondTarget, 0.0, MaxExtrapolationSeconds) * FMath::Max(0.0, SimulationRate);
     if (SourceDeltaSeconds <= UE_DOUBLE_SMALL_NUMBER || ExtraSeconds <= 0.0) return Result;
     Result.SimulationTimeNanoseconds += FMath::RoundToInt64(ExtraSeconds * 1.0e9);
     Result.OriginInertialMeters += (To.OriginInertialMeters - From.OriginInertialMeters) * (ExtraSeconds / SourceDeltaSeconds);

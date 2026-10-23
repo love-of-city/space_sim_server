@@ -23,7 +23,7 @@ if ($state) {
         $state.error = ''
         $temporary = "$statePath.stop.$PID"
         $state | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $temporary -Encoding utf8
-        Move-Item -LiteralPath $temporary -Destination $statePath -Force
+        Move-SceneRuntimeState $temporary $statePath
     }
 
     if ($state.PSObject.Properties.Name -contains 'simulation_pid') {
@@ -42,6 +42,8 @@ if ($state) {
         Stop-RecordedProcessTree ([int]$state.launcher_pid) $start
     }
 }
+
+Stop-ProjectSimulations $projectRoot
 
 if ($AdapterRoot) {
     Stop-ProjectRenderers $AdapterRoot

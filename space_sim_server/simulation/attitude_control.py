@@ -263,10 +263,32 @@ class InitialReference(sysModel.SysModel):
         owner.controller.Reset(current_sim_nanos)
 
 
+class TrajectoryAttitudeReference(sysModel.SysModel):
+    """Prescribe a reference message; wheel torques still move the spacecraft."""
+    def __init__(self, owner, provider):
+        super().__init__()
+        self.owner, self.provider = owner, provider
+        self.sigma_R0N = [0., 0., 0.]
+        self.attRefOutMsg = messaging.AttRefMsg()
+
+    def UpdateState(self, nanos):
+        rotation, omega, omega_dot = self.provider(nanos * 1e-9)
+        rotation, omega, omega_dot = (np.asarray(v, dtype=float) for v in (rotation, omega, omega_dot))
+        if (rotation.shape != (3, 3) or omega.shape != (3,) or omega_dot.shape != (3,)
+                or not all(np.isfinite(v).all() for v in (rotation, omega, omega_dot))
+                or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-8)
+                or not np.isclose(np.linalg.det(rotation), 1., atol=1e-8)):
+            raise ValueError('invalid attitude trajectory reference')
+        self.owner.reference_mrp = rbk.C2MRP(rotation.T)
+        self.attRefOutMsg.write(messaging.AttRefMsgPayload(
+            sigma_RN=self.owner.reference_mrp.tolist(), omega_RN_N=omega.tolist(),
+            domega_RN_N=omega_dot.tolist()), nanos, self.moduleID)
+
+
 class AttitudeControl:
     """Own the BSK guidance/control chain and the three native wheel drives."""
     def __init__(self, simulation, process, scene, model_path: Path, *, enabled=None,
-                 drive_task=None, physics_grid=None):
+                 drive_task=None, physics_grid=None, reference_provider=None):
         """``drive_task=(task_name, priority)`` schedules the wheel drives on a
         fixed-rate task (local dynamics backend) instead of every MJScene stage.
 
@@ -339,7 +361,8 @@ class AttitudeControl:
         # once more after InitialReference publishes the startup tensor.
         self.vehicle_config = messaging.VehicleConfigMsg().write(
             messaging.VehicleConfigMsgPayload(ISCPntB_B=np.eye(3).flatten().tolist()))
-        self.reference = add(inertial3D.inertial3D(), 'sarmInertial3D', 800)
+        self.reference = add(TrajectoryAttitudeReference(self, reference_provider) if reference_provider else inertial3D.inertial3D(),
+                             'sarmTrajectoryReference' if reference_provider else 'sarmInertial3D', 800)
         add(InitialReference(self), 'sarmInitialAttitudeReference', 1000)
         nav = add(simpleNav.SimpleNav(), 'sarmTruthNavigation', 900)
         nav.scStateInMsg.subscribeTo(self.bus.getCenterOfMass().stateOutMsg)

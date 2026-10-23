@@ -11,6 +11,7 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SimulationObservation
 from space_arm_platform.recorder import EpisodeRecorder
+from space_arm_platform.recording_config import VideoEncodingConfig
 
 
 def observation(index=1, session="session-a"):
@@ -37,14 +38,48 @@ def packet(index=1, camera="wrist", session="session-a", size=(32, 32)):
     return meta, products
 
 
-def make_recorder(tmp_path, cameras=("wrist",), products=("rgb",)):
-    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.15)
+def make_recorder(tmp_path, cameras=("wrist",), products=("rgb",), video_encoding=None):
+    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.15, video_encoding=video_encoding)
     meta = recorder.start(EpisodeStart(fps=10, camera_ids=list(cameras), capture_products=list(products)))
     return recorder, tmp_path / meta["episode_id"]
 
 
-def test_live_v3_roundtrip_rgb_only_and_two_cameras(tmp_path):
-    recorder, root = make_recorder(tmp_path, ("overview", "wrist"), ("rgb",))
+@pytest.mark.parametrize("platform,frames,shape,parallel", [
+    ("win32", 135, (360, 640, 3), False),
+    ("win32", 900, (360, 640, 3), True),
+    ("win32", 135, (2160, 3840, 3), True),
+    ("linux", 135, (360, 640, 3), True),
+])
+def test_finish_avoids_windows_spawn_only_for_small_videos(tmp_path, monkeypatch, platform, frames, shape, parallel):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from space_arm_platform import lerobot_capture
+    monkeypatch.setattr(lerobot_capture.sys, "platform", platform)
+    keys = ("observation.sim_time_ns", "observation.source_frame_id", "observation.applied_action_sequence",
+            "observation.wrist_wrench_valid", "observation.wrist_wrench_sample_time_ns",
+            "observation.wrist_wrench_interval_end_time_ns")
+    dataset = SimpleNamespace(episode_buffer={key: [np.array([7], dtype=np.int64)] for key in keys},
+                              save_episode=Mock(), finalize=Mock(), stop_image_writer=Mock())
+    writer = object.__new__(lerobot_capture.LiveLeRobotWriter)
+    writer.dataset, writer.root, writer.frames = dataset, tmp_path, frames
+    writer.wrench_stream = lerobot_capture.WrenchStreamWriter(tmp_path)
+    writer.sidecars = None
+    writer.camera_shapes = {"overview": shape, "wrist": shape}
+    (tmp_path / "meta").mkdir()
+    (tmp_path / "meta/platform.json").write_text('{}')
+    writer.finish("aborted", "performance check")
+    dataset.save_episode.assert_called_once_with(parallel_encoding=parallel)
+    dataset.finalize.assert_called_once()
+    dataset.stop_image_writer.assert_called_once()
+    assert all(dataset.episode_buffer[key][0].shape == () for key in keys)
+    assert json.loads((tmp_path / "meta/platform.json").read_text())["episode_result"] == {
+        "outcome": "aborted", "note": "performance check"}
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_live_v3_roundtrip_rgb_only_and_two_cameras(tmp_path, streaming):
+    video = VideoEncodingConfig(streaming_encoding=streaming, encoder_threads=1, image_writer_threads=1)
+    recorder, root = make_recorder(tmp_path, ("overview", "wrist"), ("rgb",), video_encoding=video)
     for index in range(1, 4):
         # Both network arrival orders must work, with real encoded products.
         recorder.record_authoritative_capture(*packet(index, "wrist"))
@@ -70,12 +105,41 @@ def test_live_v3_roundtrip_rgb_only_and_two_cameras(tmp_path):
     assert not any("segmentation" in key or "depth" in key for key in info["features"])
     assert not (root / "lerobot/auxiliary").exists()
     assert not list(root.rglob("*.pfm"))
-    assert len(list((root / "cameras").rglob("*.png"))) == 6
+    assert not (root / "cameras").exists()
+    captures = [json.loads(line) for line in (root / "captures.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(captures) == 6 and all(row["files"] == {} for row in captures)
     metadata = json.loads((root / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["raw_camera_images_saved"] is False
     assert metadata["dataset_capture_products"] == ["rgb"]
     assert (root / "lerobot/meta/tasks.parquet").is_file()
     assert list((root / "lerobot/meta/episodes").rglob("*.parquet"))
     assert len(list((root / "lerobot/videos").rglob("*.mp4"))) == 2
+    assert metadata["video_encoding"] == video.model_dump()
+
+
+@pytest.mark.process_writer
+def test_spawned_writer_receives_video_configuration(tmp_path):
+    video = VideoEncodingConfig(streaming_encoding=True, encoder_threads=1, encoder_queue_maxsize=8)
+    recorder = EpisodeRecorder(tmp_path, video_encoding=video)
+    try:
+        metadata = recorder.start(EpisodeStart(fps=10, camera_ids=["wrist"]))
+        for index in range(1, 4):
+            recorder.record_observation(observation(index), None)
+            recorder.record_authoritative_capture(*packet(index))
+        result = recorder.stop(EpisodeStop())
+        assert result["dataset_status"] == "complete", result
+        root = tmp_path / metadata["episode_id"] / "lerobot"
+        platform = json.loads((root / "meta/platform.json").read_text(encoding="utf-8"))
+        assert platform["video_encoding"] == video.model_dump()
+        assert not list(root.rglob("*.png"))
+        loaded = LeRobotDataset(f"local/{root.parent.name}", root=root, video_backend="pyav")
+        assert len(loaded) == 3
+        for index in range(3):
+            row = loaded[index]
+            assert row["observation.images.wrist"].shape == (3, 32, 32)
+            np.testing.assert_allclose(row["timestamp"], index / 10, atol=1e-6)
+    finally:
+        recorder.close()
 
 
 def test_stop_drains_late_camera_without_accepting_new_observations(tmp_path):
@@ -178,7 +242,7 @@ def test_duplicate_camera_before_bundle_complete_is_failed(tmp_path):
 def test_encoder_failure_cannot_be_marked_complete(tmp_path, monkeypatch):
     recorder, _ = make_recorder(tmp_path, ())
     recorder.record_observation(observation(), None)
-    def fail():
+    def fail(**kwargs):
         raise OSError("disk full")
     assert recorder.wait_for_writes()
     monkeypatch.setattr(recorder._dataset.dataset, "save_episode", fail)

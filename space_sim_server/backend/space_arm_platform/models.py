@@ -14,6 +14,7 @@ from .control_defaults import (
     MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S,
 )
 from .scene_targets import DEFAULT_TEMPLATE
+from .orbital_physics import OrbitalPhysics
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
 
 
@@ -133,6 +134,30 @@ class AttitudeControlObservation(BaseModel):
     attitude_error_angle_rad: FiniteFloat = Field(ge=0.0, le=3.141592653589794)
     control_rate_hz: FiniteFloat = Field(gt=0.0, le=500.0)
     saturated: bool
+
+
+class GyroObservation(BaseModel):
+    """Measured inertial body rate; no true attitude or hidden bias in this packet."""
+    model_config = ConfigDict(extra="forbid")
+    sensor_name: Literal["service_gyro"]
+    body_name: Literal["cubesat_bus"]
+    frame: Literal["spacecraft_body"]
+    reference_frame: Literal["J2000"]
+    measurement: Literal["simulated_body_angular_rate"]
+    sample_rate_hz: Literal[50]
+    sample_time_ns: str = Field(pattern=r"^[0-9]+$")
+    angular_velocity_body_rad_s: Vector3
+    error_variance_rad2_s2: Annotated[list[Annotated[FiniteFloat, Field(ge=0)]], Field(min_length=3, max_length=3)]
+    saturated_axes: WheelFlags
+    valid: bool
+
+    @model_validator(mode="after")
+    def validate_reading(self):
+        if int(self.sample_time_ns) % 20_000_000:
+            raise ValueError("gyro sample must be on the 50 Hz physical grid")
+        if self.valid == any(self.saturated_axes):
+            raise ValueError("gyro validity must reflect saturation")
+        return self
 
 
 class ReactionWheelObservation(BaseModel):
@@ -270,6 +295,7 @@ class SimulationObservation(BaseModel):
     target_gripper_position_m: FingerVector | None = None
     attitude_control: AttitudeControlObservation | None = None
     reaction_wheels: ReactionWheelObservation | None = None
+    service_gyro: GyroObservation | None = None
     wrist_wrench: WrenchObservation | None = None
     wrist_wrench_rate_hz: Literal[200] | None = None
     wrist_wrench_samples: list[WrenchObservation] = Field(default_factory=list, max_length=1024)
@@ -318,6 +344,8 @@ class SimulationObservation(BaseModel):
     @model_validator(mode="after")
     def validate_joint_layout(self):
         """Accept legacy six or SARM eight, but never seven/mismatched arrays."""
+        if self.service_gyro and int(self.service_gyro.sample_time_ns) > int(self.sim_time_ns):
+            raise ValueError("gyro sample cannot be newer than its observation")
         if self.wrist_wrench and int(self.wrist_wrench.interval_end_time_ns) != int(self.sim_time_ns):
             raise ValueError("wrench interval must end at the authoritative observation time")
         count = len(self.joint_position_rad)
@@ -403,6 +431,10 @@ class EpisodeStop(BaseModel):
 
 class SceneInstanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    wrist_camera_mode: Literal["rgb", "fisheye", "monochrome"] = "rgb"
+
+    orbital_physics: OrbitalPhysics = Field(default_factory=OrbitalPhysics)
 
     template_id: str = DEFAULT_TEMPLATE
     randomization_profile: str = DEFAULT_RANDOMIZATION_PROFILE

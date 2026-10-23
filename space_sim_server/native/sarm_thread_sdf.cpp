@@ -1,7 +1,8 @@
 // Platform build of the delivered SARM thread SDF plugin
 // (model/SARM_mjcf_20261012/thread_sdf.cpp, kept byte-identical as delivered).
-// Only tooth_radius() differs: the same function without atan2, which MuJoCo's
-// SDF contact search calls tens of thousands of times per physics step.
+// The surface math differs only in tooth_radius(): the same function without
+// atan2, which SDF contact search calls thousands of times per physics step.
+// The collision wrapper below additionally skips provably disjoint rod/guide pairs.
 // tools/build_sarm_plugin.py compiles both sources into one checker and refuses
 // to install this plugin unless distances and gradients match the delivered code.
 //
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <mujoco/mujoco.h>
 
 namespace {
@@ -115,6 +117,55 @@ void gradient(mjtNum grad[3], const mjtNum p[3], int mode) {
 
 const char* const kAttributes[] = {"mode"};
 
+// MuJoCo's public collision dispatch table also covers explicit <pair>s, which
+// bypass mjcb_contactfilter. Preserve the stock detector for every uncertain
+// configuration and for every other SDF plugin.
+mjfCollision original_sdf_collision = nullptr;
+int registered_slot = -1;
+
+int model_mode(const mjModel* m, const mjData* d, int geom) {
+  const int instance = m->geom_plugin[geom];
+  if (instance < 0 || m->plugin[instance] != registered_slot || !d->plugin_data[instance]) return -1;
+  return *reinterpret_cast<const int*>(d->plugin_data[instance]);
+}
+
+bool rod_inside_guide(const mjData* d, int rod, int guide, double margin) {
+  const mjtNum* rp = d->geom_xpos + 3*rod;
+  const mjtNum* gp = d->geom_xpos + 3*guide;
+  const mjtNum* rm = d->geom_xmat + 9*rod;
+  const mjtNum* gm = d->geom_xmat + 9*guide;
+  double first[2]{}, last[2]{};
+  double magnitude = 1.0;
+  for (int j = 0; j < 3; ++j) magnitude = std::max({magnitude, std::abs(rp[j]), std::abs(gp[j])});
+  for (int i = 0; i < 2; ++i) {
+    double axis = 0.0;
+    for (int j = 0; j < 3; ++j) {
+      first[i] += gm[3*j+i] * (rp[j] - gp[j]);
+      axis += gm[3*j+i] * rm[3*j+2];
+    }
+    last[i] = first[i] - kLockRodLength * axis;
+    if (!std::isfinite(first[i]) || !std::isfinite(last[i])) return false;
+  }
+  // Every thread point lies in the radius-12 mm cylinder from z=-110..0 mm.
+  // Projecting a disk cannot enlarge its radius; the norm of the axis segment
+  // is bounded by its endpoints. If this entire cylinder is strictly inside
+  // the 12.65 mm bore, the two signed-distance sublevel sets cannot intersect.
+  // Inflate the bound for margins and world-coordinate subtraction roundoff.
+  const double roundoff = 128.0 * std::numeric_limits<double>::epsilon() * magnitude + 1e-9;
+  const double bound = std::max(std::hypot(first[0], first[1]), std::hypot(last[0], last[1]))
+                        + kLockRootRadius + kLockToothHeight + roundoff + std::max(0.0, margin);
+  return std::isfinite(bound) && std::isfinite(margin) && bound < kLockGuideBoreRadius;
+}
+
+int collide_sdf(const mjModel* m, mjData* d, mjContact* contacts,
+                int geom1, int geom2, mjtNum margin) {
+  const int mode1 = model_mode(m, d, geom1);
+  const int mode2 = model_mode(m, d, geom2);
+  if ((mode1 == 2 && mode2 == 4 && rod_inside_guide(d, geom1, geom2, margin)) ||
+      (mode1 == 4 && mode2 == 2 && rod_inside_guide(d, geom2, geom1, margin))) return 0;
+  return original_sdf_collision(m, d, contacts, geom1, geom2, margin);
+}
+
 void register_plugin() {
   mjpPlugin plugin;
   mjp_defaultPlugin(&plugin);
@@ -170,7 +221,10 @@ void register_plugin() {
     aabb[0] = 0; aabb[1] = 0; aabb[2] = -0.5 * length;
     aabb[3] = radius; aabb[4] = radius; aabb[5] = 0.5 * length;
   };
-  mjp_registerPlugin(&plugin);
+  registered_slot = mjp_registerPlugin(&plugin);
+  original_sdf_collision = mjCOLLISIONFUNC[mjGEOM_SDF][mjGEOM_SDF];
+  if (registered_slot >= 0 && original_sdf_collision)
+    mjCOLLISIONFUNC[mjGEOM_SDF][mjGEOM_SDF] = collide_sdf;
 }
 
 }  // namespace

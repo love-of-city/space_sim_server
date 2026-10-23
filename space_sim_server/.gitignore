@@ -37,5 +37,8 @@ data/visualization-test-auth.sqlite3*
 /signalling/*.log
 /reports/
 
+# Personal presentation scripts and report pages are maintained outside Git.
+/docs/reports/
+/frontend/public/reports/
 # Persistent automated collection job manifests and logs.
 data/collection_jobs/

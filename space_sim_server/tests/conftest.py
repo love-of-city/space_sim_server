@@ -1,5 +1,6 @@
 """Keep unit tests fast; process-isolation tests explicitly bypass this fixture."""
 import pytest
+from functools import partial
 
 @pytest.fixture(autouse=True)
 def recorder_test_lifecycle(monkeypatch, request):
@@ -11,7 +12,8 @@ def recorder_test_lifecycle(monkeypatch, request):
     original = EpisodeRecorder.__init__
     recorders = []
     def initialize(self, *args, **kwargs):
-        kwargs.setdefault("writer_factory", LiveLeRobotWriter)
+        kwargs.setdefault("writer_factory", partial(LiveLeRobotWriter, video_encoding=kwargs.get("video_encoding"),
+                                                   storage_profile=kwargs.get("storage_profile", "diagnostic")))
         original(self, *args, **kwargs)
         recorders.append(self)
     monkeypatch.setattr(EpisodeRecorder, "__init__", initialize)

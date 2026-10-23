@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,12 @@ from PIL import Image
 from .sampling import sample_tick
 from .wrench_recording import WrenchStreamWriter
 from .gripper_representation import opening_profile
-DEFAULT_CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
+from .recording_config import DEFAULT_CAMERA_IDS, VideoEncodingConfig
+from .compact_storage import COMPACT_SCHEMA, CompactSidecars
+DEFAULT_CAMERAS = list(DEFAULT_CAMERA_IDS)
+# Below this conservative workload, starting fresh Windows encoder processes
+# costs more than encoding in the already-warm isolated dataset worker.
+IN_PROCESS_VIDEO_PIXEL_BUDGET = 200_000_000
 
 
 def camera_key(camera: str) -> str:
@@ -25,13 +31,19 @@ def camera_key(camera: str) -> str:
 
 
 class LiveLeRobotWriter:
-    def __init__(self, root: Path, request: Any) -> None:
+    def __init__(self, root: Path, request: Any, *, video_encoding: VideoEncodingConfig | None = None,
+                 storage_profile: str = "diagnostic") -> None:
         from lerobot.datasets.lerobot_dataset import CODEBASE_VERSION, LeRobotDataset
         if CODEBASE_VERSION != "v3.0":
             raise RuntimeError(f"Expected LeRobot v3.0, found {CODEBASE_VERSION}")
         self.dataset_class = LeRobotDataset
         self.root = root
         self.request = request
+        self.video_encoding = video_encoding or VideoEncodingConfig()
+        if storage_profile not in ("compact", "diagnostic"):
+            raise ValueError("Unknown storage profile")
+        self.storage_profile = storage_profile
+        self.sidecars = CompactSidecars(root) if storage_profile == "compact" else None
         self.fps = request.fps
         self.cameras = tuple(request.camera_ids)
         self.products = tuple(request.capture_products)
@@ -41,7 +53,7 @@ class LiveLeRobotWriter:
         self.camera_shapes: dict[str, tuple[int, ...]] = {}
         self.model_identity = None
         self.wrench_identity = None
-        self.wrench_stream = WrenchStreamWriter(root)
+        self.wrench_stream = WrenchStreamWriter(root, compact=self.sidecars is not None)
 
     def append(self, observation: Any, captures: dict[str, tuple[dict, dict]]) -> None:
         identity = (observation.model_sha256, observation.model_revision, observation.gripper_type)
@@ -76,9 +88,10 @@ class LiveLeRobotWriter:
             "observation.sim_time_ns": np.array([int(observation.sim_time_ns)], dtype=np.int64),
             "observation.source_frame_id": np.array([int(observation.render_frame_id)], dtype=np.int64),
             "observation.applied_action_sequence": np.array([int(observation.applied_action_sequence)], dtype=np.int64),
-            "observation.platform_json": observation.model_dump_json(),
             "task": self.request.instruction or self.request.task,
         }
+        if self.sidecars is None:
+            frame["observation.platform_json"] = observation.model_dump_json()
         if profile is not None:
             frame["observation.raw_joint_position"] = f32(observation.joint_position_rad)
             frame["observation.raw_target_joint_position"] = f32(observation.target_joint_position_rad)
@@ -115,7 +128,8 @@ class LiveLeRobotWriter:
             if previous_shape != rgb.shape:
                 raise ValueError("camera resolution changed during recording")
             frame[f"observation.images.{key}"] = rgb
-            frame[f"observation.camera_metadata.{key}"] = json.dumps(meta, ensure_ascii=False)
+            if self.sidecars is None:
+                frame[f"observation.camera_metadata.{key}"] = json.dumps(meta, ensure_ascii=False)
         if self.dataset is None:
             features = {}
             for name, value in frame.items():
@@ -142,9 +156,23 @@ class LiveLeRobotWriter:
             self.dataset = self.dataset_class.create(
                 repo_id=f"local/{self.root.parent.name}", root=self.root,
                 robot_type="sarm", fps=self.fps, features=features,
-                use_videos=bool(self.cameras), video_backend="pyav", vcodec="h264",
-                image_writer_threads=0, encoder_threads=2,
+                use_videos=bool(self.cameras), video_backend="pyav", vcodec=self.video_encoding.codec,
+                image_writer_threads=self.video_encoding.image_writer_threads,
+                encoder_threads=self.video_encoding.encoder_threads,
+                streaming_encoding=self.video_encoding.streaming_encoding,
+                encoder_queue_maxsize=self.video_encoding.encoder_queue_maxsize,
             )
+            if self.video_encoding.streaming_encoding and self.cameras:
+                from .streaming_video import StrictStreamingVideoEncoder
+                # Install before add_frame starts the episode. The upstream
+                # implementation drops frames on a full queue.
+                self.dataset._streaming_encoder = StrictStreamingVideoEncoder(
+                    fps=self.fps, vcodec=self.video_encoding.codec,
+                    g=self.video_encoding.keyframe_interval, crf=self.video_encoding.quality,
+                    queue_maxsize=self.video_encoding.encoder_queue_maxsize,
+                    encoder_threads=self.video_encoding.encoder_threads,
+                )
+                self.dataset._streaming_encoder.gpu_index = self.video_encoding.gpu_index
             # Explicit semantics alongside (not masquerading as) official metadata.
             (self.root / "meta" / "platform.json").write_text(json.dumps({
                 "schema": "space-arm-lerobot/2" if profile is not None else "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "sarm_ee",
@@ -159,10 +187,16 @@ class LiveLeRobotWriter:
                 "timestamp_semantics": "episode-relative uniform sample time; original nanoseconds in observation.sim_time_ns",
                 "wrist_wrench": (wrench.model_dump(exclude={"force_n", "torque_nm", "sample_time_ns", "interval_end_time_ns", "valid"}) if wrench else None),
                 "camera_keys": {c: camera_key(c) for c in self.cameras},
+                "video_encoding": self.video_encoding.model_dump(mode="json"),
+                "storage_profile": self.storage_profile,
+                "compact_schema": COMPACT_SCHEMA if self.sidecars else None,
+                "sidecars": {"context": "auxiliary/context", "cameras": "auxiliary/cameras"} if self.sidecars else {},
                 "request": self.request.model_dump(mode="json"),
             }, ensure_ascii=False, indent=2), encoding="utf-8")
         self.wrench_stream.append(observation)
         self.dataset.add_frame(frame)
+        if self.sidecars:
+            self.sidecars.append(observation, captures, frame)
         self.frames += 1
         self.last_tick = tick
 
@@ -175,7 +209,31 @@ class LiveLeRobotWriter:
         if self.dataset is None:
             return
         try:
-            self.dataset.save_episode()
+            self.wrench_stream.finish()
+            if self.sidecars:
+                self.sidecars.finish()
+            # LeRobot describes shape-(1,) features as scalar Hugging Face Values.
+            # Its frame validator requires the arrays, but save_episode stacks
+            # them into (frames, 1), which NumPy 2 cannot encode as scalars.
+            for key in (
+                "observation.sim_time_ns",
+                "observation.source_frame_id",
+                "observation.applied_action_sequence",
+                "observation.wrist_wrench_valid",
+                "observation.wrist_wrench_sample_time_ns",
+                "observation.wrist_wrench_interval_end_time_ns",
+            ):
+                if key not in self.dataset.episode_buffer:
+                    continue
+                self.dataset.episode_buffer[key] = [
+                    value.reshape(()) for value in self.dataset.episode_buffer[key]
+                ]
+            pixels = self.frames * sum(shape[0] * shape[1] for shape in self.camera_shapes.values())
+            parallel_encoding = sys.platform != "win32" or pixels > IN_PROCESS_VIDEO_PIXEL_BUDGET
+            # Use the official batch path with the same images, statistics,
+            # codec and encoder threads. Large/high-resolution episodes keep
+            # parallel encoding; no streaming-statistics approximation is added.
+            self.dataset.save_episode(parallel_encoding=parallel_encoding)
             path = self.root / "meta" / "platform.json"
             metadata = json.loads(path.read_text(encoding="utf-8"))
             metadata["high_frequency_wrist_wrench"] = self.wrench_stream.metadata()
@@ -187,5 +245,8 @@ class LiveLeRobotWriter:
 
     def close_failed(self) -> None:
         if self.dataset is not None:
+            self.wrench_stream.finish()
+            if self.sidecars:
+                self.sidecars.finish()
             self.dataset.finalize()
             self.dataset.stop_image_writer()

@@ -65,4 +65,4 @@ if __name__ == '__main__':
                          bridge_holes=args.bridge_holes)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, data in [('aruco_rig.json',rig), ('geometry_metres.json',rows)]:
-        (args.output_dir/name).write_text(json.dumps(data,indent=2)+'\n',encoding='utf-8')
+        (args.output_dir/name).write_text(json.dumps(data,indent=2)+'\n',encoding='utf-8',newline='\n')

@@ -4,6 +4,8 @@
 
 使用原平台入口选择 `sarm-dual-capture26` 即可准备机器本地资源目录：启动脚本构建 SARM thread 插件，依次恢复基础 SARM、Capture26 机构和当前 `adjacent_face_v1` 星体网格的 catalog，最后检查并合并映射。它不会重新生成已纳入版本控制的双臂物理模型或基础装配。
 
+网页选择双臂模板时默认使用“指定操作姿态直接启动”。原零位自动展开规划器仍使用旧夹爪关节，因此该模板明确拒绝此模式；固定基准 `none` 继续用于已有实验实例。普通启动仍不自动执行抓取。
+
 当前侧面安装布局使用 `model/dual_arm_capture26/import_trimmed_base.xml` 中的相对源路径，导入到 `/Game/BSK/Generated/Capture26SideV1`；基础与机构资产保留各自的原 UE 路径。以下早期底部安装记录不能作为当前裁切网格的导入配置。`Saved/AssetImport` 为机器本地生成内容，不提交 Git。
 
 双臂 manifest 的历史 `base_commit/base_sha256` 保留；运行依赖 `sources` 对齐当前基础 XML。已核对基础版本差异仅为 `15a771e` 添加的渲染用腕灯，动力学和相机未变，双臂 XML 也未改写。启动继续严格检查模型及依赖摘要。

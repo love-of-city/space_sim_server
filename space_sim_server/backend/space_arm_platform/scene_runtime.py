@@ -132,10 +132,12 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
 # validate flex contacts without ignoring the experiment's core collision.
 TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES: dict[str, str] = {
     SARM_20261012_TEMPLATE: ZERO_START_TELEOP_PROFILE,
+    'sarm-dual-capture26': ZERO_START_TELEOP_PROFILE,
     FREE_PLUG_TEMPLATE: ZERO_START_TELEOP_PROFILE,
 }
 TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
     SARM_20261012_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE, BALANCED_TELEOP_PROFILE, 'none', 'training-v1'),
+    'sarm-dual-capture26': (AUTO_PREPARE_TELEOP_PROFILE,),
     FREE_PLUG_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE,),
 }
 
@@ -407,6 +409,11 @@ class SceneRuntimeManager:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
         unsupported_profiles = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES.get(request.template_id, ())
         if request.randomization_profile in unsupported_profiles:
+            if request.template_id in SARM_TEMPLATES:
+                raise ValueError(
+                    '当前 SARM 场景不支持所选启动配置；请选择“指定操作姿态直接启动”'
+                    '（teleop-zero-prepare-v1）'
+                )
             raise ValueError(
                 "本地任务盒（两个活动插头·实验）包含 flexcomp 接触网格，"
                 "当前不支持“零位启动并自动展开”（teleop-zero-prepare-v2）；"

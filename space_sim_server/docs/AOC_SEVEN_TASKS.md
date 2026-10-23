@@ -4,7 +4,8 @@
 
 ## 任务来源
 
-- [项目表](https://acndpm3fvl11.feishu.cn/wiki/KXyiw0KMgiWJGhktSKocw5EznAf)：2026-10-22 核对任务表 revision 1188，共 101 条；按成员记录 `recvuDNd6JROUn` 关联，本人直接或共同执行 11 条，9 条已完成、2 条进行中。项目截止以项目表为准；以下保留逐项核对结果。
+- [项目表](https://acndpm3fvl11.feishu.cn/wiki/KXyiw0KMgiWJGhktSKocw5EznAf)：2026-10-23 核对任务表 revision 1194，完整读取 102 条；按成员记录 `recvuDNd6JROUn` 关联，本人直接或共同执行 11 条，9 条已完成、2 条进行中。新增“相对位置坐标”由张怿心执行，未新增本人关联任务。项目截止以项目表为准；以下保留逐项核对结果。
+- [1019 整体交会对接方案](https://lcnrp8hlo6f2.feishu.cn/docx/CO7BdUxQcoM7d6xZPIqc4WVqnWd)：核对 10/23 更新后的正文 revision 139，以及六张嵌入表格 revision 55。职责表要求王镱溥确认第 3 节“升轨与远距交会”是否符合实际实现；核对结果见[远距实现说明](TEAM_RENDEZVOUS.md#与整体方案第-3-节的对应)。文档中的真实视觉、视觉就绪新方案、目标姿控和抓取仍有待补项。
 - [10/15 人工分工](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=112)与[差分 GNSS 补充](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=116)：负责远距交会、差分 GNSS、远近距传感器同步及仿真合并。
 - [10/15 会议](https://acndpm3fvl11.feishu.cn/docx/Pou4dAxcrozvqqxVaYNcPydcnEH)及[原文](https://acndpm3fvl11.feishu.cn/docx/UgZqdB6fjoqERzxMNepcxeornkc)：恢复全局和手眼相机，统一 UI，验证大气阻力实际施力，与张怿心共同完成仓库合并。人工分工优先于智能纪要中的模糊归属。
 - [10/8 原文](https://acndpm3fvl11.feishu.cn/docx/I1OPdBVJsorEAAxAsz6cfKvdnAh)与[迁移指南](https://lcnrp8hlo6f2.feishu.cn/docx/Yo0FdbIxWoO7gBxViPdcpqVenRg)：沿用团队统一仓库、原工作台、真实模型与动力学。通信时延现已接入，不再沿用早期“暂缓”口径。
@@ -21,11 +22,11 @@
 | recvw5Z4qlhkrf | 300→500 km 升轨及双星 GNSS／已完成 | 从 300 km **在轨初态**开始；有限推力升轨、接近、保持和独立数值复核；不代表火箭发射仿真 |
 | reczz28KuW3GWuBG | GNSS 与随机轨道误差／已完成 | 共享接收机配置、联合协方差、随机初态及独立扰动力；噪声统计与种子复现 |
 | reczz28MIzMlzVW1 | 大气阻力等物理量／已完成 | 阻力、太阳光压及扰动进入物理端口；外力闭合和轨迹响应检查，不仅检查参数存在 |
-| reczz28NUNEauWol | 对接阶段一：差分 GPS、100 m～17.4 m（真实姿轨控）／进行中 | 当前新增关联；已有定位结果层差分 GNSS 与近距制导，姿控仍使用独立真值链路，不能声称带误差姿态估计闭环已完成；线上截止 2026-10-22 |
+| reczz28NUNEauWol | 对接阶段一：差分 GPS、100 m～17.4 m（真实姿轨控）／进行中 | 定位结果层差分 GNSS、近距制导和服务星物理飞轮已接通，实际远距交接后通过 50 m、17.4 m 驻留独立复核；姿态导航仍取真值，目标星近距采用等效限幅力矩，不能声称带误差姿态估计已闭环；线上截止 2026-10-22 |
 | reczz28NVX8mZCV2 | 合并三个任务模式／已完成 | 三起点共用工作台已验证；两条交会完成全程数值验收，7 km 实际网页连续接续、控制、采集及数据回读通过 |
 | recvw6cgNrMWw5 | 代码管理与仓库合并／进行中 | 本人分支已同步团队底座及 PR27，服务端与适配器在同一 PR 交付并完成云端联调；团队 main 的合并仍由维护者审查 |
 
-当前集成验证范围见 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。同步 PR28 后，`7a2bfac` 已完成云端真实浏览器的 7 km 连续任务：0.125 s GNSS 时延、远近距独立验收、四节点驻留、遥操作、双相机采集回读及重置通过。双臂场景另完成四路预览、两臂控制、陀螺观测和采集回读。300 km 在轨起点的完整任务仍以 10/21 旧版结果为基线，不能视为当前版本已重跑。
+各版本运行证据集中维护在 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)，记录源码、任务起点、种子、GNSS 时延及实际输出。7 km 与 300 km 连续任务必须分别完成远近距独立验收、四节点驻留、遥操作、双相机采集回读和重置，不能互相替代或沿用旧版本结论。双臂场景另外检查四路预览、两臂控制、陀螺观测与采集回读；它不替代连续交会模型的验收。
 
 [10/22 群聊](https://applink.feishu.cn/client/chat/open?openChatId=oc_d18831213328163e9a80d6357f61bacc&position=133)向本人及张怿心提出模拟陀螺反馈，刘丹旭补充用于修正抓取残余运动。[PR29](https://github.com/love-of-city/space_sim_server/pull/29)单独交付带误差和物理时戳的服务星角速度接口，已完成云端原生调度、两种团队模型的运动响应及被动性检查，并结合实际场景核验重置与录制回读，现可评审；尚未接入姿态估计及盲区抓取闭环。表中线上状态不随代码提交自动改写；其他成员尚未交付的算法仍按实际协作边界管理。
 
@@ -47,7 +48,9 @@
 
 `relative_navigation` 随实时状态、终端报告及交接输出；远距 NPZ 另保存 `roe` 和 `roe_covariance`。ROE 采用 [Koenig、Guffanti 与 D'Amico 的定义，式 (2)](https://slab.sites.stanford.edu/sites/g/files/sbiybj25201/files/media/file/space2016_koenigguffantidamico.pdf)：对接星为 chief，目标星为 deputy，顺序为 `[δa, δλ, δex, δey, δix, δiy]`，δa 按 chief 半长轴归一化，角量用 rad。输入是当前预测历元的估计；观测采集/接收历元继续由 GNSS 时延字段单独记录。圆轨道不依赖未定义的近地点；赤道、退化及非椭圆轨道将 ROE 标为不可用，不伪造数值。
 
-这是联合导航后验的坐标与协方差转换，输出 **osculating** 根数；没有将其冒充消除 J2 短周期项的 mean 根数、独立 ROE 状态滤波器或 ROE 制导器。近距沿用现有“目标绝对估计与相对估计独立”的协方差近似，并明确标注；参考点从装配质心变为本体原点。单星 GNSS 位置/速度不能提供本体姿态，接口将 `attitude.available=false`，姿态仍来自单独 AOCS/视觉接口。双目替换由李一辉负责，本人负责参数、时钟和交会流程集成。
+这是联合导航后验的坐标与协方差转换，输出 **osculating** 根数；没有将其冒充消除 J2 短周期项的 mean 根数、独立 ROE 状态滤波器或 ROE 制导器。近距沿用现有“目标绝对估计与相对估计独立”的协方差近似，并明确标注；参考点从装配质心变为本体原点。单星 GNSS 位置/速度不能提供本体姿态，接口将 `attitude.available=false`，姿态仍来自单独 AOCS/视觉接口。本人负责参数、时钟和交会流程集成。
+
+[10/22 会议原文](https://acndpm3fvl11.feishu.cn/docx/B4H5dOQvZoOuZhxk9ayc1ibGn6e)确认当前已知靶标可采用单目 PnP，双目可作为冗余。连续交会现有参数化双目仍是数值基线；最新整体方案已将视觉就绪条件标为待随真实闭环修改，不能直接把原双目像素/深度门限套到单目 PnP。集成需先统一实际相机标定、坐标变换、采样时刻、质量和失效接口，再重新验证放行与制动边界。
 
 运行与检查在已配置的云端工作区执行，见[平台 README](../README.md)。本次输出写临时目录；必要结论进入 PR，避免重复堆积历史验证文档。
 

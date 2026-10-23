@@ -147,8 +147,9 @@ test('handoff preserves the owned mission lifecycle', () => {
   assert.equal(missionPresentation(run, 'team-in-orbit').canHandoff, false);
 });
 
-for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, true]) for (const savedDelay of [undefined, .17]) {
-  test(`restored ${hasSavedOptions ? 'flight' : 'teleop'} options with ${stateFirst ? 'state' : 'catalog'} arriving first, delay ${savedDelay}`, async () => {
+for (const stateFirst of [false, true]) for (const savedMode of ['teleop', 'team-in-orbit', 'team-orbit-raise']) for (const savedDelay of [undefined, .17]) {
+  test(`restored ${savedMode} mode and options with ${stateFirst ? 'state' : 'catalog'} arriving first, delay ${savedDelay}`, async () => {
+    const hasSavedOptions = savedMode !== 'teleop';
     const previousDocument = globalThis.document, previousOption = globalThis.Option;
     globalThis.document = {body: {classList: {toggle() {}}}};
     globalThis.Option = class { constructor(label, value) { this.value = value; } };
@@ -157,7 +158,8 @@ for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, tr
     const $ = id => {
       if (!nodes.has(id)) nodes.set(id, {
         value: id === 'missionMode' ? 'teleop' : id === 'missionGnssPosition' ? '3' : id === 'missionGnssVelocity' ? '.5' : '',
-        textContent: '', checked: true, addEventListener() {}, replaceChildren() {},
+        textContent: '', checked: true, addEventListener() {},
+        replaceChildren(...options) { this.value = options[0]?.value || ''; },
         querySelectorAll: () => [], getContext: () => ctx, width: 620, height: 200,
       });
       return nodes.get(id);
@@ -165,7 +167,7 @@ for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, tr
     const defaults = {seed:7, handoff_distance_m:110, gnss_position_sigma_m:.577,
       gnss_velocity_sigma_m_s:.001155, initial_position_sigma_m:10, orbit_acceleration_sigma_m_s2:.00002,
       differential_gnss:{relative_position_sigma_m:.03, relative_velocity_sigma_m_s:.0015, sample_rate_hz:10, delay_s:0}};
-    const saved = {mission_id:'saved', mode:hasSavedOptions ? 'team-in-orbit' : 'teleop',
+    const saved = {mission_id:'saved', mode:savedMode,
       stage:'teleop', phase:'stopped', active:false,
       ...(hasSavedOptions ? {options:{seed:0, gnss_position_sigma_m:3, gnss_velocity_sigma_m_s:.5,
         ...(savedDelay != null ? {differential_gnss:{...defaults.differential_gnss, delay_s:savedDelay}} : {})}} : {})};
@@ -177,24 +179,27 @@ for (const stateFirst of [false, true]) for (const hasSavedOptions of [false, tr
           requests.push([path, init]);
           if (path.endsWith('catalog')) await pendingCatalog;
           return {ok:true, status:200, json:async () => path.endsWith('catalog')
-            ? {modes:[{id:'teleop'},{id:'team-in-orbit'}], continuous_default:true, flight_defaults:defaults}
+            ? {modes:[{id:'teleop'},{id:'team-in-orbit'},{id:'team-orbit-raise'}], continuous_default:true, flight_defaults:defaults}
             : {stage:'flight', phase:'starting', active:true}};
         }});
       const loading = panel.load();
       if (stateFirst) panel.render(saved);
       releaseCatalog(); await loading;
       if (!stateFirst) panel.render(saved);
+      assert.equal($('missionMode').value, savedMode, 'initial restoration must not depend on response order');
       assert.equal(Number($('missionGnssPosition').value), hasSavedOptions ? 3 : defaults.gnss_position_sigma_m);
       assert.equal(Number($('missionGnssVelocity').value), hasSavedOptions ? .5 : defaults.gnss_velocity_sigma_m_s);
       assert.equal(Number($('missionSeed').value), hasSavedOptions ? 0 : 7);
       assert.equal(Number($('missionGnssDelay').value), hasSavedOptions ? savedDelay ?? 0 : 0);
-      $('missionMode').value = 'team-in-orbit'; panel.configure();
+      $('missionMode').value = 'team-orbit-raise'; panel.configure();
       $('missionGnssDelay').value = '.12';
       $('missionGnssPosition').value = '.8'; panel.render(saved);
+      assert.equal($('missionMode').value, 'team-orbit-raise', 'later polls preserve the selected starting condition');
       assert.equal($('missionGnssPosition').value, '.8', 'later state polls preserve user edits');
       assert.equal($('missionGnssDelay').value, '.12', 'later state polls preserve delay edits');
       await panel.startFlight();
       const request = JSON.parse(requests.at(-1)[1].body);
+      assert.equal(request.mode, 'team-orbit-raise');
       assert.equal(request.continuous, true);
       assert.equal(request.options.gnss_position_sigma_m, .8);
       assert.equal(request.options.differential_gnss.absolute_position_sigma_m, .8);

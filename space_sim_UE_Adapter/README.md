@@ -15,7 +15,7 @@ Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真�
 
 Linux UE 5.6.1 的编译、资产缓存和双相机脚本采集已完成实机验收，步骤见[Linux 基础迁移](../space_sim_server/docs/LINUX_BASIC_MIGRATION.md)。Linux 网页部署与场景进程管理见[Linux 一键部署](../space_sim_server/docs/LINUX_DEPLOYMENT.md)；下文 PowerShell 命令对应 Windows。
 
-离线脚本采集支持 `-BskOfflineCapture`：关闭 WebRTC 相机预览，在 `-RenderOffscreen` 下跳过主视口渲染，仍保留权威 RGB 采集。每路常驻 UE 可接受连续的新动力学会话，配置与验收方式见[多进程采集](../space_sim_server/docs/PARALLEL_COLLECTION.md)。
+离线脚本采集支持 `-BskOfflineCapture`：关闭 WebRTC 和隐藏相机预览，在 `-RenderOffscreen` 下跳过主视口渲染与屏幕 HUD 绘制，仍保留权威 RGB 采集。Linux UE 5.6 离线模式使用原有太阳光照，关闭会触发渲染停顿的捕获式天光。每路常驻 UE 可接受连续的新动力学会话，配置与验收方式见[多进程采集](../space_sim_server/docs/PARALLEL_COLLECTION.md)。
 
 ## 1. 环境与安装
 

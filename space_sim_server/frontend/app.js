@@ -99,6 +99,9 @@ function configureInitialJoints() {
 }
 function configureSceneSelection() {
   const template = initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value);
+  const overviewSupported = ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf"].includes($("sceneTemplate").value);
+  $("sceneRandomizeOverviewCamera").disabled = !overviewSupported;
+  if (!overviewSupported) $("sceneRandomizeOverviewCamera").checked = false;
   if (template && $("sceneCollisionWarning")) $("sceneCollisionWarning").textContent = template.description;
   const fallbackTemplate = template?.id === "sarm-task-box-free-plugs";
   const unsupported = template?.unsupported_randomization_profiles
@@ -258,6 +261,7 @@ async function loadSceneCatalog() {
     $("sceneRandomizeOrbitPhase").checked = defaults.randomize_orbit_phase === true;
     $("sceneSunlightIntensity").value = String(defaults.sunlight_intensity_scale ?? 1);
     $("sceneWristCameraMode").value = defaults.wrist_camera_mode || "rgb";
+    $("sceneRandomizeOverviewCamera").checked = defaults.randomize_overview_camera === true;
     state.sceneDefaults = {
       simulation_rate: Number(defaults.simulation_rate || 1),
       capture_rate_hz: Number(defaults.capture_rate_hz || 50),
@@ -296,9 +300,10 @@ function applySceneRuntime(runtime = {}) {
   $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在复原…" : "一键复原初始位置";
   $("resetScene").title = state.activeEpisode ? "请先结束当前采集，再重置状态"
     : "恢复机械臂、夹爪、目标物和仿真时间到本次场景初态；不是规划机械臂返航轨迹";
-  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity", "sceneWristCameraMode"].forEach((id) => {
+  ["sceneTemplate", "randomizationProfile", "sceneSeed", "sceneRandomizeOrbitPhase", "sceneDatasetCapture", "sceneSunlightIntensity", "sceneWristCameraMode", "sceneRandomizeOverviewCamera"].forEach((id) => {
     $(id).disabled = active;
   });
+  if (!["sarm-task-box-20261012", "sarm-task-box-20261012-sdf"].includes($("sceneTemplate").value)) $("sceneRandomizeOverviewCamera").disabled = true;
   $("linearSpeed").disabled = !state.sceneReady;
   $("estop").disabled = !state.sceneReady;
   updateOperationUI();
@@ -310,12 +315,15 @@ function applySceneRuntime(runtime = {}) {
   const instanceOrbitPhase = instance.environment?.orbit?.true_anomaly_deg ?? 180;
   const randomizeOrbitPhase = instance.randomize_orbit_phase === true;
   $("sceneInstanceOrbitPhase").textContent = instance.instance_id ? `${Number(instanceOrbitPhase).toFixed(2)}°` : "—";
+  $("sceneInstanceOverviewCamera").textContent = !instance.instance_id ? "—"
+    : instance.overview_camera ? `${instance.overview_camera.preset_id} · ${instance.overview_camera.label}` : "原始固定机位";
   if (active && instance.instance_id) {
     if (instance.template_id) $("sceneTemplate").value = instance.template_id;
     if (instance.capture_target?.runtime_warning) $("sceneCollisionWarning").textContent = instance.capture_target.runtime_warning;
     if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
     $("sceneSunlightIntensity").value = String(instanceSunlight);
     $("sceneWristCameraMode").value = instance.wrist_camera_mode || "rgb";
+    $("sceneRandomizeOverviewCamera").checked = instance.randomize_overview_camera === true;
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
   }
   configureInitialJoints();
@@ -323,7 +331,7 @@ function applySceneRuntime(runtime = {}) {
   armPreparation.setRuntime(active ? instance : null, state.sceneReady);
   if (["failed", "stopping", "stopped"].includes(phase)) armPreparation.cancel("场景停止或失败，请显式重试");
   $("sceneParameters").textContent = instance.randomization
-    ? JSON.stringify({ capture_target: instance.capture_target || {}, wrist_camera_mode: instance.wrist_camera_mode || "rgb", randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
+    ? JSON.stringify({ capture_target: instance.capture_target || {}, wrist_camera_mode: instance.wrist_camera_mode || "rgb", randomize_overview_camera: instance.randomize_overview_camera === true, overview_camera: instance.overview_camera || null, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
   if (runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
@@ -367,6 +375,7 @@ async function startScene() {
     dataset_capture: $("sceneDatasetCapture").checked,
     sunlight_intensity_scale: sunlightScale,
     wrist_camera_mode: $("sceneWristCameraMode").value,
+    randomize_overview_camera: $("sceneRandomizeOverviewCamera").checked,
     initial_arm_joint_position_deg: initialAngles,
     ...(operatingProfile ? {operating_arm_joint_position_deg: operatingAngles} : {}),
   };

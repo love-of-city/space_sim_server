@@ -85,3 +85,18 @@ test("wrist camera selection is submitted, restored and locked for an active sce
   h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"legacy",randomization:{}}});
   assert.equal(h.$("sceneWristCameraMode").value,"rgb");
 });
+
+test("overview randomization is submitted and restored without reselecting an active camera",async()=>{
+  const h=setup();h.$("sceneRandomizeOverviewCamera").checked=true;
+  await h.ctx.startScene();
+  assert.equal(JSON.parse(h.requests[0].options.body).randomize_overview_camera,true);
+  vm.runInContext(applySource,h.ctx);
+  const camera={preset_id:"P4",label:"+Y 内侧安装点 · 30 cm",position_body_m:[-.10,.58,.30]};
+  h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"s1",randomization:{},template_id:"sarm-task-box-20261012",randomize_overview_camera:true,overview_camera:camera}});
+  assert.equal(h.$("sceneRandomizeOverviewCamera").checked,true);
+  assert.equal(h.$("sceneRandomizeOverviewCamera").disabled,true);
+  assert.equal(h.$("sceneInstanceOverviewCamera").textContent,"P4 · +Y 内侧安装点 · 30 cm");
+  assert.deepEqual(JSON.parse(h.$("sceneParameters").textContent).overview_camera,camera);
+  h.ctx.applySceneRuntime({phase:"idle",active:false});
+  assert.equal(h.$("sceneRandomizeOverviewCamera").disabled,false);
+});

@@ -91,7 +91,10 @@ def model_retention_sockets(model_path: Path) -> dict[str, tuple[RetentionSocket
         rotation = quaternion_wxyz_to_matrix(np.fromstring(body.get("quat", "1 0 0 0"), sep=" "))
         if position.shape != (3,) or not np.isfinite(position).all():
             raise ValueError(f"Invalid initial position for {profile.body}")
-        sockets = [RetentionSocket(f"{profile.prefix}_initial", position, np.eye(3), rotation,
+        pickup_site = f"{profile.prefix}_pickup"
+        seat_rotation = (fixed_site_pose(root, pickup_site)[1]
+                         if root.find(f'.//site[@name="{pickup_site}"]') is not None else np.eye(3))
+        sockets = [RetentionSocket(f"{profile.prefix}_initial", position, seat_rotation, rotation,
                                    initial=True, keyed=profile.keyed)]
         for suffix in ("_insert_40p1", "_insert_40p5"):
             name = profile.prefix + suffix

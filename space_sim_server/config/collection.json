@@ -8,6 +8,8 @@
   "seed": 2026101900,
   "range_deg": 10.0,
   "randomize_orbit_phase": true,
+  "randomize_overview_camera": true,
+  "layout_pool": null,
   "port_base": 21000,
   "offline": true,
   "reuse_renderer": true,

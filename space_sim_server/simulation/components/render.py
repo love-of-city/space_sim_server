@@ -17,10 +17,12 @@ class RenderComponent:
                  capture_state_provider: Any,
                  sunlight_intensity_scale: float = 1.0,
                  camera_display_names: dict[str, str] | None = None,
-                 wrist_camera_mode: str = "rgb") -> None:
+                 wrist_camera_mode: str = "rgb",
+                 overview_camera: dict | None = None) -> None:
         if wrist_camera_mode not in ("rgb", "fisheye", "monochrome"):
             raise ValueError("unsupported wrist_camera_mode")
         self.wrist_camera_mode = wrist_camera_mode
+        self.overview_camera = overview_camera
         self.model_path = model_path
         self.catalog = catalog
         self.host = host
@@ -66,6 +68,15 @@ class RenderComponent:
                     camera.field_of_view_rad = math.radians(160.0)
                 camera.display_name += {"rgb": "", "fisheye": " (Fisheye 160°)",
                                         "monochrome": " (Monochrome)"}[self.wrist_camera_mode]
+        if self.overview_camera is not None:
+            from space_arm_platform.overview_camera import CAMERA_ID
+            matches = [camera for camera in bridge._cameras if camera.camera_id == CAMERA_ID]
+            if len(matches) != 1:
+                raise ValueError("Selected overview camera is missing from the render scene")
+            camera = matches[0]
+            for key in ("parent_id", "position_body_m", "orientation_body_from_camera_wxyz", "field_of_view_rad"):
+                setattr(camera, key, self.overview_camera[key])
+            camera.display_name += f" ({self.overview_camera['preset_id']})"
         if ctx.extra.get('template_id') == 'sarm-task-box-20261012-demo':
             # Reuse the existing overview stream slot for a body-fixed close-up.
             # Pose derived from the validated MuJoCo side-view camera, in rod axes.

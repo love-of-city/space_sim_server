@@ -35,6 +35,8 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
     rng = np.random.Generator(np.random.PCG64(seed))
     offset = rng.uniform(-half_range_deg, half_range_deg, 6)
     scene["seed"] = int(seed)
+    from space_arm_platform.overview_camera import initialize_overview_camera
+    camera = initialize_overview_camera(scene)
     # Re-sample at the episode boundary; a copied scene otherwise retains the
     # same saved orbital phase for every attempt. Replay never samples again.
     orbit_randomized = scene.get("randomize_orbit_phase", False)
@@ -78,6 +80,8 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
         lighting_randomized=False,
         dynamics_randomized=False,
     )
+    if camera is not None:
+        scene["collection_config"]["overview_camera_randomization"] = camera
     from .randomization import prepare_episode
     return prepare_episode(scene)
 

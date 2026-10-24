@@ -27,7 +27,7 @@ class PlugProfile:
         }[self.prefix]
         return (
             f"Track and grasp the {name}, then move it to the matching assembly hole "
-            "ahead of its initial position. Align and insert it fully, release it, "
+            "on the workbench. Align and insert it fully, release it, "
             "and retract the gripper. Ensure the plug remains seated."
         )
 

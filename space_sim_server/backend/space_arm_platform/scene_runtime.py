@@ -276,13 +276,14 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         from .orbit_randomization import sample_orbit_phase
         orbit["true_anomaly_deg"] = sample_orbit_phase(seed)
 
-    return {
+    instance = {
         "schema": "space-arm-scene-instance/1",
         "instance_id": f"scene-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}",
         "template_id": request.template_id,
         "randomization_profile": request.randomization_profile,
         "randomize_orbit_phase": request.randomize_orbit_phase,
         "wrist_camera_mode": request.wrist_camera_mode,
+        "randomize_overview_camera": request.randomize_overview_camera,
         "initial_arm_joint_position_deg": request.initial_arm_joint_position_deg,
         "arm_preparation_required": request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE,
         "operating_arm_joint_position_deg": list(request.operating_arm_joint_position_deg),
@@ -316,6 +317,9 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
         },
         "randomization": randomization,
     }
+    from .overview_camera import initialize_overview_camera
+    initialize_overview_camera(instance)
+    return instance
 
 
 class SceneRuntimeManager:
@@ -380,6 +384,7 @@ class SceneRuntimeManager:
                 "operating_arm_joint_position_deg": list(DEFAULT_OPERATING_JOINT_DEG),
                 "sunlight_intensity_scale": DEFAULT_SUNLIGHT_INTENSITY_SCALE,
                 "wrist_camera_mode": "rgb",
+                "randomize_overview_camera": False,
                 "template_id": DEFAULT_TEMPLATE,
                 "randomization_profile": AUTO_PREPARE_TELEOP_PROFILE,
                 "randomize_orbit_phase": False,

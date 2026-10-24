@@ -146,9 +146,10 @@ class PlugInsertTask:
             tool_site="sarm_ee",
         )
         self.hole, hole_r = fixed_site_pose(root, self.config.target_site)
-        self.pickup, _ = fixed_site_pose(root, self.profile.prefix + "_pickup")
+        self.pickup, self.pickup_rotation = fixed_site_pose(root, self.profile.prefix + "_pickup")
+        self.hole_rotation = hole_r
         if np.linalg.norm(self.hole[:2] - self.pickup[:2]) < 0.05 or not np.allclose(
-            hole_r, np.eye(3)
+            hole_r[:, 2], [0., 0., 1.]
         ):
             raise ValueError(
                 "The assembly target must be a separate upward-facing hole"
@@ -200,7 +201,7 @@ class PlugInsertTask:
             orientation_error_rad=float(
                 np.linalg.norm(
                     rotation_matrix_to_vector(
-                        np.diag([1.0, -1.0, -1.0]) @ sample.plug_rotation_body.T
+                        self.hole_rotation @ np.diag([1.0, -1.0, -1.0]) @ sample.plug_rotation_body.T
                     )
                 )
             ),
@@ -428,14 +429,14 @@ class PlugInsertTask:
         if self.stage == "pending":
             self.reference[:] = sample.joints
             self._initial_position = sample.plug_position_body_m.copy()
-            self.plug_rotation = np.diag([1.0, -1.0, -1.0])
+            self.plug_rotation = self.hole_rotation @ np.diag([1.0, -1.0, -1.0])
             self.grasp = (
                 sample.plug_position_body_m
                 + sample.plug_rotation_body @ np.asarray(self.config.grasp_offset_m)
             )
             # Closing axis across the head; approach along spacecraft -Z.
             _, current_r = self.chain.forward(sample.joints[:6])
-            closing = np.array([1.0, 0.0, 0.0])
+            closing = self.pickup_rotation[:, 0].copy()
             if closing @ current_r[:, 0] < 0:
                 closing = -closing
             approach = np.array([0.0, 0.0, -1.0])

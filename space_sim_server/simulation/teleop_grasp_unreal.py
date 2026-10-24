@@ -153,6 +153,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     if not isinstance(randomize_orbit_phase, bool):
         raise ValueError("scene randomize_orbit_phase must be a boolean")
     document["randomize_orbit_phase"] = randomize_orbit_phase
+    from space_arm_platform.overview_camera import validate_overview_camera
+    validate_overview_camera(document)
     runtime = document.get("runtime")
     randomization = document.get("randomization")
     environment = document.get("environment", {})
@@ -1166,6 +1168,7 @@ def _run_session(
             sunlight_intensity_scale=ephemeris_environment.get("lighting", {}).get(
                 "sunlight_intensity_scale", DEFAULT_SUNLIGHT_INTENSITY_SCALE),
             wrist_camera_mode=(scene_instance or {}).get("wrist_camera_mode", "rgb"),
+            overview_camera=(scene_instance or {}).get("overview_camera"),
             camera_display_names={
                 "spacecraft_overview": "Spacecraft Overview",
                 "sarm_wrist_cam": "SARM Wrist Camera",

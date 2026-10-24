@@ -30,6 +30,9 @@ class ScriptedCaptureTransport:
     ):
         from simulation.components.render import RenderComponent
         from simulation.components.observation import ObservationComponent
+        from space_arm_platform.overview_camera import validate_overview_camera
+
+        overview_camera = validate_overview_camera(scene_instance)
 
         self.ctx, self.task, self.profile = ctx, task, profile
         self.command = command
@@ -58,6 +61,8 @@ class ScriptedCaptureTransport:
                 render_rate_hz=RENDER_HZ,
                 capture_rate_hz=DEFAULT_CAPTURE_HZ,
                 capture_state_provider=self.client.capture_state,
+                overview_camera=overview_camera,
+                wrist_camera_mode=scene_instance.get("wrist_camera_mode", "rgb"),
                 sunlight_intensity_scale=scene_instance.get("environment", {})
                 .get("lighting", {})
                 .get("sunlight_intensity_scale", 1.0),

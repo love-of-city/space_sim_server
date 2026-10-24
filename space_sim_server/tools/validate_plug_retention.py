@@ -1,4 +1,4 @@
-"""Headless force acceptance on the unchanged production model and orbital graph.
+"""Headless force acceptance on a selected model and production orbital graph.
 
 Test drives apply forces through physics ports. They do not move bodies during
 integration. Insertion starts at an assembly seat as initial-condition setup;
@@ -21,7 +21,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "backend"),
                str(ROOT.parent / "space_sim_UE_Adapter/Unreal/BskUnrealRenderer/examples")]
 
 
-def validate_case(case):
+def validate_case(case, model_path=None):
     from scenario_spacecraft_arm_grasp_unreal import load_native_grasp_module
     native = load_native_grasp_module(ROOT / "model/SARM/platform")
     from Basilisk.architecture import messaging
@@ -43,7 +43,8 @@ def validate_case(case):
     from tools.run_scripted_task import default_target_state
 
     started = time.perf_counter()
-    model = ROOT / "model/SARM/platform/sarm_20261012.xml"
+    model = (Path(model_path).resolve() if model_path is not None
+             else ROOT / "model/SARM/platform/sarm_20261012.xml")
     original_hash = hashlib.sha256(model.read_bytes()).hexdigest()
     native.MODEL_PATH = model
     profile = load_model_profile(model)
@@ -170,11 +171,12 @@ def validate_case(case):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--model", type=Path, help="Optional generated layout model to validate")
     parser.add_argument("--case", choices=("extraction", "insertion", "partial_insertion", "partial_extraction"),
                         action="append", help="Repeat to select cases; default runs all four")
     args = parser.parse_args()
     report = dict(scope="Production geometry, free base, orbit and contacts; direct force drives, no robot or UE test",
-                  cases=[validate_case(case) for case in (args.case or ("extraction", "insertion", "partial_insertion", "partial_extraction"))])
+                  cases=[validate_case(case, args.model) for case in (args.case or ("extraction", "insertion", "partial_insertion", "partial_extraction"))])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(dict(report=str(args.output), passed=all(case["passed"] for case in report["cases"]))))

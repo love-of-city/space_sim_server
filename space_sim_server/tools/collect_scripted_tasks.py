@@ -37,12 +37,17 @@ from simulation.scripted_tasks.plug_profiles import (
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
 from space_arm_platform.unreal_runtime import default_unreal_root
 from space_arm_platform.collection_runtime import PersistentRenderer, check_port_available
+from space_arm_platform.collection_layouts import LayoutPool, attach_layout, validate_episode_layout
+from space_arm_platform.overview_camera import validate_episode_overview_camera
 
 
 def validate_capture_manifest(episode, meta, steps):
     """Audit frame pairing with or without the optional raw image copies."""
     from PIL import Image
     from tools.record_drawer_task import CAMERAS
+    from space_arm_platform.overview_camera import validate_overview_camera, validate_overview_capture
+
+    overview = validate_overview_camera(meta.get("scene_instance") or {})
 
     by_frame = {str(obs["render_frame_id"]): obs for obs in steps}
     if is_compact(episode) and not meta.get("raw_camera_images_saved", False):
@@ -63,6 +68,8 @@ def validate_capture_manifest(episode, meta, steps):
         assert cm["resolution"] == [1024, 1024]
         assert cm["session_id"] == obs["render_session_id"]
         assert capture["sim_time_ns"] == obs["sim_time_ns"]
+        if overview is not None:
+            validate_overview_capture(cm, obs, overview)
         pair = (cm["camera_id"], frame)
         assert pair in expected and pair not in pairs
         pairs.add(pair)
@@ -234,6 +241,8 @@ def main(default_task="drawer_cycle"):
         "--task", choices=["drawer_cycle", *PLUG_PROFILES], default=default_task
     )
     parser.add_argument("--scene", type=Path, required=True)
+    parser.add_argument("--layout-pool", type=Path,
+                        help="Validated layout pool; select a reproducible layout per attempt")
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument(
         "--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter"
@@ -255,6 +264,8 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--range-deg", type=float, default=10.0)
     parser.add_argument("--randomize-orbit-phase", action=argparse.BooleanOptionalAction,
                         default=None, help="Sample a new orbital phase per attempt; otherwise inherit scene setting")
+    parser.add_argument("--randomize-overview-camera", action=argparse.BooleanOptionalAction,
+                        default=None, help="Choose one of five body-fixed overview camera presets per attempt")
     parser.add_argument("--control-port", type=int, default=19766)
     parser.add_argument("--capture-port", type=int, default=19767)
     parser.add_argument("--render-port", type=int, default=16558)
@@ -285,6 +296,11 @@ def main(default_task="drawer_cycle"):
     source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
     if args.randomize_orbit_phase is not None:
         source["randomize_orbit_phase"] = args.randomize_orbit_phase
+    if args.randomize_overview_camera is not None:
+        source["randomize_overview_camera"] = args.randomize_overview_camera
+    pool = LayoutPool(args.layout_pool) if args.layout_pool else None
+    if source.get("collection_layout_randomization") and pool is None:
+        raise ValueError("Layout randomization requires --layout-pool; refusing fixed-layout fallback")
     model = ROOT / "model/SARM/platform/sarm_20261012.xml"
     started = time.monotonic()
     report = dict(
@@ -312,12 +328,16 @@ def main(default_task="drawer_cycle"):
         temporary.replace(args.output / "summary.json")
 
     probe = None
+    probe_model = None
     renderer = None
     child = None
     recorded = 0
     try:
         save()
-        probe = NativePoseProbe(model)
+        if pool is not None:
+            (args.output / "layout-pool.snapshot.json").write_text(
+                json.dumps(pool.document, indent=2), encoding="utf-8")
+            report["layout_pool_sha256"] = pool.sha256
         for index in range(args.max_attempts):
             if args.cancel_file and args.cancel_file.exists():
                 report["status"] = "cancelled"
@@ -327,6 +347,9 @@ def main(default_task="drawer_cycle"):
             seed = args.seed + index
             attempt_started = time.monotonic()
             scene = randomized_scene(source, seed, args.range_deg, args.task)
+            catalog = None
+            if pool is not None:
+                model, catalog = attach_layout(scene, pool, seed)
             directory = args.output / f"attempt-{index + 1:03d}-seed-{seed}"
             directory.mkdir()
             scene_path = directory / "scene.json"
@@ -341,8 +364,23 @@ def main(default_task="drawer_cycle"):
                 status="preflight",
             )
             report["attempts"].append(entry)
+            if scene.get("randomize_overview_camera"):
+                entry["overview_camera"] = scene["overview_camera"]
+            if pool is not None:
+                entry["layout_randomization"] = scene["collection_config"]["layout_randomization"]
+                entry["model"], entry["catalog"] = str(model), str(catalog)
             save()
-            entry["preflight"] = probe.validate(model, scene, args.task)
+            # Native probes compile one concrete model. Never reuse the previous
+            # layout's collision state when selecting a different model.
+            if probe is None or probe_model != model:
+                if probe is not None:
+                    probe.close()
+                probe = NativePoseProbe(model)
+                probe_model = model
+            try:
+                entry["preflight"] = probe.validate(model, scene, args.task)
+            except ValueError as exc:
+                entry["preflight"] = dict(accepted=False, reason="planning_failed", detail=str(exc))
             if not entry["preflight"]["accepted"]:
                 entry["status"] = "initialization_rejected"
                 entry["end_to_end_wall_seconds"] = time.monotonic() - attempt_started
@@ -372,6 +410,8 @@ def main(default_task="drawer_cycle"):
                 "1800",
             ]
             command += motion_args
+            if catalog is not None:
+                command += ["--model", str(model), "--catalog", str(catalog)]
             command += ["--warmup-seconds", str(args.reuse_warmup_seconds
                         if renderer is not None and recorded else args.warmup_seconds)]
             if args.offline:
@@ -454,6 +494,12 @@ def main(default_task="drawer_cycle"):
             try:
                 validation_started = time.monotonic()
                 validation = validate_recording(episode, args.task)
+                if scene.get("randomize_overview_camera"):
+                    validation["overview_camera"] = validate_episode_overview_camera(
+                        episode, entry["overview_camera"])
+                if pool is not None:
+                    validation["layout_randomization"] = validate_episode_layout(
+                        episode, entry["layout_randomization"])
                 entry["validation_wall_seconds"] = time.monotonic() - validation_started
             except Exception as exc:
                 entry["status"] = "validation_failed"

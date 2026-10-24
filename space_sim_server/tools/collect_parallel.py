@@ -48,6 +48,8 @@ class CollectionConfig(BaseModel):
     seed: int = Field(default=2026101900, ge=0)
     range_deg: float = Field(default=10.0, ge=0, le=10)
     randomize_orbit_phase: bool = False
+    randomize_overview_camera: bool = False
+    layout_pool: str | None = None
     port_base: int = Field(default=21000, ge=1024, le=65000)
     offline: bool = True
     reuse_renderer: bool = True
@@ -163,8 +165,16 @@ def run(args):
     if not recording_path.is_file():
         raise FileNotFoundError(recording_path)
     recording = load_recording_config(recording_path)
+    layout_pool = None
+    if config.layout_pool:
+        from space_arm_platform.collection_layouts import LayoutPool
+        layout_pool = LayoutPool((args.config.parent / config.layout_pool).resolve())
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    pool_snapshot = None
+    if layout_pool is not None:
+        pool_snapshot = output / "layout-pool.json"
+        atomic_json(pool_snapshot, layout_pool.document)
     episodes = args.episodes_root.resolve() if args.episodes_root else output / "episodes"
     entries, leases, handles, processes, groups = [], [], [], [], []
     started = time.monotonic()
@@ -206,10 +216,14 @@ def run(args):
                        "--seed", str(entry["seed"]), "--range-deg", str(config.range_deg),
                        "--gpu-index", str(resource.gpu_index), "--warmup-seconds", str(config.warmup_seconds),
                        "--reuse-warmup-seconds", str(config.reuse_warmup_seconds)]
+            if layout_pool is not None:
+                command += ["--layout-pool", str(pool_snapshot)]
             for name, port in entry["ports"].items():
                 command += [f"--{name}-port", str(port)]
             command.append("--randomize-orbit-phase" if config.randomize_orbit_phase
                            else "--no-randomize-orbit-phase")
+            command.append("--randomize-overview-camera" if config.randomize_overview_camera
+                           else "--no-randomize-overview-camera")
             if config.offline:
                 command.append("--offline")
             if config.reuse_renderer:

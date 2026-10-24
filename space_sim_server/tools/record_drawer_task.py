@@ -113,9 +113,11 @@ async def run(args):
         settings.video = type(settings.video).model_validate(
             {**settings.video.model_dump(), "gpu_index": args.gpu_index})
     scene = scene_copy(args.scene, args.task)
+    from space_arm_platform.overview_camera import validate_overview_camera
+    validate_overview_camera(scene)
     project = args.adapter / "Unreal/BskUnrealRenderer"
     editor = unreal_editor(args.unreal)
-    catalog = project / "Saved/AssetImport/sarm_20261012.catalog.json"
+    catalog = (getattr(args, "catalog", None) or project / "Saved/AssetImport/sarm_20261012.catalog.json").resolve()
     for path in (editor, project / "BskUnrealRenderer.uproject", catalog):
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -135,7 +137,18 @@ async def run(args):
     out.mkdir(parents=True, exist_ok=False)
     from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
     prepare_episode(scene)
-    write_model_variant(ROOT / "model/SARM/platform/sarm_20261012.xml", out / "model.xml", scene)
+    source_model = (getattr(args, "model", None) or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
+    if getattr(args, "model", None) is not None:
+        from simulation.task_box_layout import validated_capture_layout
+        placement = validated_capture_layout(source_model, catalog)
+        scene["task_box_layout"] = placement
+        selected = scene.get("collection_config", {}).get("layout_randomization")
+        if selected and selected.get("enabled"):
+            from space_arm_platform.collection_layouts import digest
+            if (digest(source_model) != selected["model_sha256"]
+                    or digest(catalog) != selected["catalog_sha256"]):
+                raise ValueError("Selected collection layout model/catalog changed before recording")
+    write_model_variant(source_model, out / "model.xml", scene)
     scene_path = out / "scene.json"
     scene_path.write_text(
         json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -244,6 +257,8 @@ async def run(args):
             "--capture-backpressure-poll-s",
             str(settings.capture_backpressure_poll_s),
         ]
+        if getattr(args, "model", None) is not None:
+            command += ["--model", str(source_model)]
         if getattr(args, "profile_dynamics", False):
             command[1:1] = ["-m", "cProfile", "-o", str(out / "dynamics.pstats")]
         if not settings.save_dynamics_trace:
@@ -299,6 +314,8 @@ async def run(args):
         if receiver.authoritative_count:
             raise RuntimeError("Idle renderer unexpectedly produced dataset images")
         owner = scene.get("created_by", {})
+        drawer_location = ("drawer" if scene.get("task_box_layout", {}).get("schema") in ("task-box-layout/2", "task-box-layout/3")
+                           else "rightmost drawer")
         info = await lifecycle.start(
             EpisodeStart(
                 fps=DEFAULT_CAPTURE_HZ,
@@ -310,11 +327,11 @@ async def run(args):
                     plug_profile(args.task).instruction
                     if is_plug_task(args.task)
                     else (
-                        "Grasp the rightmost drawer on the workbench, pull it out approximately 8 cm "
+                        f"Grasp the {drawer_location} on the workbench, pull it out approximately 8 cm "
                         "along its guide rails, and hold it open. Push it fully closed, release it, "
                         "and retract the gripper. Ensure the drawer remains closed."
                         if args.task == "drawer_cycle"
-                        else "Move above the rightmost drawer on the workbench, orient and open the "
+                        else f"Move above the {drawer_location} on the workbench, orient and open the "
                         "gripper, then lower it to grasp the drawer and lift it approximately 8 cm."
                     )
                 ),
@@ -347,7 +364,8 @@ async def run(args):
                 (current.model_extra or {}).get("scripted_task", {}) if current else {}
             )
             if task.get("stage") != last_stage or time.monotonic() - last_report >= 10:
-                emit("task_progress", task=task, sync=recorder.sync_status())
+                emit("task_progress", task=task, sync=recorder.sync_status(),
+                     capture_transport=receiver.status())
                 last_stage, last_report = task.get("stage"), time.monotonic()
             if task.get("result"):
                 report["task"] = task
@@ -398,6 +416,8 @@ async def run(args):
         report["error"] = f"{type(error).__name__}: {error}"
         raise
     finally:
+        # Preserve the last render/readback/transport counters on failed runs too.
+        report["capture_transport"] = receiver.status()
         if recorder.episode_id:
             try:
                 report["episode"] = await lifecycle.stop(
@@ -446,6 +466,8 @@ def main(default_task="drawer_cycle"):
     )
     parser.add_argument("--target-site", default=None)
     parser.add_argument("--scene", type=Path, required=True)
+    parser.add_argument("--model", type=Path, help="Explicit generated placement model; recorded with its layout manifest")
+    parser.add_argument("--catalog", type=Path, help="Asset catalog for a generated model with new geometry")
     parser.add_argument(
         "--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter"
     )

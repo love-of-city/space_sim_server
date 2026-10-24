@@ -23,6 +23,7 @@
 #include "Components/MeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Particles/ParticleSystem.h"
 #include "Particles/ParticleSystemComponent.h"
@@ -32,6 +33,8 @@
 #include "Engine/Light.h"
 #include "Engine/PointLight.h"
 #include "Engine/SpotLight.h"
+#include "Engine/SkyLight.h"
+#include "EngineUtils.h"
 #include "Engine/Texture.h"
 #include "Engine/PostProcessVolume.h"
 #include "Engine/Scene.h"
@@ -863,6 +866,7 @@ void ABskSceneController::BeginPlay()
     ConfigureCaptureOutput();
     ConfigurePixelStreamingOutput();
     CreateEnvironment();
+    ConfigureOfflineSkyLighting();
     // Do not start accepting authoritative simulation frames until configured
     // visual overlays have finished async static-mesh compilation. Otherwise
     // the first manifest/frame can stall the game thread while the Basilisk
@@ -1470,13 +1474,13 @@ void ABskSceneController::ConfigureCaptureOutput()
 
 void ABskSceneController::ConfigurePixelStreamingOutput()
 {
+    bVideoDiagnostics = FParse::Param(FCommandLine::Get(), TEXT("BskVideoDiagnostics"));
     // Dataset capture uses its own reliable channel and needs no WebRTC producer.
     if (FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"))) return;
     if (FParse::Value(FCommandLine::Get(), TEXT("PixelStreamingWebRTCFps="), MaximumStreamingFrameRate))
         MaximumStreamingFrameRate = FMath::Clamp(MaximumStreamingFrameRate, 1, 120);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingURL="), PixelStreamingConnectionUrl);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingBaseId="), PixelStreamingBaseId);
-    bVideoDiagnostics = FParse::Param(FCommandLine::Get(), TEXT("BskVideoDiagnostics"));
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingCameraWidth="), PixelStreamingCameraWidth);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingCameraHeight="), PixelStreamingCameraHeight);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingCameraFps="), PixelStreamingCameraRateHertz);
@@ -2714,6 +2718,11 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
 
 void ABskSceneController::UpdatePictureInPictureCaptures()
 {
+    // Offline datasets render cameras from authoritative simulation frames.
+    // A zero preview-rate override otherwise falls back to each camera's rate,
+    // rendering hidden HUD thumbnails even though there is no preview consumer.
+    static const bool bOfflineCapture = FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"));
+    if (bOfflineCapture) return;
     if (!GetWorld()) return;
     const double NowSeconds = FPlatformTime::Seconds();
     for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
@@ -3351,6 +3360,25 @@ void ABskSceneController::AttachManifestChildren()
         AActor* Parent = Pair.Value.ParentId.IsEmpty() ? nullptr : BoundActors.FindRef(Pair.Value.ParentId);
         if (Actor && Parent) Actor->AttachToActor(Parent, FAttachmentTransformRules::KeepRelativeTransform);
     }
+}
+
+void ABskSceneController::ConfigureOfflineSkyLighting()
+{
+#if PLATFORM_LINUX
+    if (!FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture")) || !GetWorld()) return;
+    // Captured-scene sky lighting triggers progressive render hitches in the
+    // Linux UE 5.6 offscreen orbital scene, including without real-time capture.
+    // Use the established direct-sun lighting for offline datasets. Keep clouds,
+    // shadows, camera quality and interactive sky lighting configured as before.
+    for (TActorIterator<ASkyLight> It(GetWorld()); It; ++It)
+    {
+        USkyLightComponent* Sky = It->GetLightComponent();
+        if (!Sky || Sky->SourceType != SLS_CapturedScene) continue;
+        Sky->SetRealTimeCapture(false);
+        Sky->SetVisibility(false);
+        UE_LOG(LogBskUnreal, Display, TEXT("Linux offline capture: disabled captured-scene sky light; direct sunlight and scene captures remain enabled"));
+    }
+#endif
 }
 
 void ABskSceneController::ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame)

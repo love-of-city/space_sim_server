@@ -53,6 +53,7 @@ def test_repository_config_loads_and_refers_to_recording_config():
     config = CollectionConfig.model_validate_json(path.read_text(encoding="utf-8"))
     recording = json.loads((path.parent / config.recording_config).read_text(encoding="utf-8"))
     assert recording["capture_rate_hz"] == 50
+    assert config.randomize_overview_camera is True
     assert len(config.workers) == 2
 
 

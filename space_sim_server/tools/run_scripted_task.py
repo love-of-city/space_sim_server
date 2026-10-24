@@ -464,7 +464,7 @@ def main(default_task="drawer_lift"):
     parser.add_argument(
         "--model",
         type=Path,
-        help="Offline diagnostic model override (no camera recording)",
+        help="Diagnostic model override; recording requires a validated layout manifest and matching catalog",
     )
     parser.add_argument("--target-site", default=None)
     parser.add_argument(
@@ -506,10 +506,6 @@ def main(default_task="drawer_lift"):
         parser.error(
             "--model needs its companion attitude_control.json in the same directory"
         )
-    if args.model is not None and args.capture_control_port:
-        parser.error(
-            "--model is for offline diagnostics; camera capture requires the scene catalog model"
-        )
     if args.output is None:
         folder = args.task.replace("_", "-")
         args.output = ROOT / "run" / folder / time.strftime("%Y%m%d-%H%M%S")
@@ -520,6 +516,15 @@ def main(default_task="drawer_lift"):
         and args.capture_stop_file
     ):
         parser.error("capture mode requires render port, catalog, scene, and stop file")
+    if args.model is not None and args.capture_control_port:
+        from simulation.task_box_layout import validated_capture_layout
+        try:
+            layout = validated_capture_layout(args.model, args.catalog)
+            scene = json.loads(args.scene.read_text(encoding="utf-8-sig"))
+            if scene.get("task_box_layout") != layout:
+                raise ValueError("Capture scene and selected layout manifest differ")
+        except (ValueError, KeyError, OSError) as error:
+            parser.error(f"Generated layout capture is not configured: {error}")
     if (
         not np.isfinite(args.warmup_sim_seconds)
         or not 0 <= args.warmup_sim_seconds <= 60

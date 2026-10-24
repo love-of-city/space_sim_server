@@ -137,6 +137,7 @@ private:
     void ApplyEvent(const FBskRenderEvent& Event);
     void ResetPresentationState();
     void ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame = true);
+    void ConfigureOfflineSkyLighting();
     FBskRenderFrame InterpolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double Alpha) const;
     FBskRenderFrame ExtrapolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double SecondsBeyondTarget) const;
     AActor* GetOrCreateActor(const FBskRenderObjectState& State);

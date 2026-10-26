@@ -137,6 +137,42 @@ def test_start_returns_absolute_seven_dimensional_contract_and_explicit_success_
     assert neutral.end_effector_linear_velocity_body_m_s == [0.0] * 3
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_service_gyro_reaches_start_step_and_reset_with_real_observation_cache(api, enabled):
+    from simulation.gyroscope import Gyroscope
+    from space_arm_platform.models import GyroObservation
+    from space_arm_platform.policy_observation import PolicyObservationCache
+    from test_policy_observation import complete, state
+
+    sensor = Gyroscope(seed=7)
+    readings = {str(stamp): sensor.sample(stamp, [.01, -.02, .03])
+                for stamp in range(0, int(NEXT["sim_time_ns"]) + 1, TICK_NS)}
+    cache = PolicyObservationCache(timeout=.1)
+    api.manager.cache = cache
+
+    async def command(session_id, operation, **kwargs):
+        receipt = await api.reply(session_id, operation, **kwargs)
+        if operation in {"acquire", "step"}:
+            observation = state(lease="policy-" + session_id, session=receipt["render_session_id"],
+                                frame=receipt["render_frame_id"], stamp=receipt["sim_time_ns"])
+            if enabled:
+                observation.service_gyro = GyroObservation.model_validate(readings[receipt["sim_time_ns"]])
+            complete(cache, observation)
+        return receipt
+
+    api.hub.policy_command.side_effect = command
+    initial = start(api)
+    prefix = "/api/policy/sessions/" + initial["session_id"]
+    stepped = api.client.post(prefix + "/step", json=step_payload())
+    assert stepped.status_code == 200, stepped.text
+    reset = api.client.post(prefix + "/reset")
+    assert reset.status_code == 200, reset.text
+    for response in (initial, stepped.json(), reset.json()):
+        observation = response["observation"]
+        expected = readings[observation["sim_time_ns"]] if enabled else None
+        assert observation["service_gyro"] == expected
+
+
 @pytest.mark.parametrize("scene_kind,role,expected", [
     ("own", "owner", 200), ("foreign", "owner", 403), ("foreign", "admin", 200),
     ("external", "owner", 403), ("external", "admin", 200),

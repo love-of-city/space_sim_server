@@ -50,6 +50,8 @@ from space_arm_platform.lighting import (  # noqa: E402
 
 
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, capture_target
+from space_arm_platform.orbital_physics import OrbitalPhysics
+from simulation.orbital_configuration import resolve_orbital_physics, environment_metadata
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG, AUTO_PREPARE_TELEOP_PROFILE
 from simulation.arm_preparation import ArmPreparation
 from space_arm_platform.joint_limits import load_joint_limits
@@ -143,11 +145,16 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
         raise ValueError(f"unable to read scene instance {resolved}: {error}") from error
     if document.get("schema") != "space-arm-scene-instance/1":
         raise ValueError(f"unsupported scene instance schema: {document.get('schema')}")
+    mode = document.setdefault("wrist_camera_mode", "rgb")
+    if mode not in ("rgb", "fisheye", "monochrome"):
+        raise ValueError("wrist_camera_mode must be rgb, fisheye or monochrome")
     target = capture_target(document.get("template_id"))
     randomize_orbit_phase = document.get("randomize_orbit_phase", False)
     if not isinstance(randomize_orbit_phase, bool):
         raise ValueError("scene randomize_orbit_phase must be a boolean")
     document["randomize_orbit_phase"] = randomize_orbit_phase
+    from space_arm_platform.overview_camera import validate_overview_camera
+    validate_overview_camera(document)
     runtime = document.get("runtime")
     randomization = document.get("randomization")
     environment = document.get("environment", {})
@@ -208,6 +215,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
         "ephemeris_center": SUPPORTED_EPHEMERIS_CENTER,
         "ephemeris_frame": SUPPORTED_EPHEMERIS_FRAME,
         "orbit": normalized_orbit,
+        "physics": (OrbitalPhysics.model_validate(environment["physics"])
+                    if "physics" in environment else OrbitalPhysics.legacy()).model_dump(mode="json"),
         "lighting": {"sunlight_intensity_scale": sunlight_scale},
     }
     runtime_limits = {
@@ -1073,6 +1082,10 @@ def run(args: argparse.Namespace) -> None:
         raise ValueError('SARM 2026-10-12 requires the local implicitfast backend for its tendon and constraints')
     from simulation.orbital_environment import orbital_mode
     args.orbital_mode = orbital_mode(getattr(args, "orbital_mode", None))
+    orbital_physics = resolve_orbital_physics(
+        scene_instance, override=getattr(args, "orbital_config", None),
+        backend=args.dynamics_backend, mode=args.orbital_mode,
+        require_drag=getattr(args, "atmospheric_drag", False))
     args.local_substeps = (local_substeps(getattr(args, "local_substeps", None))
                            if args.dynamics_backend == BACKEND_LOCAL else None)
     print(json.dumps({"type": "teleop_control_configuration", "dynamics_step_s": native.TIME_STEP,
@@ -1119,7 +1132,8 @@ def run(args: argparse.Namespace) -> None:
             client.wait_until_ready()
         while True:
             reset_request = _run_session(
-                args, native, scene_instance, target_spec, initial_joints, kinematics, client
+                args, native, scene_instance, target_spec, initial_joints, kinematics, client,
+                orbital_physics=orbital_physics,
             )
             if reset_request is None:
                 break
@@ -1135,6 +1149,7 @@ def _run_session(
     args: argparse.Namespace, native: Any, scene_instance: dict[str, Any] | None,
     target_spec: Any, initial_joints: np.ndarray, kinematics: SerialChainKinematics,
     client: SimulationControlClient,
+    *, orbital_physics: OrbitalPhysics,
 ) -> str | None:
     """Build one clean physics/controller/ephemeris/render session from the saved initial conditions."""
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
@@ -1225,7 +1240,7 @@ def _run_session(
             "native": native, "scene_instance": scene_instance, "target_spec": target_spec,
             "template_id": template_id, "already_installed": [reference_publisher],
         })
-        orbit_component = OrbitComponent(epoch_utc=ephemeris_epoch)
+        orbit_component = OrbitComponent(epoch_utc=ephemeris_epoch, physics=orbital_physics)
         render = RenderComponent(
             model_path=native.MODEL_PATH,
             catalog=args.catalog.resolve(),
@@ -1237,6 +1252,8 @@ def _run_session(
                                     lambda: {"capture_episode_id": "", "capture_request_id": ""}),
             sunlight_intensity_scale=ephemeris_environment.get("lighting", {}).get(
                 "sunlight_intensity_scale", DEFAULT_SUNLIGHT_INTENSITY_SCALE),
+            wrist_camera_mode=(scene_instance or {}).get("wrist_camera_mode", "rgb"),
+            overview_camera=(scene_instance or {}).get("overview_camera"),
             camera_display_names={
                 "spacecraft_overview": "Spacecraft Overview",
                 "sarm_wrist_cam": "SARM Wrist Camera",
@@ -1291,17 +1308,23 @@ def _run_session(
                 from simulation.components.orbit_attitude_reference import OrbitAttitudeReferenceComponent
                 assembly.install([OrbitAttitudeReferenceComponent(
                     scene_instance['randomization']['coorbital_initialization'].get('service_body_rotation_wxyz'))])
+
+        from simulation.components.plug_retention import install_configured_plug_retention
+        plug_retention = install_configured_plug_retention(assembly)
+        retention_configuration = (plug_retention.configuration() if plug_retention else {"enabled": False})
         if template_id == 'sarm-task-box-20261012-demo':
             from simulation.components.fastener_demo import FastenerDemoComponent
             assembly.install([FastenerDemoComponent()])
-        if getattr(args, "atmospheric_drag", False):
-            # Extension sample (docs/MUJOCO_CORE_ARCHITECTURE.md §8.2): one extra
-            # component line, no core change. Opt-in only, so the default physics
-            # is bit-identical with and without it.
-            from simulation.components.drag import AtmosphericDragComponent
+        drag_components = []
+        if orbital_physics.drag is not None:
+            from simulation.components.drag import configured_drag_components
 
-            assembly.install([AtmosphericDragComponent()])
+            drag_components = configured_drag_components(
+                orbital_physics.drag, planet_radius_m=float(orbit_component.earth.radEquator))
+            assembly.install(drag_components)
         gravity_factory, earth, sun = orbit_component.gravity_factory, orbit_component.earth, orbit_component.sun
+        orbital_metadata = environment_metadata(orbital_physics, earth, epoch_utc=ephemeris_epoch)
+        print(json.dumps({"type": "orbital_physics_configuration", **orbital_metadata}, sort_keys=True), flush=True)
         bridge = render.bridge
         ephemeris = orbit_component.ephemeris
         orbit_origin = orbit_component.origin
@@ -1423,6 +1446,12 @@ def _run_session(
                     "orbital_dynamics": (
                         simulation.local_stepper.telemetry()["orbital_environment"]
                         if local_backend else {"mode": "basilisk"}),
+                    "orbital_physics": orbital_metadata,
+                    "plug_retention": {
+                        **retention_configuration,
+                        "bodies": plug_retention.telemetry() if plug_retention else {},
+                    },
+                    "atmospheric_drag": [component.telemetry() for component in drag_components],
                     "wrist_wrench": (
                         WRIST_SENSOR.observation(simulation.local_stepper, render_sim_time_ns)
                         if local_backend and native.model_profile.linkage else None),
@@ -1814,8 +1843,9 @@ def main() -> None:
                         help="Local gravity: BSK field models (default) or legacy Earth tidal baseline. "
                              "Defaults to SPACE_SIM_ORBITAL_MODE, else bsk.")
     parser.add_argument("--atmospheric-drag", action="store_true",
-                        help="Add the exponential-atmosphere drag component (local backend only). "
-                             "Off by default so the physics is unchanged unless a scenario asks for it.")
+                        help="Require explicitly configured drag parameters; no uncalibrated defaults are applied.")
+    parser.add_argument("--orbital-config", type=Path,
+                        help="JSON OrbitalPhysics override; otherwise use saved environment.physics (new scenes: J2, old scenes: point mass).")
     args = parser.parse_args()
     if args.ik_mode not in IK_MODES:
         parser.error("SPACE_SIM_IK_MODE must be ik_pose or strict; constrained has been removed. "

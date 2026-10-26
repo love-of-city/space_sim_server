@@ -30,6 +30,9 @@ class ScriptedCaptureTransport:
     ):
         from simulation.components.render import RenderComponent
         from simulation.components.observation import ObservationComponent
+        from space_arm_platform.overview_camera import validate_overview_camera
+
+        overview_camera = validate_overview_camera(scene_instance)
 
         self.ctx, self.task, self.profile = ctx, task, profile
         self.command = command
@@ -37,6 +40,9 @@ class ScriptedCaptureTransport:
         self.scene_instance = scene_instance
         self.state_reader = state_reader
         self.disturbances = disturbances
+        self.plug_retention = ctx.extra.get("plug_retention")
+        self.retention_configuration = (self.plug_retention.configuration()
+                                        if self.plug_retention else {"enabled": False})
         self.sequence = 0
         self.task_start_ns = None
         self.task_elapsed_s = 0.0
@@ -55,6 +61,8 @@ class ScriptedCaptureTransport:
                 render_rate_hz=RENDER_HZ,
                 capture_rate_hz=DEFAULT_CAPTURE_HZ,
                 capture_state_provider=self.client.capture_state,
+                overview_camera=overview_camera,
+                wrist_camera_mode=scene_instance.get("wrist_camera_mode", "rgb"),
                 sunlight_intensity_scale=scene_instance.get("environment", {})
                 .get("lighting", {})
                 .get("sunlight_intensity_scale", 1.0),
@@ -128,6 +136,8 @@ class ScriptedCaptureTransport:
             scene_template_id=self.scene_instance.get("template_id"),
             observation_source="authoritative_render_snapshot",
             orbital_dynamics=stepper.telemetry()["orbital_environment"],
+            plug_retention={**self.retention_configuration,
+                            "bodies": self.plug_retention.telemetry() if self.plug_retention else {}},
             joint_position_rad=q.tolist(),
             joint_velocity_rad_s=v.tolist(),
             target_joint_position_rad=self.command.tolist(),

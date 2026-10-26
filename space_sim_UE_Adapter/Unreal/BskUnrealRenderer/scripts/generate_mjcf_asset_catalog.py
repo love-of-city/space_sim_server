@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 from bsk_render_adapter.mjcf_assets import parse_mjcf_geometry_metadata
@@ -22,8 +23,19 @@ def main() -> None:
     parser.add_argument("--mesh-cache", type=Path)
     parser.add_argument("--normal-mode", choices=("auto", "preserve", "recompute"), default="auto")
     parser.add_argument("--stl-smoothing-angle", type=float, default=60.0)
+    parser.add_argument("--mujoco-plugin", type=Path, action="append", default=[],
+                        help="Native plugin library to register before compiling the MJCF (repeatable)")
     args = parser.parse_args()
 
+    if args.mujoco_plugin:
+        import mujoco
+        if sys.platform.startswith("linux"):
+            from bsk_render_adapter.native_plugins import loaded_mujoco_library
+            # Keep the handle alive until all plugin/model work is finished.
+            plugin_runtime = loaded_mujoco_library(global_symbols=True)
+            _ = plugin_runtime
+        for library in args.mujoco_plugin:
+            mujoco.mj_loadPluginLibrary(str(library.resolve(strict=True)))
     metadata = parse_mjcf_geometry_metadata(args.mjcf)
     sources = sorted(
         {Path(item.source_path).resolve() for item in metadata if item.source_path and item.visible},

@@ -79,9 +79,11 @@ def manager(tmp_path, monkeypatch):
     project.mkdir()
     (project / "fake.py").write_text(FAKE_COLLECTOR)
     unreal = tmp_path / "ue"
-    file = unreal / "Engine/Binaries/Win64/UnrealEditor-Cmd.exe"
+    file = unreal / ("Engine/Binaries/Win64/UnrealEditor-Cmd.exe" if os.name == "nt"
+                     else "Engine/Binaries/Linux/UnrealEditor-Cmd")
     file.parent.mkdir(parents=True)
     file.touch()
+    file.chmod(0o755)
     adapter = tmp_path / "adapter"
     file = (
         adapter
@@ -300,6 +302,8 @@ def test_api_ownership_media_ranges_and_auth(tmp_path, monkeypatch):
         assert client.get("/api/collections/catalog").json()["rates"] == dict(
             dynamics=400, ik=100, main=50, wrench=200
         )
+        camera_catalog = client.get("/api/collections/catalog").json()["overview_camera_randomization"]
+        assert {item["preset_id"] for item in camera_catalog["presets"]} == {"P0", "P1", "P2", "P3", "P4"}
         assert client.post("/api/collections", json=dict(workers=5)).status_code == 422
         client.post("/api/auth/logout")
         client.post(
@@ -356,8 +360,8 @@ def test_drawer_speed_reaches_spawned_collector_and_is_persisted(manager):
 
 def test_worker_configuration_preserves_independent_options_and_disabled_initialization(manager):
     options={"joint_bias":{"enabled":True,"max_abs_deg":.2},"wrist_wrench_noise":{"enabled":True,"force_std_n":.3}}
-    source={"created_by":ADMIN}
-    request=CollectionCreate(workers=1,count=1,max_attempts=1,seed=40,initialization_enabled=False,randomization=options)
+    source={"created_by":ADMIN,"seed":40,"template_id":"sarm-task-box-20261012"}
+    request=CollectionCreate(workers=1,count=1,max_attempts=1,seed=40,initialization_enabled=False,randomization=options,randomize_overview_camera=True)
     job=manager.start(request,OWNER,source)
     result=wait_job(manager,job["id"])
     assert result["status"]=="complete"
@@ -365,5 +369,8 @@ def test_worker_configuration_preserves_independent_options_and_disabled_initial
     assert saved["collection_randomization"]["wrist_wrench_noise"]["force_std_n"]==.3
     assert saved["collection_randomization"]["joint_bias"]["enabled"]
     assert saved["initialization_enabled"] is False
+    from space_arm_platform.overview_camera import sample_overview_camera
+    assert saved["overview_camera"] == sample_overview_camera(40)
+    assert result["config"]["randomize_overview_camera"] is True
     assert result["config"]["randomization"]==request.randomization.model_dump()
     assert "collection_randomization" not in source

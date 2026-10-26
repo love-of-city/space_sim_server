@@ -144,6 +144,17 @@ class PhysicsPorts:
         """Bulk ``MJSceneStateMsg`` (qpos/qvel), written every physics step."""
         return self.scene.stateOutMsg
 
+    def free_body_layout(self, body: str) -> tuple[int, int, Any]:
+        """Static free-body addresses and COM offset for fresh bulk-state readers.
+
+        The bulk message is published every physics tick, including ticks on
+        which individual body/site messages are intentionally thinned.
+        """
+        if self.stepper is None:
+            raise PortError("free-body layout requires the local dynamics core")
+        self._body(body)
+        return self.stepper.free_body_layout(body)
+
     def servo_effort(self, actuator: str) -> tuple[Any, Any]:
         """(requested, applied) servo effort as ``SingleActuatorMsg``.
 
@@ -248,6 +259,20 @@ class PhysicsPorts:
             raise PortError(f"wrench source {source!r} is already registered on body {body!r}")
         self.stepper.add_body_wrench_input(body, force_inertial, torque_body, source=source)
         owners.add(source)
+
+    def axial_friction(self, plug: str, base: str, *, static_n: float, kinetic_n: float,
+                       travel_m: float) -> Any:
+        """One bounded dry-friction interface, evaluated by the physics owner.
+
+        A held force message alone cannot cancel an impending substep's slip.
+        This port resolves static friction using current loads and contacts.
+        """
+        if self.stepper is None:
+            raise PortError("axial dry friction requires the local dynamics core")
+        self._body(plug)
+        self._body(base)
+        return self.stepper.add_axial_friction(plug, base, static_n=static_n, kinetic_n=kinetic_n,
+                                               travel_m=travel_m)
 
     def close(self) -> None:
         """Release the physics core's native handle (called on session teardown)."""

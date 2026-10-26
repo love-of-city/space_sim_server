@@ -22,6 +22,8 @@ import psutil
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .collection_processes import ManagerLease, WindowsProcessGroup
+from .collection_layouts import LayoutPool
+from .unreal_runtime import default_unreal_root, unreal_editor
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,8 @@ class CollectionCreate(BaseModel):
     max_attempts: int = Field(default=15, ge=1, le=1000)
     seed: int = Field(default=20261016, ge=0, le=2**31 - 1001)
     initialization_enabled: StrictBool = True
+    layout_randomization: StrictBool = False
+    randomize_overview_camera: StrictBool = False
     randomization: CollectionRandomization = Field(default_factory=CollectionRandomization)
     range_deg: float = Field(default=10, ge=0, le=10, allow_inf_nan=False)
     linear_speed_m_s: float | None = Field(
@@ -148,14 +152,16 @@ def free_ports(count):
 
 
 class CollectionManager:
-    def __init__(self, project_root, data_root, adapter=None, unreal=None):
+    def __init__(self, project_root, data_root, adapter=None, unreal=None, layout_pool=None):
         self.project_root = Path(project_root).resolve()
         self.data_root = Path(data_root).resolve()
         self.root = self.data_root.parent / "collection_jobs"
         self.adapter = Path(
             adapter or self.project_root.parent / "space_sim_UE_Adapter"
         )
-        self.unreal = Path(unreal or "C:/Program Files/Epic Games/UE_5.6")
+        self.unreal = Path(unreal or default_unreal_root())
+        configured_pool = layout_pool or os.environ.get("SPACE_SIM_COLLECTION_LAYOUT_POOL")
+        self.layout_pool = Path(configured_pool).expanduser().resolve() if configured_pool else None
         self.lock = threading.RLock()
         self.thread = None
         self.closing = False
@@ -226,9 +232,21 @@ class CollectionManager:
             ):
                 raise ValueError("已有自动采集批次运行中，请等待完成或先停止该批次")
             task = TASKS[request.task]
+            pool = None
+            if request.layout_randomization:
+                if self.layout_pool is None:
+                    raise ValueError("尚未配置已校验的随机布局池，不能启用布局随机化")
+                try:
+                    pool = LayoutPool(self.layout_pool)
+                except (OSError, ValueError, KeyError) as error:
+                    raise ValueError(f"随机布局池校验失败：{error}") from error
+            try:
+                editor = unreal_editor(self.unreal)
+            except OSError as error:
+                raise ValueError(str(error)) from error
             for path in (
                 self.project_root / task.script,
-                self.unreal / "Engine/Binaries/Win64/UnrealEditor-Cmd.exe",
+                editor,
                 self.adapter
                 / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json",
             ):
@@ -240,8 +258,15 @@ class CollectionManager:
             scene = deepcopy(scene)
             scene["collection_randomization"] = request.randomization.model_dump()
             scene["initialization_enabled"] = request.initialization_enabled
+            scene["collection_layout_randomization"] = request.layout_randomization
+            scene["randomize_overview_camera"] = request.randomize_overview_camera
+            from .overview_camera import initialize_overview_camera
+            initialize_overview_camera(scene)
             scene["created_by"] = {k: owner[k] for k in ("user_id", "username", "role")}
             write_json(directory / "scene.json", scene)
+            if pool is not None:
+                # Each batch pins the validated membership before workers start.
+                write_json(directory / "layout-pool.json", pool.document)
             ports = free_ports(request.workers)
             workers = []
             seed = request.seed
@@ -357,6 +382,8 @@ class CollectionManager:
                         str(self.unreal),
                     ]
                     command += list(TASKS[cfg["task"]].arguments)
+                    if cfg.get("layout_randomization"):
+                        command += ["--layout-pool", str(folder / "layout-pool.json")]
                     if cfg["task"] == "drawer_cycle":
                         command += [
                             "--linear-speed",

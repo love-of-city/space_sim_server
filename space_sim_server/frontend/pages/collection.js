@@ -23,6 +23,8 @@ function renderJob(job) {
     const item=element("div");item.append(element("strong",String(value)),element("span",caption));metrics.append(item);
   }
   card.append(metrics);
+  if(job.config.layout_randomization)card.append(element('p','操作台布局随机化：每次尝试从已校验布局池选择，位置和朝向随记录保存。','muted'));
+  if(job.config.randomize_overview_camera)card.append(element('p','全局相机：每条任务从 5 个固定机位随机选择，整段保持固定。','muted'));
   const bar=element("progress");bar.max=job.config.count;bar.value=job.success_count;bar.setAttribute("aria-label","成功采集进度");card.append(bar);
   if(job.config.task==='drawer_cycle'&&job.config.linear_speed_m_s!=null)card.append(element("p",`移动速度：${job.config.linear_speed_m_s} m/s · 接近把手与归位自动减速`,"muted"));
   const configured=catalog?.randomization_options?.filter(option=>job.config.randomization?.[option.key]?.enabled)||[];
@@ -113,7 +115,8 @@ $('close-setup').onclick=$('cancel-setup').onclick=()=>{$('setup').hidden=true;}
 $('collection-form').onsubmit=async event=>{
   event.preventDefault();if(submitting)return;const version=epoch;notice();submitting=true;$('submit').disabled=true;
   const values=Object.fromEntries(new FormData(event.currentTarget));for(const key of ['count','workers','max_attempts','seed','range_deg','linear_speed_m_s'].filter(key=>key in values))values[key]=Number(values[key]);
-  values.initialization_enabled=$('initialization-enabled').checked;values.range_deg=Number($('range-deg').value);values.randomization=randomizationControls.value();
+  values.initialization_enabled=$('initialization-enabled').checked;values.range_deg=Number($('range-deg').value);values.randomization=randomizationControls.value();values.layout_randomization=$('layout-randomization').checked;
+  values.randomize_overview_camera=$('overview-camera-randomization').checked;
   try{await api('/api/collections',{method:'POST',body:JSON.stringify(values)});if(active&&version===epoch)$('setup').hidden=true;}
   catch(error){if(active&&version===epoch)notice(error.message);}
   finally{submitting=false;if(active&&version===epoch)await refresh();}
@@ -126,6 +129,10 @@ return {
         for(const task of data.tasks)taskLabels.set(task.id,task.label);
         $('task').replaceChildren(...data.tasks.map(task=>{const option=element('option',task.label);option.value=task.id;return option;}));
         randomizationControls=createRandomizationControls($("randomization-options"),data.randomization_options||[]);syncInitialization();
+        $('layout-randomization').disabled=!data.layout_randomization?.available;
+        $('overview-camera-randomization').disabled=!data.overview_camera_randomization;
+        if(!data.overview_camera_randomization)$('overview-camera-randomization').checked=false;
+        $('layout-description').textContent=data.layout_randomization?.available?`${data.layout_randomization.count} 个布局可用。${data.layout_randomization.description}`:data.layout_randomization?.description||'后端尚未提供布局随机化。';
         describeTask();
         [...$('workers').options].forEach(option=>{option.disabled=Number(option.value)>data.max_workers;});specs(data);
       }

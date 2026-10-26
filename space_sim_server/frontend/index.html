@@ -131,6 +131,19 @@
             <select id="sceneTemplate" aria-describedby="sceneCollisionWarning"><option value="sarm-ground-validation-self-collision-grasp">SARM + 地面验证星（粗碰撞体·内部碰撞）</option></select>
           </label>
           <small id="sceneCollisionWarning">默认粗碰撞体版已启用目标内部碰撞；铰链附近采用近似间隙，接触角度不代表真实限位。旧粗盒版不计算目标内部碰撞；高精度三角网格版仅供实验，运行速度显著低于实时。</small>
+          <label>腕部相机类型
+            <select id="sceneWristCameraMode">
+              <option value="rgb">彩色相机</option>
+              <option value="fisheye">鱼眼相机（160°）</option>
+              <option value="monochrome">黑白相机</option>
+            </select>
+          </label>
+          <small>创建场景时生效；腕部预览、录制和模型观测使用同一种画面。鱼眼为圆形等距投影，圆外留黑。</small>
+          <label class="scene-checkbox">
+            <input id="sceneRandomizeOverviewCamera" type="checkbox" aria-describedby="sceneOverviewCameraHelp">
+            <span>全局相机随机初始化（5 个固定机位）</span>
+          </label>
+          <small id="sceneOverviewCameraHelp">用于完整 20261012 SARM 操作台：5 个机位下方均为卫星实体台面，距安装面 30 cm，视野 90°。创建时随机选择，整段保持固定；相同 Seed 可复现。</small>
           <label>随机化配置
             <select id="randomizationProfile"><option value="teleop-zero-prepare-v2">六轴零位自动展开</option></select>
           </label>
@@ -214,6 +227,7 @@
           <div><dt>Seed</dt><dd id="sceneInstanceSeed">—</dd></div>
           <div><dt>太阳光照</dt><dd id="sceneInstanceSunlight">—</dd></div>
           <div><dt>轨道起点</dt><dd id="sceneInstanceOrbitPhase">—</dd></div>
+          <div><dt>全局相机机位</dt><dd id="sceneInstanceOverviewCamera">—</dd></div>
           <div><dt>待抓取物体</dt><dd id="sceneInstanceTarget">—</dd></div>
         </dl>
         <details class="scene-parameters">

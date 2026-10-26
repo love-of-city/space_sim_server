@@ -7,6 +7,7 @@ teleported to make a task succeed.
 
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,12 +34,58 @@ from simulation.scripted_tasks.plug_profiles import (
 )
 
 
+from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
+from space_arm_platform.unreal_runtime import default_unreal_root
+from space_arm_platform.collection_runtime import PersistentRenderer, check_port_available
+from space_arm_platform.collection_layouts import LayoutPool, attach_layout, validate_episode_layout
+from space_arm_platform.overview_camera import validate_episode_overview_camera
+
+
+def validate_capture_manifest(episode, meta, steps):
+    """Audit frame pairing with or without the optional raw image copies."""
+    from PIL import Image
+    from tools.record_drawer_task import CAMERAS
+    from space_arm_platform.overview_camera import validate_overview_camera, validate_overview_capture
+
+    overview = validate_overview_camera(meta.get("scene_instance") or {})
+
+    by_frame = {str(obs["render_frame_id"]): obs for obs in steps}
+    if is_compact(episode) and not meta.get("raw_camera_images_saved", False):
+        captures = [dict(metadata=cm, source_frame_id=cm["source_frame_id"],
+                         sim_time_ns=cm["sim_time_ns"], files={})
+                    for cm in read_chunks(episode / "lerobot/auxiliary/cameras")]
+    else:
+        captures = [json.loads(line) for line in
+                    (episode / "captures.jsonl").read_text(encoding="utf-8").splitlines()]
+    expected = {(camera, frame) for camera in CAMERAS for frame in by_frame}
+    assert len(captures) == len(expected) == len(CAMERAS) * len(steps)
+    pairs = set()
+    raw_images = meta.get("raw_camera_images_saved", True)  # Historical episodes saved copies.
+    for capture in captures:
+        cm = capture["metadata"]
+        frame = str(capture["source_frame_id"])
+        obs = by_frame[frame]
+        assert cm["resolution"] == [1024, 1024]
+        assert cm["session_id"] == obs["render_session_id"]
+        assert capture["sim_time_ns"] == obs["sim_time_ns"]
+        if overview is not None:
+            validate_overview_capture(cm, obs, overview)
+        pair = (cm["camera_id"], frame)
+        assert pair in expected and pair not in pairs
+        pairs.add(pair)
+        if raw_images:
+            with Image.open(episode / capture["files"]["rgb"]) as image:
+                assert image.size == (1024, 1024)
+        else:
+            assert not capture["files"], "Raw image files contradict episode metadata"
+    assert pairs == expected
+    return len(captures)
+
+
 def validate_recording(episode, task_name="drawer_cycle"):
     import av
     import numpy as np
     import pyarrow.parquet as pq
-    from PIL import Image
-
     meta = json.loads((episode / "metadata.json").read_text(encoding="utf-8"))
     info = json.loads((episode / "lerobot/meta/info.json").read_text(encoding="utf-8"))
     platform = json.loads(
@@ -49,10 +96,8 @@ def validate_recording(episode, task_name="drawer_cycle"):
     for key in ("observation.state", "action"):
         assert info["features"][key]["shape"] == [7]
         assert info["features"][key]["names"][-1] == "gripper_opening_normalized"
-    steps = [
-        json.loads(line)["observation"]
-        for line in (episode / "steps.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    compact = is_compact(episode)
+    steps = list(read_observations(episode))
     rows = []
     for path in sorted((episode / "lerobot/data").rglob("*.parquet")):
         rows.extend(pq.read_table(path).to_pylist())
@@ -99,7 +144,8 @@ def validate_recording(episode, task_name="drawer_cycle"):
         )
         assert obs["wrist_wrench"]["valid"]
         assert int(obs["render_frame_id"]) == row["observation.source_frame_id"]
-        assert json.loads(row["observation.platform_json"]) == obs
+        if not compact:
+            assert json.loads(row["observation.platform_json"]) == obs
     final = steps[-1]["scripted_task"]
     if is_plug_task(task_name):
         from simulation.scripted_tasks.plug_insert import PlugInsertTask
@@ -132,45 +178,34 @@ def validate_recording(episode, task_name="drawer_cycle"):
     high = platform.get("high_frequency_wrist_wrench")
     if meta["dataset_fps"] == 50:
         assert high and high["rate_hz"] == 200
-        force_rows = [
-            json.loads(line)
-            for line in (episode / "lerobot" / high["path"])
-            .read_text(encoding="utf-8")
-            .splitlines()
-        ]
+        force_rows = list(read_wrench(episode))
         start = int(steps[0]["sim_time_ns"])
-        expected = [
-            sample
-            for obs in steps
-            for sample in obs["wrist_wrench_samples"]
-            if int(sample["interval_end_time_ns"]) >= start
-        ]
-        assert len(force_rows) == len(expected) == high["samples"]
+        assert len(force_rows) == high["samples"]
         stamps = [int(row["sim_time_ns"]) for row in force_rows]
-        assert all(b - a == 5_000_000 for a, b in zip(stamps, stamps[1:]))
+        assert stamps[0] == start
+        assert all(b-a == 5_000_000 for a,b in zip(stamps,stamps[1:]))
         assert stamps[-1] == int(steps[-1]["sim_time_ns"])
-        for actual, original in zip(force_rows, expected):
-            assert all(actual[key] == value for key, value in original.items())
-    by_frame = {obs["render_frame_id"]: obs for obs in steps}
-    captures = [
-        json.loads(line)
-        for line in (episode / "captures.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
-    assert len(captures) == 2 * len(steps)
-    pairs = set()
-    for capture in captures:
-        cm = capture["metadata"]
-        obs = by_frame[str(capture["source_frame_id"])]
-        assert cm["resolution"] == [1024, 1024]
-        assert cm["session_id"] == obs["render_session_id"]
-        assert capture["sim_time_ns"] == obs["sim_time_ns"]
-        pair = (cm["camera_id"], obs["render_frame_id"])
-        assert pair not in pairs
-        pairs.add(pair)
-        with Image.open(episode / capture["files"]["rgb"]) as image:
-            assert image.size == (1024, 1024)
+        if compact:
+            digest = hashlib.sha256()
+            for sample in force_rows:
+                digest.update(wrench_bytes(sample))
+            assert digest.hexdigest() == high["values_sha256"], "High-rate wrench checksum mismatch"
+            assert len(force_rows) == 4 * (len(steps) - 1) + 1
+            by_time = {int(row["sim_time_ns"]): row for row in force_rows}
+            for obs in steps:
+                sample = by_time[int(obs["sim_time_ns"])]
+                assert sample["valid"] == obs["wrist_wrench"]["valid"]
+                for field in ("force_n", "torque_nm"):
+                    np.testing.assert_allclose(sample[field], obs["wrist_wrench"][field], rtol=1e-6, atol=1e-5)
+                for field in ("sample_time_ns", "interval_end_time_ns"):
+                    assert int(sample[field]) == int(obs["wrist_wrench"][field])
+        else:
+            expected = [sample for obs in steps for sample in obs["wrist_wrench_samples"]
+                        if int(sample["interval_end_time_ns"]) >= start]
+            assert len(force_rows) == len(expected)
+            for actual, original in zip(force_rows, expected):
+                assert all(actual[key] == value for key, value in original.items())
+    capture_count = validate_capture_manifest(episode, meta, steps)
     videos = list((episode / "lerobot/videos").rglob("*.mp4"))
     assert len(videos) == 2
     for path in videos:
@@ -187,13 +222,15 @@ def validate_recording(episode, task_name="drawer_cycle"):
         passed=True,
         episode_id=episode.name,
         frames=len(steps),
-        images=len(captures),
+        images=capture_count,
+        raw_camera_images_saved=meta.get("raw_camera_images_saved", True),
         image_resolution=[1024, 1024],
         fps=meta["dataset_fps"],
         state_action_dimensions=7,
         stages=stages,
         final_task_state=final,
         all_source_rows_matched=True,
+        source_validation="numeric_sha256_and_camera_pairing" if compact else "full_observation_comparison",
         videos_fully_decoded=True,
     )
 
@@ -204,19 +241,31 @@ def main(default_task="drawer_cycle"):
         "--task", choices=["drawer_cycle", *PLUG_PROFILES], default=default_task
     )
     parser.add_argument("--scene", type=Path, required=True)
+    parser.add_argument("--layout-pool", type=Path,
+                        help="Validated layout pool; select a reproducible layout per attempt")
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument(
         "--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter"
     )
     parser.add_argument(
-        "--unreal", type=Path, default=Path("C:/Program Files/Epic Games/UE_5.6")
+        "--unreal", type=Path, default=default_unreal_root()
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--episodes-root", type=Path, default=ROOT / "data/episodes")
+    parser.add_argument("--recording-config", type=Path)
+    parser.add_argument("--reuse-renderer", action="store_true")
+    parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--gpu-index", type=int)
+    parser.add_argument("--warmup-seconds", type=float, default=5.0)
+    parser.add_argument("--reuse-warmup-seconds", type=float, default=5.0)
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--max-attempts", type=int, default=15)
     parser.add_argument("--seed", type=int, default=2026101501)
     parser.add_argument("--range-deg", type=float, default=10.0)
+    parser.add_argument("--randomize-orbit-phase", action=argparse.BooleanOptionalAction,
+                        default=None, help="Sample a new orbital phase per attempt; otherwise inherit scene setting")
+    parser.add_argument("--randomize-overview-camera", action=argparse.BooleanOptionalAction,
+                        default=None, help="Choose one of five body-fixed overview camera presets per attempt")
     parser.add_argument("--control-port", type=int, default=19766)
     parser.add_argument("--capture-port", type=int, default=19767)
     parser.add_argument("--render-port", type=int, default=16558)
@@ -229,9 +278,29 @@ def main(default_task="drawer_cycle"):
         parser.error(str(error))
     if not 1 <= args.count <= args.max_attempts <= 1000 or args.seed < 0:
         parser.error("require 1 <= count <= max-attempts <= 1000 and non-negative seed")
+    if any(not 0 <= value <= 60 for value in (args.warmup_seconds, args.reuse_warmup_seconds)):
+        parser.error("warmup must be between 0 and 60 seconds")
+    if args.gpu_index is not None and not 0 <= args.gpu_index <= 255:
+        parser.error("gpu-index must be between 0 and 255")
+    ports = (args.control_port, args.capture_port, args.render_port, args.signalling_port)
+    if len(set(ports)) != 4 or any(not 1024 <= port <= 65535 for port in ports):
+        parser.error("four distinct ports in 1024..65535 are required")
+    for port in ports:
+        check_port_available(port)
+    from tools.record_drawer_task import recording_settings
+    recording_settings(args.recording_config)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
+    if args.cancel_file is None:
+        args.cancel_file = args.output / "cancel.request"
     source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
+    if args.randomize_orbit_phase is not None:
+        source["randomize_orbit_phase"] = args.randomize_orbit_phase
+    if args.randomize_overview_camera is not None:
+        source["randomize_overview_camera"] = args.randomize_overview_camera
+    pool = LayoutPool(args.layout_pool) if args.layout_pool else None
+    if source.get("collection_layout_randomization") and pool is None:
+        raise ValueError("Layout randomization requires --layout-pool; refusing fixed-layout fallback")
     model = ROOT / "model/SARM/platform/sarm_20261012.xml"
     started = time.monotonic()
     report = dict(
@@ -259,9 +328,16 @@ def main(default_task="drawer_cycle"):
         temporary.replace(args.output / "summary.json")
 
     probe = None
+    probe_model = None
+    renderer = None
+    child = None
+    recorded = 0
     try:
         save()
-        probe = NativePoseProbe(model)
+        if pool is not None:
+            (args.output / "layout-pool.snapshot.json").write_text(
+                json.dumps(pool.document, indent=2), encoding="utf-8")
+            report["layout_pool_sha256"] = pool.sha256
         for index in range(args.max_attempts):
             if args.cancel_file and args.cancel_file.exists():
                 report["status"] = "cancelled"
@@ -271,6 +347,9 @@ def main(default_task="drawer_cycle"):
             seed = args.seed + index
             attempt_started = time.monotonic()
             scene = randomized_scene(source, seed, args.range_deg, args.task)
+            catalog = None
+            if pool is not None:
+                model, catalog = attach_layout(scene, pool, seed)
             directory = args.output / f"attempt-{index + 1:03d}-seed-{seed}"
             directory.mkdir()
             scene_path = directory / "scene.json"
@@ -285,8 +364,23 @@ def main(default_task="drawer_cycle"):
                 status="preflight",
             )
             report["attempts"].append(entry)
+            if scene.get("randomize_overview_camera"):
+                entry["overview_camera"] = scene["overview_camera"]
+            if pool is not None:
+                entry["layout_randomization"] = scene["collection_config"]["layout_randomization"]
+                entry["model"], entry["catalog"] = str(model), str(catalog)
             save()
-            entry["preflight"] = probe.validate(model, scene, args.task)
+            # Native probes compile one concrete model. Never reuse the previous
+            # layout's collision state when selecting a different model.
+            if probe is None or probe_model != model:
+                if probe is not None:
+                    probe.close()
+                probe = NativePoseProbe(model)
+                probe_model = model
+            try:
+                entry["preflight"] = probe.validate(model, scene, args.task)
+            except ValueError as exc:
+                entry["preflight"] = dict(accepted=False, reason="planning_failed", detail=str(exc))
             if not entry["preflight"]["accepted"]:
                 entry["status"] = "initialization_rejected"
                 entry["end_to_end_wall_seconds"] = time.monotonic() - attempt_started
@@ -316,7 +410,23 @@ def main(default_task="drawer_cycle"):
                 "1800",
             ]
             command += motion_args
+            if catalog is not None:
+                command += ["--model", str(model), "--catalog", str(catalog)]
+            command += ["--warmup-seconds", str(args.reuse_warmup_seconds
+                        if renderer is not None and recorded else args.warmup_seconds)]
+            if args.offline:
+                command.append("--offline")
+            if args.gpu_index is not None:
+                command += ["--gpu-index", str(args.gpu_index)]
+            if args.reuse_renderer:
+                if renderer is None:
+                    renderer = PersistentRenderer(args, args.output)
+                    report["renderer_pid"] = renderer.process.pid
+                renderer.check()
+                command.append("--external-renderer")
             command += ["--adapter", str(args.adapter), "--unreal", str(args.unreal)]
+            if args.recording_config:
+                command += ["--recording-config", str(args.recording_config.resolve())]
             if args.cancel_file:
                 command += ["--cancel-file", str(args.cancel_file)]
             for name in (
@@ -333,14 +443,19 @@ def main(default_task="drawer_cycle"):
                 flush=True,
             )
             with (directory / "recording.log").open("w", encoding="utf-8") as log:
-                result = subprocess.run(
+                child = subprocess.Popen(
                     command,
                     cwd=ROOT,
                     stdout=log,
                     stderr=subprocess.STDOUT,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
-            entry["returncode"] = result.returncode
+                while child.poll() is None:
+                    if renderer is not None:
+                        renderer.check()
+                    time.sleep(0.2)
+            recorded += 1
+            entry["returncode"] = child.returncode
             entry["end_to_end_wall_seconds"] = time.monotonic() - attempt_started
             recording_summary = directory / "recording/summary.json"
             if recording_summary.is_file():
@@ -358,7 +473,7 @@ def main(default_task="drawer_cycle"):
                 entry["status"] = "cancelled"
                 report["status"] = "cancelled"
                 return 1
-            if result.returncode != 0:
+            if child.returncode != 0:
                 entry["status"] = "recording_or_task_failed"
                 save()
                 print(
@@ -368,7 +483,7 @@ def main(default_task="drawer_cycle"):
                     flush=True,
                 )
                 # Infrastructure failures must be investigated, not retried forever.
-                if result.returncode not in (0, 1) or not entry.get("task_result"):
+                if child.returncode not in (0, 1) or not entry.get("task_result"):
                     raise RuntimeError(
                         f"Recording infrastructure failed; see {directory}"
                     )
@@ -379,6 +494,12 @@ def main(default_task="drawer_cycle"):
             try:
                 validation_started = time.monotonic()
                 validation = validate_recording(episode, args.task)
+                if scene.get("randomize_overview_camera"):
+                    validation["overview_camera"] = validate_episode_overview_camera(
+                        episode, entry["overview_camera"])
+                if pool is not None:
+                    validation["layout_randomization"] = validate_episode_layout(
+                        episode, entry["layout_randomization"])
                 entry["validation_wall_seconds"] = time.monotonic() - validation_started
             except Exception as exc:
                 entry["status"] = "validation_failed"
@@ -416,6 +537,25 @@ def main(default_task="drawer_cycle"):
         report["error"] = f"{type(exc).__name__}: {exc}"
         raise
     finally:
+        if child is not None and child.poll() is None:
+            args.cancel_file.write_text("collector stopping", encoding="utf-8")
+            try:
+                child.wait(120)
+            except subprocess.TimeoutExpired:
+                import psutil
+                try:
+                    descendants = psutil.Process(child.pid).children(recursive=True)
+                except psutil.NoSuchProcess:
+                    descendants = []
+                for process in reversed(descendants):
+                    try:
+                        process.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                child.kill()
+                child.wait(10)
+        if renderer is not None:
+            renderer.close()
         if probe is not None:
             probe.close()
         save()

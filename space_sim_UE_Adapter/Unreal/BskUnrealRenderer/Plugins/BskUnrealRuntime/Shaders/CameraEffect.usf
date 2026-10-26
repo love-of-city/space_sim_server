@@ -1,0 +1,24 @@
+#include "/Engine/Private/Common.ush"
+Texture2D SourceTexture;
+SamplerState SourceSampler;
+float2 OutputSize;
+float HalfFov;
+uint Fisheye;
+
+void MainPS(float4 Position : SV_POSITION, float2 UV : TEXCOORD0, out float4 Color : SV_Target0)
+{
+    float2 SampleUV = UV;
+    if (Fisheye != 0)
+    {
+        // Circular equidistant lens: r = f * theta. Inverse-map rays to a
+        // square perspective render with the same angular aperture (<180°).
+        float2 Q = (UV - 0.5) * OutputSize / (0.5 * min(OutputSize.x, OutputSize.y));
+        float R = length(Q);
+        if (R > 1.0) { Color = float4(0, 0, 0, 1); return; }
+        float Scale = R > 0.00001 ? tan(R * HalfFov) / (R * tan(HalfFov)) : HalfFov / tan(HalfFov);
+        SampleUV = 0.5 + 0.5 * Q * Scale;
+    }
+    float3 RGB = Texture2DSample(SourceTexture, SourceSampler, SampleUV).rgb;
+    if (Fisheye == 0) RGB = dot(RGB, float3(0.2126, 0.7152, 0.0722)).xxx;
+    Color = float4(RGB, 1);
+}

@@ -20,7 +20,16 @@ class PlugProfile:
 
     @property
     def instruction(self):
-        return f"跟踪并抓取{self.label}，搬到前方对应装配孔，对准后插入，松爪撤离并确认保持就位。"
+        name = {
+            "aviation": "aviation connector",
+            "guide": "guide plug",
+            "cylindrical": "cylindrical plug",
+        }[self.prefix]
+        return (
+            f"Track and grasp the {name}, then move it to the matching assembly hole "
+            "on the workbench. Align and insert it fully, release it, "
+            "and retract the gripper. Ensure the plug remains seated."
+        )
 
 
 PLUG_PROFILES = {

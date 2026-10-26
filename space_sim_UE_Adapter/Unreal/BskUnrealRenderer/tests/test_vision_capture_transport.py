@@ -1,5 +1,6 @@
 """Independent vision requests preserve exact source frames without an episode."""
 import json
+import math
 from unittest.mock import patch
 
 import pytest
@@ -78,13 +79,16 @@ def test_vision_and_legacy_reliable_frames_share_ordered_fifo():
     assert [json.loads(publisher._strict_frames.get_nowait()[4:])["frame_id"] for _ in range(4)] == ["0", "1", "2", "3"]
 
 
-def test_vision_camera_descriptor_defaults_and_calibration_fields():
+@pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome"])
+def test_vision_camera_descriptor_defaults_and_calibration_fields(mode):
     legacy = CameraVisual("legacy").to_payload()
     assert legacy["capture_consumer"] == "dataset"
     assert legacy["exposure_time_s"] == legacy["aperture_fnumber"] == 0.0
     vision = CameraVisual("left", capture_consumer="vision", exposure_time_s=.002,
-                          aperture_fnumber=4, resolution=(1920, 1200), capture_rate_hz=10).to_payload()
+                          aperture_fnumber=4, resolution=(1920, 1200), capture_rate_hz=10,
+                          camera_mode=mode, field_of_view_rad=math.radians(160)).to_payload()
     assert vision["capture_consumer"] == "vision"
+    assert vision["camera_mode"] == mode
     assert vision["exposure_time_s"] == .002
     assert vision["aperture_fnumber"] == 4
 

@@ -12,7 +12,27 @@
 
 任务菜单提供四个独立任务：抽屉完整循环，以及航空插头、导向插头、圆柱插头各自的拿取与插入。每条 episode 只包含所选任务，不串行操作多个插头。抽屉流程为接近、抓取、抽出、放回、松爪、撤离和最终闭合检查。插头流程为跟踪接近、抓取、提起、搬运到前方对应 40.5 mm 装配孔、对准插入、松爪撤离和就位检查。默认关闭运动/观测/六维力噪声和环境随机化；新建采集批次时可分别启用并配置参数。初始化默认使用项目操作姿态，加六轴独立 ±10° 均匀偏移，支持独立关闭；每次先通过模型关节限位和碰撞检查。配置语义见下方“可配置噪声与随机化”。
 
-录制频率沿用 400 Hz 动力学、100 Hz 在线 IK、50 Hz 状态/动作/图像与独立 200 Hz 六维力，两个相机均为 1024×1024。数据仍使用 LeRobot v3、七维 state/action（六轴+夹爪0–1）、原始诊断和力数据 sidecar，不替换采集器、不重采样。
+录制频率沿用 400 Hz 动力学、100 Hz 在线 IK、50 Hz 状态/动作/图像与独立 200 Hz 六维力，两个相机均为 1024×1024。数据使用 LeRobot v3、七维 state/action（六轴+夹爪0–1），默认 compact 保存及独立力数据 sidecar，不替换采集器、不重采样。
+
+脚本任务以 200 Hz 更新关节参考，绕过在线遥操作 IK；100 Hz 是在线 IK 的默认配置，不是脚本策略频率。场景保存的 J2/点质量引力及显式大气阻力配置也应用到脚本动力学。
+
+脚本录制入口每次启动读取 `config/recording.json`，使用其中的原始照片开关、视频编码设置和帧数上限。自动任务要求 50 Hz、总览与腕部双相机 RGB；不兼容的配置会在启动前报错，不会静默覆盖。显式启动自动采集会开启该独立场景的权威采集，不受手动场景默认开关影响。默认 `max_frames=18000` 对应 360 秒仿真时间，达到上限会报错，较长任务须提前提高此值。
+
+`save_raw_camera_images=false` 时不要求 `cameras/` 文件；验收仍检查双相机清单与状态的帧号、会话、时间戳配对，并完整解码两路 LeRobot 视频、检查帧数和时间间隔。旧记录和开启照片保存的记录仍校验原始图片。非流式编码可能产生 LeRobot 自身的临时图片，不等同于外层 `cameras/` 审计副本。
+
+默认 `storage_profile="compact"`：LeRobot 主表保留数值特征；相机、任务和在轨上下文改存压缩 Parquet sidecar，200 Hz 力独立保存。默认不写重复的 `steps.jsonl`、`captures.jsonl` 和 `observation.platform_json`。`save_dynamics_trace=false` 关闭自动录制的全量动力学调试 trace；阶段事件和摘要保留。查看器和验收兼容旧诊断格式，详见 [精简保存格式](COMPACT_RECORDING.md)。独立 `run_scripted_task.py` 的诊断入口仍默认保存 trace，可用 `--no-save-trace` 关闭。
+
+从服务端子目录运行脚本（解释器按本机环境调整；输出目录必须是新目录）：
+
+```powershell
+& ..\.venv\Scripts\python.exe tools\collect_drawer_cycles.py `
+  --scene run\scenes\<scene-id>.json `
+  --output run\drawer-batch-001 --count 1 --max-attempts 3 --seed 20261016
+```
+
+`collect_drawer_cycles.py` 负责随机初始化、碰撞预检查、重试和完整验收；`record_drawer_task.py` 录制单次抽屉或插头任务；`run_scripted_task.py` 单独运行时只输出动力学诊断，没有训练视频。网页批量任务支持抽屉完整循环和三种独立插头任务；共用 `collect_scripted_tasks.py` 的验收逻辑。
+
+流式编码、原生几何计算、配置覆盖和测速口径见 [单机采集性能](COLLECTION_PERFORMANCE.md)。单条摘要记录启动、录制、收尾和总时间，不能将正式录制倍率当成包含启动与验收的全流程倍率。
 
 ## 抽屉分段速度（2026-10-18）
 

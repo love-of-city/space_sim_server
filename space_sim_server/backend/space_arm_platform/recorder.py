@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from .dataset_worker import DatasetWriterService
+from .recording_config import VideoEncodingConfig
 from .sampling import sample_tick
 from .models import AppliedAction, EpisodeStart, EpisodeStop, SimulationObservation
 
@@ -18,12 +19,19 @@ class EpisodeRecorder:
     MAX_WRITE_JOBS = 512
     MAX_WRITE_BYTES = 128 * 1024 * 1024
 
-    def __init__(self, root: str | Path, *, drain_timeout_s: float = 10., writer_factory=None) -> None:
+    def __init__(self, root: str | Path, *, drain_timeout_s: float = 10., writer_factory=None,
+                 save_raw_camera_images: bool = False, video_encoding: VideoEncodingConfig | None = None,
+                 storage_profile: str = "diagnostic") -> None:
         self.root = Path(root).resolve()
+        if storage_profile not in ("compact", "diagnostic"):
+            raise ValueError("Unknown storage profile")
+        self._storage_profile = storage_profile
+        self._save_raw_camera_images = save_raw_camera_images
+        self._video_encoding = video_encoding or VideoEncodingConfig()
         self._drain_timeout_s = drain_timeout_s
         # Injection supports focused tests; production always uses the isolated process.
         self._writer_factory = writer_factory
-        self._service = DatasetWriterService() if writer_factory is None else None
+        self._service = DatasetWriterService(video_encoding=self._video_encoding, storage_profile=storage_profile) if writer_factory is None else None
         self._lock = threading.RLock()
         self._write_condition = threading.Condition(self._lock)
         self._prepare_lock = threading.Lock()
@@ -102,11 +110,17 @@ class EpisodeRecorder:
             directory = self.root / episode_id
             dataset = (self._service.writer(directory / "lerobot", request) if self._service
                        else self._writer_factory(directory / "lerobot", request))
-            (directory / "cameras").mkdir(parents=True, exist_ok=False)
+            directory.mkdir(parents=True, exist_ok=True)
+            if self._save_raw_camera_images:
+                (directory / "cameras").mkdir(exist_ok=False)
             metadata = {
                 "schema": "space-arm-episode/2", "dataset_format": "lerobot-v3", "dataset_path": "lerobot",
                 "dataset_fps": request.fps, "dataset_camera_ids": request.camera_ids,
                 "capture_on_demand": capture_on_demand,
+                "raw_camera_images_saved": self._save_raw_camera_images,
+                "storage_profile": self._storage_profile,
+                "dataset_max_frames": request.max_frames,
+                "video_encoding": self._video_encoding.model_dump(mode="json"),
                 "dataset_capture_products": request.capture_products, "dataset_status": "recording",
                 "episode_id": episode_id, "status": "recording", "created_wall_time_ns": str(time.time_ns()),
                 **{k: getattr(request, k) for k in ("task", "task_id", "instruction", "operator",
@@ -347,7 +361,7 @@ class EpisodeRecorder:
             self._actions[action.server_sequence] = action
             while len(self._actions) > 4096:
                 self._actions.pop(next(iter(self._actions)))
-            if self._episode_dir is not None and not self._stopping and not self._capture_cutoff:
+            if self._storage_profile == "diagnostic" and self._episode_dir is not None and not self._stopping and not self._capture_cutoff:
                 self._enqueue_locked("jsonl", (self._episode_dir / "actions.jsonl",
                     {"record_wall_time_ns": str(time.time_ns()), **action.model_dump(mode="json")}))
 
@@ -385,10 +399,11 @@ class EpisodeRecorder:
             if action is not None and action.reset_generation != observation.reset_generation:
                 action = None
             self._accept_dataset_observation(observation)
-            self._enqueue_locked("jsonl", (self._episode_dir / "steps.jsonl", {
-                "schema": "space-arm-step/1", "episode_id": self._episode_id, "step_id": observation.step_id,
-                "render_frame_id": frame_id, "record_wall_time_ns": str(time.time_ns()),
-                "observation": observation.model_dump(mode="json"), "applied_action": action.model_dump(mode="json") if action else None}))
+            if self._storage_profile == "diagnostic":
+                self._enqueue_locked("jsonl", (self._episode_dir / "steps.jsonl", {
+                    "schema": "space-arm-step/1", "episode_id": self._episode_id, "step_id": observation.step_id,
+                    "render_frame_id": frame_id, "record_wall_time_ns": str(time.time_ns()),
+                    "observation": observation.model_dump(mode="json"), "applied_action": action.model_dump(mode="json") if action else None}))
             pending = self._pending_captures.pop(frame_id, [])
             self._pending_capture_count -= len(pending)
             for metadata, products in pending:
@@ -477,14 +492,17 @@ class EpisodeRecorder:
         self._capture_index += 1
         sequence = self._safe_name(str(metadata.get("capture_sequence", self._capture_index)))
         descriptors = {str(p.get("name")): p for p in metadata.get("products", []) if isinstance(p, dict)}
+        audit_products = products if self._save_raw_camera_images else {}
         files = {name: "cameras/" + self._safe_name(camera) + "/" + sequence + "_" +
                  Path(str(descriptors.get(name, {}).get("file_name", f"{sequence}_{name}.bin"))).name
-                 for name in products}
+                 for name in audit_products}
         row = {"schema": "space-arm-authoritative-capture/2", "episode_id": self._episode_id,
                "capture_id": str(self._capture_index), "step_id": step_id, "source_frame_id": frame_id,
                "sim_time_ns": stamp, "authoritative_state": True, "record_wall_time_ns": str(time.time_ns()),
                "metadata": metadata, "files": files}
-        self._enqueue_locked("capture", (self._episode_dir, row, products), sum(len(b) for b in products.values()))
+        if self._storage_profile == "diagnostic" or self._save_raw_camera_images:
+            self._enqueue_locked("capture", (self._episode_dir, row, audit_products),
+                                 sum(len(b) for b in audit_products.values()))
         if not self._dataset_error and frame_id in self._dataset_observations and camera in self._dataset.cameras:
             self._dataset_captures.setdefault(frame_id, {})[camera] = (metadata, products)
             self._flush_dataset_samples()

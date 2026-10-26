@@ -11,6 +11,11 @@
   "Installed": false,
   "Modules": [
     {
+      "Name": "BskCameraShaders",
+      "Type": "Runtime",
+      "LoadingPhase": "PostConfigInit"
+    },
+    {
       "Name": "BskUnrealRuntime",
       "Type": "Runtime",
       "LoadingPhase": "Default"

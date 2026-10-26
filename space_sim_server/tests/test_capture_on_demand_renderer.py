@@ -14,6 +14,7 @@ pytestmark = pytest.mark.skipif(os.environ.get("SPACE_SIM_UE_CAPTURE_SMOKE") != 
 
 def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
     from space_arm_platform.capture_receiver import CaptureReceiver
+    from space_arm_platform.unreal_runtime import unreal_editor
     from PIL import Image
     import io
     import numpy as np
@@ -28,8 +29,7 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
     unreal_root = os.environ.get("UE56_ROOT")
     if not unreal_root:
         pytest.skip("set UE56_ROOT to the UE 5.6 installation for this opt-in smoke test")
-    editor = Path(unreal_root)/"Engine/Binaries/Win64/UnrealEditor-Cmd.exe"
-    if not editor.is_file(): pytest.skip("UE 5.6 renderer not installed at UE56_ROOT")
+    editor = unreal_editor(Path(unreal_root))
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         render_port = reservation.getsockname()[1]
@@ -50,12 +50,19 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
             f"-AbsLog={tmp_path/'ue.log'}"]
         if os.environ.get('SPACE_SIM_SYNCHRONOUS_CAPTURE') == '1':
             args.append('-BskSynchronousCapture')
-        startup = subprocess.STARTUPINFO()
-        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startup.wShowWindow = 0
+        startup_options = {}
+        if os.name == "nt":
+            startup = subprocess.STARTUPINFO()
+            startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startup.wShowWindow = 0
+            startup_options = dict(startupinfo=startup, creationflags=subprocess.CREATE_NO_WINDOW)
         process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            startupinfo=startup, creationflags=subprocess.CREATE_NO_WINDOW)
-        deadline = time.monotonic()+60
+            **startup_options)
+        # Cold Linux shader compilation can exceed a minute. Keep the normal
+        # bound while allowing deployment acceptance to budget a cold start.
+        startup_timeout = float(os.environ.get("SPACE_SIM_UE_STARTUP_TIMEOUT", "60"))
+        assert 0 < startup_timeout <= 1800
+        deadline = time.monotonic()+startup_timeout
         while True:
             assert process.poll() is None, (tmp_path/"ue.log").read_text(encoding="utf-8", errors="replace")
             try:

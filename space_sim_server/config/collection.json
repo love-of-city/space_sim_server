@@ -1,0 +1,21 @@
+{
+  "workers": [
+    {"gpu_index": 0, "cpu_affinity": [], "math_threads": 1},
+    {"gpu_index": 0, "cpu_affinity": [], "math_threads": 1}
+  ],
+  "episodes_per_worker": 2,
+  "max_attempts_per_worker": 4,
+  "seed": 2026101900,
+  "range_deg": 10.0,
+  "randomize_orbit_phase": true,
+  "randomize_overview_camera": true,
+  "layout_pool": null,
+  "port_base": 21000,
+  "offline": true,
+  "reuse_renderer": true,
+  "warmup_seconds": 5.0,
+  "reuse_warmup_seconds": 5.0,
+  "recording_config": "recording.json",
+  "sample_seconds": 3.0,
+  "worker_timeout_seconds": 7200.0
+}

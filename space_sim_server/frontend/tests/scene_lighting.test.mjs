@@ -67,3 +67,36 @@ test("legacy catalog supplies default one without replacing zero",async()=>{
   h.ctx.apiRequest=async()=>({ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{sunlight_intensity_scale:0}})});
   await h.ctx.loadSceneCatalog();assert.equal(h.$("sceneSunlightIntensity").value,"0");
 });
+
+test("wrist camera selection is submitted, restored and locked for an active scene",async()=>{
+  for(const mode of ["rgb","fisheye","monochrome"]){
+    const h=setup();h.$("sceneWristCameraMode").value=mode;
+    await h.ctx.startScene();
+    assert.equal(JSON.parse(h.requests[0].options.body).wrist_camera_mode,mode);
+    vm.runInContext(applySource,h.ctx);
+    h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"s1",randomization:{},wrist_camera_mode:mode}});
+    assert.equal(h.$("sceneWristCameraMode").value,mode);
+    assert.equal(h.$("sceneWristCameraMode").disabled,true);
+    assert.equal(JSON.parse(h.$("sceneParameters").textContent).wrist_camera_mode,mode);
+    h.ctx.applySceneRuntime({phase:"idle",active:false});
+    assert.equal(h.$("sceneWristCameraMode").disabled,false);
+  }
+  const h=setup();vm.runInContext(applySource,h.ctx);
+  h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"legacy",randomization:{}}});
+  assert.equal(h.$("sceneWristCameraMode").value,"rgb");
+});
+
+test("overview randomization is submitted and restored without reselecting an active camera",async()=>{
+  const h=setup();h.$("sceneRandomizeOverviewCamera").checked=true;
+  await h.ctx.startScene();
+  assert.equal(JSON.parse(h.requests[0].options.body).randomize_overview_camera,true);
+  vm.runInContext(applySource,h.ctx);
+  const camera={preset_id:"P4",label:"+Y 内侧安装点 · 30 cm",position_body_m:[-.10,.58,.30]};
+  h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"s1",randomization:{},template_id:"sarm-task-box-20261012",randomize_overview_camera:true,overview_camera:camera}});
+  assert.equal(h.$("sceneRandomizeOverviewCamera").checked,true);
+  assert.equal(h.$("sceneRandomizeOverviewCamera").disabled,true);
+  assert.equal(h.$("sceneInstanceOverviewCamera").textContent,"P4 · +Y 内侧安装点 · 30 cm");
+  assert.deepEqual(JSON.parse(h.$("sceneParameters").textContent).overview_camera,camera);
+  h.ctx.applySceneRuntime({phase:"idle",active:false});
+  assert.equal(h.$("sceneRandomizeOverviewCamera").disabled,false);
+});

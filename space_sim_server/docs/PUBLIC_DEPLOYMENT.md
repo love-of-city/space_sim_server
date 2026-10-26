@@ -1,5 +1,7 @@
 # 一键公网部署（自动 TURN + 隧道入口）
 
+Linux 使用 `./start_deployment.sh`、`./stop_deployment.sh` 和 `./show_deployment_access.sh`，详见 [Linux 一键公网部署](LINUX_DEPLOYMENT.md)。下文 `.cmd` / PowerShell / DPAPI 说明适用于 Windows。
+
 日常只使用根目录的三个入口，不需要再填写域名、服务器 IP、证书或密码：
 
 - **启动**：双击 `start_deployment.cmd`

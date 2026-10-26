@@ -1,0 +1,6 @@
+{
+  "earth_gravity": "j2",
+  "j2_coefficient": 0.001082616,
+  "coefficient_source": "Basilisk 2.11.1 astroConstants.J2_EARTH",
+  "drag": null
+}

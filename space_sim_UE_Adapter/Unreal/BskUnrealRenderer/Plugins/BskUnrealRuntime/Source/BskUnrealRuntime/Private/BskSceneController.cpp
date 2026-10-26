@@ -1,4 +1,5 @@
 #include "BskSceneController.h"
+#include "BskCameraEffects.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #endif
@@ -23,6 +24,7 @@
 #include "Components/MeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Particles/ParticleSystem.h"
 #include "Particles/ParticleSystemComponent.h"
@@ -32,6 +34,8 @@
 #include "Engine/Light.h"
 #include "Engine/PointLight.h"
 #include "Engine/SpotLight.h"
+#include "Engine/SkyLight.h"
+#include "EngineUtils.h"
 #include "Engine/Texture.h"
 #include "Engine/PostProcessVolume.h"
 #include "Engine/Scene.h"
@@ -871,6 +875,7 @@ void ABskSceneController::BeginPlay()
     ConfigureCaptureOutput();
     ConfigurePixelStreamingOutput();
     CreateEnvironment();
+    ConfigureOfflineSkyLighting();
     // Do not start accepting authoritative simulation frames until configured
     // visual overlays have finished async static-mesh compilation. Otherwise
     // the first manifest/frame can stall the game thread while the Basilisk
@@ -1038,7 +1043,7 @@ void ABskSceneController::CapturePreview(const FString& CameraId, USceneCaptureC
     const FVector2D Offset = PreviewOrbitDegrees.FindRef(PixelStreamingIdForCamera(CameraId));
     if (!CameraActor || !Bus || Offset.IsNearlyZero())
     {
-        Capture->CaptureScene();
+        CaptureRgbCamera(CameraId, Capture);
         return;
     }
     // Only the preview component moves, for this capture call. Restore it before
@@ -1053,7 +1058,7 @@ void ABskSceneController::CapturePreview(const FString& CameraId, USceneCaptureC
     const FQuat Pitch(Base.GetRotation().GetRightVector(), FMath::DegreesToRadians(Offset.Y));
     const FQuat Orbit = Yaw * Pitch;
     Capture->SetWorldLocationAndRotation(Center + Orbit.RotateVector(Base.GetLocation()-Center), Orbit * Base.GetRotation());
-    Capture->CaptureScene();
+    CaptureRgbCamera(CameraId, Capture);
     Capture->SetRelativeTransform(Saved);
 }
 
@@ -1625,11 +1630,13 @@ void ABskSceneController::ConfigureCaptureOutput()
 
 void ABskSceneController::ConfigurePixelStreamingOutput()
 {
+    bVideoDiagnostics = FParse::Param(FCommandLine::Get(), TEXT("BskVideoDiagnostics"));
+    // Dataset capture uses its own reliable channel and needs no WebRTC producer.
+    if (FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"))) return;
     if (FParse::Value(FCommandLine::Get(), TEXT("PixelStreamingWebRTCFps="), MaximumStreamingFrameRate))
         MaximumStreamingFrameRate = FMath::Clamp(MaximumStreamingFrameRate, 1, 120);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingURL="), PixelStreamingConnectionUrl);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingBaseId="), PixelStreamingBaseId);
-    bVideoDiagnostics = FParse::Param(FCommandLine::Get(), TEXT("BskVideoDiagnostics"));
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingCameraWidth="), PixelStreamingCameraWidth);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingCameraHeight="), PixelStreamingCameraHeight);
     FParse::Value(FCommandLine::Get(), TEXT("BskPixelStreamingCameraFps="), PixelStreamingCameraRateHertz);
@@ -1704,6 +1711,39 @@ void ABskSceneController::ConfigureFixedRgbExposure(USceneCaptureComponent2D* Ca
         Capture->PostProcessSettings.CameraShutterSpeed = static_cast<float>(1.0 / Definition->ExposureTimeSeconds);
     if (Definition && Definition->ApertureFNumber > 0.0)
         Capture->PostProcessSettings.DepthOfFieldFstop = static_cast<float>(Definition->ApertureFNumber);
+}
+
+void ABskSceneController::CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture)
+{
+    const FBskCameraDefinition* Definition = ManifestCameras.Find(CameraId);
+    if (!Capture || !Capture->TextureTarget || !Definition) return;
+    if (Definition->CameraMode == TEXT("rgb"))
+    {
+        CameraEffectSources.Remove(CameraId);
+        Capture->CaptureScene();
+        return;
+    }
+    // Keep the canonical output target shared by HUD, WebRTC, readback and policy.
+    // Only the scene render writes to the private intermediate texture.
+    UTextureRenderTarget2D* Output = Capture->TextureTarget;
+    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const int32 Side = FMath::Min(4096, FMath::Max(Output->SizeX, Output->SizeY) * 2);
+    const FIntPoint Size = bFisheye ? FIntPoint(Side, Side) : FIntPoint(Output->SizeX, Output->SizeY);
+    UTextureRenderTarget2D* Source = CameraEffectSources.FindRef(CameraId);
+    if (!Source || Source->SizeX != Size.X || Source->SizeY != Size.Y)
+    {
+        Source = NewObject<UTextureRenderTarget2D>(this);
+        Source->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+        Source->bAutoGenerateMips = false;
+        Source->InitAutoFormat(Size.X, Size.Y);
+        ConfigureRgbRenderTarget(Source);
+        Source->UpdateResourceImmediate(true);
+        CameraEffectSources.Add(CameraId, Source);
+    }
+    Capture->TextureTarget = Source;
+    Capture->CaptureScene();
+    Capture->TextureTarget = Output;
+    BskApplyCameraEffect(Source, Output, bFisheye, static_cast<float>(Definition->FieldOfViewRadians));
 }
 
 void ABskSceneController::ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const
@@ -1819,7 +1859,8 @@ void ABskSceneController::UpdatePreviewViewportRendering()
     // In server/offscreen mode a camera subscriber does not need a second full
     // 3D view rendered into an unwatched main viewport. SceneCapture continues
     // independently. Never suppress a local editor/windowed user's viewport.
-    if (PixelStreamingConnectionUrl.IsEmpty() || !FParse::Param(FCommandLine::Get(), TEXT("RenderOffscreen"))
+    if ((PixelStreamingConnectionUrl.IsEmpty() && !FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture")))
+        || !FParse::Param(FCommandLine::Get(), TEXT("RenderOffscreen"))
         || !GEngine || !GEngine->GameViewport) return;
     if (!bManagesViewportRendering)
     {
@@ -2796,6 +2837,7 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
     {
         if (Capture) Capture->Deactivate();
         CameraRenderTargets.Remove(Definition.CameraId);
+        CameraEffectSources.Remove(Definition.CameraId);
         CameraNextCaptureSeconds.Remove(Definition.CameraId);
         CameraNextDataCaptureSimulationNanoseconds.Remove(Definition.CameraId);
         CameraPictureInPictureVisibility.Remove(Definition.CameraId);
@@ -2847,6 +2889,11 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
 
 void ABskSceneController::UpdatePictureInPictureCaptures()
 {
+    // Offline datasets render cameras from authoritative simulation frames.
+    // A zero preview-rate override otherwise falls back to each camera's rate,
+    // rendering hidden HUD thumbnails even though there is no preview consumer.
+    static const bool bOfflineCapture = FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"));
+    if (bOfflineCapture) return;
     if (!GetWorld()) return;
     const double NowSeconds = FPlatformTime::Seconds();
     for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
@@ -2880,6 +2927,7 @@ void ABskSceneController::UpdatePictureInPictureCaptures()
             Request.OriginInertialMeters = PresentationFrame.OriginInertialMeters;
             Request.LocalFromInertial = PresentationFrame.LocalFromInertial;
             Request.Purpose = EBskCapturePurpose::Preview;
+            Request.bWriteToDisk = false;
             Request.bReuseExistingRgbTarget = true;
             Request.bSendToNetwork = true;
             FString Error;
@@ -3088,7 +3136,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 OutError = TEXT("could not create RGB capture resources");
                 return false;
             }
-            Capture->CaptureScene();
+            CaptureRgbCamera(Request.CameraId, Capture);
         }
         return true;
     }
@@ -3107,7 +3155,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 OutError = TEXT("could not create RGB capture resources");
                 return false;
             }
-            if (!Request.bReuseExistingRgbTarget) Capture->CaptureScene();
+            if (!Request.bReuseExistingRgbTarget) CaptureRgbCamera(Request.CameraId, Capture);
             if (bAsyncCaptureEnabled && bAuthoritative)
             {
                 const uint64 Bytes = static_cast<uint64>(Resolution.X) * Resolution.Y * sizeof(FColor) + 65536;
@@ -3178,6 +3226,8 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
     Metadata->SetStringField(TEXT("type"), TEXT("camera_frame"));
     Metadata->SetStringField(TEXT("session_id"), ActiveSessionId);
     Metadata->SetStringField(TEXT("camera_id"), Request.CameraId);
+    Metadata->SetStringField(TEXT("camera_mode"), Definition->CameraMode);
+    Metadata->SetStringField(TEXT("color_model"), Definition->CameraMode == TEXT("monochrome") ? TEXT("monochrome_rgb") : TEXT("rgb"));
     Metadata->SetStringField(TEXT("capture_episode_id"), Request.CaptureEpisodeId);
     Metadata->SetBoolField(TEXT("ack_required"), bAuthoritative);
     Metadata->SetStringField(TEXT("stream_kind"),
@@ -3217,12 +3267,15 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
         MakeShared<FJsonValueNumber>(Resolution.X), MakeShared<FJsonValueNumber>(Resolution.Y)});
 
     const double FovX = Definition->FieldOfViewRadians;
-    const double Fx = 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
+    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const double Fx = bFisheye ? FMath::Min(Resolution.X, Resolution.Y) / FovX
+        : 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
     const double Fy = Fx;
-    const double FovY = 2.0 * FMath::Atan(0.5 * Resolution.Y / Fy);
+    const double FovY = bFisheye ? FovX : 2.0 * FMath::Atan(0.5 * Resolution.Y / Fy);
     TSharedPtr<FJsonObject> Intrinsics = MakeShared<FJsonObject>();
-    Intrinsics->SetStringField(TEXT("model"), TEXT("pinhole"));
-    Intrinsics->SetStringField(TEXT("distortion_model"), TEXT("none"));
+    Intrinsics->SetStringField(TEXT("model"), bFisheye ? TEXT("equidistant_fisheye") : TEXT("pinhole"));
+    Intrinsics->SetStringField(TEXT("distortion_model"), bFisheye ? TEXT("equidistant") : TEXT("none"));
+    if (bFisheye) Intrinsics->SetNumberField(TEXT("valid_circle_radius_px"), 0.5 * FMath::Min(Resolution.X, Resolution.Y));
     Intrinsics->SetNumberField(TEXT("fx_px"), Fx);
     Intrinsics->SetNumberField(TEXT("fy_px"), Fy);
     Intrinsics->SetNumberField(TEXT("cx_px"), 0.5 * (Resolution.X - 1));
@@ -3515,6 +3568,25 @@ void ABskSceneController::AttachManifestChildren()
         AActor* Parent = Pair.Value.ParentId.IsEmpty() ? nullptr : BoundActors.FindRef(Pair.Value.ParentId);
         if (Actor && Parent) Actor->AttachToActor(Parent, FAttachmentTransformRules::KeepRelativeTransform);
     }
+}
+
+void ABskSceneController::ConfigureOfflineSkyLighting()
+{
+#if PLATFORM_LINUX
+    if (!FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture")) || !GetWorld()) return;
+    // Captured-scene sky lighting triggers progressive render hitches in the
+    // Linux UE 5.6 offscreen orbital scene, including without real-time capture.
+    // Use the established direct-sun lighting for offline datasets. Keep clouds,
+    // shadows, camera quality and interactive sky lighting configured as before.
+    for (TActorIterator<ASkyLight> It(GetWorld()); It; ++It)
+    {
+        USkyLightComponent* Sky = It->GetLightComponent();
+        if (!Sky || Sky->SourceType != SLS_CapturedScene) continue;
+        Sky->SetRealTimeCapture(false);
+        Sky->SetVisibility(false);
+        UE_LOG(LogBskUnreal, Display, TEXT("Linux offline capture: disabled captured-scene sky light; direct sunlight and scene captures remain enabled"));
+    }
+#endif
 }
 
 void ABskSceneController::ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame)

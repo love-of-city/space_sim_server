@@ -7,7 +7,8 @@ import zlib
 
 import pytest
 
-from space_arm_platform.models import SimulationObservation
+from simulation.gyroscope import Gyroscope
+from space_arm_platform.models import GyroObservation, SimulationObservation
 from space_arm_platform.policy_observation import PolicyObservationCache, observation_identity
 
 
@@ -92,6 +93,34 @@ def cache():
     value.begin(LEASE)
     yield value
     value.end()
+
+
+@pytest.mark.parametrize("saturated", [False, True])
+def test_service_gyro_preserves_measurement_timestamp_and_cache_ownership(cache, saturated):
+    sensor = Gyroscope(seed=7)
+    sensor.sample(0, [0.0] * 3)
+    reading = sensor.sample(TICK_NS, [.01, -.02, .7 if saturated else .03])
+    observation = state(frame="2", stamp=str(2 * TICK_NS))
+    observation.service_gyro = GyroObservation.model_validate(reading)
+    complete(cache, observation)
+
+    result = cache.get(identity(observation))
+    assert result["service_gyro"] == reading
+    assert result["service_gyro"]["valid"] is not saturated
+    assert result["service_gyro"]["sample_time_ns"] != result["sim_time_ns"]
+    result["service_gyro"]["angular_velocity_body_rad_s"][0] = 900
+    observation.service_gyro.error_variance_rad2_s2[0] = 900
+    assert cache.get(identity(observation))["service_gyro"] == reading
+
+
+@pytest.mark.parametrize("explicit_null", [False, True])
+def test_service_gyro_is_null_for_disabled_or_legacy_observations(cache, explicit_null):
+    payload = state().model_dump()
+    if not explicit_null:
+        payload.pop("service_gyro")
+    observation = SimulationObservation.model_validate(payload)
+    complete(cache, observation)
+    assert cache.get(identity(observation))["service_gyro"] is None
 
 
 @pytest.mark.parametrize("order", [("state", 0, 1), (1, 0, "state"), (0, "state", 1)])

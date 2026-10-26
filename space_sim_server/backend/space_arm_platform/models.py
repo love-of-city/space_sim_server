@@ -14,6 +14,7 @@ from .control_defaults import (
     MIN_DYNAMICS_STEP_S, MAX_DYNAMICS_STEP_S,
 )
 from .scene_targets import DEFAULT_TEMPLATE
+from .orbital_physics import OrbitalPhysics
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
 
 
@@ -404,6 +405,11 @@ class EpisodeStop(BaseModel):
 class SceneInstanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    wrist_camera_mode: Literal["rgb", "fisheye", "monochrome"] = "rgb"
+    randomize_overview_camera: bool = Field(default=False, strict=True)
+
+    orbital_physics: OrbitalPhysics = Field(default_factory=OrbitalPhysics)
+
     template_id: str = DEFAULT_TEMPLATE
     randomization_profile: str = DEFAULT_RANDOMIZATION_PROFILE
     randomize_orbit_phase: bool = Field(
@@ -434,6 +440,10 @@ class SceneInstanceCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dataset_sampling(self):
+        if self.randomize_overview_camera:
+            from .overview_camera import TEMPLATES
+            if self.template_id not in TEMPLATES:
+                raise ValueError("全局相机随机机位仅支持完整 20261012 SARM 操作台模板")
         ik_step_stride(self.ik_rate_hz)
         if self.dataset_capture and self.capture_rate_hz not in LIVE_CAPTURE_FPS:
             raise ValueError(f"LeRobot capture FPS must be representable by the dynamics and render clocks: {LIVE_CAPTURE_FPS}")

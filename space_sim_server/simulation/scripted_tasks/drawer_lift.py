@@ -115,7 +115,7 @@ class DrawerLiftTask:
         drawer_rotation = quaternion_wxyz_to_matrix(
             np.fromstring(drawer.get("quat", "1 0 0 0"), sep=" ")
         )
-        if not np.allclose(drawer_rotation, np.diag([-1.0, 1.0, -1.0])):
+        if not np.allclose(drawer_rotation[:, 2], [0., 0., -1.]):
             raise ValueError(
                 "Unsupported drawer orientation; recalibrate the grasp pose"
             )

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from space_arm_platform.app import PlatformConfig, create_app
 from space_arm_platform.models import SceneInstanceCreate
+from space_arm_platform.orbital_physics import OrbitalPhysics
 from space_arm_platform.control_defaults import (
     BALANCED_TELEOP_HOME,
     BALANCED_TELEOP_JOINT_SPANS,
@@ -66,6 +67,7 @@ def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
         "ephemeris_center": _DEFAULT_EPHEMERIS_CENTER,
         "ephemeris_frame": _DEFAULT_EPHEMERIS_FRAME,
         "orbit": _DEFAULT_ORBIT,
+        "physics": OrbitalPhysics().model_dump(mode="json"),
         "lighting": {"sunlight_intensity_scale": 1.0},
     }
 

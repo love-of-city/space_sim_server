@@ -28,6 +28,7 @@ def main():
     p.add_argument("--scene", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--port-base", type=int, default=19760)
+    p.add_argument("--recording-config", type=Path)
     args = p.parse_args()
     if not 0 < args.seconds <= 540:
         p.error("--seconds must be in (0,540]")
@@ -80,6 +81,8 @@ def main():
                     "1",
                 ]
                 if args.mode == "capture":
+                    if args.recording_config:
+                        command += ["--recording-config", str(args.recording_config.resolve())]
                     port = args.port_base + index * 10
                     command += [
                         "--episodes-root",
@@ -183,6 +186,10 @@ def main():
                         recording_wall_seconds=summary.get("recording_wall_seconds"),
                     )
                     if args.mode == "capture":
+                        for key in ("startup_wall_seconds", "finalization_wall_seconds",
+                                    "capture_and_finalize_wall_seconds", "recorded_sim_seconds",
+                                    "recording_realtime_factor", "capture_and_finalize_realtime_factor"):
+                            result[key] = summary.get(key)
                         episode = summary.get("episode", {})
                         result.update(
                             episode_id=summary.get("episode_id"),

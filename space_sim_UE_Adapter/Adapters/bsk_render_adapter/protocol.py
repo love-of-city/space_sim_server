@@ -302,6 +302,9 @@ class RenderPublisher:
                 try:
                     connection = socket.create_connection((self.host, self.port), timeout=1.0)
                     connection.settimeout(2.0)
+                    # Frame boundaries are latency-sensitive; delayed ACKs must
+                    # not hold the next authoritative state in Nagle's buffer.
+                    connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     self._receive_buffer.clear()
                     connection_generation = -1
                     self.stats.reconnects += 1

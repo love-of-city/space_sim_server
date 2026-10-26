@@ -247,7 +247,7 @@ function Receive-DeploymentFile([string]$Uri, [string]$Destination, [int]$Timeou
         $null=$response.EnsureSuccessStatusCode()
         $inputStream=$response.Content.ReadAsStreamAsync($cancel.Token).GetAwaiter().GetResult()
         $outputStream=[IO.File]::Open($Destination,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-        $inputStream.CopyToAsync($outputStream,81920,$cancel.Token).GetAwaiter().GetResult()
+        $null = $inputStream.CopyToAsync($outputStream,81920,$cancel.Token).GetAwaiter().GetResult()
     } finally {
         if($outputStream){$outputStream.Dispose()}; if($inputStream){$inputStream.Dispose()}; if($response){$response.Dispose()}
         $cancel.Dispose(); $client.Dispose(); $handler.Dispose()

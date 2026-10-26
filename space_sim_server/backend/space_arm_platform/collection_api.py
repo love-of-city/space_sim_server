@@ -10,6 +10,8 @@ from .control_defaults import DEFAULT_OPERATING_JOINT_DEG, ZERO_START_TELEOP_PRO
 from .dataset_view import Store
 from .models import SceneInstanceCreate
 from .collection_randomization import randomization_catalog
+from .collection_layouts import LayoutPool
+from .overview_camera import overview_camera_catalog
 from .scene_runtime import SceneRuntimeManager
 from .sampling import DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, WRENCH_HZ
 
@@ -41,6 +43,14 @@ def install_collection_routes(app, config, scenes, current_user):
 
     @router.get("/collections/catalog")
     def catalog():
+        layout = dict(available=False, count=0, description="尚未配置随机布局池")
+        if manager.layout_pool is not None:
+            try:
+                pool = LayoutPool(manager.layout_pool)
+                layout.update(available=True, count=len(pool.document["layouts"]),
+                              description="逐条随机选择布局；13 个安装单元独立移动，可含台面内朝向变化；机构初始状态保持。")
+            except (ValueError, OSError, KeyError) as error:
+                layout["description"] = f"布局池未通过校验：{error}"
         return dict(
             tasks=[
                 dict(id=key, label=task.label, description=task.description)
@@ -55,6 +65,8 @@ def install_collection_routes(app, config, scenes, current_user):
             ),
             cameras=dict(count=2, width=1024, height=1024),
             randomization_options=randomization_catalog(),
+            layout_randomization=layout,
+            overview_camera_randomization=overview_camera_catalog(),
             wrist_wrench_noise=False,
             disturbances_enabled=False,
             lighting_randomized=False,

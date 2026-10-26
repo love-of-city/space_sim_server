@@ -11,8 +11,9 @@ from space_arm_platform.models import (
 from space_arm_platform.recorder import EpisodeRecorder
 
 
-def test_episode_records_actions_states_and_capture_products(tmp_path) -> None:
-    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.01)
+@pytest.mark.parametrize("save_raw_camera_images", [False, True])
+def test_episode_records_actions_states_and_capture_products(tmp_path, save_raw_camera_images) -> None:
+    recorder = EpisodeRecorder(tmp_path, drain_timeout_s=.01, save_raw_camera_images=save_raw_camera_images)
     metadata = recorder.start(EpisodeStart(instruction="抓取测试", camera_ids=[]))
     action = AppliedAction(
         episode_id=metadata["episode_id"],
@@ -61,8 +62,13 @@ def test_episode_records_actions_states_and_capture_products(tmp_path) -> None:
     assert closed["capture_sync"] == "complete"
     assert json.loads((directory / "metadata.json").read_text(encoding="utf-8"))["outcome"] == "success"
     assert len((directory / "steps.jsonl").read_text(encoding="utf-8").splitlines()) == 1
-    assert list((directory / "cameras").rglob("*.png"))
+    assert (directory / "cameras").exists() is save_raw_camera_images
+    assert closed["raw_camera_images_saved"] is save_raw_camera_images
     capture = json.loads((directory / "captures.jsonl").read_text(encoding="utf-8"))
+    if save_raw_camera_images:
+        assert (directory / capture["files"]["rgb"]).read_bytes() == b"PNG"
+    else:
+        assert capture["files"] == {}
     assert capture["step_id"] == "7"
     assert capture["source_frame_id"] == "42"
     assert capture["authoritative_state"] is True

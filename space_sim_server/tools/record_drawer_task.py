@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
 
 from space_arm_platform.capture_lifecycle import CaptureLifecycle
+from space_arm_platform.collection_runtime import renderer_command, renderer_environment, check_port_available
 from space_arm_platform.camera_defaults import (
     CAPTURE_CAMERA_WIDTH,
     CAPTURE_CAMERA_HEIGHT,
@@ -28,6 +29,8 @@ from space_arm_platform.camera_defaults import (
 from space_arm_platform.capture_receiver import CaptureReceiver
 from space_arm_platform.models import EpisodeStart, EpisodeStop
 from space_arm_platform.recorder import EpisodeRecorder
+from space_arm_platform.recording_config import load_recording_config
+from space_arm_platform.unreal_runtime import default_unreal_root, unreal_editor
 from space_arm_platform.simulation_hub import SimulationHub
 from space_arm_platform.sampling import (
     DYNAMICS_HZ,
@@ -51,6 +54,16 @@ PROCESS_STARTED = time.monotonic()
 PROCESS_STARTED_AT_NS = time.time_ns()
 
 CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
+
+
+def recording_settings(path=None):
+    settings = load_recording_config(path or ROOT / "config/recording.json")
+    # This task's transport and acceptance contract require paired 50 Hz RGB.
+    if (settings.capture_rate_hz != DEFAULT_CAPTURE_HZ
+            or set(settings.camera_ids) != set(CAMERAS)
+            or settings.capture_products != ["rgb"]):
+        raise ValueError("Scripted collection requires 50 Hz and both RGB cameras in config/recording.json")
+    return settings
 
 
 def scene_copy(source, task="drawer_lift"):
@@ -94,10 +107,17 @@ def validate_episode(result):
 
 
 async def run(args):
+    run_started = time.monotonic()
+    settings = recording_settings(getattr(args, "recording_config", None))
+    if getattr(args, "gpu_index", None) is not None:
+        settings.video = type(settings.video).model_validate(
+            {**settings.video.model_dump(), "gpu_index": args.gpu_index})
     scene = scene_copy(args.scene, args.task)
+    from space_arm_platform.overview_camera import validate_overview_camera
+    validate_overview_camera(scene)
     project = args.adapter / "Unreal/BskUnrealRenderer"
-    editor = args.unreal / "Engine/Binaries/Win64/UnrealEditor-Cmd.exe"
-    catalog = project / "Saved/AssetImport/sarm_20261012.catalog.json"
+    editor = unreal_editor(args.unreal)
+    catalog = (getattr(args, "catalog", None) or project / "Saved/AssetImport/sarm_20261012.catalog.json").resolve()
     for path in (editor, project / "BskUnrealRenderer.uproject", catalog):
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -110,19 +130,36 @@ async def run(args):
     if len(set(ports)) != len(ports):
         raise ValueError("Isolated ports must be distinct")
     for port in ports:
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", port))
+        if getattr(args, "external_renderer", False) and port == args.render_port:
+            continue
+        check_port_available(port)
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
     prepare_episode(scene)
-    write_model_variant(ROOT / "model/SARM/platform/sarm_20261012.xml", out / "model.xml", scene)
+    source_model = (getattr(args, "model", None) or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
+    if getattr(args, "model", None) is not None:
+        from simulation.task_box_layout import validated_capture_layout
+        placement = validated_capture_layout(source_model, catalog)
+        scene["task_box_layout"] = placement
+        selected = scene.get("collection_config", {}).get("layout_randomization")
+        if selected and selected.get("enabled"):
+            from space_arm_platform.collection_layouts import digest
+            if (digest(source_model) != selected["model_sha256"]
+                    or digest(catalog) != selected["catalog_sha256"]):
+                raise ValueError("Selected collection layout model/catalog changed before recording")
+    write_model_variant(source_model, out / "model.xml", scene)
     scene_path = out / "scene.json"
     scene_path.write_text(
         json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     stop_file = out / "stop.request"
-    recorder = EpisodeRecorder(args.episodes_root.resolve())
+    recorder = EpisodeRecorder(
+        args.episodes_root.resolve(),
+        save_raw_camera_images=settings.save_raw_camera_images,
+        video_encoding=settings.video,
+        storage_profile=settings.storage_profile,
+    )
     hub = SimulationHub()
     lifecycle = CaptureLifecycle(hub, recorder)
 
@@ -142,6 +179,7 @@ async def run(args):
     processes, logs = [], []
     simulation = None
     report = {
+        "recording_settings": settings.model_dump(mode="json"),
         "source_scene": str(args.scene.resolve()),
         "scene_instance": scene,
         "result": "failed",
@@ -150,7 +188,9 @@ async def run(args):
     }
 
     def emit(stage, **values):
-        print(json.dumps({"stage": stage, **values}, ensure_ascii=False), flush=True)
+        elapsed = time.monotonic() - run_started
+        report.setdefault("stage_seconds", {})[stage] = elapsed
+        print(json.dumps({"stage": stage, "elapsed_seconds": elapsed, **values}, ensure_ascii=False), flush=True)
 
     def launch(command, name, env):
         log = (out / (name + ".log")).open("w", encoding="utf-8")
@@ -184,51 +224,10 @@ async def run(args):
         await hub.start("127.0.0.1", args.control_port)
         receiver.start()
         emit("writer_ready", output=str(out))
-        env = os.environ.copy()
-        env["UE-LocalDataCachePath"] = str(project / "Saved/DerivedDataCache")
-        env["PYTHONIOENCODING"] = "utf-8"
-        command = [
-            str(editor),
-            str(project / "BskUnrealRenderer.uproject"),
-            "-game",
-            "-RenderOffscreen",
-            "-ForceRes",
-            f"-ResX={CAPTURE_CAMERA_WIDTH}",
-            f"-ResY={CAPTURE_CAMERA_HEIGHT}",
-            "-BskListen=127.0.0.1",
-            f"-BskPort={args.render_port}",
-            "-BskCaptureHost=127.0.0.1",
-            f"-BskCapturePort={args.capture_port}",
-            f"-BskCaptureRate={DEFAULT_CAPTURE_HZ}",
-            "-BskCaptureProducts=rgb",
-            "-ExecCmds=t.MaxFPS 90,r.VSync 0",
-            "-DDC=InstalledDerivedDataBackendGraph",
-            f"-abslog={out / 'renderer.log'}",
-            f"-PixelStreamingConnectionURL=ws://127.0.0.1:{args.signalling_port}",
-            "-PixelStreamingID=BskScriptedTask",
-            f"-BskPixelStreamingURL=ws://127.0.0.1:{args.signalling_port}",
-            "-BskPixelStreamingBaseId=BskScriptedTask",
-            "-BskPixelStreamingCameras=" + "+".join(CAMERAS),
-            f"-BskPixelStreamingCameraWidth={CAPTURE_CAMERA_WIDTH}",
-            f"-BskPixelStreamingCameraHeight={CAPTURE_CAMERA_HEIGHT}",
-            "-BskPixelStreamingCameraFps=90",
-            "-PixelStreamingWebRTCFps=90",
-            "-PixelStreamingUseMediaCapture=false",
-            "-PixelStreamingWebRTCDisableTransmitAudio=true",
-        ]
-        launch(command, "renderer-process", env)
-        deadline = time.monotonic() + 240
-        while True:
-            check_processes()
-            try:
-                with socket.create_connection(
-                    ("127.0.0.1", args.render_port), timeout=0.1
-                ):
-                    break
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise TimeoutError("UE renderer did not start within 240 seconds")
-                await asyncio.sleep(0.25)
+        env = renderer_environment(args)
+        if not getattr(args, "external_renderer", False):
+            launch(renderer_command(args, out), "renderer-process", env)
+        emit("renderer_launched", reused=getattr(args, "external_renderer", False))
         env["PYTHONPATH"] = os.pathsep.join(
             [str(ROOT), str(ROOT / "backend"), str(args.adapter / "Adapters")]
         )
@@ -255,12 +254,38 @@ async def run(args):
             str(args.max_sim_seconds),
             "--warmup-sim-seconds",
             str(args.warmup_sim_seconds),
+            "--capture-backpressure-poll-s",
+            str(settings.capture_backpressure_poll_s),
         ]
+        if getattr(args, "model", None) is not None:
+            command += ["--model", str(source_model)]
+        if getattr(args, "profile_dynamics", False):
+            command[1:1] = ["-m", "cProfile", "-o", str(out / "dynamics.pstats")]
+        if not settings.save_dynamics_trace:
+            command.append("--no-save-trace")
+        if settings.scripted_native_geometry:
+            command.append("--native-geometry")
         command += motion_arguments(args.task, args.linear_speed)
         if args.substeps is not None:
             command += ["--substeps", str(args.substeps)]
         simulation = launch(command, "simulation", env)
+        # Dynamics initialization and UE startup are independent. The render
+        # publisher already reconnects and retains the manifest/latest idle
+        # frame; require both peers ready before the capture boundary below.
+        deadline = time.monotonic() + 240
+        while True:
+            check_processes()
+            try:
+                with socket.create_connection(
+                    ("127.0.0.1", args.render_port), timeout=0.1
+                ):
+                    break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("UE renderer did not start within 240 seconds")
+                await asyncio.sleep(0.25)
         deadline = time.monotonic() + 180
+        emit("renderer_listening")
         while hub.latest_observation is None:
             check_processes()
             if time.monotonic() > deadline:
@@ -272,6 +297,7 @@ async def run(args):
             raise RuntimeError(
                 "Simulation does not support completion-based capture acknowledgements"
             )
+        emit("first_observation")
         while int(hub.latest_observation.sim_time_ns) < round(
             args.warmup_sim_seconds * 1e9
         ):
@@ -288,20 +314,25 @@ async def run(args):
         if receiver.authoritative_count:
             raise RuntimeError("Idle renderer unexpectedly produced dataset images")
         owner = scene.get("created_by", {})
+        drawer_location = ("drawer" if scene.get("task_box_layout", {}).get("schema") in ("task-box-layout/2", "task-box-layout/3")
+                           else "rightmost drawer")
         info = await lifecycle.start(
             EpisodeStart(
                 fps=DEFAULT_CAPTURE_HZ,
                 camera_ids=CAMERAS,
                 capture_products=["rgb"],
-                max_frames=int(args.max_sim_seconds * DEFAULT_CAPTURE_HZ) + 100,
+                max_frames=settings.max_frames,
                 task="scripted " + args.task,
                 instruction=(
                     plug_profile(args.task).instruction
                     if is_plug_task(args.task)
                     else (
-                        "夹住操作台最右侧抽屉，沿导轨抽出约8厘米并保持，然后放回归位、松开夹爪并撤离，确认抽屉保持关闭。"
+                        f"Grasp the {drawer_location} on the workbench, pull it out approximately 8 cm "
+                        "along its guide rails, and hold it open. Push it fully closed, release it, "
+                        "and retract the gripper. Ensure the drawer remains closed."
                         if args.task == "drawer_cycle"
-                        else "移动至操作台最右侧抽屉上方，转动夹爪、张开、下降夹住抽屉并提起约8厘米。"
+                        else f"Move above the {drawer_location} on the workbench, orient and open the "
+                        "gripper, then lower it to grasp the drawer and lift it approximately 8 cm."
                     )
                 ),
                 operator=owner.get("username", "scripted-task"),
@@ -324,6 +355,7 @@ async def run(args):
             episode_path=report["episode_path"],
         )
         start_wall = last_report = time.monotonic()
+        report["startup_wall_seconds"] = start_wall - run_started
         last_stage = None
         while True:
             check_processes()
@@ -332,7 +364,8 @@ async def run(args):
                 (current.model_extra or {}).get("scripted_task", {}) if current else {}
             )
             if task.get("stage") != last_stage or time.monotonic() - last_report >= 10:
-                emit("task_progress", task=task, sync=recorder.sync_status())
+                emit("task_progress", task=task, sync=recorder.sync_status(),
+                     capture_transport=receiver.status())
                 last_stage, last_report = task.get("stage"), time.monotonic()
             if task.get("result"):
                 report["task"] = task
@@ -344,6 +377,7 @@ async def run(args):
             await asyncio.sleep(0.1)
         report["recording_wall_seconds"] = time.monotonic() - start_wall
         emit("finalizing", task=task, sync=recorder.sync_status())
+        finalizing_started = time.monotonic()
         result = await lifecycle.stop(
             EpisodeStop(
                 outcome="success" if task["result"] == "success" else "failure",
@@ -355,11 +389,19 @@ async def run(args):
             time.monotonic() - start_wall - report["recording_wall_seconds"]
         )
         report["episode"] = result
+        report["finalization_wall_seconds"] = time.monotonic() - finalizing_started
+        report["capture_and_finalize_wall_seconds"] = time.monotonic() - start_wall
         validate_episode(result)
+        report["recorded_sim_seconds"] = (result["dataset_frame_count"] - 1) / DEFAULT_CAPTURE_HZ
+        report["recording_realtime_factor"] = report["recorded_sim_seconds"] / report["recording_wall_seconds"]
+        report["capture_and_finalize_realtime_factor"] = report["recorded_sim_seconds"] / report["capture_and_finalize_wall_seconds"]
         report["result"] = task["result"]
         stop_file.write_text("capture finalized", encoding="utf-8")
         await asyncio.to_thread(simulation.wait, 30)
-        if simulation.returncode != (0 if task["result"] == "success" else 1):
+        # Python's cProfile CLI consumes the target's SystemExit, returning 0
+        # even for a deliberately bounded failed task segment.
+        expected_exit = 0 if task["result"] == "success" or getattr(args, "profile_dynamics", False) else 1
+        if simulation.returncode != expected_exit:
             raise RuntimeError("Simulation did not shut down cleanly")
         report["capture_transport"] = receiver.status()
         emit(
@@ -374,6 +416,8 @@ async def run(args):
         report["error"] = f"{type(error).__name__}: {error}"
         raise
     finally:
+        # Preserve the last render/readback/transport counters on failed runs too.
+        report["capture_transport"] = receiver.status()
         if recorder.episode_id:
             try:
                 report["episode"] = await lifecycle.stop(
@@ -403,6 +447,9 @@ async def run(args):
         await asyncio.to_thread(recorder.close)
         for log in logs:
             log.close()
+        report["total_wall_seconds"] = time.monotonic() - run_started
+        if "recorded_sim_seconds" in report:
+            report["total_realtime_factor"] = report["recorded_sim_seconds"] / report["total_wall_seconds"]
         report["finished_at_ns"] = str(time.time_ns())
         report["end_to_end_wall_seconds"] = time.monotonic() - PROCESS_STARTED
         (out / "summary.json").write_text(
@@ -419,11 +466,13 @@ def main(default_task="drawer_cycle"):
     )
     parser.add_argument("--target-site", default=None)
     parser.add_argument("--scene", type=Path, required=True)
+    parser.add_argument("--model", type=Path, help="Explicit generated placement model; recorded with its layout manifest")
+    parser.add_argument("--catalog", type=Path, help="Asset catalog for a generated model with new geometry")
     parser.add_argument(
         "--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter"
     )
     parser.add_argument(
-        "--unreal", type=Path, default=Path("C:/Program Files/Epic Games/UE_5.6")
+        "--unreal", type=Path, default=default_unreal_root()
     )
     parser.add_argument(
         "--output",
@@ -431,6 +480,11 @@ def main(default_task="drawer_cycle"):
         default=None,
     )
     parser.add_argument("--episodes-root", type=Path, default=ROOT / "data/episodes")
+    parser.add_argument("--recording-config", type=Path, help="Override config/recording.json for an isolated run")
+    parser.add_argument("--offline", action="store_true", help="Disable WebRTC and the unused offscreen viewport")
+    parser.add_argument("--gpu-index", type=int)
+    parser.add_argument("--external-renderer", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--profile-dynamics", action="store_true", help="Diagnostic CPU profile; adds timing overhead")
     parser.add_argument("--control-port", type=int, default=18766)
     parser.add_argument("--capture-port", type=int, default=18767)
     parser.add_argument("--render-port", type=int, default=15558)

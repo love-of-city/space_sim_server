@@ -18,11 +18,14 @@ from Basilisk.utilities import SimulationBaseClass, macros  # noqa: E402
 from simulation.assembly import AssemblyContext, SessionConfig, Slot  # noqa: E402
 from simulation.components.drag import (  # noqa: E402
     AtmosphericDragComponent, DRAG_EVERY, PlateDrag, atmosphere_velocity_n, drag_force_n,
+    configured_drag_components, planet_atmosphere_velocity_n,
 )
 from simulation.local_mujoco_stepper import LocalMujocoStepper, servo_specs  # noqa: E402
 from simulation.physics_ports import PhysicsPorts, PortError  # noqa: E402
 
-DT = 1.0 / 240.0
+from space_arm_platform.sampling import DYNAMICS_HZ
+
+DT = 1.0 / DYNAMICS_HZ
 MJCF = """<mujoco model="drag_test">
   <compiler angle="radian"/>
   <option timestep="0.002" gravity="0 0 0"/>
@@ -162,3 +165,66 @@ def test_drag_refuses_an_unknown_body(model_path):
 
 
 _ = (sysModel, servo_specs, PortError)
+
+
+def earth_message():
+    omega = 7.292115e-5
+    payload = messaging.SpicePlanetStateMsgPayload()
+    payload.J20002Pfix = np.eye(3).tolist()
+    payload.J20002Pfix_dot = [[0, omega, 0], [-omega, 0, 0], [0, 0, 0]]
+    return messaging.SpicePlanetStateMsg().write(payload)
+
+
+def test_spice_atmosphere_velocity_includes_tilt_and_planet_translation():
+    from Basilisk.utilities import RigidBodyKinematics as rbk
+    c = rbk.MRP2C([0.13, -0.07, 0.02])
+    w = np.array([1e-5, 2e-5, 7e-5])
+    skew = np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+    payload = messaging.SpicePlanetStateMsgPayload()
+    payload.J20002Pfix = c.tolist()
+    payload.J20002Pfix_dot = (-c @ skew).tolist()
+    payload.PositionVector = [100, 200, 300]
+    payload.VelocityVector = [10, 20, 30]
+    r = np.array([6.9e6, 2e5, -4e5])
+    expected = np.asarray(payload.VelocityVector) + np.cross(w, r - payload.PositionVector)
+    np.testing.assert_allclose(planet_atmosphere_velocity_n(r, payload), expected, atol=1e-12)
+    payload.J20002Pfix = np.zeros((3, 3)).tolist()
+    with pytest.raises(ValueError, match="orientation"):
+        planet_atmosphere_velocity_n(r, payload)
+
+
+def test_configured_two_body_drag_applies_separate_forces_and_uses_actual_masses(tmp_path):
+    from space_arm_platform.orbital_physics import ExponentialDragSettings
+    path = tmp_path / "drag_pair.xml"
+    path.write_text('''<mujoco><option gravity="0 0 0"/><worldbody>
+      <body name="bus"><freejoint/><geom type="sphere" size=".1" mass="160" contype="0" conaffinity="0"/></body>
+      <body name="target" pos="2 0 0"><freejoint/><geom type="sphere" size=".1" mass="10" contype="0" conaffinity="0"/></body>
+      </worldbody></mujoco>''')
+    simulation, scene, stepper, ctx = build(path, publish_stride=8)
+    planet = earth_message()
+    ctx.ports.set_ephemeris(type("E", (), {"planetStateOutMsgs": [planet, planet]})())
+    # Deliberately elevated synthetic density gives a resolved delta-v in 0.2 s.
+    settings = ExponentialDragSettings(
+        reference_altitude_m=500000., reference_density_kg_m3=1e-9,
+        scale_height_m=60000., density_source="synthetic integration test",
+        bodies=[dict(body="bus", area_m2=.06, drag_coefficient=2.2, parameter_source="test"),
+                dict(body="target", area_m2=.12, drag_coefficient=2.2, parameter_source="test")])
+    components = configured_drag_components(settings, planet_radius_m=6378136.6)
+    ctx.install(components)
+    assert len(set(c.name for c in components)) == 2
+    simulation.InitializeSimulation()
+    for name, offset in (("bus", 0), ("target", 2)):
+        scene.getBody(name).setPosition([6878136.6, 0, offset])
+        scene.getBody(name).setVelocity([0, 7600, 0])
+    simulation.ConfigureStopTime(macros.sec2nano(.2))
+    simulation.ExecuteSimulation()
+    bus, target = (c.telemetry() for c in components)
+    assert bus["density_kg_m3"] == pytest.approx(1e-9, rel=1e-4)
+    assert target["density_kg_m3"] == pytest.approx(1e-9, rel=1e-4)
+    assert bus["force_inertial_n"][1] < 0
+    assert target["force_inertial_n"][1] / bus["force_inertial_n"][1] == pytest.approx(2, rel=1e-4)
+    velocities = [np.asarray(ctx.ports.body_com_state(n).read().v_BN_N) for n in ("bus", "target")]
+    bus_dv, target_dv = (7600 - v[1] for v in velocities)
+    assert bus_dv > 0 and target_dv / bus_dv == pytest.approx(32, rel=1e-3)
+    assert bus["torque_body_nm"] == target["torque_body_nm"] == [0, 0, 0]
+    stepper.close()

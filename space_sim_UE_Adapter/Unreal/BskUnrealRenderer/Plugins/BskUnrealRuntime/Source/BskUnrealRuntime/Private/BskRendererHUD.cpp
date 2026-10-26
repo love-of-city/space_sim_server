@@ -8,6 +8,8 @@
 #include "CanvasItem.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 ABskSceneController* ABskRendererHUD::FindSceneController() const
 {
@@ -105,6 +107,11 @@ void ABskRendererHUD::NotifyHitBoxClick(FName BoxName)
 
 void ABskRendererHUD::DrawHUD()
 {
+    // Offline datasets use the authoritative camera render targets. Avoid
+    // allocating and drawing a viewport text overlay in this mode, including
+    // while the main viewport's world rendering is disabled.
+    static const bool bOfflineCapture = FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"));
+    if (bOfflineCapture) return;
     Super::DrawHUD();
     if (!Canvas || !GetWorld()) return;
     const ABskSceneController* Scene = FindSceneController();

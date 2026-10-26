@@ -100,7 +100,8 @@ test("free-camera UI exposes actual mouse lock even without robot/scene readines
     return nodes.get(id);
   };
   const ctx = vm.createContext({ ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}}, $, state: {freeCameraMode: true, sceneReady: false}, freeCamera: {locked: false}});
-  vm.runInContext(uiSource, ctx);
+  const relativeUi = source.slice(source.indexOf("function updateRelativeViewControl("), source.indexOf("function setFreeCameraMode("));
+  vm.runInContext(relativeUi + uiSource, ctx);
   ctx.updateOperationUI();
   assert.match($("operationHintTitle").textContent, /鼠标未锁定/);
   assert.match($("directControl").textContent, /鼠标未锁定/);

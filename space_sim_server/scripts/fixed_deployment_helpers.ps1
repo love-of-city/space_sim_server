@@ -239,13 +239,13 @@ function Show-FixedAccess([string]$ProjectRoot, [string]$ConfigPath, [switch]$No
     if ($showWindow) {
         Write-Output '访问链接和登录资料在本机凭据窗口查看，不会写入命令行或日志。'
     } else {
-        Write-Output '已按配置跳过凭据窗口（show_access_window=false）。需要时运行 show_deployment_access.cmd。'
+        Write-Output '已按配置跳过凭据窗口（show_access_window=false）。需要时运行 ./scripts/show_public_access.ps1。'
     }
     if ($showWindow -and !$NonInteractive) {
         try {
             $pwsh = (Get-Process -Id $PID).Path
             $null = Start-Process -FilePath $pwsh -ArgumentList @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-STA', '-File', ('"' + (Join-Path $ProjectRoot 'scripts/show_public_access.ps1') + '"'), '-ConfigPath', ('"' + $ConfigPath + '"')) -WindowStyle Hidden
-        } catch { Write-Warning 'Credential window could not open. Run show_deployment_access.cmd to retry; services remain running.' }
+        } catch { Write-Warning 'Credential window could not open. Run ./scripts/show_public_access.ps1 to retry; services remain running.' }
     }
 }
 

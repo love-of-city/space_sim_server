@@ -60,7 +60,7 @@ $lock = $null
 try {
     $lock = [System.IO.File]::Open((Join-Path $runDirectory 'launcher.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
 } catch {
-    Write-Host ('Already starting or running. Open ' + $url + ' or use stop_local_visualization.cmd.')
+    Write-Host ('Already starting or running. Open ' + $url + ' or use ./scripts/local_visualization.ps1 -Action Stop.')
     exit 1
 }
 $script:records = @()
@@ -105,7 +105,7 @@ try {
     if (Test-Path -LiteralPath $statePath) {
         $previous = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         foreach ($record in $previous.processes) {
-            if (Test-RecordedProcess $record) { throw 'A previous component is still running. Run stop_local_visualization.cmd first.' }
+            if (Test-RecordedProcess $record) { throw 'A previous component is still running. Run ./scripts/local_visualization.ps1 -Action Stop first.' }
         }
     }
     . (Join-Path $PSScriptRoot 'platform_paths.ps1')
@@ -193,7 +193,7 @@ try {
     $env:PYTHONUNBUFFERED = '1'
     $simulation = Start-Component 'simulation' $SimulationPython @($scenario,'--model-root',(Join-Path $AdapterRoot 'test\model\spacecraft_and_arm'),'--catalog',$catalog,'--host','127.0.0.1','--port','5558','--duration',([string]$Duration),'--simulation-rate','1') $AdapterRoot
     Write-Host ('Services started. Open ' + $url + ' and log in with your existing account.')
-    Write-Host ('Demo duration: ' + $Duration + ' seconds. The website stays available after the demo finishes. Ctrl+C or stop_local_visualization.cmd stops all components.')
+    Write-Host ('Demo duration: ' + $Duration + ' seconds. The website stays available after the demo finishes. Ctrl+C or ./scripts/local_visualization.ps1 -Action Stop stops all components.')
     Write-Host 'This is a visual demo, not the full control runtime. Backend simulation-disconnected/runtime-unconfigured labels are expected.'
     Write-Host ('Video is NOT verified by port checks. Logs: ' + $logDirectory)
     if (!$NoBrowser) { Start-Process $url }

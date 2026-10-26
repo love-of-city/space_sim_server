@@ -25,7 +25,7 @@
       {
         "parent_id": "teleop/capture_target",
         "geometry_file": "config/visual_attachments/target_aruco_flush_5cm_v2/geometry_metres.json",
-        "sha256": "51024580e81c93014cd3e41264d5568d05547e2ad3026f46324ce47a22cb281c"
+        "sha256": "ea51a2318029449f02d246e03f0ce6ee5e673c9f766541cc3e136344305e9fc0"
       }
     ],
     "vision_capture": {

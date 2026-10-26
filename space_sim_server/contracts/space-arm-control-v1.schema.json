@@ -781,6 +781,17 @@
               "maxItems": 1024,
               "title": "Wrist Wrench Samples",
               "type": "array"
+            },
+            "service_gyro": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GyroObservation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           }
         },
@@ -1446,6 +1457,94 @@
         "torque_nm"
       ],
       "title": "WrenchObservation",
+      "type": "object"
+    },
+    "GyroObservation": {
+      "additionalProperties": false,
+      "description": "Measured inertial body rate; no true attitude or hidden bias in this packet.",
+      "properties": {
+        "sensor_name": {
+          "const": "service_gyro",
+          "title": "Sensor Name",
+          "type": "string"
+        },
+        "body_name": {
+          "const": "cubesat_bus",
+          "title": "Body Name",
+          "type": "string"
+        },
+        "frame": {
+          "const": "spacecraft_body",
+          "title": "Frame",
+          "type": "string"
+        },
+        "reference_frame": {
+          "const": "J2000",
+          "title": "Reference Frame",
+          "type": "string"
+        },
+        "measurement": {
+          "const": "simulated_body_angular_rate",
+          "title": "Measurement",
+          "type": "string"
+        },
+        "sample_rate_hz": {
+          "const": 50,
+          "title": "Sample Rate Hz",
+          "type": "integer"
+        },
+        "sample_time_ns": {
+          "pattern": "^[0-9]+$",
+          "title": "Sample Time Ns",
+          "type": "string"
+        },
+        "angular_velocity_body_rad_s": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Angular Velocity Body Rad S",
+          "type": "array"
+        },
+        "error_variance_rad2_s2": {
+          "items": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Error Variance Rad2 S2",
+          "type": "array"
+        },
+        "saturated_axes": {
+          "items": {
+            "type": "boolean"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Saturated Axes",
+          "type": "array"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sensor_name",
+        "body_name",
+        "frame",
+        "reference_frame",
+        "measurement",
+        "sample_rate_hz",
+        "sample_time_ns",
+        "angular_velocity_body_rad_s",
+        "error_variance_rad2_s2",
+        "saturated_axes",
+        "valid"
+      ],
+      "title": "GyroObservation",
       "type": "object"
     }
   }

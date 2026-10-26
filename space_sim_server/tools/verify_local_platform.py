@@ -65,8 +65,12 @@ def verify_control(client, initial_observation, *, url=URL, access_key=None):
     delta = max(abs(actual - initial) for item in applied
                 for actual, initial in zip(item["target_arm_joint_position_rad"], baseline))
     assert delta > 1e-7, "IK targets did not respond to the control pulse"
+    measured_baseline = initial_observation["arm_joint_position_rad"]
+    measured_delta = max(abs(actual - initial) for item in applied
+                         for actual, initial in zip(item["arm_joint_position_rad"], measured_baseline))
+    assert measured_delta > 1e-7, "Native joints did not respond to the control pulse"
     return {"delivered_commands": len(sequences), "acknowledged_observations": len(applied),
-            "max_target_joint_delta_rad": delta}
+            "max_target_joint_delta_rad": delta, "max_measured_joint_delta_rad": measured_delta}
 
 
 def main():

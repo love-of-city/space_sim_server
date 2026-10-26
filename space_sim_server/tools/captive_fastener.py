@@ -43,7 +43,9 @@ def body_frames(root):
 def mesh_vertices(root, body_name, output_dir):
     geom = root.find(f'.//body[@name="{body_name}"]/geom')
     mesh = root.find(f'./asset/mesh[@name="{geom.get("mesh")}"]')
-    path = Path(output_dir) / mesh.get('file')
+    # Normalize relative traversal before Windows opens the mesh; the expanded
+    # spelling can exceed MAX_PATH even when the actual source path is short.
+    path = (Path(output_dir) / mesh.get('file')).resolve()
     dtype = np.dtype([('normal', '<f4', 3), ('vertices', '<f4', (3, 3)), ('attr', '<u2')])
     with path.open('rb') as stream:
         stream.seek(80)

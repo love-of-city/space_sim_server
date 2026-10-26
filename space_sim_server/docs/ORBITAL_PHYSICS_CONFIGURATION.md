@@ -1,6 +1,6 @@
 # 轨道物理配置：J2 与逐物体大气阻力
 
-适用版本：2026-10-16，默认 `local` + `bsk` 轨道环境路径。
+适用于当前 `local` + `bsk` 轨道环境及连续交会流程。
 
 ## 生效方式与兼容性
 
@@ -9,6 +9,10 @@
 新场景将配置保存到 `environment.physics`。旧场景缺少该字段时，明确恢复为地球/太阳点质量，保证旧数据可重放。已有运行进程不会热更新；重启后端后创建新场景才能采用新默认值。已有实例仍遵守自己的保存配置。
 
 配置优先级：Python 入口 `--orbital-config JSON` > 场景 `environment.physics` > 无实例启动时的默认值。旧 `basilisk` / `linear_tidal` 路径必须显式使用 `point_mass` 且关闭配置化阻力；不支持的组合报错，不静默降级。
+
+连续交会是上述覆盖规则的例外：`mission_options.orbital_physics` 固定整场的引力配置，远距、近距和操作阶段保持同一模型。历史交接缺少配置时保留点质量；请求或 CLI 覆盖若改变交接模型会被拒绝。新连续任务显式使用 J2。交会已有 `FlightOptions` 阻力模型，禁止再传 `orbital_physics.drag` 重复施力。
+
+导航预测、迟到 GNSS 处理和制导补偿均通过 `simulation/navigation_gravity.py` 调用相同的原生 BSK 场，输入为估计位置和星历，包含 Earth-centered 太阳间接项。滤波查询使用独立消息，不回拨真实动力学的施力时钟。场梯度用同一原生场的对称位置探针计算；没有在控制器中再复制 J2 力公式。接口依据 [Basilisk NBodyGravity](https://avslab.github.io/basilisk/Documentation/simulation/mujocoDynamics/NBodyGravity/NBodyGravity.html)，以安装版本的实际接口测试为准。
 
 创建场景 API `POST /api/scenes/start` 新增 `orbital_physics` 请求字段。例如旧物理基准请求体：
 
@@ -78,12 +82,12 @@ F_drag_N = -0.5 * rho * Cd * A * |v_relative_N| * v_relative_N
 
 O 仅用于引力参考传播，不能把气动力挂到 O。若给多个刚性连接 body 分配面积，应按实际暴露面积拆分，不可给每个 body 重复分配整星迎风面积。自由目标也须单独设置；不要复制参考项目的 ISS/Dragon 数值。
 
-本仓库尚无本体/目标已标定的迎风面积、Cd 和密度数据，因此生产默认 `drag=null`。合成示例证明接入正确，但不代表实际阻力的大小已经可靠。
+本仓库尚无本体/目标已标定的迎风面积、Cd 和密度数据，直接操作场景默认 `drag=null`；连续交会使用显式保存的工程假设参数与原有阻力、太阳光压和随机外力。它们证明接入和受力行为，不代表实际硬件扰动幅值已经可靠。
 
 ## 时序与输出
 
-- 物理仍为 240 Hz，MuJoCo 原有子步设置不变。
-- 引力当前每 8 步求值并保持，约 30 Hz；`SPACE_SIM_ORBITAL_FORCE_STRIDE=1` 用于逐子步对照。当前真实频率仍在 `orbital_dynamics.force_stride_steps` 中。
+- 遥操作遵循团队 400 Hz 动力学；远近距入口为 20 Hz 外层及 240 Hz 内部积分。
+- 遥操作引力默认每 8 个外层物理步求值并保持，约 50 Hz；远近距显式逐内部子步求值。实际周期保存在 `orbital_dynamics.force_stride_steps`，不能互换这些配置。
 - 阻力 10 Hz，采用已对齐刚体消息发布时间的分频调度，步间保持外力。
 - `orbital_physics_configuration` 启动日志与 observation 的 `orbital_physics` 保存实际配置、J2 来源、μ、半径、历元和坐标系。
 - observation 的 `atmospheric_drag` 保存每物体的密度、相对气流、惯性力、力矩和采样时间。字段表示力模型采样时刻，不能当作每物理步更新。
@@ -114,4 +118,4 @@ J2 中两体能量及角动量模长本来就不恒定；不能用它们判断 J
 
 参考 OWM 提交 `78696accd8eebdc0319e616dcc1e72308cd3bb48` 的 `iss_numerical` 摄动组织、逐物体弹道参数及轨道验收思路。生产引力调用 BSK 原生模型，没有复制 OWM 的 JAX/RK4 推进代码，也没有新增 JAX/astrojax 依赖。用户最初链接的 `lerobot_writer.py` 未修改或引入。
 
-月球、J4/J6、太阳光压、传感器、飞轮卸载、燃耗、电热和柔性仍属于后续范围。独立 BSK 轨道验收不代表 MuJoCo 多体系统达到同样的长时精度，实际误差仍受局部积分、外力保持、接触和控制影响。
+月球、J4/J6、飞轮卸载、燃耗、电热和柔性仍属后续范围。交会链路已包含参数化传感器及食调制的太阳光压，但未完成真实图像导航或空间硬件标定。独立 BSK 轨道验收不代表 MuJoCo 多体系统达到同样的长时精度，实际误差仍受局部积分、外力保持、接触和控制影响。

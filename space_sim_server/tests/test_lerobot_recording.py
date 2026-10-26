@@ -44,6 +44,38 @@ def make_recorder(tmp_path, cameras=("wrist",), products=("rgb",), video_encodin
     return recorder, tmp_path / meta["episode_id"]
 
 
+@pytest.mark.parametrize("platform,frames,shape,parallel", [
+    ("win32", 135, (360, 640, 3), False),
+    ("win32", 900, (360, 640, 3), True),
+    ("win32", 135, (2160, 3840, 3), True),
+    ("linux", 135, (360, 640, 3), True),
+])
+def test_finish_avoids_windows_spawn_only_for_small_videos(tmp_path, monkeypatch, platform, frames, shape, parallel):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from space_arm_platform import lerobot_capture
+    monkeypatch.setattr(lerobot_capture.sys, "platform", platform)
+    keys = ("observation.sim_time_ns", "observation.source_frame_id", "observation.applied_action_sequence",
+            "observation.wrist_wrench_valid", "observation.wrist_wrench_sample_time_ns",
+            "observation.wrist_wrench_interval_end_time_ns")
+    dataset = SimpleNamespace(episode_buffer={key: [np.array([7], dtype=np.int64)] for key in keys},
+                              save_episode=Mock(), finalize=Mock(), stop_image_writer=Mock())
+    writer = object.__new__(lerobot_capture.LiveLeRobotWriter)
+    writer.dataset, writer.root, writer.frames = dataset, tmp_path, frames
+    writer.wrench_stream = lerobot_capture.WrenchStreamWriter(tmp_path)
+    writer.sidecars = None
+    writer.camera_shapes = {"overview": shape, "wrist": shape}
+    (tmp_path / "meta").mkdir()
+    (tmp_path / "meta/platform.json").write_text('{}')
+    writer.finish("aborted", "performance check")
+    dataset.save_episode.assert_called_once_with(parallel_encoding=parallel)
+    dataset.finalize.assert_called_once()
+    dataset.stop_image_writer.assert_called_once()
+    assert all(dataset.episode_buffer[key][0].shape == () for key in keys)
+    assert json.loads((tmp_path / "meta/platform.json").read_text())["episode_result"] == {
+        "outcome": "aborted", "note": "performance check"}
+
+
 @pytest.mark.parametrize("streaming", [False, True])
 def test_live_v3_roundtrip_rgb_only_and_two_cameras(tmp_path, streaming):
     video = VideoEncodingConfig(streaming_encoding=streaming, encoder_threads=1, image_writer_threads=1)
@@ -210,7 +242,7 @@ def test_duplicate_camera_before_bundle_complete_is_failed(tmp_path):
 def test_encoder_failure_cannot_be_marked_complete(tmp_path, monkeypatch):
     recorder, _ = make_recorder(tmp_path, ())
     recorder.record_observation(observation(), None)
-    def fail():
+    def fail(**kwargs):
         raise OSError("disk full")
     assert recorder.wait_for_writes()
     monkeypatch.setattr(recorder._dataset.dataset, "save_episode", fail)

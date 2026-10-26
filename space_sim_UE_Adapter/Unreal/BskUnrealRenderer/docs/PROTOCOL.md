@@ -89,6 +89,27 @@ use an empty `parent_id`; body-mounted lights retain the normal parent rule.
 Scene settings additionally carry `use_scene_lighting`, `headlight_enabled`,
 and the headlight diffuse/ambient/specular RGB triples.
 
+Optional `settings.relative_view` declares a pair for the native rendezvous
+overview. `primary_object_id` and `secondary_object_id` must reference distinct
+manifest objects. `primary_center_body_m` and `secondary_center_body_m` are
+finite three-component offsets in each body's coordinates (default zero);
+the flight sender uses assembly centers of mass. `primary_label` and
+`secondary_label` default to `Chaser` and `Target`. Omit the field to retain
+the original camera behavior. This setting never scales or relocates bodies.
+
+The main Pixel Streaming data channel accepts command `BskRelativeView` with a
+JSON string payload containing `mode`: `overview`, `overview-fixed`, `chaser`, `target`, or
+read-only `query`. Its `Response` has `type: BskRelativeView` and the actual
+mode (empty when unavailable; `free` during free flight). When a pair is loaded,
+it also returns `range_m`, presentation `sim_time_s`, both sunlight factors,
+`horizontal_fov_deg`, and UE-local `primary_cm`, `secondary_cm`, `camera_cm`.
+`viewport_px`, `primary_px` and `secondary_px` expose actual viewport projection
+for display verification; a point behind the camera has no projected entry.
+The positions use the renderer's converted centimeter coordinates. Range is
+computed from bound Actor transforms and center offsets, not copied from a
+dashboard value. Camera commands affect only the shared spectator viewport;
+installed cameras and authoritative capture remain unchanged.
+
 ```json
 {
   "protocol": "bsk-render/2",
@@ -425,6 +446,18 @@ simulation-clock capture deadlines and scene-capture temporal history. Events
 and frames wait until their pending manifest has been consumed on the game
 thread. The first new frame is applied directly; old-session frames/events are
 rejected rather than blended into the new state.
+
+The interpolated preview uses a continuous simulation-time playhead and a
+bounded buffer of at most 64 received frames. Arrival intervals estimate the
+simulation/wall-clock rate; new packets do not restart interpolation. The
+buffer allows at least 1.5 average source intervals (bounded at 500 ms) or the
+configured interpolation delay, whichever is greater. Gradual clock correction
+absorbs arrival jitter. Extrapolation is limited by the configured wall-clock
+budget and converted to simulation seconds using the estimated playback rate.
+Repeated/rewound timestamps and session resets discard the preview history.
+The first state and paused snapshots remain exact. Authoritative image capture
+still consumes the exact received frames before this preview-only processing;
+its simulation timestamps and strict FIFO are unchanged.
 
 The existing `scene_reset` event also clears presentation/capture history; it
 never changes authoritative physics or independently moves the simulation's

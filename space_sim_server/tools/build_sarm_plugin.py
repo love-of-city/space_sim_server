@@ -62,7 +62,7 @@ def build():
     equivalence=check_equivalence(env,bin,out)
     if sys.platform == 'win32':
         definition=out/'mujoco.def'
-        definition.write_text('LIBRARY mujoco.dll\nEXPORTS\nmj_getPluginConfig\nmjp_defaultPlugin\nmjp_registerPlugin\n',encoding='ascii')
+        definition.write_text('LIBRARY mujoco.dll\nEXPORTS\nmj_getPluginConfig\nmjp_defaultPlugin\nmjp_registerPlugin\nmjCOLLISIONFUNC DATA\n',encoding='ascii')
         subprocess.run([str(bin/'lib.exe'),'/nologo',f'/def:{definition}',f'/out:{out/"mujoco.lib"}','/machine:x64'],env=env,cwd=out,check=True)
         dll=out/'sarm_thread.dll'
         command=[str(bin/'cl.exe'),*BUILD_FLAGS,str(SOURCE),f'/I{VENDORED_MUJOCO_INCLUDE}',f'/Fo:{out/"sarm_thread.obj"}',f'/Fe:{dll}','/link',str(out/'mujoco.lib')]

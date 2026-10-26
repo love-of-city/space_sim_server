@@ -13,9 +13,9 @@ async function freePort() {
   await once(listener, "listening"); const {port} = listener.address();
   await new Promise(resolve => listener.close(resolve)); return port;
 }
-function token(secret) {
+function token(secret, streamer_ids = ["test"]) {
   const encode = value => Buffer.from(JSON.stringify(value)).toString("base64url");
-  const body = `${encode({alg: "HS256", typ: "JWT"})}.${encode({exp: Math.floor(Date.now()/1000)+60, streamer_ids: ["test"]})}`;
+  const body = `${encode({alg: "HS256", typ: "JWT"})}.${encode({exp: Math.floor(Date.now()/1000)+60, streamer_ids})}`;
   return `${body}.${crypto.createHmac("sha256", secret).update(body).digest("base64url")}`;
 }
 
@@ -105,6 +105,24 @@ test("actual isolated signalling server enforces player Origin and gives both pe
   await delay(150);
   assert.equal(messages.filter(m=>m.type==="playerConnected").length,1);
   assert.equal(messages.filter(m=>m.type==="playerDisconnected").length,0);
+  // A discovery-only connection receives late cameras without disturbing the
+  // existing SDK media peer or spending a camera subscriber slot.
+  const lists=[];
+  const observer=new WebSocket(`ws://127.0.0.1:${playerPort}/stream?token=${token(secret,['test','late-camera'])}`,{origin:'https://sim.test'});
+  observer.on('message', raw=>{const m=JSON.parse(raw);if(m.type==='streamerList')lists.push(m.ids);});
+  t.after(()=>observer.terminate());
+  await once(observer,'open');
+  observer.send(JSON.stringify({type:'listStreamers'}));
+  await waitFor(()=>lists.some(ids=>ids.includes('test')));
+  const camera=new WebSocket(`ws://127.0.0.1:${streamerPort}`);
+  t.after(()=>camera.terminate());
+  await once(camera,'open');
+  camera.send(JSON.stringify({type:'endpointId',id:'late-camera'}));
+  await waitFor(()=>lists.at(-1)?.includes('late-camera'));
+  assert.equal(messages.filter(m=>m.type==='playerConnected').length,1);
+  assert.equal(messages.filter(m=>m.type==='playerDisconnected').length,0);
+  camera.close(); await once(camera,'close');
+  await waitFor(()=>!lists.at(-1)?.includes('late-camera'));
   player.close();await once(player,"close");
   await delay(200);
   assert.equal(messages.filter(m=>m.type==="playerDisconnected").length,0,"must await UE setup acknowledgement");

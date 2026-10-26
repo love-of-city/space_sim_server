@@ -12,6 +12,7 @@ from .wrist_vision_config import VISION_CAMERA_ID,build_wrist_config
 
 
 class _WristWorker(_Worker):
+    binary_input = False
     module='space_arm_platform.wrist_vision_worker'
     log_name='wrist_vision_worker.log'
     def __call__(self,png):

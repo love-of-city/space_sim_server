@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -317,6 +318,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         super().__init__()
         self.ModelTag = "localMujocoStepper"
         self.scene = scene
+        self.model_xml_sha256 = hashlib.sha256(Path(model_path).read_bytes()).hexdigest()
+        self._checkpoint_restored = False
         self.origin = origin or OrbitOrigin()
         self.orbital_environment: OrbitalForceProvider | None = None
         self._previous_origin = None
@@ -776,6 +779,64 @@ class LocalMujocoStepper(sysModel.SysModel):
         return (np.asarray(self._qpos_state.getState(), dtype=float).reshape(-1),
                 np.asarray(self._qvel_state.getState(), dtype=float).reshape(-1))
 
+    def physical_snapshot(self, *, epoch_ns=0):
+        """All inertial coordinates, including detached tools and wheel angles.
+
+        This is one versioned extension of a mission checkpoint, not a mission
+        acceptance decision. Navigation, sensor RNGs, environment and controller
+        references must be checkpointed by their respective owners as well.
+        """
+        if self._last_nanos is None or self._published_q is None:
+            raise RuntimeError('physical checkpoint requires a published native state')
+        if type(epoch_ns) is not int or epoch_ns < 0:
+            raise ValueError('invalid physical checkpoint epoch offset')
+        position, velocity = self.origin.state(self._last_nanos*1e-9)
+        return dict(schema='space-sim-native-physical-state/1',
+            model_xml_sha256=self.model_xml_sha256, nq=self.nq, nv=self.nv,
+            time_ns=epoch_ns+self._last_nanos, substeps=self.substeps,
+            free_qpos=self.free_qpos.tolist(), free_dof=self.free_dof.tolist(),
+            qpos_inertial=self._published_q.tolist(), qvel_inertial=self._published_v.tolist(),
+            origin_position_m=position.tolist(), origin_velocity_m_s=velocity.tolist())
+
+    def restore_physical_snapshot(self, document):
+        """Initialize once after MJScene Reset, before any native update.
+
+        Validate everything before touching a physical state. qvel free-joint
+        translation is inertial and angular velocity is body-referenced, exactly
+        as in the existing MJScene bulk-state contract.
+        """
+        if self._last_nanos is not None or self._checkpoint_restored:
+            raise RuntimeError('physical checkpoint can only initialize an unstepped scene once')
+        if (document.get('schema') != 'space-sim-native-physical-state/1'
+                or document.get('model_xml_sha256') != self.model_xml_sha256
+                or (document.get('nq'), document.get('nv'), document.get('substeps')) != (self.nq, self.nv, self.substeps)
+                or document.get('free_qpos') != self.free_qpos.tolist()
+                or document.get('free_dof') != self.free_dof.tolist()):
+            raise ValueError('physical checkpoint model or layout mismatch')
+        epoch = document['time_ns']
+        if type(epoch) is not int or epoch < 0:
+            raise ValueError('invalid physical checkpoint epoch')
+        values = [np.asarray(document[k], dtype=float) for k in
+                  ('qpos_inertial', 'qvel_inertial', 'origin_position_m', 'origin_velocity_m_s')]
+        if ([v.shape for v in values] != [(self.nq,), (self.nv,), (3,), (3,)]
+                or not all(np.isfinite(v).all() for v in values)):
+            raise ValueError('invalid physical checkpoint coordinates')
+        q, v, position, velocity = values
+        if any(not np.isclose(np.linalg.norm(q[qa+3:qa+7]), 1., atol=1e-8, rtol=0)
+               for qa in self.free_qpos):
+            raise ValueError('physical checkpoint has a nonunit free-body quaternion')
+        self._bind_scene()
+        previous_position, previous_velocity = self.origin.state(0.)
+        self.origin.shift(position-previous_position, velocity-previous_velocity, 0.)
+        self._qpos_state.setState(q.reshape(-1, 1))
+        self._qvel_state.setState(v.reshape(-1, 1))
+        # Publish initial conditions without advancing either integrator. The
+        # first native tick adopts these coordinates through the standard path.
+        self.scene.postIntegration(0)
+        self.scene.UpdateState(0)
+        self._checkpoint_restored = True
+        return epoch
+
     def _invalidate_orbital_forces(self) -> None:
         """Held differential forces depend on positions relative to O; recompute next step."""
         self._orbital_forces_current = False
@@ -808,6 +869,7 @@ class LocalMujocoStepper(sysModel.SysModel):
 
     # --- Basilisk interface -------------------------------------------------------
     def Reset(self, current_sim_nanos: int) -> None:
+        self._checkpoint_restored = False
         self.wrench_sample_time_ns = None
         self.wrench_interval_end_ns = None
         self._last_nanos = None

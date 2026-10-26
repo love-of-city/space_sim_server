@@ -18,6 +18,40 @@ from simulation.physics_ports import PhysicsPorts, PortError  # noqa: E402
 DT = 1.0 / 240.0
 
 
+def test_shared_retention_bulk_sample_refreshes_at_every_new_physical_epoch():
+    import numpy as np
+    from types import SimpleNamespace
+    from simulation.components.plug_retention import RetentionSample
+    from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+
+    class State:
+        stamp = 0
+        reads = 0
+        qpos = np.array([1., 2., 3., .5, .5, .5, .5, 4., 5., 6., 1., 0., 0., 0.])
+        qvel = np.arange(12, dtype=float)
+
+        def addSubscriber(self): return self
+        def timeWritten(self): return self.stamp
+        def __call__(self):
+            self.reads += 1
+            return SimpleNamespace(qpos=self.qpos.copy(), qvel=self.qvel.copy())
+
+    message = State()
+    com = np.array([.1, -.1, .2])
+    sample = RetentionSample(message, (0, 0, com))
+    r = quaternion_wxyz_to_matrix(message.qpos[3:7])
+    expected = (message.qpos[:3], r, message.qvel[:3], r@message.qvel[3:6], message.qpos[:3]+r@com)
+    for actual, wanted in zip(sample.read(), expected):
+        np.testing.assert_array_equal(actual, wanted)
+    sample.pose((7, 6, np.zeros(3)))
+    sample.read()
+    assert message.reads == 1
+    message.stamp = 2_500_000
+    message.qpos[0] += .25
+    assert sample.read()[0][0] == 1.25
+    assert message.reads == 2
+
+
 class Recorder(sysModel.SysModel):
     """Minimal module that records the ticks it was actually called on."""
 
@@ -170,6 +204,9 @@ def test_divider_rejects_a_rate_that_misses_the_publication_grid():
     with pytest.raises(PortError, match="publication stride"):
         ctx.add(Recorder(), Slot.COMMAND, every=3)
     ctx.add(Recorder(), Slot.COMMAND, every=4)  # multiple of the stride is fine
+    # An explicitly declared bulk-state/estimated-state consumer has no body
+    # publication dependency. Ordinary consumers retain the guard above.
+    ctx.add(Recorder(), Slot.RECORD, every=3, reads_kinematics=False)
 
 
 def test_duplicate_component_installation_is_rejected():

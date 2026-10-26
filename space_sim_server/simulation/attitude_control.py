@@ -237,9 +237,12 @@ class InitialReference(sysModel.SysModel):
         if owner.reference_mrp is not None:
             return
         state = owner.state_reader()
-        owner.reference_mrp = np.asarray(state.sigma_BN, dtype=float)
+        owner.reference_mrp = (np.asarray(state.sigma_BN, dtype=float) if owner.initial_attitude_prior is None
+                               else np.asarray(owner.initial_attitude_prior, dtype=float))
         owner.reference.sigma_R0N = owner.reference_mrp.tolist()
-        c_bn = rbk.MRP2C(owner.reference_mrp)
+        # Mass properties are physical configuration, independent of the
+        # navigation prior and reference orientation.
+        c_bn = rbk.MRP2C(state.sigma_BN)
         origin = np.asarray(state.r_BN_N)
         parts = []
         for name, mass, com, inertia in owner.parts:
@@ -288,7 +291,8 @@ class TrajectoryAttitudeReference(sysModel.SysModel):
 class AttitudeControl:
     """Own the BSK guidance/control chain and the three native wheel drives."""
     def __init__(self, simulation, process, scene, model_path: Path, *, enabled=None,
-                 drive_task=None, physics_grid=None, reference_provider=None):
+                 drive_task=None, physics_grid=None, reference_provider=None,
+                 estimated_navigation=None, initial_attitude_prior=None, control_rate_hz=None):
         """``drive_task=(task_name, priority)`` schedules the wheel drives on a
         fixed-rate task (local dynamics backend) instead of every MJScene stage.
 
@@ -300,10 +304,17 @@ class AttitudeControl:
         timestamps correspond to the state it actually used.
         """
         self.scene = scene
+        if estimated_navigation is not None and initial_attitude_prior is None:
+            raise ValueError('estimated attitude control requires an explicit startup prior')
+        self.initial_attitude_prior = initial_attitude_prior
         from simulation.sarm_model_profile import load_model_profile
         profile = load_model_profile(model_path)
         self.wheels, self.parts = load_hardware(model_path, inertia_reader=simulation.local_stepper.body_inertial if profile.linkage else None)
         self.settings = load_settings(model_path.with_name('attitude_control.json'))
+        if control_rate_hz is not None:
+            if control_rate_hz not in (20, 50, 100):
+                raise ValueError('unsupported attitude control rate')
+            self.settings = {**self.settings, 'control_rate_hz': control_rate_hz}
         self.enabled = self.settings['enabled'] if enabled is None else bool(enabled)
         self.cached_speed_reads = drive_task is not None
         self.bus = scene.getBody('cubesat_bus')
@@ -364,11 +375,15 @@ class AttitudeControl:
         self.reference = add(TrajectoryAttitudeReference(self, reference_provider) if reference_provider else inertial3D.inertial3D(),
                              'sarmTrajectoryReference' if reference_provider else 'sarmInertial3D', 800)
         add(InitialReference(self), 'sarmInitialAttitudeReference', 1000)
-        nav = add(simpleNav.SimpleNav(), 'sarmTruthNavigation', 900)
-        nav.scStateInMsg.subscribeTo(self.bus.getCenterOfMass().stateOutMsg)
+        if estimated_navigation is None:
+            nav = add(simpleNav.SimpleNav(), 'sarmTruthNavigation', 900)
+            nav.scStateInMsg.subscribeTo(self.bus.getCenterOfMass().stateOutMsg)
+            att_nav = nav.attOutMsg
+        else:
+            att_nav = estimated_navigation
         error = add(attTrackingError.attTrackingError(), 'sarmAttitudeError', 700)
         self.tracking_error = error  # Optional orbit-frame reference uses the same wheel controller.
-        error.attNavInMsg.subscribeTo(nav.attOutMsg)
+        error.attNavInMsg.subscribeTo(att_nav)
         error.attRefInMsg.subscribeTo(self.reference.attRefOutMsg)
         speeds = add(scalarJointStatesToRWSpeed.ScalarJointStatesToRWSpeed(), 'sarmWheelSpeeds', 600)
         speeds.setNumJoints(len(self.wheels))

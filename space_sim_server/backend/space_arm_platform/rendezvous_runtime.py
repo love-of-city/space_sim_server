@@ -144,6 +144,9 @@ class RendezvousRuntime:
                     "capture": result.get("capture"),
                     "final": result.get("final") if result.get("scenario") == "near-field" else None,
                 }
+                if result.get('model_id') == 'sarm-dual-capture26':
+                    report.update({key: result.get(key) for key in ('model_id', 'checks', 'performance',
+                        'processing_real_time_factor_after_warmup', 'integration_complete', 'final')})
             except (OSError, ValueError):
                 pass
         return {
@@ -177,6 +180,9 @@ class RendezvousRuntime:
         if near and mode != "simulation":
             raise ValueError("近距任务需使用实际仿真入口；轨迹回放请使用独立回放工具")
         resolved_options = (NearFieldOptions if near else FlightOptions).from_dict(options or {})
+        capture26 = resolved_options.model_id == 'sarm-dual-capture26'
+        if capture26 and scenario == 'legacy':
+            raise ValueError('capture26 requires a team flight scenario')
         if (not near and resolved_options.differential_gnss
                 and resolved_options.differential_gnss["delay_s"] > 0
                 and (scenario not in {"team-in-orbit", "team-orbit-raise"} or mode != "simulation")):
@@ -188,7 +194,15 @@ class RendezvousRuntime:
             if self._output_dir is None or self.team_repository is None:
                 raise RuntimeError("没有可接续的 110 m 交会结果")
             handoff_path = self._output_dir / "handoff.json"
-            load_handoff(handoff_path, self.team_repository / DEFAULT_MODEL)
+            if capture26:
+                from simulation.capture26_handoff import load
+                incoming = load(handoff_path, self.team_repository)
+                if incoming['phase'] != 'FarReady' or incoming['mission_options']['seed'] != resolved_options.seed:
+                    raise ValueError('capture26 near phase requires matching FarReady model and seed')
+            else:
+                load_handoff(handoff_path, self.team_repository / DEFAULT_MODEL)
+        elif capture26 and near:
+            raise ValueError('capture26 near flight requires an accepted far-flight handoff')
         if self._demo is not None and self._demo.running:
             raise RuntimeError("请先停止正在播放的演示")
         if self._process is not None and self._process.poll() is None:
@@ -255,7 +269,8 @@ class RendezvousRuntime:
                     "SPACE_SIM_TEAM_CATALOG",
                     str(
                         self.team_repository.parent
-                        / "space_sim_UE_Adapter/Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_platform.catalog.json"
+                        / ("space_sim_UE_Adapter/Unreal/BskUnrealRenderer/Saved/AssetImport/"
+                           + ("sarm_dual_capture26.catalog.json" if capture26 else "sarm_platform.catalog.json"))
                     ),
                 )
             )
@@ -315,6 +330,18 @@ class RendezvousRuntime:
                 command.extend(["--handoff", str(handoff_path)] if handoff_path else ["--fixture"])
                 if catalog.is_file():
                     command.extend(["--catalog", str(catalog)])
+            if capture26:
+                command = [str(self.python), '-u', '-m', 'simulation.capture26_run',
+                           '--scenario', 'near-field' if near else scenario.removeprefix('team-'),
+                           '--output-dir', str(self._output_dir), '--state-port', str(self.state_port)]
+                if handoff_path:
+                    command.extend(['--handoff', str(handoff_path)])
+                if catalog.is_file():
+                    command.extend(['--catalog', str(catalog)])
+                if getattr(self, 'mission_id', None):
+                    command.extend(['--mission-id', self.mission_id])
+                if live:
+                    command.append('--external-vision')
         if scenario != "legacy":
             self._output_dir.mkdir(parents=True, exist_ok=True)
             options_path = self._output_dir / "mission_options.json"
@@ -361,6 +388,9 @@ class RendezvousRuntime:
                    "-PixelStreamingId", cfg.pixel_streaming_streamer_id,
                    "-PixelStreamingFps", str(round(cfg.runtime_preview_rate)),
                    "-EncoderMinQuality", str(getattr(cfg, "runtime_encoder_min_quality", 60))]
+        capture_port = getattr(cfg, 'capture_port', 0)
+        if capture_port:
+            command.extend(['-CaptureNetworkPort', str(capture_port)])
         cameras = getattr(cfg, "runtime_pixel_streaming_camera_ids", ())
         if cameras:
             # The orbital manifest keeps the team's model under its flight

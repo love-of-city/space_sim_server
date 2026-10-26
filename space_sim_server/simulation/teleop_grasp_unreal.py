@@ -1018,6 +1018,9 @@ def _apply_orbital_initial_state(
 
 def run(args: argparse.Namespace) -> None:
     scene_instance = _load_scene_instance(args.scene_instance, args.model_root)
+    if scene_instance and scene_instance.get('rendezvous_handoff', {}).get('model_id') == 'sarm-dual-capture26':
+        from simulation.capture26_operations import run_scene
+        return run_scene(args, scene_instance)
     if scene_instance:
         runtime = scene_instance["runtime"]
         args.simulation_rate = float(runtime["simulation_rate"])
@@ -1881,6 +1884,7 @@ def main() -> None:
     )
     parser.add_argument("--control-host", default="127.0.0.1")
     parser.add_argument("--control-port", type=int, default=8766)
+    parser.add_argument("--capture-port", type=int, default=8767)
     parser.add_argument("--render-host", default="127.0.0.1")
     parser.add_argument("--render-port", type=int, default=5558)
     parser.add_argument("--duration", type=float, default=0.0, help="Optional finite runtime in seconds; 0 runs until stopped.")

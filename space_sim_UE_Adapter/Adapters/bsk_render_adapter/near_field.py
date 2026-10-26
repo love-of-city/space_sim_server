@@ -29,3 +29,20 @@ def publish_near_field_status(bridge, row):
         ]
     for message in messages:
         bridge.publish_event("near_field_status", {"message": message, "severity": "info"})
+
+
+def publish_capture26_status(bridge, status):
+    """Image-navigation probe/flight HUD; values originate in control telemetry."""
+    visual = status['visual']
+    age = visual.get('exposure_age_s')
+    age_text = 'none' if age is None else f'{age:.3f}s'
+    gyros = '/'.join('OK' if value else 'LOST' for value in status['gyro_health'])
+    messages = [
+        f"CAPTURE26 {status['phase']} | UE RGB STEREO + GNSS + GYROS",
+        f"OPTICAL Z {status['optical_depth_m']:.3f}m | GYROS {gyros}",
+        f"VISUAL {'READY' if visual['ready'] else 'WAIT'} {visual['count']}/10 | EXPOSURE AGE {age_text}",
+        f"{visual['reason']}",
+        f"RTF {status['processing_real_time_factor']:.2f} | PARK/HANDOFF | CONTACT CAPTURE DISABLED",
+    ]
+    for message in messages:
+        bridge.publish_event('near_field_status', dict(message=message, severity='info'))

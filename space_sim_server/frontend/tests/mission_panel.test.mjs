@@ -147,6 +147,30 @@ test('handoff preserves the owned mission lifecycle', () => {
   assert.equal(missionPresentation(run, 'team-in-orbit').canHandoff, false);
 });
 
+test('capture26 sensor health belongs to the receiving scene and tolerates missing observations', () => {
+  const nodes = new Map();
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value: '', textContent: '',
+      addEventListener() {}, querySelectorAll: () => [],
+      getContext: () => ({clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}}), width: 620, height: 200});
+    return nodes.get(id);
+  };
+  const panel = createMissionPanel({$, state: {}, message() {}, reconnect() {}, configureScene() {}});
+  const mission = {mission_id: 'capture26', stage: 'teleop', phase: 'running', scene_instance_id: 'receiving'};
+  const observation = {scene_instance_id: 'receiving', capture26_navigation: {
+    phase: 'OperationsReady', gnss_healthy: true, gyro_health: [true, true],
+    visual: {ready: true, count: 10, exposure_age_s: .2, reason: 'ready'}}};
+  panel.render(mission);
+  assert.equal($('missionNavigation').textContent, '—');
+  panel.render(mission, observation);
+  assert.match($('missionNavigation').textContent, /GNSS 正常.*视觉就绪/);
+  assert.match($('nearCapture').textContent, /10\/10/);
+  panel.render(mission, {...observation, scene_instance_id: 'previous'});
+  assert.equal($('missionNavigation').textContent, '—');
+  panel.render({...mission, scene_instance_id: undefined}, {...observation, scene_instance_id: undefined});
+  assert.equal($('missionNavigation').textContent, '—');
+});
+
 for (const stateFirst of [false, true]) for (const savedMode of ['teleop', 'team-in-orbit', 'team-orbit-raise']) for (const savedDelay of [undefined, .17]) {
   test(`restored ${savedMode} mode and options with ${stateFirst ? 'state' : 'catalog'} arriving first, delay ${savedDelay}`, async () => {
     const hasSavedOptions = savedMode !== 'teleop';

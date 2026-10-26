@@ -1,0 +1,506 @@
+{
+  "schema": "capture26-rendezvous-stereo/1",
+  "camera_ids": {
+    "left": "teleop/camera/capture_stereo_left",
+    "right": "teleop/camera/capture_stereo_right"
+  },
+  "trigger_rate_hz": 10,
+  "max_skew_ns": 100000,
+  "calibration_status": "nominal_simulation_not_measured_hardware_calibration",
+  "hardware": {
+    "camera": "Basler ace 2 a2A1920-51gc x2 (exact BAS/PRO suffix to be confirmed)",
+    "lens": "Kowa LM6HC 6mm x2",
+    "sensor": "Sony IMX392",
+    "pixel_pitch_m": 3.45e-06,
+    "shutter": "global",
+    "hardware_max_fps": 51,
+    "exposure_requirement_s": 0.002,
+    "interface": "GigE/PoE",
+    "focus_range_m": [
+      0.1,
+      null
+    ],
+    "aperture_range": [
+      1.8,
+      11
+    ]
+  },
+  "mount_status": "provisional body top/front edge, static parallel axes; no camera housing added",
+  "mount_center_body_m": [
+    0.58,
+    -0.16,
+    0.12
+  ],
+  "design_aim_body_m": [
+    0.30634,
+    -0.91079,
+    0.48777
+  ],
+  "body_from_optical": {
+    "left": {
+      "position_body_m": [
+        0.6363720243858576,
+        -0.18054738101657425,
+        0.12
+      ],
+      "R_body_from_optical": [
+        [
+          -0.9395337397642933,
+          -0.14317219667215444,
+          -0.31109174522090927
+        ],
+        [
+          0.34245635027623766,
+          -0.39279490440505316,
+          -0.8534845114171106
+        ],
+        [
+          -0.0,
+          -0.9084128385120364,
+          0.4180742934294154
+        ]
+      ]
+    },
+    "right": {
+      "position_body_m": [
+        0.5236279756141423,
+        -0.13945261898342576,
+        0.12
+      ],
+      "R_body_from_optical": [
+        [
+          -0.9395337397642933,
+          -0.14317219667215444,
+          -0.31109174522090927
+        ],
+        [
+          0.34245635027623766,
+          -0.39279490440505316,
+          -0.8534845114171106
+        ],
+        [
+          -0.0,
+          -0.9084128385120364,
+          0.4180742934294154
+        ]
+      ]
+    }
+  },
+  "cameras": [
+    {
+      "camera_id": "teleop/camera/capture_stereo_left",
+      "parent_id": "teleop/cubesat_bus",
+      "position_body_m": [
+        0.6363720243858576,
+        -0.18054738101657425,
+        0.12
+      ],
+      "orientation_body_from_camera_wxyz": [
+        -0.5601037276734752,
+        0.17532239342372385,
+        0.12270142260038717,
+        0.8003063372873515
+      ],
+      "field_of_view_rad": 1.008754845345743,
+      "resolution": [
+        1920,
+        1200
+      ],
+      "semantic_label": "stereo_navigation_camera",
+      "display_name": "Capture stereo left",
+      "picture_in_picture": false,
+      "capture_rate_hz": 10,
+      "capture_products": [
+        "rgb"
+      ],
+      "capture_consumer": "vision",
+      "exposure_time_s": 0.002,
+      "aperture_fnumber": 4
+    },
+    {
+      "camera_id": "teleop/camera/capture_stereo_right",
+      "parent_id": "teleop/cubesat_bus",
+      "position_body_m": [
+        0.5236279756141423,
+        -0.13945261898342576,
+        0.12
+      ],
+      "orientation_body_from_camera_wxyz": [
+        -0.5601037276734752,
+        0.17532239342372385,
+        0.12270142260038717,
+        0.8003063372873515
+      ],
+      "field_of_view_rad": 1.008754845345743,
+      "resolution": [
+        1920,
+        1200
+      ],
+      "semantic_label": "stereo_navigation_camera",
+      "display_name": "Capture stereo right",
+      "picture_in_picture": false,
+      "capture_rate_hz": 10,
+      "capture_products": [
+        "rgb"
+      ],
+      "capture_consumer": "vision",
+      "exposure_time_s": 0.002,
+      "aperture_fnumber": 4
+    }
+  ],
+  "calibration": {
+    "K_left": [
+      [
+        1739.1304347826087,
+        0,
+        959.5
+      ],
+      [
+        0,
+        1739.1304347826087,
+        599.5
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ],
+    "K_right": [
+      [
+        1739.1304347826087,
+        0,
+        959.5
+      ],
+      [
+        0,
+        1739.1304347826087,
+        599.5
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ],
+    "D_left": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "D_right": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "R_right_from_left": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "t_right_from_left_m": [
+      -0.12,
+      0,
+      0
+    ],
+    "image_size": [
+      1920,
+      1200
+    ]
+  },
+  "layout": {
+    "dictionary": "DICT_4X4_50",
+    "markers": {
+      "0": [
+        [
+          0.14049999999999999,
+          0.05476,
+          0.21707870012998928
+        ],
+        [
+          0.0905,
+          0.05476,
+          0.21707870012998928
+        ],
+        [
+          0.0905,
+          0.05476,
+          0.1670787001299893
+        ],
+        [
+          0.14049999999999999,
+          0.05476,
+          0.1670787001299893
+        ]
+      ],
+      "1": [
+        [
+          0.2605,
+          0.05476,
+          0.21707870012998928
+        ],
+        [
+          0.2105,
+          0.05476,
+          0.21707870012998928
+        ],
+        [
+          0.2105,
+          0.05476,
+          0.1670787001299893
+        ],
+        [
+          0.2605,
+          0.05476,
+          0.1670787001299893
+        ]
+      ],
+      "2": [
+        [
+          0.14049999999999999,
+          0.05476,
+          -0.0829212998700107
+        ],
+        [
+          0.0905,
+          0.05476,
+          -0.0829212998700107
+        ],
+        [
+          0.0905,
+          0.05476,
+          -0.1329212998700107
+        ],
+        [
+          0.14049999999999999,
+          0.05476,
+          -0.1329212998700107
+        ]
+      ],
+      "3": [
+        [
+          0.2605,
+          0.05476,
+          -0.0829212998700107
+        ],
+        [
+          0.2105,
+          0.05476,
+          -0.0829212998700107
+        ],
+        [
+          0.2105,
+          0.05476,
+          -0.1329212998700107
+        ],
+        [
+          0.2605,
+          0.05476,
+          -0.1329212998700107
+        ]
+      ]
+    }
+  },
+  "marker_rig": {
+    "schema": "space-arm-fiducials/2",
+    "dictionary": "DICT_4X4_50",
+    "body": "capture_target",
+    "face": "+Y",
+    "units": "metres",
+    "size_definition": "outer black border; white margin is one extra module per edge",
+    "markers": [
+      {
+        "id": 0,
+        "size_m": 0.05,
+        "center_m": [
+          0.11549999999999999,
+          0.05476,
+          0.1920787001299893
+        ],
+        "right": [
+          -1,
+          0,
+          0
+        ],
+        "down": [
+          0,
+          0,
+          -1
+        ],
+        "bits": [
+          "000000",
+          "010110",
+          "001010",
+          "000110",
+          "000100",
+          "000000"
+        ],
+        "surface_center_m": [
+          0.11549999999999999,
+          0.05475,
+          0.1920787001299893
+        ]
+      },
+      {
+        "id": 1,
+        "size_m": 0.05,
+        "center_m": [
+          0.2355,
+          0.05476,
+          0.1920787001299893
+        ],
+        "right": [
+          -1,
+          0,
+          0
+        ],
+        "down": [
+          0,
+          0,
+          -1
+        ],
+        "bits": [
+          "000000",
+          "000000",
+          "011110",
+          "010010",
+          "010100",
+          "000000"
+        ],
+        "surface_center_m": [
+          0.2355,
+          0.05475,
+          0.1920787001299893
+        ]
+      },
+      {
+        "id": 2,
+        "size_m": 0.05,
+        "center_m": [
+          0.11549999999999999,
+          0.05476,
+          -0.1079212998700107
+        ],
+        "right": [
+          -1,
+          0,
+          0
+        ],
+        "down": [
+          0,
+          0,
+          -1
+        ],
+        "bits": [
+          "000000",
+          "000110",
+          "000110",
+          "000100",
+          "011010",
+          "000000"
+        ],
+        "surface_center_m": [
+          0.11549999999999999,
+          0.05475,
+          -0.1079212998700107
+        ]
+      },
+      {
+        "id": 3,
+        "size_m": 0.05,
+        "center_m": [
+          0.2355,
+          0.05476,
+          -0.1079212998700107
+        ],
+        "right": [
+          -1,
+          0,
+          0
+        ],
+        "down": [
+          0,
+          0,
+          -1
+        ],
+        "bits": [
+          "000000",
+          "010010",
+          "010010",
+          "001000",
+          "001100",
+          "000000"
+        ],
+        "surface_center_m": [
+          0.2355,
+          0.05475,
+          -0.1079212998700107
+        ]
+      }
+    ],
+    "mounting": {
+      "mounting_plate": false,
+      "plate_thickness_m": 0,
+      "physical_film_thickness_m": 0,
+      "surface_y_m": 0.05475,
+      "render_depth_bias_m": 1e-05,
+      "layout_version": "flush_5cm_v2"
+    },
+    "black_side_m": 0.05,
+    "white_side_m": 0.06666666666666667,
+    "surface_y_m": 0.05475,
+    "render_depth_bias_m": 1e-05,
+    "physical_thickness_m": 0,
+    "grasp_center_target_m": [
+      0.1755,
+      0.05475,
+      0.0420787001299893
+    ],
+    "symmetric_offsets_m": [
+      0.06,
+      0.15
+    ],
+    "attachment": "zero-thickness visual film; no mounting boards",
+    "hole_bridging_authorized": true,
+    "physical_support": "partial, film bridges unused holes; no film structural model",
+    "numerical_surface_tolerance_m": 1e-07
+  },
+  "algorithm_input": "left/right RGB PNG + this fixed calibration + known marker corners; no simulator truth",
+  "output_scope": "pose only; no velocity/filter/control and no legacy arm tool conversion",
+  "exposure_semantics": "ideal instantaneous geometry; photometric shutter only, no finite-time motion blur",
+  "purpose": "capture26 rendezvous image navigation; separate from operation-camera tuning",
+  "estimator": {
+    "corner_sigma_px": 0.5,
+    "covariance_inflation": 4.0,
+    "detection_padding_px": 96,
+    "detector_parameters": {
+      "adaptiveThreshWinSizeMin": 7,
+      "adaptiveThreshWinSizeMax": 7,
+      "adaptiveThreshConstant": 12.0
+    }
+  },
+  "error_validation": {
+    "status": "pending_actual_UE_sequence",
+    "nodes_candidates_m": [
+      4.0,
+      2.0
+    ],
+    "scan_step_m": 0.25
+  }
+}

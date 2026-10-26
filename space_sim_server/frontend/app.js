@@ -1500,7 +1500,7 @@ async function refreshState() {
     if (data.mission) {
       setOnline("backendDot", true);
       $("backendState").textContent = "后端在线";
-      missionPanel.render(data.mission);
+      missionPanel.render(data.mission, data.simulation.latest_observation);
       const flightOnline = data.mission.stage === "flight" && data.mission.telemetry?.connected;
       setOnline("simDot", data.simulation.connected || flightOnline);
       $("simState").textContent = flightOnline ? "交会仿真在线" : data.simulation.connected ? "仿真在线" : "仿真未连接";

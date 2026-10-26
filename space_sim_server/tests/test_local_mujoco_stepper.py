@@ -146,6 +146,48 @@ def run_to(simulation, seconds):
     simulation.ExecuteSimulation()
 
 
+def test_full_physical_checkpoint_keeps_tools_joints_wheels_and_origin(model_path):
+    import json
+    origin = OrbitOrigin()
+    origin.shift(np.array([10., 20., 30.]), np.array([1., 2., 3.]), 0.)
+    original, _, core, keep = build(model_path, 'local', wheel_torque=.1, origin=origin)
+    run_to(original, .25)
+    saved = json.loads(json.dumps(core.physical_snapshot(epoch_ns=2_500_000)))
+    resumed, _, next_core, next_keep = build(model_path, 'local', wheel_torque=.1)
+    assert next_core.restore_physical_snapshot(saved) == saved['time_ns']
+    run_to(resumed, 0.)
+    restored = next_core.physical_snapshot(epoch_ns=saved['time_ns'])
+    assert restored['qpos_inertial'] == saved['qpos_inertial']
+    assert restored['qvel_inertial'] == saved['qvel_inertial']
+    assert restored['origin_position_m'] == saved['origin_position_m']
+    assert restored['origin_velocity_m_s'] == saved['origin_velocity_m_s']
+    assert next_core.external_writes == 0
+    with pytest.raises(RuntimeError, match='unstepped scene once'):
+        next_core.restore_physical_snapshot(saved)
+    assert keep and next_keep  # Retain all native message owners until teardown.
+
+
+@pytest.mark.parametrize('invalid', ['model', 'quaternion', 'nan'])
+def test_invalid_physical_checkpoint_is_rejected_before_initialization(model_path, invalid):
+    original, _, core, keep = build(model_path, 'local')
+    run_to(original, .1)
+    saved = core.physical_snapshot()
+    resumed, _, next_core, next_keep = build(model_path, 'local')
+    if invalid == 'model':
+        saved['model_xml_sha256'] = '0'*64
+    elif invalid == 'quaternion':
+        saved['qpos_inertial'][3:7] = [0.]*4
+    else:
+        saved['qvel_inertial'][0] = float('nan')
+    with pytest.raises(ValueError, match='physical checkpoint'):
+        next_core.restore_physical_snapshot(saved)
+    # Rejection is atomic: a correct document can still initialize this scene.
+    next_core.restore_physical_snapshot(core.physical_snapshot())
+    run_to(resumed, .1)
+    assert next_core.external_writes == 0
+    assert keep and next_keep
+
+
 def arm_history(model_path, backend, substeps=1):
     simulation, scene, stepper, keep = build(model_path, backend, substeps=substeps)
     reader = scene.getBody("link").getScalarJoint("arm").stateOutMsg.addSubscriber()

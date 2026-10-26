@@ -12,7 +12,8 @@ from simulation.capture_sequence import CaptureContactGuard
 class Capture26Component:
     name = 'capture26_hold'
 
-    def __init__(self, model, client, initial=None, experiment=False, visual_test=None, render_session_id=''):
+    def __init__(self, model, client, initial=None, experiment=False, visual_test=None, render_session_id='',
+                 passive_hold=False):
         self.target = CaptureArmTarget(model)
         if initial is not None:
             initial = np.asarray(initial, dtype=float)
@@ -21,6 +22,9 @@ class Capture26Component:
             self.target.position[:6] = initial
         self.initial = self.target.position.copy()
         self.client = client
+        self.passive_hold = passive_hold
+        if passive_hold and (experiment or visual_test):
+            raise ValueError('passive flight arm hold cannot run capture experiments')
         self.last_time = None
         self.experiment = experiment
         self.sequence = None
@@ -58,7 +62,7 @@ class Capture26Component:
         joints = [ctx.scene.getBody(b).getScalarJoint(j) for b,j,_ in INITIAL_JOINTS]
         self.positions = [j.stateOutMsg.addSubscriber() for j in joints]
         self.rates = [j.stateDotOutMsg.addSubscriber() for j in joints]
-        publisher = HeldJointReferencePublisher(self.reference, 12)
+        publisher = HeldJointReferencePublisher(self.reference, 12, publish_on_change=self.passive_hold)
         specs = [(f'bottom_joint{i}_act',1500.,80.,80.) for i in range(1,7)] + [
             ('axial_act',10000.,80.,15.), ('cam_act',10.,1.,1.),
             *[(f'jaw_act_{i}',8000.,40.,5.) for i in range(4)]]
@@ -69,6 +73,13 @@ class Capture26Component:
         ctx.keep_alive(publisher)
 
     def reference(self, t):
+        if not getattr(self.client, 'enabled', True):
+            self.last_time = t
+            return self.target.position.copy(), np.zeros(12)
+        if self.passive_hold:
+            # Flight owns a fixed authored reference. No operator/IK path runs,
+            # and joint encoder reads remain available to independent telemetry.
+            return self.target.position.copy(), np.zeros(12)
         if self.last_time is not None and t < self.last_time:
             self.target.position = self.initial.copy()
             self.target.was_active = False

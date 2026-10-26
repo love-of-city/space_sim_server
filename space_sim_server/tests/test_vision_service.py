@@ -20,13 +20,19 @@ def test_pairs_source_frames_and_never_passes_truth_to_solver(tmp_path):
     service = make_service(tmp_path, lambda left, right: calls.append((left, right)) or {'status': 'ok'})
     service.start()
     try:
-        service.on_capture(packet('L', extrinsics={'secret': 'truth'}), {'rgb': b'left'})
+        service.on_capture(packet('L', extrinsics={'secret': 'truth'},
+                                  source_wall_time_ns='123', capture_pipeline_ms=12.), {'rgb': b'left'})
         service.on_capture(packet('R', frame=2, timestamp=200000000), {'rgb': b'other'})
         assert calls == []
         service.on_capture(packet('R', floating_origin={'truth': True}), {'rgb': b'right'})
         assert service.wait_idle()
         assert calls == [(b'left', b'right')]
         assert service.status()['last_result']['source_frame_id'] == '1'
+        result = service.status()['last_result']
+        assert result['capture_timing']['left'] == {'source_wall_time_ns': '123', 'capture_pipeline_ms': 12.}
+        assert result['capture_timing']['right'] == {}
+        assert int(result['solved_wall_time_ns']) > 0
+        assert 'secret' not in str(result) and 'floating_origin' not in str(result)
         assert service.status()['matched_pairs'] == 1
     finally:
         service.close()

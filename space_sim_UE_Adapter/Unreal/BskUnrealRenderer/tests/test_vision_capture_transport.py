@@ -27,6 +27,20 @@ def test_default_bridge_does_not_request_vision():
     assert "vision_capture_camera_ids" not in publisher.frames[0]
 
 
+def test_restored_frame_and_exposure_keep_mission_epoch_on_sensor_grid():
+    publisher = Publisher()
+    bridge = BasiliskRenderBridge(publisher=publisher, frame_rate_hz=50,
+        epoch_offset_ns=5_120_000_000_000, vision_capture_camera_ids=('left', 'right'))
+    bridge.Reset(0)
+    for stamp in range(0, 200_000_001, 2_500_000):
+        bridge.UpdateState(stamp)
+    requested = [f for f in publisher.frames if f.get('vision_capture_requested')]
+    assert [int(f['sim_time_ns']) for f in requested] == [5_120_000_000_000, 5_120_100_000_000, 5_120_200_000_000]
+    assert len({f['frame_id'] for f in publisher.frames}) == 11
+    with pytest.raises(ValueError, match='epoch_offset_ns'):
+        BasiliskRenderBridge(publisher=publisher, epoch_offset_ns=-1)
+
+
 def test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idle():
     publisher = Publisher()
     bridge = BasiliskRenderBridge(

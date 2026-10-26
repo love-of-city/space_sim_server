@@ -1,5 +1,6 @@
 """Independent projection/render checks for the image-only pose baseline."""
 import copy
+import json
 
 import numpy as np
 import pytest
@@ -71,6 +72,39 @@ def test_actual_rendered_pngs_detect_and_estimate_known_pose():
     assert result["detected_ids"] == {"left": [0, 1, 2, 3], "right": [0, 1, 2, 3]}
     assert np.array(result["detected_corners_px"]["left"]["0"]).shape == (4, 2)
     assert max(result["reprojection_error_px"].values()) < 1
+
+
+def test_tracking_regions_use_current_pixels_in_full_coordinates_and_reset_after_loss():
+    cal, board = calibration(), layout()
+    observations, rmat, tvec = projected(board, cal)
+    pngs = [render(p) for p in observations]
+    estimator = StereoPoseEstimator(cal, board, detection_padding_px=96)
+    calls = []
+    detector = estimator.detector
+
+    class CountDetector:
+        def detectMarkers(self, image):
+            calls.append(image.shape)
+            return detector.detectMarkers(image)
+
+    estimator.detector = CountDetector()
+    initial = estimator.estimate(*pngs)
+    tracked = estimator.estimate(*pngs)
+    json.dumps(initial, allow_nan=False)
+    json.dumps(tracked, allow_nan=False)
+    assert_pose(tracked, rmat, tvec)
+    assert calls[:2] == [(1200, 1920)]*2
+    assert all(h*w < 1200*1920/2 for h, w in calls[2:])
+    for eye in ('left', 'right'):
+        for key, corners in initial['detected_corners_px'][eye].items():
+            assert np.max(np.abs(np.array(tracked['detected_corners_px'][eye][key])-corners)) < .03
+    assert len(calls) == 4
+    lost = estimator.estimate(render({}), render({}))
+    assert lost['status'] == 'rejected' and lost['pose_target_to_left'] is None
+    reacquired = estimator.estimate(*pngs)
+    assert_pose(reacquired, rmat, tvec)
+    assert calls[-2:] == [(1200, 1920)]*2
+    assert len(calls) == 8  # A failed ROI never causes a second detector pass.
 
 
 @pytest.mark.parametrize("nonplanar", [False, True])
@@ -279,3 +313,30 @@ def test_pose_covariance_under_rotated_and_flipped_target_planes(frame_rvec, out
     assert_pose(result, expected_rotation, expected_translation, translation_tolerance=1e-5,
                 rotation_tolerance_deg=.001)
     assert len(result["used_ids"]["left"]) == (3 if outlier else 4)
+    covariance = np.array(result['pose_covariance']['matrix'])
+    assert covariance.shape == (6, 6)
+    assert np.allclose(covariance, covariance.T)
+    assert np.linalg.eigvalsh(covariance)[0] > 0
+    assert np.linalg.norm(covariance[:3, 3:]) > 1e-12
+
+
+def test_pose_covariance_covers_independent_pixel_noise_and_has_a_nonzero_floor():
+    cal, board = calibration(), layout()
+    observations, r, t = projected(board, cal, tvec=[.03, -.01, 1.5])
+    estimator = StereoPoseEstimator(cal, board)
+    perfect = estimator.estimate_from_detections(*observations)
+    assert perfect['status'] == 'ok'
+    assert np.linalg.eigvalsh(perfect['pose_covariance']['matrix'])[0] > 0
+    rng = np.random.default_rng(31)
+    nees = []
+    for _ in range(30):
+        noisy = [{i: corners+rng.normal(0, .5, corners.shape) for i, corners in eye.items()} for eye in observations]
+        result = estimator.estimate_from_detections(*noisy)
+        assert result['status'] == 'ok', result['reason']
+        pose = result['pose_target_to_left']
+        # Independent forward projections and known pose score the full
+        # six-dimensional residual, including position/attitude correlation.
+        delta = np.r_[np.array(pose['t_m'])-t, cv2.Rodrigues(np.array(pose['R'])@r.T)[0].reshape(3)]
+        nees.append(float(delta@np.linalg.solve(result['pose_covariance']['matrix'], delta)))
+    assert .2 < np.mean(nees) < 8
+    assert np.mean(np.array(nees) < 16.812) >= .95

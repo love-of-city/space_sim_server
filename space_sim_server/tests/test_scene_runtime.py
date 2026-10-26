@@ -52,6 +52,33 @@ def test_dual_capture_scene_starts_without_automatic_grasp(tmp_path: Path) -> No
     assert instance['render_profile']['asset_catalog'] == 'sarm_dual_capture26.catalog.json'
 
 
+@pytest.mark.parametrize('simulation_rate', [1., .8])
+def test_capture26_scene_routes_only_validated_near_parking_and_preserves_references(tmp_path, monkeypatch, simulation_rate):
+    # Admission validation itself has a separate complete-contract test. This
+    # fixture checks that the scene router uses its validated result unchanged.
+    from space_arm_platform.rendezvous_config import FlightOptions
+    import simulation.capture26_handoff as contract
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    handoff = dict(model_id='sarm-dual-capture26', accepted=True, phase='NearParked',
+        mission_options=FlightOptions(model_id='sarm-dual-capture26').to_dict(),
+        ephemeris_epoch_utc='2026 SEPTEMBER 02 00:00:00.000', time_ns=123_000_000_000,
+        control=dict(operating_reference=[.01]*6+[0., 0.]))
+    validate = Mock(return_value=handoff)
+    monkeypatch.setattr(contract, 'validate', validate)
+    request = SceneInstanceCreate(template_id='sarm-dual-capture26', randomization_profile='none', seed=7,
+                                  simulation_rate=simulation_rate)
+    instance = manager.create_instance(request, handoff=handoff)
+    validate.assert_called_once_with(handoff, tmp_path)
+    assert instance['rendezvous_handoff'] == handoff
+    assert instance['runtime']['simulation_rate'] == simulation_rate
+    assert instance['randomization']['arm_joint_position_rad'] == handoff['control']['operating_reference']
+    assert instance['render_profile']['vision_capture']['config_file'].endswith('capture26_rendezvous_stereo.json')
+    assert instance['environment']['ephemeris_epoch_utc'] == '2026 September 02 00:02:03.000000'
+    handoff['phase'] = 'FarReady'
+    with pytest.raises(ValueError, match='NearParked'):
+        manager.create_instance(request, handoff=handoff)
+
+
 def test_dual_capture_defaults_to_supported_direct_start(tmp_path: Path) -> None:
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     template_id = 'sarm-dual-capture26'

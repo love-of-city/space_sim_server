@@ -1,0 +1,815 @@
+"""Shared 400 Hz capture26 runtime for diagnostics and mission stages.
+
+Uses the authored model, both arm servos, plug retention, BSK orbital gravity,
+GNSS and two gyros. Optional UE capture uses the production image receiver and
+isolated stereo worker. Physics never waits for an image. Results include truth
+only in the independent score stream. Run in a fresh Basilisk Python process.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+from dataclasses import asdict
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT), str(ROOT/'backend')]
+
+
+def run(args):
+    import numpy as np
+    from simulation.capture26_mission import MODEL_PATH, VISION_PATH, desired_geometry, load_vision, source_identity
+    from simulation.pose_navigation import PoseNavigation, exp, log
+    from space_arm_platform.gnss_config import GNSSConfig
+    from space_arm_platform.visual_navigation import calibration_id, VisualReadiness
+
+    simulation_rate = float(getattr(args, 'simulation_rate', 1.))
+    if not np.isfinite(simulation_rate) or not 0 < simulation_rate <= 100:
+        raise ValueError('simulation_rate must be finite and in (0, 100]')
+    output = args.output.resolve()
+    mission = getattr(args, 'mission_stage', None)
+    operations = None
+    output.mkdir(parents=True, exist_ok=bool(mission))
+    if (output/'summary.json').exists():
+        raise ValueError('refusing to overwrite an existing capture26 run')
+    incoming = None
+    epoch_ns = 0
+    if getattr(args, 'handoff', None):
+        from simulation.capture26_handoff import load
+        incoming = load(args.handoff, ROOT)
+        if mission == 'operations' and incoming['phase'] != 'NearParked':
+            raise ValueError('operations require an accepted NearParked handoff')
+        epoch_ns = incoming['time_ns']
+    elif getattr(args, 'restart', None):
+        saved = json.loads(args.restart.read_text('utf-8-sig'))
+        if saved.get('schema') != 'space-sim-capture26-probe-checkpoint/2':
+            raise ValueError('private restart requires the complete version 2 checkpoint')
+        if saved.get('mission_stage') is not None or saved.get('environment'):
+            raise ValueError('formal capture26 stages require accepted handoffs, not private probe restarts')
+        incoming = saved
+        epoch_ns = saved['physical']['time_ns']
+        if epoch_ns % 100_000_000:
+            raise ValueError('runtime restart requires a common 10 Hz sensor/control epoch')
+        if saved['gyros'][0]['seed'] != args.seed or saved['gyros'][1]['seed'] != args.seed+1:
+            raise ValueError('capture26 sensor seed changed across restart')
+        args.depth = saved['control']['depth_m']
+        args.pointing_error_deg = saved['control']['pointing_error_deg']
+    provenance = source_identity(ROOT, args.adapter)
+    provenance['numeric_thread_environment'] = {key: os.environ.get(key) for key in
+        ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS')}
+    native_manifest = ROOT/'run/native_acceleration/local_mujoco_stepper.json'
+    if native_manifest.is_file():
+        provenance['native_stepper_build'] = json.loads(native_manifest.read_text('utf-8'))
+    if incoming and incoming.get('source_sha256', incoming.get('model', {}).get('source_sha256')) != provenance['source_sha256']:
+        raise ValueError('capture26 restart source model mismatch')
+    (output/'source.json').write_text(json.dumps(provenance, indent=2)+'\n', encoding='utf-8')
+    adapter = args.adapter.resolve()
+    sys.path[:0] = [str(adapter/'Adapters'), str(adapter/'Unreal/BskUnrealRenderer/examples')]
+    from scenario_spacecraft_arm_grasp_unreal import load_native_grasp_module
+    native = load_native_grasp_module(ROOT/'model/SARM/platform')
+    from Basilisk.architecture import messaging, sysModel
+    from Basilisk.utilities import macros, RigidBodyKinematics as rbk
+    from simulation.assembly import AssemblyContext, SessionConfig, Slot
+    from simulation.components.clock import ClockComponent
+    from simulation.components.orbit import OrbitComponent
+    from simulation.components.dynamics_core import DynamicsCoreComponent
+    from simulation.components.orbital_gravity import OrbitalGravityComponent
+    from simulation.components.attitude import AttitudeComponent
+    from simulation.components.capture26 import Capture26Component
+    from simulation.components.plug_retention import install_configured_plug_retention
+    from simulation.components.gyroscope import GyroscopeComponent
+    from simulation.components.render import RenderComponent
+    from simulation.joint_reference_publisher import HeldJointReferencePublisher
+    from simulation.sarm_model_profile import load_model_profile
+    from simulation.orbital_rendezvous.reference import FlightProfile
+    from simulation.navigation_gravity import BskNavigationGravity
+    from space_arm_platform.orbital_physics import OrbitalPhysics
+    from simulation.differential_gnss import DifferentialGNSS
+    flight_options = getattr(args, 'flight_options', None)
+
+    native.MODEL_PATH = ROOT/MODEL_PATH
+    native.TIME_STEP = .0025
+    profile = load_model_profile(native.MODEL_PATH)
+    native.JOINTS, native.ACTUATORS = profile.joints, profile.arm_actuators
+    native.KP, native.KD, native.TORQUE_LIMITS = np.full(6, 500.), np.full(6, 50.), np.full(6, 100.)
+    # No inverse kinematics or truth-driven capture script runs in this probe.
+    operating_reference = np.array(incoming['control']['operating_reference'] if incoming else [0.]*8)
+    arm_hold = HeldJointReferencePublisher(lambda t: operations.target.cached_reference(t) if operations else
+                                          (operating_reference.copy(), np.zeros(8)), 8,
+                                          publish_on_change=True)
+    sim, scene, models, recorders = native._build_simulation(external_reference=arm_hold,
+        record_history=False, dynamics_backend='local', local_substeps=1, defer_attitude_control=True)
+    stepper = sim.local_stepper
+    # Body/site messages at 50 Hz; bulk/joint state remains fresh at 400 Hz.
+    # Estimated attitude feedback at 100 Hz does not read thinned truth poses.
+    if stepper.publish_every != 8:
+        raise ValueError('set SPACE_SIM_LOCAL_PUBLISH_STRIDE=8 before loading the native runtime')
+    ctx = AssemblyContext(sim, scene, config=SessionConfig(model_path=native.MODEL_PATH,
+        dynamics_backend='local', publish_stride=8))
+    physics = flight_options.physics if flight_options is not None else OrbitalPhysics.model_validate({'earth_gravity': 'j2'})
+    ephemeris_epoch = '2026 SEPTEMBER 02 00:00:00.000'
+    if incoming:
+        from datetime import datetime, timedelta
+        ephemeris_epoch = (datetime.strptime(incoming['ephemeris_epoch_utc'], '%Y %B %d %H:%M:%S.%f')
+                           + timedelta(seconds=epoch_ns*1e-9)).strftime('%Y %B %d %H:%M:%S.%f')
+    orbit = OrbitComponent(epoch_utc=ephemeris_epoch, physics=physics)
+    ctx.install([ClockComponent(), orbit, DynamicsCoreComponent(native.MODEL_PATH), OrbitalGravityComponent()])
+
+    class IdleClient:
+        def latest_action(self):
+            return {}, True
+
+    if getattr(args, 'operation_client', None) is not None:
+        from simulation.capture26_operations import OperationsControlBridge
+        operations = OperationsControlBridge(args, native.MODEL_PATH, profile, operating_reference)
+        # Install IK above the reference publisher in the COMMAND segment.
+        operations.install(ctx, profile)
+    ctx.add(arm_hold, Slot.COMMAND, component='operating_arm_hold')
+    capture = Capture26Component(native.MODEL_PATH, operations.arm_client if operations else IdleClient(),
+                                 passive_hold=operations is None)
+    ctx.install([capture])
+    retention = install_configured_plug_retention(ctx)
+    environment = None
+    if flight_options is not None:
+        from simulation.components.flight_environment import FlightEnvironmentComponent
+        tree = ET.parse(native.MODEL_PATH)
+        effective_masses = {name: sum(stepper.body_inertial(b.get('name'))[0] for b in
+            tree.find(f"./worldbody/body[@name='{name}']").iter('body')) for name in ('cubesat_bus', 'capture_target')}
+        environment = FlightEnvironmentComponent(flight_options, [
+            (name, None, effective_masses[name], area) for name, area in
+            (('cubesat_bus', flight_options.chaser_area_m2), ('capture_target', flight_options.target_area_m2))])
+        ctx.install([environment])
+    # Set authored scalar initial coordinates before measuring assembled COM.
+    # Native scene initialization itself occurs below; the closure keeps the
+    # filter explicit prior separate from the physical perturbations.
+    vision_config = load_vision(ROOT)
+    pointing_error = exp(np.deg2rad(getattr(args, 'pointing_error_deg', [0., 0., 0.])))
+    cam = vision_config['body_from_optical']['left']
+    gnss_config = (GNSSConfig.from_dict(flight_options.differential_gnss)
+                   if flight_options is not None and flight_options.differential_gnss else GNSSConfig(delay_s=args.gnss_delay))
+    receiver = DifferentialGNSS(gnss_config, args.seed)
+    gyros = [GyroscopeComponent(seed=args.seed, epoch_ns=epoch_ns,
+                               restart=incoming['gyros'][0] if incoming else None),
+             GyroscopeComponent(seed=args.seed+1, body_name='capture_target', name='target_gyro', epoch_ns=epoch_ns,
+                               restart=incoming['gyros'][1] if incoming else None)]
+    ctx.install(gyros)
+    bulk_truth = ctx.ports.scene_state().addSubscriber()
+    free_layouts = [ctx.ports.free_body_layout(n) for n in ('cubesat_bus', 'capture_target')]
+    bus_com = np.asarray(stepper.body_inertial('cubesat_bus')[1:4])
+    pending = []
+    packet_log = score = None
+    sensor_messages = [messaging.NavAttMsg() for _ in range(2)]
+    force = messaging.CmdForceInertialMsg()
+    torque = messaging.CmdTorqueBodyMsg()
+    ctx.ports.add_body_wrench('cubesat_bus', source='capture26_translation', force_inertial=force, torque_body=torque)
+    field = BskNavigationGravity(ctx.ports.orbital_environment(), epoch_s=epoch_ns*1e-9)
+    nav = None
+    approach = None
+    flight = None
+    if mission == 'far':
+        from simulation.capture26_flight import Capture26Flight
+        flight = Capture26Flight(args.scenario, handoff_distance_m=flight_options.handoff_distance_m)
+    masses = None
+    com = None
+    result_receiver = None
+    mission_id = getattr(args, 'mission_id', None) or (incoming['mission_id'] if incoming else output.name)
+    import uuid
+    session_id = uuid.uuid4().hex if mission or incoming else mission_id
+    if incoming and (incoming['mission_id'] != mission_id or incoming['calibration_id'] != calibration_id(vision_config)):
+        raise ValueError('capture26 task or calibration changed across handoff')
+    gate = VisualReadiness(mission_id, session_id, calibration_id(vision_config))
+    fault_start_ns = None
+
+    def fault_active(kind, now_ns):
+        nonlocal fault_start_ns
+        if getattr(args, 'fault', '') != kind:
+            return False
+        if fault_start_ns is None and now_ns-epoch_ns >= round(getattr(args, 'fault_after', 2.)*1e9):
+            if not getattr(args, 'fault_after_ready', False) or gate.tick(now_ns, time.time_ns() if args.ue else None):
+                fault_start_ns = now_ns
+        return fault_start_ns is not None
+
+    class Sensors(sysModel.SysModel):
+        def __init__(self):
+            super().__init__()
+            self.ModelTag = 'capture26PairedGNSS10Hz'
+
+        def UpdateState(self, nanos):
+            if nav is None:
+                return
+            if fault_active('gnss_loss', int(nanos)+epoch_ns):
+                return
+            if receiver.last_time is not None and int(nanos)+epoch_ns == round(receiver.last_time*1e9):
+                return  # The preceding scene already sampled this physical epoch.
+            if not bulk_truth.isWritten() or int(bulk_truth.timeWritten()) != int(nanos):
+                raise RuntimeError('GNSS requires fresh physical bulk states')
+            from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+            physical = bulk_truth()
+            q, v = (np.asarray(a, float).reshape(-1) for a in (physical.qpos, physical.qvel))
+            truth = []
+            for (qa, va, _), center in zip(free_layouts, com):
+                r = quaternion_wxyz_to_matrix(q[qa+3:qa+7])
+                truth.append(np.r_[q[qa:qa+3]+r@center,
+                    v[va:va+3]+r@np.cross(v[va+3:va+6], center)])
+            packet = receiver.measure(truth, (int(nanos)+epoch_ns)*1e-9)
+            pending.append(packet)
+            packet_log.append(dict(exposure_ns=int(nanos)+epoch_ns, sequence=packet['sequence'], due=packet['due'], truth=np.array(truth).tolist(),
+                                   observations=packet['observations'].tolist(), covariance=packet['covariance'].tolist()))
+
+    class Control(sysModel.SysModel):
+        def __init__(self):
+            super().__init__()
+            self.ModelTag = 'capture26PoseNav100HzTranslation20Hz'
+            self.force_n = np.zeros(3)
+            self.last_gyro = [None, None]
+            self.last_gnss_ns = None
+            self.accepted_visual = 0
+            self.invalid_visual = 0
+            self.operation_dwell_ns = None
+            self.operation_acquired = False
+
+        def UpdateState(self, nanos):
+            if nav is None:
+                return
+            now = int(nanos)+epoch_ns
+            nav.advance(now)
+            for i, gyro in enumerate(gyros):
+                if fault_active(('service_gyro_loss', 'target_gyro_loss')[i], now):
+                    continue
+                observation = gyro.observation()
+                if observation and observation['sample_time_ns'] != self.last_gyro[i]:
+                    if fault_active('gyro_saturation', now) and i == 0:
+                        observation.update(valid=False, saturated_axes=[True, False, False])
+                    self.last_gyro[i] = observation['sample_time_ns']
+                    accepted = nav.gyro(i, observation)
+                    packet_log.append(dict(kind='gyro', body=i, control_time_ns=now,
+                                           accepted=accepted, observation=observation,
+                                           navigation_reason=nav.last_reason))
+            while pending and pending[0]['due'] <= now*1e-9:
+                packet = pending.pop(0)
+                accepted = nav.gnss(packet['observations'], packet['covariance'], round(packet['stamp']*1e9), packet['sequence'])
+                packet_log.append(dict(kind='gnss_update', control_time_ns=now,
+                                       exposure_ns=round(packet['stamp']*1e9), sequence=packet['sequence'],
+                                       accepted=accepted, navigation_reason=nav.last_reason))
+                if accepted:
+                    self.last_gnss_ns = now
+            results = [] if result_receiver is None else result_receiver.poll()
+            if fault_active('image_loss', now):
+                results.clear()
+            if fault_active('worker_exit', now):
+                (output/'vision-worker-stop').touch()
+            for result in results:
+                received_wall_ns = time.time_ns()
+                accepted = nav.visual(result, received_wall_time_ns=received_wall_ns)
+                self.accepted_visual += int(accepted)
+                self.invalid_visual += int(not accepted)
+                pc, ac = nav.relative_covariances()
+                gate.observe(result, now, accepted=accepted,
+                    relative_position_covariance=pc, relative_attitude_covariance=ac,
+                    received_wall_time_ns=received_wall_ns, navigation_reason=nav.last_reason)
+                packet_log.append(dict(kind='visual', control_time_ns=now, accepted=accepted,
+                                       receive_wall_time_ns=received_wall_ns, navigation_reason=nav.last_reason, result=result))
+            gate.reconcile(nav.accepted)
+            gate.tick(now, time.time_ns() if args.ue else None)
+            s = nav.state
+            for i in range(2):
+                sensor_messages[i].write(messaging.NavAttMsgPayload(sigma_BN=rbk.C2MRP(s['r'][i].T).tolist(),
+                    omega_BN_B=(s['rates'][i]-s['b'][i]).tolist()), now, self.moduleID)
+            # Hold the configured optical depth. Reference follows target
+            # estimates and lever arms; no physical attitude/position is read.
+            offset, desired_r = desired_geometry(args.depth, s['r'][1], com[0], com[1], vision_config)
+            p_goal = s['p'][1]+offset
+            omega = s['r'][1]@(s['rates'][1]-s['b'][1])
+            v_goal = s['v'][1]+np.cross(omega, offset)
+            feedforward = np.zeros(3)
+            acquisition_expired = now-epoch_ns > round((.35+gnss_config.delay_s)*1e9)
+            if operations is not None and now % 50_000_000 == 0:
+                healthy = (all(nav.gyro_health(now)) and self.last_gnss_ns is not None
+                           and now-self.last_gnss_ns <= 350_000_000 and operations.client.connected)
+                if (not healthy and acquisition_expired) or (self.operation_acquired and not gate.ready):
+                    operations.fail('parked sensor or communication gate lost')
+                qualified = healthy and gate.ready and not operations.failed
+                qualified = (qualified and np.linalg.norm(p_goal-s['p'][0]) <= .006
+                    and np.linalg.norm(v_goal-s['v'][0]) <= .002
+                    and np.linalg.norm(log(desired_r@s['r'][0].T)) < np.deg2rad(.3))
+                if qualified:
+                    self.operation_acquired = True
+                    if self.operation_dwell_ns is None:
+                        self.operation_dwell_ns = now
+                else:
+                    self.operation_dwell_ns = None
+                enabled = self.operation_dwell_ns is not None and now-self.operation_dwell_ns >= 5_000_000_000
+                operations.arm_client.enabled = enabled
+                self.guidance = dict(phase='SafeHold' if operations.failed else 'OperationsReady' if enabled else 'OperationsHold',
+                    reason=operations.failed or 'maintaining parked estimated-state reference',
+                    gnss_healthy=self.last_gnss_ns is not None and now-self.last_gnss_ns <= 350_000_000,
+                    released=False, dwell_s=0. if self.operation_dwell_ns is None else (now-self.operation_dwell_ns)*1e-9,
+                    position_goal=p_goal, velocity_goal=v_goal)
+            if flight is not None:
+                if now % 50_000_000 == 0:
+                    healthy = (all(nav.gyro_health(now)) and self.last_gnss_ns is not None
+                               and now-self.last_gnss_ns <= 350_000_000)
+                    # Initial GNSS transport acquisition is not a sensor failure.
+                    if self.last_gnss_ns is not None or acquisition_expired:
+                        self.guidance = flight.step(now, s, healthy=healthy)
+                if hasattr(self, 'guidance'):
+                    p_goal, v_goal = self.guidance['position_goal'], self.guidance['velocity_goal']
+                    feedforward = self.guidance['differential_acceleration']
+            if approach is not None:
+                if now % 50_000_000 == 0 and (self.last_gnss_ns is not None or acquisition_expired):
+                    pc, _ = nav.relative_covariances()
+                    from space_arm_platform.visual_navigation import principal_sigma
+                    # Availability is an accepted and fresh image; readiness
+                    # additionally requires the complete quality streak.
+                    age = None if gate.last_exposure_ns is None else (now-gate.last_exposure_ns)*1e-9
+                    self.guidance = approach.step(now, s, position_sigma_m=principal_sigma(pc),
+                        visual_ready=gate.ready, visual_available=age is not None and age <= .35,
+                        gyro_healthy=nav.gyro_health(now),
+                        gnss_healthy=self.last_gnss_ns is not None and now-self.last_gnss_ns <= 350_000_000,
+                        communication_healthy=all(nav.gyro_health(now)),
+                        observation_age_s=.35 if age is None else age, mass_kg=masses[0])
+                if hasattr(self, 'guidance'):
+                    p_goal, v_goal = self.guidance['position_goal'], self.guidance['velocity_goal']
+            # The translation controller shares the specified 20 Hz guidance
+            # grid. Forces are held between commands; gyro/nav/attitude feedback
+            # above continues at 100 Hz. Replay records actual command changes,
+            # rather than 100 redundant commanded-acceleration events per second.
+            if now % 50_000_000:
+                return
+            a = field.acceleration(s['p'][1], now*1e-9)-field.acceleration(s['p'][0], now*1e-9)+feedforward
+            kp, kd = (.0004, .04) if flight is not None else (.04, .4)
+            a += kp*(p_goal-s['p'][0])+kd*(v_goal-s['v'][0])
+            if self.last_gnss_ns is None and mission:
+                a[:] = 0.
+            requested = a*masses[0]
+            self.force_n = requested*min(1., 25./max(1e-12, np.linalg.norm(requested)))
+            force.write(messaging.CmdForceInertialMsgPayload(forceRequestInertial=self.force_n.tolist()), now, self.moduleID)
+            # The force acts at bus COM; cancel its moment about assembly COM
+            # using the estimated attitude and the fixed physical lever arm.
+            moment = np.cross(com[0]-bus_com, s['r'][0].T@self.force_n)
+            torque.write(messaging.CmdTorqueBodyMsgPayload(torqueRequestBody=moment.tolist()), now, self.moduleID)
+            nav.command(np.array([self.force_n/masses[0], np.zeros(3)]))
+
+    control = Control()
+    # Consume new physical sensor epochs after SENSOR. The attitude chain on
+    # the next physics tick sees this posterior; no held gyro sample is relabelled
+    # and the normal ordered path does not need to rewind its own prediction.
+    ctx.add(control, Slot.RECORD, every=4, component='pose_navigation', reads_kinematics=False)
+    ctx.add(Sensors(), Slot.SENSOR, every=40, phase=((-epoch_ns) % 100_000_000)//2_500_000,
+            component='paired_gnss', reads_kinematics=False)
+    reference_rotation = None
+
+    def attitude_reference(t):
+        if nav is None:
+            return reference_rotation, np.zeros(3), np.zeros(3)
+        _, r = desired_geometry(args.depth, nav.state['r'][1], com[0], com[1], vision_config)
+        omega = nav.state['r'][1]@(nav.state['rates'][1]-nav.state['b'][1])
+        return r@pointing_error, omega, np.zeros(3)
+
+    # A nominal target attitude is an initial prior. It is not a truth sensor.
+    r0, v0, _ = (flight.profile if flight else FlightProfile()).target(0.)
+    target_rotation = exp([0., 0., np.pi/2])
+    if flight:
+        end_r, end_v, _ = flight.profile.target(flight.profile.duration_s)
+        y = -end_v/np.linalg.norm(end_v)
+        z = np.cross(end_r, end_v)
+        z /= np.linalg.norm(z)
+        target_rotation = np.column_stack((np.cross(y, z), y, z))
+    _, reference_rotation = desired_geometry(args.depth, target_rotation, np.zeros(3), np.zeros(3), vision_config)
+    reference_rotation = reference_rotation@pointing_error
+    if incoming:
+        reference_rotation = np.array(incoming['navigation']['state']['r'][0])
+    attitude = AttitudeComponent(native.MODEL_PATH, estimated_navigation=sensor_messages[0],
+        initial_attitude_prior=rbk.C2MRP(reference_rotation.T), reference_provider=attitude_reference, control_rate_hz=100)
+    ctx.install([attitude])
+    bridge = None
+    vision = None
+    if args.ue:
+        from space_arm_platform.vision_channel import VisionResultReceiver
+        import subprocess
+        if not args.catalog or not args.catalog.is_file():
+            raise ValueError('UE probe requires a prepared capture26 catalog')
+        render_profile = json.loads((ROOT/'config/scene_render_profiles.json').read_text())['sarm-dual-capture26']
+        render = RenderComponent(model_path=native.MODEL_PATH, catalog=args.catalog.resolve(),
+            host='127.0.0.1', port=args.render_port, render_rate_hz=args.render_rate, capture_rate_hz=10,
+            capture_state_provider=operations.client.capture_state if operations else lambda: {},
+            visual_attachments=render_profile['visual_attachments'],
+            vision_capture=dict(enabled=mission != 'far', config_file=VISION_PATH.as_posix()))
+        ctx.extra['template_id'] = 'sarm-dual-capture26'
+        ctx.install([render])
+        bridge = render.bridge
+        bridge.session_id = session_id
+        bridge.epoch_offset_ns = epoch_ns
+        result_receiver = VisionResultReceiver(mission_id, session_id, calibration_id(vision_config))
+        external_vision = getattr(args, 'external_vision', False)
+        log_file = None if external_vision else (output/'vision-host.log').open('wb')
+        command = [sys.executable, str(ROOT/'tools/run_capture26_vision.py'),
+            '--config', str(ROOT/VISION_PATH), '--mission', mission_id, '--session', session_id,
+            '--result-port', str(result_receiver.port), '--capture-port', str(args.capture_port),
+            '--output', str(output)]
+        if getattr(args, 'save_all_images', False):
+            command.append('--save-all-images')
+        vision_process = None if external_vision else subprocess.Popen(command, cwd=ROOT, stdout=log_file, stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if external_vision:
+            route = dict(schema='space-sim-vision-route/1', mission_id=mission_id, session_id=session_id,
+                         calibration_id=calibration_id(vision_config), result_port=result_receiver.port)
+            temporary = output/'vision-route.tmp'
+            temporary.write_text(json.dumps(route), encoding='utf-8')
+            temporary.replace(output/'vision-route.json')
+
+        class VisionHost:
+            def status(self):
+                try:
+                    return json.loads((output/'vision-status.json').read_text('utf-8'))
+                except (OSError, ValueError):
+                    return dict(last_error='vision host has not published status')
+
+            def close(self):
+                if vision_process is None:
+                    return
+                (output/'vision-stop').touch()
+                try:
+                    vision_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    import psutil
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        parent = psutil.Process(vision_process.pid)
+                        for child in reversed(parent.children(recursive=True)):
+                            with contextlib.suppress(psutil.NoSuchProcess):
+                                child.kill()
+                        parent.kill()
+                    vision_process.wait(timeout=5)
+                log_file.close()
+
+        vision = VisionHost()
+        deadline = time.monotonic()+20
+        while not (output/'vision-ready.json').exists():
+            if (vision_process is not None and vision_process.poll() is not None) or time.monotonic() >= deadline:
+                vision.close()
+                result_receiver.close()
+                raise RuntimeError('image ingress failed to warm up; see vision-host.log')
+            time.sleep(.05)
+
+    cross_contacts = []
+    if mission:
+        geom_roots = {}
+        for body in ET.parse(native.MODEL_PATH).findall('./worldbody/body'):
+            for geom in body.iter('geom'):
+                if geom.get('name'):
+                    geom_roots[geom.get('name')] = body.get('name')
+
+        class ContactMonitor(sysModel.SysModel):
+            def __init__(self):
+                super().__init__()
+                self.ModelTag = 'capture26NoContactMonitor400Hz'
+
+            def UpdateState(self, nanos):
+                if not stepper.state_initialized:
+                    return
+                for row in stepper.contact_detail():
+                    roots = {geom_roots.get(stepper._name(5, int(i))) for i in row[:2]}
+                    if roots == {'cubesat_bus', 'capture_target'}:
+                        if len(cross_contacts) < 100:
+                            cross_contacts.append(dict(time_ns=epoch_ns+int(nanos), distance_m=float(row[2])))
+                        if approach:
+                            approach._hold('unplanned spacecraft contact')
+                        if operations:
+                            operations.fail('unplanned spacecraft contact')
+
+        # This monitor reads native coordinates directly; it never writes them.
+        ctx.add(ContactMonitor(), Slot.SENSOR, component='no_contact_monitor', reads_kinematics=False)
+
+    sim.InitializeSimulation()
+    from simulation.capture_arm_target import INITIAL_JOINTS
+    for body, joint, value in INITIAL_JOINTS:
+        scene.getBody(body).getScalarJoint(joint).setPosition(value)
+    properties = stepper.initial_assembly_properties(native.MODEL_PATH, ('cubesat_bus', 'capture_target'))
+    com = [np.array(properties[name]['com_body_m']) for name in ('cubesat_bus', 'capture_target')]
+    masses = [properties[name]['mass_kg'] for name in ('cubesat_bus', 'capture_target')]
+    offset, _ = desired_geometry(args.depth, target_rotation, com[0], com[1], vision_config)
+    nominal_positions = np.array([r0+offset, r0])
+    nominal_velocities = np.array([v0, v0])
+    if flight:
+        nominal_positions[0], nominal_velocities[0], _ = flight.profile.chaser(0.)
+    rotations = [reference_rotation, target_rotation]
+    # Perturb physical state independently; navigation starts from explicit
+    # nominal priors with matching uncertainty rather than reading truth.
+    rng = np.random.default_rng(args.seed)
+    assigned_initial = []
+    assigned_velocities = []
+    position_sigma = flight_options.initial_position_sigma_m if flight else .002
+    velocity_sigma = flight_options.initial_velocity_sigma_m_s if flight else .002
+    for i, name in enumerate(('cubesat_bus', 'capture_target')):
+        body = scene.getBody(name)
+        rotation_true = exp(rng.normal(0, np.deg2rad(.05), 3))@rotations[i]
+        position_true = nominal_positions[i]-rotation_true@com[i]+rng.normal(0, position_sigma, 3)
+        assigned_initial.append((position_true, rotation_true))
+        body.setPosition(position_true.tolist())
+        assigned_velocities.append(nominal_velocities[i]+rng.normal(0, velocity_sigma, 3))
+        body.setVelocity(assigned_velocities[-1].tolist())
+        body.setAttitude(rbk.C2MRP(rotation_true.T).tolist())
+        body.setAttitudeRate([0., 0., 0.])
+    # Free tools retain their actual relative authored positions/orientations
+    # when placing the service craft in orbit; their states remain independent.
+    # setPosition setters do not publish until the first native tick. Use the
+    # exact already assigned initialization, never the stale XML body message.
+    bus_position, bus_rot = assigned_initial[0]
+    root = ET.parse(native.MODEL_PATH).getroot()
+    for body in root.findall('./worldbody/body'):
+        name = body.get('name')
+        if name in ('cubesat_bus', 'capture_target'):
+            continue
+        q = np.fromstring(body.get('quat', '1 0 0 0'), sep=' ')
+        from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+        item = scene.getBody(name)
+        item.setPosition((bus_position+bus_rot@np.fromstring(body.get('pos', '0 0 0'), sep=' ')).tolist())
+        item.setVelocity(assigned_velocities[0].tolist())
+        item.setAttitude(rbk.C2MRP((bus_rot@quaternion_wxyz_to_matrix(q)).T).tolist())
+        item.setAttitudeRate([0., 0., 0.])
+    orbit.origin.set_state(r0, v0)
+    if incoming:
+        # Restoration occurs once, before any propagation. This includes free
+        # tools, both complete arms and all wheel coordinates, not just two roots.
+        stepper.restore_physical_snapshot(incoming['physical'])
+        receiver.restore(incoming['gnss_receiver'])
+        pending.extend(incoming['gnss_pending'])
+        if retention:
+            retention.restore(incoming['retention'])
+        capture.target.position[:] = incoming['control']['capture_reference']
+        if environment:
+            for module, saved in zip(environment.models, incoming['environment'], strict=True):
+                module.restore(saved, epoch_ns=epoch_ns)
+    prior = np.diag(([max(position_sigma, .002)**2]*3+[max(velocity_sigma, .002)**2]*3
+                     +[np.deg2rad(.05)**2]*3+[1e-5**2]*3)*2)
+    nav = PoseNavigation(nominal_positions, nominal_velocities, rotations, prior, gravity=field,
+        camera_rotation=cam['R_body_from_optical'], camera_position=cam['position_body_m'],
+        service_com=com[0], target_com=com[1],
+        time_ns=epoch_ns,
+        vision_identity=(tuple(incoming['navigation']['configuration']['vision_identity']) if incoming else
+                         (mission_id, session_id, calibration_id(vision_config))))
+    if incoming:
+        nav.restore(incoming['navigation'])
+        nav.bind_vision_session(mission_id, session_id, calibration_id(vision_config))
+        control.last_gnss_ns = incoming['control']['last_gnss_ns']
+        control.force_n = np.array(incoming['control']['force_n'])
+    if getattr(args, 'approach', False) or mission == 'near':
+        from simulation.capture26_approach import Capture26Approach
+        entry_depth = args.depth
+        if incoming:
+            zero_offset, _ = desired_geometry(0., nav.state['r'][1], com[0], com[1], vision_config)
+            approach_axis = -nav.state['r'][1][:, 1]
+            entry_depth = float((zero_offset-(nav.state['p'][0]-nav.state['p'][1]))@approach_axis)
+        approach = Capture26Approach(com[0], com[1], vision_config, initial_depth_m=entry_depth,
+                                     config=getattr(args, 'mission_config', None))
+    for i in range(2):
+        sensor_messages[i].write(messaging.NavAttMsgPayload(sigma_BN=rbk.C2MRP(nav.state['r'][i].T).tolist(),
+            omega_BN_B=(nav.state['rates'][i]-nav.state['b'][i]).tolist()))
+    channel = None
+    if getattr(args, 'state_port', 0):
+        import socket
+        channel = socket.create_connection(('127.0.0.1', args.state_port), timeout=2)
+        channel.settimeout(.02)
+    fingerprint = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    from simulation.capture26_evidence import EvidenceRows
+    packet_log = EvidenceRows(output/'measurements.jsonl')
+    # Enough for the complete 120 s distant hold and the near dwell. Every
+    # earlier record is retained on disk, including when a later stage fails.
+    score = EvidenceRows(output/'score.jsonl', retain=2601)
+    maximum_relative_error = 0.
+    started, compute, windows = time.perf_counter(), 0., []
+    gravity_cache_error = None
+    gravity_acceleration_error = None
+    profiler = None
+    if args.profile:
+        import cProfile
+        profiler = cProfile.Profile()
+        profiler.enable()
+    try:
+        for tick in range(0, round(args.duration*20)+1):
+            elapsed = tick*.05
+            before = time.perf_counter()
+            sim.ConfigureStopTime(macros.sec2nano(elapsed))
+            sim.ExecuteSimulation()
+            compute += time.perf_counter()-before
+            now = epoch_ns+round(elapsed*1e9)
+            if tick == 0:
+                if incoming:
+                    # Record what the receiving native scene actually publishes,
+                    # after its first tick, for an independent continuity audit.
+                    restored = dict(physical=stepper.physical_snapshot(epoch_ns=epoch_ns),
+                        navigation=nav.snapshot(), gyros=[g.sensor.snapshot() for g in gyros],
+                        gnss_receiver=receiver.snapshot(), gnss_pending=pending,
+                        retention=retention.snapshot() if retention else None,
+                        control=dict(operating_reference=operating_reference.tolist(),
+                                     capture_reference=capture.target.position.tolist()),
+                        environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else [])
+                    (output/'restored-state.json').write_text(json.dumps(restored,
+                        default=lambda a: a.tolist())+'\n', encoding='utf-8')
+                # Independent native-field check of the bounded EKF local
+                # linearization; the truth dynamics use the full native field.
+                native_gradient = field.gradient(nav.state['p'][0], epoch_ns*1e-9)
+                native_acceleration = field.acceleration(nav.state['p'][0], epoch_ns*1e-9)
+                gravity_acceleration_error = max(float(np.linalg.norm(
+                    native_acceleration+native_gradient@(sign*.25*axis)-field.acceleration(
+                        nav.state['p'][0]+sign*.25*axis, epoch_ns*1e-9)))
+                    for axis in np.eye(3) for sign in (-1, 1))
+                gravity_cache_error = max(float(np.linalg.norm(native_gradient-field.gradient(
+                    nav.state['p'][0]+sign*.25*axis, epoch_ns*1e-9)))
+                    for axis in np.eye(3) for sign in (-1, 1))
+                if gravity_cache_error > 1e-12:
+                    raise RuntimeError('local navigation Jacobian reuse exceeds native field error bound')
+                if gravity_acceleration_error > 1e-11:
+                    raise RuntimeError('local navigation acceleration reuse exceeds native field error bound')
+            # Independent scoring reads the fresh bulk physical coordinates.
+            # Body messages at 50 Hz need not coincide with this 20 Hz log.
+            if not bulk_truth.isWritten() or int(bulk_truth.timeWritten()) != round(elapsed*1e9):
+                raise RuntimeError('independent score requires fresh physical bulk states')
+            state_truth = bulk_truth()
+            q_truth = np.asarray(state_truth.qpos, float).reshape(-1)
+            v_truth = np.asarray(state_truth.qvel, float).reshape(-1)
+            from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+            rotations_truth = [quaternion_wxyz_to_matrix(q_truth[qa+3:qa+7]) for qa, _, _ in free_layouts]
+            actual = []
+            for (qa, _, _), r, center in zip(free_layouts, rotations_truth, com):
+                actual.append(q_truth[qa:qa+3]+r@center)
+            estimated = nav.state['p'][1]-nav.state['p'][0]
+            actual_relative = actual[1]-actual[0]
+            maximum_relative_error = max(maximum_relative_error, float(np.linalg.norm(estimated-actual_relative)))
+            score.append(dict(time_s=now*1e-9, estimated_relative_position_m=estimated.tolist(),
+                truth_relative_position_m=actual_relative.tolist(),
+                relative_error_m=(estimated-actual_relative).tolist(),
+                attitude_error_rad=[log(nav.state['r'][i]@rotations_truth[i].T).tolist() for i in range(2)],
+                truth_com_position_n_m=[p.tolist() for p in actual],
+                truth_com_velocity_n_m_s=[(v_truth[va:va+3]
+                    +r@np.cross(v_truth[va+3:va+6], center)).tolist()
+                    for (_, va, _), r, center in zip(free_layouts, rotations_truth, com)],
+                truth_rotation_n_from_body=[r.tolist() for r in rotations_truth],
+                estimated_rotation_n_from_body=nav.state['r'].tolist(),
+                gyro_health=nav.gyro_health(now), visual=gate.status(now, time.time_ns() if args.ue else None), force_n=control.force_n.tolist(),
+                gnss_healthy=control.last_gnss_ns is not None and now-control.last_gnss_ns <= 350_000_000,
+                fault_start_ns=fault_start_ns,
+                guidance=getattr(control, 'guidance', None)))
+            if bridge and tick % 10 == 0:
+                from bsk_render_adapter.near_field import publish_capture26_status
+                publish_capture26_status(bridge, dict(phase=getattr(control, 'guidance', {}).get('phase', 'NavigationAcquire') if mission else 'SENSOR PROBE / NOT MISSION ACCEPTANCE',
+                    visual=gate.status(now, time.time_ns()), gyro_health=nav.gyro_health(now), optical_depth_m=args.depth,
+                    processing_real_time_factor=elapsed/max(compute, 1e-9)))
+            if operations and bridge and tick % 2 == 0:
+                operations.publish(stepper, nav, gyros, capture, gate, now, bridge,
+                    getattr(control, 'guidance', dict(phase='OperationsHold', reason='sensor acquisition')),
+                    elapsed/max(compute, 1e-9))
+            if channel and tick % 2 == 0:
+                import struct
+                from simulation.serial_chain_kinematics import matrix_to_quaternion_wxyz
+                bodies = []
+                for i, ((qa, va, _), rotation_true) in enumerate(zip(free_layouts, rotations_truth)):
+                    bodies.append(dict(body_id='rendezvous/'+('chaser' if i == 0 else 'target'),
+                        position_m=q_truth[qa:qa+3].tolist(), velocity_m_s=v_truth[va:va+3].tolist(),
+                        attitude_wxyz=matrix_to_quaternion_wxyz(rotation_true).tolist(),
+                        angular_velocity_rad_s=v_truth[va+3:va+6].tolist()))
+                guidance = getattr(control, 'guidance', {})
+                metadata = dict(run_id=output.name, phase=guidance.get('phase', 'NavigationAcquire'),
+                    model='capture26', center_distance_m=float(np.linalg.norm(actual_relative)),
+                    navigation_source='GNSS + UE stereo pose + dual gyro ESKF',
+                    navigation_valid=all(nav.gyro_health(now)), visual_ready=gate.ready,
+                    sensor_health=dict(gyros=nav.gyro_health(now), gnss=score[-1]['gnss_healthy']),
+                    visual=score[-1]['visual'], optical_depth_m=guidance.get('optical_depth_m'),
+                    processing_real_time_factor=elapsed/max(compute, 1e-9),
+                    mission_options=flight_options.to_dict() if flight_options else {})
+                data = json.dumps(dict(protocol='space-sim-state/1', type='state', sim_time_s=now*1e-9,
+                                       bodies=bodies, metadata=metadata)).encode()
+                try:
+                    channel.sendall(struct.pack('!I', len(data))+data)
+                except OSError:
+                    channel.close()
+                    channel = None
+                    if approach:
+                        approach._hold('platform telemetry communication lost')
+                    if flight:
+                        flight.hold('platform telemetry communication lost')
+            windows.append(dict(sim_time_s=elapsed, wall_s=time.perf_counter()-started, compute_s=compute))
+            if args.realtime:
+                delay = elapsed/simulation_rate-(time.perf_counter()-started)
+                while delay > 0:
+                    time.sleep(min(delay, .05))
+                    delay = elapsed/simulation_rate-(time.perf_counter()-started)
+            if mission in ('near', 'far') and tick % 2 == 0:
+                guidance = getattr(control, 'guidance', {})
+                if guidance.get('released') or (guidance.get('phase') == 'SafeHold' and elapsed > 5.):
+                    break
+        simulated_s = elapsed
+        wall = time.perf_counter()-started
+        summary = dict(scope='native sensor/control probe; does not certify far/near mission or scene handoff',
+            **provenance, probe_sha256=fingerprint, settings=vars(args) | {'output': str(output), 'adapter': str(adapter), 'catalog': str(args.catalog)},
+            calibration_id=calibration_id(vision_config), gyro_configuration=[asdict(g.sensor.config) for g in gyros],
+            body_properties=properties, dynamics=stepper.telemetry(), schedule=ctx.summary(),
+            simulated_s=simulated_s, epoch_ns=epoch_ns, wall_s=wall, compute_s=compute, compute_real_time_factor=simulated_s/compute,
+            realtime_paced=args.realtime, lag_s=wall-simulated_s if args.realtime else None,
+            requested_simulation_rate=simulation_rate,
+            pacing_backlog_s=wall-simulated_s/simulation_rate if args.realtime else None,
+            accepted_visual=control.accepted_visual, invalid_visual=control.invalid_visual,
+            fault_start_ns=fault_start_ns, fault_exercised=fault_start_ns is not None,
+            vision=vision.status() if vision else None,
+            visual_readiness=gate.status(now, time.time_ns() if args.ue else None),
+            maximum_relative_position_error_m=maximum_relative_error,
+            gyro_final_health=nav.gyro_health(now),
+            maximum_checked_gravity_jacobian_difference_s2=gravity_cache_error,
+            maximum_checked_gravity_acceleration_remainder_m_s2=gravity_acceleration_error,
+            model_assets_modified=False, integration_complete=False)
+        if mission:
+            summary['scope'] = 'capture26 mission stage; integration acceptance remains separate'
+        (output/'summary.json').write_text(json.dumps(summary, indent=2, default=str)+'\n', encoding='utf-8')
+        # Private diagnostic checkpoint. It is deliberately not an accepted
+        # mission handoff; physical/scene continuity must be validated separately.
+        (output/'restart.json').write_text(json.dumps(dict(schema='space-sim-capture26-probe-checkpoint/2',
+            model=provenance, mission_stage=mission, mission_id=mission_id, ephemeris_epoch_utc='2026 SEPTEMBER 02 00:00:00.000',
+            calibration_id=calibration_id(vision_config), physical=stepper.physical_snapshot(epoch_ns=epoch_ns),
+            navigation=nav.snapshot(),
+            gyros=[g.sensor.snapshot() for g in gyros], gnss_receiver=receiver.snapshot(), gnss_pending=pending,
+            retention=retention.snapshot() if retention else None,
+            control=dict(depth_m=args.depth, pointing_error_deg=args.pointing_error_deg,
+                         capture_reference=capture.target.position.tolist(),
+                         operating_reference=(operations.target.position if operations else operating_reference).tolist(),
+                         force_n=control.force_n.tolist(), last_gnss_ns=control.last_gnss_ns),
+            environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else []),
+            default=lambda a: a.tolist())+'\n', encoding='utf-8')
+        (output/'performance.json').write_text(json.dumps(windows)+'\n', encoding='utf-8')
+        if mission in ('near', 'far'):
+            from simulation.capture26_results import write_stage_result
+            write_stage_result(output, args, summary, score, windows, nav, gyros, receiver, pending,
+                retention, capture, stepper, control, approach, cross_contacts,
+                environment, mission_id, epoch_ns, ephemeris_epoch)
+        print(json.dumps({key: summary[key] for key in ('compute_real_time_factor', 'accepted_visual', 'maximum_relative_position_error_m', 'integration_complete')}))
+        return summary
+    except Exception as exc:
+        (output/'failure.json').write_text(json.dumps(dict(
+            **provenance, probe_sha256=fingerprint, integration_complete=False,
+            error=str(exc), simulated_s=stepper._last_nanos*1e-9,
+            dynamics=stepper.telemetry(), calibration_id=calibration_id(vision_config)), indent=2)+'\n', encoding='utf-8')
+        raise
+    finally:
+        score.close()
+        packet_log.close()
+        if channel:
+            channel.close()
+        if profiler:
+            profiler.disable()
+            profiler.dump_stats(output/'compute.pstats')
+        if vision:
+            vision.close()
+        if result_receiver:
+            result_receiver.close()
+        if bridge:
+            bridge.close()
+        ctx.ports.close()
+        orbit.gravity_factory.unloadSpiceKernels()
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--adapter', type=Path, default=ROOT.parent/'space_sim_UE_Adapter')
+    p.add_argument('--depth', type=float, default=2.)
+    p.add_argument('--duration', type=float, default=12.)
+    p.add_argument('--seed', type=int, default=7)
+    p.add_argument('--gnss-delay', type=float, choices=(0., .1, .25), default=0.)
+    p.add_argument('--ue', action='store_true')
+    p.add_argument('--catalog', type=Path)
+    p.add_argument('--render-port', type=int, default=5558)
+    p.add_argument('--render-rate', type=int, choices=(10, 20, 50), default=10)
+    p.add_argument('--capture-port', type=int, default=8767)
+    p.add_argument('--realtime', action='store_true', help='pace the physical clock at --simulation-rate')
+    p.add_argument('--simulation-rate', type=float, default=1.,
+                   help='requested wall-clock pacing multiplier; physics/sensor rates remain unchanged')
+    p.add_argument('--profile', action='store_true')
+    p.add_argument('--restart', type=Path, help='private complete checkpoint; does not grant mission acceptance')
+    p.add_argument('--save-all-images', action='store_true', help='retain every processed stereo pair for prevalidation')
+    p.add_argument('--pointing-error-deg', type=float, nargs=3, default=[0., 0., 0.],
+                   metavar=('X', 'Y', 'Z'), help='known camera pointing offset held by estimated attitude control')
+    p.add_argument('--approach', action='store_true', help='exercise estimated-state nodes; unvalidated vision nodes enter SafeHold')
+    p.add_argument('--fault', choices=('', 'image_loss', 'worker_exit', 'gnss_loss', 'service_gyro_loss',
+                                      'target_gyro_loss', 'gyro_saturation'), default='')
+    p.add_argument('--fault-after', type=float, default=2.)
+    p.add_argument('--fault-after-ready', action='store_true', help='inject only after a current visual-ready gate, or report unexercised')
+    args = p.parse_args()
+    if not 0 < args.duration <= 300 or not .25 <= args.depth <= 110:
+        p.error('invalid probe duration or optical depth')
+    if args.approach and args.depth < 51:
+        p.error('approach entry must start outside the 50 m COM node')
+    if any(not abs(x) <= 10 for x in args.pointing_error_deg):
+        p.error('prevalidation pointing offset must be finite within +/-10 degrees')
+    if not 0 < args.fault_after < args.duration and args.fault:
+        p.error('fault epoch must fall inside the probe')
+    os.environ['SPACE_SIM_LOCAL_PUBLISH_STRIDE'] = '8'
+    run(args)
+
+
+if __name__ == '__main__':
+    main()

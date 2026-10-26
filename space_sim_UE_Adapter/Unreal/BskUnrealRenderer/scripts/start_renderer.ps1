@@ -31,6 +31,7 @@ param(
     [int]$CaptureNetworkPort = 0,
     [string]$AutoCommand = '',
     [string]$DerivedDataCachePath = '',
+    [switch]$OfflineCapture,
     [switch]$Foreground
 )
 
@@ -55,6 +56,13 @@ $arguments = @(
     $ProjectFile, '-game', '-windowed', "-ResX=$Width", "-ResY=$Height",
     "-BskListen=$ListenAddress", "-BskPort=$Port", '-log', '-DDC=InstalledDerivedDataBackendGraph'
 )
+if ($OfflineCapture) {
+    if ($PixelStreamingURL) { throw 'OfflineCapture cannot run Pixel Streaming.' }
+    $arguments += @('-BskOfflineCapture', '-BskVisionFastPng', '-RenderOffscreen', '-ForceRes', '-ExecCmds="t.MaxFPS 50,r.VSync 0"')
+}
+if ($CaptureNetworkPort -gt 0 -and -not $OfflineCapture) {
+    $arguments += '-BskVisionFastPng'
+}
 $normalizedCaptureProducts = @()
 foreach ($item in $CaptureProducts) {
     foreach ($product in ($item -split ',')) {

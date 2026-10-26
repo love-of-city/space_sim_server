@@ -83,7 +83,7 @@ struct Stepper {
     Api api{};
     mjModel* m = nullptr;
     mjData* d = nullptr;
-    mjData* friction_trial = nullptr;  // discarded predictions, never published
+    mjData* friction_trial = nullptr;  // candidate for the same physical step
     std::vector<AxialFriction> friction;
     std::vector<int> friction_ids;
     std::vector<double> friction_response;
@@ -521,11 +521,13 @@ static void friction_wrench(Stepper* s, mjData* d, const AxialFriction& f,
 }
 
 // Bounded time-step friction solve. Predict the SAME implicitfast/contact step
-// in scratch mjData, solve for the force that stops relative slip, then discard
-// the prediction. Only the usual mj_step on s->d advances the physical state.
+// in scratch mjData and solve for the force that stops relative slip. Commit
+// the converged candidate, including all integration/constraint state, rather
+// than running the identical step2 again. Failed candidates never advance s->d.
 // This avoids sign(v) chatter and viscous creep without an axial position spring.
 // Sliding uses a fixed kinetic limit; the last stopping impulse may be smaller.
-static int apply_axial_friction(Stepper* s) {
+static int apply_axial_friction(Stepper* s, bool& integrated) {
+    integrated = false;
     std::vector<int> ids;
     std::vector<double> axes, start_speed, previous_forces;
     for (int i=0; i<static_cast<int>(s->friction.size()); ++i) {
@@ -571,15 +573,22 @@ static int apply_axial_friction(Stepper* s) {
     std::vector<double> free_speed(n), measured(n), probe(n), response(n*n), limits(n);
     std::vector<bool> sliding(n, false);
     auto apply = [&]() {
+        // Every successful exit immediately follows predict(forces, measured).
+        // The trial therefore contains precisely the final applied forces and
+        // a complete physical step, with the same initial solver warm start.
+        // Both buffers are owned here; no mjData pointer escapes the ABI.
+        // Swapping preserves contacts, effort, qacc, warnings and time without
+        // copying the large model workspace a second time.
+        std::swap(s->d, s->friction_trial);
+        integrated = true;
         for (int i=0; i<n; ++i) {
             auto& f = s->friction[ids[i]];
             f.axial_force = forces[i]; f.mode = sliding[i] ? 2 : 1;
             for (int k=0; k<3; ++k) f.force[k] = forces[i] * axes[3*i+k];
-            friction_wrench(s, s->d, f, axes.data()+3*i, forces[i]);
         }
     };
     // Validate a previous solution against this substep's actual contact solve.
-    // Usually loads change slowly: one discarded prediction is sufficient.
+    // Usually loads change slowly: one candidate is sufficient.
     if (!predict(forces, measured)) return ERR_DIVERGED;
     bool warm_valid = true;
     for (int i=0; i<n; ++i) {
@@ -746,11 +755,25 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
             // position/velocity stages run ONCE on the authoritative data.
             s->api.step1(m, d);
             apply_tidal(s, origin, mu);  // fresh body rotations for held torques
-            int friction_status = apply_axial_friction(s);
-            if (friction_status != OK) return friction_status;
-            s->api.step2(m, d);
+            // The default contact objective tolerance can terminate before
+            // micron/s stiction is resolved, making the force-to-slip map jump
+            // during root finding. Solve trial AND authoritative constraints
+            // to the same tighter accuracy; keep the friction tolerance and
+            // authored physical parameters unchanged.
+            const double contact_tolerance = m->opt.tolerance;
+            m->opt.tolerance = std::min(contact_tolerance, 1e-12);
+            bool integrated = false;
+            int friction_status = apply_axial_friction(s, integrated);
+            if (friction_status != OK) {
+                m->opt.tolerance = contact_tolerance;
+                return friction_status;
+            }
+            d = s->d;
+            if (!integrated) s->api.step2(m, d);
+            m->opt.tolerance = contact_tolerance;
         } else {
-            apply_axial_friction(s);  // clear samples and start_z for free interfaces
+            bool integrated = false;
+            apply_axial_friction(s, integrated);  // clear samples/start_z for free interfaces
             s->api.step(m, d);
         }
         for (auto& f : s->friction) {

@@ -167,8 +167,12 @@ class BasiliskRenderBridge(_BridgeBase):
         frame_rate_hz: int | None = None,
         vision_capture_camera_ids: Sequence[str] = (),
         vision_capture_rate_hz: int = 10,
+        epoch_offset_ns: int = 0,
     ) -> None:
         super().__init__()
+        if type(epoch_offset_ns) is not int or epoch_offset_ns < 0:
+            raise ValueError("epoch_offset_ns must be a nonnegative integer")
+        self.epoch_offset_ns = epoch_offset_ns
         if frame_period_ns is not None and int(frame_period_ns) <= 0:
             raise ValueError("frame_period_ns must be positive when provided")
         if frame_rate_hz is not None and (frame_rate_hz <= 0 or int(frame_rate_hz) != frame_rate_hz):
@@ -771,14 +775,14 @@ class BasiliskRenderBridge(_BridgeBase):
 
         self._frame_id = 0
         self._last_published_sim_time_ns = -1
-        self._next_frame_ns = int(CurrentSimNanos)
+        self._next_frame_ns = int(CurrentSimNanos) + self.epoch_offset_ns
         self._record_and_retain_static()
         self.publish_event(
             "session_started",
             {
                 "severity": "info",
                 "message": "Basilisk render session started",
-                "sim_time_ns": str(int(CurrentSimNanos)),
+                "sim_time_ns": str(int(CurrentSimNanos) + self.epoch_offset_ns),
             },
         )
 
@@ -797,7 +801,7 @@ class BasiliskRenderBridge(_BridgeBase):
     def UpdateState(self, CurrentSimNanos: int) -> None:
         """Sample registered messages and enqueue the newest render frame."""
 
-        current_sim_ns = int(CurrentSimNanos)
+        current_sim_ns = int(CurrentSimNanos) + self.epoch_offset_ns
         self._dispatch_commands(current_sim_ns)
         if self.frame_rate_hz is not None:
             rate = self.frame_rate_hz
@@ -870,7 +874,7 @@ class BasiliskRenderBridge(_BridgeBase):
             "session_id": self.session_id,
             "manifest_revision": str(self._manifest_revision),
             "frame_id": str(self._frame_id),
-            "sim_time_ns": str(int(CurrentSimNanos)),
+            "sim_time_ns": str(current_sim_ns),
             "wall_time_ns": str(time.time_ns()),
             "origin_N_m": origin_n.tolist(),
             "c_LN": self.converter.c_l_n.reshape(9).tolist(),

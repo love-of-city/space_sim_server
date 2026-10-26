@@ -1,0 +1,52 @@
+"""Audit source checkpoint against the receiving native scene's first epoch.
+
+This is diagnostic evidence only, never authorization for a mission handoff.
+No simulation or navigation implementation is imported by this scorer.
+"""
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+
+
+def check(source, receiving):
+    before = json.loads(Path(source).read_text('utf-8-sig'))
+    after = json.loads((Path(receiving)/'restored-state.json').read_text('utf-8'))
+    checks, errors = {}, {}
+    for key in ('qpos_inertial', 'qvel_inertial', 'origin_position_m', 'origin_velocity_m_s'):
+        a, b = (np.asarray(d['physical'][key], float) for d in (before, after))
+        errors[key] = float(np.max(np.abs(a-b))) if a.shape == b.shape else None
+        checks[key] = a.shape == b.shape and errors[key] <= 1e-9
+    checks['common_epoch'] = (before['physical']['time_ns'] == after['physical']['time_ns']
+                              == before['navigation']['state']['time_ns'] == after['navigation']['state']['time_ns'])
+    # Session rebinding changes only ingress identity, not posterior/history.
+    for key in ('state', 'base', 'events', 'snapshots', 'accepted', 'base_committed', 'last_visual_epoch'):
+        checks['navigation/'+key] = before['navigation'][key] == after['navigation'][key]
+    for key in ('gyros', 'gnss_receiver', 'gnss_pending', 'retention'):
+        checks[key] = before[key] == after[key]
+    for key in ('operating_reference', 'capture_reference'):
+        checks[key] = before['control'][key] == after['control'][key]
+    # Forces/environment may be freshly recomputed at the same epoch, but
+    # their stochastic state and last sampling epoch must remain identical.
+    checks['environment'] = before['environment'] == after['environment']
+    report = dict(schema='space-sim-capture26-continuity-audit/1', checks=checks,
+                  maximum_absolute_errors=errors, continuity_passed=all(checks.values()),
+                  source=str(Path(source).resolve()), receiving=str(Path(receiving).resolve()),
+                  mission_accepted=False, integration_complete=False)
+    (Path(receiving)/'continuity-audit.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
+    return report
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('source', type=Path)
+    p.add_argument('receiving', type=Path)
+    args = p.parse_args()
+    report = check(args.source, args.receiving)
+    print(json.dumps(report, indent=2))
+    return 0 if report['continuity_passed'] else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

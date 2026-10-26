@@ -26,8 +26,8 @@ from .orbital_physics import OrbitalPhysics
 
 MISSION_MODES = (
     {"id": "teleop", "label": "从机械臂操作场景开始", "template_ids": None},
-    {"id": "team-in-orbit", "label": "从 7 km 交会开始", "template_ids": [SELF_COLLISION_TEMPLATE]},
-    {"id": "team-orbit-raise", "label": "从 300 km 入轨状态开始", "template_ids": [SELF_COLLISION_TEMPLATE]},
+    {"id": "team-in-orbit", "label": "从 7 km 交会开始", "template_ids": [SELF_COLLISION_TEMPLATE, 'sarm-dual-capture26']},
+    {"id": "team-orbit-raise", "label": "从 300 km 入轨状态开始", "template_ids": [SELF_COLLISION_TEMPLATE, 'sarm-dual-capture26']},
 )
 
 
@@ -156,6 +156,7 @@ class MissionRuntime:
         self.require_available()
         self._new(scenario, user)
         self._record.update(options=resolved, live=live, continuous=continuous, flight_phase="far", stages=[])
+        self.flight.mission_id = self._record['mission_id']
         previous_run = self.telemetry.status().get("run_id")
         self.flight.prepare_start()
 
@@ -188,8 +189,10 @@ class MissionRuntime:
                 if runtime.get("output_dir") != self._record.get("flight_output_dir"):
                     raise RuntimeError("连续任务的运行来源发生变化")
                 phase = self._record["flight_phase"]
+                capture26 = self._record['options'].get('model_id') == 'sarm-dual-capture26'
+                terminal = 'NearParked' if capture26 else 'CaptureHold'
                 if (not report.get("basic_nominal_passed") or runtime.get("exit_code") not in (None, 0)
-                        or (phase == "near" and report.get("outcome") != "CaptureHold")):
+                        or (phase == "near" and report.get("outcome") != terminal)):
                     raise RuntimeError(f"{self._record['flight_phase']} 阶段未通过验收，连续流程已停止")
                 self._record["stages"].append({"phase": phase, "output_dir": self._record["flight_output_dir"],
                                                 "outcome": report.get("outcome"), "final_time_s": report.get("final_time_s")})
@@ -200,7 +203,8 @@ class MissionRuntime:
                     async def near_work():
                         previous_run = self.telemetry.status().get("run_id")
                         result = await asyncio.to_thread(self.flight.start, self._record["live"], "simulation",
-                            "near-field-resume", NearFieldOptions(seed=self._record["options"]["seed"]).to_dict())
+                            "near-field-resume", NearFieldOptions(seed=self._record["options"]["seed"],
+                                model_id=self._record['options'].get('model_id', FlightOptions().model_id)).to_dict())
                         if self.telemetry.status().get("run_id") == previous_run:
                             self.telemetry.clear_cached_state()
                         self._record.update(flight_phase="near", flight_output_dir=result.get("output_dir"))
@@ -239,9 +243,16 @@ class MissionRuntime:
         folder = self.flight.output_dir
         if folder is None:
             raise RuntimeError("没有可接续的交会结果")
-        from simulation.orbital_rendezvous.handoff import load_handoff
-        from simulation.orbital_rendezvous.model import DEFAULT_MODEL
-        handoff = load_handoff(folder / "handoff.json", self.scenes.project_root / DEFAULT_MODEL)
+        capture26 = (self._record or {}).get('options', {}).get('model_id') == 'sarm-dual-capture26'
+        if capture26:
+            from simulation.capture26_handoff import load
+            handoff = load(folder/'handoff.json', self.scenes.project_root)
+            if handoff['phase'] != 'NearParked':
+                raise RuntimeError('capture26 必须完成近距停泊才能交接操作场景')
+        else:
+            from simulation.orbital_rendezvous.handoff import load_handoff
+            from simulation.orbital_rendezvous.model import DEFAULT_MODEL
+            handoff = load_handoff(folder / "handoff.json", self.scenes.project_root / DEFAULT_MODEL)
         if self._record is None or self._record.get("flight_output_dir") != str(folder):
             # A pre-migration result can be adopted explicitly by an administrator.
             if user.get("role") != "admin":
@@ -256,14 +267,15 @@ class MissionRuntime:
         terminal_scene = self.scenes.status().get("phase") in {"stopped", "failed", "completed"}
         if self._record.get("scene_instance_id") and not (self._record.get("stopped") or terminal_scene):
             raise RuntimeError("本次结果已经接续，请使用当前场景或启动新任务")
-        self._record["source_run_id"] = (handoff.get("state", {}).get("metadata") or {}).get("run_id")
+        self._record["source_run_id"] = folder.name if capture26 else (handoff.get("state", {}).get("metadata") or {}).get("run_id")
 
         async def work():
             await asyncio.to_thread(self.flight.release_renderer)
             # The flight's source model is fixed and hash-validated above. Do
             # not let the platform's selected experimental template replace it.
             result = await asyncio.to_thread(self.scenes.start, SceneInstanceCreate(
-                template_id=SELF_COLLISION_TEMPLATE, randomization_profile="none", **self.scene_defaults),
+                template_id='sarm-dual-capture26' if capture26 else SELF_COLLISION_TEMPLATE,
+                randomization_profile="none", **self.scene_defaults),
                                              user, handoff=handoff, mission=self.provenance())
             self._record.update(stage="teleop", scene_instance_id=result.get("instance_id"), stopped=False)
             self._record.setdefault("scene_instance_ids", []).append(result.get("instance_id"))

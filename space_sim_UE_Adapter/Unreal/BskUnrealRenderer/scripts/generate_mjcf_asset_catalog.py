@@ -27,16 +27,9 @@ def main() -> None:
                         help="Native plugin library to register before compiling the MJCF (repeatable)")
     args = parser.parse_args()
 
-    if args.mujoco_plugin:
-        import mujoco
-        if sys.platform.startswith("linux"):
-            from bsk_render_adapter.native_plugins import loaded_mujoco_library
-            # Keep the handle alive until all plugin/model work is finished.
-            plugin_runtime = loaded_mujoco_library(global_symbols=True)
-            _ = plugin_runtime
-        for library in args.mujoco_plugin:
-            mujoco.mj_loadPluginLibrary(str(library.resolve(strict=True)))
-    metadata = parse_mjcf_geometry_metadata(args.mjcf)
+    # Only source files/materials/visibility are used below. Compiling physics
+    # here needlessly requires application plugins (and may load another ABI).
+    metadata = parse_mjcf_geometry_metadata(args.mjcf, compile_mesh_poses=False)
     sources = sorted(
         {Path(item.source_path).resolve() for item in metadata if item.source_path and item.visible},
         key=lambda item: item.as_posix().casefold(),

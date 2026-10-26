@@ -132,6 +132,11 @@ def test_compact_preserves_noisy_measurements_ground_truth_and_delay(tmp_path):
     """The main branch's noise feature must remain auditable in compact data."""
     import hashlib
     from space_arm_platform.compact_storage import wrench_bytes
+    from simulation.gyroscope import Gyroscope
+
+    gyro = Gyroscope(seed=3)
+    gyro.sample(0, [0.] * 3)
+    gyro_samples = []
 
     def noisy_sample(stamp):
         data = sample(stamp).model_dump()
@@ -144,9 +149,20 @@ def test_compact_preserves_noisy_measurements_ground_truth_and_delay(tmp_path):
     meta = recorder.start(EpisodeStart(fps=50, camera_ids=[]))
     ground_truth = {"joint_position_rad": [0.01] * 8, "joint_velocity_rad_s": [0.02] * 8,
                     "end_effector_position_body_m": [0.1, 0.2, 0.3]}
+    environment = {"orbital_physics": {"configuration": {"earth_gravity": "j2", "j2_coefficient": 0.001082616}},
+                   "rendezvous_handoff": {"source_run_id": "far-near-mission", "epoch_s": 6984.0},
+                   "flight_environment": [{"drag_n": [0.0, -0.0001, 0.0], "illumination": 0.0}],
+                   "atmospheric_drag": [{"body": "cubesat_bus", "density_kg_m3": 1e-12}]}
     for i in range(1, 4):
         stamp = i * 20_000_000
+        gyro_reading = gyro.sample(stamp, [.01, -.02, .7 if i == 3 else .03])
+        gyro_samples.append(gyro_reading)
         data = observation(i).model_dump()
+        data.update(environment)
+        data.update(service_gyro=gyro_reading,
+                    capture_arm={"controller_status": "idle", "joint_position_rad": [0.] * 6},
+                    target_relative_state={"position_inertial_m": [.1, .2, .3]},
+                    formation_hold={"enabled": False}, coorbital_initialization=True)
         data.update(sim_time_ns=str(stamp),
                     observation_source="authoritative_render_with_measured_proprioception",
                     ground_truth=ground_truth, joint_measurement_time_ns=str(stamp-10_000_000),
@@ -159,8 +175,15 @@ def test_compact_preserves_noisy_measurements_ground_truth_and_delay(tmp_path):
     root = tmp_path / meta["episode_id"]
     restored = list(read_observations(root))
     assert len(restored) == 3
+    assert [obs["service_gyro"] for obs in restored] == gyro_samples
     for obs in restored:
+        assert obs["capture_arm"]["controller_status"] == "idle"
+        assert obs["target_relative_state"]["position_inertial_m"] == [.1, .2, .3]
+        assert obs["formation_hold"] == {"enabled": False}
+        assert obs["coorbital_initialization"] is True
         assert obs["ground_truth"] == ground_truth
+        for key, value in environment.items():
+            assert obs[key] == value
         assert obs["joint_measurement_age_ns"] == "10000000"
         assert int(obs["sim_time_ns"]) - int(obs["joint_measurement_time_ns"]) == 10_000_000
         expected = noisy_sample(int(obs["sim_time_ns"]))

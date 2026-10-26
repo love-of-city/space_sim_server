@@ -100,7 +100,7 @@ function Write-RuntimeState([string]$Phase, [string]$ErrorMessage = '') {
     $runtimeState.error = $ErrorMessage
     $temporaryPath = "$statePath.tmp.$PID"
     $runtimeState | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $temporaryPath -Encoding utf8
-    Move-Item -LiteralPath $temporaryPath -Destination $statePath -Force
+    Move-SceneRuntimeState $temporaryPath $statePath
 }
 
 function Get-RenderListenerOwner([int]$Port) {

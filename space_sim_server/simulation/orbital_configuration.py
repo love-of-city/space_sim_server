@@ -18,6 +18,11 @@ def resolve_orbital_physics(scene_instance, *, override=None, backend="local", m
                     if "physics" in environment else OrbitalPhysics.legacy())
     else:
         settings = OrbitalPhysics() if backend == "local" and mode == "bsk" else OrbitalPhysics.legacy()
+    if scene_instance is not None and scene_instance.get("rendezvous_handoff") is not None:
+        from space_arm_platform.rendezvous_config import FlightOptions
+        inherited = FlightOptions.from_dict(scene_instance["rendezvous_handoff"].get("mission_options", {})).physics
+        if settings != inherited:
+            raise ValueError("handoff must preserve the flight orbital physics configuration; an override cannot change it")
     if (settings.earth_gravity != "point_mass" or settings.drag is not None) and (
         backend != "local" or mode != "bsk"
     ):

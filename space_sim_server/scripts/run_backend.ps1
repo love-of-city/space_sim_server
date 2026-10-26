@@ -4,6 +4,7 @@ param(
     [int]$ApiPort = 8000,
     [int]$ControlPort = 8766,
     [int]$CapturePort = 8767,
+    [int]$RendezvousPort = 8768,
     [int]$PixelStreamingPlayerPort = 8080,
     [string]$PixelStreamingId = 'BskRenderer',
     [string]$PixelStreamingSignallingUrl = '',
@@ -59,10 +60,16 @@ try {
 } finally {
     Pop-Location
 }
-$env:PYTHONPATH = Join-Path $projectRoot 'backend'
+# Bind both sides of the unified checkout. A shared virtual environment may
+# contain editable installs from another worktree; child flight processes must
+# use this launcher's server and configured rendering adapter together.
+$modulePaths = @((Join-Path $projectRoot 'backend'), $projectRoot)
+if ($AdapterRoot) { $modulePaths += Join-Path $AdapterRoot 'Adapters' }
+$env:PYTHONPATH = $modulePaths -join [IO.Path]::PathSeparator
 Set-Location $projectRoot
 $arguments = @('-m', 'space_arm_platform.main', '--host', $ApiHost, '--port', $ApiPort, '--simulation-port', $ControlPort,
-    '--capture-port', $CapturePort, '--pixel-streaming-player-port', $PixelStreamingPlayerPort,
+    '--capture-port', $CapturePort, '--rendezvous-port', $RendezvousPort,
+    '--pixel-streaming-player-port', $PixelStreamingPlayerPort,
     '--pixel-streaming-streamer-id', $PixelStreamingId, '--data-root', ([IO.Path]::GetFullPath($DataRoot)),
     '--runtime-encoder-min-quality', $EncoderMinQuality)
 if ($env:SPACE_SIM_NO_ACCESS_LOG -eq '1') { $arguments += @('--no-access-log', '--log-level', 'warning') }

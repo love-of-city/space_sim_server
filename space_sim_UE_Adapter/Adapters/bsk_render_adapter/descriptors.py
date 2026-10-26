@@ -182,6 +182,33 @@ class CelestialBodyVisual:
 
 
 @dataclass
+class RelativeView:
+    """Two physical reference points for a renderer-only relative-motion view."""
+
+    primary_object_id: str
+    secondary_object_id: str
+    primary_center_body_m: Sequence[float] = (0.0, 0.0, 0.0)
+    secondary_center_body_m: Sequence[float] = (0.0, 0.0, 0.0)
+    primary_label: str = "Chaser"
+    secondary_label: str = "Target"
+
+    def to_payload(self) -> dict[str, Any]:
+        ids = (self.primary_object_id, self.secondary_object_id)
+        if any(not isinstance(item, str) or not item or len(item) > 256 for item in ids) or ids[0] == ids[1]:
+            raise ValueError("relative view requires two distinct object IDs")
+        payload = asdict(self)
+        for key in ("primary_center_body_m", "secondary_center_body_m"):
+            values = _list(payload[key])
+            if len(values) != 3 or not all(math.isfinite(value) for value in values):
+                raise ValueError("relative view centers must be finite 3-vectors")
+            payload[key] = values
+        for key in ("primary_label", "secondary_label"):
+            if not isinstance(payload[key], str) or not payload[key] or len(payload[key]) > 64:
+                raise ValueError("relative view labels must contain 1-64 characters")
+        return payload
+
+
+@dataclass
 class SceneSettings:
     """Renderer hints that never alter authoritative simulation state."""
 
@@ -203,6 +230,7 @@ class SceneSettings:
     # non-physical readability fill for ephemeris-lit scenes.
     fill_light_intensity_lux: float = -1.0
     sunlight_intensity_scale: float = 1.0  # [-], independent of renderer calibration
+    relative_view: RelativeView | Mapping[str, Any] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         scale = self.sunlight_intensity_scale
@@ -210,6 +238,13 @@ class SceneSettings:
                 or not math.isfinite(scale) or not 0.0 <= scale <= 20_000.0):
             raise ValueError("sunlight_intensity_scale must be a finite number in [0, 20000]")
         payload = asdict(self)
+        if self.relative_view is None:
+            payload.pop("relative_view")
+        else:
+            view = RelativeView(**self.relative_view) if isinstance(self.relative_view, Mapping) else self.relative_view
+            if not isinstance(view, RelativeView):
+                raise ValueError("relative_view must be a RelativeView or mapping")
+            payload["relative_view"] = view.to_payload()
         payload["sunlight_intensity_scale"] = float(scale)
         for key in ("headlight_diffuse_rgb", "headlight_ambient_rgb", "headlight_specular_rgb"):
             payload[key] = _list(payload[key])

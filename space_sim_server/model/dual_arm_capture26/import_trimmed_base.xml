@@ -1,3 +1,3 @@
 <?xml version='1.0' encoding='utf-8'?>
-<mujoco><asset><mesh name="base_link_mesh" file="D:\mingti\captive-fastener\space_sim_server\model\dual_arm_capture26\meshes\capture26_trim_base_link_mujoco.stl" scale="0.001 0.001 0.001" />
+<mujoco><asset><mesh name="base_link_mesh" file="adjacent_face_v1/side_v1_capture26_trim_base_link_mujoco.stl" scale="0.001 0.001 0.001" />
     </asset><worldbody><body name="trimmed_base"><geom type="mesh" mesh="base_link_mesh" contype="0" conaffinity="0" /></body></worldbody></mujoco>

@@ -37,6 +37,21 @@ def test_missing_parent_is_rejected_instead_of_showing_detached_markers(tmp_path
         attach_visual_geometries([], [dict(parent_id='missing', geometry_file='marker.json')], tmp_path)
 
 
+def test_delivered_render_profiles_pass_attachment_integrity_checks():
+    from types import SimpleNamespace
+    from simulation.visual_attachments import attach_visual_geometries
+    root = Path(__file__).resolve().parents[1]
+    profiles = json.loads((root / 'config/scene_render_profiles.json').read_text(encoding='utf-8'))
+    for profile in profiles.values():
+        specs = profile.get('visual_attachments', [])
+        objects = [SimpleNamespace(object_id=name, geometries=[])
+                   for name in {spec['parent_id'] for spec in specs}]
+        added = attach_visual_geometries(objects, specs, root)
+        if specs:
+            assert added > 0
+        assert all(g.render_role == 'visual' for body in objects for g in body.geometries)
+
+
 def test_imported_handoff_has_four_correctly_scaled_marker_boards():
     from types import SimpleNamespace
     from simulation.visual_attachments import attach_visual_geometries

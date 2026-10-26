@@ -132,10 +132,12 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
 # validate flex contacts without ignoring the experiment's core collision.
 TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES: dict[str, str] = {
     SARM_20261012_TEMPLATE: ZERO_START_TELEOP_PROFILE,
+    'sarm-dual-capture26': ZERO_START_TELEOP_PROFILE,
     FREE_PLUG_TEMPLATE: ZERO_START_TELEOP_PROFILE,
 }
 TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
     SARM_20261012_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE, BALANCED_TELEOP_PROFILE, 'none', 'training-v1'),
+    'sarm-dual-capture26': (AUTO_PREPARE_TELEOP_PROFILE,),
     FREE_PLUG_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE,),
 }
 
@@ -405,13 +407,18 @@ class SceneRuntimeManager:
             },
         }
 
-    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         if request.template_id not in {item["id"] for item in SCENE_TEMPLATES}:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
         unsupported_profiles = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES.get(request.template_id, ())
         if request.randomization_profile in unsupported_profiles:
+            if request.template_id in SARM_TEMPLATES:
+                raise ValueError(
+                    '当前 SARM 场景不支持所选启动配置；请选择“指定操作姿态直接启动”'
+                    '（teleop-zero-prepare-v1）'
+                )
             raise ValueError(
                 "本地任务盒（两个活动插头·实验）包含 flexcomp 接触网格，"
                 "当前不支持“零位启动并自动展开”（teleop-zero-prepare-v2）；"
@@ -433,6 +440,8 @@ class SceneRuntimeManager:
                     raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
+        if mission is not None:
+            instance["mission"] = dict(mission)
         if request.template_id in SCENE_RENDER_PROFILES:
             profile = SCENE_RENDER_PROFILES[request.template_id]
             instance['render_profile'] = dict(profile)
@@ -457,6 +466,21 @@ class SceneRuntimeManager:
             instance["ik_initialization"] = report
             if report["status"] in {"selected", "kept"}:
                 instance["randomization"]["arm_joint_position_rad"][:6] = report["joint_position_rad"]
+        if handoff is not None:
+            from datetime import datetime, timedelta
+            from .rendezvous_config import FlightOptions
+            if request.template_id != SELF_COLLISION_TEMPLATE or handoff.get("accepted") is not True:
+                raise ValueError("handoff requires the original team model and an accepted flight")
+            physics = FlightOptions.from_dict(handoff.get("mission_options", {})).physics
+            if "orbital_physics" in request.model_fields_set and request.orbital_physics != physics:
+                raise ValueError("handoff must preserve the flight orbital physics configuration")
+            instance["environment"]["physics"] = physics.model_dump(mode="json")
+            epoch = datetime.strptime(handoff["ephemeris_epoch_utc"], "%Y %B %d %H:%M:%S.%f")
+            epoch += timedelta(seconds=float(handoff["state"]["sim_time_s"]))
+            instance["environment"]["ephemeris_epoch_utc"] = epoch.strftime("%Y %B %d %H:%M:%S.%f")
+            instance["rendezvous_handoff"] = handoff
+            instance["randomization"]["arm_joint_position_rad"] = [0.0] * 8
+            instance["arm_preparation_required"] = False
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -465,7 +489,7 @@ class SceneRuntimeManager:
         self._last_instance = instance
         return instance
 
-    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         if not self.launch:
             raise RuntimeError("scene runtime launching is not configured")
         linux = self.launch.python_exe is not None
@@ -480,7 +504,7 @@ class SceneRuntimeManager:
             status = self.status()
             if status["active"]:
                 raise RuntimeError("a scene instance is already starting or running")
-            instance = self.create_instance(request, created_by)
+            instance = self.create_instance(request, created_by, handoff=handoff, mission=mission)
             instance_path = Path(instance["config_path"])
             script = launch_script
             command = [

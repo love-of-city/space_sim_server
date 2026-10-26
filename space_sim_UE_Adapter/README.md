@@ -4,6 +4,8 @@
 
 Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真端推进，UE 负责渲染与相机采集，协议为 `bsk-render/2`。
 
+近距交会通过现有事件HUD显示阶段、导航质量与逻辑捕获状态，使用 `Adapters/bsk_render_adapter/near_field.py`；配套动力学、入口和限制见 [近距交会方案](../space_sim_server/docs/NEAR_FIELD_RENDEZVOUS.md)。UE只渲染，双目图像没有参与当前参数化导航算法。
+
 | 目录 | 用途 |
 | --- | --- |
 | `Adapters/bsk_render_adapter/` | 通用 Python 发送端 |

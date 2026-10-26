@@ -665,6 +665,10 @@ bool FBskLocalFrameExtrapolationTest::RunTest(const FString& Parameters)
         Controller->ExtrapolateFrame(To, To, 0.02).Objects[1].PositionMeters.Equals(To.Objects[1].PositionMeters));
     TestTrue(TEXT("negative prediction duration holds the target"),
         Controller->ExtrapolateFrame(From, To, -1.0).Objects[1].PositionMeters.Equals(To.Objects[1].PositionMeters));
+    TestTrue(TEXT("four-times playback converts wall seconds to simulation seconds"),
+        FMath::IsNearlyEqual(Controller->ExtrapolateFrame(From, To, 0.02, 4.0).Objects[1].PositionMeters.X, 0.012, 1.e-9));
+    TestEqual(TEXT("accelerated prediction timestamp follows the same rate"),
+        Controller->ExtrapolateFrame(From, To, 0.02, 4.0).SimulationTimeNanoseconds, int64(1120000000));
     return true;
 }
 
@@ -678,12 +682,14 @@ bool FBskSceneResetTest::RunTest(const FString& Parameters)
     ABskSceneController* Controller = NewObject<ABskSceneController>();
     Controller->ActiveSessionId = TEXT("new-session");
     Controller->LastFrameId = 100;
-    Controller->bHasTargetFrame = true;
     Controller->bHasPresentationFrame = true;
-    Controller->PreviousFrame.FrameId = 99;
-    Controller->TargetFrame.FrameId = 100;
-    Controller->BlendElapsedSeconds = 2.0;
-    Controller->LastFrameArrivalSeconds = 50.0;
+    FBskRenderFrame Previous, Latest;
+    Previous.FrameId = 99;
+    Latest.FrameId = 100;
+    Controller->PresentationFrames.Add(Previous);
+    Controller->PresentationFrames.Add(Latest);
+    Controller->PresentationClock.Observe(50.0, 10.0);
+    Controller->PresentationClock.Observe(50.5, 10.1);
     Controller->CameraNextDataCaptureSimulationNanoseconds.Add(TEXT("wrist"), 9000000000);
     FBskRenderEvent Event;
     Event.SessionId = TEXT("old-session");
@@ -693,9 +699,9 @@ bool FBskSceneResetTest::RunTest(const FString& Parameters)
     Event.SessionId = TEXT("new-session");
     Controller->ApplyEvent(Event);
     TestEqual(TEXT("frame id cleared"), Controller->LastFrameId, int64(-1));
-    TestFalse(TEXT("no interpolation across reset"), Controller->bHasTargetFrame);
     TestFalse(TEXT("no old presentation during capture"), Controller->bHasPresentationFrame);
-    TestEqual(TEXT("arrival clock cleared"), Controller->LastFrameArrivalSeconds, 0.0);
+    TestEqual(TEXT("playback clock cleared"), Controller->PresentationClock.GetRate(), 0.0);
+    TestEqual(TEXT("old preview buffer cleared"), Controller->PresentationFrames.Num(), 0);
     TestEqual(TEXT("capture deadlines cleared"), Controller->CameraNextDataCaptureSimulationNanoseconds.Num(), 0);
 
     UBskRenderWorldSubsystem* Subsystem = NewObject<UBskRenderWorldSubsystem>();

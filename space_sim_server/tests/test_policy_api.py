@@ -49,6 +49,7 @@ def api(tmp_path, monkeypatch):
     cache = Mock()
     scenes = Mock()
     scenes.enabled = True
+    scenes.status.return_value = {"phase": "idle", "active": False}
     monkeypatch.setattr(app_module, "SimulationHub", lambda: hub)
     monkeypatch.setattr(app_module, "PolicyObservationCache", lambda: cache)
     monkeypatch.setattr(app_module, "SceneRuntimeManager", lambda *args, **kwargs: scenes)
@@ -198,6 +199,37 @@ def test_only_owner_or_admin_can_step_reset_and_close_a_session(api):
     assert api.client.delete(prefix).status_code == 200  # Idempotent receipt after confirmed release.
 
 
+@pytest.mark.parametrize("transition", ["starting", "handoff", "stopping", "stop_requested"])
+def test_policy_cannot_acquire_during_a_mission_transition(api, transition):
+    missions = api.app.state.missions
+    if transition == "stop_requested":
+        missions._stop_requested = True
+    else:
+        missions._operation = transition
+    response = api.client.post("/api/policy/sessions", json=START)
+    assert response.status_code == 409
+    assert "任务正在切换阶段" in response.json()["detail"]
+    assert not api.manager.active
+    api.hub.begin_reset.assert_not_called()
+    api.hub.policy_command.assert_not_awaited()
+
+
+def test_policy_recordings_remain_linked_to_the_current_mission(api, monkeypatch):
+    missions = api.app.state.missions
+    missions._new("teleop", api.owner)
+
+    async def begin_recording(request, *, before_enable):
+        before_enable("mission-policy-episode")
+        return {"episode_id": "mission-policy-episode"}
+
+    monkeypatch.setattr(api.manager.capture_lifecycle, "start", AsyncMock(side_effect=begin_recording))
+    result = start(api, record=True)
+    assert result["recording_episode_id"] == "mission-policy-episode"
+    import json
+    saved = json.loads((missions.root / "latest.json").read_text(encoding="utf-8"))
+    assert saved["episodes"] == ["mission-policy-episode"]
+
+
 def test_policy_excludes_recording_scene_reset_start_and_teleop_in_the_real_app(api):
     result = start(api)
     for path, payload in [
@@ -206,9 +238,15 @@ def test_policy_excludes_recording_scene_reset_start_and_teleop_in_the_real_app(
         ("/api/episodes/stop", {"outcome": "unknown"}),
         ("/api/scenes/start", {"template_id": "sarm-task-box-20261012"}),
         ("/api/scenes/reset", None), ("/api/tasks/missing-task/start", None),
+        ("/api/mission/start", {"mode": "teleop"}),
+        ("/api/mission/start", {"mode": "team-in-orbit"}),
+        ("/api/mission/handoff", None),
+        ("/api/rendezvous/start", {"scenario": "team-in-orbit"}),
+        ("/api/rendezvous/handoff", None),
     ]:
         response = api.client.post(path, json=payload)
         assert response.status_code == 409, (path, response.text)
+        assert "独占控制" in response.json()["detail"], (path, response.text)
     with api.client.websocket_connect("/ws/operator") as websocket:
         # A connection may receive a revocation before its initial session packet.
         for _ in range(3):

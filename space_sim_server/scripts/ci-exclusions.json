@@ -1,7 +1,6 @@
 {
   "files": {
     "tests/test_orbit_attitude_reference.py": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
-
     "tests/test_linux_deployment.py": "Linux UID/start-time ownership and native deployment lifecycle; run on the Linux deployment host",
     "tests/test_linux_mujoco_runtime.py": "Linux-only ELF/runtime isolation checks require Basilisk and MuJoCo; run separately on the Linux simulation host",
     "tests/test_sarm_asset_plugins.py": "Requires the locally compiled SARM native plugin; run on each simulation host after building it",
@@ -32,7 +31,9 @@
     "tests/test_public_gateway_integration.py": "External Caddy binary",
     "tests/test_capture_on_demand_renderer.py": "Opt-in real UE 5.6/GPU RGB smoke test requiring SPACE_SIM_UE_CAPTURE_SMOKE=1 and UE56_ROOT; basic CI does not install Unreal. Run separately for renderer acceptance.",
     "tests/test_wrist_wrench_native.py": "Basilisk MJScene and locally built MuJoCo helper: analytic wrench, contact, frame, passive measurement and rebase verification",
-    "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation"
+    "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation",
+    "tests/test_flight_environment.py": "Basilisk messages; run in the native simulation acceptance suite",
+    "tests/test_gyroscope_native.py": "Basilisk scheduler and real SCStatesMsg; run in the native simulation environment. Pure sensor statistics, wire validation and recording remain in basic CI."
   },
   "nodes": {
     "tests/test_overview_camera.py::test_saved_v3_p3_replays_its_real_recording_calibration": "Basilisk live scene loader; run separately in the native simulation environment",
@@ -43,7 +44,6 @@
     "tests/test_adjacent_coorbital.py::test_attitude_guidance_keeps_configured_body_rotation": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
     "tests/test_com_coorbital.py::test_authoritative_compiled_mass_centres_include_arm_and_inferred_mass": "Basilisk MJScene and locally built MuJoCo helper; run separately in the native simulation environment",
     "tests/test_com_coorbital.py::test_orbital_setters_use_whole_assembly_com_after_initial_arm_pose": "Basilisk orbital state and MJScene initialization; run separately in the native simulation environment",
-
     "tests/test_wrist_camera_modes.py::test_mode_roundtrip_and_recording_provenance": "Basilisk live scene loader; run on the simulation host; pure camera descriptor validation remains in basic CI",
     "tests/test_wrist_camera_modes.py::test_legacy_scene_defaults_to_rgb": "Basilisk live scene loader; run on the simulation host",
     "tests/test_wrist_camera_modes.py::test_invalid_mode_rejected_in_api_and_saved_scene": "Basilisk live scene loader; run on the simulation host",

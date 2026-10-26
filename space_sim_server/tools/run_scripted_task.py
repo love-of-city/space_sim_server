@@ -129,7 +129,7 @@ def run(args):
         config = PlugInsertConfig(
             plug_body=plug_profile(args.task).body,
             target_site=args.target_site,
-            arm_speed_rad_s=args.arm_speed if args.arm_speed is not None else 0.08,
+            arm_speed_rad_s=args.arm_speed,
             grasp_offset_m=tuple(args.plug_grasp_offset),
             force_limit_n=min(args.force_limit, 40.0),
         )

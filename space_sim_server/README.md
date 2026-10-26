@@ -10,11 +10,13 @@
 
 插拔件使用静摩擦保持与恒定滑动阻力，复用现有结构及孔位；默认配置与动力学验证见 [插拔件保持力](docs/PLUG_RETENTION.md)。
 
+三类插头自动采集共用连续接近、拔取搬运、反馈插入和边松爪边撤离；各自按夹持轴和尺寸处理，见 [插头采集](docs/AVIATION_PLUG_COLLECTION.md)。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。
 
-腕部相机支持彩色、160° 鱼眼和黑白，创建场景前选择；使用与模型输入说明见 [腕部相机类型](docs/WRIST_CAMERA_MODES.md)。
+腕部相机支持彩色、160° 鱼眼、黑白和 160° 黑白鱼眼，创建场景前选择；使用与模型输入说明见 [腕部相机类型](docs/WRIST_CAMERA_MODES.md)。
 
 Linux 原生一键启动/停止及网页场景管理见 [Linux 一键部署](docs/LINUX_DEPLOYMENT.md)。已有环境可在本目录执行 `./start_deployment.sh`，停止执行 `./stop_deployment.sh`。Linux 环境、原生库和真实采集验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。
 

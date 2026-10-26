@@ -106,7 +106,7 @@ def test_wrist_view_contains_horizontal_fingers_entering_from_below():
 
 
 @pytest.mark.parametrize("template", ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf", "sarm-task-box-20261012-demo"])
-@pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome"])
+@pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome", "monochrome_fisheye"])
 def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, template, mode):
     import sys
     from types import SimpleNamespace
@@ -139,7 +139,8 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
     assert wrist.parent_id == "teleop/ee_base"
     assert wrist.position_body_m == (4, 5, 6)
     assert wrist.camera_mode == mode
-    assert wrist.field_of_view_rad == pytest.approx(math.radians(160) if mode == "fisheye" else 1.2)
+    assert wrist.field_of_view_rad == pytest.approx(
+        math.radians(160) if mode in ("fisheye", "monochrome_fisheye") else 1.2)
     if template.endswith("-demo"):
         assert overview.parent_id == "teleop/locking_rod"
         assert bridge.settings.default_camera_target == "teleop/fastener"

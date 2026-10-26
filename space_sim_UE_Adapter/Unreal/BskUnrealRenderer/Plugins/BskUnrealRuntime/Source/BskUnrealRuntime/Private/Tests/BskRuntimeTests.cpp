@@ -342,7 +342,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FBskCameraModeManifestTest::RunTest(const FString& Parameters)
 {
-    for (const FString& Mode : {FString(TEXT("rgb")), FString(TEXT("fisheye")), FString(TEXT("monochrome"))})
+    for (const FString& Mode : {FString(TEXT("rgb")), FString(TEXT("fisheye")), FString(TEXT("monochrome")),
+        FString(TEXT("monochrome_fisheye"))})
     {
         FBskRenderMessage Message;
         FString Error;
@@ -351,11 +352,19 @@ bool FBskCameraModeManifestTest::RunTest(const FString& Parameters)
         const bool bParsed = FBskFrameParser::ParseMessageJson(Json, Message, Error);
         TestTrue(*Error, bParsed);
         if (Message.Manifest.Cameras.Num() == 1)
+        {
             TestEqual(TEXT("camera mode retained"), Message.Manifest.Cameras[0].CameraMode, Mode);
+            TestEqual(TEXT("fisheye projection"), Message.Manifest.Cameras[0].IsFisheye(),
+                Mode == TEXT("fisheye") || Mode == TEXT("monochrome_fisheye"));
+            TestEqual(TEXT("monochrome output"), Message.Manifest.Cameras[0].IsMonochrome(),
+                Mode == TEXT("monochrome") || Mode == TEXT("monochrome_fisheye"));
+        }
     }
     for (const FString& Fields : {FString(TEXT("\"camera_mode\":\"invalid\"")),
          FString(TEXT("\"camera_mode\":null")), FString(TEXT("\"camera_mode\":\"fisheye\",\"field_of_view_rad\":3.14159265359")),
-         FString(TEXT("\"camera_mode\":\"fisheye\",\"field_of_view_rad\":0"))})
+         FString(TEXT("\"camera_mode\":\"fisheye\",\"field_of_view_rad\":0")),
+         FString(TEXT("\"camera_mode\":\"monochrome_fisheye\",\"field_of_view_rad\":3.14159265359")),
+         FString(TEXT("\"camera_mode\":\"monochrome_fisheye\",\"field_of_view_rad\":0"))})
     {
         FBskRenderMessage Message;
         FString Error;

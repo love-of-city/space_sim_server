@@ -151,7 +151,12 @@ def validate_recording(episode, task_name="drawer_cycle"):
         from simulation.scripted_tasks.plug_insert import PlugInsertTask
 
         profile = plug_profile(task_name)
-        assert stages == list(PlugInsertTask.stages), stages
+        assert stages == list(PlugInsertTask.recorded_stages(final.get("task_version"))), stages
+        if final.get("task_version") in (PlugInsertTask.latch_version, PlugInsertTask.shared_motion_version, PlugInsertTask.overlapped_release_version, PlugInsertTask.continuous_contact_version, PlugInsertTask.continuous_carry_version, PlugInsertTask.gentle_carry_version, PlugInsertTask.smooth_tracking_version, PlugInsertTask.coordinated_version, PlugInsertTask.legacy_latch_version):
+            grasped = [obs["scripted_task"] for obs in steps
+                       if obs["scripted_task"]["stage"] == "extract"]
+            assert grasped and grasped[0]["grasp_heading_error_rad"] < 0.05
+            assert all(grasped[0]["finger_plug_contacts"])
         assert final["result"] == "success" and final["ever_lifted"]
         assert (
             final["plug_body"] == profile.body

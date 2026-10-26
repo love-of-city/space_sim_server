@@ -7,6 +7,8 @@ import os
 import numpy as np
 from .drawer_cycle import DrawerCycleTask
 from .drawer_lift import DrawerSample
+from .plug_insert import PlugInsertTask
+from .plug_profiles import is_plug_task, plug_profile
 
 NOISE_DISABLED = {
     name: False
@@ -59,7 +61,9 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
         task=task_name,
         task_version=DrawerCycleTask.version
         if task_name == "drawer_cycle"
-        else "plug-insert/2",
+        else (PlugInsertTask.latch_version
+              if is_plug_task(task_name) and plug_profile(task_name).grasp_closing_axis
+              else PlugInsertTask.version),
         seed=int(seed),
         generator="numpy.PCG64",
         initialization=dict(
@@ -241,7 +245,8 @@ class NativePoseProbe:
         task.step(sample)
         try:
             for stage in (
-                ("raise", "above_pickup", "align")
+                (("approach",) if task.coordinated_grasp
+                 else ("raise", "above_pickup", "align"))
                 if is_plug
                 else task.approach_stages
             ):
@@ -249,7 +254,7 @@ class NativePoseProbe:
                 path = task._path
                 if path is None:
                     continue
-                if task._timing is not None:
+                if getattr(task, "_timing", None) is not None:
                     # Validate the executed spline, including former segment
                     # midpoints, rather than checking only its IK knots.
                     path = [
@@ -257,6 +262,9 @@ class NativePoseProbe:
                         for u in np.linspace(0, 1, 2 * len(task._path) - 1)
                     ]
                 candidates = [np.r_[point, 0.0, 0.0] for point in path]
+                if is_plug and task.coordinated_grasp:
+                    candidates = [task.planned_path_reference(t)
+                                  for t in np.linspace(0., task._duration, 2 * len(path) - 1)]
                 if not is_plug and stage == "approach":
                     candidates = [
                         task.approach_reference(u)
@@ -273,11 +281,13 @@ class NativePoseProbe:
                             checked_poses=checked,
                         )
                 task.reference[:6] = task._path[-1]
+                if is_plug and task.coordinated_grasp:
+                    task.reference[:] = candidates[-1]
                 if not is_plug and stage == "approach":
                     task.reference[:] = task.approach_reference(1.0)
             # Descend/lift/return IK must exist too. Contact intentionally starts here.
             for stage in (
-                ("descend",) if is_plug else ("lift", "return", "retract")
+                (() if task.coordinated_grasp else ("descend",)) if is_plug else ("lift", "return", "retract")
             ):
                 task._enter(stage, sample)
                 task.reference[:6] = task._path[-1]

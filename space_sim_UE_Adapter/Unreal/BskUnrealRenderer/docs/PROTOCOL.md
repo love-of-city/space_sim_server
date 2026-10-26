@@ -177,7 +177,8 @@ to one on every manifest, including after a zero-light scene. The receiver
 rejects strings, booleans, nulls and out-of-range values. Update/rebuild the UE
 runtime to use this additive version-2 setting; older receivers ignore it.
 
-`camera_mode` selects `rgb` (default), `monochrome`, or `fisheye` per camera.
+`camera_mode` selects `rgb` (default), `monochrome`, `fisheye`, or
+`monochrome_fisheye` per camera.
 Monochrome uses Rec.709 luminance on the GPU and repeats it in all three RGB
 channels. Fisheye uses circular equidistant projection (`r = f * theta`), with
 black pixels outside the inscribed image circle. Its `field_of_view_rad` is the
@@ -187,6 +188,11 @@ uses 160 degrees. A square perspective render at twice the output's longer side
 sensor noise, lens calibration, or coverage beyond 180 degrees. All modes retain
 the same RGB product name, camera ID and output dimensions. HUD, WebRTC, disk,
 network readback and policy observations consume the canonical processed target.
+
+`monochrome_fisheye` combines the same fisheye projection and Rec.709 grayscale
+conversion in one GPU pass. It uses fisheye intrinsics and
+`color_model = monochrome_rgb`, with identical grayscale values in all three
+output channels. Both fisheye modes enforce the same field-of-view bounds.
 
 Capture metadata includes `camera_mode` and `color_model`. For fisheye,
 `intrinsics.model = equidistant_fisheye`, `distortion_model = equidistant`,

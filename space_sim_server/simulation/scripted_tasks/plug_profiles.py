@@ -13,6 +13,9 @@ class PlugProfile:
     flange_m: float = 0.025
     keyed: bool = False
     feedback_extraction: bool = False
+    # Object-local closing axis through the two modeled head latch features.
+    # Explicit axes opt into coordinated approach/extract/carry/release motion.
+    grasp_closing_axis: tuple[float, float, float] | None = None
 
     @property
     def target_site(self):
@@ -40,6 +43,7 @@ PLUG_PROFILES = {
         "aviation",
         0.080,
         keyed=True,
+        grasp_closing_axis=(0.0, 1.0, 0.0),
     ),
     "guide_plug_insert": PlugProfile(
         "guide_plug_insert",
@@ -47,14 +51,14 @@ PLUG_PROFILES = {
         "guide_plug",
         "guide",
         keyed=True,
-        feedback_extraction=True,
+        grasp_closing_axis=(0.0, 1.0, 0.0),
     ),
     "cylindrical_plug_insert": PlugProfile(
         "cylindrical_plug_insert",
         "圆柱插头",
         "cylindrical_plug",
         "cylindrical",
-        feedback_extraction=True,
+        grasp_closing_axis=(0.0, 1.0, 0.0),
     ),
 }
 

@@ -25,9 +25,9 @@ class PathTiming:
     def state(self, seconds):
         """Progress and its first three time derivatives."""
         if seconds <= 0:
-            return 0.0, 0.0, 0.0, 0.0
+            return 0.0, float(self.velocity[0]), 0.0, 0.0
         if seconds >= self.duration:
-            return 1.0, 0.0, 0.0, 0.0
+            return 1.0, float(self.velocity[-1]), 0.0, 0.0
         i = int(np.searchsorted(self.times, seconds, side="right") - 1)
         duration = self.times[i + 1] - self.times[i]
         x = (seconds - self.times[i]) / duration
@@ -86,6 +86,8 @@ def time_joint_path(
     minimum_duration=1.0,
     slow_fraction=0.0,
     slow_joint_speed=None,
+    start_speed_m_s=0.0,
+    end_speed_m_s=0.0,
 ):
     """C2 joint motion with bounded speed, acceleration and piecewise jerk.
 
@@ -124,6 +126,12 @@ def time_joint_path(
         or (slow_fraction > 0 and slow_distance > 0)
     ):
         raise ValueError("Invalid joint terminal zone")
+    if any(not math.isfinite(v) or v < 0 for v in (start_speed_m_s, end_speed_m_s)):
+        raise ValueError("Boundary speeds must be finite and nonnegative")
+    if (start_speed_m_s or end_speed_m_s) and distance <= 1e-12:
+        raise ValueError("Nonzero boundary speeds require a translation path")
+    start = start_speed_m_s/distance if distance > 1e-12 else 0.
+    end = end_speed_m_s/distance if distance > 1e-12 else 0.
     curve = JointPath.from_waypoints(path)
     m1, m2, m3 = curve.derivative_bounds()
     slope = max(float(m1.max()), 1e-12)
@@ -148,79 +156,98 @@ def time_joint_path(
     def transition_distance(v0, v1):
         return (v0 + v1) * transition(v0, v1) / 2
 
-    def reachable(length, limit):
-        low, high = 0.0, limit
+    def reachable(length, limit, endpoint=0.):
+        if endpoint > limit:
+            if transition_distance(endpoint, limit) > length:
+                raise ValueError("Path too short to reach terminal speed")
+            return limit
+        low, high = endpoint, limit
         for _ in range(64):
             mid = (low + high) / 2
-            if transition_distance(0, mid) <= length:
+            if transition_distance(endpoint, mid) <= length:
                 low = mid
             else:
                 high = mid
         return low
 
-    progress, velocity, times = [0.0], [0.0], [0.0]
+    for _ in range(32):
+        if max(start, end) > cap + 1e-12:
+            raise ValueError("Boundary velocity exceeds path derivative limits")
+        progress, velocity, times = [0.0], [start], [0.0]
 
-    def append(v1, duration):
-        if duration <= 1e-15:
-            return
-        progress.append(progress[-1] + duration * (velocity[-1] + v1) / 2)
-        velocity.append(v1)
-        times.append(times[-1] + duration)
+        def append(v1, duration):
+            if duration <= 1e-15:
+                return
+            progress.append(progress[-1] + duration * (velocity[-1] + v1) / 2)
+            velocity.append(v1)
+            times.append(times[-1] + duration)
 
-    def zone(length, end_speed, limit):
-        start_speed = velocity[-1]
-        low, high = max(start_speed, end_speed), limit
+        def zone(length, end_speed, limit):
+            start_speed = velocity[-1]
+            low, high = max(start_speed, end_speed), limit
 
-        def travel(peak):
-            return transition_distance(start_speed, peak) + transition_distance(
-                peak, end_speed
-            )
+            def travel(peak):
+                return transition_distance(start_speed, peak) + transition_distance(
+                    peak, end_speed
+                )
 
-        for _ in range(64):
-            peak = (low + high) / 2
-            if travel(peak) <= length:
-                low = peak
-            else:
-                high = peak
-        peak = low
-        append(peak, transition(start_speed, peak))
-        append(peak, max(0.0, length - travel(peak)) / peak)
-        append(end_speed, transition(peak, end_speed))
+            for _ in range(64):
+                peak = (low + high) / 2
+                if travel(peak) <= length:
+                    low = peak
+                else:
+                    high = peak
+            peak = low
+            if low > limit + 1e-12 or travel(peak) > length + 1e-10:
+                raise ValueError("Path too short for boundary speed transition")
+            append(peak, transition(start_speed, peak))
+            append(peak, max(0.0, length - travel(peak)) / peak)
+            append(end_speed, transition(peak, end_speed))
 
-    terminal = (
-        min(1.0, slow_distance / distance)
-        if distance > 1e-12 and slow_speed is not None
-        else 0.0
-    )
-    slow_cap = min(cap, slow_speed / distance) if terminal > 0 else cap
-    if slow_fraction > 0:
-        terminal = slow_fraction
-        slow_cap = min(cap, slow_joint_speed / slope)
-    if terminal >= 1 - 1e-12:
-        zone(1.0, 0.0, slow_cap)
-    elif terminal > 1e-12:
-        boundary_speed = min(
-            reachable(1 - terminal, slow_cap), reachable(terminal, slow_cap)
+        terminal = (
+            min(1.0, slow_distance / distance)
+            if distance > 1e-12 and slow_speed is not None
+            else 0.0
         )
-        zone(1 - terminal, boundary_speed, cap)
-        zone(terminal, 0.0, slow_cap)
-    else:
-        zone(1.0, 0.0, cap)
-    progress, velocity, times = map(np.asarray, (progress, velocity, times))
-    # Exact smoothstep extrema and analytic spatial derivative bounds. Joint
-    # acceleration/jerk include curvature, not just the scalar time law.
-    durations = np.diff(times)
-    deltas = np.abs(np.diff(velocity))
-    vmax = float(velocity.max())
-    amax = float(np.max(1.875 * deltas / durations))
-    jmax = float(np.max((10 / math.sqrt(3)) * deltas / durations**2))
-    scale = max(
-        1.0,
-        minimum_duration / times[-1],
-        float(np.max(m1 * vmax)) / joint_speed,
-        math.sqrt(float(np.max(m2 * vmax**2 + m1 * amax)) / joint_acceleration),
-        (float(np.max(m3 * vmax**3 + 3 * m2 * vmax * amax + m1 * jmax)) / joint_jerk)
-        ** (1 / 3),
-    )
-    progress[-1] = 1.0
-    return PathTiming(curve, progress, velocity / scale, times * scale)
+        slow_cap = min(cap, slow_speed / distance) if terminal > 0 else cap
+        if slow_fraction > 0:
+            terminal = slow_fraction
+            slow_cap = min(cap, slow_joint_speed / slope)
+        if terminal >= 1 - 1e-12:
+            zone(1.0, end, slow_cap)
+        elif terminal > 1e-12:
+            boundary_speed = min(
+                reachable(1 - terminal, slow_cap, start), reachable(terminal, slow_cap, end)
+            )
+            zone(1 - terminal, boundary_speed, cap)
+            zone(terminal, end, slow_cap)
+        else:
+            zone(1.0, end, cap)
+        progress, velocity, times = map(np.asarray, (progress, velocity, times))
+        # Exact smoothstep extrema and analytic spatial derivative bounds. Joint
+        # acceleration/jerk include curvature, not just the scalar time law.
+        durations = np.diff(times)
+        deltas = np.abs(np.diff(velocity))
+        vmax = float(velocity.max())
+        amax = float(np.max(1.875 * deltas / durations))
+        jmax = float(np.max((10 / math.sqrt(3)) * deltas / durations**2))
+        scale = max(
+            1.0,
+            minimum_duration / times[-1],
+            float(np.max(m1 * vmax)) / joint_speed,
+            math.sqrt(float(np.max(m2 * vmax**2 + m1 * amax)) / joint_acceleration),
+            (float(np.max(m3 * vmax**3 + 3 * m2 * vmax * amax + m1 * jmax)) / joint_jerk)
+            ** (1 / 3),
+        )
+        progress[-1] = 1.0
+        if not (start or end):
+            return PathTiming(curve, progress, velocity / scale, times * scale)
+        if scale <= 1.000001:
+            return PathTiming(curve, progress, velocity, times)
+        # Preserve physical boundary velocities while reducing cruise and ramps.
+        # Uniform dilation would silently reintroduce a velocity step at handoff.
+        cap /= scale*1.001
+        acceleration /= (scale*1.001)**2
+        jerk /= (scale*1.001)**3
+
+    raise ValueError("Cannot time continuous boundary motion within limits")

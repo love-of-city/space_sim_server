@@ -356,8 +356,8 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
                 return false;
             }
             if ((Definition.CameraMode != TEXT("rgb") && Definition.CameraMode != TEXT("fisheye")
-                && Definition.CameraMode != TEXT("monochrome"))
-                || (Definition.CameraMode == TEXT("fisheye") && (!FMath::IsFinite(Definition.FieldOfViewRadians)
+                && Definition.CameraMode != TEXT("monochrome") && Definition.CameraMode != TEXT("monochrome_fisheye"))
+                || (Definition.IsFisheye() && (!FMath::IsFinite(Definition.FieldOfViewRadians)
                     || Definition.FieldOfViewRadians <= 0.0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI)))
             {
                 Error = TEXT("invalid camera_mode or fisheye field_of_view_rad (requires 0 < fov < pi)");

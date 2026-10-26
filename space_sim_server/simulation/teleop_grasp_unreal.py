@@ -146,8 +146,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     if document.get("schema") != "space-arm-scene-instance/1":
         raise ValueError(f"unsupported scene instance schema: {document.get('schema')}")
     mode = document.setdefault("wrist_camera_mode", "rgb")
-    if mode not in ("rgb", "fisheye", "monochrome"):
-        raise ValueError("wrist_camera_mode must be rgb, fisheye or monochrome")
+    if mode not in ("rgb", "fisheye", "monochrome", "monochrome_fisheye"):
+        raise ValueError("wrist_camera_mode must be rgb, fisheye, monochrome or monochrome_fisheye")
     target = capture_target(document.get("template_id"))
     randomize_orbit_phase = document.get("randomize_orbit_phase", False)
     if not isinstance(randomize_orbit_phase, bool):

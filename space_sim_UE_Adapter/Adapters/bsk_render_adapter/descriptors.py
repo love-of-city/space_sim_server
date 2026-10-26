@@ -115,9 +115,9 @@ class CameraVisual:
     camera_mode: str = "rgb"
 
     def to_payload(self) -> dict[str, Any]:
-        if self.camera_mode not in ("rgb", "fisheye", "monochrome"):
+        if self.camera_mode not in ("rgb", "fisheye", "monochrome", "monochrome_fisheye"):
             raise ValueError("unsupported camera_mode")
-        if self.camera_mode == "fisheye" and (
+        if self.camera_mode in ("fisheye", "monochrome_fisheye") and (
             not math.isfinite(self.field_of_view_rad) or not 0 < self.field_of_view_rad < math.pi
         ):
             raise ValueError("fisheye field_of_view_rad must be between 0 and pi (exclusive)")

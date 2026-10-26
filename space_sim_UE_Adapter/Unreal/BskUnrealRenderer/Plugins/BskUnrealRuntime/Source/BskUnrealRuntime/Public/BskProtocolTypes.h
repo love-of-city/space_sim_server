@@ -110,6 +110,16 @@ struct BSKUNREALRUNTIME_API FBskCameraDefinition
     double CaptureRateHertz = 15.0;
     int32 PictureInPictureSlot = 0;
     TArray<FString> CaptureProducts;
+
+    bool IsFisheye() const
+    {
+        return CameraMode == TEXT("fisheye") || CameraMode == TEXT("monochrome_fisheye");
+    }
+
+    bool IsMonochrome() const
+    {
+        return CameraMode == TEXT("monochrome") || CameraMode == TEXT("monochrome_fisheye");
+    }
 };
 
 struct BSKUNREALRUNTIME_API FBskUiCommandDefinition

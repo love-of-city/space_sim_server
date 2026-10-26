@@ -69,7 +69,7 @@ test("legacy catalog supplies default one without replacing zero",async()=>{
 });
 
 test("wrist camera selection is submitted, restored and locked for an active scene",async()=>{
-  for(const mode of ["rgb","fisheye","monochrome"]){
+  for(const mode of ["rgb","fisheye","monochrome","monochrome_fisheye"]){
     const h=setup();h.$("sceneWristCameraMode").value=mode;
     await h.ctx.startScene();
     assert.equal(JSON.parse(h.requests[0].options.body).wrist_camera_mode,mode);

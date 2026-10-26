@@ -1564,7 +1564,7 @@ void ABskSceneController::CaptureRgbCamera(const FString& CameraId, USceneCaptur
     // Keep the canonical output target shared by HUD, WebRTC, readback and policy.
     // Only the scene render writes to the private intermediate texture.
     UTextureRenderTarget2D* Output = Capture->TextureTarget;
-    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const bool bFisheye = Definition->IsFisheye();
     const int32 Side = FMath::Min(4096, FMath::Max(Output->SizeX, Output->SizeY) * 2);
     const FIntPoint Size = bFisheye ? FIntPoint(Side, Side) : FIntPoint(Output->SizeX, Output->SizeY);
     UTextureRenderTarget2D* Source = CameraEffectSources.FindRef(CameraId);
@@ -1581,7 +1581,8 @@ void ABskSceneController::CaptureRgbCamera(const FString& CameraId, USceneCaptur
     Capture->TextureTarget = Source;
     Capture->CaptureScene();
     Capture->TextureTarget = Output;
-    BskApplyCameraEffect(Source, Output, bFisheye, static_cast<float>(Definition->FieldOfViewRadians));
+    BskApplyCameraEffect(Source, Output, bFisheye, Definition->IsMonochrome(),
+        static_cast<float>(Definition->FieldOfViewRadians));
 }
 
 void ABskSceneController::ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const
@@ -3037,7 +3038,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
     Metadata->SetStringField(TEXT("session_id"), ActiveSessionId);
     Metadata->SetStringField(TEXT("camera_id"), Request.CameraId);
     Metadata->SetStringField(TEXT("camera_mode"), Definition->CameraMode);
-    Metadata->SetStringField(TEXT("color_model"), Definition->CameraMode == TEXT("monochrome") ? TEXT("monochrome_rgb") : TEXT("rgb"));
+    Metadata->SetStringField(TEXT("color_model"), Definition->IsMonochrome() ? TEXT("monochrome_rgb") : TEXT("rgb"));
     Metadata->SetStringField(TEXT("capture_episode_id"), Request.CaptureEpisodeId);
     Metadata->SetBoolField(TEXT("ack_required"), Request.Purpose == EBskCapturePurpose::AuthoritativeDataset);
     Metadata->SetStringField(TEXT("stream_kind"),
@@ -3067,7 +3068,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
         MakeShared<FJsonValueNumber>(Resolution.X), MakeShared<FJsonValueNumber>(Resolution.Y)});
 
     const double FovX = Definition->FieldOfViewRadians;
-    const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
+    const bool bFisheye = Definition->IsFisheye();
     const double Fx = bFisheye ? FMath::Min(Resolution.X, Resolution.Y) / FovX
         : 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
     const double Fy = Fx;

@@ -181,6 +181,8 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path,
     for a in old.find('actuator'):
         if a.get('name','').startswith('rw_'):r.find('actuator').append(copy.deepcopy(a))
     for pair in old.findall('./contact/pair'):r.find('contact').append(copy.deepcopy(pair))
+    from tools.bolt_storage_thread import apply_bolt_storage_thread
+    bolt_storage_thread = apply_bolt_storage_thread(r)
     if fastener_model == 'captive':
         from tools.captive_fastener import apply_captive_fastener
         fastener = apply_captive_fastener(r, output.parent)
@@ -194,6 +196,7 @@ def compose_platform_model(source: Path, platform_reference: Path, output: Path,
                           'cutoff_deg':WRIST_LIGHT_CUTOFF_DEG,'diffuse':WRIST_LIGHT_DIFFUSE,'cast_shadows':False,'rendering_only':True}
     record['orbital_free_joint_damping_overrides']=damping_overrides
     record['fastener']=fastener
+    record['bolt_storage_thread']=bolt_storage_thread
     output.with_suffix('.manifest.json').write_text(json.dumps(record,indent=2)+'\n')
     return record
 if __name__=='__main__':

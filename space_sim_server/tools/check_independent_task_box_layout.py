@@ -113,6 +113,8 @@ def check(source, layout, report_path):
         np.testing.assert_allclose(db.site_xmat[ib].reshape(3, 3),
                                    transform(module)[:3, :3] @ da.site_xmat[ia].reshape(3, 3), atol=1e-12)
     moved_geoms = dict(record["precision_bore_ownership"], board_thread_sdf="bolt_assembly_hole")
+    if ET.parse(source).find('.//geom[@name="bolt_storage_thread_sdf"]') is not None:
+        moved_geoms['bolt_storage_thread_sdf'] = 'bolt_storage_hole'
     # Preserve the entire drawer/latch and free objects' collision geometry.
     body_modules = {**FREE_BODY_MODULES, "drawer_base":"drawer", "drawer_buckle":"drawer",
                     "asm_board3":"drawer", "locking_rod":"locking_mechanism",

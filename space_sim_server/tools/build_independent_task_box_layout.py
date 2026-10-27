@@ -509,6 +509,10 @@ class Builder:
         thread = self.body("asm_board1").find('geom[@name="board_thread_sdf"]')
         self.body("asm_board1").remove(thread)
         self.modules["bolt_assembly_hole"].append(thread)
+        storage_thread = self.body("asm_board1").find('geom[@name="bolt_storage_thread_sdf"]')
+        if storage_thread is not None:
+            self.body("asm_board1").remove(storage_thread)
+            self.modules["bolt_storage_hole"].append(storage_thread)
 
         self.base_mesh = self.asset_mesh("task_box_base_mesh")
         self.base_solid = solid(self.base_mesh)
@@ -553,7 +557,7 @@ class Builder:
         vertices["locking_mechanism"] = [mesh_of(self.supports).vertices]
         for name in ("hook", "limit_clip"):
             vertices["locking_mechanism"].extend(self.visible_vertices(self.body(name)))
-        for angle in np.linspace(-.75, .15, 37):
+        for angle in np.linspace(-1.75, .15, 77):
             for slide in (0., .054):
                 for spin in np.linspace(0, 2*np.pi, 9):
                     vertices["locking_mechanism"].extend(self.visible_vertices(self.body("locking_rod"),
@@ -704,6 +708,7 @@ class Builder:
                       placed_footprints_body_xy_m=rectangles, fixed_obstacles_body_xy_m=self.obstacles,
                       sampling_restarts=restarts, minimum_module_gap_m=.008, deck_edge_margin_m=.005,
                       target_mounts=self.target_mounts, pickup_mounts=self.pickup_mounts,
+                      mechanism_sweep_hinge_range_rad={"locking_rod_hinge": [-1.75, .15]},
                       inset_targets={key: value for key, value in self.inset_reports.items() if key in TARGETS},
                       inset_pickups={key: value for key, value in self.inset_reports.items() if key in PICKUPS},
                       scope="13 independent installation units; optional deck-normal yaw; original mechanism joint states",

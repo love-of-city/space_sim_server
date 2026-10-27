@@ -97,12 +97,22 @@ def write_model_variant(source, output, scene):
     assets are referenced by absolute path; source files are never modified.
     """
     source = Path(source).resolve()
-    if not options_for_scene(scene).dynamics.enabled:
+    dynamics_enabled = options_for_scene(scene).dynamics.enabled
+    task = scene.get('scripted_task_name', scene.get('collection_config', {}).get('task'))
+    threaded_task = task in {'aviation_bolt_insert', 'locking_rod_cycle'}
+    if not dynamics_enabled and not threaded_task:
         return source
-    realized = scene["collection_config"]["realized_randomization"]
-    mass, friction = realized["mass_scale"], realized["friction_scale"]
+    realized = scene.get("collection_config", {}).get("realized_randomization", {})
+    mass, friction = (realized["mass_scale"], realized["friction_scale"]) if dynamics_enabled else (1., 1.)
     tree = ET.parse(source)
     root = tree.getroot()
+    initialization = {}
+    if task == 'aviation_bolt_insert' and root.find('.//geom[@name="bolt_storage_thread_sdf"]') is None:
+        from tools.bolt_storage_thread import apply_bolt_storage_thread
+        initialization['bolt_storage_thread'] = apply_bolt_storage_thread(root)
+    if task == 'locking_rod_cycle':
+        from tools.threaded_task_initialization import apply_locking_cycle_initial_state
+        initialization['locking_rod'] = apply_locking_cycle_initial_state(root)
     if root.find(".//include") is not None:
         raise ValueError(
             "Dynamics randomization currently requires a standalone MJCF (no include)"
@@ -178,11 +188,12 @@ def write_model_variant(source, output, scene):
         from shutil import copyfile
 
         copyfile(settings, output.with_name("attitude_control.json"))
-    scene["collection_config"]["model_randomization"] = dict(
+    scene.setdefault("collection_config", {})["model_randomization"] = dict(
         source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
         variant_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
         mass_scale=mass,
         friction_scale=friction,
         scope="all_bodies_and_contact_geoms",
+        task_initialization=initialization,
     )
     return output

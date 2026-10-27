@@ -12,6 +12,8 @@
 
 三类插头自动采集共用连续接近、拔取搬运、反馈插入和边松爪边撤离；各自按夹持轴和尺寸处理，见 [插头采集](docs/AVIATION_PLUG_COLLECTION.md)。
 
+航空螺丝旋出后装配，以及杆状机构旋松、放倒入卡扣、扶起复位和重新锁紧，使用独立的螺纹任务控制器；自动采集入口、任务初态及物理验收见 [螺纹操作采集](docs/THREADED_TASK_COLLECTION.md)。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。

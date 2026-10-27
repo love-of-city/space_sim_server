@@ -11,7 +11,7 @@ def test_source_preserved_and_platform_assembly(tmp_path):
  assert src.read_bytes()==before
  assert E.tostring(a.find('equality'))==E.tostring(b.find('equality'))
  assert E.tostring(a.find('tendon'))==E.tostring(b.find('tendon'))
- assert len(b.findall('.//geom/plugin'))==5
+ assert len(b.findall('.//geom/plugin'))==6  # source five plus the storage-bore female thread
  bus=b.find('.//body[@name="cubesat_bus"]')
  assert bus.find('freejoint') is not None
  assert bus.find('./body[@name="drawer_base"]') is not None

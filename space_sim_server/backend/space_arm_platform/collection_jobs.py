@@ -55,6 +55,17 @@ for _task, _label in (
         description=f"独立任务：跟踪并抓取{_label} → 搬到前方对应插孔 → 对准插入 → 松爪撤离 → 验收。",
     )
 
+for _task, _label, _description in (
+    ("aviation_bolt_insert", "航空螺丝旋出与装配",
+     "抓取初始孔内螺丝 → 旋出取下 → 搬运对孔 → 旋入拧紧 → 松爪撤离 → 验收。"),
+    ("locking_rod_cycle", "杆状机构放倒与复位",
+     "旋松防脱紧固件 → 绕底部铰链放倒至卡扣 → 松爪再抓取 → 扶起复位 → 旋紧 → 撤离验收。"),
+):
+    TASKS[_task] = CollectionTask(
+        _label, "tools/collect_threaded_tasks.py", "sarm-task-box-20261012",
+        arguments=("--task", _task), description=_description,
+    )
+
 TERMINAL = {"complete", "failed", "cancelled", "interrupted", "attempt_limit"}
 
 

@@ -161,6 +161,7 @@ def _library():
     lib.lms_id2name.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     lib.lms_joint.argtypes = [ctypes.c_void_p, ctypes.c_int, _INT64_P]
     lib.lms_body_inertial.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
+    lib.lms_body_geometry_pose.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
     lib.lms_free_joints.argtypes = [ctypes.c_void_p, _INT64_P, ctypes.c_int]
     lib.lms_set_servo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double]
     lib.lms_set_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
@@ -170,6 +171,8 @@ def _library():
     lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
     lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_contacts.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
+    lib.lms_contact_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
+    lib.lms_contact_geometry.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, _DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
@@ -404,6 +407,37 @@ class LocalMujocoStepper(sysModel.SysModel):
         rows = np.empty((count, 5), dtype=np.float64)
         self._check(self._lib.lms_contacts(self._handle, _pointer(rows), count), "contacts")
         return rows
+
+    def contact_force_snapshot(self) -> np.ndarray:
+        """Raw solver contacts and six-dimensional contact-frame wrench.
+
+        Columns 0..4 match contact_snapshot; 5 is normal force in N. This
+        reads the completed native solve, without forward passes or state edits.
+        """
+        count = self._lib.lms_contact_forces(self._handle, None, 0)
+        self._check(count, "contact-force count")
+        rows = np.empty((count, 11), dtype=np.float64)
+        self._check(self._lib.lms_contact_forces(self._handle, _pointer(rows), count), "contact forces")
+        return rows
+
+    def contact_geometry_snapshot(self) -> np.ndarray:
+        """Ids/separation, contact position/normal in L, without stepping."""
+        count = self._lib.lms_contact_geometry(self._handle, None, 0)
+        self._check(count, "contact-geometry count")
+        rows = np.empty((count, 11), dtype=np.float64)
+        self._check(self._lib.lms_contact_geometry(self._handle, _pointer(rows), count), "contact geometry")
+        return rows
+
+    def body_geometry_pose(self, body: str) -> tuple[np.ndarray, np.ndarray]:
+        """Body origin/rotation in L at the contact snapshot's physics phase.
+
+        Unlike orbital body messages, these coordinates have no origin offset
+        or publication lag. Reading them never advances or edits live state.
+        """
+        body_id = self._lib.lms_name2id(self._handle, _OBJ_BODY, body.encode())
+        values = np.empty(12, dtype=np.float64)
+        self._check(self._lib.lms_body_geometry_pose(self._handle, body_id, _pointer(values)), "body geometry pose")
+        return values[:3], values[3:].reshape(3, 3)
 
     @property
     def state_initialized(self) -> bool:

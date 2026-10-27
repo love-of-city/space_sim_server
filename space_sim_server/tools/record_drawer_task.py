@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -49,6 +50,7 @@ from simulation.scripted_tasks.plug_profiles import (
     is_plug_task,
     plug_profile,
 )
+from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, THREADED_INSTRUCTIONS, task_default_duration_s
 
 PROCESS_STARTED = time.monotonic()
 PROCESS_STARTED_AT_NS = time.time_ns()
@@ -64,6 +66,22 @@ def recording_settings(path=None):
             or settings.capture_products != ["rgb"]):
         raise ValueError("Scripted collection requires 50 Hz and both RGB cameras in config/recording.json")
     return settings
+
+
+def task_recording_settings(settings, task_name, max_sim_seconds):
+    """Size this isolated threaded recording without editing global settings."""
+    if task_name not in THREADED_TASKS:
+        return settings, None
+    required = math.ceil(max_sim_seconds * DEFAULT_CAPTURE_HZ) + 1
+    if settings.max_frames >= required:
+        return settings, None
+    original = settings.max_frames
+    settings = type(settings).model_validate({**settings.model_dump(), "max_frames": required})
+    return settings, dict(
+        reason="threaded_task_duration", original_max_frames=original,
+        effective_max_frames=required, max_sim_seconds=max_sim_seconds,
+        capture_rate_hz=DEFAULT_CAPTURE_HZ,
+    )
 
 
 def scene_copy(source, task="drawer_lift"):
@@ -109,10 +127,15 @@ def validate_episode(result):
 async def run(args):
     run_started = time.monotonic()
     settings = recording_settings(getattr(args, "recording_config", None))
+    settings, frame_limit_override = task_recording_settings(settings, args.task, args.max_sim_seconds)
     if getattr(args, "gpu_index", None) is not None:
         settings.video = type(settings.video).model_validate(
             {**settings.video.model_dump(), "gpu_index": args.gpu_index})
     scene = scene_copy(args.scene, args.task)
+    scene["scripted_task_name"] = args.task
+    scene.setdefault("collection_config", {})["task"] = args.task
+    if frame_limit_override:
+        scene["collection_config"]["recording_frame_limit_override"] = frame_limit_override
     from space_arm_platform.overview_camera import validate_overview_camera
     validate_overview_camera(scene)
     project = args.adapter / "Unreal/BskUnrealRenderer"
@@ -185,6 +208,7 @@ async def run(args):
         "result": "failed",
         "started_at_ns": str(PROCESS_STARTED_AT_NS),
         "task_name": args.task,
+        "recording_frame_limit_override": frame_limit_override,
     }
 
     def emit(stage, **values):
@@ -324,7 +348,9 @@ async def run(args):
                 max_frames=settings.max_frames,
                 task="scripted " + args.task,
                 instruction=(
-                    plug_profile(args.task).instruction
+                    THREADED_INSTRUCTIONS[args.task]
+                    if args.task in THREADED_TASKS
+                    else plug_profile(args.task).instruction
                     if is_plug_task(args.task)
                     else (
                         f"Grasp the {drawer_location} on the workbench, pull it out approximately 8 cm "
@@ -461,7 +487,7 @@ def main(default_task="drawer_cycle"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES],
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
         default=default_task,
     )
     parser.add_argument("--target-site", default=None)
@@ -491,12 +517,16 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--signalling-port", type=int, default=18888)
     parser.add_argument("--warmup-seconds", type=float, default=5.0)
     parser.add_argument("--warmup-sim-seconds", type=float, default=None)
-    parser.add_argument("--timeout-seconds", type=float, default=1200.0)
-    parser.add_argument("--max-sim-seconds", type=float, default=360.0)
+    parser.add_argument("--timeout-seconds", type=float, default=None)
+    parser.add_argument("--max-sim-seconds", type=float, default=None)
     parser.add_argument("--substeps", type=int)
     parser.add_argument("--cancel-file", type=Path)
     add_motion_options(parser)
     args = parser.parse_args()
+    if args.max_sim_seconds is None:
+        args.max_sim_seconds = task_default_duration_s(args.task)
+    if args.timeout_seconds is None:
+        args.timeout_seconds = 5400.0 if args.task in THREADED_TASKS else 1200.0
     try:
         motion_arguments(args.task, args.linear_speed)
     except ValueError as error:
@@ -516,7 +546,7 @@ def main(default_task="drawer_cycle"):
         not 0 <= args.warmup_seconds <= 60
         or not 0 <= args.warmup_sim_seconds <= 60
         or not 0 < args.timeout_seconds <= 7200
-        or not 0 < args.max_sim_seconds <= 540
+        or not 0 < args.max_sim_seconds <= (1800 if args.task in THREADED_TASKS else 540)
     ):
         parser.error("Invalid warmup, recording timeout or simulation duration")
     return asyncio.run(run(args))

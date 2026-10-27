@@ -33,6 +33,7 @@ from simulation.scripted_tasks.plug_profiles import (
     is_plug_task,
     plug_profile,
 )
+from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, create_threaded_task, task_default_duration_s
 
 
 def default_target_state(model):
@@ -87,6 +88,8 @@ def run(args):
     from simulation.scripted_tasks.disturbances import EpisodeDisturbances
     source_model = model
     scene_instance = json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
+    scene_instance["scripted_task_name"] = args.task
+    scene_instance.setdefault("collection_config", {})["task"] = args.task
     prepare_episode(scene_instance)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -120,7 +123,15 @@ def run(args):
         drawer_options["arm_speed_rad_s"] = args.arm_speed
     if args.linear_speed is not None:
         drawer_options["linear_speed_m_s"] = args.linear_speed
-    if is_plug_task(args.task):
+    if args.task in THREADED_TASKS:
+        options = {}
+        if args.arm_speed is not None:
+            options["arm_speed_rad_s"] = args.arm_speed
+        if args.linear_speed is not None:
+            options["linear_speed_m_s"] = args.linear_speed
+        task = create_threaded_task(args.task, model, **options)
+        config = task.config
+    elif is_plug_task(args.task):
         from simulation.scripted_tasks.plug_insert import (
             PlugInsertTask,
             PlugInsertConfig,
@@ -258,7 +269,7 @@ def run(args):
                 catalog=args.catalog,
                 state_reader=state_reader,
                 disturbances=disturbances,
-                render_model_path=source_model,
+                render_model_path=model if args.task in THREADED_TASKS else source_model,
             )
         sim.InitializeSimulation()
         report["orbit"] = _apply_orbital_initial_state(
@@ -458,7 +469,7 @@ def main(default_task="drawer_lift"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES],
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
         default=default_task,
     )
     parser.add_argument(
@@ -475,7 +486,7 @@ def main(default_task="drawer_lift"):
         type=Path,
         default=None,
     )
-    parser.add_argument("--max-sim-seconds", type=float, default=360.0)
+    parser.add_argument("--max-sim-seconds", type=float, default=None)
     parser.add_argument("--substeps", type=int, default=None)
     parser.add_argument("--save-trace", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--native-geometry", action="store_true", help="Use the installed exact C++ FK/Jacobian helper")
@@ -495,6 +506,8 @@ def main(default_task="drawer_lift"):
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--capture-stop-file", type=Path)
     args = parser.parse_args()
+    if args.max_sim_seconds is None:
+        args.max_sim_seconds = task_default_duration_s(args.task)
     try:
         motion_arguments(args.task, args.linear_speed)
     except ValueError as error:

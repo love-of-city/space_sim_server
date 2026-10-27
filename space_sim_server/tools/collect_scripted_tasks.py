@@ -32,6 +32,7 @@ from simulation.scripted_tasks.plug_profiles import (
     is_plug_task,
     plug_profile,
 )
+from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
 
 
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
@@ -39,6 +40,110 @@ from space_arm_platform.unreal_runtime import default_unreal_root
 from space_arm_platform.collection_runtime import PersistentRenderer, check_port_available
 from space_arm_platform.collection_layouts import LayoutPool, attach_layout, validate_episode_layout
 from space_arm_platform.overview_camera import validate_episode_overview_camera
+
+
+def validate_threaded_recording(steps, stages, task_name):
+    """Reject missing physical operations even when an episode claims success."""
+    import numpy as np
+
+    controller = threaded_task_class(task_name)
+    final = steps[-1]["scripted_task"]
+    assert final["task_version"] == controller.version
+    assert controller.validate_recorded_stages(stages), stages
+    assert final["result"] == "success"
+    parameters = final["task_parameters"]
+    assert not parameters["overload_stop_enabled"]
+    assert final["finger_part_contacts"] in ((0, 0), [0, 0])
+    assert steps[-1]["gripper_opening_normalized"] >= 0.62
+    rows = [obs["scripted_task"] for obs in steps]
+    quality = final["reference_motion_quality"]
+    assert quality["samples"] > 0
+    assert np.isfinite(list(quality.values())).all()
+    assert quality["max_speed_rad_s"] <= parameters["arm_speed_rad_s"] + 1e-5
+    # These are actuator-reference limits, independent of contact-force peaks.
+    # The old .23 rad/s one-tick restart exceeded 40 rad/s² at the task rate.
+    assert quality["max_acceleration_rad_s2"] <= 1.
+    assert quality["max_stage_velocity_jump_rad_s"] <= .00501
+    assert quality["rotation_samples"] > 0
+    assert quality["rotation_latch_samples"] >= .95*quality["rotation_samples"]
+    assert quality["rotation_max_wrist_axis_error_rad"] < .05
+    phases = ("unscrew", "screw_in") if task_name == "aviation_bolt_insert" else ("loosen", "tighten")
+    for phase in phases:
+        assert any(row["stage"] == phase and row["finger_part_contacts"] is not None
+                   and all(row["finger_part_contacts"]) and row["latch_engaged"]
+                   and all(row["finger_latch_contacts"]) for row in rows), phase
+    # Every individual released-wrist regrasp must establish the latch again.
+    for index, row in enumerate(rows):
+        if row["stage"] in phases and (index == 0 or rows[index-1]["stage"] != row["stage"]):
+            segment = []
+            for following in rows[index:]:
+                if following["stage"] != row["stage"]:
+                    break
+                segment.append(following)
+            assert any(item["latch_engaged"] and all(item["finger_latch_contacts"])
+                       for item in segment), row["stage"]
+
+    hold_s = float(parameters["verify_hold_s"])
+    end = int(steps[-1]["sim_time_ns"])
+    stable = [obs["scripted_task"] for obs in steps
+              if 0 <= (end - int(obs["sim_time_ns"])) * 1e-9 < max(0., hold_s - .04)]
+    assert len(stable) >= max(1, int((hold_s - .06) * 50))
+    assert all(row["stage"] == "verify" and row["finger_part_contacts"] in ((0, 0), [0, 0])
+               for row in stable)
+    if task_name == "aviation_bolt_insert":
+        assert final["part_body"] == "bolt" and final["target_site"] == "bolt_assembly_hole"
+        assert final["source_unscrewed"] and final["ever_lifted"]
+        for row in stable:
+            for phase in ("source", "target"):
+                assert row[phase + "_rotation_rad"] >= (
+                    row[phase + "_required_rotation_rad"] - parameters["rotation_tolerance_rad"])
+            assert row["radial_error_m"] < parameters["radial_tolerance_m"]
+            assert abs(row["seat_gap_m"]) < parameters["seat_tolerance_m"]
+            assert row["axis_error_rad"] < parameters["axis_tolerance_rad"]
+            assert np.linalg.norm(row["part_velocity_body_m_s"]) < .01
+            assert np.linalg.norm(row["part_angular_velocity_body_rad_s"]) < .03
+        removed = [row for row in rows if row["stage"] == "carry"]
+        assert removed and removed[0]["source_displacement_m"] >= parameters["source_clearance_m"] - .0015
+        assert removed[0]["source_tip_clearance_m"] >= .0001
+        assert removed[0]["source_rotation_rad"] >= removed[0]["source_required_rotation_rad"] - .05
+    else:
+        assert final["part_body"] == "fastener"
+        assert all(final[key] for key in ("loosen_verified", "folded_verified", "returned_verified", "tightened_verified"))
+        assert final["released_stable_seconds"] >= hold_s
+        seated_slide = final["tighten_seated_slide_m"]
+        seated_spin = final["tighten_seated_spin_rad"]
+        assert np.isfinite([seated_slide, seated_spin]).all()
+        assert parameters["tight_slide_min_m"] <= seated_slide <= parameters["tight_slide_max_m"]
+        assert final["tighten_peak_hook_force_n"] >= parameters["minimum_hook_force_n"]
+        # A released latch can unload to zero reaction in orbit.  Require an
+        # actual correctly aligned seating reaction during tightening instead.
+        assert any(row["fastener_hook_contacts"] > 0
+                   and row["fastener_hook_normal_force_n"] >= parameters["minimum_hook_force_n"]
+                   and abs(row["hinge_rad"]) <= parameters["returned_hinge_tolerance_rad"]
+                   and parameters["tight_slide_min_m"] <= row["fastener_slide_m"] <= parameters["tight_slide_max_m"]
+                   and row["fastener_helix_error_m"] <= parameters["helix_tolerance_m"]
+                   for row in rows if row["stage"] == "tighten")
+        assert any(row["fastener_slide_m"] <= parameters["loose_slide_tolerance_m"]
+                   and row["scalar_joints"]["fastener_hook_contacts"] == 0
+                   for row in rows if row["stage"] in ("lower", "release_down"))
+        assert any(abs(row["hinge_rad"] - parameters["folded_hinge_rad"]) <= parameters["hinge_tolerance_rad"]
+                   and row["locking_rod_clip_contacts"] + row["fastener_clip_contacts"] > 0
+                   for row in rows if row["stage"] in ("release_down", "clear_down", "reapproach"))
+        for row in stable:
+            assert abs(row["hinge_rad"]) <= parameters["returned_hinge_tolerance_rad"]
+            assert parameters["tight_slide_min_m"] <= row["fastener_slide_m"] <= parameters["tight_slide_max_m"]
+            assert row["fastener_helix_error_m"] <= parameters["helix_tolerance_m"]
+            backoff = parameters["maximum_seat_backoff_m"]
+            assert row["fastener_slide_m"] >= seated_slide-backoff
+            # The helix check above also checks slide/spin consistency.  This
+            # explicit spin gate prevents a changed turn count being accepted.
+            lead = final["fastener_thread_lead_m"]
+            assert np.isfinite(lead) and lead > 0
+            assert row["fastener_spin_rad"] >= seated_spin-backoff*2*np.pi/lead
+            assert np.linalg.norm(row["part_velocity_body_m_s"]) < .008
+            assert np.linalg.norm(row["part_angular_velocity_body_rad_s"]) < .05
+            assert abs(row["scalar_joints"]["locking_rod_hinge_velocity"]) < .05
+            assert abs(row["scalar_joints"]["fastener_spin_velocity"]) < .05
 
 
 def validate_capture_manifest(episode, meta, steps):
@@ -147,7 +252,9 @@ def validate_recording(episode, task_name="drawer_cycle"):
         if not compact:
             assert json.loads(row["observation.platform_json"]) == obs
     final = steps[-1]["scripted_task"]
-    if is_plug_task(task_name):
+    if task_name in THREADED_TASKS:
+        validate_threaded_recording(steps, stages, task_name)
+    elif is_plug_task(task_name):
         from simulation.scripted_tasks.plug_insert import PlugInsertTask
 
         profile = plug_profile(task_name)
@@ -243,7 +350,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
 def main(default_task="drawer_cycle"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--task", choices=["drawer_cycle", *PLUG_PROFILES], default=default_task
+        "--task", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS], default=default_task
     )
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument("--layout-pool", type=Path,
@@ -357,6 +464,12 @@ def main(default_task="drawer_cycle"):
                 model, catalog = attach_layout(scene, pool, seed)
             directory = args.output / f"attempt-{index + 1:03d}-seed-{seed}"
             directory.mkdir()
+            preflight_model = model
+            if args.task in THREADED_TASKS:
+                from simulation.scripted_tasks.randomization import write_model_variant
+
+                scene["scripted_task_name"] = args.task
+                preflight_model = write_model_variant(model, directory / "preflight-model.xml", scene)
             scene_path = directory / "scene.json"
             scene_path.write_text(
                 json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -377,13 +490,13 @@ def main(default_task="drawer_cycle"):
             save()
             # Native probes compile one concrete model. Never reuse the previous
             # layout's collision state when selecting a different model.
-            if probe is None or probe_model != model:
+            if probe is None or probe_model != preflight_model:
                 if probe is not None:
                     probe.close()
-                probe = NativePoseProbe(model)
-                probe_model = model
+                probe = NativePoseProbe(preflight_model)
+                probe_model = preflight_model
             try:
-                entry["preflight"] = probe.validate(model, scene, args.task)
+                entry["preflight"] = probe.validate(preflight_model, scene, args.task)
             except ValueError as exc:
                 entry["preflight"] = dict(accepted=False, reason="planning_failed", detail=str(exc))
             if not entry["preflight"]["accepted"]:
@@ -410,9 +523,9 @@ def main(default_task="drawer_cycle"):
                 "--substeps",
                 "1",
                 "--max-sim-seconds",
-                "450",
+                "900" if args.task in THREADED_TASKS else "450",
                 "--timeout-seconds",
-                "1800",
+                "5400" if args.task in THREADED_TASKS else "1800",
             ]
             command += motion_args
             if catalog is not None:

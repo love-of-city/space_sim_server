@@ -9,6 +9,7 @@ from .drawer_cycle import DrawerCycleTask
 from .drawer_lift import DrawerSample
 from .plug_insert import PlugInsertTask
 from .plug_profiles import is_plug_task, plug_profile
+from .threaded_tasks import THREADED_TASKS, create_threaded_task, threaded_task_class
 
 NOISE_DISABLED = {
     name: False
@@ -59,7 +60,9 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
         if task_name == "drawer_cycle"
         else "scripted-collection/2",
         task=task_name,
-        task_version=DrawerCycleTask.version
+        task_version=threaded_task_class(task_name).version
+        if task_name in THREADED_TASKS
+        else DrawerCycleTask.version
         if task_name == "drawer_cycle"
         else (PlugInsertTask.latch_version
               if is_plug_task(task_name) and plug_profile(task_name).grasp_closing_axis
@@ -147,6 +150,17 @@ class NativePoseProbe:
             buf = ctypes.create_string_buffer(256)
             self.lib.lms_id2name(self.handle, 1, body, buf, len(buf))
             self.names[body] = buf.value.decode()
+        self.geom_names = {}
+        self.passive_position_offsets = {}
+
+    def geom_name(self, geom):
+        """Resolve only encountered geoms; the native dimension API omits ngeom."""
+        geom = int(geom)
+        if geom not in self.geom_names:
+            buf = ctypes.create_string_buffer(256)
+            self.lib.lms_id2name(self.handle, 5, geom, buf, len(buf))
+            self.geom_names[geom] = buf.value.decode()
+        return self.geom_names[geom]
 
     @staticmethod
     def check(status):
@@ -164,7 +178,7 @@ class NativePoseProbe:
     def contacts(self, q):
         self.q[self.addresses] = q
         for name, value in self.gripper_kinematics.passive_positions(q[6:8]).items():
-            self.q[self.passive_addresses[name]] = value
+            self.q[self.passive_addresses[name]] = value + self.passive_position_offsets.get(name, 0.)
         self.check(
             self.lib.lms_set_state(self.handle, self.ptr(self.q), self.ptr(self.v))
         )
@@ -173,6 +187,133 @@ class NativePoseProbe:
         rows = np.empty((count, 5))
         self.check(self.lib.lms_contacts(self.handle, self.ptr(rows), count))
         return rows
+
+    def use_measured_qpos(self, qpos, joints):
+        """Restore measured coordinates in this private geometry instance only.
+
+        Preserve each passive four-bar's measured deviation from the analytic
+        linkage while the candidate jaws open. The first candidate therefore
+        reproduces the actual articulated gripper, including contact preload.
+        """
+        qpos = np.asarray(qpos, dtype=float)
+        if qpos.shape != self.home.shape or not np.isfinite(qpos).all():
+            raise ValueError("Measured native qpos does not match this model")
+        self.home[:] = qpos
+        self.q[:] = qpos
+        self.passive_position_offsets = {
+            name: float(qpos[self.passive_addresses[name]] - value)
+            for name, value in self.gripper_kinematics.passive_positions(joints[6:8]).items()
+        }
+
+    def grasp_opening(self, candidate, part_body):
+        """Actual parallel-jaw surface contact in this private native model.
+
+        A closed-loop pose sweep locates the first bilateral contact instead
+        of using a commanded preload angle as the fingers' physical position.
+        The caller owns this separate probe; no runtime state is involved.
+        """
+        candidate = np.asarray(candidate, dtype=float).copy()
+        if candidate.shape != (8,) or not np.isfinite(candidate).all():
+            raise ValueError("Grasp opening requires eight finite joint coordinates")
+
+        def bilateral(opening):
+            candidate[6:] = [opening, -opening]
+            fingers = set()
+            for _, _, first, second, distance in self.contacts(candidate):
+                names = {self.names[int(first)], self.names[int(second)]}
+                if part_body in names and distance <= 0.0:
+                    fingers.update(names.intersection({"ee_finger1", "ee_finger2"}))
+            return len(fingers) == 2
+
+        if bilateral(1.0):
+            raise ValueError("Fully open fingers intersect the threaded part")
+        previous = 1.0
+        for opening in np.linspace(1.0, 0.0, 101)[1:]:
+            if bilateral(float(opening)):
+                closed, clear = float(opening), previous
+                for _ in range(18):
+                    middle = .5 * (closed + clear)
+                    if bilateral(middle):
+                        closed = middle
+                    else:
+                        clear = middle
+                return closed
+            previous = float(opening)
+        raise ValueError("No bilateral finger/part contact along the closing sweep")
+
+    def pose_collision(self, candidate, task_name, allowed_contact_bodies=(),
+                       joint_values=None, baseline=None, arm_penetration_m=.0005):
+        """The same private contact gate for reset preflight and carry branches."""
+        moving_mechanism = ({"locking_rod", "fastener"} if task_name == "locking_rod_cycle"
+                            else {"bolt"} if task_name == "aviation_bolt_insert" else set())
+        own_rod_contacts = {
+            frozenset(pair) for pair in (
+                ("locking_rod", "fastener"), ("fastener", "hook"),
+                ("locking_rod", "hook"), ("locking_rod", "limit_clip"),
+                ("fastener", "limit_clip"),
+            )
+        }
+        bolt_mating_geoms = {
+            frozenset(("bolt_thread_sdf", "board_thread_sdf")),
+            frozenset(("bolt_thread_sdf", "bolt_storage_thread_sdf")),
+        }
+
+        self.q[:] = self.home if baseline is None else baseline
+        for name, values in (joint_values or {}).items():
+            values = np.asarray(values, dtype=float).reshape(-1)
+            if len(values) not in (1, 7) or not np.isfinite(values).all():
+                raise ValueError(f"Invalid private preflight state for {name}")
+            address = self.address(name)
+            self.q[address:address + len(values)] = values
+        for geom1, geom2, first, second, distance in self.contacts(candidate):
+            a, b = self.names[int(first)], self.names[int(second)]
+            is_arm = lambda name: (
+                name.startswith(("ee", "wrist_ft")) or name in {f"link{i}" for i in range(1, 6)}
+            )
+            # Internal closed four-bar contacts belong to the gripper itself.
+            if a.startswith("ee") and b.startswith("ee"):
+                continue
+            # Planned grasp contact permits the fingers only. A declared
+            # grasped body never exempts a wrist or arm-link collision.
+            if ((a in {"ee_finger1", "ee_finger2"} and b in allowed_contact_bodies)
+                    or (b in {"ee_finger1", "ee_finger2"} and a in allowed_contact_bodies)):
+                continue
+            if (is_arm(a) or is_arm(b)) and distance < -arm_penetration_m:
+                return dict(body1=a, body2=b, penetration_m=float(-distance))
+            if moving_mechanism.intersection((a, b)) and distance < -0.0002:
+                if task_name == "locking_rod_cycle" and frozenset((a, b)) in own_rod_contacts:
+                    continue
+                if task_name == "aviation_bolt_insert":
+                    geoms = (self.geom_name(geom1), self.geom_name(geom2))
+                    if frozenset(geoms) in bolt_mating_geoms:
+                        continue
+                else:
+                    geoms = None
+                contact = dict(body1=a, body2=b, penetration_m=float(-distance),
+                               collision_kind="mechanism_environment_collision")
+                if geoms is not None:
+                    contact.update(geom1=geoms[0], geom2=geoms[1])
+                return contact
+        return None
+
+    def check_threaded_paths(self, task_name, paths, strict_stages=None):
+        """Read-only geometry check for an explicitly planned mechanism branch."""
+        if strict_stages is None:
+            strict_stages = (("target_release", "retract")
+                             if task_name == "aviation_bolt_insert" else ())
+        checked = 0
+        stages = []
+        for stage, candidates, allowed, overrides in paths:
+            stages.append(stage)
+            for index, candidate in enumerate(candidates):
+                checked += 1
+                hit = self.pose_collision(candidate, task_name, allowed,
+                    {joint: values[index] for joint, values in overrides.items()},
+                    arm_penetration_m=0. if stage in strict_stages else .0005)
+                if hit:
+                    return dict(accepted=False, reason=hit.get("collision_kind", "approach_collision"),
+                                stage=stage, contact=hit, checked_poses=checked)
+        return dict(accepted=True, checked_poses=checked, checked_stages=stages)
 
     def validate(self, model, scene, task_name="drawer_cycle"):
         self.q[:] = self.home
@@ -185,7 +326,9 @@ class NativePoseProbe:
         from .plug_profiles import is_plug_task, plug_profile
 
         is_plug = is_plug_task(task_name)
-        if is_plug:
+        if task_name in THREADED_TASKS:
+            task = create_threaded_task(task_name, model)
+        elif is_plug:
             from .plug_insert import PlugInsertTask, PlugInsertConfig, PlugSample
             from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
             import xml.etree.ElementTree as ET
@@ -197,29 +340,64 @@ class NativePoseProbe:
         if np.any(q[:6] < task.lower) or np.any(q[:6] > task.upper):
             return dict(accepted=False, reason="joint_limit")
         checked = 0
-
-        def collision(candidate):
+        probe_initial = self.q.copy()
+        def collision(candidate, allowed_contact_bodies=(), joint_values=None,
+                      arm_penetration_m=.0005):
             nonlocal checked
             checked += 1
-            for _, _, first, second, distance in self.contacts(candidate):
-                a, b = self.names[int(first)], self.names[int(second)]
-                is_arm = lambda name: (
-                    name.startswith("ee") or name in {f"link{i}" for i in range(1, 6)}
-                )
-                # Internal closed four-bar contacts belong to the gripper itself.
-                if a.startswith("ee") and b.startswith("ee"):
-                    continue
-                if (is_arm(a) or is_arm(b)) and distance < -0.0005:
-                    return dict(body1=a, body2=b, penetration_m=float(-distance))
-            return None
+            return self.pose_collision(candidate, task_name, allowed_contact_bodies,
+                                        joint_values, probe_initial, arm_penetration_m)
 
         hit = collision(q)
         if hit:
             return dict(
                 accepted=False,
-                reason="initial_collision",
+                reason=hit.get("collision_kind", "initial_collision"),
                 contact=hit,
                 checked_poses=checked,
+            )
+        if task_name in THREADED_TASKS:
+            try:
+                paths = task.preflight_paths(q.copy())
+                if not paths:
+                    raise ValueError("Threaded task supplied no approach/target preflight paths")
+                stages = []
+                for planned in paths:
+                    stage, candidates, allowed_bodies = planned[:3]
+                    overrides = planned[3] if len(planned) == 4 else {}
+                    if len(planned) not in (3, 4):
+                        raise ValueError("Invalid threaded preflight path record")
+                    stages.append(stage)
+                    candidates = np.asarray(candidates, dtype=float)
+                    if (candidates.ndim != 2 or candidates.shape[1] != 8
+                            or len(candidates) < 2 or not np.isfinite(candidates).all()
+                            or np.any(candidates[:, :6] < task.lower)
+                            or np.any(candidates[:, :6] > task.upper)):
+                        raise ValueError(f"Invalid native preflight path for {stage}")
+                    for values in overrides.values():
+                        if len(values) != len(candidates):
+                            raise ValueError(f"Private preflight state count differs for {stage}")
+                    for index, candidate in enumerate(candidates):
+                        hit = collision(candidate, allowed_bodies,
+                                        {key: values[index] for key, values in overrides.items()},
+                                        0. if task_name == "aviation_bolt_insert"
+                                        and stage in ("target_release", "retract") else .0005)
+                        if hit:
+                            return dict(accepted=False, reason=hit.get("collision_kind", "approach_collision"),
+                                        stage=stage, contact=hit, checked_poses=checked)
+            except (ValueError, RuntimeError, NotImplementedError) as exc:
+                return dict(accepted=False, reason="planning_failed", detail=str(exc),
+                            carry_branches=getattr(task, "preflight_carry_branches", []),
+                            checked_poses=checked)
+            return dict(
+                accepted=True, checked_poses=checked, checked_stages=stages,
+                carry_branches=getattr(task, "preflight_carry_branches", []),
+                carry_symmetry_rad=getattr(task, "preflight_carry_symmetry_rad", None),
+                collision_scope=("initial and controller-sampled approach/target paths; "
+                                 "original native geometry; arm penetration threshold 0.5 mm; "
+                                 "moving mechanism/environment threshold 0.2 mm; "
+                                 "own rod joints/clip and exact thread mating contacts permitted; "
+                                 "internal gripper and explicitly planned finger/part contacts excluded"),
             )
         if is_plug:
             element = (

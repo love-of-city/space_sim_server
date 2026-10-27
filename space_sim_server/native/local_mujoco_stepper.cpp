@@ -59,6 +59,7 @@ struct Api {
     void (*quat2Mat)(mjtNum*, const mjtNum*);
     int (*name2id)(const mjModel*, int, const char*);
     const char* (*id2name)(const mjModel*, int, int);
+    void (*contactForce)(const mjModel*, const mjData*, int, mjtNum*);
 };
 
 struct AxialFriction {
@@ -162,7 +163,8 @@ API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, 
               resolve(module, "mj_step1", a.step1) && resolve(module, "mj_step2", a.step2) &&
               resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
               resolve(module, "mj_name2id", a.name2id) &&
-              resolve(module, "mj_id2name", a.id2name);
+              resolve(module, "mj_id2name", a.id2name) &&
+              resolve(module, "mj_contactForce", a.contactForce);
 #ifndef _WIN32
     dlclose(module);  // Balance NOLOAD's reference; Basilisk retains its own.
 #endif
@@ -292,6 +294,16 @@ API int lms_body_inertial(void* handle, int body, double* out) {
     lms_body_mass(handle, body, out);
     for (int i=0; i<4; ++i) out[4+i] = s->m->body_iquat[4*body+i];
     for (int i=0; i<3; ++i) out[8+i] = s->m->body_inertia[3*body+i];
+    return OK;
+}
+
+// Body origin and body-to-local rotation at the same kinematics phase as
+// d->contact (the last substep start). Do not call forward on the live data.
+API int lms_body_geometry_pose(void* handle, int body, double* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !out || body < 0 || body >= s->m->nbody) return ERR_ARGUMENT;
+    for (int i=0; i<3; ++i) out[i] = s->d->xpos[3*body+i];
+    for (int i=0; i<9; ++i) out[3+i] = s->d->xmat[9*body+i];
     return OK;
 }
 
@@ -665,15 +677,29 @@ static int apply_axial_friction(Stepper* s) {
         // useful; a bracketed solve is slower but cannot take a Newton leap.
         if (outer == 11) {
             bool valid = false;
+            // A coordinate candidate also changes the common base/contact
+            // solve. Accept a jointly valid evaluated point immediately: later
+            // coordinate updates can otherwise cross its numerical branch and
+            // discard a solution that already met every interface's tolerance.
+            auto stopped_candidate = [&]() {
+                for (int j=0; j<n; ++j) {
+                    if (std::abs(probe[j]) > tolerance || std::abs(forces[j]) > limits[j]) return false;
+                }
+                measured = probe;
+                std::fill(sliding.begin(), sliding.end(), false);
+                return true;
+            };
             for (int sweep=0; sweep<12; ++sweep) {
                 for (int i=0; i<n; ++i) {
                     const auto& f = s->friction[ids[i]];
                     double low = -limits[i], high = limits[i];
                     forces[i] = low;
                     if (!predict(forces, probe)) return ERR_DIVERGED;
+                    if (stopped_candidate()) { valid = true; break; }
                     double vlo = probe[i];
                     forces[i] = high;
                     if (!predict(forces, probe)) return ERR_DIVERGED;
+                    if (stopped_candidate()) { valid = true; break; }
                     double vhi = probe[i];
                     sliding[i] = false;
                     if (vlo > tolerance || vhi < -tolerance) {
@@ -681,14 +707,31 @@ static int apply_axial_friction(Stepper* s) {
                         forces[i] = vlo > tolerance ? -f.kinetic_n : f.kinetic_n;
                         sliding[i] = true;
                     } else {
+                        // The inner contact solver has a finite stopping
+                        // accuracy: slip can jump across zero before reaching
+                        // the half-tolerance target. Keep the best *evaluated*
+                        // bracket point, rather than using an arbitrary last
+                        // midpoint which can lie on the invalid side of that
+                        // jump. The coupled validation below still requires
+                        // the original full tolerance for every interface.
+                        double best_force = std::abs(vlo) < std::abs(vhi) ? low : high;
+                        double best_speed = std::min(std::abs(vlo), std::abs(vhi));
                         for (int bisect=0; bisect<40; ++bisect) {
                             forces[i] = (low+high)*.5;
                             if (!predict(forces, probe)) return ERR_DIVERGED;
-                            if (std::abs(probe[i]) <= tolerance*.5) break;
+                            if (stopped_candidate()) { valid = true; break; }
+                            if (std::abs(probe[i]) < best_speed) {
+                                best_force = forces[i];
+                                best_speed = std::abs(probe[i]);
+                            }
+                            if (best_speed <= tolerance*.5) break;
                             if (probe[i] > 0) high = forces[i]; else low = forces[i];
                         }
+                        if (valid) break;
+                        forces[i] = best_force;
                     }
                 }
+                if (valid) break;
                 if (!predict(forces, measured)) return ERR_DIVERGED;
                 valid = true;
                 for (int i=0; i<n; ++i) {
@@ -700,8 +743,12 @@ static int apply_axial_friction(Stepper* s) {
                 if (valid) break;
             }
             if (!valid) {
-                for (int i=0; i<n; ++i) std::fprintf(stderr, "friction failure: t=%.6g id=%d v0=%.9g f=%.9g v=%.9g lim=%.9g\n",
-                    s->d->time, ids[i], start_speed[i], forces[i], measured[i], limits[i]);
+                // The caller can retry the same step with a more accurate
+                // contact solve. Only diagnose a final, strict-precision failure.
+                if (s->m->opt.tolerance <= 1e-14) {
+                    for (int i=0; i<n; ++i) std::fprintf(stderr, "friction failure: t=%.6g id=%d v0=%.9g f=%.9g v=%.9g lim=%.9g\n",
+                        s->d->time, ids[i], start_speed[i], forces[i], measured[i], limits[i]);
+                }
                 return ERR_FRICTION;
             }
         }
@@ -738,8 +785,33 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
             // position/velocity stages run ONCE on the authoritative data.
             s->api.step1(m, d);
             apply_tidal(s, origin, mu);  // fresh body rotations for held torques
+            const double contact_tolerance = m->opt.tolerance;
+            struct RestoreContactTolerance {
+                mjtNum& value;
+                double original;
+                ~RestoreContactTolerance() { value = original; }
+            } restore_contact_tolerance{m->opt.tolerance, contact_tolerance};
+            const auto previous_friction = s->friction;
             int friction_status = apply_axial_friction(s);
-            if (friction_status != OK) return friction_status;
+            if (friction_status == ERR_FRICTION && contact_tolerance > 1e-14) {
+                // Newton's global cost stopping criterion can leave a tiny
+                // force-to-slip discontinuity in a light connector coupled to
+                // a massive articulated base. A bracket may then contain no
+                // jointly acceptable point at that contact accuracy. Re-solve
+                // the SAME step1 state with a tighter inner contact solve;
+                // retain all original friction bounds and slip tolerances.
+                // Failed trials applied no wrench to d and advanced no state.
+                s->friction = previous_friction;
+                m->opt.tolerance = 1e-14;
+                friction_status = apply_axial_friction(s);
+            }
+            if (friction_status != OK) {
+                s->friction = previous_friction;
+                return friction_status;
+            }
+            // The authoritative step must use the same contact precision as
+            // its accepted scratch prediction. Restore the MJCF option only
+            // after this single physical integration.
             s->api.step2(m, d);
         } else {
             apply_axial_friction(s);  // clear samples and start_z for free interfaces
@@ -851,6 +923,43 @@ API int lms_contacts(void* handle, double* out, int capacity) {
         out[5*i+2] = c.geom[0] >= 0 ? s->m->geom_bodyid[c.geom[0]] : -1;
         out[5*i+3] = c.geom[1] >= 0 ? s->m->geom_bodyid[c.geom[1]] : -1;
         out[5*i+4] = c.dist;
+    }
+    return s->d->ncon;
+}
+
+// Read the completed authoritative solver result without advancing physics.
+// Rows: geom1, geom2, body1, body2, separation [m], contact-frame wrench [N,N*m].
+API int lms_contact_forces(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    for (int i = 0; i < s->d->ncon && i < capacity; ++i) {
+        const auto& c = s->d->contact[i];
+        out[11*i] = c.geom[0]; out[11*i+1] = c.geom[1];
+        out[11*i+2] = c.geom[0] >= 0 ? s->m->geom_bodyid[c.geom[0]] : -1;
+        out[11*i+3] = c.geom[1] >= 0 ? s->m->geom_bodyid[c.geom[1]] : -1;
+        out[11*i+4] = c.dist;
+        mjtNum wrench[6] = {0,0,0,0,0,0};
+        s->api.contactForce(s->m, s->d, i, wrench);
+        for (int j = 0; j < 6; ++j) out[11*i+5+j] = wrench[j];
+    }
+    return s->d->ncon;
+}
+
+// Geometric engagement evidence: ids, separation, world position and normal.
+// This reads existing contacts only; it never runs forward or changes state.
+API int lms_contact_geometry(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    for (int i = 0; i < s->d->ncon && i < capacity; ++i) {
+        const auto& c = s->d->contact[i];
+        out[11*i] = c.geom[0]; out[11*i+1] = c.geom[1];
+        out[11*i+2] = c.geom[0] >= 0 ? s->m->geom_bodyid[c.geom[0]] : -1;
+        out[11*i+3] = c.geom[1] >= 0 ? s->m->geom_bodyid[c.geom[1]] : -1;
+        out[11*i+4] = c.dist;
+        for (int j = 0; j < 3; ++j) {
+            out[11*i+5+j] = c.pos[j];
+            out[11*i+8+j] = c.frame[j];
+        }
     }
     return s->d->ncon;
 }

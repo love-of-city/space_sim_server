@@ -352,11 +352,12 @@ def test_collector_passes_same_layout_to_probe_renderer_and_recording(layout_poo
                                    "--episodes-root", str(episodes), "--layout-pool", str(layout_pool),
                                    "--count", "2", "--max-attempts", "2", "--seed", "1"])
     if mismatched_recording:
-        with pytest.raises(ValueError, match="different layout"):
-            collector.main()
+        assert collector.main() == 1
         report = json.loads((output / "summary.json").read_text())
-        assert report["status"] == "failed" and report["accepted_episodes"] == []
-        assert report["attempts"][0]["status"] == "validation_failed"
+        assert report["status"] == "attempt_limit" and report["accepted_episodes"] == []
+        assert [item["status"] for item in report["attempts"]] == [
+            "validation_failed", "validation_failed"
+        ]
         return
     assert collector.main() == 0
     report = json.loads((output / "summary.json").read_text())

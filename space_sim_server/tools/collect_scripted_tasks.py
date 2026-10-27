@@ -737,8 +737,18 @@ def main(default_task="drawer_cycle"):
             except Exception as exc:
                 entry["status"] = "validation_failed"
                 entry["error"] = f"{type(exc).__name__}: {exc}"
+                entry["end_to_end_wall_seconds"] = time.monotonic() - attempt_started
+                entry["finished_at_ns"] = str(time.time_ns())
                 save()
-                raise
+                print(
+                    json.dumps(
+                        dict(stage="attempt_failed", attempt=index + 1, detail=entry)
+                    ),
+                    flush=True,
+                )
+                # A bad episode is retained for audit, but must not stop a
+                # long batch whose target is a number of valid episodes.
+                continue
             (directory / "validation.json").write_text(
                 json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8"
             )

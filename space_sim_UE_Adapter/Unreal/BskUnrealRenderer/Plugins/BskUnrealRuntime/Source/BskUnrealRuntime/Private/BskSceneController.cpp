@@ -530,6 +530,38 @@ FString BindingTag(const FString& Name)
     return FString::Printf(TEXT("BSK.%s"), *Name);
 }
 
+bool SameObjectRenderDefinition(const FBskObjectDefinition& A, const FBskObjectDefinition& B)
+{
+    if (A.DisplayName != B.DisplayName || A.ParentId != B.ParentId || A.TransformSpace != B.TransformSpace ||
+        A.AssetPath != B.AssetPath || A.SemanticLabel != B.SemanticLabel || A.Geometries.Num() != B.Geometries.Num()) return false;
+    for (int32 Index = 0; Index < A.Geometries.Num(); ++Index)
+    {
+        const FBskGeometryDefinition& X = A.Geometries[Index];
+        const FBskGeometryDefinition& Y = B.Geometries[Index];
+        if (X.GeometryId != Y.GeometryId || X.Shape != Y.Shape || X.DimensionsMeters != Y.DimensionsMeters ||
+            X.PositionBodyMeters != Y.PositionBodyMeters || X.OrientationBodyFromGeometryWxyz != Y.OrientationBodyFromGeometryWxyz ||
+            X.Color != Y.Color || X.AssetType != Y.AssetType || X.AssetPath != Y.AssetPath || X.Scale != Y.Scale ||
+            X.RenderRole != Y.RenderRole || X.AssetKey != Y.AssetKey || X.MaterialName != Y.MaterialName ||
+            X.MaterialSpecular != Y.MaterialSpecular || X.MaterialShininess != Y.MaterialShininess ||
+            X.MaterialReflectance != Y.MaterialReflectance || X.MaterialEmission != Y.MaterialEmission ||
+            X.MaterialTexture != Y.MaterialTexture || X.MaterialTextureAssetPath != Y.MaterialTextureAssetPath ||
+            X.MaterialTextureRepeat != Y.MaterialTextureRepeat || X.bUseAssetMaterials != Y.bUseAssetMaterials) return false;
+    }
+    return true;
+}
+
+bool SameVisualActorDefinition(const FBskVisualDefinition& A, const FBskVisualDefinition& B)
+{
+    // Channel schemas are applied to frame values, not to the spawned geometry.
+    return A.Kind == B.Kind && A.ParentId == B.ParentId && A.PositionBodyMeters == B.PositionBodyMeters &&
+        A.OrientationBodyFromVisualWxyz == B.OrientationBodyFromVisualWxyz && A.NormalBody == B.NormalBody &&
+        A.FieldOfViewRadians == B.FieldOfViewRadians && A.SizeMeters == B.SizeMeters && A.RangeMeters == B.RangeMeters &&
+        A.Color == B.Color && A.Label == B.Label && A.LightType == B.LightType && A.LightTargetId == B.LightTargetId &&
+        A.LightDiffuseRgb == B.LightDiffuseRgb && A.LightSpecularRgb == B.LightSpecularRgb &&
+        A.LightIntensity == B.LightIntensity && A.LightCutoffDegrees == B.LightCutoffDegrees &&
+        A.bLightCastShadows == B.bLightCastShadows;
+}
+
 FName SafeActorName(const FString& Value)
 {
     FString Result = Value;
@@ -1816,6 +1848,7 @@ AActor* ABskSceneController::GetOrCreateActor(const FBskRenderObjectState& State
     {
         if (const FBskObjectDefinition* Definition = ManifestObjects.Find(Key)) Actor = SpawnManifestObject(*Definition);
         if (!Actor) Actor = SpawnFromSpec(Key, ResolveSpec(State));
+        if (Actor) OwnedObjectIds.Add(Key);
     }
     if (Actor)
     {
@@ -1924,7 +1957,8 @@ AActor* ABskSceneController::SpawnPlaceholder(const FString& ObjectName, const F
 
 void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
 {
-    if (ActiveSessionId != Manifest.SessionId) CancelCaptureJobs();
+    const bool bSessionChanged = ActiveSessionId != Manifest.SessionId;
+    if (bSessionChanged) CancelCaptureJobs();
     check(IsInGameThread());
     if (!ActiveSessionId.IsEmpty() && ActiveSessionId != Manifest.SessionId)
     {
@@ -1933,7 +1967,45 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
         MissionEventHistory.Reset();
         bAutoCommandSent = false;
     }
-    if (ActiveSessionId != Manifest.SessionId) ResetPresentationState();
+    if (bSessionChanged) ResetPresentationState();
+    TMap<FString, const FBskObjectDefinition*> IncomingObjects;
+    for (const FBskObjectDefinition& Definition : Manifest.Objects) IncomingObjects.Add(Definition.ObjectId, &Definition);
+    TMap<FString, FTransform> ReplacedObjectTransforms;
+    for (auto It = OwnedObjectIds.CreateIterator(); It; ++It)
+    {
+        const FString ObjectId = *It;
+        const FBskObjectDefinition* const* Incoming = IncomingObjects.Find(ObjectId);
+        const FBskObjectDefinition* Previous = ManifestObjects.Find(ObjectId);
+        if (!bSessionChanged && Incoming && Previous && SameObjectRenderDefinition(*Previous, **Incoming)) continue;
+        if (AActor* Actor = BoundActors.FindRef(ObjectId))
+        {
+            if (Incoming && !bSessionChanged) ReplacedObjectTransforms.Add(ObjectId, Actor->GetActorTransform());
+            // Preserve camera/visual and unchanged child actors until their
+            // new manifest mounts are configured and attached below.
+            TArray<AActor*> Children;
+            Actor->GetAttachedActors(Children);
+            for (AActor* Child : Children) Child->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+            Actor->Tags.Remove(FName(*BindingTag(ObjectId)));
+            Actor->SetActorHiddenInGame(true);
+            Actor->Destroy();
+        }
+        BoundActors.Remove(ObjectId);
+        It.RemoveCurrent();
+    }
+    TMap<FString, const FBskVisualDefinition*> IncomingVisuals;
+    for (const FBskVisualDefinition& Definition : Manifest.Visuals) IncomingVisuals.Add(Definition.VisualId, &Definition);
+    for (auto It = VisualActors.CreateIterator(); It; ++It)
+    {
+        const FBskVisualDefinition* const* Incoming = IncomingVisuals.Find(It.Key());
+        const FBskVisualDefinition* Previous = ManifestVisuals.Find(It.Key());
+        if (!bSessionChanged && Incoming && Previous && SameVisualActorDefinition(*Previous, **Incoming)) continue;
+        if (AActor* Actor = It.Value())
+        {
+            Actor->SetActorHiddenInGame(true);
+            Actor->Destroy();
+        }
+        It.RemoveCurrent();
+    }
     ActiveSessionId = Manifest.SessionId;
     ActiveManifestRevision = Manifest.Revision;
     bShowOrbitLines = Manifest.bOrbitLines;
@@ -1963,13 +2035,15 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
     for (const FBskObjectDefinition& Definition : Manifest.Objects)
     {
         ManifestObjects.Add(Definition.ObjectId, Definition);
-        if (!BoundActors.Contains(Definition.ObjectId))
+        FBskRenderObjectState State;
+        State.ObjectId = Definition.ObjectId;
+        State.Name = Definition.DisplayName;
+        State.SemanticLabel = Definition.SemanticLabel;
+        if (AActor* Actor = GetOrCreateActor(State))
         {
-            if (AActor* Actor = SpawnManifestObject(Definition))
+            if (const FTransform* PreviousTransform = ReplacedObjectTransforms.Find(Definition.ObjectId))
             {
-                Actor->Tags.AddUnique(FName(*BindingTag(Definition.ObjectId)));
-                if (!Definition.SemanticLabel.IsEmpty()) Actor->Tags.AddUnique(FName(*FString::Printf(TEXT("BSK.Semantic.%s"), *Definition.SemanticLabel)));
-                BoundActors.Add(Definition.ObjectId, Actor);
+                Actor->SetActorTransform(*PreviousTransform, false, nullptr, ETeleportType::TeleportPhysics);
             }
         }
     }
@@ -2491,7 +2565,8 @@ AActor* ABskSceneController::SpawnVisual(const FBskVisualDefinition& Definition)
                 // cone whatever <light cutoff> said. Make it Movable first.
                 Spot->SetMobility(EComponentMobility::Movable);
                 Spot->SetIntensity(static_cast<float>(650.0 * FMath::Max(0.0, Definition.LightIntensity)));
-                Spot->SetAttenuationRadius(static_cast<float>(FMath::Max(Definition.RangeMeters, 20.0) * Converter.GetCentimetersPerMeter()));
+                const double RangeMeters = Definition.RangeMeters > 0.0 ? Definition.RangeMeters : 20.0;
+                Spot->SetAttenuationRadius(static_cast<float>(RangeMeters * Converter.GetCentimetersPerMeter()));
                 Spot->SetInnerConeAngle(static_cast<float>(FMath::Clamp(Definition.LightCutoffDegrees * 0.65, 0.0, 80.0)));
                 Spot->SetOuterConeAngle(static_cast<float>(FMath::Clamp(Definition.LightCutoffDegrees, 1.0, 89.0)));
             }
@@ -2630,7 +2705,10 @@ void ABskSceneController::RefreshVisualVisibility(const FString& VisualId)
     if (!Actor || !Definition) return;
     const bool* DynamicVisibility = VisualDynamicVisibility.Find(VisualId);
     const bool bDynamicallyVisible = DynamicVisibility == nullptr || *DynamicVisibility;
-    Actor->SetActorHiddenInGame(!bDynamicallyVisible || !IsVisualKindVisible(Definition->Kind));
+    // A camera may disappear while a light descriptor is retained. Do not
+    // leave its old light shining from a stale, unregistered camera actor.
+    const bool bHasMount = Definition->ParentId.IsEmpty() || ResolveVisualParent(Definition->ParentId) != nullptr;
+    Actor->SetActorHiddenInGame(!bDynamicallyVisible || !bHasMount || !IsVisualKindVisible(Definition->Kind));
 }
 
 AActor* ABskSceneController::SpawnCamera(const FBskCameraDefinition& Definition)
@@ -2717,13 +2795,42 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
     ConfigurePixelStreamingCamera(Actor, Definition);
 }
 
+int32 ABskSceneController::UpdateOfflineCameraWarmup(double NowSeconds)
+{
+    // Idle wall-clock warmup must submit real views: otherwise on-demand
+    // shaders/PSOs first see these materials in the first recorded images.
+    // Rendering the held presentation pose does not advance source state or
+    // enter the dataset readback, disk, or network paths.
+    if (!GetWorld() || !bHasPresentationFrame || !PresentationFrame.bCaptureOnDemand ||
+        !PresentationFrame.CaptureEpisodeId.IsEmpty()) return 0;
+    // A strict frame can already be queued as the interpolation target while
+    // the last presentation pose is still idle. Never add warmup work then.
+    if (bHasTargetFrame && (!TargetFrame.bCaptureOnDemand || !TargetFrame.CaptureEpisodeId.IsEmpty())) return 0;
+    int32 RenderedCameras = 0;
+    for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
+    {
+        USceneCaptureComponent2D* Capture = CameraCaptureComponents.FindRef(Pair.Key);
+        if (!Capture || !Capture->TextureTarget) continue;
+        double& NextSeconds = CameraNextCaptureSeconds.FindOrAdd(Pair.Key);
+        const bool bFirstWarmup = NextSeconds <= 0.0;
+        if (!BskPreviewCaptureDue(NowSeconds, 10.0, NextSeconds)) continue;
+        CaptureRgbCamera(Pair.Key, Capture);
+        ++RenderedCameras;
+        if (bFirstWarmup)
+            UE_LOG(LogBskUnreal, Display, TEXT("Warming idle RGB camera %s at 10 Hz without dataset output"), *Pair.Key);
+    }
+    return RenderedCameras;
+}
+
 void ABskSceneController::UpdatePictureInPictureCaptures()
 {
-    // Offline datasets render cameras from authoritative simulation frames.
-    // A zero preview-rate override otherwise falls back to each camera's rate,
-    // rendering hidden HUD thumbnails even though there is no preview consumer.
+    // Offline capture renders extra views only while held idle before an episode.
     static const bool bOfflineCapture = FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"));
-    if (bOfflineCapture) return;
+    if (bOfflineCapture)
+    {
+        UpdateOfflineCameraWarmup(FPlatformTime::Seconds());
+        return;
+    }
     if (!GetWorld()) return;
     const double NowSeconds = FPlatformTime::Seconds();
     for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
@@ -3349,18 +3456,28 @@ void ABskSceneController::AttachManifestChildren()
         AActor* Parent = Pair.Value.ParentId.IsEmpty() ? nullptr : BoundActors.FindRef(Pair.Value.ParentId);
         if (Actor && Parent && Actor->GetAttachParentActor() != Parent) Actor->AttachToActor(Parent, FAttachmentTransformRules::KeepWorldTransform);
     }
-    for (const TPair<FString, FBskVisualDefinition>& Pair : ManifestVisuals)
-    {
-        AActor* Actor = VisualActors.FindRef(Pair.Key);
-        AActor* Parent = BoundActors.FindRef(Pair.Value.ParentId);
-        if (Actor && Parent) Actor->AttachToActor(Parent, FAttachmentTransformRules::KeepRelativeTransform);
-    }
     for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
     {
         AActor* Actor = CameraActors.FindRef(Pair.Key);
         AActor* Parent = Pair.Value.ParentId.IsEmpty() ? nullptr : BoundActors.FindRef(Pair.Value.ParentId);
         if (Actor && Parent) Actor->AttachToActor(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+        else if (Actor && Actor->GetAttachParentActor()) Actor->DetachFromActor(FDetachmentTransformRules::KeepRelativeTransform);
     }
+    for (const TPair<FString, FBskVisualDefinition>& Pair : ManifestVisuals)
+    {
+        AActor* Actor = VisualActors.FindRef(Pair.Key);
+        AActor* Parent = ResolveVisualParent(Pair.Value.ParentId);
+        if (Actor && Parent) Actor->AttachToActor(Parent, FAttachmentTransformRules::KeepRelativeTransform);
+        else if (Actor && Actor->GetAttachParentActor()) Actor->DetachFromActor(FDetachmentTransformRules::KeepRelativeTransform);
+        RefreshVisualVisibility(Pair.Key);
+    }
+}
+
+AActor* ABskSceneController::ResolveVisualParent(const FString& ParentId) const
+{
+    if (AActor* Body = BoundActors.FindRef(ParentId)) return Body;
+    // CameraActors is a reusable cache; only active-manifest cameras are mounts.
+    return ManifestCameras.Contains(ParentId) ? CameraActors.FindRef(ParentId) : nullptr;
 }
 
 void ABskSceneController::ConfigureOfflineSkyLighting()

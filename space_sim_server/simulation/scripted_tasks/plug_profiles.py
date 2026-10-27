@@ -29,11 +29,7 @@ class PlugProfile:
             "guide": "guide plug",
             "cylindrical": "cylindrical plug",
         }[self.prefix]
-        return (
-            f"Track and grasp the {name}, then move it to the matching assembly hole "
-            "on the workbench. Align and insert it fully, release it, "
-            "and retract the gripper. Ensure the plug remains seated."
-        )
+        return f"Pick up the {name}, align it with the corresponding socket, and insert it fully."
 
 
 PLUG_PROFILES = {

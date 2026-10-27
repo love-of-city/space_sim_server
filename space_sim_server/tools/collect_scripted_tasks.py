@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -38,6 +39,7 @@ from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_ta
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
 from space_arm_platform.unreal_runtime import default_unreal_root
 from space_arm_platform.collection_runtime import PersistentRenderer, check_port_available
+from space_arm_platform.dynamics_worker import PersistentDynamics
 from space_arm_platform.collection_layouts import LayoutPool, attach_layout, validate_episode_layout
 from space_arm_platform.overview_camera import validate_episode_overview_camera
 
@@ -195,6 +197,31 @@ def validate_capture_manifest(episode, meta, steps):
     return len(captures)
 
 
+def validate_recorded_layout_model(meta, observations):
+    """Bind every authoritative state to the saved layout and its exact variant."""
+    scene = meta.get("scene_instance") or {}
+    config = scene.get("collection_config") or {}
+    layout = scene.get("task_box_layout") or {}
+    selected = config.get("layout_randomization") or {}
+    source = layout.get("model_sha256")
+    if selected.get("enabled"):
+        if not source:
+            raise ValueError("Enabled layout selection has no layout model")
+        if selected.get("model_sha256") != source:
+            raise ValueError("Saved layout selection disagrees with layout model")
+    if not source:
+        return
+    variant = config.get("model_randomization") or {}
+    if variant:
+        if variant.get("source_sha256") != source:
+            raise ValueError("Randomized model source disagrees with saved layout")
+        expected = variant.get("variant_sha256")
+    else:
+        expected = source
+    if not expected or any(obs.get("model_sha256") != expected for obs in observations):
+        raise ValueError("Authoritative model differs from the saved layout/variant")
+
+
 def validate_recording(episode, task_name="drawer_cycle"):
     import av
     import numpy as np
@@ -211,6 +238,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
         assert info["features"][key]["names"][-1] == "gripper_opening_normalized"
     compact = is_compact(episode)
     steps = list(read_observations(episode))
+    validate_recorded_layout_model(meta, steps)
     rows = []
     for path in sorted((episode / "lerobot/data").rglob("*.parquet")):
         rows.extend(pq.read_table(path).to_pylist())
@@ -267,7 +295,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
 
         profile = plug_profile(task_name)
         assert stages == list(PlugInsertTask.recorded_stages(final.get("task_version"))), stages
-        if final.get("task_version") in (PlugInsertTask.cylindrical_clearance_version, PlugInsertTask.latch_version, PlugInsertTask.shared_motion_version, PlugInsertTask.overlapped_release_version, PlugInsertTask.continuous_contact_version, PlugInsertTask.continuous_carry_version, PlugInsertTask.gentle_carry_version, PlugInsertTask.smooth_tracking_version, PlugInsertTask.coordinated_version, PlugInsertTask.legacy_latch_version):
+        if final.get("task_version") in (PlugInsertTask.integrated_cylindrical_version, PlugInsertTask.cylindrical_clearance_version, PlugInsertTask.gentle_release_version, PlugInsertTask.latch_version, PlugInsertTask.shared_motion_version, PlugInsertTask.overlapped_release_version, PlugInsertTask.continuous_contact_version, PlugInsertTask.continuous_carry_version, PlugInsertTask.gentle_carry_version, PlugInsertTask.smooth_tracking_version, PlugInsertTask.coordinated_version, PlugInsertTask.legacy_latch_version):
             grasped = [obs["scripted_task"] for obs in steps
                        if obs["scripted_task"]["stage"] == "extract"]
             assert grasped and grasped[0]["grasp_heading_error_rad"] < 0.05
@@ -363,6 +391,8 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument("--layout-pool", type=Path,
                         help="Validated layout pool; select a reproducible layout per attempt")
+    parser.add_argument("--model", type=Path, help="Fixed validated layout model for this batch")
+    parser.add_argument("--catalog", type=Path, help="Catalog paired with --model")
     parser.add_argument("--cancel-file", type=Path)
     parser.add_argument(
         "--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter"
@@ -374,10 +404,15 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--episodes-root", type=Path, default=ROOT / "data/episodes")
     parser.add_argument("--recording-config", type=Path)
     parser.add_argument("--reuse-renderer", action="store_true")
+    parser.add_argument("--reuse-dynamics", action="store_true",
+                        help="Reuse imports/native libraries; each episode builds fresh physics state")
+    parser.add_argument("--dynamics-max-episodes", type=int, default=4)
+    parser.add_argument("--dynamics-max-rss-mb", type=int, default=8192)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--gpu-index", type=int)
     parser.add_argument("--warmup-seconds", type=float, default=5.0)
     parser.add_argument("--reuse-warmup-seconds", type=float, default=5.0)
+    parser.add_argument("--simulation-startup-timeout-seconds", type=float, default=600.0)
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--max-attempts", type=int, default=15)
     parser.add_argument("--seed", type=int, default=2026101501)
@@ -386,18 +421,37 @@ def main(default_task="drawer_cycle"):
                         default=None, help="Sample a new orbital phase per attempt; otherwise inherit scene setting")
     parser.add_argument("--randomize-overview-camera", action=argparse.BooleanOptionalAction,
                         default=None, help="Choose one of five body-fixed overview camera presets per attempt")
+    parser.add_argument("--overview-camera-sampling", choices=("presets",), default="presets")
     parser.add_argument("--control-port", type=int, default=19766)
     parser.add_argument("--capture-port", type=int, default=19767)
     parser.add_argument("--render-port", type=int, default=16558)
     parser.add_argument("--signalling-port", type=int, default=19888)
     add_motion_options(parser)
     args = parser.parse_args()
+    for field in ("scene", "output", "episodes_root", "adapter", "unreal", "cancel_file",
+                  "recording_config", "layout_pool", "model", "catalog"):
+        value = getattr(args, field)
+        if value is not None:
+            setattr(args, field, value.expanduser().resolve())
     try:
         motion_args = motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
     except ValueError as error:
         parser.error(str(error))
     if not 1 <= args.count <= args.max_attempts <= 1000 or args.seed < 0:
         parser.error("require 1 <= count <= max-attempts <= 1000 and non-negative seed")
+    if not math.isfinite(args.range_deg) or not 0 <= args.range_deg <= 50:
+        parser.error("range-deg must be finite and in [0,50]")
+    if args.dynamics_max_episodes < 1 or args.dynamics_max_rss_mb < 1:
+        parser.error("dynamics recycling limits must be positive")
+    if not math.isfinite(args.simulation_startup_timeout_seconds) or not 0 < args.simulation_startup_timeout_seconds <= 7200:
+        parser.error("simulation-startup-timeout-seconds must be finite and in (0,7200]")
+    if bool(args.model) != bool(args.catalog) or (args.layout_pool and args.model):
+        parser.error("provide --model and --catalog together, or --layout-pool")
+    source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
+    selected_layout = source.get("collection_config", {}).get("layout_randomization", {})
+    if (source.get("collection_layout_randomization") or source.get("task_box_layout")
+            or selected_layout.get("enabled")) and not (args.layout_pool or args.model):
+        parser.error("--layout-pool is required for saved layouts, or explicit --model and --catalog")
     if any(not 0 <= value <= 60 for value in (args.warmup_seconds, args.reuse_warmup_seconds)):
         parser.error("warmup must be between 0 and 60 seconds")
     if args.gpu_index is not None and not 0 <= args.gpu_index <= 255:
@@ -413,15 +467,19 @@ def main(default_task="drawer_cycle"):
     args.output.mkdir(parents=True, exist_ok=False)
     if args.cancel_file is None:
         args.cancel_file = args.output / "cancel.request"
-    source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
     if args.randomize_orbit_phase is not None:
         source["randomize_orbit_phase"] = args.randomize_orbit_phase
     if args.randomize_overview_camera is not None:
         source["randomize_overview_camera"] = args.randomize_overview_camera
+    source["overview_camera_sampling"] = args.overview_camera_sampling
     pool = LayoutPool(args.layout_pool) if args.layout_pool else None
-    if source.get("collection_layout_randomization") and pool is None:
+    if source.get("collection_layout_randomization") and pool is None and not args.model:
         raise ValueError("Layout randomization requires --layout-pool; refusing fixed-layout fallback")
-    model = ROOT / "model/SARM/platform/sarm_20261012.xml"
+    model = args.model or ROOT / "model/SARM/platform/sarm_20261012.xml"
+    fixed_placement = None
+    if args.model:
+        from simulation.task_box_layout import validated_capture_layout
+        fixed_placement = validated_capture_layout(model, args.catalog)
     started = time.monotonic()
     report = dict(
         schema="scripted-batch/2",
@@ -438,6 +496,9 @@ def main(default_task="drawer_cycle"):
         attempts=[],
         accepted_episodes=[],
         source_scene=str(args.scene.resolve()),
+        reuse_renderer=args.reuse_renderer,
+        reuse_dynamics=args.reuse_dynamics,
+        timing_scope="attempt start through validation and acceptance; includes validation_wall_seconds",
     )
 
     def save():
@@ -452,6 +513,7 @@ def main(default_task="drawer_cycle"):
     probe = None
     probe_model = None
     renderer = None
+    dynamics = None
     child = None
     recorded = 0
     try:
@@ -468,20 +530,30 @@ def main(default_task="drawer_cycle"):
                 break
             seed = args.seed + index
             attempt_started = time.monotonic()
+            attempt_started_at_ns = time.time_ns()
             scene = randomized_scene(source, seed, args.range_deg, args.task)
+            # Freeze the episode colour assignment before recording starts.
+            from simulation.scripted_tasks.randomization import prepare_episode
+            prepare_episode(scene)
             if args.task in THREADED_TASKS:
                 scene["collection_config"]["threaded_speed_profile"] = args.threaded_speed_profile
-            catalog = None
+            catalog = args.catalog
             if pool is not None:
                 model, catalog = attach_layout(scene, pool, seed)
+            elif fixed_placement is not None:
+                scene["task_box_layout"] = fixed_placement
+                scene["collection_layout_randomization"] = False
             directory = args.output / f"attempt-{index + 1:03d}-seed-{seed}"
             directory.mkdir()
             preflight_model = model
-            if args.task in THREADED_TASKS:
-                from simulation.scripted_tasks.randomization import write_model_variant
+            from simulation.scripted_tasks.randomization import write_model_variant
 
-                scene["scripted_task_name"] = args.task
-                preflight_model = write_model_variant(model, directory / "preflight-model.xml", scene)
+            scene["scripted_task_name"] = args.task
+            # A generated independent layout is a standalone MJCF, so the
+            # per-episode visual assignment can be materialized into the
+            # preflight model as well as into the recording child. Fixed
+            # monolithic models safely return their original path.
+            preflight_model = write_model_variant(model, directory / "preflight-model.xml", scene)
             scene_path = directory / "scene.json"
             scene_path.write_text(
                 json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -489,17 +561,33 @@ def main(default_task="drawer_cycle"):
             entry = dict(
                 attempt=index + 1,
                 seed=seed,
+                started_at_ns=str(attempt_started_at_ns),
                 initial_state=scene["collection_config"]["initialization"],
                 directory=str(directory),
                 status="preflight",
             )
+            color_config = scene.get("collection_config", {}).get(
+                "color_randomization",
+                scene.get("collection_config", {}).get("episode_color_assignment"),
+            )
+            if color_config is not None:
+                entry["color_randomization"] = {
+                    "schema": color_config.get("schema"),
+                    "assignment_sha256": color_config.get("assignment_sha256"),
+                    "hole_colors": color_config.get("hole_colors"),
+                    "source_colors": color_config.get("source_colors"),
+                    "bolt_storage_color": color_config.get("bolt_storage_color"),
+                }
             report["attempts"].append(entry)
             if scene.get("randomize_overview_camera"):
                 entry["overview_camera"] = scene["overview_camera"]
             if pool is not None:
                 entry["layout_randomization"] = scene["collection_config"]["layout_randomization"]
+            if catalog is not None:
                 entry["model"], entry["catalog"] = str(model), str(catalog)
             save()
+            entry["scene_preparation_wall_seconds"] = time.monotonic() - attempt_started
+            preflight_started = time.monotonic()
             # Native probes compile one concrete model. Never reuse the previous
             # layout's collision state when selecting a different model.
             if probe is None or probe_model != preflight_model:
@@ -511,6 +599,7 @@ def main(default_task="drawer_cycle"):
                 entry["preflight"] = probe.validate(preflight_model, scene, args.task)
             except ValueError as exc:
                 entry["preflight"] = dict(accepted=False, reason="planning_failed", detail=str(exc))
+            entry["preflight_wall_seconds"] = time.monotonic() - preflight_started
             if not entry["preflight"]["accepted"]:
                 entry["status"] = "initialization_rejected"
                 entry["end_to_end_wall_seconds"] = time.monotonic() - attempt_started
@@ -538,6 +627,8 @@ def main(default_task="drawer_cycle"):
                 "900" if args.task in THREADED_TASKS else "450",
                 "--timeout-seconds",
                 "5400" if args.task in THREADED_TASKS else "1800",
+                "--simulation-startup-timeout-seconds",
+                str(args.simulation_startup_timeout_seconds),
             ]
             command += motion_args
             if catalog is not None:
@@ -554,6 +645,17 @@ def main(default_task="drawer_cycle"):
                     report["renderer_pid"] = renderer.process.pid
                 renderer.check()
                 command.append("--external-renderer")
+            if args.reuse_dynamics:
+                if dynamics is not None and not dynamics.reusable():
+                    dynamics.close()
+                    dynamics = None
+                if dynamics is None:
+                    dynamics = PersistentDynamics(ROOT, args.output,
+                        max_episodes=args.dynamics_max_episodes,
+                        max_rss_mb=args.dynamics_max_rss_mb)
+                command += ["--dynamics-worker", str(dynamics.directory)]
+                entry["dynamics_worker_pid"] = dynamics.pid
+                entry["dynamics_worker_directory"] = str(dynamics.directory)
             command += ["--adapter", str(args.adapter), "--unreal", str(args.unreal)]
             if args.recording_config:
                 command += ["--recording-config", str(args.recording_config.resolve())]
@@ -599,6 +701,7 @@ def main(default_task="drawer_cycle"):
                 entry["recording_process_wall_seconds"] = result_info.get(
                     "end_to_end_wall_seconds"
                 )
+                entry["dynamics_worker"] = result_info.get("dynamics_worker")
             if args.cancel_file and args.cancel_file.exists():
                 entry["status"] = "cancelled"
                 report["status"] = "cancelled"
@@ -686,6 +789,8 @@ def main(default_task="drawer_cycle"):
                 child.wait(10)
         if renderer is not None:
             renderer.close()
+        if dynamics is not None:
+            dynamics.close()
         if probe is not None:
             probe.close()
         save()

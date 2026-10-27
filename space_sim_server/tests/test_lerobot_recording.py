@@ -87,7 +87,8 @@ def test_live_v3_roundtrip_rgb_only_and_two_cameras(tmp_path, streaming):
 
 @pytest.mark.process_writer
 def test_spawned_writer_receives_video_configuration(tmp_path):
-    video = VideoEncodingConfig(streaming_encoding=True, encoder_threads=1, encoder_queue_maxsize=8)
+    video = VideoEncodingConfig(streaming_encoding=True, encoder_threads=1, encoder_queue_maxsize=8,
+                                encoder_preset="veryfast")
     recorder = EpisodeRecorder(tmp_path, video_encoding=video)
     try:
         metadata = recorder.start(EpisodeStart(fps=10, camera_ids=["wrist"]))
@@ -99,6 +100,9 @@ def test_spawned_writer_receives_video_configuration(tmp_path):
         root = tmp_path / metadata["episode_id"] / "lerobot"
         platform = json.loads((root / "meta/platform.json").read_text(encoding="utf-8"))
         assert platform["video_encoding"] == video.model_dump()
+        metrics = platform["video_encoding_metrics"]
+        assert metrics["encoder_preset"] == "veryfast"
+        assert metrics["cameras"]["observation.images.wrist"]["frames_encoded"] == 3
         assert not list(root.rglob("*.png"))
         loaded = LeRobotDataset(f"local/{root.parent.name}", root=root, video_backend="pyav")
         assert len(loaded) == 3

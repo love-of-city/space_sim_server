@@ -4,10 +4,10 @@
 
 # 完整抽屉循环与批量采集
 
-当前 `run_drawer_task.py`、`record_drawer_task.py` 默认任务为 `drawer_cycle`，流程为：settle → raise → above_drawer → align → open → descend → grip → lift → hold → return → seat → release → retract → verify。旧的仅提拉任务通过 `--task drawer_lift` 保留。
+当前 `run_drawer_task.py`、`record_drawer_task.py` 默认任务为 `drawer_cycle`，当前 v5 流程为：settle → approach → grip → lift → return → release → retract → verify。旧的仅提拉任务通过 `--task drawer_lift` 保留。
 
-- 抽出 8 cm 后保持 2 秒；回程参考线速度上限 0.012 m/s。
-- seat 阶段增加 1 mm 的限速目标压入以克服伺服负载偏差，必须小于最终 2 mm 关闭容差；并保留原载荷保护。
+- 抽出 8 cm 并确认停稳后直接返回；回程主体速度上限 0.1 m/s，最后 2 cm 降到约 0.012 m/s。最终关闭状态持续验证 2 秒。
+- return 的末段增加 1 mm 的限速目标压入以克服伺服负载偏差，必须小于最终 2 mm 关闭容差；并保留原载荷保护。
 - 回程时夹爪仍压住卡扣，因此先检查位置归位，再松爪；不要求卡扣在受夹持时复位。
 - 最终成功须已验证抽出和归位、夹爪开合量大于 0.95、末端撤离到悬停位、抽屉距初始位置不超过 2 mm、速度小于 3 mm/s、卡扣距初始角不超过 0.025 rad，并连续稳定 2 秒。这些是当前仿真模型的验收容差，不是硬件精度保证。
 - grip 阶段还要求两个手指都与抽屉或卡扣产生接触，避免仅凭手指没闭合误判抓取。接触信息从权威 MuJoCo 模型只读取得。
@@ -15,21 +15,23 @@
 
 ## 批量入口
 
+当前优化后的单 worker 顺序采集、UE/动力学 worker 复用和专用 `veryfast` 配置见[单机采集性能](COLLECTION_PERFORMANCE.md#当前单-worker-顺序采集入口)。完整周期以成功验收后的 attempt 耗时为准，不仅是视频录制时间。
+
 ```powershell
 python tools/collect_drawer_cycles.py --scene run/scenes/<你的场景ID>.json --output run/my-drawer-batch --count 5 --seed 2026101501 --range-deg 10
 ```
 
-每次尝试使用 `seed + attempt_index` 的独立 PCG64 随机流，六个关节相对来源场景姿态独立均匀采样 ±10°，夹爪固定闭合、关节初速度为零；原场景文件不变。光照、轨道、动力学参数保持来源配置。关节观测噪声、偏置、动作噪声、延迟、腕力噪声、外力扰动全部关闭；本入口尚不支持开启这些扰动，不能将配置标记设为 true 并期望其生效。
+每次尝试使用 `seed + attempt_index` 的独立 PCG64 随机流，六个关节相对来源场景姿态独立均匀采样 `±range-deg`，默认 ±10°，支持 0–50°；例如 `--range-deg 30` 为各轴独立 ±30°。不钳位或重新采样偏移；超出关节限位、初始碰撞或路径预检失败的尝试按原因拒绝。夹爪固定闭合、关节初速度为零；原场景文件不变。噪声、扰动和动力学随机化读取来源场景的 `collection_randomization` 配置，并把本条实际设置保存到 `collection_config.randomization_options`；不能仅凭旧的布尔摘要判断是否启用。轨道与机位也沿用来源设置或由显式 CLI 参数控制。配置含义见[平台自动采集](PLATFORM_AUTOMATED_COLLECTION.md)。
 
 预检查使用同一 Basilisk MuJoCo 运行时、原模型几何与独立的模型状态：检查关节限位；初始及接近路径 244 个离散姿态检查超过 0.5 mm 的机器人相关穿透；忽略夹爪内部四连杆接触；并验证抓取、抽出、返回与撤离的 IK 可达性。预检查不是连续碰撞证明或动力学成功保证，接触阶段仍靠真实运行验证。
 
-批量默认顺序执行独立仿真和 UE 实例，240 Hz 动力学、1 子步、30 Hz 采集、双路 1024×1024。独立端口默认为 19766/19767/16558/19888。每条录制复用正式 CaptureReceiver / SimulationHub / EpisodeRecorder / LiveLeRobotWriter，不从离线 trace 伪造训练数据。
+批量默认顺序执行，400 Hz 动力学、1 子步、200 Hz 任务/腕力、50 Hz 采集、双路 1024×1024。显式 `--reuse-renderer --reuse-dynamics` 时保留进程和库，每条仍创建独立物理状态。独立端口默认为 19766/19767/16558/19888。每条录制复用正式 CaptureReceiver / SimulationHub / EpisodeRecorder / LiveLeRobotWriter，不从离线 trace 伪造训练数据。
 
 每轮保存原始采样、预检查结果、场景副本、阶段日志和录制结果。失败录制保留 outcome=failure，初始化拒绝也进入批次 summary；不计入成功数量。最多尝试次数可通过 --max-attempts 限制。每条成功轨迹还要通过逐帧 JSONL/Parquet 状态、动作、腕力一致性、图像源帧/时间、图像尺寸及完整 MP4 解码检查，才加入 accepted_episodes。
 
 数据在 data/episodes，批次汇总和验证在 --output。若进程被中断，已写入的录制与批次审计保留，重新启动前应先检查本次子进程与端口；输出目录不覆盖已有目录。
 
-以下是旧提拉任务的实现背景和入口参数说明（需要仅提拉时显式指定 --task drawer_lift）：
+以下保留仅提拉任务的实现背景和入口参数说明（需要仅提拉时显式指定 `--task drawer_lift`）。旧实现测量中的 240/30 Hz 不代表当前脚本；新运行使用上文的 400/200/50 Hz。
 
 # 自动抽屉提拉任务
 
@@ -54,7 +56,7 @@ Set-Location .\space_sim_server
 & $env:SPACE_SIM_PYTHON tools\run_drawer_task.py --substeps 3 --output run/drawer-task/my-trial
 ```
 
-默认沿用平台的子步设置；当前平台默认 1。物理外层频率为 240 Hz，任务决策与日志为 30 Hz，不使用墙钟 sleep 安排动作。机器变慢时，完成所需现实时间会增加，动作的仿真时间顺序不变。
+默认沿用平台的子步设置；当前平台默认 1。物理外层频率为 400 Hz，任务决策与腕力为 200 Hz，不使用墙钟 sleep 安排动作。机器变慢时，完成所需现实时间会增加，动作的仿真时间顺序不变。
 
 ## 动作与成功标准
 
@@ -75,9 +77,9 @@ Set-Location .\space_sim_server
 ## 输出与验收范围
 
 - `summary.json`：成功/失败、原因、模型哈希、参数、阶段时间、实际抽屉位移和动力学配置。
-- `trace.jsonl`：30 Hz 的关节实测值、关节参考、末端姿态、抽屉/卡扣状态、带原始采样时刻的腕部六维读数、局部物理状态。
+- `trace.jsonl`：启用 trace 时保存任务循环的关节实测值、关节参考、末端姿态、抽屉/卡扣状态、带原始采样时刻的腕部六维读数、局部物理状态；当前任务循环为 200 Hz。
 
-腕部读数来自正在积分的本地 MuJoCo 实例，是原始接口载荷。日志中的最大载荷是 **30 Hz 记录样本的最大值**，不代表所有物理子步中的峰值。详细定义见 [腕部六维测力](WRIST_FORCE_TORQUE_SENSOR.md)。
+腕部读数来自正在积分的本地 MuJoCo 实例，是原始接口载荷。当前任务摘要的最大载荷是 **200 Hz 任务采样的最大值**，不代表所有物理子步中的峰值。历史 30 Hz 记录仍按当时的采样范围解释。详细定义见 [腕部六维测力](WRIST_FORCE_TORQUE_SENSOR.md)。
 
 单独运行 `run_drawer_task.py` 只输出任务验收记录。需要与手动录制相同的数据集时，使用下面的真实 UE 录制入口。
 
@@ -89,12 +91,12 @@ Set-Location .\space_sim_server
 & $env:SPACE_SIM_PYTHON tools\record_drawer_task.py --scene run\scenes\<你的场景ID>.json
 ```
 
-将 `--scene` 指向要使用的场景配置。脚本创建该配置的独立实例，沿用模型、轨道、光照、初始姿态、场景种子和操作者归属；不控制网页里正在运行的实例。当前要求此任务盒模板、240 Hz 动力学、30 Hz 采集，以及已准备好的初始姿态。需要本机 UE 5.6、已编译插件及对应的 `sarm_20261012.catalog.json`。
+将 `--scene` 指向要使用的场景配置。脚本创建该配置的独立实例，沿用模型、轨道、光照、初始姿态、场景种子和操作者归属；不控制网页里正在运行的实例。当前要求此任务盒模板、400 Hz 动力学、50 Hz 采集，以及已准备好的初始姿态。需要本机 UE 5.6、已编译插件及所选模型的 catalog；生成布局须显式传入匹配的 `--model` 和 `--catalog`。
 
-任务策略 → 关节执行器参考 → 原权威动力学 → RenderComponent / ObservationComponent → UE 双相机 → CaptureReceiver / SimulationHub → EpisodeRecorder → 原 LeRobot v3 写入器。开始录制的确认到达后才开始动作；停止时先冻结采样边界、关闭采集并排空已接受图像，再完成数据封装。队列满时暂停推进仿真，按仿真时钟保持 30 Hz 配对采样。
+任务策略 → 关节执行器参考 → 原权威动力学 → RenderComponent / ObservationComponent → UE 双相机 → CaptureReceiver / SimulationHub → EpisodeRecorder → 原 LeRobot v3 写入器。开始录制的确认到达后才开始动作；停止时先冻结采样边界、关闭采集并排空已接受图像，再完成数据封装。队列满时暂停推进仿真，按仿真时钟保持 50 Hz 配对采样。
 
 - 数据保存到 `data/episodes/episode-日期-时间-标识/`，与网页录制同目录、同 `space-arm-episode/2` 和 LeRobot v3 格式。
-- 两个相机为 `spacecraft_overview` 和 `sarm_wrist_cam`，新录制均为 1024×1024 RGB、30 FPS（此前验收记录仍为 640×360），最终存为 MP4；配套 Parquet 包含关节状态、速度、末端位姿、动作参考和六维腕部载荷。
+- 两个相机为 `spacecraft_overview` 和 `sarm_wrist_cam`，新录制均为 1024×1024 RGB、50 FPS，最终存为 MP4；配套 Parquet 包含关节状态、速度、末端位姿、动作参考和六维腕部载荷。此前 30 FPS 或 640×360 记录只代表其各自运行配置。
 - `action` 为采样时实际保持的七维训练目标（六个关节角 + 0–1 夹爪开合量）；原始八维参考另存为诊断字段，见 [训练表示](GRIPPER_TRAINING_REPRESENTATION.md)。自动策略来源、阶段和成功判定放在已有 `observation.platform_json.scripted_task` 内，不增加新的训练特征列。不生成虚构的键盘/遥操作事件，因此没有手动操作时不会生成相应的 `actions.jsonl`。
 - 默认使用独立端口 18766 / 18767 / 15558 / 18888。启动前检查占用，只清理本次创建的进程。可用 `--adapter`、`--unreal`、`--episodes-root`、`--output` 指定路径。
 - 完成后检查图像数 = 状态数 × 2、无缺失及拒收样本；动作失败仍封装为 failure，程序返回 1。详尽日志及运行汇总保存在 `run/drawer-recording/`。

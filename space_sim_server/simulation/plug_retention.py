@@ -125,9 +125,16 @@ def _limited(vector, maximum):
     return vector * min(1., maximum / magnitude) if magnitude else vector
 
 
+def _cross3(a, b):
+    """Cross product of two 3-vectors without NumPy's broadcasting setup."""
+    return np.array((a[1] * b[2] - a[2] * b[1],
+                     a[2] * b[0] - a[0] * b[2],
+                     a[0] * b[1] - a[1] * b[0]))
+
+
 def _axis_error(desired, actual, fallback_axis):
     """Shortest tilt rotation, leaving a round plug's axial roll unconstrained."""
-    cross = np.cross(desired, actual)
+    cross = _cross3(desired, actual)
     sine = float(np.linalg.norm(cross))
     cosine = float(np.clip(np.dot(desired, actual), -1., 1.))
     if sine < 1e-10:
@@ -150,6 +157,8 @@ class PlugFriction:
         if not sockets or len({s.name for s in sockets}) != len(sockets):
             raise ValueError("retention requires distinct compatible sockets")
         self.sockets, self.parameters = sockets, parameters
+        self._capture_angle_rad = math.radians(parameters.capture_angle_deg)
+        self._angular_release_rad = math.radians(parameters.angular_release_deg)
         self.reset()
 
     def reset(self):
@@ -176,7 +185,7 @@ class PlugFriction:
         if self.active is not None:
             delta, speed, error = coordinates(self.active)
             if (delta[2] >= p.friction_travel_m or np.linalg.norm(delta[:2]) > p.lateral_release_m
-                    or np.linalg.norm(error) > math.radians(p.angular_release_deg)):
+                    or np.linalg.norm(error) > self._angular_release_rad):
                 self.active = None
         if self.active is None:
             # No attraction at a distance or across a wrong key orientation.
@@ -185,7 +194,7 @@ class PlugFriction:
                 delta, speed, error = coordinates(socket)
                 initial_capture = self.first_sample and (socket.initial or abs(speed[2]) <= 1e-6)
                 if (np.linalg.norm(delta[:2]) <= p.capture_radius_m
-                        and np.linalg.norm(error) <= math.radians(p.capture_angle_deg)
+                        and np.linalg.norm(error) <= self._capture_angle_rad
                         and -.001 <= delta[2] < p.friction_travel_m
                         and (speed[2] < -1e-6 or initial_capture)):
                     self.active = socket
@@ -194,7 +203,8 @@ class PlugFriction:
         if self.active is None:
             self.status, self.displacement_m = "free", None
             return np.zeros(3), np.zeros(3)
-        delta, speed, error = coordinates(self.active)
+        # The active/capture checks already computed this socket's coordinates
+        # from the same immutable input sample; reuse them for the wrench.
         force = np.zeros(3)
         force[:2] = _limited(-p.lateral_stiffness_n_m * delta[:2] - p.lateral_damping_ns_m * speed[:2],
                               p.lateral_force_limit_n)
@@ -210,7 +220,7 @@ class PlugFriction:
         self.displacement_m = float(delta[2])
         near_seat = (abs(delta[2]) < p.seated_tolerance_m
                      and np.linalg.norm(delta[:2]) <= p.capture_radius_m
-                     and np.linalg.norm(error) <= math.radians(p.capture_angle_deg))
+                     and np.linalg.norm(error) <= self._capture_angle_rad)
         self.status = ("retained" if near_seat else "held" if abs(speed[2]) <= 1e-6
                        else "extracting" if speed[2] > 0 else "inserting")
         return self.active.rotation_body @ force, torque
@@ -223,7 +233,7 @@ def paired_com_wrenches(force_n, torque_n, point_n, plug_com_n, base_com_n,
     Returns inertial forces and body-axis torques for the existing physics port.
     The offset term is essential for conservation of angular momentum.
     """
-    plug_torque = torque_n + np.cross(point_n - plug_com_n, force_n)
-    base_torque = -torque_n + np.cross(point_n - base_com_n, -force_n)
+    plug_torque = torque_n + _cross3(point_n - plug_com_n, force_n)
+    base_torque = -torque_n + _cross3(point_n - base_com_n, -force_n)
     return (force_n, plug_rotation_n.T @ plug_torque,
             -force_n, base_rotation_n.T @ base_torque)

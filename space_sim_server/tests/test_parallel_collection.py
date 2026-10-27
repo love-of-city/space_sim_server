@@ -21,6 +21,8 @@ def test_workers_have_disjoint_ports_and_seed_budgets():
     {"episodes_per_worker": 5, "max_attempts_per_worker": 4},
     {"workers": []}, {"workers": [{"gpu_index": -1}]},
     {"workers": [{"cpu_affinity": [0, 0]}]}, {"reuse_warmup_seconds": -1.0},
+    {"dynamics_max_episodes": 0}, {"dynamics_max_rss_mb": 0},
+    {"simulation_startup_timeout_seconds": 0.0},
 ])
 def test_invalid_resource_config_is_rejected(override):
     with pytest.raises(ValueError):
@@ -54,7 +56,12 @@ def test_repository_config_loads_and_refers_to_recording_config():
     recording = json.loads((path.parent / config.recording_config).read_text(encoding="utf-8"))
     assert recording["capture_rate_hz"] == 50
     assert config.randomize_overview_camera is True
+    assert config.reuse_dynamics is True
     assert len(config.workers) == 2
+
+
+def test_legacy_configuration_does_not_silently_enable_dynamics_reuse():
+    assert CollectionConfig(workers=[{}]).reuse_dynamics is False
 
 
 def test_port_precheck_rejects_an_active_listener():
@@ -81,6 +88,7 @@ def test_coordinator_runs_concurrently_and_cleans_failed_workers(tmp_path, monke
     import subprocess
     import sys
     import tools.collect_parallel as parallel
+    monkeypatch.setattr(parallel.tempfile, "gettempdir", lambda: str(tmp_path))
 
     # Find a complete unused port block for both workers.
     for base in range(33000, 60000, 20):
@@ -119,13 +127,18 @@ time.sleep(.6)
 ''', encoding="utf-8")
     config = tmp_path / "collection.json"
     config.write_text(json.dumps(dict(workers=[{}, {}], port_base=base,
-        episodes_per_worker=1, sample_seconds=1.0)), encoding="utf-8")
+        episodes_per_worker=1, sample_seconds=1.0, reuse_dynamics=True)), encoding="utf-8")
     (tmp_path / "recording.json").write_text("{}", encoding="utf-8")
     real_popen = subprocess.Popen
     children = []
 
     def popen(command, **kwargs):
         assert "--worker-plan" in command
+        plan = json.loads(Path(command[-1]).read_text())
+        child_command = plan["command"]
+        assert "--reuse-dynamics" in child_command
+        assert child_command[child_command.index("--dynamics-max-episodes") + 1] == "4"
+        assert child_command[child_command.index("--simulation-startup-timeout-seconds") + 1] == "600.0"
         child = real_popen([sys.executable, str(fake), command[-1], str(fail)], **kwargs)
         children.append(child)
         return child

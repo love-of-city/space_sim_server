@@ -167,6 +167,7 @@ class LiveLeRobotWriter:
                     g=self.video_encoding.keyframe_interval, crf=self.video_encoding.quality,
                     queue_maxsize=self.video_encoding.encoder_queue_maxsize,
                     encoder_threads=self.video_encoding.encoder_threads,
+                    encoder_preset=self.video_encoding.encoder_preset,
                 )
                 self.dataset._streaming_encoder.gpu_index = self.video_encoding.gpu_index
             # Explicit semantics alongside (not masquerading as) official metadata.
@@ -211,6 +212,9 @@ class LiveLeRobotWriter:
             self.dataset.save_episode()
             path = self.root / "meta" / "platform.json"
             metadata = json.loads(path.read_text(encoding="utf-8"))
+            encoder = getattr(self.dataset, "_streaming_encoder", None)
+            if getattr(encoder, "episode_metrics", None) is not None:
+                metadata["video_encoding_metrics"] = encoder.episode_metrics
             metadata["high_frequency_wrist_wrench"] = self.wrench_stream.metadata()
             metadata["episode_result"] = {"outcome": outcome, "note": note}
             path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")

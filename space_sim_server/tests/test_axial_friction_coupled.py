@@ -109,10 +109,15 @@ class _NativeTriple:
         self.lib.lms_destroy(self.handle)
 
 
-def test_three_interfaces_hold_break_away_stop_and_repeat_deterministically(tmp_path):
+@pytest.mark.parametrize("stateful_actuator", [False, True])
+def test_three_interfaces_hold_break_away_stop_and_repeat_deterministically(tmp_path, stateful_actuator):
     pytest.importorskip("Basilisk")
     path = tmp_path / "coupled_friction.xml"
-    path.write_text(MJCF, encoding="utf-8")
+    xml = MJCF
+    if stateful_actuator:
+        xml = xml.replace('<motor joint="hinge"/>',
+                          '<general joint="hinge" dyntype="filter" dynprm=".1"/>')
+    path.write_text(xml, encoding="utf-8")
     first, second = _NativeTriple(path), _NativeTriple(path)
     # Twenty millisecond overloads move short distances before braking; every
     # plug stays inside its 8 mm physical friction interval for the whole run.
@@ -151,6 +156,55 @@ def test_three_interfaces_hold_break_away_stop_and_repeat_deterministically(tmp_
         # The base actually reacts; this is not three independently pinned
         # sockets. No state resets are used to return the plugs after a pulse.
         assert np.linalg.norm(first.q[first.base_q:first.base_q+3]) > 1e-6
+        counts = np.zeros(4, dtype=np.int64)
+        first.check(first.lib.lms_friction_diagnostics(
+            first.handle, counts.ctypes.data_as(ctypes.POINTER(ctypes.c_int64))
+        ))
+        assert counts[1] == (0 if stateful_actuator else sum(ticks for ticks, _ in profile))
+        assert counts[0] >= counts[1]
+        copies = np.zeros(2, dtype=np.int64)
+        first.check(first.lib.lms_friction_copy_diagnostics(
+            first.handle, copies.ctypes.data_as(ctypes.POINTER(ctypes.c_int64))
+        ))
+        if stateful_actuator:
+            assert copies[0] == counts[0] and copies[1] == 0
+        else:
+            assert copies[0] == 0 and copies[1] == counts[0]
     finally:
         first.close()
         second.close()
+
+
+def test_enabled_channels_past_travel_do_not_reuse_an_old_prediction(tmp_path):
+    pytest.importorskip("Basilisk")
+    path = tmp_path / "past_travel.xml"
+    path.write_text(MJCF, encoding="utf-8")
+    enabled, disabled = _NativeTriple(path), _NativeTriple(path)
+    try:
+        # Populate a valid retained prediction first, then move all interfaces
+        # outside travel. A stale prediction would rewind/freeze the next step.
+        for core in (enabled, disabled):
+            core.step((1., -1., 0.))
+            for _, address, channel in core.plugs:
+                core.q[address+2] += .03
+                if core is disabled:
+                    core.check(core.lib.lms_set_axial_friction(
+                        core.handle, channel, 0, core.ptr(np.array([0., 0., 1.])), core.ptr(core.zero)
+                    ))
+            core.check(core.lib.lms_set_state(core.handle, core.ptr(core.q), core.ptr(core.v)))
+        initial = enabled.q.copy()
+        for _ in range(20):
+            enabled.step((1., 2., 3.))
+            disabled.step((1., 2., 3.))
+            np.testing.assert_array_equal(enabled.q, disabled.q)
+            np.testing.assert_array_equal(enabled.v, disabled.v)
+            np.testing.assert_array_equal(enabled.a, disabled.a)
+        assert np.linalg.norm(enabled.q-initial) > 1e-5
+        counts = np.zeros(4, dtype=np.int64)
+        enabled.check(enabled.lib.lms_friction_diagnostics(
+            enabled.handle, counts.ctypes.data_as(ctypes.POINTER(ctypes.c_int64))
+        ))
+        np.testing.assert_array_equal(counts[1:3], [1, 20])
+    finally:
+        enabled.close()
+        disabled.close()

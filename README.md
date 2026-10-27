@@ -9,6 +9,8 @@
 
 团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](space_sim_server/README.md)。
 
+当前采集功能、代码入口及合并后的验收状态统一记录在[采集功能基线](space_sim_server/docs/COLLECTION_BASELINE.md)。`archive/` 是历史实验，不应直接作为当前功能或性能结论。
+
 ## 首次获取与安装
 
 Windows 完整网页平台使用 PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。Linux 已提供原生一键启动、停止和网页场景管理，见 [Linux 一键部署](space_sim_server/docs/LINUX_DEPLOYMENT.md)；环境安装与真实采集见 [Linux 基础迁移](space_sim_server/docs/LINUX_BASIC_MIGRATION.md)。

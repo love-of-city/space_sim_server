@@ -19,7 +19,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from simulation.independent_task_box_layout import (
-    FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, planar_transform, validate_layout_record,
+    FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, OPERATION_CLEARANCE_SCHEMA,
+    planar_transform, validate_layout_record,
 )
 from simulation.plug_retention import model_retention_sockets
 from simulation.serial_chain_kinematics import matrix_to_quaternion_wxyz, quaternion_wxyz_to_matrix
@@ -113,8 +114,6 @@ def check(source, layout, report_path):
         np.testing.assert_allclose(db.site_xmat[ib].reshape(3, 3),
                                    transform(module)[:3, :3] @ da.site_xmat[ia].reshape(3, 3), atol=1e-12)
     moved_geoms = dict(record["precision_bore_ownership"], board_thread_sdf="bolt_assembly_hole")
-    if ET.parse(source).find('.//geom[@name="bolt_storage_thread_sdf"]') is not None:
-        moved_geoms['bolt_storage_thread_sdf'] = 'bolt_storage_hole'
     # Preserve the entire drawer/latch and free objects' collision geometry.
     body_modules = {**FREE_BODY_MODULES, "drawer_base":"drawer", "drawer_buckle":"drawer",
                     "asm_board3":"drawer", "locking_rod":"locking_mechanism",
@@ -183,6 +182,7 @@ def check(source, layout, report_path):
                                          contacts=hits, passed=maximum <= .0002))
     all_clearance = clearance+pickup_clearance
     report = dict(passed=all(c["passed"] for c in all_clearance), layout_seed=record["seed"],
+                  operation_clearance_schema=OPERATION_CLEARANCE_SCHEMA,
                   source_model_sha256=record["source_sha256"], model_sha256=record["model_sha256"],
                   scope="13-unit footprint, compiled joints/states, 11 mating frames, precision contact parameters and 36 shaft/base clearance samples",
                   initial_states_preserved=True, orientations_preserved=record["schema"] == SCHEMA,

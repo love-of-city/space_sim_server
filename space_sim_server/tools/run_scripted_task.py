@@ -50,10 +50,14 @@ def default_target_state(model):
 
 
 def run(args):
+    initialization_started = time.perf_counter()
+    initialization_seconds = {}
     # Establish the production DLL load order. Never import Python mujoco here.
     from scenario_spacecraft_arm_grasp_unreal import load_native_grasp_module
 
     native = load_native_grasp_module(ROOT / "model/SARM/platform")
+    initialization_seconds["native_module_load"] = time.perf_counter() - initialization_started
+    phase_started = time.perf_counter()
     from simulation.assembly import AssemblyContext, SessionConfig
     from simulation.components.attitude import AttitudeComponent
     from simulation.components.clock import ClockComponent
@@ -80,6 +84,7 @@ def run(args):
         SCRIPTED_TASK_HZ,
         RENDER_HZ,
         WRENCH_HZ,
+        capture_preroll_ns,
     )
     from simulation.orbital_configuration import resolve_orbital_physics, environment_metadata
 
@@ -197,11 +202,24 @@ def run(args):
         wrench_max_scope="maximum of 200 Hz task samples; not all physics substeps",
     )
     started = time.perf_counter()
+    initialization_seconds["imports_model_and_task"] = started - phase_started
+    report["initialization_seconds"] = initialization_seconds
+    report["runtime_provenance"] = {
+        "schema": "scripted-runtime-provenance/1",
+        "python": sys.executable,
+        "sources_sha256": {
+            str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (Path(__file__), Path(native.__file__),
+                         ROOT / "simulation/publication_scene.py",
+                         ROOT / "simulation/local_mujoco_stepper.py")
+        },
+    }
     sample = None
     simulation_wall_seconds = 0.0
     loop_started = None
     try:
         print(json.dumps({"type": "loading_task", "output": str(output)}), flush=True)
+        phase_started = time.perf_counter()
         sim, scene, models, recorders = native._build_simulation(
             external_reference=publisher,
             dynamics_backend="local",
@@ -209,6 +227,9 @@ def run(args):
             record_history=False,
             defer_attitude_control=True,
         )
+        initialization_seconds["build_physics"] = time.perf_counter() - phase_started
+        report["publication_scene"] = getattr(scene, "publication_preparation", None)
+        phase_started = time.perf_counter()
         stepper = sim.local_stepper
         disturbances.install_external_force(stepper)
         ctx = AssemblyContext(
@@ -255,11 +276,20 @@ def run(args):
         report["orbital_physics"] = environment_metadata(
             orbital_physics, orbit.earth, epoch_utc=orbit.epoch_utc)
         state_reader = STATE_READERS[args.task](task, scene, stepper)
+        initialization_seconds["assemble_components"] = time.perf_counter() - phase_started
+        phase_started = time.perf_counter()
         if args.capture_control_port:
             from simulation.scripted_tasks.capture_transport import (
                 ScriptedCaptureTransport,
             )
 
+            # The bridge reads material metadata from this MJCF. Using the
+            # source layout here would silently restore its old colours even
+            # though physics and episode metadata use the appearance variant.
+            # Variants retain geom order and resolve the same mesh asset paths,
+            # so the layout catalog remains valid for this realized model.
+            report["render_model_path"] = str(model)
+            report["render_model_sha256"] = hashlib.sha256(model.read_bytes()).hexdigest()
             capture = ScriptedCaptureTransport(
                 ctx,
                 task,
@@ -272,9 +302,13 @@ def run(args):
                 catalog=args.catalog,
                 state_reader=state_reader,
                 disturbances=disturbances,
-                render_model_path=model if args.task in THREADED_TASKS else source_model,
+                render_model_path=model,
             )
+        initialization_seconds["capture_transport"] = time.perf_counter() - phase_started
+        phase_started = time.perf_counter()
         sim.InitializeSimulation()
+        initialization_seconds["initialize_simulation"] = time.perf_counter() - phase_started
+        phase_started = time.perf_counter()
         report["orbit"] = _apply_orbital_initial_state(
             scene,
             native,
@@ -288,8 +322,16 @@ def run(args):
         qadr, dadr = [j.getQposAdr() for j in joints], [j.getQvelAdr() for j in joints]
         sim.ConfigureStopTime(0)
         sim.ExecuteSimulation()
+        initialization_seconds["apply_initial_state"] = time.perf_counter() - phase_started
+        report["initialization_wall_seconds"] = time.perf_counter() - initialization_started
+        report["initial_state"] = dict(qpos=stepper.qpos.tolist(), qvel=stepper.qvel.tolist())
+        print(json.dumps(dict(type="initialization_complete",
+                             seconds=report["initialization_wall_seconds"],
+                             phases=initialization_seconds,
+                             publication=report["publication_scene"])), flush=True)
         loop_started = time.perf_counter()
         event_count = 0
+        preroll_ns = capture_preroll_ns(args.warmup_sim_seconds)
         task_epoch_ns = None if capture else int(round(args.warmup_sim_seconds * 1e9))
         frame = 0
         trace_context = (output / "trace.jsonl").open("w", encoding="utf-8") if getattr(args, "save_trace", True) else nullcontext(None)
@@ -316,7 +358,7 @@ def run(args):
                 if (
                     capture
                     and task_epoch_ns is None
-                    and stamp >= int(round(args.warmup_sim_seconds * 1e9))
+                    and stamp >= preroll_ns
                     and not capture.enabled
                 ):
                     # Deterministic pre-roll: wall-clock UE startup must not change the initial physical state.
@@ -468,7 +510,7 @@ def run(args):
     return 0 if task.result == "success" else 1
 
 
-def main(default_task="drawer_lift"):
+def main(default_task="drawer_lift", argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
@@ -508,7 +550,7 @@ def main(default_task="drawer_lift"):
     parser.add_argument("--capture-render-port", type=int)
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--capture-stop-file", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.max_sim_seconds is None:
         args.max_sim_seconds = task_default_duration_s(args.task)
     try:

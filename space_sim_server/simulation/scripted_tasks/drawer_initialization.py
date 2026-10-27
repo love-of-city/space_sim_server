@@ -25,8 +25,8 @@ NOISE_DISABLED = {
 
 
 def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"):
-    if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 10:
-        raise ValueError("initialization range must be finite and in [0,10] degrees")
+    if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 50:
+        raise ValueError("initialization range must be finite and in [0,50] degrees")
     if not source.get("initialization_enabled", True):
         half_range_deg = 0.0
     scene = deepcopy(source)

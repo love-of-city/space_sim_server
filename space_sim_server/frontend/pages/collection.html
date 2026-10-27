@@ -10,11 +10,11 @@
     <label id="threaded-speed-field" class="field" hidden>螺丝任务速度<select id="threaded-speed-profile" name="threaded_speed_profile" disabled><option value="fast_collection" selected>快速采集</option><option value="default">原始速度</option></select><small>快速采集同步接近、转向与开爪，保留真实卡扣抓取、同轴旋拧和松爪换抓。</small></label>
     <div class="form-section">初始化与重试</div>
     <label class="randomization-toggle"><input id="overview-camera-randomization" type="checkbox" checked><span>全局相机随机初始化（5 个固定机位）</span></label>
-    <p class="muted">每条任务从卫星实体台面上方 30 cm 的 5 个安装机位中随机选择，视野 90°，整段保持固定；机位与安装点随记录保存。</p>
+    <p class="muted">每条任务从卫星实体底板任务板左侧等间距排列的 5 个安装机位中随机选择，高度 45 cm，视野 85°，配有随相机补光，整段保持固定；机位与安装点随记录保存。</p>
     <label class="randomization-toggle"><input id="layout-randomization" type="checkbox" disabled><span>操作台位置与朝向随机化</span></label>
     <p id="layout-description" class="muted">正在检查可用布局…</p>
     <label class="randomization-toggle"><input id="initialization-enabled" type="checkbox" checked><span>启用初始关节角随机化</span></label>
-    <div class="form-grid"><label class="field">关节初始偏移（±°）<input id="range-deg" name="range_deg" type="number" min="0" max="10" step="0.5" value="10" required><small>六个关节独立采样，并检查关节限制和碰撞。</small></label><label class="field">最多尝试次数<input name="max_attempts" type="number" min="1" max="1000" value="15" required><small>达到成功记录数或尝试上限即结束。</small></label></div>
+    <div class="form-grid"><label class="field">关节初始偏移（±°）<input id="range-deg" name="range_deg" type="number" min="0" max="50" step="0.5" value="10" required><small>支持 0–50°，默认 10°；六个关节独立采样，超限、初始碰撞或接近路径检查失败时拒绝该初态。</small></label><label class="field">最多尝试次数<input name="max_attempts" type="number" min="1" max="1000" value="15" required><small>达到成功记录数或尝试上限即结束。</small></label></div>
     <div class="form-section">噪声、扰动与环境随机化</div>
     <p class="muted">各项独立启用，默认关闭。参数为工程试验起点；较强扰动可能使任务失败，安全保护和成功判据始终依据真实状态。</p>
     <div id="randomization-options" class="randomization-options"></div>

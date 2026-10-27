@@ -218,6 +218,39 @@ def test_initialization_switch_also_applies_to_cli_source_scene():
     assert result["collection_config"]["initialization"]["half_range_deg"] == 0
 
 
+def test_color_prompt_is_concise_english_and_rebuilt_from_assignment():
+    value = prepare_episode(
+        {
+            "seed": 42,
+            "scripted_task_name": "aviation_plug_insert",
+            "target_site": "aviation_insert_40p5",
+            "collection_config": {
+                "task": "aviation_plug_insert",
+                "target_site": "aviation_insert_40p5",
+            },
+            "randomization": {"arm_joint_position_rad": [0.0] * 8},
+        }
+    )
+    colour = value["collection_config"]["color_randomization"]
+    source_key = colour["source_colors"]["aviation_plug"]
+    target_key = colour["hole_colors"]["aviation_insert_40p5"]
+    expected = (
+        f"Pick up the {colour['palette'][source_key]['color_name']} aviation plug, "
+        f"align it with the {colour['palette'][target_key]['color_name']} socket, "
+        "and insert it fully."
+    )
+    assert colour["prompt_instruction"] == expected
+    assert all(ord(char) < 128 for char in expected)
+    assert "aviation_insert_40p5" not in expected
+    assert "40.5" not in expected
+
+    # A stale prompt in a replayed assignment must not bring back the old
+    # Chinese/verbose wording after the template change.
+    value["collection_config"]["episode_color_assignment"]["prompt_instruction"] = "旧提示"
+    prepare_episode(value)
+    assert value["collection_config"]["color_randomization"]["prompt_instruction"] == expected
+
+
 def test_disabling_lighting_restores_original_base_intensity():
     value=scene(lighting={"enabled":True})
     assert value["environment"]["lighting"]["sunlight_intensity_scale"]!=1
@@ -245,3 +278,105 @@ def test_noisy_force_stream_retains_truth_without_changing_sensor_identity(tmp_p
     assert len(records)==5
     assert records[-1]["ground_truth_force_n"][0]==.04
     assert records[-1]["force_n"] != records[-1]["ground_truth_force_n"]
+
+
+@pytest.mark.parametrize("task,source,target,object_name,ending", [
+    ("aviation_plug_insert", "aviation_plug", "aviation_insert_40p5", "aviation plug", "insert it fully."),
+    ("guide_plug_insert", "guide_plug", "guide_insert_40p5", "guide plug", "insert it fully."),
+    ("cylindrical_plug_insert", "cylindrical_plug", "cylindrical_insert_40p5", "cylindrical plug", "insert it fully."),
+    ("plug_insert", "cylindrical_plug", "cylindrical_insert_40p5", "cylindrical plug", "insert it fully."),
+    ("aviation_plug_insert", "aviation_plug", "aviation_insert_40p1", "aviation plug", "insert it fully."),
+    ("aviation_bolt_insert", "bolt", "bolt_assembly_hole", "aviation bolt", "screw it in fully."),
+])
+def test_each_colour_instruction_uses_its_actual_source_and_target(task, source, target, object_name, ending):
+    value = prepare_episode({"seed": 4, "scripted_task_name": task, "target_site": target})
+    assignment = value["collection_config"]["episode_color_assignment"]
+    colour = value["collection_config"]["color_randomization"]
+    source_colour = assignment["source_colors"][source]
+    target_colour = assignment["hole_colors"][target]
+    if task == "aviation_bolt_insert":
+        expected = (
+            f"Unscrew the {source_colour} aviation bolt from its holder, "
+            f"then screw it fully into the {target_colour} hole."
+        )
+    else:
+        expected = (
+            f"Pick up the {source_colour} {object_name}, align it with the {target_colour} socket, and {ending}"
+        )
+    assert colour["prompt_instruction"] == expected
+    assert colour["prompt_instruction"].isascii()
+    assert colour["assignment_sha256"] == assignment["assignment_sha256"]
+
+
+def test_colour_instruction_rejects_another_plug_type_target():
+    with pytest.raises(ValueError, match="not this plug's assembly hole"):
+        prepare_episode({"seed": 4, "scripted_task_name": "aviation_plug_insert",
+                         "target_site": "guide_insert_40p5"})
+
+
+def test_bolt_colour_instruction_rejects_a_storage_or_plug_target():
+    for target in ("bolt_storage_hole", "aviation_insert_40p5"):
+        with pytest.raises(ValueError, match="not this bolt's assembly hole"):
+            prepare_episode({"seed": 4, "scripted_task_name": "aviation_bolt_insert", "target_site": target})
+
+
+@pytest.mark.parametrize("task", ["aviation_plug_insert", "guide_plug_insert",
+                                  "cylindrical_plug_insert", "plug_insert", "aviation_bolt_insert"])
+def test_colour_instruction_rejects_model_without_independent_hole_surfaces(tmp_path, task):
+    source = tmp_path / "monolithic.xml"
+    original = '<mujoco><asset/><worldbody><body name="asm_board1"><geom name="asm_board1_geom" type="box" size=".2 .2 .01"/></body></worldbody></mujoco>'
+    source.write_text(original)
+    value = prepare_episode({"seed": 4, "scripted_task_name": task})
+    output = tmp_path / "run" / "model.xml"
+    with pytest.raises(ValueError, match="require an independent task-box layout"):
+        write_model_variant(source, output, value)
+    assert not output.exists()
+    assert source.read_text() == original
+    assert "model_visual_randomization" not in value["collection_config"]
+
+
+def test_uncoloured_default_drawer_and_diagnostic_models_remain_supported(tmp_path):
+    source = tmp_path / "monolithic.xml"
+    source.write_text('<mujoco><asset/><worldbody/></mujoco>')
+    for task in (None, "drawer_lift", "drawer_cycle"):
+        value = prepare_episode({"seed": 4, "scripted_task_name": task})
+        colour = value["collection_config"].get("color_randomization", {})
+        assert "prompt_instruction" not in colour
+        assert write_model_variant(source, tmp_path / "variant.xml", value) == source.resolve()
+
+
+def test_colour_materialization_records_the_same_assignment_as_the_prompt(tmp_path):
+    from test_socket_colors import seven_hole_model, physical_xml
+
+    source = tmp_path / "independent.xml"
+    root = seven_hole_model()
+    ET.ElementTree(root).write(source)
+    original = source.read_bytes()
+    value = prepare_episode({"seed": 4, "scripted_task_name": "aviation_plug_insert"})
+    expected = deepcopy(value["collection_config"]["episode_color_assignment"])
+    output = write_model_variant(source, tmp_path / "run/model.xml", value)
+    result = ET.parse(output).getroot()
+    assert source.read_bytes() == original
+    assert physical_xml(result) == physical_xml(root)
+    config = value["collection_config"]
+    assert config["episode_color_assignment"] == expected
+    assert config["model_visual_randomization"]["assignment_sha256"] == expected["assignment_sha256"]
+    assert config["color_randomization"]["appearance_sha256"] == expected["assignment_sha256"]
+    assert config["color_randomization"]["applied_schema"] == "socket-color-identity/3"
+    for hole, colour in expected["hole_colors"].items():
+        assert result.find(f'.//body[@name="layout_{hole}"]/geom[@group="2"]').get("material") == "socket_identity_color_" + colour
+    for source_id, colour in expected["source_colors"].items():
+        assert result.find(f'.//body[@name="{source_id}"]/geom[@group="2"]').get("material") == "socket_identity_color_" + colour
+
+
+def test_episode_colour_streams_and_replay_do_not_change_when_other_options_change():
+    plain = prepare_episode({"seed": 77, "scripted_task_name": "guide_plug_insert"})
+    noisy = prepare_episode({"seed": 77, "scripted_task_name": "guide_plug_insert",
+                             "collection_randomization": {"lighting": {"enabled": True},
+                                                          "dynamics": {"enabled": True}}})
+    expected = deepcopy(plain["collection_config"]["episode_color_assignment"])
+    assert noisy["collection_config"]["episode_color_assignment"] == expected
+    plain["seed"] = 999
+    prepare_episode(plain)
+    assert plain["collection_config"]["episode_color_assignment"] == expected
+    assert plain["collection_config"]["realized_randomization"]["episode_color_assignment"] == expected

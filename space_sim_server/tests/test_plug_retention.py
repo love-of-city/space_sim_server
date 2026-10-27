@@ -92,6 +92,19 @@ def test_pair_conserves_force_and_angular_momentum_with_rotated_offset_coms():
     np.testing.assert_allclose(total_moment, 0, atol=1e-14)
 
 
+def test_com_wrenches_match_reference_cross_products_element_by_element():
+    rng = np.random.default_rng(20261027)
+    for _ in range(256):
+        force, torque, point, plug_com, base_com = rng.normal(size=(5, 3))
+        rotations = [axis_angle_to_matrix(rng.normal(size=3), rng.uniform(-math.pi, math.pi))
+                     for _ in range(2)]
+        expected = (force, rotations[0].T @ (torque + np.cross(point-plug_com, force)),
+                    -force, rotations[1].T @ (-torque + np.cross(point-base_com, -force)))
+        actual = paired_com_wrenches(force, torque, point, plug_com, base_com, *rotations)
+        for value, reference in zip(actual, expected, strict=True):
+            np.testing.assert_array_equal(value, reference)
+
+
 def test_production_socket_frames_read_existing_geometry_without_editing_it():
     import hashlib
     path = Path(__file__).resolve().parents[1]/"model/SARM/platform/sarm_20261012.xml"
@@ -185,6 +198,12 @@ def test_native_small_load_holds_large_load_releases_and_free_plug_keeps_driftin
         assert run(1.2, 0.) > distance > .008
         assert np.isfinite(core.qpos).all()
         np.testing.assert_array_equal(component.models["plug"].last_force_n, np.zeros(3))
+        # A released channel reports no friction force while the native core
+        # continues to expose the plug's actual outward velocity.
+        row = component.telemetry()["plug"]
+        assert row["friction_mode"] == "free"
+        assert row["axial_velocity_m_s"] > 0.
+        np.testing.assert_array_equal(row["force_inertial_n"], np.zeros(3))
     finally:
         core.close()
 

@@ -26,9 +26,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from simulation.independent_task_box_layout import (
     FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, TARGETS,
+    make_operational_clearance, validate_operational_placements,
     normalize_geometry_order, planar_transform, sample_placements, sample_pose_placements,
     validate_pose_placements,
 )
+from simulation.socket_colors import apply_socket_colors
 
 
 def vector(value, default="0 0 0"):
@@ -506,13 +508,8 @@ class Builder:
             self.bore_ownership[geom.get("name")] = key
         if len(self.bore_ownership) != 924:
             raise ValueError("Unexpected delivered precision bore count")
-        thread = self.body("asm_board1").find('geom[@name="board_thread_sdf"]')
-        self.body("asm_board1").remove(thread)
-        self.modules["bolt_assembly_hole"].append(thread)
-        storage_thread = self.body("asm_board1").find('geom[@name="bolt_storage_thread_sdf"]')
-        if storage_thread is not None:
-            self.body("asm_board1").remove(storage_thread)
-            self.modules["bolt_storage_hole"].append(storage_thread)
+        from tools.bolt_storage_thread import attach_bolt_thread_mounts
+        self.bolt_storage_thread = attach_bolt_thread_mounts(self.root, self.modules)
 
         self.base_mesh = self.asset_mesh("task_box_base_mesh")
         self.base_solid = solid(self.base_mesh)
@@ -557,7 +554,7 @@ class Builder:
         vertices["locking_mechanism"] = [mesh_of(self.supports).vertices]
         for name in ("hook", "limit_clip"):
             vertices["locking_mechanism"].extend(self.visible_vertices(self.body(name)))
-        for angle in np.linspace(-1.75, .15, 77):
+        for angle in np.linspace(-.75, .15, 37):
             for slide in (0., .054):
                 for spin in np.linspace(0, 2*np.pi, 9):
                     vertices["locking_mechanism"].extend(self.visible_vertices(self.body("locking_rod"),
@@ -691,15 +688,18 @@ class Builder:
                 raise ValueError("Explicit yaws require explicit XY placements")
             if rotated:
                 placements, yaws, restarts = sample_pose_placements(
-                    self.footprints, anchors, seed, self.obstacles, yaw_range_deg=yaw_range_deg)
+                    self.footprints, anchors, seed, self.obstacles, yaw_range_deg=yaw_range_deg,
+                    operational_clearance=True)
             else:
-                placements, restarts = sample_placements(self.footprints, seed, self.obstacles)
+                placements, restarts = sample_placements(self.footprints, seed, self.obstacles,
+                                                        operation_anchors=anchors)
         else:
             if yaw_range_deg != 0.:
                 raise ValueError("Use explicit --yaws with --placements, or sample both with --yaw-range-deg")
             restarts = 0
         yaws = dict.fromkeys(MODULES, 0.) if yaws is None else yaws
         rectangles = validate_pose_placements(self.footprints, placements, anchors, yaws, self.obstacles)
+        operation_boxes = validate_operational_placements(self.footprints, placements, anchors, yaws, self.obstacles)
         transforms = {name: planar_transform(anchors[name], placements[name], yaws[name]) for name in MODULES}
         record = dict(schema=POSE_SCHEMA if rotated else SCHEMA, seed=seed, source=str(self.source),
                       source_sha256=hashlib.sha256(self.source_bytes).hexdigest(),
@@ -707,12 +707,13 @@ class Builder:
                       offsets_body_xy_m=placements, original_footprints_body_xy_m=self.footprints,
                       placed_footprints_body_xy_m=rectangles, fixed_obstacles_body_xy_m=self.obstacles,
                       sampling_restarts=restarts, minimum_module_gap_m=.008, deck_edge_margin_m=.005,
+                      operational_clearance=make_operational_clearance(self.footprints, anchors, self.obstacles),
+                      placed_operation_envelopes_body_xy_m=operation_boxes,
                       target_mounts=self.target_mounts, pickup_mounts=self.pickup_mounts,
-                      mechanism_sweep_hinge_range_rad={"locking_rod_hinge": [-1.75, .15]},
                       inset_targets={key: value for key, value in self.inset_reports.items() if key in TARGETS},
                       inset_pickups={key: value for key, value in self.inset_reports.items() if key in PICKUPS},
                       scope="13 independent installation units; optional deck-normal yaw; original mechanism joint states",
-                      limits="Footprint clearance does not establish robot reachability or task success",
+                      limits="Tool-operation reservations do not establish full-arm reachability or dynamic task success; native trajectory acceptance remains required",
                       modules={name:dict(delta_body_m=[*placements[name], 0.],
                                         original_anchor_body_m=anchors[name],
                                         transform_body=transforms[name].tolist())
@@ -759,6 +760,8 @@ class Builder:
             if asset.get("name") not in used:
                 self.assets.remove(asset)
         self.root.set("model", self.root.get("model", "sarm")+"_independent_layout")
+        record["bolt_storage_thread"] = self.bolt_storage_thread
+        record["socket_color_identity"] = apply_socket_colors(self.root)
         normalize_geometry_order(self.root)
         ET.ElementTree(self.root).write(self.output, encoding="utf-8", xml_declaration=True)
         attitude = self.source.with_name("attitude_control.json")

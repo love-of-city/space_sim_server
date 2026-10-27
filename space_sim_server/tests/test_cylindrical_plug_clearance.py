@@ -35,8 +35,14 @@ def test_cylindrical_height_and_version_do_not_change_other_connectors_or_explic
     assert PlugInsertConfig(plug_body="guide_plug").grasp_offset_m == (0., 0., -.003)
     assert PlugInsertConfig(grasp_offset_m=(0., 0., .001)).grasp_offset_m == (0., 0., .001)
     version = PlugInsertTask.task_version("cylindrical_plug_insert")
-    assert version == PlugInsertTask.cylindrical_clearance_version
+    assert version == PlugInsertTask.integrated_cylindrical_version
     assert PlugInsertTask.recorded_stages(version) == PlugInsertTask.recorded_stages(PlugInsertTask.latch_version)
+    assert PlugInsertTask.recorded_stages(PlugInsertTask.cylindrical_clearance_version) == PlugInsertTask.recorded_stages(version)
+    assert PlugInsertTask.recorded_stages(PlugInsertTask.gentle_release_version) == PlugInsertTask.recorded_stages(version)
+    from simulation.scripted_tasks.drawer_initialization import randomized_scene
+    scene = randomized_scene({"randomization": {"arm_joint_position_rad": [0.] * 8}}, 42,
+                             task_name="cylindrical_plug_insert")
+    assert scene["collection_config"]["task_version"] == version
 
 
 def test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload():

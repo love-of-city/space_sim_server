@@ -46,13 +46,17 @@ class CollectionConfig(BaseModel):
     episodes_per_worker: int = Field(default=2, ge=1, le=1000)
     max_attempts_per_worker: int = Field(default=4, ge=1, le=1000)
     seed: int = Field(default=2026101900, ge=0)
-    range_deg: float = Field(default=10.0, ge=0, le=10)
+    range_deg: float = Field(default=10.0, ge=0, le=50, allow_inf_nan=False)
     randomize_orbit_phase: bool = False
     randomize_overview_camera: bool = False
     layout_pool: str | None = None
     port_base: int = Field(default=21000, ge=1024, le=65000)
     offline: bool = True
     reuse_renderer: bool = True
+    reuse_dynamics: bool = False
+    dynamics_max_episodes: int = Field(default=4, ge=1, le=1000)
+    dynamics_max_rss_mb: int = Field(default=8192, ge=1)
+    simulation_startup_timeout_seconds: float = Field(default=600.0, gt=0, le=7200)
     warmup_seconds: float = Field(default=5.0, ge=0, le=60)
     reuse_warmup_seconds: float = Field(default=5.0, ge=0, le=60)
     recording_config: str = "recording.json"
@@ -215,7 +219,8 @@ def run(args):
                        "--count", str(config.episodes_per_worker), "--max-attempts", str(config.max_attempts_per_worker),
                        "--seed", str(entry["seed"]), "--range-deg", str(config.range_deg),
                        "--gpu-index", str(resource.gpu_index), "--warmup-seconds", str(config.warmup_seconds),
-                       "--reuse-warmup-seconds", str(config.reuse_warmup_seconds)]
+                       "--reuse-warmup-seconds", str(config.reuse_warmup_seconds),
+                       "--simulation-startup-timeout-seconds", str(config.simulation_startup_timeout_seconds)]
             if layout_pool is not None:
                 command += ["--layout-pool", str(pool_snapshot)]
             for name, port in entry["ports"].items():
@@ -228,6 +233,9 @@ def run(args):
                 command.append("--offline")
             if config.reuse_renderer:
                 command.append("--reuse-renderer")
+            if config.reuse_dynamics:
+                command += ["--reuse-dynamics", "--dynamics-max-episodes", str(config.dynamics_max_episodes),
+                            "--dynamics-max-rss-mb", str(config.dynamics_max_rss_mb)]
             plan = dict(command=command, **resource.model_dump())
             atomic_json(directory / "plan.json", plan)
             log = (directory / "worker.log").open("w", encoding="utf-8")

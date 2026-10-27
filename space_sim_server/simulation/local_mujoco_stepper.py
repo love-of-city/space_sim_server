@@ -180,6 +180,8 @@ def _library():
                                           ctypes.c_double, ctypes.c_double, ctypes.c_double]
     lib.lms_set_axial_friction.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
     lib.lms_axial_friction_state.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
+    lib.lms_friction_diagnostics.argtypes = [ctypes.c_void_p, _INT64_P]
+    lib.lms_friction_copy_diagnostics.argtypes = [ctypes.c_void_p, _INT64_P]
     if lib.lms_abi() != 1 or lib.lms_header_version() != 3007000:
         raise RuntimeError("local MuJoCo stepper ABI/header mismatch; rebuild it")
     lib._lms_bound = True
@@ -895,7 +897,17 @@ class LocalMujocoStepper(sysModel.SysModel):
         return values.copy(), self.wrench_sample_time_ns, self.wrench_interval_end_ns
 
     def telemetry(self) -> dict[str, Any]:
+        friction_counts = np.zeros(4, dtype=np.int64)
+        self._check(self._lib.lms_friction_diagnostics(
+            self._handle, friction_counts.ctypes.data_as(_INT64_P)), "friction diagnostics")
+        copy_counts = np.zeros(2, dtype=np.int64)
+        self._check(self._lib.lms_friction_copy_diagnostics(
+            self._handle, copy_counts.ctypes.data_as(_INT64_P)), "friction copy diagnostics")
         return {"dynamics_backend": BACKEND_LOCAL, "integrator": "mujoco_implicitfast_fixed_step",
+                "friction_solver": dict(zip(
+                    ("prediction_steps", "accepted_steps_reused", "steps_without_retention", "precision_retries"),
+                    map(int, friction_counts), strict=True)) | {
+                        "full_data_copies": int(copy_counts[0]), "integration_state_restores": int(copy_counts[1])},
                 "substeps": self.substeps, "steps": self.step_count, "kinematics_publish_stride": self.publish_every,
                 "kinematics_publishes": self.kinematics_publish_count, "max_contacts": self.max_contacts,
                 "max_constraint_rows": self.max_constraint_rows,

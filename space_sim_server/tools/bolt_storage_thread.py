@@ -17,6 +17,52 @@ MALE_LENGTH_M = .060
 FEMALE_LENGTH_M = .020
 
 
+def attach_bolt_thread_mounts(root, modules):
+    """Keep both SDF liners on the independent bores moved by the builder."""
+    parents = {child: parent for parent in root.iter() for child in parent}
+    for geom_name, module_name in (('board_thread_sdf', 'bolt_assembly_hole'),
+                                   ('bolt_storage_thread_sdf', 'bolt_storage_hole')):
+        thread = root.find(f'.//geom[@name="{geom_name}"]')
+        if thread is not None and parents[thread] is not modules[module_name]:
+            parents[thread].remove(thread)
+            modules[module_name].append(thread)
+    return ensure_bolt_storage_thread(root)
+
+
+def ensure_bolt_storage_thread(root):
+    """Give every full-platform task the same physical storage thread.
+
+    Reduced models without the delivered male SDF are outside this migration.
+    An existing liner must belong to its bore's installation unit, so a stale
+    randomized layout cannot silently leave the thread at the original hole.
+    """
+    male = root.find('.//body[@name="bolt"]/geom[@name="bolt_thread_sdf"]')
+    if male is None:
+        return None
+    storage = root.find('.//geom[@name="bolt_storage_thread_sdf"]')
+    if storage is None:
+        if root.find('./contact/pair[@name="physical_bolt_storage_thread"]') is not None:
+            raise ValueError('Bolt storage contact pair references a missing female thread')
+        return dict(status='installed', **apply_bolt_storage_thread(root))
+    site = root.find('.//site[@name="bolt_storage_hole"]')
+    parents = {child: parent for parent in root.iter() for child in parent}
+    if site is None or parents[storage] is not parents[site]:
+        raise ValueError('Bolt storage thread must move with its installation bore; regenerate the layout')
+    pairs = root.findall('./contact/pair[@name="physical_bolt_storage_thread"]')
+    if (len(pairs) != 1 or pairs[0].get('geom1') != 'bolt_thread_sdf'
+            or pairs[0].get('geom2') != 'bolt_storage_thread_sdf'):
+        raise ValueError('Bolt storage thread is missing its physical contact pair')
+    target = root.find('.//geom[@name="board_thread_sdf"]')
+    if (target is None or storage.get('type') != 'sdf'
+            or storage.get('mesh') != target.get('mesh')
+            or storage.find('plugin') is None or target.find('plugin') is None
+            or storage.find('plugin').attrib != target.find('plugin').attrib):
+        raise ValueError('Bolt storage thread does not use the delivered female SDF')
+    return dict(status='present', model='sdf_contact', male_geom=male.get('name'),
+                female_geom=storage.get('name'), site=site.get('name'),
+                contact_pair=pairs[0].get('name'), runtime_state_writes=False)
+
+
 def apply_bolt_storage_thread(root):
     """Install one SDF contact pair; do not add joints or change initial state."""
     if root.find('.//geom[@name="bolt_storage_thread_sdf"]') is not None:

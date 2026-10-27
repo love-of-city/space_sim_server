@@ -22,7 +22,8 @@ def test_default_validation_scene_uses_official_fixed_template(tmp_path):
     assert prepare.validation_scene(scene, copied, 7).read_bytes() == scene.read_bytes()
 
 
-def test_rejected_native_run_never_imports_ue_assets_or_publishes_pool(tmp_path, monkeypatch):
+@pytest.mark.parametrize("shipped_assets", [False, True])
+def test_rejected_native_run_never_imports_ue_assets_or_publishes_pool(tmp_path, monkeypatch, shipped_assets):
     calls = []
     monkeypatch.setattr(prepare, "pool_entry", lambda *_: {})
     monkeypatch.setattr(prepare, "ManagerLease", lambda *_: SimpleNamespace(close=lambda: None))
@@ -52,13 +53,20 @@ def test_rejected_native_run_never_imports_ue_assets_or_publishes_pool(tmp_path,
 
     monkeypatch.setattr(prepare, "bind_trajectory_acceptance", reject)
     output = tmp_path / "pool"
+    prepared = []
+    def base_catalog(path, **kwargs):
+        prepared.append((path, kwargs["adapter"]))
+        path.write_text('{}')
+        return path
+    monkeypatch.setattr("simulation.collection_assets.prepare_base_catalog", base_catalog)
     args = SimpleNamespace(count=1, existing=[("old-model", "old-catalog", "old-native")], seed=7,
                            yaw_range_deg=0., geometry_python=Path("/test/python"), output=output,
                            source=tmp_path / "source.xml", adapter=tmp_path / "adapter",
-                           unreal=tmp_path / "ue", base_catalog=tmp_path / "base.json", validation_scene=None)
+                           unreal=tmp_path / "ue", base_catalog=None if shipped_assets else tmp_path / "base.json", validation_scene=None)
     with pytest.raises(ValueError, match="rejected before UE import"):
         prepare.prepare(args)
     assert not (output / "pool.json").exists()
+    assert prepared == ([(output / "base.catalog.json", args.adapter)] if shipped_assets else [])
     rejection = json.loads((output / "rejection.json").read_text())
     assert rejection["status"] == "rejected" and rejection["pool_published"] is False
     assert set(rejection["tasks"]) == set(TASKS)

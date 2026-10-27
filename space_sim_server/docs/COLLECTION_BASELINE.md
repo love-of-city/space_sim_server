@@ -2,6 +2,8 @@
 
 本次采集功能整理以 `zmh_linux@5bd9a87` 为基础，合并此前本地功能，并更新简洁英文任务指令。同步时须同时核对工作区改动、未跟踪模块/测试及本地 UE 资产，不能只检查函数定义是否存在。实验数据、视频、日志及临时生成的 UE 资产不纳入源码提交。
 
+随机布局运行依赖补交：通用部件的 UE 资产通过 Git LFS 同步，`config/collection-base-assets.json` 使用仓库相对路径与资源 SHA。布局准备和独立布局导入工具默认解析该清单，不再要求本机历史 `Saved/AssetImport` catalog。每套随机布局的七孔独立表面、配套底板和碰撞几何继续现场生成并校验；不交付固定布局代替随机能力，也不把历史池标为重新认证。通用运行资源属于代码配套依赖，区别于每次实验的临时资产。
+
 2026-10-27 最新独立实采：抽屉、航空/导向/圆柱插头、锁杆共五种任务成功且通过数据校验；航空螺丝在接近阶段发生夹爪连杆/手指与邻近锁杆紧固件接触，120秒阶段超时，尚未开始旋拧。相同场景的12秒只读原生复现与原录像600个共同时间戳的关节真值完全一致。此问题尚未修复，不得声明六任务已全部通过。锁杆重新接近时全局视角仍有局部遮挡，黑色航空插头在黑色背景中辨识度有限；未执行本轮全过程400 Hz接触验收，动作成功不代表训练数据已全部合格。
 
 新生成记录的指令使用简洁英文：抽屉“Open the drawer approximately 8 cm, then close it fully and release it.”；锁杆“Loosen the locking rod's fastener, fold the rod into its clip, then raise it and tighten the fastener.”；航空螺丝“Unscrew the <source color> aviation bolt from its holder, then screw it fully into the <target color> hole.”。三类插头沿用原简洁英文颜色指令，具体孔身份和成功判据仍由控制器和metadata保存。历史实验保留原始instruction，不回写为新模板。

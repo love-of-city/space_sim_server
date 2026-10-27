@@ -6,6 +6,14 @@
 
 ## 先准备布局池
 
+仓库提供通用部件的 UE 资产及可移植清单 `config/collection-base-assets.json`，通过 Git LFS 获取：
+
+```bash
+git lfs pull
+```
+
+这份清单不包含任何固定随机布局。默认准备工具先检查通用网格、UE 资产的 SHA，再按当前检出目录生成本机 catalog；不再依赖另一台机器的绝对路径或 `Saved/AssetImport` 缓存。缺失 LFS 文件、仅下载到指针或资产不匹配时会在布局生成前报错。自定义资产仍可显式传入 `--base-catalog`。
+
 移动固定安装件需要同步重建底板开口、碰撞几何和 UE 资产，因此在开始并发采集前串行准备，采集进程仅只读使用。下面生成 10 个布局（耗时较长），输出必须是新的、位于仓库外的目录：
 
 ```bash
@@ -13,11 +21,12 @@ SIM_PY tools/prepare_collection_layout_pool.py \
   --geometry-python GEOMETRY_PY \
   --count 10 --seed 2026102300 --yaw-range-deg 180 \
   --adapter /path/to/ue_adapter --unreal /path/to/UE_5.6 \
-  --base-catalog /path/to/sarm_20261012.catalog.json \
   --output /path/to/data/layout-pools/pool-001
 ```
 
 `SIM_PY` 为安装 Basilisk 的仿真 Python；`GEOMETRY_PY` 为安装 numpy、trimesh、manifold3d、coacd、scipy、MuJoCo 的独立几何 Python。禁止把普通 Python MuJoCo 导入实时 Basilisk 进程。朝向范围为 `±yaw-range-deg`，`0` 保持原朝向。
+
+每套布局都会重新生成七个目标孔的独立可着色表面、取件座和带匹配开孔的底板，另行导入 12 个视觉网格到独立 UE 命名空间。颜色按孔身份绑定，位置或朝向随机化不会改变颜色与孔的对应关系。布局准备完成后，每条数据从池中随机选布局，再独立随机分配七色；不在每条录制时重新切割底板。增加布局多样性时换 seed/count 生成新池即可，不能拿一套固定底板资产冒充所有布局。
 
 已有布局可重复指定 `--existing MODEL CATALOG NATIVE_REPORT` 注册，亦可与生成新布局组合。池至少需要两个不同模型。准备工具逐套执行布局生成、原生几何校验、底板/孔套几何校验、独立 UE 资产导入；全部通过后才发布 `pool.json`。失败时保留日志且不发布半成品池。UE 导入使用新命名空间并对同一项目加锁。
 

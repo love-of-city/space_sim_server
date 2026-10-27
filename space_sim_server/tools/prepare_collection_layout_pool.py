@@ -54,6 +54,10 @@ def prepare(args):
         raise ValueError("Generated layouts require --geometry-python")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    base_catalog = getattr(args, "base_catalog", None)
+    if args.count and base_catalog is None:
+        from simulation.collection_assets import prepare_base_catalog
+        base_catalog = prepare_base_catalog(output / "base.catalog.json", adapter=args.adapter)
     entries = [pool_entry(f"existing-{i:03d}", *paths) for i, paths in enumerate(args.existing)]
     scene = validation_scene(getattr(args, "validation_scene", None), output, args.seed) if args.count else None
     # A project can be shared by multiple workers, but only one preparation
@@ -118,7 +122,7 @@ def prepare(args):
                     path.write_text(json.dumps(rejection, ensure_ascii=False, indent=2)+"\n")
                 raise ValueError(f"Layout rejected before UE import; no pool published: {error}") from error
             run([sys.executable, str(ROOT / "tools/prepare_independent_layout_catalog.py"),
-                 "--layout", str(model), "--base-catalog", str(args.base_catalog.resolve()),
+                 "--layout", str(model), "--base-catalog", str(base_catalog.resolve()),
                  "--adapter", str(args.adapter.resolve()), "--unreal", str(args.unreal.resolve()),
                  "--output", str(directory / "ue-assets"),
                  "--destination", "/Game/BSK/Generated/Collection_" + uuid.uuid4().hex], directory, "ue")
@@ -156,5 +160,6 @@ if __name__ == "__main__":
                         help="Optional independent yaw range in degrees; default 0 varies XY positions only")
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--unreal", type=Path, required=True)
-    parser.add_argument("--base-catalog", type=Path, required=True)
+    parser.add_argument("--base-catalog", type=Path,
+                        help="Optional custom common-asset catalog; default validates and resolves shipped Git LFS assets")
     prepare(parser.parse_args())

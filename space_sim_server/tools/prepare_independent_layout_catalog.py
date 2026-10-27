@@ -37,6 +37,10 @@ def prepare(args):
         raise ValueError("Destination already exists; select a fresh layout namespace")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    base_catalog = getattr(args, "base_catalog", None)
+    if base_catalog is None:
+        from simulation.collection_assets import prepare_base_catalog
+        base_catalog = prepare_base_catalog(output / "base.catalog.json", adapter=args.adapter)
     root = ET.Element("mujoco", model="independent_layout_visuals")
     asset, body = ET.SubElement(root, "asset"), ET.SubElement(ET.SubElement(root, "worldbody"), "body")
     for visual in manifest["generated_visuals"]:
@@ -88,7 +92,7 @@ def prepare(args):
     run([*common, "-ExecutePythonScript="+str(wrapper)], "configure", configured_env)
     if not acknowledgement.is_file() or json.loads(acknowledgement.read_text())["configured"] != 12:
         raise RuntimeError(f"UE configuration did not acknowledge 12 assets; see {output/'configure.log'}")
-    merged = json.loads(args.base_catalog.read_text())
+    merged = json.loads(base_catalog.read_text())
     if len(generated["assets"]) != 12:
         raise ValueError("Generated catalog does not contain all 12 visual meshes")
     merged["assets"].update(generated["assets"])
@@ -102,7 +106,8 @@ def prepare(args):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--layout", type=Path, required=True)
-    p.add_argument("--base-catalog", type=Path, required=True)
+    p.add_argument("--base-catalog", type=Path,
+                   help="Optional custom common-asset catalog; default uses shipped Git LFS assets")
     p.add_argument("--adapter", type=Path, required=True)
     p.add_argument("--unreal", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)

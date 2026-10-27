@@ -58,6 +58,7 @@ struct Api {
     void (*step1)(const mjModel*, mjData*);
     void (*step2)(const mjModel*, mjData*);
     void (*kinematics)(const mjModel*, mjData*);
+    void (*comVel)(const mjModel*, mjData*);
     void (*comPos)(const mjModel*, mjData*);
     void (*contactForce)(const mjModel*, const mjData*, int, mjtNum*);
     void (*objectVelocity)(const mjModel*, const mjData*, int, int, mjtNum*, int);
@@ -167,6 +168,7 @@ API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, 
               resolve(module, "mj_forward", a.forward) && resolve(module, "mj_step", a.step) &&
               resolve(module, "mj_step1", a.step1) && resolve(module, "mj_step2", a.step2) &&
               resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
+              resolve(module, "mj_comVel", a.comVel) &&
               resolve(module, "mj_name2id", a.name2id) &&
               resolve(module, "mj_id2name", a.id2name) &&
               resolve(module, "mj_contactForce", a.contactForce) &&
@@ -424,6 +426,43 @@ API int lms_body_coms(void* handle, double* positions, double* masses) {
     s->api.comPos(s->m, s->d);
     std::memcpy(positions, s->d->xipos, 3 * s->m->nbody * sizeof(double));
     std::memcpy(masses, s->m->body_mass, s->m->nbody * sizeof(double));
+    return OK;
+}
+
+// Read-only independent scoring: cvel is expressed at the root subtree COM.
+API int lms_body_com_velocities(void* handle, double* velocities) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !velocities) return ERR_ARGUMENT;
+    s->api.comVel(s->m, s->d);
+    for (int b = 0; b < s->m->nbody; ++b) {
+        const int root = s->m->body_rootid[b];
+        const mjtNum* cv = s->d->cvel + 6*b;
+        const mjtNum* pos = s->d->xipos + 3*b;
+        const mjtNum* origin = s->d->subtree_com + 3*root;
+        const double x = pos[0]-origin[0], y = pos[1]-origin[1], z = pos[2]-origin[2];
+        velocities[3*b] = cv[3]+cv[1]*z-cv[2]*y;
+        velocities[3*b+1] = cv[4]+cv[2]*x-cv[0]*z;
+        velocities[3*b+2] = cv[5]+cv[0]*y-cv[1]*x;
+    }
+    return OK;
+}
+
+// Independent score tensors in local-world axes, using authoritative ximat.
+// Call after lms_body_coms refreshed kinematics. No mass or state is modified.
+API int lms_body_inertias(void* handle, double* tensors) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !tensors) return ERR_ARGUMENT;
+    for (int b = 0; b < s->m->nbody; ++b) {
+        const mjtNum* r = s->d->ximat + 9*b;
+        const mjtNum* inertia = s->m->body_inertia + 3*b;
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                tensors[9*b+3*i+j] = 0;
+                for (int k = 0; k < 3; ++k)
+                    tensors[9*b+3*i+j] += r[3*i+k]*inertia[k]*r[3*j+k];
+            }
+        }
+    }
     return OK;
 }
 

@@ -30,6 +30,47 @@ def rate(epoch, value=(0, 0, 0), valid=True):
                 valid=valid, saturated_axes=[not valid, False, False])
 
 
+def test_session_handoff_consumes_only_exact_inherited_old_image_and_keeps_posterior():
+    continuous = navigation(vision_identity=('m', 's', 'c'))
+    continuous.advance(200_000_000)
+    packet = image(100_000_000)
+    resumed = navigation(vision_identity=('m', 's', 'c'))
+    resumed.restore(continuous.snapshot())
+    resumed.bind_vision_session('m', 'new', 'c', pending_visual_results=[packet])
+    changed = copy.deepcopy(packet)
+    changed['source_frame_id'] = 'unlisted'
+    assert not resumed.visual(changed)
+    # A restart before delivery must retain the explicit packet authorization.
+    second = navigation(vision_identity=('m', 'new', 'c'))
+    second.restore(resumed.snapshot())
+    assert continuous.visual(packet) and second.visual(packet)
+    for key in ('p', 'v', 'r', 'b', 'covariance'):
+        np.testing.assert_array_equal(continuous.state[key], second.state[key])
+    assert not second.visual(packet)
+    assert not second.handoff_visual_packets
+    gate = VisualReadiness('m', 'new', 'c')
+    assert not gate.observe(packet, 200_000_000, accepted=True,
+        relative_position_covariance=np.eye(3)*1e-6,
+        relative_attitude_covariance=np.eye(3)*1e-6)
+    assert gate.count == 0  # Old-session corrections do not count for new readiness.
+
+
+def test_fresh_gyro_and_com_gnss_do_not_create_attitude_information():
+    prior = np.diag(([.002**2]*6+[np.deg2rad(.05)**2]*3+[1e-5**2]*3)*2)
+    nav = PoseNavigation(np.zeros((2, 3)), np.zeros((2, 3)), [np.eye(3)]*2, prior)
+    for tick in range(501):
+        now = tick*20_000_000
+        nav.advance(now)
+        for body in (0, 1):
+            assert nav.gyro(body, rate(now))
+        assert all(nav.gyro_health(now))
+        if tick % 5 == 0:
+            before = nav.relative_covariances()[1].copy()
+            assert nav.gnss(np.zeros((2, 6)), np.eye(12)*.002**2, now, tick)
+            np.testing.assert_array_equal(before, nav.relative_covariances()[1])
+    assert np.linalg.eigvalsh(nav.relative_covariances()[1])[0] > 2*np.deg2rad(.05)**2
+
+
 def test_process_covariance_matches_constant_rate_transition_and_independent_noise():
     dt = .01
     rng = np.random.default_rng(31)
@@ -220,36 +261,24 @@ def live_image(epoch, wall_source):
     return image(epoch, capture_timing={eye: dict(source_wall_time_ns=str(wall_source)) for eye in ('left', 'right')})
 
 
-def test_live_pose_age_cannot_be_hidden_by_slow_physical_time():
+def test_wall_latency_does_not_change_navigation_or_readiness():
     nav = navigation()
     nav.advance(100_000_000)
-    assert not nav.visual(live_image(0, 1_000_000_000), received_wall_time_ns=1_360_000_000)
-    assert not nav.events
-    assert not nav.visual(image(0), received_wall_time_ns=1_200_000_000)  # missing live clock contract
-
-
-def test_actual_sampling_interval_cannot_be_hidden_by_slow_physical_time():
-    gate = VisualReadiness('m', 's', 'c')
-    for n in range(12):
-        source = 1_000_000_000+n*200_000_000  # real updates are only 5 Hz
-        assert not gate.observe(live_image(n*100_000_000, source), n*100_000_000+10_000_000,
-            accepted=True, received_wall_time_ns=source+10_000_000,
-            relative_position_covariance=np.eye(3)*.01**2,
-            relative_attitude_covariance=np.eye(3)*np.deg2rad(.1)**2)
-    assert gate.count == 1
-
-
-@pytest.mark.parametrize('elapsed', [160_000_000, 360_000_000])
-def test_live_ready_revokes_when_wall_updates_stop_despite_short_physical_interval(elapsed):
+    assert nav.visual(live_image(0, 1_000_000_000), received_wall_time_ns=9_000_000_000)
     gate = VisualReadiness('m', 's', 'c')
     for n in range(10):
-        ready = gate.observe(live_image(n*100_000_000, 1_000_000_000+n*100_000_000), n*100_000_000,
-            accepted=True, received_wall_time_ns=1_010_000_000+n*100_000_000,
+        source = 1_000_000_000+n*800_000_000
+        ready = gate.observe(live_image(n*100_000_000, source), n*100_000_000+200_000_000,
+            accepted=True, received_wall_time_ns=source+700_000_000,
             relative_position_covariance=np.eye(3)*.01**2,
             relative_attitude_covariance=np.eye(3)*np.deg2rad(.1)**2)
-    assert ready
-    assert not gate.tick(910_000_000, 1_910_000_000+elapsed)
-    assert gate.count == 0
+        assert ready == (n == 9)
+    assert gate.tick(1_110_000_000, 90_000_000_000)
+    before = copy.deepcopy(gate.__dict__)
+    status = gate.status(9_000_000_000, 99_000_000_000)
+    assert status['ready'] and status['wall_pipeline_age_s'] > .35
+    assert gate.__dict__ == before
+    assert not gate.tick(1_250_000_001)
 
 
 @pytest.mark.parametrize('fault', ['duplicate', 'disorder', 'age', 'gap', 'rejected', 'ambiguity', 'identity', 'quality'])
@@ -344,7 +373,7 @@ def test_platform_release_requires_distinct_epochs_and_revokes_on_quality_loss()
     from simulation.capture26_approach import Capture26Approach
     from pathlib import Path
     vision = load_vision(Path(__file__).resolve().parents[1])
-    config = Capture26Mission(vision_nodes_validated=True)
+    config = Capture26Mission(vision_nodes_validated=True, terminal_depth_m=.75)
     planner = Capture26Approach(np.zeros(3), np.zeros(3), vision, config=config)
     # Isolate the terminal dwell from the preceding independently tested nodes.
     planner.node, planner.depth = 4, config.terminal_depth_m

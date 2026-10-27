@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import lru_cache
+import hashlib
+import json
 import math
 
 import numpy as np
@@ -97,6 +99,8 @@ class PoseNavigation:
         self.state = dict(time_ns=int(time_ns), p=p.copy(), v=v.copy(), r=r,
                           b=np.zeros((2, 3)), covariance=covariance(initial_covariance, 24).copy(),
                           rates=np.zeros((2, 3)), acceleration=np.zeros((2, 3)),
+                          camera_com_offset=self.camera_com_offset.copy(), target_com=self.target_com.copy(),
+                          com_velocity_body=np.zeros((2, 3)),
                           gyro_time=[None, None], gyro_valid=[False, False])
         self.base = _copy_state(self.state)
         self.base_committed = False
@@ -106,17 +110,18 @@ class PoseNavigation:
         self.last_reason = 'initial prior'
         self.vision_identity = tuple(vision_identity) if vision_identity is not None else None
         self.last_visual_epoch = None
+        self.handoff_visual_packets = set()
 
     @property
     def time_ns(self):
         return self.state['time_ns']
 
-    def bind_vision_session(self, mission_id, session_id, calibration_id):
+    def bind_vision_session(self, mission_id, session_id, calibration_id, *, pending_visual_results=()):
         """Rotate the image stream after restoring a continuous mission.
 
         Keep the posterior and delayed history, including old image corrections.
-        Only future ingress switches identity; late packets from the retired
-        renderer must not alter the restored state. Changing calibration or
+        Only explicitly inherited in-flight packets retain the retired identity.
+        Other late packets from the retired renderer are rejected. Changing calibration or
         mission requires constructing a new estimator with an explicit prior.
         """
         identity = (mission_id, session_id, calibration_id)
@@ -124,7 +129,19 @@ class PoseNavigation:
             raise ValueError('nonempty vision mission/session/calibration required')
         if self.vision_identity is not None and (identity[0], identity[2]) != (self.vision_identity[0], self.vision_identity[2]):
             raise ValueError('vision mission or calibration changed across handoff')
+        inherited = set()
+        for packet in pending_visual_results:
+            packet_identity = tuple(packet.get(k) for k in ('mission_id', 'session_id', 'calibration_id'))
+            if (packet_identity != self.vision_identity
+                    or not 0 <= int(packet['sim_time_ns']) <= self.time_ns):
+                raise ValueError('inherited image identity or exposure changed')
+            inherited.add(self.visual_packet_digest(packet))
+        self.handoff_visual_packets.update(inherited)
         self.vision_identity = identity
+
+    @staticmethod
+    def visual_packet_digest(packet):
+        return hashlib.sha256(json.dumps(packet, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
     def _propagate(self, state, now_ns):
         remaining = (now_ns-state['time_ns'])*1e-9
@@ -160,6 +177,8 @@ class PoseNavigation:
                 rate_sigma = self.gyro_white_sigma if fresh else .5
                 q[j+6:j+9, j+6:j+9] = _I3*rate_sigma**2*.02*dt
             state['covariance'] = f@state['covariance']@f.T+q
+            state['camera_com_offset'] -= state['com_velocity_body'][0]*dt
+            state['target_com'] += state['com_velocity_body'][1]*dt
             state['time_ns'] += int(round(dt*1e9))
             remaining = (now_ns-state['time_ns'])*1e-9
         state['time_ns'] = int(now_ns)
@@ -192,9 +211,9 @@ class PoseNavigation:
         state = self.state if state is None else state
         service, target = state['r']
         to_camera = self.camera_rotation.T@service.T
-        offset = target@self.target_com
+        offset = target@state['target_com']
         dp = state['p'][1]-state['p'][0]
-        t = to_camera@(dp-offset)-self.camera_rotation.T@self.camera_com_offset
+        t = to_camera@(dp-offset)-self.camera_rotation.T@state['camera_com_offset']
         r = to_camera@target
         h = np.zeros((6, 24))
         h[:3, :3], h[:3, 12:15] = -to_camera, to_camera
@@ -205,6 +224,10 @@ class PoseNavigation:
 
     def _apply(self, state, event):
         kind, data = event['kind'], event['data']
+        if kind == 'geometry':
+            for key in ('camera_com_offset', 'target_com', 'com_velocity_body'):
+                state[key] = np.array(data[key])
+            return True
         if kind == 'gyro':
             body = data['body']
             state['gyro_time'][body] = event['time_ns']
@@ -296,16 +319,31 @@ class PoseNavigation:
         return self._insert(dict(id='gnss/'+str(packet_id), kind='gnss', priority=2, time_ns=int(exposure_ns),
                                  data=dict(measurement=z.tolist(), covariance=c.tolist())))
 
+    def encoder_geometry(self, now_ns, camera_com_offset, target_com, com_velocity_body):
+        data = {}
+        for key, value, shape in (('camera_com_offset', camera_com_offset, (3,)),
+                                  ('target_com', target_com, (3,)), ('com_velocity_body', com_velocity_body, (2, 3))):
+            a = np.asarray(value, float)
+            if a.shape != shape or not np.isfinite(a).all():
+                raise ValueError('invalid encoder geometry')
+            data[key] = a.tolist()
+        return self._insert(dict(id=f'geometry/{now_ns}', kind='geometry', priority=-1,
+                                 time_ns=int(now_ns), data=data))
+
     def visual(self, result, *, received_wall_time_ns=None):
         if result.get('status') != 'ok' or result.get('ambiguous', True):
             self.last_reason = result.get('reason', 'invalid image solution')
             return False
+
         try:
             identity = tuple(result[k] for k in ('mission_id', 'session_id', 'calibration_id'))
             if any(not isinstance(k, str) or not k for k in identity):
                 raise ValueError('missing visual identity')
             if self.vision_identity is not None and identity != self.vision_identity:
-                raise ValueError('visual task/session/calibration mismatch')
+                digest = self.visual_packet_digest(result)
+                if digest not in self.handoff_visual_packets:
+                    raise ValueError('visual task/session/calibration mismatch')
+                self.handoff_visual_packets.remove(digest)
             epoch, age, _, _ = image_clock(result, self.time_ns, received_wall_time_ns)
             if age > 350_000_000:
                 raise ValueError('visual exposure outside freshness interval')
@@ -354,7 +392,8 @@ class PoseNavigation:
         return dict(schema='space-sim-pose-navigation/1', state=encode(self.state), base=encode(self.base), base_committed=self.base_committed,
                     events=deepcopy(self.events), snapshots=[encode(s) for s in self.snapshots],
                     accepted=deepcopy(self.accepted), configuration=self.configuration(),
-                    last_visual_epoch=self.last_visual_epoch)
+                    last_visual_epoch=self.last_visual_epoch,
+                    handoff_visual_packets=sorted(self.handoff_visual_packets))
 
     def configuration(self):
         return dict(camera_rotation=self.camera_rotation.tolist(), camera_com_offset=self.camera_com_offset.tolist(),
@@ -368,9 +407,9 @@ class PoseNavigation:
         def decode(s):
             out = deepcopy(s)
             shapes = dict(p=(2, 3), v=(2, 3), r=(2, 3, 3), b=(2, 3), covariance=(24, 24),
-                          rates=(2, 3), acceleration=(2, 3))
+                          rates=(2, 3), acceleration=(2, 3), camera_com_offset=(3,), target_com=(3,), com_velocity_body=(2, 3))
             for key, shape in shapes.items():
-                out[key] = np.array(s[key], float)
+                out[key] = np.array(s.get(key, self.state.get(key)), float)
                 if out[key].shape != shape or not np.isfinite(out[key]).all():
                     raise ValueError('invalid navigation restart state')
             if type(out['time_ns']) is not int or out['time_ns'] < 0:
@@ -400,3 +439,8 @@ class PoseNavigation:
         self.base_committed = bool(document['base_committed'])
         self._seen, self.accepted = {e['id'] for e in events}, deepcopy(document['accepted'])
         self.last_visual_epoch = last_visual
+        digests = document.get('handoff_visual_packets', [])
+        if (not isinstance(digests, list) or any(not isinstance(d, str) or len(d) != 64
+                or any(c not in '0123456789abcdef' for c in d) for d in digests)):
+            raise ValueError('invalid inherited image packet binding')
+        self.handoff_visual_packets = set(digests)

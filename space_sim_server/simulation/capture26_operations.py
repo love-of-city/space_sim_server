@@ -93,6 +93,8 @@ class OperationsControlBridge:
             capture26_navigation=dict(phase=guidance['phase'], reason=guidance['reason'],
                 gyro_health=nav.gyro_health(now), visual=gate.status(now, time.time_ns()),
                 gnss_healthy=guidance.get('gnss_healthy', False),
+                platform_stable_duration_s=guidance.get('platform_stable_duration_s', 0.),
+                platform_stable=guidance.get('platform_stable', False), released=guidance.get('released', False),
                 processing_real_time_factor=capacity, estimated_com_position_n_m=nav.state['p'].tolist(),
                 estimated_rotation_n_from_body=nav.state['r'].tolist()),
             rendezvous_handoff=dict(source_run_id=self.args.scene_instance.get('mission', {}).get('source_run_id'),

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from space_arm_platform.rendezvous_config import FlightOptions
 from space_arm_platform.near_field_config import NearFieldOptions
-from simulation.capture26_mission import Capture26Mission, MODEL_ID
+from simulation.capture26_mission import load_mission, MODEL_ID
 from simulation.capture26_handoff import load
 from simulation.orbital_rendezvous.reference import FlightProfile
 
@@ -31,9 +31,19 @@ def main():
     p.add_argument('--simulation-rate', type=float, default=1.,
                    help='wall-clock pacing multiplier; not a mission acceptance requirement')
     p.add_argument('--duration', type=float, help='diagnostic early stop; cannot pass an unfinished stage')
+    p.add_argument('--fault', choices=('', 'image_loss', 'worker_exit', 'gnss_loss', 'communication_loss',
+        'service_gyro_loss', 'target_gyro_loss', 'gyro_saturation'), default='')
+    p.add_argument('--fault-after', type=float, default=2.)
+    p.add_argument('--fault-duration', type=float)
+    p.add_argument('--fault-after-release', action='store_true')
+    p.add_argument('--post-release-duration', type=float, default=0., help='continue actual control for fault/recovery acceptance')
     cli = p.parse_args()
     if not math.isfinite(cli.simulation_rate) or not 0 < cli.simulation_rate <= 100:
         p.error('simulation-rate must be finite and in (0, 100]')
+    if (not math.isfinite(cli.post_release_duration) or cli.post_release_duration < 0
+            or not math.isfinite(cli.fault_after) or cli.fault_after < 0
+            or cli.fault_duration is not None and (not math.isfinite(cli.fault_duration) or cli.fault_duration <= 0)):
+        p.error('invalid fault or continuation duration')
     options = json.loads(cli.config.read_text('utf-8-sig'))
     incoming = None
     if cli.scenario == 'near-field':
@@ -64,9 +74,11 @@ def main():
         ue=cli.live, catalog=cli.catalog, render_port=cli.render_port, render_rate=10,
         capture_port=cli.capture_port, realtime=True, profile=False, save_all_images=False,
         simulation_rate=cli.simulation_rate,
-        pointing_error_deg=[0., 0., 0.], approach=False, fault='', fault_after=2., fault_after_ready=False,
+        pointing_error_deg=[0., 0., 0.], approach=False, fault=cli.fault, fault_after=cli.fault_after, fault_after_ready=False,
+        fault_after_release=cli.fault_after_release, fault_duration=cli.fault_duration,
+        post_release_duration=cli.post_release_duration,
         mission_stage='near' if incoming else 'far', scenario=cli.scenario, flight_options=flight,
-        mission_config=Capture26Mission(), handoff=cli.handoff, mission_id=cli.mission_id,
+        mission_config=load_mission(ROOT), handoff=cli.handoff, mission_id=cli.mission_id,
         external_vision=cli.external_vision, state_port=cli.state_port)
     os.environ['SPACE_SIM_LOCAL_PUBLISH_STRIDE'] = '8'
     from simulation.capture26_runtime import run

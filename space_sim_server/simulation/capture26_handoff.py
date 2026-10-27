@@ -9,7 +9,8 @@ import numpy as np
 from simulation.capture26_mission import MODEL_ID, MODEL_PATH
 from space_arm_platform.visual_navigation import covariance
 
-SCHEMA = 'space-sim-capture26-handoff/1'
+SCHEMA = 'space-sim-capture26-handoff/2'
+LEGACY_SCHEMA = 'space-sim-capture26-handoff/1'
 COMMON_CHECKS = {'completed_stage', 'native_state_not_overwritten', 'no_spacecraft_contact',
                  'gyros_healthy', 'gnss_healthy', 'common_sensor_epoch'}
 # Older /1 documents put these diagnostics in checks. Keep reading them, but
@@ -19,7 +20,7 @@ LEGACY_PERFORMANCE_CHECKS = {'processing_capacity_1x', 'time_backlog_not_growing
 
 def validate(document, root, *, accepted=True):
     d = deepcopy(document)
-    if (d.get('schema') != SCHEMA or d.get('model_id') != MODEL_ID
+    if (d.get('schema') not in (SCHEMA, LEGACY_SCHEMA) or d.get('model_id') != MODEL_ID
             or d.get('source_sha256') != hashlib.sha256((Path(root)/MODEL_PATH).read_bytes()).hexdigest()
             or accepted and d.get('accepted') is not True):
         raise ValueError('capture26 handoff model, schema or acceptance mismatch')
@@ -77,6 +78,52 @@ def validate(document, root, *, accepted=True):
                              or not all(v is True for k, v in d['checks'].items()
                                         if k not in LEGACY_PERFORMANCE_CHECKS)):
         raise ValueError('capture26 accepted handoff has failed independent checks')
+    if d['schema'] == SCHEMA:
+        from simulation.capture26_mission import load_mission
+        from simulation.sensor_delivery import FixedStereoDelivery
+        configuration = load_mission(root)
+        if d.get('mission_configuration') != configuration.to_dict() or not isinstance(d.get('sensor_delivery'), dict):
+            raise ValueError('capture26 v2 handoff lacks frozen configuration or scheduled sensors')
+        scheduler = FixedStereoDelivery(round(configuration.stereo_delay_s*1e9), configuration.vision_task_timeout_wall_s)
+        scheduler.restore(d['sensor_delivery'])
+        if configuration.geometry_certificate_sha256:
+            from simulation.capture26_mission import load_certified_preparation
+            preparation = load_certified_preparation(root, configuration)
+            preparation.restore(d['control'].get('preparation', {}))
+            if not preparation.complete or preparation.failed:
+                raise ValueError('capture26 certified preparation is not complete at handoff')
+        if any(p['exposure_ns'] > epoch or p['due_ns'] <= epoch for p in scheduler.pending):
+            raise ValueError('capture26 stereo in-flight epoch mismatch')
+        control = d['control']
+        if any(key not in control for key in ('gyro_pending', 'last_cooperative_ns', 'platform_stability', 'last_gnss_ns')):
+            raise ValueError('capture26 v2 handoff lacks sensor or stability history')
+        for packet in control['gyro_pending']:
+            body, sample = packet['body'], packet['observation']
+            sample_time = int(sample['sample_time_ns'])
+            if type(body) is not int or body not in (0, 1):
+                raise ValueError('capture26 scheduled gyro identity mismatch')
+            delay = configuration.gyro_delay_s+(configuration.cooperative_delay_s if body == 1 else 0.)
+            if (sample.get('body_name') != ('cubesat_bus', 'capture_target')[body]
+                    or not sample_time <= epoch < packet['due_ns']
+                    or packet['due_ns'] != sample_time+round(delay*1e9)):
+                raise ValueError('capture26 gyro in-flight epoch mismatch')
+        if any(type(control[key]) is not int or not 0 <= control[key] <= epoch
+               for key in ('last_cooperative_ns', 'last_gnss_ns')):
+            raise ValueError('capture26 received sensor history mismatch')
+    if d['phase'] == 'NearParked':
+        from simulation.capture26_mission import load_mission
+        from simulation.platform_stability import PlatformStability
+        configuration = load_mission(root)
+        if (d['schema'] != SCHEMA or not configuration.geometry_certificate_sha256
+                or d.get('mission_configuration') != configuration.to_dict()
+                or d.get('checks', {}).get('five_second_platform_stability') is not True
+                or not d['control'].get('platform_stability')):
+            raise ValueError('capture26 NearParked lacks certified version 2 stability/configuration')
+        stable = PlatformStability(configuration.dwell_s)
+        stable.restore(d['control']['platform_stability'])
+        if (stable.last_ns != epoch or not stable.status(epoch)['platform_stable']
+                or stable.reference != ['optical_depth_m', configuration.terminal_depth_m]):
+            raise ValueError('capture26 platform stability/reference does not match handoff')
     return d
 
 

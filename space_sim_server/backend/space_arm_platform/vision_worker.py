@@ -66,7 +66,9 @@ def main():
             args.config.parent / 'vendor' / 'aruco_pnp_basler_mono_v1')
     for left, right in read_pairs(sys.stdin.buffer, args.binary_input):
         try:
-            if mono is None:
+            if not left and not right:
+                result = {'status': 'ready', 'reason': 'image solver and calibration loaded'}
+            elif mono is None:
                 result = estimator.estimate(left, right)
                 result['algorithm'] = 'one ArUco detection per eye + joint calibrated stereo pose'
             else:

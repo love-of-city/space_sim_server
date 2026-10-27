@@ -162,6 +162,8 @@ def _library():
     lib.lms_id2name.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     lib.lms_joint.argtypes = [ctypes.c_void_p, ctypes.c_int, _INT64_P]
     lib.lms_body_inertial.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
+    lib.lms_body_com_velocities.argtypes = [ctypes.c_void_p, _DOUBLE_P]
+    lib.lms_body_inertias.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_free_joints.argtypes = [ctypes.c_void_p, _INT64_P, ctypes.c_int]
     lib.lms_set_servo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double]
     lib.lms_set_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
@@ -719,6 +721,42 @@ class LocalMujocoStepper(sysModel.SysModel):
                 result[name] = dict(mass_kg=mass, com_body_m=(rotation.T@(centre-pose[:3])).tolist())
         finally:
             self._check(self._lib.lms_set_state(self._handle, _pointer(saved_q), _pointer(saved_v)), 'restore initial state')
+        return result
+
+    def assembly_truth(self, model_path, root_names):
+        """Fresh native COMs/velocities/inertias for independent scoring only."""
+        import xml.etree.ElementTree as ET
+        from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+        cache = getattr(self, '_assembly_score_bodies', None)
+        if cache is None:
+            root = ET.parse(model_path).getroot()
+            ids = {self._name(_OBJ_BODY, i): i for i in range(self.nbody)}
+            def attached(body):
+                if body.get('name') in ids:
+                    yield ids[body.get('name')]
+                for child in body.findall('body'):
+                    if child.find('freejoint') is None and child.find('joint[@type="free"]') is None:
+                        yield from attached(child)
+            cache = {name: list(attached(root.find(f"./worldbody/body[@name='{name}']"))) for name in root_names}
+            self._assembly_score_bodies = cache
+        positions, velocities = np.zeros((self.nbody, 3)), np.zeros((self.nbody, 3))
+        masses = np.zeros(self.nbody)
+        self._check(self._lib.lms_body_coms(self._handle, _pointer(positions), _pointer(masses)), 'score COMs')
+        self._check(self._lib.lms_body_com_velocities(self._handle, _pointer(velocities)), 'score COM velocities')
+        inertias = np.zeros((self.nbody, 3, 3))
+        self._check(self._lib.lms_body_inertias(self._handle, _pointer(inertias)), 'score body inertias')
+        r_o, v_o = self._previous_origin
+        result = {}
+        for name, selected in cache.items():
+            mass = masses[selected].sum()
+            centre = np.sum(positions[selected]*masses[selected, None], axis=0)/mass
+            delta = positions[selected]-centre
+            tensor = np.sum(inertias[selected]+masses[selected, None, None]*(
+                np.sum(delta**2, axis=1)[:, None, None]*np.eye(3)-delta[:, :, None]*delta[:, None, :]), axis=0)
+            rotation = quaternion_wxyz_to_matrix(self.body_detail(name)[3:7])
+            result[name] = dict(position_n_m=centre+r_o,
+                velocity_n_m_s=np.sum(velocities[selected]*masses[selected, None], axis=0)/mass+v_o,
+                inertia_com_body_kg_m2=rotation.T@tensor@rotation)
         return result
 
     def _verify_mass_properties(self) -> None:

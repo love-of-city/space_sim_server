@@ -191,6 +191,11 @@ class BasiliskRenderBridge(_BridgeBase):
         if len(self.vision_capture_camera_ids) > 16 or any(not value or len(value) > 256 for value in self.vision_capture_camera_ids):
             raise ValueError("vision_capture_camera_ids must contain 1 to 16 valid camera IDs <=256 characters")
         self.vision_capture_rate_hz = int(vision_capture_rate_hz)
+        # Optional frozen sensor-model delay, independent of host throughput.
+        self.vision_delivery_delay_ns = None
+        self.last_vision_exposure = None
+        self.vision_exposure_after_ns = None
+        self.frame_id_from_simulation_epoch = False
         if self.vision_capture_camera_ids and self.frame_rate_hz is not None:
             if self.frame_rate_hz % self.vision_capture_rate_hz:
                 raise ValueError("vision capture grid must divide frame_rate_hz")
@@ -236,6 +241,8 @@ class BasiliskRenderBridge(_BridgeBase):
     def last_published_frame_id(self) -> int:
         """Return the last authoritative render frame ID, or ``-1`` before Update."""
 
+        if self.frame_id_from_simulation_epoch and self._last_published_sim_time_ns >= 0:
+            return self._last_published_sim_time_ns
         return self._frame_id - 1
 
     @property
@@ -873,7 +880,7 @@ class BasiliskRenderBridge(_BridgeBase):
             "type": "frame",
             "session_id": self.session_id,
             "manifest_revision": str(self._manifest_revision),
-            "frame_id": str(self._frame_id),
+            "frame_id": str(current_sim_ns if self.frame_id_from_simulation_epoch else self._frame_id),
             "sim_time_ns": str(current_sim_ns),
             "wall_time_ns": str(time.time_ns()),
             "origin_N_m": origin_n.tolist(),
@@ -900,10 +907,14 @@ class BasiliskRenderBridge(_BridgeBase):
             # admission above. Never invent a camera sample between source frames.
             tick = (current_sim_ns * self.vision_capture_rate_hz + 500_000_000) // 1_000_000_000
             expected = (tick * 1_000_000_000 + self.vision_capture_rate_hz // 2) // self.vision_capture_rate_hz
-            requested = current_sim_ns == expected
+            requested = (current_sim_ns == expected and (self.vision_exposure_after_ns is None
+                         or current_sim_ns > self.vision_exposure_after_ns))
             message["vision_capture_requested"] = requested
             if requested:
                 message["vision_capture_camera_ids"] = list(self.vision_capture_camera_ids)
+                if self.vision_delivery_delay_ns is not None:
+                    message["vision_delivery_time_ns"] = str(current_sim_ns + self.vision_delivery_delay_ns)
+                self.last_vision_exposure = (current_sim_ns, message['frame_id'])
         self.publisher.publish_frame(message)
         self.last_capture_state = capture_state
         if self.recorder:

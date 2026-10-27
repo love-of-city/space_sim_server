@@ -6,7 +6,7 @@ Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真�
 
 近距交会通过现有事件HUD显示阶段、导航质量与逻辑捕获状态，使用 `Adapters/bsk_render_adapter/near_field.py`；配套动力学、入口和限制见 [近距交会方案](../space_sim_server/docs/NEAR_FIELD_RENDEZVOUS.md)。原模型路径中 UE 只渲染，双目图像没有参与其参数化导航算法。
 
-capture26 共享运行核心已消费实际 UE 双目图像，接入位姿协方差、陀螺反馈和导航；正式任务已有模型入口及后端图像路由，完整流程与集成验收仍未完成，见 [capture26 图像导航状态](../space_sim_server/docs/CAPTURE26_IMAGE_NAVIGATION.md)。当前优先验证功能，1 倍速仅作性能记录，图像时效与安全判据保留。Windows 渲染器新增 `-OfflineCapture`，关闭展示视口并启用完整分辨率的无损快速 PNG，用于诊断图像通道处理能力。
+capture26 共享运行核心已消费实际 UE 双目图像，接入位姿协方差、陀螺反馈和导航；正式任务已有模型入口及后端图像路由，完整流程与集成验收仍未完成，见 [capture26 图像导航状态](../space_sim_server/docs/CAPTURE26_IMAGE_NAVIGATION.md)。双目按 10 Hz 仿真曝光、固定 0.20 s 仿真投递；外层调度等待未完成结果，原生控制不阻塞图像 I/O。10 条视觉计数与独立 5 s 平台稳定分别检查，倍速及墙钟耗时只作性能和进程健康记录。Windows 渲染器新增 `-OfflineCapture`，关闭展示视口并启用完整分辨率的无损快速 PNG，用于诊断图像通道处理能力。
 
 | 目录 | 用途 |
 | --- | --- |

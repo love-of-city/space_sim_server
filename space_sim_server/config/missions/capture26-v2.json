@@ -1,0 +1,29 @@
+{
+  "schema": "space-sim-capture26-task/2",
+  "mission": {
+    "schema": "space-sim-capture26-mission/2",
+    "physics_hz": 400,
+    "attitude_hz": 100,
+    "gyro_hz": 50,
+    "guidance_hz": 20,
+    "gnss_hz": 10,
+    "stereo_hz": 10,
+    "stereo_delay_s": 0.2,
+    "gyro_delay_s": 0.0,
+    "cooperative_delay_s": 0.0,
+    "vision_task_timeout_wall_s": 15.0,
+    "com_hold_m": 50.0,
+    "gnss_hold_depth_m": 17.4,
+    "acquisition_depth_m": 4.0,
+    "readiness_depth_m": 2.0,
+    "terminal_depth_m": null,
+    "dwell_s": 5.0,
+    "vision_timeout_s": 60.0,
+    "force_limit_n": 25.0,
+    "thrust_reserve": 0.4,
+    "vision_nodes_validated": false,
+    "geometry_certificate_sha256": null
+  },
+  "certificate": null,
+  "status": "pending_geometry_and_image_certification"
+}

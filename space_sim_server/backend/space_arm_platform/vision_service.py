@@ -34,6 +34,8 @@ class _Worker:
         self.root = root
         self.process = None
         self.replies = queue.Queue()
+        self.timeout_s = 15.
+        self.failed = ''
 
     def _start(self):
         env = os.environ.copy()
@@ -73,16 +75,29 @@ class _Worker:
         return self._exchange(request)
 
     def _exchange(self, request):
-        if self.process is None or self.process.poll() is not None:
+        if self.failed:
+            raise RuntimeError(self.failed)
+        if self.process is not None and self.process.poll() is not None:
+            self.failed = 'vision worker exited'
+            raise RuntimeError(self.failed)
+        if self.process is None:
             self._start()
         try:
             data = request if isinstance(request, bytes) else json.dumps(request, separators=(',', ':')).encode('ascii') + b'\n'
             self.process.stdin.write(data)
             self.process.stdin.flush()
-            return self.replies.get(timeout=15)
+            result = self.replies.get(timeout=self.timeout_s)
+            if result.get('status') == 'error' and 'vision worker exited' in result.get('reason', ''):
+                self.failed = result['reason']
+                raise RuntimeError(self.failed)
+            if result.get('reason') == 'invalid worker response':
+                self.failed = 'invalid worker response'
+                raise RuntimeError(self.failed)
+            return result
         except (OSError, queue.Empty) as error:
+            self.failed = 'vision worker unavailable; see run/vision_worker.log'
             self.close()
-            raise RuntimeError('vision worker unavailable; see run/vision_worker.log') from error
+            raise RuntimeError(self.failed) from error
 
     def close(self):
         if self.process is not None:
@@ -118,7 +133,8 @@ class StereoVisionService:
         self._static_test_config = config is not None
         self._estimator = estimator
         self._lock = threading.RLock()
-        self._queue = queue.Queue(maxsize=2)
+        self._queue = queue.Queue(maxsize=16)
+        self._ordered_delivery = False
         self._pending = OrderedDict()
         self._images = {}
         self._result_images = {}
@@ -148,6 +164,12 @@ class StereoVisionService:
         """Explicit task routing prevents late frames switching the active task."""
         with self._lock:
             self._mission_id, self._bound_session = str(mission_id), str(session_id)
+            self._ordered_delivery = True
+            task_path = self.root/'config/missions/capture26-v2.json'
+            self._task_timeout_s = (float(json.loads(task_path.read_text('utf-8-sig'))['mission']['vision_task_timeout_wall_s'])
+                                    if task_path.is_file() else 15.)
+            if isinstance(self._estimator, _Worker):
+                self._estimator.timeout_s = self._task_timeout_s
             if on_result is not None:
                 self._on_result = on_result
             if config_path and Path(config_path) != self.config_path:
@@ -162,6 +184,7 @@ class StereoVisionService:
             if self._bound_session:
                 self._retired_sessions.add(self._bound_session)
             self._bound_session, self._mission_id, self._on_result = None, '', None
+            self._ordered_delivery = False
             default = self.root/'config/vision/capture26_stereo.json'
             if self.config_path != default:
                 self.config_path, self.config = default, None
@@ -169,11 +192,11 @@ class StereoVisionService:
                     self._estimator.close()
                     self._estimator = None
 
-    def _invalid(self, session, frame, timestamp, reason):
+    def _invalid(self, session, frame, timestamp, reason, *, process_healthy=True):
         result = dict(status='rejected', reason=str(reason), ambiguous=False,
                       mission_id=self._mission_id, session_id=session, source_frame_id=frame,
                       sim_time_ns=str(timestamp), calibration_id=calibration_id(self.config),
-                      pose_target_to_left=None, pose_covariance=None)
+                      pose_target_to_left=None, pose_covariance=None, process_healthy=process_healthy)
         self._last_result, self._last_error = result, str(reason)
         if self._on_result is not None:
             self._on_result(dict(result))
@@ -190,7 +213,9 @@ class StereoVisionService:
         with self._lock:
             self._load()
             if isinstance(self._estimator, _Worker):
-                self._estimator(b'', b'')
+                response = self._estimator(b'', b'')
+                if response.get('status') != 'ready':
+                    raise RuntimeError('vision solver warmup failed: '+str(response.get('reason', 'invalid response')))
 
     def close(self):
         self._stop.set()
@@ -210,6 +235,7 @@ class StereoVisionService:
             self.config = new_config
         if self._estimator is None:
             self._estimator = _Worker(self.root, self.config_path)
+            self._estimator.timeout_s = getattr(self, '_task_timeout_s', 15.)
 
     def on_capture(self, metadata, products):
         with self._lock:
@@ -262,15 +288,17 @@ class StereoVisionService:
             pair = self._pending.setdefault(key, {})
             pair[eye] = (sim_time, products['rgb'], dict(metadata))
             while len(self._pending) > 16:
-                self._pending.popitem(last=False)
+                (old_session, old_frame), old_pair = self._pending.popitem(last=False)
                 self._counts['dropped_pairs'] += 1
+                if self._ordered_delivery:
+                    self._invalid(old_session, old_frame, next(iter(old_pair.values()))[0], 'unmatched authoritative stereo pair queue exhausted')
             if len(pair) != 2:
                 return
             self._pending.pop(key, None)
             skew = abs(pair['left'][0] - pair['right'][0])
-            if skew > int(self.config.get('max_skew_ns', 100000)):
+            if self._ordered_delivery and skew != 0 or skew > int(self.config.get('max_skew_ns', 100000)):
                 self._counts['rejected_pairs'] += 1
-                self._last_error = f'stereo timestamp skew {skew} ns exceeds configured tolerance'
+                self._last_error = f'stereo timestamp skew {skew} ns violates exposure binding'
                 self._invalid(session, frame, pair['left'][0], self._last_error)
                 return
             epoch = pair['left'][0]
@@ -289,6 +317,10 @@ class StereoVisionService:
             try:
                 self._queue.put_nowait(item)
             except queue.Full:
+                if self._ordered_delivery:
+                    self._counts['dropped_pairs'] += 1
+                    self._invalid(session, frame, epoch, 'authoritative image queue exhausted')
+                    return
                 try:
                     self._queue.get_nowait()
                     self._queue.task_done()
@@ -334,7 +366,7 @@ class StereoVisionService:
             except Exception as error:
                 with self._lock:
                     if session == self._session and mission == self._mission_id:
-                        self._invalid(session, frame, timestamp, str(error))
+                        self._invalid(session, frame, timestamp, 'vision process failure: '+str(error), process_healthy=False)
             finally:
                 self._queue.task_done()
 

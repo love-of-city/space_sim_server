@@ -31,34 +31,26 @@ def principal_sigma(matrix):
 
 
 def image_clock(result, now_ns, received_wall_time_ns=None):
-    """Count both physical age and real pipeline age on the localhost channel.
-
-    Replay/unit inputs can use physical time alone. Live callers supply the
-    local receive clock and must have both source clocks from the UE request.
-    This prevents slower-than-real-time physics from hiding an old image.
-    """
+    """Physical exposure age; optional wall clocks are diagnostics only."""
     exposure = int(result['sim_time_ns'])
     age = int(now_ns)-exposure
     if age < 0:
         raise ValueError('visual exposure is outside the physical clock')
     source = received = None
-    if received_wall_time_ns is not None:
-        received = int(received_wall_time_ns)
-        clocks = [int(result['capture_timing'][eye]['source_wall_time_ns']) for eye in ('left', 'right')]
-        source = min(clocks)
-        if source < 0 or received < max(clocks):
-            raise ValueError('invalid localhost image clock')
-        age = max(age, received-source)
+    timing = result.get('capture_timing')
+    if (received_wall_time_ns is not None and isinstance(timing, dict)
+            and all(isinstance(timing.get(eye), dict) and 'source_wall_time_ns' in timing[eye] for eye in ('left', 'right'))):
+        try:
+            received = int(received_wall_time_ns)
+            clocks = [int(result['capture_timing'][eye]['source_wall_time_ns']) for eye in ('left', 'right')]
+            source = min(clocks)
+        except (TypeError, ValueError, OverflowError):
+            source = received = None  # Optional diagnostics cannot reject a physical observation.
     return exposure, age, source, received
 
 
 class VisualReadiness:
-    """Only navigation-accepted image poses count; live checks use both clocks.
-
-    Tick this gate even when there are no results. An invalid result clears the
-    streak immediately. Delivery time is the time the control loop consumes the
-    result, so readback, transport, queues and solving all count towards age.
-    """
+    """Revocable streak in physical time, independent of platform stability."""
     def __init__(self, mission_id, session_id, calibration, *, minimum=10):
         self.identity = (mission_id, session_id, calibration)
         self.minimum = minimum
@@ -71,101 +63,121 @@ class VisualReadiness:
         self._seen = set()
         self.ready = False
         self._accepted_events = []
+        self.revocations = []
+        self.last_failures = []
 
-    def revoke(self, reason):
+    def revoke(self, reason, *, now_ns=None, failures=None, category='image_invalid'):
+        failures = list(failures or [str(reason)])
+        # Keep each actual reset, plus changes in failure conditions while empty.
+        if self.count or failures != self.last_failures:
+            self.revocations.append(dict(time_ns=now_ns, count_before=self.count,
+                count_after=0, failures=failures, category=category))
+        self.last_failures = failures
         self.count, self.ready, self.reason = 0, False, str(reason)
         self._accepted_events.clear()
         return False
 
-    def reconcile(self, navigation_acceptance):
+    def reconcile(self, navigation_acceptance, now_ns=None):
         """A delayed GNSS correction may revoke a previously accepted pose."""
         if any(navigation_acceptance.get(event) is False for event in self._accepted_events):
-            self.revoke('delayed navigation replay rejected a counted observation')
+            self.revoke('delayed navigation replay rejected a counted observation',
+                        now_ns=now_ns, category='navigation_replay')
         return self.ready
 
     def tick(self, now_ns, received_wall_time_ns=None):
-        if self.last_exposure_ns is not None:
+        failures = []
+        if self.count and self.last_exposure_ns is not None:
             if now_ns - self.last_exposure_ns > 350_000_000:
-                self.revoke('accepted exposure is stale')
-            elif now_ns - self.last_receive_ns > 150_000_000:
-                self.revoke('effective visual updates interrupted')
-        if received_wall_time_ns is not None and self.last_wall_source_ns is not None:
-            if received_wall_time_ns < self.last_wall_receive_ns:
-                self.revoke('localhost image clock regressed')
-            elif received_wall_time_ns-self.last_wall_source_ns > 350_000_000:
-                self.revoke('accepted image pipeline age exceeded')
-            elif received_wall_time_ns-self.last_wall_receive_ns > 150_000_000:
-                self.revoke('effective wall-clock visual updates interrupted')
+                failures.append('accepted exposure is stale')
+            if now_ns - self.last_receive_ns > 150_000_000:
+                failures.append('effective visual updates interrupted')
+        if failures:
+            self.revoke(failures[0], now_ns=now_ns, failures=failures, category='simulation_time_interruption')
+        return self.ready
+
+    def check_uncertainty(self, position, attitude, now_ns):
+        if self.count and (principal_sigma(covariance(position, 3)) >= .04 or principal_sigma(covariance(attitude, 3)) >= math.radians(.3)):
+            self.revoke('relative navigation uncertainty exceeded', now_ns=now_ns, category='precision_exceeded')
         return self.ready
 
     def observe(self, result, now_ns, *, accepted, relative_position_covariance,
                 relative_attitude_covariance, received_wall_time_ns=None, navigation_reason=None):
+        failures = []
+        interval_failures = []
         try:
             identity = tuple(result.get(key) for key in ('mission_id', 'session_id', 'calibration_id'))
-            if identity != self.identity:
-                return self.revoke('vision identity mismatch')
-            exposure = int(result['sim_time_ns'])
+            exposure, age, wall_source, wall_receive = image_clock(result, now_ns, received_wall_time_ns)
             frame = str(result['source_frame_id'])
-            if not 0 <= exposure <= now_ns:
-                return self.revoke('visual exposure is outside the physical clock')
-            if frame in self._seen or (self._last_seen_exposure_ns is not None and exposure <= self._last_seen_exposure_ns):
-                return self.revoke('duplicate or out-of-order visual observation')
-            self._seen.add(frame)
-            # A bounded cache is sufficient because epochs enforce monotonicity.
-            if len(self._seen) > 1024:
-                self._seen = {frame}
-            old_exposure, old_receive = self._last_seen_exposure_ns, self._last_seen_receive_ns
-            self._last_seen_exposure_ns, self._last_seen_receive_ns = exposure, int(now_ns)
-            if old_exposure is not None and (exposure-old_exposure > 150_000_000 or now_ns-old_receive > 150_000_000):
-                self.revoke('visual update interval exceeded')
-            if not 0 <= now_ns-exposure <= 350_000_000:
-                return self.revoke('visual exposure age exceeded')
-            if not accepted:
-                return self.revoke('navigation rejected: ' + str(navigation_reason or result.get('reason', 'innovation')))
-            _, age, wall_source, wall_receive = image_clock(result, now_ns, received_wall_time_ns)
+            if identity != self.identity:
+                failures.append('vision identity mismatch')
+            if not frame or frame in self._seen or (self._last_seen_exposure_ns is not None and exposure <= self._last_seen_exposure_ns):
+                failures.append('duplicate or out-of-order visual observation')
             if age > 350_000_000:
-                return self.revoke('visual image pipeline age exceeded')
-            if wall_source is not None:
-                previous_source, previous_receive = self._last_seen_wall_source_ns, self._last_seen_wall_receive_ns
-                self._last_seen_wall_source_ns, self._last_seen_wall_receive_ns = wall_source, wall_receive
-                if previous_source is not None and (wall_source <= previous_source or wall_receive < previous_receive):
-                    return self.revoke('nonmonotonic localhost image clock')
-                if previous_source is not None and (wall_source-previous_source > 150_000_000 or wall_receive-previous_receive > 150_000_000):
-                    self.revoke('actual visual update interval exceeded')
+                failures.append('visual exposure age exceeded')
+            if not accepted:
+                failures.append('navigation rejected: ' + str(navigation_reason or result.get('reason', 'innovation')))
             if result.get('status') != 'ok' or result.get('ambiguous', True):
-                return self.revoke('invalid or ambiguous stereo solution')
-            counts = result['counts']
-            if min(counts['used_markers_left'], counts['used_markers_right'], counts['common_markers']) < 2:
-                return self.revoke('insufficient complete known inlier markers')
-            if any(not 0 <= float(result['reprojection_error_px'][eye]) <= 2.5
-                   or not 0 <= float(result['max_corner_error_px'][eye]) <= 5 for eye in ('left', 'right')):
-                return self.revoke('image reprojection quality decreased')
-            c = result['pose_covariance']
-            if (c['frame'] != 'left_optical' or c['rotation_error'] != 'left_multiplicative'
-                    or c.get('order') != POSE_ERROR_ORDER):
-                return self.revoke('unsupported pose covariance convention')
-            measured = covariance(c['matrix'], 6)
+                failures.append('invalid or ambiguous stereo solution')
+            if self._last_seen_exposure_ns is not None:
+                if exposure-self._last_seen_exposure_ns > 150_000_000:
+                    interval_failures.append('visual sampling interval exceeded')
+                if now_ns-self._last_seen_receive_ns > 150_000_000:
+                    interval_failures.append('effective visual receive interval exceeded')
+            # Invalid solver events may intentionally omit a pose and quality.
+            if result.get('status') == 'ok':
+                counts = result['counts']
+                if min(counts['used_markers_left'], counts['used_markers_right'], counts['common_markers']) < 2:
+                    failures.append('insufficient complete known inlier markers')
+                if any(not 0 <= float(result['reprojection_error_px'][eye]) <= 2.5
+                       or not 0 <= float(result['max_corner_error_px'][eye]) <= 5 for eye in ('left', 'right')):
+                    failures.append('image reprojection quality decreased')
+                c = result['pose_covariance']
+                if (c['frame'] != 'left_optical' or c['rotation_error'] != 'left_multiplicative'
+                        or c.get('order') != POSE_ERROR_ORDER):
+                    failures.append('unsupported pose covariance convention')
+                measured = covariance(c['matrix'], 6)
+                if math.sqrt(measured[2, 2]) >= .03 or principal_sigma(measured[3:, 3:]) >= math.radians(2):
+                    failures.append('visual measurement uncertainty exceeded')
             p = covariance(relative_position_covariance, 3)
             a = covariance(relative_attitude_covariance, 3)
-            if math.sqrt(measured[2, 2]) >= .03 or principal_sigma(measured[3:, 3:]) >= math.radians(2):
-                return self.revoke('visual measurement uncertainty exceeded')
             if principal_sigma(p) >= .04 or principal_sigma(a) >= math.radians(.3):
-                return self.revoke('relative navigation uncertainty exceeded')
+                failures.append('relative navigation uncertainty exceeded')
+            # A wrong-session or future frame cannot poison the active clock.
+            if identity == self.identity and 0 <= exposure <= now_ns:
+                if self._last_seen_exposure_ns is None or exposure > self._last_seen_exposure_ns:
+                    self._last_seen_exposure_ns, self._last_seen_receive_ns = exposure, int(now_ns)
+                    self._seen.add(frame)
+                    if len(self._seen) > 1024:
+                        self._seen = {frame}
+            if failures:
+                all_failures = failures+interval_failures
+                category = 'precision_exceeded' if any('uncertainty' in f for f in failures) else 'image_invalid'
+                if result.get('process_healthy') is False:
+                    category = 'process_fault'
+                return self.revoke(failures[0], now_ns=now_ns, failures=all_failures, category=category)
+            if interval_failures:
+                # This qualified observation begins a new streak after the gap.
+                self.revoke(interval_failures[0], now_ns=now_ns, failures=interval_failures,
+                            category='simulation_time_interruption')
             self.last_exposure_ns, self.last_receive_ns = exposure, int(now_ns)
             self.last_wall_source_ns, self.last_wall_receive_ns = wall_source, wall_receive
             event = 'visual/'+'/'.join(str(result[k]) for k in ('mission_id', 'session_id', 'source_frame_id', 'calibration_id'))
-            self._accepted_events = (self._accepted_events+[event])[-self.minimum:]
+            self._accepted_events.append(event)
             self.count += 1
+            self.last_failures = []
             self.ready = self.count >= self.minimum
             self.reason = 'ready' if self.ready else 'collecting distinct accepted exposures'
             return self.ready
-        except (KeyError, TypeError, ValueError, OverflowError, np.linalg.LinAlgError):
-            return self.revoke('malformed visual observation')
+        except (KeyError, TypeError, ValueError, OverflowError, np.linalg.LinAlgError) as exc:
+            failures.append('malformed visual observation: '+str(exc))
+            return self.revoke(failures[0], now_ns=now_ns, failures=failures)
 
     def status(self, now_ns, received_wall_time_ns=None):
-        self.tick(now_ns, received_wall_time_ns)
+        # Observing telemetry must never change admission or reset diagnostics.
         age = None if self.last_exposure_ns is None else (now_ns-self.last_exposure_ns)*1e-9
-        if age is not None and received_wall_time_ns is not None and self.last_wall_source_ns is not None:
-            age = max(age, (received_wall_time_ns-self.last_wall_source_ns)*1e-9)
+        wall_age = (None if received_wall_time_ns is None or self.last_wall_source_ns is None
+                    else (received_wall_time_ns-self.last_wall_source_ns)*1e-9)
         return dict(ready=self.ready, count=self.count, reason=self.reason,
-                    exposure_age_s=age)
+                    exposure_age_s=age, simulation_exposure_age_s=age,
+                    wall_pipeline_age_s=wall_age, failures=list(self.last_failures),
+                    revocation_count=len(self.revocations))

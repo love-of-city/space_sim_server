@@ -36,6 +36,9 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
         processing_real_time_factor_after_warmup=capacity,
         lag_growth_against_1x_after_warmup_s=lag_growth,
         achieved_1x=capacity >= 1.)
+    preparation = getattr(control, 'joint_preparation', None)
+    if (summary.get('mission_configuration') or {}).get('geometry_certificate_sha256'):
+        checks['certified_joint_preparation_complete'] = bool(preparation and preparation.complete and not preparation.failed)
     if stage == 'far':
         profile = FlightProfile(scenario=args.scenario, handoff_distance_m=args.flight_options.handoff_distance_m)
         hold = [r for r in rows if r['time_s'] >= profile.start_approach_s+profile.approach_duration_s]
@@ -53,12 +56,18 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
                       actual_velocity_2cm_s=bool(speeds) and max(speeds) < .02)
     else:
         checks.update(current_visual_ready=bool(final['visual']['ready']),
+                      vision_process_healthy=summary['sensor_delivery']['healthy'],
                       vision_nodes_prevalidated=bool(approach.config.vision_nodes_validated),
-                      five_second_dwell=guidance.get('dwell_s', 0.) >= 5.)
-        # No geometry certificate has yet been produced by the real-image sweep.
-        # A successful pose-only probe must never silently certify the prepared
-        # arms, collision clearance, braking corridor and receiving scene.
-        checks['prepared_arm_geometry_certified'] = False
+                      five_second_platform_stability=bool(guidance.get('platform_stable')),
+                      five_second_dwell=guidance.get('platform_stable_duration_s', 0.) >= 5.)
+        from tools.score_capture26_platform import score as score_platform
+        platform_audit = score_platform(output)
+        checks['independent_platform_stability'] = (platform_audit['audit_passed']
+            and platform_audit['final_platform_stable'] and platform_audit['first_release_ns'] is not None)
+        from simulation.capture26_mission import load_mission
+        certified = load_mission(Path(__file__).resolve().parents[1])
+        checks['prepared_arm_geometry_certified'] = bool(certified.geometry_certificate_sha256
+            and approach.config == certified)
     accepted = all(checks.values())
     outcome = guidance.get('phase', 'NavigationAcquire')
     document = dict(schema=SCHEMA, model_id=MODEL_ID, source_sha256=summary['source_sha256'],
@@ -67,12 +76,18 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
         calibration_id=summary['calibration_id'], ephemeris_epoch_utc=(
             '2026 SEPTEMBER 02 00:00:00.000' if epoch_ns else ephemeris_epoch),
         mission_options=args.flight_options.to_dict(), body_properties=summary['body_properties'],
+        mission_configuration=summary.get('mission_configuration'),
+        sensor_delivery=control.sensor_delivery.snapshot() if hasattr(control, 'sensor_delivery') else None,
         physical=stepper.physical_snapshot(epoch_ns=epoch_ns), navigation=nav.snapshot(),
         gyros=[g.sensor.snapshot() for g in gyros], gnss_receiver=receiver.snapshot(), gnss_pending=pending,
         retention=retention.snapshot() if retention else None,
-        control=dict(operating_reference=[0.]*8, capture_reference=capture.target.position.tolist(),
+        control=dict(operating_reference=getattr(control, 'operating_reference', np.zeros(8)).tolist(), capture_reference=capture.target.position.tolist(),
                      force_n=control.force_n.tolist(), last_gnss_ns=control.last_gnss_ns,
-                     approach=approach.snapshot() if approach else None),
+                     gyro_pending=getattr(control, 'gyro_pending', []),
+                     last_cooperative_ns=getattr(control, 'last_cooperative_ns', None),
+                     approach=approach.snapshot() if approach else None,
+                     platform_stability=approach.stability.snapshot() if approach else None,
+                     preparation=preparation.snapshot() if preparation else None),
         environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else [])
     if accepted:
         validate(document, Path(__file__).resolve().parents[1])

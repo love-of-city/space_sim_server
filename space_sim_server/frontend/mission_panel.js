@@ -150,6 +150,8 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       && observation?.scene_instance_id === mission.scene_instance_id
       ? observation.capture26_navigation : null;
     const meta = operations ? {model: 'capture26', phase: operations.phase, visual: operations.visual,
+      platform_stable_duration_s: operations.platform_stable_duration_s,
+      platform_stable: operations.platform_stable, released: operations.released,
       sensor_health: {gnss: operations.gnss_healthy, gyros: operations.gyro_health},
       processing_real_time_factor: operations.processing_real_time_factor} : telemetry.state?.metadata || {};
     const t = telemetry.sim_time_s ?? report?.final_time_s;
@@ -183,7 +185,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     if (meta.model === 'capture26') {
       const health = meta.sensor_health || {}, visual = meta.visual || {};
       $('missionNavigation').textContent = `GNSS ${health.gnss ? '正常' : '失效'} · 双星陀螺 ${(health.gyros || []).map(v => v ? '正常' : '失效').join('/')} · 视觉${visual.ready ? '就绪' : '未就绪'}`;
-      $('nearCapture').textContent = `${visual.count ?? 0}/10 · 曝光年龄 ${number(visual.exposure_age_s, 3, 's')} · ${visual.reason || '等待图像'}`;
+      $('nearCapture').textContent = `${visual.count ?? 0}/10 · 仿真曝光年龄 ${number(visual.simulation_exposure_age_s ?? visual.exposure_age_s, 3, 's')} · 墙钟链路 ${number(visual.wall_pipeline_age_s, 3, 's')} · 平台稳定 ${number(meta.platform_stable_duration_s, 2, 's')} ${meta.platform_stable ? '已满足' : '累计中'} · ${meta.released ? '已放行' : '受限'} · ${visual.reason || '等待图像'}`;
     }
     const bodies = telemetry.state?.bodies || [];
     const chaser = bodies.find(b => b.body_id === 'rendezvous/chaser'), target = bodies.find(b => b.body_id === 'rendezvous/target');

@@ -424,3 +424,26 @@ def test_servo_can_be_connected_after_construction(model_path):
     assert set(stepper.actuator_names[i] for i in stepper.command_index) == set()
     run_to(simulation, 0.5)
     assert stepper.servos_finalized
+
+
+def test_independent_assembly_inertia_tracks_articulation_and_analytic_sphere(model_path):
+    from simulation.assembly_geometry import AssemblyGeometry
+    simulation, scene, stepper, keep = build(model_path, 'local')
+    readers = {name: (scene.getBody(body).getScalarJoint(name).stateOutMsg.addSubscriber(),
+        scene.getBody(body).getScalarJoint(name).stateDotOutMsg.addSubscriber())
+        for name, body in (('arm', 'link'), ('wheel_spin', 'wheel'))}
+    geometry = AssemblyGeometry(model_path, stepper.body_inertial, roots=('bus',))
+    tensors = []
+    for elapsed in (.1, .5, 1.):
+        run_to(simulation, elapsed)
+        q, v = stepper.qpos.copy(), stepper.qvel.copy()
+        actual = stepper.assembly_truth(model_path, ('bus', 'ball'))
+        estimated = geometry.evaluate(round(elapsed*1e9), {n: [p().state, d().state] for n, (p, d) in readers.items()})
+        np.testing.assert_allclose(actual['bus']['inertia_com_body_kg_m2'],
+            estimated['bus']['inertia_com_body_kg_m2'], atol=1e-12)
+        np.testing.assert_allclose(actual['ball']['inertia_com_body_kg_m2'],
+            np.eye(3)*(.4*.2*.05**2), atol=1e-15)
+        np.testing.assert_array_equal(stepper.qpos, q)
+        np.testing.assert_array_equal(stepper.qvel, v)
+        tensors.append(actual['bus']['inertia_com_body_kg_m2'])
+    assert np.linalg.norm(tensors[-1]-tensors[0]) > .001

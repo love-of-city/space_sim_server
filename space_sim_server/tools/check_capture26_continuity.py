@@ -27,6 +27,19 @@ def check(source, receiving):
         checks[key] = before[key] == after[key]
     for key in ('operating_reference', 'capture_reference'):
         checks[key] = before['control'][key] == after['control'][key]
+    for key in ('gyro_pending', 'last_cooperative_ns', 'platform_stability', 'preparation'):
+        if key in before['control'] or key in after['control']:
+            checks['control/'+key] = before['control'].get(key) == after['control'].get(key)
+    for key in ('mission_configuration', 'sensor_delivery'):
+        if key in before or key in after:
+            a, b = before.get(key), after.get(key)
+            if key == 'sensor_delivery' and a and b:
+                # Monotonic host clocks are diagnostics; packet identities and
+                # physical delivery epochs must be identical across processes.
+                for document in (a, b):
+                    for packet in document['pending']:
+                        packet.pop('age_wall_s', None)
+            checks[key] = a == b
     # Forces/environment may be freshly recomputed at the same epoch, but
     # their stochastic state and last sampling epoch must remain identical.
     checks['environment'] = before['environment'] == after['environment']

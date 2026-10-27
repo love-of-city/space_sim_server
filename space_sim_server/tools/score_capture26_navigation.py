@@ -41,7 +41,7 @@ def score(folder, warmup_s=2.):
     camera = configuration['body_from_optical']['left']
     camera_r = np.array(camera['R_body_from_optical'])
     camera_offset = np.array(camera['position_body_m'])-com[0]
-    errors, ages, accepted_epochs, accepted_receives = [], [], [], []
+    errors, ages, wall_ages, accepted_epochs, accepted_receives = [], [], [], [], []
     wall_receives, wall_sources = [], []
     live_clock_samples = 0
     pipeline_ms = {name: [] for name in ('source_to_readback', 'readback_to_capture',
@@ -56,7 +56,7 @@ def score(folder, warmup_s=2.):
                                                     for eye in ('left', 'right'))):
             live_clock_samples += 1
             source = min(int(image['capture_timing'][eye]['source_wall_time_ns']) for eye in ('left', 'right'))
-            age = max(age, (packet['receive_wall_time_ns']-source)*1e-9)
+            wall_ages.append((packet['receive_wall_time_ns']-source)*1e-9)
             if packet['accepted']:
                 wall_receives.append(packet['receive_wall_time_ns'])
                 wall_sources.append(source)
@@ -75,10 +75,12 @@ def score(folder, warmup_s=2.):
         if image.get('status') != 'ok' or exposure_ns not in truth:
             continue
         physical = truth[exposure_ns]
+        local_com = [np.array(x) for x in physical.get('truth_com_body_m', com)]
+        camera_offset = np.array(camera['position_body_m'])-local_com[0]
         positions = np.array(physical['truth_com_position_n_m'])
         rs, rt = np.array(physical['truth_rotation_n_from_body'])
         nc = rs@camera_r
-        target_origin = positions[1]-rt@com[1]
+        target_origin = positions[1]-rt@local_com[1]
         camera_origin = positions[0]+rs@camera_offset
         actual_t, actual_r = nc.T@(target_origin-camera_origin), nc.T@rt
         observed = image['pose_target_to_left']
@@ -98,17 +100,20 @@ def score(folder, warmup_s=2.):
         source_run=str(folder.resolve()), calibration_id=digest, actual_image_solutions=len(errors),
         accepted_image_solutions=sum(e['navigation_accepted'] for e in errors),
         maximum_consumed_exposure_age_s=max(ages, default=None),
-        maximum_accepted_exposure_interval_s=max(float(max(np.diff(accepted_epochs), default=0)),
-                                               float(max(np.diff(wall_sources), default=0)))*1e-9,
-        maximum_effective_receive_interval_s=max(float(max(np.diff(accepted_receives), default=0)),
-                                                float(max(np.diff(wall_receives), default=0)))*1e-9,
-        clock_scope='physical and localhost wall clocks' if live_clock_samples else 'legacy physical clock only',
+        maximum_accepted_exposure_interval_s=float(max(np.diff(accepted_epochs), default=0))*1e-9,
+        maximum_effective_receive_interval_s=float(max(np.diff(accepted_receives), default=0))*1e-9,
+        maximum_wall_pipeline_age_s=max(wall_ages, default=None),
+        maximum_wall_receive_interval_s=float(max(np.diff(wall_receives), default=0))*1e-9,
+        clock_scope='simulation time; wall clock diagnostics separate',
         live_clock_samples=live_clock_samples,
         pipeline_ms={name: dict(median=float(np.median(values)), maximum=float(max(values)))
                      for name, values in pipeline_ms.items() if values},
         maximum_image_position_error_m=max((float(np.linalg.norm(e['position_error_m'])) for e in errors), default=None),
         maximum_image_rotation_error_deg=max((float(np.rad2deg(np.linalg.norm(e['rotation_error_rad']))) for e in errors), default=None),
         mean_pose_nees_6d=float(np.mean([e['nees_6d'] for e in errors])) if errors else None,
+        mean_position_bias_m=np.mean([e['position_error_m'] for e in errors], axis=0).tolist() if errors else None,
+        mean_rotation_bias_rad=np.mean([e['rotation_error_rad'] for e in errors], axis=0).tolist() if errors else None,
+        fraction_inside_95percent_6d_ellipsoid=float(np.mean([e['nees_6d'] <= 12.592 for e in errors])) if errors else None,
         fraction_inside_99percent_6d_ellipsoid=float(np.mean([e['nees_6d'] <= 16.812 for e in errors])) if errors else None,
         warmup_s=warm['sim_time_s'], processing_real_time_factor_after_warmup=elapsed/compute if compute > 0 else None,
         performance_required_for_acceptance=False,

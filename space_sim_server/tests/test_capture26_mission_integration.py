@@ -222,7 +222,8 @@ def test_capture26_continuation_requires_complete_checked_state_and_matching_cal
     import hashlib
     from copy import deepcopy
     from simulation.capture26_handoff import validate, SCHEMA, COMMON_CHECKS, LEGACY_PERFORMANCE_CHECKS
-    from simulation.capture26_mission import MODEL_PATH, MODEL_ID
+    from simulation.capture26_mission import MODEL_PATH, MODEL_ID, load_mission
+    from simulation.sensor_delivery import FixedStereoDelivery
     from simulation.pose_navigation import PoseNavigation
     from simulation.gyroscope import Gyroscope
     from simulation.differential_gnss import DifferentialGNSS
@@ -243,8 +244,10 @@ def test_capture26_continuation_requires_complete_checked_state_and_matching_cal
         physical=dict(time_ns=0, model_xml_sha256=digest, nq=14, nv=12, free_qpos=[0, 7],
             qpos_inertial=[0., 0., 0., 1., 0., 0., 0.]*2, qvel_inertial=[0.]*12),
         navigation=nav.snapshot(), gyros=[g.snapshot() for g in gyros],
+        mission_configuration=load_mission(ROOT).to_dict(), sensor_delivery=FixedStereoDelivery().snapshot(),
         gnss_receiver=receiver.snapshot(), gnss_pending=[], retention={}, environment=[],
-        control=dict(operating_reference=[0.]*8, capture_reference=[0.]*12, force_n=[0.]*3))
+        control=dict(operating_reference=[0.]*8, capture_reference=[0.]*12, force_n=[0.]*3,
+                     gyro_pending=[], last_cooperative_ns=0, last_gnss_ns=0, platform_stability=None))
     assert validate(json.loads(json.dumps(document)), ROOT)['mission_id'] == 'unit-contract'
     # A slower run may pass functional admission. Legacy /1 performance flags
     # remain readable, while failures of any functional check still reject it.
@@ -277,6 +280,15 @@ def test_capture26_continuation_requires_complete_checked_state_and_matching_cal
             validate(bad, ROOT)
     # Validation operates on a copy; a failed admission cannot mutate the sender.
     assert document['gyros'][1]['body_name'] == 'capture_target'
+    legacy = deepcopy(document)
+    legacy['schema'] = 'space-sim-capture26-handoff/1'
+    del legacy['mission_configuration'], legacy['sensor_delivery']
+    assert validate(legacy, ROOT)['accepted']  # Readable, never admitted by the v2 runtime.
+    for missing in ('mission_configuration', 'sensor_delivery'):
+        bad = deepcopy(document)
+        del bad[missing]
+        with pytest.raises(ValueError, match='v2 handoff lacks'):
+            validate(bad, ROOT)
 
 
 @pytest.mark.parametrize('paced', [False, True])

@@ -58,6 +58,25 @@ def test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idl
     assert all(f["capture_episode_id"] == "" for f in publisher.frames)
     assert all(f["vision_capture_camera_ids"] == ["teleop/camera/left", "teleop/camera/right"] for f in requested)
     assert all("vision_capture_camera_ids" not in f for f in publisher.frames if not f.get("vision_capture_requested"))
+    # Exercise epoch identities in this native bridge contract too. This test
+    # already belongs to the native CI group and runs with actual Basilisk.
+    traces = []
+    for refresh in (10, 20, 50):
+        publisher = Publisher()
+        bridge = BasiliskRenderBridge(publisher=publisher, frame_rate_hz=refresh,
+            epoch_offset_ns=5_120_000_000_000, vision_capture_camera_ids=('left', 'right'))
+        bridge.frame_id_from_simulation_epoch = True
+        bridge.vision_delivery_delay_ns = 200_000_000
+        bridge.vision_exposure_after_ns = 5_120_000_000_000
+        bridge.Reset(0)
+        for stamp in range(0, 300_000_001, 2_500_000):
+            bridge.UpdateState(stamp)
+        traces.append([(f['frame_id'], f['sim_time_ns'], f['vision_delivery_time_ns'])
+                       for f in publisher.frames if f.get('vision_capture_requested')])
+        assert bridge.last_published_frame_id == 5_120_300_000_000
+        assert bridge.last_vision_exposure == (5_120_300_000_000, '5120300000000')
+    assert traces[0] == traces[1] == traces[2]
+    assert [int(t[2])-int(t[1]) for t in traces[0]] == [200_000_000]*3
 
 
 @pytest.mark.parametrize("rate", [0, -1, 7, 9.5, float("nan"), True])

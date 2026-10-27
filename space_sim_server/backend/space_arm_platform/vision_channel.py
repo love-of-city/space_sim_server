@@ -1,7 +1,7 @@
 """Nonblocking, bounded localhost channel from image worker to control process.
 
-UDP loss is a missing measurement, never an excuse to hold physical time. The
-receiver checks task/session/calibration before exposing a result to navigation.
+The outer fixed-delivery scheduler handles missing results and process health.
+The receiver checks task/session/calibration before exposing a result to navigation.
 Image bytes and simulator truth do not travel on this result channel.
 """
 import json
@@ -38,6 +38,7 @@ class VisionResultReceiver:
         self.port = self.socket.getsockname()[1]
         self.rejected = 0
         self.last_error = None
+        self.invalid_events = []
 
     def poll(self):
         results = []
@@ -47,6 +48,7 @@ class VisionResultReceiver:
                 data = self.socket.recv(65_536)
             except BlockingIOError:
                 break
+            result = {}
             try:
                 result = json.loads(data)
                 if tuple(result[k] for k in ('mission_id', 'session_id', 'calibration_id')) != self.identity:
@@ -58,7 +60,13 @@ class VisionResultReceiver:
             except (ValueError, KeyError, TypeError) as exc:
                 self.rejected += 1
                 self.last_error = str(exc)
+                self.invalid_events.append(dict(result if isinstance(result, dict) else {},
+                    status='rejected', reason=self.last_error, transport_rejection=True))
         return results
+
+    def drain_invalid(self):
+        events, self.invalid_events = self.invalid_events, []
+        return events
 
     def close(self):
         self.socket.close()

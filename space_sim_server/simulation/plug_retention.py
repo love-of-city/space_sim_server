@@ -30,6 +30,7 @@ class RetentionParameters:
     lateral_force_limit_n: float = 10.0
     rotational_stiffness_nm_rad: float = 0.2
     rotational_damping_nms_rad: float = 0.002
+    torsional_damping_nms_rad: float = 0.02
     torque_limit_nm: float = 0.1
     backstop_stiffness_n_m: float = 2000.0
     backstop_force_limit_n: float = 15.0
@@ -212,11 +213,20 @@ class PlugFriction:
         # substep's external loads. A sign(velocity) held force would chatter.
         force[2] = axial_backstop_force(delta[2], p)
         damping_omega = omega
+        torsional_torque = np.zeros(3)
         if not self.active.keyed:
+            # A round connector has no keyed roll error, but its seated
+            # contact still has finite torsional resistance.  Keep the
+            # existing tilt damping and add a small axial-roll damping term;
+            # this prevents release-induced spin without imposing a virtual
+            # orientation lock.
             axis = rotation[:, 2]
-            damping_omega = omega - np.dot(omega, axis) * axis
-        torque = _limited(-p.rotational_stiffness_nm_rad * error - p.rotational_damping_nms_rad * damping_omega,
-                          p.torque_limit_nm)
+            roll_speed = float(np.dot(omega, axis))
+            damping_omega = omega - roll_speed * axis
+            torsional_torque = -p.torsional_damping_nms_rad * roll_speed * axis
+        torque = _limited(-p.rotational_stiffness_nm_rad * error
+                          - p.rotational_damping_nms_rad * damping_omega
+                          + torsional_torque, p.torque_limit_nm)
         self.displacement_m = float(delta[2])
         near_seat = (abs(delta[2]) < p.seated_tolerance_m
                      and np.linalg.norm(delta[:2]) <= p.capture_radius_m

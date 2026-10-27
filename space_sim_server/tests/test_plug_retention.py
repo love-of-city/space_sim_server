@@ -45,7 +45,13 @@ def test_round_socket_allows_axial_roll_but_requires_axis_alignment():
     yaw = axis_angle_to_matrix(np.array([0., 0., 1.]), 2.)
     _, torque = model.wrench([0., 0., .306], yaw, [0., 0., -.001], [0., 0., 1.])
     assert model.active is socket
-    np.testing.assert_allclose(torque, 0, atol=1e-12)
+    np.testing.assert_allclose(
+        torque, [0., 0., -RetentionParameters().torsional_damping_nms_rad], atol=1e-12
+    )
+    _, stopped_torque = model.wrench(
+        [0., 0., .306], yaw, [0., 0., 0.], [0., 0., 0.]
+    )
+    np.testing.assert_allclose(stopped_torque, 0, atol=1e-12)
     model.reset()
     tilt = axis_angle_to_matrix(np.array([1., 0., 0.]), .2) @ yaw
     model.wrench([0., 0., .306], tilt, [0., 0., -.001], [0., 0., 0.])

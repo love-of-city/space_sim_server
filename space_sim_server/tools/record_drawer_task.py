@@ -134,6 +134,8 @@ async def run(args):
     scene = scene_copy(args.scene, args.task)
     scene["scripted_task_name"] = args.task
     scene.setdefault("collection_config", {})["task"] = args.task
+    if args.task in THREADED_TASKS:
+        scene["collection_config"]["threaded_speed_profile"] = args.threaded_speed_profile
     if frame_limit_override:
         scene["collection_config"]["recording_frame_limit_override"] = frame_limit_override
     from space_arm_platform.overview_camera import validate_overview_camera
@@ -289,7 +291,7 @@ async def run(args):
             command.append("--no-save-trace")
         if settings.scripted_native_geometry:
             command.append("--native-geometry")
-        command += motion_arguments(args.task, args.linear_speed)
+        command += motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
         if args.substeps is not None:
             command += ["--substeps", str(args.substeps)]
         simulation = launch(command, "simulation", env)
@@ -528,7 +530,7 @@ def main(default_task="drawer_cycle"):
     if args.timeout_seconds is None:
         args.timeout_seconds = 5400.0 if args.task in THREADED_TASKS else 1200.0
     try:
-        motion_arguments(args.task, args.linear_speed)
+        motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
     except ValueError as error:
         parser.error(str(error))
     if args.target_site is None:

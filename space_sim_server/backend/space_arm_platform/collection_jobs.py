@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Literal
 import uuid
 
 import psutil
@@ -88,6 +89,7 @@ class CollectionCreate(BaseModel):
     linear_speed_m_s: float | None = Field(
         default=None, gt=0, le=0.1, allow_inf_nan=False
     )
+    threaded_speed_profile: Literal["default", "fast_collection"] | None = None
 
     @model_validator(mode="after")
     def valid_plan(self):
@@ -98,6 +100,11 @@ class CollectionCreate(BaseModel):
                 self.linear_speed_m_s = 0.1
         elif self.linear_speed_m_s is not None:
             raise ValueError("移动速度配置仅适用于抽屉完整循环任务")
+        if self.task in ("aviation_bolt_insert", "locking_rod_cycle"):
+            if self.threaded_speed_profile is None:
+                self.threaded_speed_profile = "fast_collection"
+        elif self.threaded_speed_profile is not None:
+            raise ValueError("螺纹采集速度配置仅适用于航空螺丝和杆状机构任务")
         if not self.workers <= self.count <= self.max_attempts:
             raise ValueError("需满足 并发数 ≤ 成功条数 ≤ 最大尝试数")
         return self
@@ -399,6 +406,11 @@ class CollectionManager:
                         command += [
                             "--linear-speed",
                             str(cfg.get("linear_speed_m_s") or 0.1),
+                        ]
+                    if cfg["task"] in ("aviation_bolt_insert", "locking_rod_cycle"):
+                        command += [
+                            "--threaded-speed-profile",
+                            cfg.get("threaded_speed_profile") or "default",
                         ]
                     for name, port in zip(
                         ("control", "capture", "render", "signalling"),

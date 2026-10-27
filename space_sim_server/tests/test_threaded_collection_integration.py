@@ -22,6 +22,75 @@ def test_web_collection_dispatches_latest_controller(name):
     assert threaded_task_class(name).name == name
 
 
+@pytest.mark.parametrize("name", THREADED_TASKS)
+@pytest.mark.parametrize("profile", [None, "default", "fast_collection"])
+def test_private_preflight_uses_the_executed_collection_profile(
+    tmp_path, monkeypatch, name, profile
+):
+    from pathlib import Path
+    from simulation.scripted_tasks import drawer_initialization as initialization
+    from simulation.scripted_tasks.randomization import write_model_variant
+    from simulation.scripted_tasks.threaded_motion import ThreadedSample, model_body_pose
+    from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
+
+    source = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_20261012.xml"
+    scene = {
+        "scripted_task_name": name,
+        "randomization": {
+            "arm_joint_position_rad": [*np.deg2rad(DEFAULT_OPERATING_JOINT_DEG), 0., 0.]
+        },
+    }
+    if profile is not None:
+        scene["collection_config"] = {"threaded_speed_profile": profile}
+    model = write_model_variant(source, tmp_path / "model.xml", scene)
+    factory = initialization.create_threaded_task
+    options = {} if profile is None else {"speed_profile": profile}
+    runtime = factory(name, model, **options)
+
+    def initial_approach(task, joints):
+        position, rotation = model_body_pose(task.root, task.config.part_body)
+        scalars = {
+            joint: float(task.root.find(f'.//joint[@name="{joint}"]').get("ref", "0"))
+            for joint in getattr(task, "_required_scalars", ())
+        }
+        sample = ThreadedSample(
+            0., joints, np.zeros(8), position, rotation,
+            np.zeros(3), np.zeros(3), np.zeros(6), False, scalar_joints=scalars,
+        )
+        task.reference[:] = joints
+        task._enter("approach", sample)
+        candidates = np.array([
+            task.planned_path_reference(t) for t in np.linspace(0., task._duration, 9)
+        ])
+        return [("approach", candidates, (task.config.part_body,))]
+
+    joints = np.array(scene["randomization"]["arm_joint_position_rad"])
+    expected = initial_approach(runtime, joints)[0][1]
+    created = []
+
+    def private_factory(task_name, task_model, **received):
+        created.append((received, factory(task_name, task_model, **received)))
+        return created[-1][1]
+
+    monkeypatch.setattr(initialization, "create_threaded_task", private_factory)
+    # Exercise the real approach planner and factory, while isolating the
+    # profile contract from the remaining mechanism paths and native contacts.
+    monkeypatch.setattr(type(runtime), "preflight_paths", initial_approach)
+    checked = []
+    probe = object.__new__(initialization.NativePoseProbe)
+    probe.home = np.zeros(8)
+    probe.q = probe.home.copy()
+    probe.pose_collision = lambda candidate, *args: checked.append(candidate.copy())
+    result = probe.validate(model, scene, name)
+
+    assert result["accepted"]
+    assert created[0][0] == options
+    assert asdict(created[0][1].config) == asdict(runtime.config)
+    np.testing.assert_allclose(checked[1:], expected, atol=1e-12)
+    assert expected[-1, 6] == pytest.approx(.45 if profile == "fast_collection" else 1.)
+    np.testing.assert_array_equal(probe.home, np.zeros(8))
+
+
 def test_threaded_duration_can_complete_real_turns_without_changing_global_recording_limits():
     from simulation.scripted_tasks.threaded_tasks import task_default_duration_s
     from space_arm_platform.recording_config import RecordingConfig
@@ -390,6 +459,38 @@ def test_rod_recording_accepts_naturally_unloaded_release_after_real_tightening(
     observations,stages=rod_recording()
     assert observations[-1]["scripted_task"]["fastener_hook_normal_force_n"]==0.
     validate_threaded_recording(observations,stages,"locking_rod_cycle")
+
+
+@pytest.mark.parametrize("factory,task", [(bolt_recording, "aviation_bolt_insert"),
+                                         (rod_recording, "locking_rod_cycle")])
+@pytest.mark.parametrize("release_opening", [.45, .75])
+def test_released_recording_requires_configured_jaw_clearance_during_entire_hold(factory, task, release_opening):
+    observations, stages = factory()
+    for obs in observations:
+        obs["scripted_task"]["task_parameters"]["release_open_rad"] = release_opening
+        obs["gripper_opening_normalized"] = release_opening
+    validate_threaded_recording(observations, stages, task)
+    insufficient = deepcopy(observations)
+    insufficient[-1]["gripper_opening_normalized"] = release_opening-.02
+    with pytest.raises(AssertionError):
+        validate_threaded_recording(insufficient, stages, task)
+    # A final open frame cannot hide a reclosed jaw during the released hold.
+    insufficient = deepcopy(observations)
+    insufficient[-10]["gripper_opening_normalized"] = release_opening-.02
+    with pytest.raises(AssertionError):
+        validate_threaded_recording(insufficient, stages, task)
+    still_touching = deepcopy(observations)
+    still_touching[-10]["scripted_task"]["finger_part_contacts"] = [1, 0]
+    with pytest.raises(AssertionError):
+        validate_threaded_recording(still_touching, stages, task)
+
+
+def test_release_target_cannot_be_lowered_below_swept_physical_head_clearance():
+    observations, stages = bolt_recording()
+    for obs in observations:
+        obs["scripted_task"]["task_parameters"]["release_open_rad"] = .3
+    with pytest.raises(AssertionError):
+        validate_threaded_recording(observations, stages, "aviation_bolt_insert")
 
 
 @pytest.mark.parametrize("failure",["no_seating_contact","misaligned_seating_contact"])

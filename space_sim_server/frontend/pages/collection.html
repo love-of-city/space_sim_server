@@ -7,6 +7,7 @@
     <p id="task-description" class="muted"></p>
     <div class="form-grid"><label class="field">成功记录数<input name="count" type="number" min="1" max="1000" value="5" required></label><label class="field">并行实例<select id="workers" name="workers"><option value="1">1 路</option><option value="2" selected>2 路</option><option value="3">3 路</option><option value="4">4 路</option></select></label></div>
     <label id="drawer-speed-field" class="field">移动速度（m/s）<input id="linear-speed" name="linear_speed_m_s" type="number" min="0.005" max="0.1" step="0.005" value="0.1" required><small>用于空程和抽出、放回主体行程；接近把手与最终归位时自动减速。</small></label>
+    <label id="threaded-speed-field" class="field" hidden>螺丝任务速度<select id="threaded-speed-profile" name="threaded_speed_profile" disabled><option value="fast_collection" selected>快速采集</option><option value="default">原始速度</option></select><small>快速采集同步接近、转向与开爪，保留真实卡扣抓取、同轴旋拧和松爪换抓。</small></label>
     <div class="form-section">初始化与重试</div>
     <label class="randomization-toggle"><input id="overview-camera-randomization" type="checkbox" checked><span>全局相机随机初始化（5 个固定机位）</span></label>
     <p class="muted">每条任务从卫星实体台面上方 30 cm 的 5 个安装机位中随机选择，视野 90°，整段保持固定；机位与安装点随记录保存。</p>

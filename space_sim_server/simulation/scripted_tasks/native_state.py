@@ -103,6 +103,7 @@ class PlugState:
             np.r_[wrench["force_n"], wrench["torque_nm"]],
             wrench["valid"],
             tuple(contacts) if contacts is not None else None,
+            native_qpos=state.copy(),
         )
 
     def metrics(self, sample):

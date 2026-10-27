@@ -38,6 +38,11 @@ jerk 限制。不能将速度误差直接除以 5 ms 控制周期：该组合会
 
 回腕只将夹爪松到 0.40 rad，不必每次张到最大。对所有名义回腕及额外半圈加 0.5 rad 的角度包络做原生几何扫描，六角头的无接触开度下界约为 0.3551 rad，当前保留约 0.0449 rad 余量。实际双指脱离且左右开度都达到目标附近后才开始回腕。
 
+末尾两段旋拧按剩余角度均衡分配，避免完整半圈后只剩很短螺纹接合，
+松爪时螺丝提前脱孔漂移。最后一段持续握持，仍须达到实际累计转角和
+尖端越口条件才能搬运。部分旋拧后的空手回腕仍按原双侧卡口的 π
+对称角返回，不能简单倒转上一段角度而失去卡口对齐。
+
 ## 场景初态和随机布局
 
 航空螺丝初始孔使用对应的物理母螺纹 SDF。任务生成独立模型时会为缺少该螺纹的旧布局补装它，安装位置与朝向跟随初始孔所属单元。
@@ -67,6 +72,29 @@ python tools/run_scripted_task.py --task locking_rod_cycle --scene /absolute/sce
 python tools/record_threaded_task.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-recording --episodes-root /absolute/episodes --offline
 ```
 
+网页新建这两个任务的采集批次时默认选择“快速采集”，也可切回“原始速度”。
+已有批次缺少档位字段时继续使用原始速度。命令行仍保留原始默认档，
+缩短单条任务时间时显式选择快速采集档：
+
+```bash
+python tools/record_threaded_task.py --task locking_rod_cycle --scene /absolute/scene.json --output /absolute/rod-fast-recording --episodes-root /absolute/episodes --offline --threaded-speed-profile fast_collection
+python tools/collect_threaded_tasks.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-fast-batch --episodes-root /absolute/episodes --count 5 --max-attempts 15 --offline --threaded-speed-profile fast_collection
+```
+
+`fast_collection` 将自由空间巡航从 5 cm/s 提到 8 cm/s，最终接近从
+2.5 cm/s 提到 4 cm/s，旋拧和夹爪开合从 0.20 rad/s 提到 0.30 rad/s
+（旋拧加速度和 jerk 同步调整）。螺纹内轴向速度仍由导程和旋拧决定。
+接近和释放张爪目标为 0.45 rad，避免每次从最大开度重新闭合；航空螺丝
+空手回腕继续使用已检查的 0.40 rad。航空螺丝每次卸载不再重复计入
+独立开爪轨迹的时间，搬运高度从 24.5 cm 降到 20.5 cm，最终撤离从
+10 cm 缩至 6.5 cm。杆状螺丝换支撑抓姿的退让从 14 cm 缩至 6.5 cm，
+卡扣释放后的退让从 6.5 cm 缩至 3 cm，扶起后换回轴向抓姿的准备距离
+缩至 4.5 cm。转向仍在移动中完成。
+
+两项任务保留原物理阻力、同轴卡口、真实松爪换抓、接触验收和稳定保持
+时间。预检和正式运行使用同一个档位与路径计算；档位同时写入场景
+`collection_config.threaded_speed_profile` 和每条 episode 的 `task_parameters`。
+
 批量采集（另一个任务使用 `--task locking_rod_cycle`）：
 
 ```bash
@@ -83,9 +111,9 @@ python tools/collect_threaded_tasks.py --task aviation_bolt_insert --scene /abso
 
 航空螺丝必须实际完成初始孔退出位移及累计旋转，并在目标孔达到要求的累计旋转、轴线、径向和落座误差。允许完整的多次回腕重抓序列；缺少旋出、搬运或旋入阶段的录像拒绝。
 
-旋入交接到松爪时，实际累计转角距离要求值最多差 0.02 rad；最终松爪后的累计转角容差仍为 0.15 rad，用于容纳真实卸载回弹。撤离路径继续将夹爪打开到 0.75 rad，验证阶段保持这个开度，不能重放先前未完成的局部松爪轨迹。
+旋入交接到松爪时，实际累计转角距离要求值最多差 0.02 rad；最终松爪后的累计转角容差仍为 0.15 rad，用于容纳真实卸载回弹。撤离路径继续将夹爪打开到配置目标（原始档 0.75 rad，快速档 0.45 rad），验证阶段保持这个开度，不能重放先前未完成的局部松爪轨迹。
 
-实际手指脱离后优先沿目标孔轴向上抬 10 cm，同时继续张开夹爪；不会沿旋拧后的任意水平朝向扫过邻件。上抬路径不可达或碰撞时，才检查连续斜上退出候选。完整初始化预检包含松爪与撤离；这两段不允许非指尖机械臂与环境产生负间隙。运行时撤离在私有模型中恢复完整实测坐标和四杆被动关节偏差，再检查全部路径，不改变正式仿真状态。
+实际手指脱离后优先沿目标孔轴向上抬配置距离（原始档 10 cm，快速档 6.5 cm），同时继续张开夹爪；不会沿旋拧后的任意水平朝向扫过邻件。上抬路径不可达或碰撞时，才检查连续斜上退出候选。完整初始化预检包含松爪与撤离；这两段不允许非指尖机械臂与环境产生负间隙。运行时撤离在私有模型中恢复完整实测坐标和四杆被动关节偏差，再检查全部路径，不改变正式仿真状态。
 
 杆状机构必须实际旋松、脱离挂钩、接触卡扣、扶起复位并旋紧。拧紧后同时检查铰链角、紧固件位移/转角的螺旋关系、挂钩接触及实际法向反力；只靠“到过目标位置”不能验收。接触反力来自原生接触力只读接口，缺少此证据时不能声明旋紧成功。
 
@@ -116,6 +144,38 @@ v2 还保存 200 Hz 指令连续性统计 `reference_motion_quality`。采集验
 原始视频在各目录的 `episodes/` 下，`two-cameras.mp4` 为左全局、右腕部
 的原速查看副本。具体证据见 `validation.json`、`run/dynamics/summary.json`、
 `motion-audit.json` 和 `measured-qpos-contact-audit.json`。
+
+## 2026-10-27 快速采集档试跑
+
+`/home/lyh/space_enviroment/runs/threaded-fast-20261027/rod-recording-fast-01/`
+使用 `fast_collection` 完成了一次杆状螺丝双相机完整录制，仿真时长
+135.49 s、50 Hz 共 6,775 帧，正式录像验收和视频解码通过。200 Hz 动力学
+审计中旋拧卡口接触率为 100%，最大腕轴偏差 0.1796°，阶段指令速度跳变
+0.000441 rad/s；相比默认杆状回合 160.74 s，缩短约 15.7%。双相机原速
+预览为该目录下的 `two-cameras.mp4`。
+
+进一步减少开合和退让后的
+`/home/lyh/space_enviroment/runs/threaded-efficient-20261027/rod-recording-01/`
+完成 99.975 s 的完整任务，比前一快速版缩短 26.21%。正式录制验收通过，
+两路视频各 5000 帧；旋拧双侧卡口接触率 100%，最大腕轴误差 0.17968°，
+20,008 个实际完整姿态通过原生接触复核。两个版本的放倒与扶起端点、
+完整操作阶段及成功条件相同。`stage-duration-comparison.json` 保存分段
+实测时长；缩短路径不代表每个分段都会等比例加快。
+
+同一轮优化后的 `threaded-efficient-20261027/bolt-recording-02/`
+完成 444.58 s 的航空螺丝完整任务，相比原始速度版 606.675 s 缩短
+26.72%。正式录制验收通过，两路 1024²、50 Hz 视频各 22,231 帧；
+旋拧双侧卡口接触率为 100%，最大腕轴误差 1.67719°，88,932 个
+实际完整姿态通过原生接触复核，包含最终释放、撤离和稳定保持。
+航空螺丝与杆状螺丝的百分比分别对比原始速度版和上一快速版，不能
+视为同一基线。航空螺丝的 `timing-comparison.json` 保存分段时长。
+本次末段均衡旋拧增加一次实际换抓；总体节省来自适量张爪、缩短搬运
+与撤离及移除重复计时，不以省略必要换抓实现加速。
+
+两份原速双相机预览均为各自运行目录下的 `two-cameras.mp4`。
+`finalization.json` 汇总录像验收与预览信息。早期航空螺丝试录
+`bolt-recording-01` 因旋出末段松爪漂移被中止，仍作为失败诊断保留，
+不纳入上述成功结果；`bolt-recording-02` 使用修复后的分段重新完整执行。
 
 ## 2026-10-26 初版历史运行（v1）
 

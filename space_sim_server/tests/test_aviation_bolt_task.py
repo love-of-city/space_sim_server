@@ -9,7 +9,8 @@ import pytest
 
 from simulation.scripted_tasks.aviation_bolt import AviationBoltConfig, AviationBoltTask
 from simulation.scripted_tasks.threaded_motion import ThreadedSample
-from simulation.serial_chain_kinematics import axis_angle_to_matrix
+from simulation.scripted_tasks.threaded_tasks import create_threaded_task
+from simulation.serial_chain_kinematics import axis_angle_to_matrix, rotation_matrix_to_vector
 from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
 
 
@@ -61,6 +62,45 @@ def test_screw_does_not_start_without_bilateral_physical_grasp(contacts):
         task.step(replace(sample,time_s=tick*.005))
     assert task.stage=="grip"
     assert not task.source_unscrewed
+
+
+def test_fast_approach_opens_only_to_the_checked_head_clearance():
+    task,sample=make_task()
+    task=create_threaded_task(task.name,MODEL,speed_profile="fast_collection")
+    task.reference[:]=sample.joints
+    task._enter("approach",sample)
+    references=np.array([task.planned_path_reference(t)
+                         for t in np.linspace(0.,task._duration,121)])
+    assert references[-1,6]==pytest.approx(task.config.approach_open_rad)
+    assert .4<=references[-1,6]<1.
+    assert np.all(np.diff(references[:,6])>=-1e-12)
+    # Alignment and a genuine close/contact phase still precede rotation.
+    goal,rotation=task._grasp_pose(sample,offset_local=(0.,0.,task.config.head_offset_m))
+    actual,actual_rotation=task.chain.forward(references[-1,:6])
+    np.testing.assert_allclose(actual,goal,atol=2e-5)
+    np.testing.assert_allclose(actual_rotation,rotation,atol=2e-5)
+
+
+def test_regrasp_arm_unload_does_not_repeat_the_independent_jaw_timer():
+    task,sample=make_task()
+    task.reference[:]=sample.joints
+    task.reference[6:]=[.21,-.21]
+    measured=sample.joints.copy()
+    measured[6:]=[.26,-.26]
+    sample=replace(sample,joints=measured,finger_part_contacts=(1,1))
+    task._enter("regrasp_release",sample)
+    # The arm is already unloaded. Waiting for a second jaw-retimed arm path
+    # used to hold the wrist still after the actual release had finished.
+    assert task._duration==pytest.approx(1.)
+    assert task._gripper_timing.duration>task._duration
+    task._phase="unscrew"
+    task._last_time=0.
+    measured[6:]=[task.config.regrasp_open_rad,-task.config.regrasp_open_rad]
+    for tick in range(1,81):
+        task.step(replace(sample,time_s=tick*.05,joints=measured))
+    # Reduced scheduling overhead never permits a return while either finger
+    # remains in contact, even when its measured opening is sufficient.
+    assert task.stage=="regrasp_release"
 
 
 def test_recording_rejects_missing_regrasp_or_missing_screw_in():
@@ -141,13 +181,13 @@ def test_release_backdrive_reduces_actual_turn_progress_and_cannot_pass_verify()
     assert task.result is None
 
 
-def test_rewind_follows_extra_physical_turn_during_release_before_regrasp():
+@pytest.mark.parametrize("turn",[math.pi-.02,1.975])
+def test_rewind_follows_extra_physical_turn_during_release_before_regrasp(turn):
     task,sample=make_task()
     task.reference[:]=sample.joints
     task._enter("approach",sample)
     task.reference[:]=task.planned_path_reference(task._duration)
     p,r=task.chain.forward(task.reference[:6])
-    turn=math.pi-.02
     distance=task.config.thread_pitch_m*turn/(2*math.pi)
     axis=task.outward
     def helix(u):
@@ -166,6 +206,42 @@ def test_rewind_follows_extra_physical_turn_during_release_before_regrasp():
     desired,_=task._regrasp_pose(released,fr)
     assert abs(fr[:,0]@released.part_rotation_body[:,1])>math.cos(1e-5)
     np.testing.assert_allclose(fp,desired,atol=2e-5)
+    # A partial held turn still needs the physically equivalent pi return.
+    # Subtract the actual .12-rad backlash observed during the released phase.
+    assert np.linalg.norm(rotation_matrix_to_vector(fr@helix(1.)[1].T))==pytest.approx(math.pi-.12,abs=2e-5)
+
+
+@pytest.mark.parametrize("stage",["unscrew","screw_in"])
+@pytest.mark.parametrize("remaining",[3.95,4.25,5.9])
+def test_penultimate_turn_regrasp_leaves_a_substantial_final_held_stroke(stage,remaining):
+    task,sample=make_task()
+    source=stage=="unscrew"
+    required=task.source_required_rotation_rad if source else task.target_required_rotation_rad
+    initial=required-remaining
+    if source:
+        task.source_rotation_rad=initial
+    else:
+        task.source_unscrewed=task.ever_lifted=True
+        task.target_rotation_rad=initial
+    task.reference[:]=sample.joints
+    task._enter(stage,sample)
+    turn=task._stroke_goal
+    assert turn==pytest.approx(remaining/2)
+    # The observed fast-run failure left only .816 rad/~2 mm engaged, which
+    # released before the fingers could reacquire it. The balanced stroke
+    # leaves at least 5 mm nominal engagement in this boundary range.
+    assert (remaining-turn)*task.config.thread_pitch_m/(2*math.pi)>.005
+    if source:
+        task.source_rotation_rad+=turn
+    else:
+        task.target_rotation_rad+=turn
+    task._stroke_turn=turn
+    task._track_part=lambda *args,**kwargs:None
+    task._motion_stopped=lambda *args,**kwargs:True
+    transitions=[]
+    task._enter=lambda next_stage,sample:transitions.append(next_stage)
+    task._spin(sample,.005)
+    assert transitions==["regrasp_release"]
 
 
 def test_preflight_closes_stationary_before_turn_and_transforms_free_pose_to_world(tmp_path,monkeypatch):
@@ -410,10 +486,12 @@ def test_target_finishes_actual_turn_before_release_to_preserve_final_unwind_mar
     assert task.config.rotation_tolerance_rad==.15
 
 
-def test_retract_restores_measured_geometry_and_tries_only_upward_routes(monkeypatch):
+@pytest.mark.parametrize("distance",[.10,.065])
+def test_retract_restores_measured_geometry_and_tries_only_upward_routes(monkeypatch,distance):
     from simulation.scripted_tasks import drawer_initialization
 
     task,sample=make_task()
+    task.config=replace(task.config,retreat_distance_m=distance)
     task.reference[:]=sample.joints
     baseline=np.arange(12,dtype=float)
     sample=replace(sample,native_qpos=baseline)
@@ -438,8 +516,8 @@ def test_retract_restores_measured_geometry_and_tries_only_upward_routes(monkeyp
     np.testing.assert_array_equal(restored[0][1],sample.joints)
     assert not task.retract_branch_checks[0]["accepted"]
     assert task.retract_branch_checks[1]["accepted"]
-    assert (end-start)@task.target_outward>.070
-    assert np.linalg.norm(end-start)==pytest.approx(.10,abs=2e-5)
+    assert (end-start)@task.target_outward>.70*distance
+    assert np.linalg.norm(end-start)==pytest.approx(distance,abs=2e-5)
     for paths in inspected:
         # Actual native world poses must remain in the private baseline, never
         # be replaced with the nominal bus/model transform after orbit drift.

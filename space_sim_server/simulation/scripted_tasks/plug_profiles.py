@@ -16,6 +16,7 @@ class PlugProfile:
     # Object-local closing axis through the two modeled head latch features.
     # Explicit axes opt into coordinated approach/extract/carry/release motion.
     grasp_closing_axis: tuple[float, float, float] | None = None
+    grasp_offset_m: tuple[float, float, float] = (0., 0., -.003)
 
     @property
     def target_site(self):
@@ -59,6 +60,7 @@ PLUG_PROFILES = {
         "cylindrical_plug",
         "cylindrical",
         grasp_closing_axis=(0.0, 1.0, 0.0),
+        grasp_offset_m=(0., 0., -.006),
     ),
 }
 

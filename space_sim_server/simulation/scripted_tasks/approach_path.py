@@ -49,7 +49,8 @@ class FinishBlend:
 
 
 class ApproachPosePath:
-    def __init__(self, position, rotation, goal, goal_rotation, axis, opening, clearance):
+    def __init__(self, position, rotation, goal, goal_rotation, axis, opening, clearance,
+                 goal_opening=1.):
         self.start_rotation = np.asarray(rotation).copy()
         self.goal = np.asarray(goal).copy()
         self.axis = np.asarray(axis) / np.linalg.norm(axis)
@@ -62,6 +63,9 @@ class ApproachPosePath:
         self.rotation_vector = rotation_matrix_to_vector(goal_rotation @ self.start_rotation.T)
         self.angle = float(np.linalg.norm(self.rotation_vector))
         self.initial_opening = float(np.clip(opening, 0, 1))
+        if not math.isfinite(goal_opening) or not 0 <= goal_opening <= 1:
+            raise ValueError("Invalid approach opening")
+        self.goal_opening = float(goal_opening)
 
     def pose(self, progress):
         u = float(np.clip(progress, 0, 1))
@@ -73,11 +77,11 @@ class ApproachPosePath:
         return position, rotation
 
     def opening(self, progress):
-        return self.initial_opening + (1-self.initial_opening)*self.blend.state(progress)[0]
+        return self.initial_opening + (self.goal_opening-self.initial_opening)*self.blend.state(progress)[0]
 
     def derivative_bounds(self):
         b = self.blend.derivative_bounds()
         lateral = float(np.linalg.norm(self.lateral))
         translation = b*lateral
         translation[0] = math.hypot(self.height, translation[0])
-        return translation, self.angle*b, (1-self.initial_opening)*b
+        return translation, self.angle*b, abs(self.goal_opening-self.initial_opening)*b

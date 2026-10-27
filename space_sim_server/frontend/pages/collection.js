@@ -27,6 +27,7 @@ function renderJob(job) {
   if(job.config.randomize_overview_camera)card.append(element('p','全局相机：每条任务从 5 个固定机位随机选择，整段保持固定。','muted'));
   const bar=element("progress");bar.max=job.config.count;bar.value=job.success_count;bar.setAttribute("aria-label","成功采集进度");card.append(bar);
   if(job.config.task==='drawer_cycle'&&job.config.linear_speed_m_s!=null)card.append(element("p",`移动速度：${job.config.linear_speed_m_s} m/s · 接近把手与归位自动减速`,"muted"));
+  if(['aviation_bolt_insert','locking_rod_cycle'].includes(job.config.task))card.append(element('p',`螺丝任务速度：${job.config.threaded_speed_profile==='fast_collection'?'快速采集':'原始速度'}`,'muted'));
   const configured=catalog?.randomization_options?.filter(option=>job.config.randomization?.[option.key]?.enabled)||[];
   const configDetails=element('details',undefined,'job-randomization');
   configDetails.append(element('summary',configured.length?'已启用 '+configured.length+' 项噪声 / 扰动':'额外噪声与扰动：全部关闭'));
@@ -108,6 +109,8 @@ function describeTask(){
   $('task-description').textContent=catalog?.tasks.find(task=>task.id===$('task').value)?.description||'';
   const drawer=$('task').value==='drawer_cycle';
   $('drawer-speed-field').hidden=!drawer;$('linear-speed').disabled=!drawer;
+  const threaded=['aviation_bolt_insert','locking_rod_cycle'].includes($('task').value);
+  $('threaded-speed-field').hidden=!threaded;$('threaded-speed-profile').disabled=!threaded;
 }
 $('task').onchange=describeTask;
 $('new-collection').onclick=()=>{$('setup').hidden=false;$('task').focus();};
@@ -115,6 +118,7 @@ $('close-setup').onclick=$('cancel-setup').onclick=()=>{$('setup').hidden=true;}
 $('collection-form').onsubmit=async event=>{
   event.preventDefault();if(submitting)return;const version=epoch;notice();submitting=true;$('submit').disabled=true;
   const values=Object.fromEntries(new FormData(event.currentTarget));for(const key of ['count','workers','max_attempts','seed','range_deg','linear_speed_m_s'].filter(key=>key in values))values[key]=Number(values[key]);
+  if(!['aviation_bolt_insert','locking_rod_cycle'].includes(values.task))delete values.threaded_speed_profile;
   values.initialization_enabled=$('initialization-enabled').checked;values.range_deg=Number($('range-deg').value);values.randomization=randomizationControls.value();values.layout_randomization=$('layout-randomization').checked;
   values.randomize_overview_camera=$('overview-camera-randomization').checked;
   try{await api('/api/collections',{method:'POST',body:JSON.stringify(values)});if(active&&version===epoch)$('setup').hidden=true;}

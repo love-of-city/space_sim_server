@@ -38,14 +38,21 @@ def threaded_task_class(name):
 
 
 def create_threaded_task(name, model, **options):
+    speed_profile = options.pop("speed_profile", "default")
+    from .threaded_motion import threaded_speed_profile_options
+    profile_options = threaded_speed_profile_options(speed_profile)
+    # Explicit options are useful for diagnostics and take precedence over a
+    # named profile.  The selected profile is still recorded in task metadata.
+    profile_options.update(options)
+    profile_options["speed_profile"] = speed_profile
     if name == "aviation_bolt_insert":
         from .aviation_bolt import AviationBoltConfig
 
-        config = AviationBoltConfig(**options)
+        config = AviationBoltConfig(**profile_options)
     elif name == "locking_rod_cycle":
         from .locking_rod import LockingRodConfig
 
-        config = LockingRodConfig(**options)
+        config = LockingRodConfig(**profile_options)
     else:
         raise ValueError(f"Unknown threaded task: {name}")
     return threaded_task_class(name)(model, config)

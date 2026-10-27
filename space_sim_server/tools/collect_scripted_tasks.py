@@ -54,7 +54,12 @@ def validate_threaded_recording(steps, stages, task_name):
     parameters = final["task_parameters"]
     assert not parameters["overload_stop_enabled"]
     assert final["finger_part_contacts"] in ((0, 0), [0, 0])
-    assert steps[-1]["gripper_opening_normalized"] >= 0.62
+    # Both collection profiles must actually reach their released opening.
+    # The SARM jaw range is 0..1 rad, so its normalized observation has the
+    # same value. 0.40 rad is the swept clearance for these physical heads.
+    release_opening = float(parameters["release_open_rad"])
+    assert np.isfinite(release_opening) and .40 <= release_opening <= 1.
+    assert steps[-1]["gripper_opening_normalized"] >= release_opening-.01
     rows = [obs["scripted_task"] for obs in steps]
     quality = final["reference_motion_quality"]
     assert quality["samples"] > 0
@@ -85,8 +90,11 @@ def validate_threaded_recording(steps, stages, task_name):
 
     hold_s = float(parameters["verify_hold_s"])
     end = int(steps[-1]["sim_time_ns"])
-    stable = [obs["scripted_task"] for obs in steps
-              if 0 <= (end - int(obs["sim_time_ns"])) * 1e-9 < max(0., hold_s - .04)]
+    stable_observations = [obs for obs in steps
+                           if 0 <= (end - int(obs["sim_time_ns"])) * 1e-9 < max(0., hold_s - .04)]
+    assert all(obs["gripper_opening_normalized"] >= release_opening-.01
+               for obs in stable_observations)
+    stable = [obs["scripted_task"] for obs in stable_observations]
     assert len(stable) >= max(1, int((hold_s - .06) * 50))
     assert all(row["stage"] == "verify" and row["finger_part_contacts"] in ((0, 0), [0, 0])
                for row in stable)
@@ -259,7 +267,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
 
         profile = plug_profile(task_name)
         assert stages == list(PlugInsertTask.recorded_stages(final.get("task_version"))), stages
-        if final.get("task_version") in (PlugInsertTask.latch_version, PlugInsertTask.shared_motion_version, PlugInsertTask.overlapped_release_version, PlugInsertTask.continuous_contact_version, PlugInsertTask.continuous_carry_version, PlugInsertTask.gentle_carry_version, PlugInsertTask.smooth_tracking_version, PlugInsertTask.coordinated_version, PlugInsertTask.legacy_latch_version):
+        if final.get("task_version") in (PlugInsertTask.cylindrical_clearance_version, PlugInsertTask.latch_version, PlugInsertTask.shared_motion_version, PlugInsertTask.overlapped_release_version, PlugInsertTask.continuous_contact_version, PlugInsertTask.continuous_carry_version, PlugInsertTask.gentle_carry_version, PlugInsertTask.smooth_tracking_version, PlugInsertTask.coordinated_version, PlugInsertTask.legacy_latch_version):
             grasped = [obs["scripted_task"] for obs in steps
                        if obs["scripted_task"]["stage"] == "extract"]
             assert grasped and grasped[0]["grasp_heading_error_rad"] < 0.05
@@ -385,7 +393,7 @@ def main(default_task="drawer_cycle"):
     add_motion_options(parser)
     args = parser.parse_args()
     try:
-        motion_args = motion_arguments(args.task, args.linear_speed)
+        motion_args = motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
     except ValueError as error:
         parser.error(str(error))
     if not 1 <= args.count <= args.max_attempts <= 1000 or args.seed < 0:
@@ -421,6 +429,8 @@ def main(default_task="drawer_cycle"):
         linear_speed_m_s=(args.linear_speed if args.linear_speed is not None else 0.1)
         if args.task == "drawer_cycle"
         else None,
+        threaded_speed_profile=(args.threaded_speed_profile
+                                if args.task in THREADED_TASKS else None),
         started_at_ns=str(time.time_ns()),
         status="running",
         requested_successes=args.count,
@@ -459,6 +469,8 @@ def main(default_task="drawer_cycle"):
             seed = args.seed + index
             attempt_started = time.monotonic()
             scene = randomized_scene(source, seed, args.range_deg, args.task)
+            if args.task in THREADED_TASKS:
+                scene["collection_config"]["threaded_speed_profile"] = args.threaded_speed_profile
             catalog = None
             if pool is not None:
                 model, catalog = attach_layout(scene, pool, seed)

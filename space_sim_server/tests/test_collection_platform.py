@@ -43,6 +43,9 @@ ADMIN = dict(user_id="admin", username="admin", role="admin")
         dict(linear_speed_m_s=0.2),
         dict(linear_speed_m_s=float("nan")),
         dict(task="aviation_plug_insert", linear_speed_m_s=0.1),
+        dict(threaded_speed_profile="fast_collection"),
+        dict(task="aviation_plug_insert", threaded_speed_profile="default"),
+        dict(task="aviation_bolt_insert", threaded_speed_profile="unknown"),
         dict(seed=-1),
         dict(owner=ADMIN),
     ],
@@ -56,11 +59,12 @@ FAKE_COLLECTOR = r"""
 import argparse,json,time
 from pathlib import Path
 p=argparse.ArgumentParser()
-for name in ('output','count','seed','cancel-file','linear-speed'):
+for name in ('output','count','seed','cancel-file','linear-speed','threaded-speed-profile'):
     p.add_argument('--'+name)
 a,_=p.parse_known_args()
 folder=Path(a.output);folder.mkdir()
-(folder/'motion.json').write_text(json.dumps(dict(linear_speed_m_s=a.linear_speed)))
+(folder/'motion.json').write_text(json.dumps(dict(linear_speed_m_s=a.linear_speed,
+    threaded_speed_profile=a.threaded_speed_profile)))
 seed=int(a.seed)
 if seed==99:
     while not Path(a.cancel_file).exists(): time.sleep(.05)
@@ -356,6 +360,47 @@ def test_drawer_speed_reaches_spawned_collector_and_is_persisted(manager):
     assert float(received["linear_speed_m_s"]) == 0.05
     assert CollectionCreate().linear_speed_m_s == 0.1
     assert CollectionCreate(task="aviation_plug_insert").linear_speed_m_s is None
+
+
+@pytest.mark.parametrize("task", ["aviation_bolt_insert", "locking_rod_cycle"])
+@pytest.mark.parametrize("profile", [None, "default", "fast_collection"])
+def test_threaded_speed_reaches_spawned_collector_and_is_persisted(
+    manager, monkeypatch, task, profile
+):
+    monkeypatch.setitem(TASKS, task, CollectionTask("fake", "fake.py", "fake"))
+    request = CollectionCreate(
+        task=task, workers=1, count=1, max_attempts=1,
+        threaded_speed_profile=profile,
+    )
+    job = manager.start(request, OWNER, {})
+    result = wait_job(manager, job["id"])
+    expected = profile or "fast_collection"
+    assert result["status"] == "complete"
+    assert result["config"]["threaded_speed_profile"] == expected
+    received = json.loads(
+        (manager.root / job["id"] / "worker-0" / "motion.json").read_text()
+    )
+    assert received["threaded_speed_profile"] == expected
+    assert received["linear_speed_m_s"] is None
+
+
+@pytest.mark.parametrize("task", ["aviation_bolt_insert", "locking_rod_cycle"])
+def test_saved_threaded_job_without_profile_keeps_original_speed(manager, monkeypatch, task):
+    monkeypatch.setitem(TASKS, task, CollectionTask("fake", "fake.py", "fake"))
+    # Prepare an old job document before its worker is launched.
+    with monkeypatch.context() as context:
+        context.setattr("threading.Thread.start", lambda self: None)
+        started = manager.start(
+            CollectionCreate(task=task, workers=1, count=1, max_attempts=1), OWNER, {}
+        )
+    job = manager.jobs[started["id"]]
+    job["config"].pop("threaded_speed_profile")
+    manager._run(job)
+    assert job["status"] == "complete"
+    received = json.loads(
+        (manager.root / job["id"] / "worker-0" / "motion.json").read_text()
+    )
+    assert received["threaded_speed_profile"] == "default"
 
 
 def test_worker_configuration_preserves_independent_options_and_disabled_initialization(manager):

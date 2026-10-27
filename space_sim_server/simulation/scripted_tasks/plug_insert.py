@@ -51,7 +51,7 @@ def fixed_site_pose(root, name, base="cubesat_bus"):
 class PlugInsertConfig:
     target_site: str | None = None
     plug_body: str = "cylindrical_plug"
-    grasp_offset_m: tuple[float, float, float] = (0.0, 0.0, -0.003)
+    grasp_offset_m: tuple[float, float, float] | None = None
     transport_height_m: float = 0.245
     arm_speed_rad_s: float | None = None
     linear_speed_m_s: float | None = None
@@ -83,6 +83,8 @@ class PlugInsertConfig:
         )
         if profile is None:
             raise ValueError("Unknown plug body")
+        if self.grasp_offset_m is None:
+            object.__setattr__(self, "grasp_offset_m", profile.grasp_offset_m)
         drawer = DrawerCycleConfig()
         coordinated = profile.grasp_closing_axis is not None
         for name, legacy, aligned in (
@@ -139,6 +141,7 @@ class PlugSample:
     wrench: np.ndarray
     wrench_valid: bool
     finger_plug_contacts: tuple[int, int] | None = None
+    native_qpos: np.ndarray | None = None
 
 
 class PlugInsertTask:
@@ -182,12 +185,21 @@ class PlugInsertTask:
     overlapped_release_version = "plug-insert/9-overlapped-release"
     shared_motion_version = "plug-insert/10-shared-continuous-motion"
     latch_version = "plug-insert/11-all-latch-aligned"
+    cylindrical_clearance_version = "plug-insert/12-cylindrical-clearance"
     continuous_carry_stages = tuple(stage for stage in coordinated_stages if stage != "descend")
     latch_stages = tuple(stage for stage in continuous_carry_stages if stage not in ("align_hole", "seat"))
 
     @classmethod
+    def task_version(cls, task_name):
+        from .plug_profiles import plug_profile
+        profile = plug_profile(task_name)
+        if profile.prefix == "cylindrical":
+            return cls.cylindrical_clearance_version
+        return cls.latch_version if profile.grasp_closing_axis else cls.version
+
+    @classmethod
     def recorded_stages(cls, version):
-        if version in (cls.latch_version, cls.shared_motion_version, cls.overlapped_release_version, cls.continuous_contact_version):
+        if version in (cls.cylindrical_clearance_version, cls.latch_version, cls.shared_motion_version, cls.overlapped_release_version, cls.continuous_contact_version):
             return cls.latch_stages
         if version in (cls.continuous_carry_version, cls.gentle_carry_version, cls.smooth_tracking_version):
             return cls.continuous_carry_stages
@@ -200,6 +212,7 @@ class PlugInsertTask:
         raise ValueError(f"Unsupported plug task version: {version}")
 
     def __init__(self, model_path: Path, config=None):
+        self.model_path = Path(model_path)
         self.config = config or PlugInsertConfig()
         self.profile = next(
             p for p in PLUG_PROFILES.values() if p.body == self.config.plug_body
@@ -207,7 +220,7 @@ class PlugInsertTask:
         self.name = self.profile.task
         self.coordinated_grasp = self.profile.grasp_closing_axis is not None
         if self.coordinated_grasp:
-            self.version = self.latch_version
+            self.version = self.task_version(self.name)
             self.stages = self.latch_stages
         root = ET.parse(model_path).getroot()
         self.chain = SerialChainKinematics.from_mjcf(
@@ -260,6 +273,7 @@ class PlugInsertTask:
         self._axial_speed = 0.
         self._axial_acceleration = 0.
         self._axial_measured_velocity = 0.
+        self.retract_plan = None
 
     def metrics(self, sample):
         axis = sample.plug_rotation_body[:, 2]
@@ -298,6 +312,8 @@ class PlugInsertTask:
             insertion_depth_m=float(self.hole[2] - tip[2]),
             seat_gap_m=float(flange[2] - self.hole[2]),
             ever_lifted=bool(self._ever_lifted),
+            grasp_hold_opening_rad=float(self._closed_reference),
+            retract_plan=self.retract_plan,
         )
 
     def fail(self, reason, sample):
@@ -553,6 +569,9 @@ class PlugInsertTask:
             goal = None
         if self.coordinated_grasp and stage == "lift":
             self._plan_carry(sample)
+        elif stage == "retract" and self.profile.prefix == "cylindrical" and sample.native_qpos is not None:
+            from .plug_clearance import plan_cylindrical_retract
+            plan_cylindrical_retract(self, sample)
         elif goal is not None:
             self._plan(goal, rotation)
         continue_opening = self.coordinated_grasp and (incoming_stage, stage) in (
@@ -570,6 +589,9 @@ class PlugInsertTask:
                 np.max(np.abs(self.reference[:6] - sample.joints[:6])) < .002
                 and abs(self._release_start_opening - self.reference[6]) < 1e-6)
         if self.coordinated_grasp and stage in ("grip", "release"):
+            if stage == "grip" and self.profile.prefix == "cylindrical" and sample.native_qpos is not None:
+                from .plug_clearance import cylindrical_hold_opening
+                self._closed_reference = cylindrical_hold_opening(self, sample)
             cfg = DrawerCycleConfig()
             target = self.config.release_open_rad if stage == "release" else self._closed_reference
             speed = self.config.release_speed_rad_s if stage == "release" else self.config.gripper_speed_rad_s
@@ -1021,7 +1043,7 @@ class PlugInsertTask:
             if self.coordinated_grasp:
                 # Bilateral contact alone can be a grasp on the wrong head faces.
                 ready = (
-                    self.reference[6] < 0.001
+                    self.reference[6] <= self._closed_reference + .001
                     and sample.joints[6] > 0.025
                     and sample.finger_plug_contacts is not None
                     and all(sample.finger_plug_contacts)

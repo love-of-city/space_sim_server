@@ -1,7 +1,8 @@
 # 三类插头连续动作采集
 
 `aviation_plug_insert`、`guide_plug_insert` 和 `cylindrical_plug_insert`
-统一使用 `plug-insert/11-all-latch-aligned`。网页自动采集、
+航空、导向使用 `plug-insert/11-all-latch-aligned`，圆柱使用
+`plug-insert/12-cylindrical-clearance`。网页自动采集、
 `tools/collect_plug_tasks.py`、`tools/record_plug_task.py` 和原生诊断入口共用
 `simulation/scripted_tasks/plug_insert.py`，不需要另外切换采集算法。
 
@@ -23,9 +24,24 @@ v11 修正了 v10 将导向、圆柱夹持轴误设为 X 的问题：三个原�
 读取起始插座和目标孔，并跟踪实测物体姿态；导向、圆柱使用独立 extract
 阶段，不再在 lift 中混入旧反馈拔出，否则会覆盖连续搬运轨迹。
 
-v11 实测：导向默认/随机布局全流程通过；圆柱卡扣方向通过，但这两组布局的
-释放后自转导致最终稳定性验收超时，尚不能作为已验证的成功采集方案。
-失败 episode 仍按原标准拒绝，详见根 archive/2026_10_26_plug_latch_axis_correction.md。
+v11 实测：导向默认/随机布局全流程通过；圆柱默认布局在 verify 超时，
+随机布局在侧撤时撞到邻近航空插头、retract 超时。失败 episode 仍按原标准拒绝，
+详见根 archive/2026_10_26_plug_latch_axis_correction.md。
+
+v12 只调整圆柱任务：抓取偏移从局部 z=-3 mm 改为 -6 mm，使指面接触原始
+卡扣中部，而非其圆角上沿。独立的原生几何探针查询本次姿态的双指接触开度，
+再增加 0.06 rad 闭合预压；不再把受阻的夹爪一直压到全闭。原双指接触、卡扣
+方向、位置和相对速度确认均保留。显式传入的抓取偏移仍优先于部件默认值。
+
+圆柱释放后优先以一条平滑直线侧移 120 mm、抬高 80 mm；根据当前完整原生
+qpos，在独立模型中扫过实际关节样条，并检查当前和最终张爪开度。首选方向
+有碰撞时尝试其他侧撤方向及 120 mm 抬高，不沿固定方向撞向随机布局中的邻件。
+这些离散静态查询只修改探针自己的坐标，不改变运行中的物体、接触或阻力。
+
+v12 默认布局 57.64 s、原失败随机布局 57.855 s 完整通过；同一随机布局正式
+双相机采集成功，每路 2893 帧、50 Hz，视频完整解码和状态/动作配对验收通过。
+20 N 插拔阻力、最终装配及速度阈值保持不变。证据和验证范围见根
+archive/2026_10_27_cylindrical_grasp_and_retreat.md；两组通过不代表任意布局均可成功。
 
 ## 抓取与动作
 
@@ -33,7 +49,8 @@ v11 实测：导向默认/随机布局全流程通过；圆柱卡扣方向通过
 夹持六角头，与卡扣方向相差 90°。新脚本在 `plug_profiles.py` 标注局部夹持轴
 `(0, 1, 0)`，用测得的插头姿态转换到卫星坐标系；安装位置、朝向和接近时的
 微小漂移都进入抓取目标。夹爪的等价 180° 方向在开始时选定，后续不反复翻转。
-工具中心保留原有局部偏移 `(0, 0, -0.003)` m，指面覆盖卡扣高度。
+航空、导向工具中心保留局部偏移 `(0, 0, -0.003)` m；圆柱为
+`(0, 0, -0.006)` m，指面覆盖卡扣中部。
 
 顺序为：稳定 → 连续接近（同步转腕、张爪，末段转为轴向）→ 双指夹持 →
 回中拔出 → 抬升 → 搬运 → 孔口上方 → 插入（含对齐、到位确认）→ 卸力松爪 →
@@ -125,7 +142,8 @@ v9 到位后同时平滑卸掉腕部与夹爪的伺服预压：腕部参考回�
 `plug-insert/3-latch-grasp`、`plug-insert/4-coordinated-approach` 和
 `plug-insert/5-smooth-tracking`、`plug-insert/6-gentle-carry`、
 `plug-insert/7-continuous-carry`、`plug-insert/8-continuous-contact`、
-`plug-insert/9-overlapped-release`、`plug-insert/10-shared-continuous-motion` 数据仍按各自历史阶段核验。
+`plug-insert/9-overlapped-release`、`plug-insert/10-shared-continuous-motion`、
+`plug-insert/11-all-latch-aligned` 数据仍按各自历史阶段核验。
 新版本额外核验拔出开始时的卡扣方向与双指接触。状态/动作维度、50 Hz
 双相机配对及 200 Hz 腕力记录格式保持兼容。
 

@@ -38,6 +38,7 @@ class AviationBoltConfig(ThreadedMotionConfig):
     regrasp_turn_rad: float = math.pi
     finish_turn_margin_rad: float = .5
     regrasp_open_rad: float = .40
+    retreat_distance_m: float = .10
     radial_tolerance_m: float = .001
     seat_tolerance_m: float = .0015
     axis_tolerance_rad: float = .035
@@ -108,6 +109,7 @@ class AviationBoltTask(ThreadedTaskBase):
         self._previous_part_rotation = None
         self._phase = "unscrew"
         self._stroke_start = self._stroke_turn = 0.
+        self._stroke_regrasp = False
         self._spin_speed = self._spin_acceleration = 0.
         self._spin_goal_position = self._spin_goal_rotation = None
         self._pickup_filter = None
@@ -126,6 +128,18 @@ class AviationBoltTask(ThreadedTaskBase):
     @property
     def target_required_rotation_rad(self):
         return 2*math.pi*self.config.target_clearance_m/self.config.thread_pitch_m
+
+    def _stroke_angle(self,remaining):
+        """Leave a substantial final held turn instead of releasing at exit."""
+        half_turn=self.config.regrasp_turn_rad
+        if remaining<=half_turn+self.config.finish_turn_margin_rad:
+            return remaining
+        if remaining<2*half_turn:
+            # A full half-turn here can leave less than a millimetre engaged.
+            # Split the last two strokes so the release occurs well inside
+            # the bore, before the screw becomes free in microgravity.
+            return remaining/2
+        return half_turn
 
     def metrics(self,sample):
         offset=sample.part_position_body_m-self.seated_position
@@ -158,7 +172,7 @@ class AviationBoltTask(ThreadedTaskBase):
             goal,rotation=self._grasp_pose(sample,offset_local=(0.,0.,self.config.head_offset_m))
             self._pickup_filter=PoseTargetFilter(goal,rotation)
             self._approach_anchor=(goal.copy(),rotation.copy())
-            self._plan_pose(goal,rotation,opening=1.,approach=True)
+            self._plan_pose(goal,rotation,opening=self.config.approach_open_rad,approach=True)
         elif stage in ("grip","regrasp_grip"):
             gp,gr=self._regrasp_pose(sample)
             self._pickup_filter=PoseTargetFilter(gp,gr)
@@ -171,8 +185,8 @@ class AviationBoltTask(ThreadedTaskBase):
             self._stroke_turn=0.
             required = self.source_required_rotation_rad if stage=="unscrew" else self.target_required_rotation_rad
             remaining = max(0., required-self._stroke_start)
-            self._stroke_goal = (remaining+.04 if remaining <= self.config.regrasp_turn_rad+self.config.finish_turn_margin_rad
-                                 else self.config.regrasp_turn_rad)
+            self._stroke_regrasp=remaining>self.config.regrasp_turn_rad+self.config.finish_turn_margin_rad
+            self._stroke_goal=self._stroke_angle(remaining)+(0. if self._stroke_regrasp else .04)
             self._spin_speed=self._spin_acceleration=0.
             self._spin_goal_position=sample.part_position_body_m.copy()
             self._spin_goal_rotation=sample.part_rotation_body.copy()
@@ -193,24 +207,31 @@ class AviationBoltTask(ThreadedTaskBase):
             self._start_opening(self.config.regrasp_open_rad,sample,unload=True)
             # Smoothly remove accumulated servo preload while fingers open.
             goal,rotation=self.chain.forward(sample.joints[:6])
-            self._plan_pose(goal,rotation,opening=self.config.regrasp_open_rad)
+            # The jaw timer below owns opening. Retiming this arm-only unload
+            # by the same jaw travel delayed every wrist return after the
+            # physical fingers had already cleared the head.
+            self._plan_pose(goal,rotation)
         elif stage=="regrasp_rewind":
             # Returning by exactly the physical half-turn preserves equivalent
             # hex-head flats. No ungrasped part rotation is commanded.
             direction=1. if self._phase=="unscrew" else -1.
             axis=self.outward if self._phase=="unscrew" else self.target_outward
-            nominal=axis_angle_to_matrix(axis,-direction*self._stroke_turn)@r
+            # Paired physical tabs repeat after pi, including when the last
+            # two held strokes were shorter. Returning only the preceding
+            # partial angle would leave the fingers misaligned with the tabs.
+            rewind_angle=math.pi
+            nominal=axis_angle_to_matrix(axis,-direction*rewind_angle)@r
             goal_p,goal_r=self._regrasp_pose(sample,nominal)
             correction=rotation_matrix_to_vector(goal_r@nominal.T)
             correction_angle=float(np.linalg.norm(correction))
             def rewind(u):
                 blend=u**3*(10.-15.*u+6.*u*u)
-                rr=axis_angle_to_matrix(axis,-direction*self._stroke_turn*u)@r
+                rr=axis_angle_to_matrix(axis,-direction*rewind_angle*u)@r
                 if correction_angle>1e-12:
                     rr=axis_angle_to_matrix(correction/correction_angle,blend*correction_angle)@rr
                 return p+blend*(goal_p-p),rr
             self._plan_pose(goal_p,goal_r,opening=self.config.regrasp_open_rad,path_fn=rewind,
-                            angle=self._stroke_turn+correction_angle)
+                            angle=rewind_angle+correction_angle)
         elif stage=="carry":
             self._plan_carry(sample)
         elif stage=="release":
@@ -260,8 +281,16 @@ class AviationBoltTask(ThreadedTaskBase):
         phase_remaining=max(0.,axial_turn+self.config.thread_follow_lead_rad
                             -(self._stroke_start+self._stroke_turn))
         desired=min(self.config.rotation_speed_rad_s,2.*stroke_remaining,2.*phase_remaining)
-        acceleration=np.clip(8.*(desired-self._spin_speed),-.4,.4)
-        self._spin_acceleration+=np.clip(acceleration-self._spin_acceleration,-1.6*dt,1.6*dt)
+        acceleration=np.clip(
+            8.*(desired-self._spin_speed),
+            -self.config.rotation_acceleration_rad_s2,
+            self.config.rotation_acceleration_rad_s2,
+        )
+        self._spin_acceleration+=np.clip(
+            acceleration-self._spin_acceleration,
+            -self.config.rotation_jerk_rad_s3*dt,
+            self.config.rotation_jerk_rad_s3*dt,
+        )
         self._spin_speed=max(0.,self._spin_speed+self._spin_acceleration*dt)
         commanded=self._spin_speed*dt
         # Keep commanded thread position near measured rotation. A stalled
@@ -305,7 +334,7 @@ class AviationBoltTask(ThreadedTaskBase):
                 self._enter("carry",sample)
             else:
                 self._enter("release",sample)
-        elif (actual-self._stroke_start>=self.config.regrasp_turn_rad-.02 and stopped
+        elif (self._stroke_regrasp and actual-self._stroke_start>=self._stroke_goal-.02 and stopped
               and remaining>self.config.finish_turn_margin_rad):
             # Keep supporting a nearly disengaged screw. Opening just before
             # the last few degrees lets the now-free part drift in microgravity.
@@ -444,9 +473,7 @@ class AviationBoltTask(ThreadedTaskBase):
             paths.append(planned)
         while progress<total-1e-8:
             remaining=total-progress
-            turn=min(self.config.regrasp_turn_rad,remaining)
-            if remaining-turn<=self.config.finish_turn_margin_rad:
-                turn=remaining
+            turn=self._stroke_angle(remaining)
             def plan_turn(angle,label):
                 distance=self.config.thread_pitch_m*angle/(2*math.pi)
                 p,r=self.chain.forward(self.reference[:6])
@@ -468,9 +495,9 @@ class AviationBoltTask(ThreadedTaskBase):
                 p,r=self.chain.forward(self.reference[:6])
                 self._plan_pose(p,r,opening=self.config.regrasp_open_rad)
                 record(prefix+"_open")
-                rotation=axis_angle_to_matrix(axis,-direction*turn)@r
-                def rewind(u):return p,axis_angle_to_matrix(axis,-direction*turn*u)@r
-                self._plan_pose(p,rotation,opening=self.config.regrasp_open_rad,path_fn=rewind,angle=turn)
+                rotation=axis_angle_to_matrix(axis,-direction*math.pi)@r
+                def rewind(u):return p,axis_angle_to_matrix(axis,-direction*math.pi*u)@r
+                self._plan_pose(p,rotation,opening=self.config.regrasp_open_rad,path_fn=rewind,angle=math.pi)
                 record(prefix+"_rewind")
                 self._plan_pose(p,rotation,opening=held_opening)
                 record(prefix+"_regrip")
@@ -519,7 +546,8 @@ class AviationBoltTask(ThreadedTaskBase):
                     private.chain=self.chain
                     private.reference[:]=self.reference
                     private.reference[6:]=sample.joints[6:]
-                    private._plan_pose(p+.10*direction,r,opening=self.config.release_open_rad)
+                    private._plan_pose(p+self.config.retreat_distance_m*direction,r,
+                                       opening=self.config.release_open_rad)
                     body_pose=(sample.part_position_body_m.copy(),sample.part_rotation_body.copy())
                     path,_=private._record_preflight_path("retract",body_pose)
                     if sample.native_qpos is not None:
@@ -540,7 +568,8 @@ class AviationBoltTask(ThreadedTaskBase):
             self.events[-1]["retract_branch_checks"]=self.retract_branch_checks
         if selected is None:
             raise ValueError("No collision-free upward threaded-part withdrawal")
-        self._plan_pose(p+.10*selected,r,opening=self.config.release_open_rad)
+        self._plan_pose(p+self.config.retreat_distance_m*selected,r,
+                        opening=self.config.release_open_rad)
 
     def _release_retract_preflight_paths(self,body_pose):
         # Runtime begins withdrawal as soon as actual fingers clear the head,

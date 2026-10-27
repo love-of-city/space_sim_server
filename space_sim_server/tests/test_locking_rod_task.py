@@ -10,6 +10,7 @@ import pytest
 
 from simulation.scripted_tasks.locking_rod import LockingRodConfig, LockingRodTask
 from simulation.scripted_tasks.threaded_motion import ThreadedSample, model_body_pose
+from simulation.scripted_tasks.threaded_tasks import create_threaded_task
 from simulation.serial_chain_kinematics import axis_angle_to_matrix
 from tools.threaded_task_initialization import apply_locking_cycle_initial_state
 from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
@@ -309,3 +310,45 @@ def test_preflight_covers_both_grasps_and_replays_real_mechanism_coordinates(mod
                            overrides["fastener_slide"]*2*math.pi/task.lead_m)
     assert paths[7][3]["locking_rod_hinge"][-1] == task.config.folded_hinge_rad
     assert paths[12][3]["locking_rod_hinge"][-1] == 0.
+
+
+def test_compact_collection_reduces_empty_regrasp_travel_without_skipping_a_release(model, monkeypatch):
+    monkeypatch.setattr(LockingRodTask, "_contact_opening", lambda *args: .33)
+    initial = np.r_[np.deg2rad(DEFAULT_OPERATING_JOINT_DEG), 0., 0.]
+    default = create_threaded_task("locking_rod_cycle", model)
+    compact = create_threaded_task("locking_rod_cycle", model, speed_profile="fast_collection")
+    default_paths, compact_paths = default.preflight_paths(initial), compact.preflight_paths(initial)
+    assert [p[0] for p in compact_paths] == [p[0] for p in default_paths]
+    assert max(np.max(np.abs(p[1][:, 6:])) for p in compact_paths) <= .450000001
+
+    def travelled(task, paths, names):
+        result = 0.
+        for name, reference, _, _ in paths:
+            if name in names:
+                positions = np.array([task.chain.forward(q[:6])[0] for q in reference])
+                result += np.linalg.norm(np.diff(positions, axis=0), axis=1).sum()
+        return result
+
+    # These are withdrawals of an empty hand, followed by a true regrasp.
+    # Shortening them changes neither the held swing nor the screw motion.
+    for names in (("fold_clear", "fold_approach"), ("clear_down", "reapproach")):
+        assert travelled(compact, compact_paths, names) < .65*travelled(default, default_paths, names)
+    for slow, fast in zip(default_paths, compact_paths):
+        if slow[0] in ("loosen", "lower", "raise", "tighten"):
+            for key in slow[3]:
+                assert np.allclose(slow[3][key][[0, -1]], fast[3][key][[0, -1]])
+
+
+@pytest.mark.parametrize("unloaded,stopped", [(False, True), (True, False)])
+def test_compact_regrasp_does_not_move_before_released_arm_has_unloaded(model, monkeypatch, unloaded, stopped):
+    task = create_threaded_task("locking_rod_cycle", model, speed_profile="fast_collection")
+    sample = sample_for(task, time=0.)
+    task.reference[:] = sample.joints
+    task._enter("fold_release", sample)
+    task._last_time = 0.
+    clear = replace(sample, time_s=.005, joints=np.r_[sample.joints[:6], .8, -.8])
+    monkeypatch.setattr(task, "_path_step", lambda *args: unloaded)
+    monkeypatch.setattr(task, "_advance_opening", lambda *args: True)
+    monkeypatch.setattr(task, "_motion_stopped", lambda *args: stopped)
+    task.step(clear)
+    assert task.stage == "fold_release"

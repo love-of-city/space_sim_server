@@ -90,6 +90,8 @@ def run(args):
     scene_instance = json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
     scene_instance["scripted_task_name"] = args.task
     scene_instance.setdefault("collection_config", {})["task"] = args.task
+    if args.task in THREADED_TASKS:
+        scene_instance["collection_config"]["threaded_speed_profile"] = args.threaded_speed_profile
     prepare_episode(scene_instance)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -129,6 +131,7 @@ def run(args):
             options["arm_speed_rad_s"] = args.arm_speed
         if args.linear_speed is not None:
             options["linear_speed_m_s"] = args.linear_speed
+        options["speed_profile"] = args.threaded_speed_profile
         task = create_threaded_task(args.task, model, **options)
         config = task.config
     elif is_plug_task(args.task):
@@ -141,7 +144,7 @@ def run(args):
             plug_body=plug_profile(args.task).body,
             target_site=args.target_site,
             arm_speed_rad_s=args.arm_speed,
-            grasp_offset_m=tuple(args.plug_grasp_offset),
+            grasp_offset_m=tuple(args.plug_grasp_offset) if args.plug_grasp_offset is not None else None,
             force_limit_n=min(args.force_limit, 40.0),
         )
         task = PlugInsertTask(model, config)
@@ -479,7 +482,7 @@ def main(default_task="drawer_lift"):
     )
     parser.add_argument("--target-site", default=None)
     parser.add_argument(
-        "--plug-grasp-offset", type=float, nargs=3, default=[0.0, 0.0, -0.003]
+        "--plug-grasp-offset", type=float, nargs=3, default=None
     )
     parser.add_argument(
         "--output",
@@ -509,7 +512,7 @@ def main(default_task="drawer_lift"):
     if args.max_sim_seconds is None:
         args.max_sim_seconds = task_default_duration_s(args.task)
     try:
-        motion_arguments(args.task, args.linear_speed)
+        motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
     except ValueError as error:
         parser.error(str(error))
     if (

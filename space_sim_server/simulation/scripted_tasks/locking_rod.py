@@ -37,6 +37,8 @@ class LockingRodConfig(ThreadedMotionConfig):
     retreat_distance_m: float = .065
     regrasp_retreat_m: float = .14
     fold_approach_clearance_m: float = .010
+    compact_regrasp_distance_m: float = .065
+    clip_regrasp_distance_m: float = .030
 
     def __post_init__(self):
         # The signed hinge endpoint is a coordinate, not a positive speed.
@@ -52,6 +54,9 @@ class LockingRodConfig(ThreadedMotionConfig):
             raise ValueError("The folded endpoint must reach the physical limit clip")
         if self.tight_slide_max_m <= self.tight_slide_min_m:
             raise ValueError("Invalid fastener seating interval")
+        if min(self.compact_regrasp_distance_m, self.clip_regrasp_distance_m,
+               self.pregrasp_distance_m) <= self.fold_approach_clearance_m:
+            raise ValueError("Regrasp withdrawal must stay outside the axial contact zone")
         if np.shape(self.grasp_offset_m) != (3,) or not np.isfinite(self.grasp_offset_m).all():
             raise ValueError("Invalid fastener grasp offset")
         if np.shape(self.fold_grasp_offset_m) != (3,) or not np.isfinite(self.fold_grasp_offset_m).all():
@@ -246,6 +251,37 @@ class LockingRodTask(ThreadedTaskBase):
         )
         return values
 
+    def _approach_clearance(self, stage):
+        if stage == "fold_approach" or (self.config.speed_profile == "fast_collection"
+                                         and stage in ("reapproach", "turn_approach")):
+            return self.config.fold_approach_clearance_m
+        return None
+
+    def _clear_pose(self, stage, sample):
+        """Use short, geometry-checked withdrawals between real grasps.
+
+        Changing from axial turning to inclined support still needs an
+        axial withdrawal for arm reach.  Its former 14 cm detour is reduced
+        to 6.5 cm; the next approach rotates while moving.  The opposite
+        change can lift and rotate inward together.  Actual release is
+        confirmed by the preceding stage before any withdrawal starts.
+        """
+        p, r = self.chain.forward(sample.joints[:6])
+        compact = self.config.speed_profile == "fast_collection"
+        if stage == "turn_clear":
+            self._grasp_mode = "turn_latch"
+            self._grasp_sign = None
+            gp, gr = self._grasp_pose(sample)
+            distance = self.config.pregrasp_distance_m if compact else self.config.retreat_distance_m
+            return gp-distance*gr[:, 2], gr
+        if stage == "fold_clear":
+            distance = self.config.compact_regrasp_distance_m if compact else self.config.regrasp_retreat_m
+        elif compact and stage == "clear_down":
+            distance = self.config.clip_regrasp_distance_m
+        else:
+            distance = self.config.retreat_distance_m
+        return p-distance*r[:, 2], r
+
     def _enter(self, stage, sample):
         if stage in ("approach", "reapproach", "fold_approach", "turn_approach"):
             self._grasp_mode = "fold_support" if stage in ("fold_approach", "reapproach") else "turn_latch"
@@ -258,8 +294,8 @@ class LockingRodTask(ThreadedTaskBase):
         if stage in ("approach", "reapproach", "fold_approach", "turn_approach"):
             self._grasp_sign = None
             p, r = self._grasp_pose(sample)
-            self._plan_pose(p, r, opening=1., approach=True,
-                            approach_clearance=self.config.fold_approach_clearance_m if stage == "fold_approach" else None)
+            self._plan_pose(p, r, opening=self.config.approach_open_rad, approach=True,
+                            approach_clearance=self._approach_clearance(stage))
         elif stage in ("grip", "regrip", "fold_grip", "turn_grip"):
             self._grip_hold = None
             self._grip_filter = PoseTargetFilter(*self._grasp_pose(sample))
@@ -274,17 +310,7 @@ class LockingRodTask(ThreadedTaskBase):
             self._plan_pose(p, r)
             self._start_opening(self.config.release_open_rad, sample, unload=True)
         elif stage in ("clear_down", "retract", "fold_clear", "turn_clear"):
-            p, r = self.chain.forward(sample.joints[:6])
-            if stage == "turn_clear":
-                self._grasp_mode, self._grasp_sign = "turn_latch", None
-                gp, gr = self._grasp_pose(sample)
-                # The inclined holding grasp is at the edge of arm reach.
-                # Lift and turn inward together instead of extending farther
-                # along that inclined axis before switching to axial approach.
-                self._plan_pose(gp-self.config.retreat_distance_m*gr[:, 2], gr)
-            else:
-                distance = self.config.regrasp_retreat_m if stage == "fold_clear" else self.config.retreat_distance_m
-                self._plan_pose(p-distance*r[:, 2], r)
+            self._plan_pose(*self._clear_pose(stage, sample))
 
     def _smooth_rate(self, target, dt):
         if dt <= 0:
@@ -468,7 +494,7 @@ class LockingRodTask(ThreadedTaskBase):
             nonlocal mechanism_state
             preview.stage = stage
             preview._plan_pose(p, r, opening=opening, path_fn=path_fn, distance=distance, angle=angle, approach=approach,
-                               approach_clearance=self.config.fold_approach_clearance_m if stage == "fold_approach" else None)
+                               approach_clearance=self._approach_clearance(stage))
             times = np.linspace(0., preview._duration, 161)
             references = np.array([preview.planned_path_reference(t) for t in times])
             states = np.array([mechanism_state if mechanism_fn is None else mechanism_fn(float(preview._timing.at(t)))
@@ -504,13 +530,8 @@ class LockingRodTask(ThreadedTaskBase):
             """An open, clear, approach and close sequence with no held pose cheat."""
             position, rotation = preview.chain.forward(preview.reference[:6])
             record(prefix+"_release", position, rotation, opening=self.config.release_open_rad)
-            if prefix == "turn":
-                preview._grasp_mode, preview._grasp_sign = mode, None
-                gp, gr = preview._grasp_pose(sample(*mechanism_state))
-                record(prefix+"_clear", gp-self.config.retreat_distance_m*gr[:, 2], gr)
-            else:
-                record(prefix+"_clear", position-self.config.regrasp_retreat_m*rotation[:, 2], rotation)
-                preview._grasp_mode, preview._grasp_sign = mode, None
+            record(prefix+"_clear", *preview._clear_pose(prefix+"_clear", sample(*mechanism_state)))
+            preview._grasp_mode, preview._grasp_sign = mode, None
             gp, gr = preview._grasp_pose(sample(*mechanism_state))
             record(prefix+"_approach", gp, gr, approach=True)
             opening = self._contact_opening(preview.reference, mechanism_state)
@@ -524,7 +545,7 @@ class LockingRodTask(ThreadedTaskBase):
                distance=radius*abs(self.config.folded_hinge_rad), angle=abs(self.config.folded_hinge_rad),
                mechanism_fn=lambda u: (u*self.config.folded_hinge_rad, 0., zero_spin))
         record("release_down", p, r, opening=self.config.release_open_rad)
-        record("clear_down", p-self.config.retreat_distance_m*r[:, 2], r)
+        record("clear_down", *preview._clear_pose("clear_down", sample(*mechanism_state)))
         down = sample(self.config.folded_hinge_rad, 0., zero_spin)
         preview._grasp_sign = None
         gp, gr = preview._grasp_pose(down)

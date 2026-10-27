@@ -23,13 +23,44 @@ from .motion import solve_pose
 from .motion_timing import time_joint_path
 
 
+THREAD_SPEED_PROFILES = {
+    "default": {},
+    # The collection profile keeps physical geometry, contact requirements
+    # and real regrasping. Shorter, checked empty-hand routes and adequate
+    # jaw clearance avoid full-open cycles; the arm envelope is unchanged.
+    "fast_collection": {
+        "linear_speed_m_s": .08,
+        "grasp_approach_speed_m_s": .04,
+        "angular_speed_rad_s": .30,
+        "gripper_speed_rad_s": .30,
+        "approach_open_rad": .45,
+        "release_open_rad": .45,
+        "retreat_distance_m": .065,
+        "transport_height_m": .205,
+        "rotation_speed_rad_s": .30,
+        "rotation_acceleration_rad_s2": .60,
+        "rotation_jerk_rad_s3": 2.40,
+    },
+}
+
+
+def threaded_speed_profile_options(profile):
+    """Return validated overrides for a named threaded collection profile."""
+    try:
+        return dict(THREAD_SPEED_PROFILES[profile])
+    except KeyError as error:
+        raise ValueError(f"Unknown threaded speed profile: {profile}") from error
+
+
 @dataclass(frozen=True)
 class ThreadedMotionConfig:
     part_body: str = "bolt"
+    speed_profile: str = "default"
     arm_speed_rad_s: float = .35
     linear_speed_m_s: float = .05
     angular_speed_rad_s: float = .20
     gripper_speed_rad_s: float = .20
+    approach_open_rad: float = 1.
     release_open_rad: float = .75
     transport_height_m: float = .245
     pregrasp_distance_m: float = .045
@@ -45,6 +76,8 @@ class ThreadedMotionConfig:
     overload_stop_enabled: bool = False
 
     def __post_init__(self):
+        if self.speed_profile not in THREAD_SPEED_PROFILES:
+            raise ValueError(f"Unknown threaded speed profile: {self.speed_profile}")
         if not self.part_body or not isinstance(self.part_body, str):
             raise ValueError("part_body must be a named physical body")
         if not isinstance(self.overload_stop_enabled, bool) or self.overload_stop_enabled:
@@ -59,8 +92,8 @@ class ThreadedMotionConfig:
                     raise ValueError(f"{key} must be finite and positive")
         if self.arm_speed_rad_s > .35 or self.linear_speed_m_s > .1:
             raise ValueError("Motion exceeds the shared arm/translation envelope")
-        if not 0 < self.release_open_rad <= 1:
-            raise ValueError("Invalid release opening")
+        if not 0 < self.release_open_rad <= 1 or not 0 < self.approach_open_rad <= 1:
+            raise ValueError("Invalid gripper opening")
 
 
 @dataclass(frozen=True)
@@ -201,10 +234,11 @@ class ThreadedTaskBase:
         end_opening = start_opening if opening is None else float(opening)
         approach_path = None
         if approach:
+            end_opening = self.config.approach_open_rad if opening is None else float(opening)
             approach_path = ApproachPosePath(p, r, position, rotation, -rotation[:, 2],
                                              start_opening, self.config.pregrasp_distance_m
-                                             if approach_clearance is None else approach_clearance)
-            end_opening = 1.
+                                             if approach_clearance is None else approach_clearance,
+                                             goal_opening=end_opening)
         waypoints = [self.reference[:6].copy()]
         for u in np.linspace(0., 1., 121)[1:]:
             pa = p + u*(position-p)

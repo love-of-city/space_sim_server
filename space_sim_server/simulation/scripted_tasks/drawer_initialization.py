@@ -64,8 +64,8 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
         if task_name in THREADED_TASKS
         else DrawerCycleTask.version
         if task_name == "drawer_cycle"
-        else (PlugInsertTask.latch_version
-              if is_plug_task(task_name) and plug_profile(task_name).grasp_closing_axis
+        else (PlugInsertTask.task_version(task_name)
+              if is_plug_task(task_name)
               else PlugInsertTask.version),
         seed=int(seed),
         generator="numpy.PCG64",
@@ -327,7 +327,11 @@ class NativePoseProbe:
 
         is_plug = is_plug_task(task_name)
         if task_name in THREADED_TASKS:
-            task = create_threaded_task(task_name, model)
+            options = {}
+            profile = scene.get("collection_config", {}).get("threaded_speed_profile")
+            if profile is not None:
+                options["speed_profile"] = profile
+            task = create_threaded_task(task_name, model, **options)
         elif is_plug:
             from .plug_insert import PlugInsertTask, PlugInsertConfig, PlugSample
             from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix

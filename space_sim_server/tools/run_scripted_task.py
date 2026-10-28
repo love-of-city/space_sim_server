@@ -149,6 +149,13 @@ def run(args):
         task.chain.enable_native_geometry()
     from simulation.scripted_tasks.native_state import STATE_READERS
 
+    if getattr(args, "replay_trajectory", None):
+        from simulation.evaluation.replay import FixedReplayTask
+        options = scene_instance.get("collection_config", {}).get("randomization_options", {})
+        if any(v.get("enabled", False) for v in options.values() if isinstance(v, dict)):
+            raise ValueError("Fixed-condition evaluation forbids randomization")
+        task = FixedReplayTask(task, args.replay_trajectory, model, initial, ROOT)
+
     if (
         initial.shape != (8,)
         or not np.isfinite(initial).all()
@@ -183,6 +190,11 @@ def run(args):
         wrench_max_scope="maximum of 200 Hz task samples; not all physics substeps",
     )
     started = time.perf_counter()
+    evidence_stream = None
+    if getattr(args, "replay_trajectory", None):
+        evidence_stream = (output / "evaluation_rows.jsonl").open("x", encoding="utf-8")
+        (output / "scorer_spec.json").write_text(json.dumps(task.scorer_spec(), indent=2), encoding="utf-8")
+        report["fixed_trajectory_sha256"] = task.trajectory_sha256
     sample = None
     simulation_wall_seconds = 0.0
     loop_started = None
@@ -240,6 +252,9 @@ def run(args):
                 orbital_physics.drag, planet_radius_m=float(orbit.earth.radEquator)))
         report["orbital_physics"] = environment_metadata(
             orbital_physics, orbit.earth, epoch_utc=orbit.epoch_utc)
+        if getattr(args, 'replay_trajectory', None):
+            task.trajectory.validate_physics(dict(substeps=stepper.substeps,
+                plug_retention=report['plug_retention'],orbital_physics=report['orbital_physics']))
         state_reader = STATE_READERS[args.task](task, scene, stepper)
         if args.capture_control_port:
             from simulation.scripted_tasks.capture_transport import (
@@ -333,6 +348,8 @@ def run(args):
                         elif elapsed >= args.max_sim_seconds:
                             task.fail("total_simulation_timeout", sample)
                     nominal_command, nominal_velocity = task.step(sample)
+                    if evidence_stream is not None and task.last_physical_row is not None and abs(task.last_physical_row['time_s']-elapsed)<1e-9:
+                        evidence_stream.write(json.dumps(task.last_physical_row) + "\n")
                     if task.result is None:
                         command[:], velocity[:] = disturbances.action(nominal_command, nominal_velocity, elapsed, task.lower, task.upper)
                     else:
@@ -421,10 +438,13 @@ def run(args):
         _ = models, recorders, ctx
     except (Exception, KeyboardInterrupt) as exc:
         report.update(
-            result="failed", reason=f"{type(exc).__name__}: {exc}", events=task.events
+            result="failed", reason=f"{type(exc).__name__}: {exc}", events=task.events, runtime_error=True
         )
         raise
     finally:
+        if evidence_stream is not None:
+            evidence_stream.close()
+            report["independent_evaluation"] = task.scorer.report()
         finished = time.perf_counter()
         report["wall_seconds"] = finished - started
         report["task_loop_wall_seconds"] = (
@@ -490,11 +510,14 @@ def main(default_task="drawer_lift"):
     )
     parser.add_argument("--initial-joints-deg", type=float, nargs=6)
     parser.add_argument("--scene", type=Path)
+    parser.add_argument("--replay-trajectory", type=Path, help="Fixed-condition replay; no adaptive task execution or online target correction")
     parser.add_argument("--capture-control-port", type=int)
     parser.add_argument("--capture-render-port", type=int)
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--capture-stop-file", type=Path)
     args = parser.parse_args()
+    if args.replay_trajectory and (args.scene or args.capture_control_port or args.warmup_sim_seconds):
+        parser.error("Fixed-condition replay currently requires default scene, zero warmup, and no capture mode")
     try:
         motion_arguments(args.task, args.linear_speed)
     except ValueError as error:

@@ -69,7 +69,7 @@ def test_visual_revocation_and_ten_frame_recovery_preserve_platform_dwell():
     assert result['platform_stable_duration_s'] == pytest.approx(6.)
 
 
-@pytest.mark.parametrize('fault', ['position', 'velocity', 'uncertainty', 'attitude_uncertainty', 'gyro', 'process'])
+@pytest.mark.parametrize('fault', ['position', 'velocity', 'uncertainty', 'service_rate', 'gyro', 'target_gyro', 'process'])
 def test_platform_faults_clear_dwell_then_require_five_seconds(fault):
     approach, state = terminal()
     for now in range(0, 5_000_000_001, 50_000_000):
@@ -82,10 +82,12 @@ def test_platform_faults_clear_dwell_then_require_five_seconds(fault):
         bad['v'][0, 0] = .003
     elif fault == 'uncertainty':
         options['position_sigma_m'] = .04
-    elif fault == 'attitude_uncertainty':
-        options['attitude_sigma_rad'] = np.deg2rad(.3)
+    elif fault == 'service_rate':
+        bad['rates'][0, 0] = .001000001
     elif fault == 'gyro':
         options['gyro_healthy'] = [False, True]
+    elif fault == 'target_gyro':
+        options['gyro_healthy'] = [True, False]
     else:
         options['process_healthy'] = False
     result = step(approach, bad, 5_050_000_000, True, **options)

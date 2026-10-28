@@ -63,6 +63,8 @@ def audit(duration_s=600.):
         raise ValueError('independent covariance audit disagrees with production estimator')
     return dict(schema='space-sim-capture26-attitude-observability-audit/1',
         integration_complete=False, scope='stationary covariance diagnostic; not a continuous flight',
+        attitude_accuracy_required_for_release=False,
+        threshold_note='0.3 deg is a historical diagnostic; capture26 has no attitude accuracy gate',
         no_visual_observations=True, gyro_hz=50, gnss_hz=10,
         gyro_configuration=vars(gyro), numeric_duration_s=duration_s,
         accepted_gnss_updates=accepted_gnss, max_gnss_attitude_covariance_change=gnss_attitude_change,

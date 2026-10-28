@@ -74,6 +74,8 @@ def validate(document, root, *, accepted=True):
     required = COMMON_CHECKS | ({'actual_120s_hold', 'actual_tracking_2m', 'actual_velocity_2cm_s'}
         if d['phase'] == 'FarReady' else {'current_visual_ready', 'vision_nodes_prevalidated',
                                         'five_second_dwell', 'prepared_arm_geometry_certified'})
+    if d['schema'] == SCHEMA and d['phase'] == 'FarReady':
+        required.add('actual_service_rate_0p001rad_s')
     if d.get('accepted') and (not required <= set(d.get('checks', {}))
                              or not all(v is True for k, v in d['checks'].items()
                                         if k not in LEGACY_PERFORMANCE_CHECKS)):

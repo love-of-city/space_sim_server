@@ -96,8 +96,14 @@ class VisualReadiness:
         return self.ready
 
     def check_uncertainty(self, position, attitude, now_ns):
-        if self.count and (principal_sigma(covariance(position, 3)) >= .04 or principal_sigma(covariance(attitude, 3)) >= math.radians(.3)):
-            self.revoke('relative navigation uncertainty exceeded', now_ns=now_ns, category='precision_exceeded')
+        if self.count:
+            try:
+                p = covariance(position, 3)
+                covariance(attitude, 3)  # Retain validity, without an angular accuracy threshold.
+            except (TypeError, ValueError, np.linalg.LinAlgError) as exc:
+                return self.revoke('invalid navigation covariance: '+str(exc), now_ns=now_ns, category='covariance_invalid')
+            if principal_sigma(p) >= .04:
+                self.revoke('relative navigation uncertainty exceeded', now_ns=now_ns, category='precision_exceeded')
         return self.ready
 
     def observe(self, result, now_ns, *, accepted, relative_position_covariance,
@@ -136,11 +142,11 @@ class VisualReadiness:
                         or c.get('order') != POSE_ERROR_ORDER):
                     failures.append('unsupported pose covariance convention')
                 measured = covariance(c['matrix'], 6)
-                if math.sqrt(measured[2, 2]) >= .03 or principal_sigma(measured[3:, 3:]) >= math.radians(2):
+                if math.sqrt(measured[2, 2]) >= .03:
                     failures.append('visual measurement uncertainty exceeded')
             p = covariance(relative_position_covariance, 3)
-            a = covariance(relative_attitude_covariance, 3)
-            if principal_sigma(p) >= .04 or principal_sigma(a) >= math.radians(.3):
+            covariance(relative_attitude_covariance, 3)
+            if principal_sigma(p) >= .04:
                 failures.append('relative navigation uncertainty exceeded')
             # A wrong-session or future frame cannot poison the active clock.
             if identity == self.identity and 0 <= exposure <= now_ns:

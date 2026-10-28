@@ -27,6 +27,8 @@ class Capture26Mission:
     schema: str = 'space-sim-capture26-mission/2'
     physics_hz: int = 400
     attitude_hz: int = 100
+    attitude_control_mode: str = 'body_rate_damping'
+    service_angular_rate_limit_rad_s: float = .001
     gyro_hz: int = 50
     guidance_hz: int = 20
     gnss_hz: int = 10
@@ -53,6 +55,8 @@ class Capture26Mission:
             raise ValueError('capture26 mission numbers must be finite')
         if self.schema != 'space-sim-capture26-mission/2' or self.stereo_delay_s != .20:
             raise ValueError('capture26 requires version 2 fixed stereo delay')
+        if self.attitude_control_mode != 'body_rate_damping' or self.service_angular_rate_limit_rad_s != .001:
+            raise ValueError('capture26 requires body-rate damping and the 0.001 rad/s service rate limit')
         if (self.physics_hz, self.attitude_hz, self.gyro_hz, self.guidance_hz, self.gnss_hz, self.stereo_hz) != (400, 100, 50, 20, 10, 10):
             raise ValueError('capture26 mission rates are fixed by the physical model')
         if (not self.gnss_hold_depth_m > self.acquisition_depth_m >= self.readiness_depth_m > 0
@@ -79,6 +83,8 @@ def load_mission(root):
     document = json.loads((Path(root)/MISSION_PATH).read_text('utf-8-sig'))
     if document.get('schema') != 'space-sim-capture26-task/2':
         raise ValueError('capture26 frozen task schema mismatch')
+    if not {'attitude_control_mode', 'service_angular_rate_limit_rad_s'} <= document['mission'].keys():
+        raise ValueError('capture26 frozen task lacks explicit attitude rules')
     config = Capture26Mission(**document['mission'])
     if config.vision_nodes_validated or config.geometry_certificate_sha256:
         validate_certificate(root, config, document.get('certificate'))
@@ -193,11 +199,47 @@ def stopping_distance(speed, sigma_m, latency_s, acceleration_m_s2, *, reserve=.
     return 3*sigma_m + speed*(latency_s+.05) + speed**2/(2*available)
 
 
-def desired_geometry(depth, target_rotation, service_com, target_com, vision):
+def desired_geometry(depth, target_rotation, service_com, target_com, vision, *, service_rotation=None):
+    """COM offset on the marker-normal lane, with independent body attitudes.
+
+    Omitting service_rotation is reserved for nominal initialization/offline
+    geometry. Runtime callers must pass the service navigation attitude.
+    The second return value is a geometry diagnostic, never an attitude command.
+    """
     mount = vision['body_from_optical']
     c = np.array(mount['left']['R_body_from_optical'])
     camera = .5*(np.array(mount['left']['position_body_m'])+np.array(mount['right']['position_body_m']))
-    rs = target_rotation@OPTICAL_IN_TARGET@c.T
+    rs = target_rotation@OPTICAL_IN_TARGET@c.T if service_rotation is None else service_rotation
     forward = target_rotation@OPTICAL_IN_TARGET[:, 2]
     offset = target_rotation@(MARKER_REFERENCE_TARGET-target_com)-rs@(camera-service_com)-depth*forward
     return offset, rs
+
+
+def translation_reference(depth, state, service_com, target_com, vision, *, depth_rate=0.,
+                          com_distance_m=None, com_distance_rate_m_s=0.):
+    """Relative COM reference and derivative from estimates and joint encoders.
+
+    The COM node specifies radius, not a frozen optical depth. Differentiating
+    that constraint includes the moving normal and both independent lever arms.
+    """
+    rs, rt = state['r']
+    axis = rt@OPTICAL_IN_TARGET[:, 2]
+    base, _ = desired_geometry(0., rt, service_com, target_com, vision, service_rotation=rs)
+    if com_distance_m is not None:
+        projection = float(base@axis)
+        squared = com_distance_m**2-float(base@base)+projection**2
+        if squared <= 0:
+            raise ValueError('COM distance is incompatible with the marker-normal lane')
+        depth = projection+float(np.sqrt(squared))
+    offset = base-depth*axis
+    mount = vision['body_from_optical']
+    camera = .5*(np.array(mount['left']['position_body_m'])+np.array(mount['right']['position_body_m']))
+    service_lever = rs@(camera-service_com)
+    target_lever = rt@(MARKER_REFERENCE_TARGET-target_com-depth*OPTICAL_IN_TARGET[:, 2])
+    omega_s, omega_t = (r@w for r, w in zip(state['r'], state['rates']-state['b']))
+    dc = state.get('com_velocity_body', np.zeros((2, 3)))
+    velocity = (np.cross(omega_t, target_lever)-np.cross(omega_s, service_lever)
+                +rs@dc[0]-rt@dc[1])
+    if com_distance_m is not None:
+        depth_rate = float((offset@velocity-com_distance_m*com_distance_rate_m_s)/(offset@axis))
+    return offset, velocity-depth_rate*axis, float(depth)

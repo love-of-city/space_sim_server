@@ -27,7 +27,8 @@ def test_distant_release_uses_estimates_and_requires_continuous_120s(scenario):
     def step(t, healthy=True):
         p0, v0, _ = flight.profile.chaser(t)
         p1, v1, _ = flight.profile.target(t)
-        return flight.step(round(t*1e9), dict(p=np.array([p0, p1]), v=np.array([v0, v1])), healthy=healthy)
+        return flight.step(round(t*1e9), dict(p=np.array([p0, p1]), v=np.array([v0, v1]),
+            rates=np.zeros((2, 3)), b=np.zeros((2, 3))), healthy=healthy)
 
     assert not step(start)['released']
     assert not step(start+119.95)['released']
@@ -61,7 +62,7 @@ def test_held_plug_restarts_with_identical_wrench_and_cannot_recapture_after_rel
 def test_distant_fault_brakes_against_a_latched_reference_and_cancels_feedforward():
     flight = Capture26Flight('in-orbit')
     state = dict(p=np.array([[7.e6, 100., 0.], [7.e6, 0., 0.]]),
-                 v=np.array([[0., 7500.1, 0.], [0., 7500., 0.]]))
+                 v=np.array([[0., 7500.1, 0.], [0., 7500., 0.]]), rates=np.zeros((2, 3)), b=np.zeros((2, 3)))
     first = flight.step(10_000_000_000, state, healthy=False)
     np.testing.assert_array_equal(first['velocity_goal'], state['v'][1])
     np.testing.assert_array_equal(first['differential_acceleration'], np.zeros(3))
@@ -237,7 +238,7 @@ def test_capture26_continuation_requires_complete_checked_state_and_matching_cal
     receiver = DifferentialGNSS(GNSSConfig(), 7)
     receiver.measure(np.zeros((2, 6)), 0.)
     digest = hashlib.sha256((ROOT/MODEL_PATH).read_bytes()).hexdigest()
-    required = COMMON_CHECKS | {'actual_120s_hold', 'actual_tracking_2m', 'actual_velocity_2cm_s'}
+    required = COMMON_CHECKS | {'actual_120s_hold', 'actual_tracking_2m', 'actual_velocity_2cm_s', 'actual_service_rate_0p001rad_s'}
     document = dict(schema=SCHEMA, model_id=MODEL_ID, source_sha256=digest,
         accepted=True, checks=dict.fromkeys(required, True), phase='FarReady', time_ns=0,
         mission_id='unit-contract', calibration_id=cal,
@@ -295,7 +296,7 @@ def test_capture26_continuation_requires_complete_checked_state_and_matching_cal
 def test_stage_scoring_keeps_slow_processing_informational(tmp_path, monkeypatch, paced):
     """Unit scoring inputs only; these ideal rows are not flight evidence."""
     from simulation import capture26_results
-    from simulation.capture26_mission import MODEL_ID
+    from simulation.capture26_mission import MODEL_ID, Capture26Mission
     from simulation.orbital_rendezvous.reference import FlightProfile
     profile = FlightProfile(scenario='in-orbit', handoff_distance_m=110.)
     start = profile.start_approach_s+profile.approach_duration_s
@@ -306,11 +307,13 @@ def test_stage_scoring_keeps_slow_processing_informational(tmp_path, monkeypatch
         rows.append(dict(time_s=t, guidance=dict(released=True, phase='FarReady'),
             truth_com_position_n_m=[p0, p1], truth_com_velocity_n_m_s=[v0, v1],
             truth_relative_position_m=p0-p1, gyro_health=[True, True], gnss_healthy=True,
+            truth_angular_velocity_body_rad_s=[[.001, 0., 0.], [0., .01, 0.]],
             visual=dict(ready=False)))
     windows = [dict(sim_time_s=t, compute_s=t/.9, wall_s=t/.8) for t in (2., 122.)]
     args = SimpleNamespace(mission_stage='far', scenario='in-orbit', realtime=paced,
         simulation_rate=.8, flight_options=FlightOptions(model_id=MODEL_ID))
     summary = dict(dynamics=dict(external_state_writes=0), source_sha256='unit-model',
+                   mission_configuration=Capture26Mission().to_dict(),
                    calibration_id='unit-calibration', body_properties={})
     sensor = SimpleNamespace(snapshot=lambda: {})
     stepper = SimpleNamespace(physical_snapshot=lambda **kw: {})
@@ -336,4 +339,12 @@ def test_stage_scoring_keeps_slow_processing_informational(tmp_path, monkeypatch
         sensor, [SimpleNamespace(sensor=sensor)]*2, sensor, [], None,
         SimpleNamespace(target=SimpleNamespace(position=np.zeros(12))), stepper, control,
         None, [], None, 'unit-contract', 0, 'unit-epoch')
+    assert not failed['mission_success'] and len(validated) == 1
+    rows[-1]['gnss_healthy'] = True
+    rows[-1]['truth_angular_velocity_body_rad_s'][0][0] = .001000001
+    failed = capture26_results.write_stage_result(tmp_path, args, summary, rows, windows,
+        sensor, [SimpleNamespace(sensor=sensor)]*2, sensor, [], None,
+        SimpleNamespace(target=SimpleNamespace(position=np.zeros(12))), stepper, control,
+        None, [], None, 'unit-contract', 0, 'unit-epoch')
+    assert not failed['checks']['actual_service_rate_0p001rad_s']
     assert not failed['mission_success'] and len(validated) == 1

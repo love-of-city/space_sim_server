@@ -6,8 +6,7 @@ by real-image prevalidation; a candidate configuration cannot release a flight.
 import math
 import numpy as np
 
-from simulation.capture26_mission import Capture26Mission, desired_geometry, stopping_distance
-from simulation.pose_navigation import log
+from simulation.capture26_mission import Capture26Mission, desired_geometry, translation_reference, stopping_distance
 from simulation.platform_stability import PlatformStability
 
 
@@ -28,6 +27,7 @@ class Capture26Approach:
         if initial_depth_m < com_depth:
             raise ValueError('near-flight entry must begin outside the 50 m COM node')
         self.depth, self.rate = float(initial_depth_m), 0.
+        self.com_distance_m = None
         self.node = 0
         self.phase, self.reason = self.nodes[0][0], 'approaching node'
         self.dwell_start = self.wait_start = self.last_time_ns = None
@@ -44,7 +44,7 @@ class Capture26Approach:
     def snapshot(self):
         from copy import deepcopy
         return dict(schema='space-sim-capture26-approach/1', configuration=self.config.to_dict(),
-            stability=self.stability.snapshot(), state=deepcopy({k: getattr(self, k) for k in ('depth', 'rate', 'node', 'phase', 'reason',
+            stability=self.stability.snapshot(), state=deepcopy({k: getattr(self, k) for k in ('depth', 'rate', 'com_distance_m', 'node', 'phase', 'reason',
                 'dwell_start', 'wait_start', 'last_time_ns', 'released', 'safe_hold', 'audit')}))
 
     def restore(self, document):
@@ -56,6 +56,7 @@ class Capture26Approach:
         if (set(state) != set(self.snapshot()['state']) or type(state['node']) is not int
                 or not 0 <= state['node'] < len(self.nodes)
                 or not np.isfinite([state['depth'], state['rate']]).all() or state['depth'] <= 0
+                or state['com_distance_m'] is not None and (not np.isfinite(state['com_distance_m']) or state['com_distance_m'] < self.config.com_hold_m)
                 or any(t is not None and (type(t) is not int or t < 0)
                        for t in (state['dwell_start'], state['wait_start'], state['last_time_ns']))):
             raise ValueError('invalid capture26 approach checkpoint')
@@ -80,14 +81,19 @@ class Capture26Approach:
         if self.node >= 2 and (not c.vision_nodes_validated or c.terminal_depth_m is None):
             self._hold('actual UE camera/node prevalidation is pending')
         name, target_depth = self.nodes[self.node]
-        nominal_offset, r_desired = desired_geometry(self.depth, state['r'][1], self.service_com, self.target_com, self.vision)
+        nominal_offset, lever_velocity, _ = translation_reference(
+            self.depth, state, self.service_com, self.target_com, self.vision)
+        if self.node == 0:
+            if self.com_distance_m is None:
+                self.com_distance_m = max(c.com_hold_m, float(np.linalg.norm(nominal_offset)))
+            nominal_offset, lever_velocity, self.depth = translation_reference(
+                self.depth, state, self.service_com, self.target_com, self.vision, com_distance_m=self.com_distance_m)
+        reference_value = self.com_distance_m if self.node == 0 else self.depth
+        target_value = c.com_hold_m if self.node == 0 else target_depth
         axis = -state['r'][1][:, 1]
         actual_offset = state['p'][0]-state['p'][1]
         optical_depth = self.depth+float((nominal_offset-actual_offset)@axis)
-        omega = state['r'][1]@(state['rates'][1]-state['b'][1])
-        com_rates = state.get('com_velocity_body', np.zeros((2, 3)))
-        lever_velocity = r_desired@com_rates[0]-state['r'][1]@com_rates[1]
-        relative_velocity = state['v'][0]-state['v'][1]-np.cross(omega, actual_offset)-lever_velocity
+        relative_velocity = state['v'][0]-state['v'][1]-lever_velocity
         closing_speed = max(0., float(relative_velocity@axis))
         latency = max(0., float(observation_age_s))
         stop = stopping_distance(closing_speed, position_sigma_m, latency,
@@ -105,28 +111,35 @@ class Capture26Approach:
             if self.wait_start is None:
                 self.wait_start = now_ns
         elif not self.safe_hold:
-            remaining = max(0., self.depth-target_depth)
+            remaining = max(0., reference_value-target_value)
             max_rate = .1 if self.node == 0 else .04 if self.node == 1 else .01
             acceleration = min(.01, c.force_limit_n/mass_kg*c.thrust_reserve)
             desired_rate = -min(max_rate, math.sqrt(2*acceleration*remaining))
             self.rate += float(np.clip(desired_rate-self.rate, -acceleration*dt, acceleration*dt))
-            self.depth = max(target_depth, self.depth+self.rate*dt)
-            if self.depth == target_depth:
+            reference_value = max(target_value, reference_value+self.rate*dt)
+            if reference_value == target_value:
                 self.rate = 0.
         elif self.safe_hold:
             self.rate = 0.
-        offset, r_desired = desired_geometry(self.depth, state['r'][1], self.service_com, self.target_com, self.vision)
+        if self.node == 0:
+            self.com_distance_m = reference_value
+        else:
+            self.depth = reference_value
+        offset, reference_velocity, self.depth = translation_reference(
+            self.depth, state, self.service_com, self.target_com, self.vision, depth_rate=self.rate,
+            com_distance_m=self.com_distance_m if self.node == 0 else None, com_distance_rate_m_s=self.rate)
         position_goal = state['p'][1]+offset
-        velocity_goal = state['v'][1]+np.cross(omega, offset)+lever_velocity-self.rate*axis
+        velocity_goal = state['v'][1]+reference_velocity
         error = position_goal-state['p'][0]
-        attitude_error = float(np.linalg.norm(log(r_desired@state['r'][0].T)))
-        platform = self.stability.update(now_ns, ['optical_depth_m', self.depth], dict(
+        service_rate = float(np.linalg.norm(state['rates'][0]-state['b'][0]))
+        rate_stable = service_rate <= c.service_angular_rate_limit_rad_s
+        reference = ['com_distance_m', self.com_distance_m] if self.node == 0 else ['optical_depth_m', self.depth]
+        platform = self.stability.update(now_ns, reference, dict(
             position=float(np.linalg.norm(error)) <= (.006 if self.node == 4 else .05),
             velocity=float(np.linalg.norm(relative_velocity)) <= .002,
-            attitude=attitude_error < math.radians(.3),
+            service_angular_rate=rate_stable,
             position_uncertainty=position_sigma_m < .04,
-            attitude_uncertainty=attitude_sigma_rad < math.radians(.3),
-            health=healthy, reference_at_node=self.depth == target_depth, safety=not self.safe_hold))
+            health=healthy, reference_at_node=reference_value == target_value, safety=not self.safe_hold))
         self.dwell_start = self.stability.start_ns
         quality = visual_ready if self.node >= 3 else visual_available if self.node == 2 else True
         qualified = platform['platform_stable'] and quality and not self.safe_hold
@@ -146,9 +159,11 @@ class Capture26Approach:
             self.phase = 'VisualRestricted' if visual_limited else name
             if not healthy:
                 self.phase = 'PlatformRestricted'
-        return dict(position_goal=position_goal, velocity_goal=velocity_goal, rotation_goal=r_desired,
+        return dict(position_goal=position_goal, velocity_goal=velocity_goal,
                     phase=self.phase, reason=self.reason, node=name, optical_depth_m=optical_depth,
                     stopping_distance_m=stop, visual_safety_boundary_m=boundary,
                     released=self.released, healthy=healthy, visual_ready=bool(visual_ready),
+                    service_angular_rate_rad_s=service_rate, service_angular_rate_stable=rate_stable,
+                    reference_com_distance_m=self.com_distance_m if name == 'COM50m' else None,
                     **platform,
                     dwell_s=0. if self.dwell_start is None else (now_ns-self.dwell_start)*1e-9)

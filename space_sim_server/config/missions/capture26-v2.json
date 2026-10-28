@@ -4,6 +4,8 @@
     "schema": "space-sim-capture26-mission/2",
     "physics_hz": 400,
     "attitude_hz": 100,
+    "attitude_control_mode": "body_rate_damping",
+    "service_angular_rate_limit_rad_s": 0.001,
     "gyro_hz": 50,
     "guidance_hz": 20,
     "gnss_hz": 10,

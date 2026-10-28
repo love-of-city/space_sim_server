@@ -2,11 +2,13 @@
 import numpy as np
 
 from simulation.orbital_rendezvous.reference import FlightProfile
+from simulation.capture26_mission import Capture26Mission
 
 
 class Capture26Flight:
-    def __init__(self, scenario, *, handoff_distance_m=110.):
+    def __init__(self, scenario, *, handoff_distance_m=110., config=None):
         self.profile = FlightProfile(scenario=scenario, handoff_distance_m=handoff_distance_m)
+        self.config = config or Capture26Mission()
         self.dwell_start = None
         self.safe_hold = False
         self.hold_offset = None
@@ -34,7 +36,9 @@ class Capture26Flight:
                 self.hold_offset = (state['p'][0]-state['p'][1]).copy()
             p = state['p'][1]+self.hold_offset
             v = state['v'][1].copy()
-        stable = (healthy and not self.safe_hold
+        service_rate = float(np.linalg.norm(state['rates'][0]-state['b'][0]))
+        rate_stable = service_rate <= self.config.service_angular_rate_limit_rad_s
+        stable = (healthy and rate_stable and not self.safe_hold
                   and t >= self.profile.start_approach_s+self.profile.approach_duration_s
                   and np.linalg.norm(p-state['p'][0]) < 2.
                   and np.linalg.norm(v-state['v'][0]) < .02)
@@ -44,4 +48,5 @@ class Capture26Flight:
                     differential_acceleration=np.zeros(3) if self.safe_hold else desired_a-target_a,
                     phase='SafeHold' if self.safe_hold else 'FarReady' if released else self.profile.phase(t),
                     reason=self.reason, released=released,
+                    service_angular_rate_rad_s=service_rate, service_angular_rate_stable=rate_stable,
                     dwell_s=0. if self.dwell_start is None else (now_ns-self.dwell_start)*1e-9)

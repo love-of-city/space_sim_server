@@ -20,6 +20,7 @@ sys.path[:0] = [str(ROOT), str(ROOT/'backend')]
 
 def summarize(folder):
     from score_capture26_navigation import score
+    from space_arm_platform.visual_navigation import covariance
     summary = json.loads((folder/'summary.json').read_text('utf-8'))
     independent = score(folder, warmup_s=1.)
     results = [p['result'] for p in map(json.loads, (folder/'measurements.jsonl').read_text().splitlines())
@@ -28,11 +29,15 @@ def summarize(folder):
     for r in results:
         good = r.get('status') == 'ok' and not r.get('ambiguous', True)
         if good:
-            c = np.array(r['pose_covariance']['matrix'])
+            try:
+                c = covariance(r['pose_covariance']['matrix'], 6)
+            except (TypeError, ValueError, np.linalg.LinAlgError):
+                quality.append(False)
+                continue
             good = (min(r['counts'][key] for key in ('used_markers_left', 'used_markers_right', 'common_markers')) >= 2
                     and all(r['reprojection_error_px'][eye] <= 2.5 and r['max_corner_error_px'][eye] <= 5
                             for eye in ('left', 'right'))
-                    and np.sqrt(c[2, 2]) < .03 and np.sqrt(np.linalg.eigvalsh(c[3:, 3:])[-1]) < np.deg2rad(2))
+                    and np.sqrt(c[2, 2]) < .03)
         quality.append(bool(good))
     return dict(output=str(folder), depth_m=summary['settings']['depth'],
                 pointing_error_deg=summary['settings']['pointing_error_deg'],

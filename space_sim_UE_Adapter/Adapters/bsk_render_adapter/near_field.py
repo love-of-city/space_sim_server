@@ -37,12 +37,14 @@ def publish_capture26_status(bridge, status):
     age = visual.get('exposure_age_s')
     age_text = 'none' if age is None else f'{age:.3f}s'
     gyros = '/'.join('OK' if value else 'LOST' for value in status['gyro_health'])
+    rate = status.get('service_angular_rate_rad_s')
+    rate_text = 'none' if rate is None else f'{rate:.5f}rad/s'
     messages = [
         f"CAPTURE26 {status['phase']} | UE RGB STEREO + GNSS + GYROS",
-        f"OPTICAL Z {status['optical_depth_m']:.3f}m | GYROS {gyros}",
+        f"OPTICAL Z {status['optical_depth_m']:.3f}m | GYROS {gyros} | SERVICE RATE {rate_text}",
         f"VISUAL {'READY' if visual['ready'] else 'WAIT'} {visual['count']}/10 | EXPOSURE AGE {age_text}",
-        f"{visual['reason']}",
-        f"RTF {status['processing_real_time_factor']:.2f} | PARK/HANDOFF | CONTACT CAPTURE DISABLED",
+        f"PLATFORM {'STABLE' if status.get('platform_stable') else 'WAIT'} {status.get('platform_stable_duration_s', 0.):.2f}s | RATE {'OK' if status.get('service_angular_rate_stable') else 'WAIT'} | RELEASE {bool(status.get('released'))}",
+        f"{visual['reason']} | RTF {status['processing_real_time_factor']:.2f} | CONTACT CAPTURE DISABLED",
     ]
     for message in messages:
         bridge.publish_event('near_field_status', dict(message=message, severity='info'))

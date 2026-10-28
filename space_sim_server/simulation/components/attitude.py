@@ -24,7 +24,7 @@ class AttitudeComponent:
 
     def __init__(self, model_path: Any, *, enabled: bool | None = None,
                  estimated_navigation=None, initial_attitude_prior=None, reference_provider=None,
-                 control_rate_hz=None) -> None:
+                 control_rate_hz=None, control_mode=None) -> None:
         self.model_path = model_path
         self.enabled = enabled
         self.control: Any = None
@@ -32,6 +32,7 @@ class AttitudeComponent:
         self.initial_attitude_prior = initial_attitude_prior
         self.reference_provider = reference_provider
         self.control_rate_hz = control_rate_hz
+        self.control_mode = control_mode
 
     def install(self, ctx: AssemblyContext) -> None:
         from simulation.attitude_control import AttitudeControl
@@ -68,7 +69,7 @@ class AttitudeComponent:
             enabled=self.enabled, drive_task=drive_task, physics_grid=physics_grid,
             estimated_navigation=self.estimated_navigation,
             initial_attitude_prior=self.initial_attitude_prior, reference_provider=self.reference_provider,
-            control_rate_hz=self.control_rate_hz)
+            control_rate_hz=self.control_rate_hz, control_mode=self.control_mode)
         self.control = control
         ctx.simulation.attitude_control = control
         ctx.extra["attitude_control"] = control

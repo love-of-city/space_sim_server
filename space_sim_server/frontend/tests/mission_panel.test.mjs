@@ -159,12 +159,14 @@ test('capture26 sensor health belongs to the receiving scene and tolerates missi
   const mission = {mission_id: 'capture26', stage: 'teleop', phase: 'running', scene_instance_id: 'receiving'};
   const observation = {scene_instance_id: 'receiving', capture26_navigation: {
     phase: 'OperationsReady', gnss_healthy: true, gyro_health: [true, true],
+    service_angular_rate_rad_s: .001, service_angular_rate_stable: true,
     visual: {ready: true, count: 10, exposure_age_s: .2, reason: 'ready'}}};
   panel.render(mission);
   assert.equal($('missionNavigation').textContent, '—');
   panel.render(mission, observation);
   assert.match($('missionNavigation').textContent, /GNSS 正常.*视觉就绪/);
   assert.match($('nearCapture').textContent, /10\/10/);
+  assert.match($('nearCapture').textContent, /服务星角速度 0\.00100 rad\/s 稳定/);
   panel.render(mission, {...observation, scene_instance_id: 'previous'});
   assert.equal($('missionNavigation').textContent, '—');
   panel.render({...mission, scene_instance_id: undefined}, {...observation, scene_instance_id: undefined});

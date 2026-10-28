@@ -41,8 +41,9 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
         checks['certified_joint_preparation_complete'] = bool(preparation and preparation.complete and not preparation.failed)
     if stage == 'far':
         profile = FlightProfile(scenario=args.scenario, handoff_distance_m=args.flight_options.handoff_distance_m)
-        hold = [r for r in rows if r['time_s'] >= profile.start_approach_s+profile.approach_duration_s]
-        errors, speeds = [], []
+        hold_start_ns = max(round((profile.start_approach_s+profile.approach_duration_s)*1e9), now_ns-120_000_000_000)
+        hold = [r for r in rows if round(r['time_s']*1e9) >= hold_start_ns]
+        errors, speeds, angular_rates = [], [], []
         for row in hold:
             t = row['time_s']
             target_p, target_v, _ = profile.target(t)
@@ -51,9 +52,12 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
             velocity = np.asarray(row['truth_com_velocity_n_m_s'])
             errors.append(float(np.linalg.norm(actual[0]-actual[1]-(service_p-target_p))))
             speeds.append(float(np.linalg.norm(velocity[0]-velocity[1]-(service_v-target_v))))
-        checks.update(actual_120s_hold=bool(hold) and hold[-1]['time_s']-hold[0]['time_s'] >= 120.,
+            angular_rates.append(float(np.linalg.norm(row['truth_angular_velocity_body_rad_s'][0])))
+        checks.update(actual_120s_hold=bool(hold) and round(hold[-1]['time_s']*1e9)-round(hold[0]['time_s']*1e9) >= 120_000_000_000,
                       actual_tracking_2m=bool(errors) and max(errors) < 2.,
-                      actual_velocity_2cm_s=bool(speeds) and max(speeds) < .02)
+                      actual_velocity_2cm_s=bool(speeds) and max(speeds) < .02,
+                      actual_service_rate_0p001rad_s=bool(angular_rates) and bool(np.isfinite(angular_rates).all())
+                      and max(angular_rates) <= summary['mission_configuration']['service_angular_rate_limit_rad_s'])
     else:
         checks.update(current_visual_ready=bool(final['visual']['ready']),
                       vision_process_healthy=summary['sensor_delivery']['healthy'],

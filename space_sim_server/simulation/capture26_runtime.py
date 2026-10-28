@@ -24,7 +24,7 @@ sys.path[:0] = [str(ROOT), str(ROOT/'backend')]
 
 def run(args):
     import numpy as np
-    from simulation.capture26_mission import MODEL_PATH, VISION_PATH, desired_geometry, load_vision, source_identity
+    from simulation.capture26_mission import MODEL_PATH, VISION_PATH, desired_geometry, translation_reference, load_vision, source_identity
     from simulation.pose_navigation import PoseNavigation, exp, log
     from space_arm_platform.gnss_config import GNSSConfig
     from space_arm_platform.visual_navigation import calibration_id, VisualReadiness
@@ -68,6 +68,8 @@ def run(args):
         if saved.get('mission_stage') is not None or saved.get('environment'):
             raise ValueError('formal capture26 stages require accepted handoffs, not private probe restarts')
         incoming = saved
+        if incoming.get('mission_configuration') != mission_config.to_dict():
+            raise ValueError('capture26 frozen mission configuration changed across private restart')
         epoch_ns = saved['physical']['time_ns']
         if epoch_ns % 100_000_000:
             raise ValueError('runtime restart requires a common 10 Hz sensor/control epoch')
@@ -202,7 +204,7 @@ def run(args):
     flight = None
     if mission == 'far':
         from simulation.capture26_flight import Capture26Flight
-        flight = Capture26Flight(args.scenario, handoff_distance_m=flight_options.handoff_distance_m)
+        flight = Capture26Flight(args.scenario, handoff_distance_m=flight_options.handoff_distance_m, config=mission_config)
     masses = None
     com = None
     com_rates = np.zeros((2, 3))
@@ -373,10 +375,11 @@ def run(args):
                     omega_BN_B=(s['rates'][i]-s['b'][i]).tolist()), now, self.moduleID)
             # Hold the configured optical depth. Reference follows target
             # estimates and lever arms; no physical attitude/position is read.
-            offset, desired_r = desired_geometry(args.depth, s['r'][1], com[0], com[1], vision_config)
+            offset, reference_velocity, _ = translation_reference(args.depth, s, com[0], com[1], vision_config)
             p_goal = s['p'][1]+offset
-            omega = s['r'][1]@(s['rates'][1]-s['b'][1])
-            v_goal = s['v'][1]+np.cross(omega, offset)+desired_r@com_rates[0]-s['r'][1]@com_rates[1]
+            v_goal = s['v'][1]+reference_velocity
+            service_rate = float(np.linalg.norm(s['rates'][0]-s['b'][0]))
+            rate_stable = service_rate <= mission_config.service_angular_rate_limit_rad_s
             feedforward = np.zeros(3)
             acquisition_expired = now-epoch_ns > round((.35+gnss_config.delay_s)*1e9)
             if operations is not None:
@@ -392,12 +395,9 @@ def run(args):
                 reference = ['optical_depth_m', args.depth]
                 platform = operation_stability.update(now, reference, dict(
                     position=float(np.linalg.norm(p_goal-s['p'][0])) <= .006,
-                    velocity=float(np.linalg.norm(s['v'][0]-s['v'][1]
-                        -np.cross(omega, s['p'][0]-s['p'][1])
-                        -desired_r@com_rates[0]+s['r'][1]@com_rates[1])) <= .002,
-                    attitude=float(np.linalg.norm(log(desired_r@s['r'][0].T))) < np.deg2rad(.3),
+                    velocity=float(np.linalg.norm(s['v'][0]-v_goal)) <= .002,
+                    service_angular_rate=rate_stable,
                     position_uncertainty=principal_sigma(pc) < .04,
-                    attitude_uncertainty=principal_sigma(ac) < np.deg2rad(.3),
                     health=healthy, safety=not operations.failed))
                 enabled = platform['platform_stable'] and gate.ready and not operations.failed
                 operations.arm_client.enabled = enabled
@@ -405,11 +405,13 @@ def run(args):
                     reason=operations.failed or (gate.reason if not gate.ready else 'platform stability pending'),
                     gnss_healthy=gnss_healthy, process_health=delivery.status(),
                     released=bool(enabled), dwell_s=platform['platform_stable_duration_s'],
+                    service_angular_rate_rad_s=service_rate, service_angular_rate_stable=rate_stable,
                     **platform, position_goal=p_goal, velocity_goal=v_goal)
             if flight is not None:
                 if now % 50_000_000 == 0:
                     healthy = (all(nav.gyro_health(now)) and self.last_gnss_ns is not None
-                               and now-self.last_gnss_ns <= 350_000_000)
+                               and now-self.last_gnss_ns <= 350_000_000
+                               and self.last_cooperative_ns is not None and now-self.last_cooperative_ns <= 60_000_000)
                     # Preparation runs by ordinary servos during distant flight;
                     # completion is checked for handoff, while a failed path is a fault.
                     healthy = healthy and not (preparation and preparation.failed)
@@ -433,13 +435,14 @@ def run(args):
                         gnss_healthy=self.last_gnss_ns is not None and now-self.last_gnss_ns <= 350_000_000,
                         communication_healthy=self.last_cooperative_ns is not None and now-self.last_cooperative_ns <= 60_000_000,
                         observation_age_s=.35 if age is None else age, mass_kg=masses[0],
-                        attitude_sigma_rad=principal_sigma(ac), process_healthy=delivery.healthy and
+                        process_healthy=delivery.healthy and
                         (preparation is None or preparation.complete and not preparation.failed))
                 if hasattr(self, 'guidance'):
                     p_goal, v_goal = self.guidance['position_goal'], self.guidance['velocity_goal']
             if platform_log is not None and hasattr(self, 'guidance'):
                 platform_log.append(dict(time_ns=now, stage=mission,
                     depth_m=approach.depth if approach else args.depth,
+                    reference_com_distance_m=self.guidance.get('reference_com_distance_m'),
                     node=self.guidance.get('node', 'PlatformStandoff'),
                     position_n_m=s['p'].tolist(), velocity_n_m_s=s['v'].tolist(),
                     rotation_n_from_body=s['r'].tolist(), rates_body_rad_s=(s['rates']-s['b']).tolist(),
@@ -479,13 +482,6 @@ def run(args):
             component='paired_gnss', reads_kinematics=False)
     reference_rotation = None
 
-    def attitude_reference(t):
-        if nav is None:
-            return reference_rotation, np.zeros(3), np.zeros(3)
-        _, r = desired_geometry(args.depth, nav.state['r'][1], com[0], com[1], vision_config)
-        omega = nav.state['r'][1]@(nav.state['rates'][1]-nav.state['b'][1])
-        return r@pointing_error, omega, np.zeros(3)
-
     # A nominal target attitude is an initial prior. It is not a truth sensor.
     r0, v0, _ = (flight.profile if flight else FlightProfile()).target(0.)
     target_rotation = exp([0., 0., np.pi/2])
@@ -500,7 +496,8 @@ def run(args):
     if incoming:
         reference_rotation = np.array(incoming['navigation']['state']['r'][0])
     attitude = AttitudeComponent(native.MODEL_PATH, estimated_navigation=sensor_messages[0],
-        initial_attitude_prior=rbk.C2MRP(reference_rotation.T), reference_provider=attitude_reference, control_rate_hz=100)
+        initial_attitude_prior=rbk.C2MRP(reference_rotation.T), control_rate_hz=mission_config.attitude_hz,
+        control_mode=mission_config.attitude_control_mode)
     ctx.install([attitude])
     bridge = None
     vision = None
@@ -618,7 +615,8 @@ def run(args):
     geometry_readers = {name: (ctx.ports.joint_state(name).addSubscriber(), ctx.ports.joint_rate(name).addSubscriber())
                         for name in geometry_model.joints}
 
-    offset, _ = desired_geometry(args.depth, target_rotation, com[0], com[1], vision_config)
+    offset, _ = desired_geometry(args.depth, target_rotation, com[0], com[1], vision_config,
+                                 service_rotation=reference_rotation)
     nominal_positions = np.array([r0+offset, r0])
     nominal_velocities = np.array([v0, v0])
     if flight:
@@ -690,7 +688,8 @@ def run(args):
         from simulation.capture26_approach import Capture26Approach
         entry_depth = args.depth
         if incoming:
-            zero_offset, _ = desired_geometry(0., nav.state['r'][1], com[0], com[1], vision_config)
+            zero_offset, _ = desired_geometry(0., nav.state['r'][1], com[0], com[1], vision_config,
+                                              service_rotation=nav.state['r'][0])
             approach_axis = -nav.state['r'][1][:, 1]
             entry_depth = float((zero_offset-(nav.state['p'][0]-nav.state['p'][1]))@approach_axis)
         approach = Capture26Approach(com[0], com[1], vision_config, initial_depth_m=entry_depth,
@@ -810,6 +809,8 @@ def run(args):
                 truth_relative_position_m=actual_relative.tolist(),
                 relative_error_m=(estimated-actual_relative).tolist(),
                 attitude_error_rad=[log(nav.state['r'][i]@rotations_truth[i].T).tolist() for i in range(2)],
+                truth_angular_velocity_body_rad_s=[v_truth[va+3:va+6].tolist() for _, va, _ in free_layouts],
+                service_angular_rate_rad_s=float(np.linalg.norm(nav.state['rates'][0]-nav.state['b'][0])),
                 truth_com_position_n_m=[p.tolist() for p in actual],
                 truth_com_velocity_n_m_s=[assembly_truth[name]['velocity_n_m_s'].tolist() for name in ('cubesat_bus', 'capture_target')],
                 truth_com_body_m=[p.tolist() for p in truth_com_body],
@@ -829,6 +830,8 @@ def run(args):
                     visual=gate.status(now, time.time_ns()), gyro_health=nav.gyro_health(now), optical_depth_m=args.depth,
                     platform_stable_duration_s=getattr(control, 'guidance', {}).get('platform_stable_duration_s', 0.),
                     platform_stable=getattr(control, 'guidance', {}).get('platform_stable', False),
+                    service_angular_rate_rad_s=float(np.linalg.norm(nav.state['rates'][0]-nav.state['b'][0])),
+                    service_angular_rate_stable=float(np.linalg.norm(nav.state['rates'][0]-nav.state['b'][0])) <= mission_config.service_angular_rate_limit_rad_s,
                     released=getattr(control, 'guidance', {}).get('released', False), process_health=delivery.status(),
                     processing_real_time_factor=elapsed/max(compute, 1e-9)))
             if operations and bridge and tick % 2 == 0:
@@ -853,6 +856,8 @@ def run(args):
                     visual=score[-1]['visual'], optical_depth_m=guidance.get('optical_depth_m'),
                     platform_stable_duration_s=guidance.get('platform_stable_duration_s', 0.),
                     platform_stable=guidance.get('platform_stable', False), released=guidance.get('released', False),
+                    service_angular_rate_rad_s=float(np.linalg.norm(nav.state['rates'][0]-nav.state['b'][0])),
+                    service_angular_rate_stable=float(np.linalg.norm(nav.state['rates'][0]-nav.state['b'][0])) <= mission_config.service_angular_rate_limit_rad_s,
                     process_health=delivery.status(), cooperative_healthy=control.last_cooperative_ns is not None and now-control.last_cooperative_ns <= 60_000_000,
                     processing_real_time_factor=elapsed/max(compute, 1e-9),
                     mission_options=flight_options.to_dict() if flight_options else {})
@@ -985,7 +990,7 @@ def main():
     p.add_argument('--reference-depth', type=float, help='change only the controlled optical reference after private restart')
     p.add_argument('--save-all-images', action='store_true', help='retain every processed stereo pair for prevalidation')
     p.add_argument('--pointing-error-deg', type=float, nargs=3, default=[0., 0., 0.],
-                   metavar=('X', 'Y', 'Z'), help='known camera pointing offset held by estimated attitude control')
+                   metavar=('X', 'Y', 'Z'), help='initial camera pointing offset; subsequent attitude evolves with body-rate damping')
     p.add_argument('--approach', action='store_true', help='exercise estimated-state nodes; unvalidated vision nodes enter SafeHold')
     p.add_argument('--fault', choices=('', 'image_loss', 'worker_exit', 'gnss_loss', 'communication_loss', 'service_gyro_loss',
                                       'target_gyro_loss', 'gyro_saturation'), default='')

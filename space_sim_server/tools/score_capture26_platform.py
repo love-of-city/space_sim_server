@@ -5,7 +5,6 @@ Physical truth and image covariance are scored separately. No state is written.
 """
 import argparse
 import json
-import math
 from pathlib import Path
 
 import numpy as np
@@ -26,30 +25,38 @@ def audit_rows(rows, configuration, vision, inherited=None):
         now, depth, node = row['time_ns'], row['depth_m'], row['node']
         p, v, r, w, com, dc = (np.array(row[name]) for name in ('position_n_m', 'velocity_n_m_s',
             'rotation_n_from_body', 'rates_body_rad_s', 'com_body_m', 'com_velocity_body_m_s'))
-        rotation = r[1]@optical@np.array(mount['left']['R_body_from_optical']).T
-        offset = r[1]@(marker-com[1])-rotation@(camera-com[0])-depth*(r[1]@optical[:, 2])
-        omega = r[1]@w[1]
-        lever_rate = rotation@dc[0]-r[1]@dc[1]
+        axis = r[1]@optical[:, 2]
+        target_lever = r[1]@(marker-com[1]-depth*optical[:, 2])
+        service_lever = r[0]@(camera-com[0])
+        offset = target_lever-service_lever
+        lever_rate = (np.cross(r[1]@w[1], target_lever)-np.cross(r[0]@w[0], service_lever)
+                      +r[0]@dc[0]-r[1]@dc[1])
+        current_reference = ['optical_depth_m', depth]
+        at_node = True
+        if node == 'COM50m':
+            distance = row['reference_com_distance_m']
+            current_reference = ['com_distance_m', distance]
+            at_node = (distance == configuration['com_hold_m']
+                       and abs(float(np.linalg.norm(offset))-distance) < 1e-7)
+            lever_rate -= float(offset@lever_rate/(offset@axis))*axis
         position_error = float(np.linalg.norm(p[1]+offset-p[0]))
         # Reference motion is disqualified below; parked velocity includes all
         # timestamped encoder lever and target angular-rate terms.
-        velocity_error = float(np.linalg.norm(v[0]-v[1]-np.cross(omega, p[0]-p[1])-lever_rate))
-        attitude_error = math.acos(float(np.clip((np.trace(rotation@r[0].T)-1)/2, -1., 1.)))
+        velocity_error = float(np.linalg.norm(v[0]-v[1]-lever_rate))
         terminal = node == 'PlatformStandoff' or row['stage'] == 'operations'
         targets = {'GNSS17p4m': configuration['gnss_hold_depth_m'], 'VisualAcquire': configuration['acquisition_depth_m'],
                    'VisualReady': configuration['readiness_depth_m'], 'PlatformStandoff': configuration['terminal_depth_m']}
-        if node == 'COM50m':
-            base = marker-com[1]-optical@np.array(mount['left']['R_body_from_optical']).T@(camera-com[0])
-            targets[node] = -base[1]+math.sqrt(configuration['com_hold_m']**2-base[0]**2-base[2]**2)
+        if node != 'COM50m' and row['stage'] != 'operations':
+            at_node = depth == targets[node]
+        p_cov, a_cov = (np.array(row[key]) for key in ('position_covariance_m2', 'attitude_covariance_rad2'))
+        covariance_valid = all(c.shape == (3, 3) and np.isfinite(c).all()
+            and np.allclose(c, c.T, atol=1e-10) and np.linalg.eigvalsh(c)[0] > 0 for c in (p_cov, a_cov))
         healthy = (all(row['gyro_health']) and row['process_healthy'] and not row['safe_hold']
                    and row['last_gnss_ns'] is not None and 0 <= now-row['last_gnss_ns'] <= 350_000_000
                    and row['last_cooperative_ns'] is not None and 0 <= now-row['last_cooperative_ns'] <= 60_000_000)
         conditions = (healthy and position_error <= (.006 if terminal else .05) and velocity_error <= .002
-                      and attitude_error < math.radians(.3)
-                      and np.linalg.eigvalsh(row['position_covariance_m2'])[-1] < .04**2
-                      and np.linalg.eigvalsh(row['attitude_covariance_rad2'])[-1] < math.radians(.3)**2
-                      and (row['stage'] == 'operations' or depth == targets[node]))
-        current_reference = ['optical_depth_m', depth]
+                      and float(np.linalg.norm(w[0])) <= configuration['service_angular_rate_limit_rad_s']
+                      and covariance_valid and np.linalg.eigvalsh(p_cov)[-1] < .04**2 and at_node)
         if (not conditions or current_reference != reference
                 or previous is not None and not 0 <= now-previous <= 150_000_000):
             start = None

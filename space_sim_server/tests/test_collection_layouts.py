@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from space_arm_platform.collection_layouts import (
-    LayoutPool, attach_layout, digest, pool_entry, validate_episode_layout,
+    OPERATION_CLEARANCE_SCHEMA, LayoutPool, attach_layout, digest, pool_entry, validate_episode_layout,
 )
-from simulation.independent_task_box_layout import MODULES, PICKUPS, TARGETS, sample_placements
+from simulation.independent_task_box_layout import MODULES, PICKUPS, TARGETS, make_operational_clearance, sample_placements
 from simulation.scripted_tasks.drawer_initialization import randomized_scene
 
 
@@ -20,6 +20,9 @@ def layout_pool(tmp_path):
     # and renderer integration are checked separately with the real SARM model.
     footprints = {name: [[.01 + .03*i, .01], [.02 + .03*i, .02]]
                   for i, name in enumerate(MODULES)}
+    anchors = {name: [(bounds[0][0]+bounds[1][0])/2,
+                      (bounds[0][1]+bounds[1][1])/2, 0.]
+               for name, bounds in footprints.items()}
     for i in range(2):
         directory = tmp_path / f"layout-{i}"
         directory.mkdir()
@@ -31,15 +34,19 @@ def layout_pool(tmp_path):
             file.write_text(f"{i}-{name}")
             visuals.append(dict(name=name, file=str(file), sha256=digest(file)))
             assets[str(file)] = dict(source_sha256=digest(file))
-        offsets, _ = sample_placements(footprints, i)
+        offsets, _ = sample_placements(footprints, i, operation_anchors=anchors)
         record = dict(schema="task-box-layout/2", seed=i, model_sha256=digest(model), source_sha256="original",
                       initial_states_randomized=False, orientations_randomized=False,
                       adapted_base=dict(visual=visuals[-1]["file"]), generated_visuals=visuals,
                       offsets_body_xy_m=offsets, original_footprints_body_xy_m=footprints,
+                      modules={name: dict(original_anchor_body_m=anchor)
+                               for name, anchor in anchors.items()},
+                      operational_clearance=make_operational_clearance(footprints, anchors),
                       fixed_obstacles_body_xy_m=[], deck_edge_margin_m=.005, minimum_module_gap_m=.008)
         model.with_suffix(".layout.json").write_text(json.dumps(record))
         catalog.write_text(json.dumps(dict(source_mjcf=str(model), assets=assets)))
         native.write_text(json.dumps(dict(passed=True, initial_states_preserved=True,
+                                         operation_clearance_schema=OPERATION_CLEARANCE_SCHEMA,
                                          model_sha256=digest(model), source_model_sha256="original")))
         entries.append(pool_entry(f"id-{i}", model, catalog, native))
     path = tmp_path / "pool.json"

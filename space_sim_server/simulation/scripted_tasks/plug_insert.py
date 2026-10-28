@@ -319,6 +319,14 @@ class PlugInsertTask:
             self._seat_z = self.hole[2] + self.config.flange_local_m
             if stage == "release":
                 self._plug_goal[2] = self._seat_z
+                if self.profile.prefix == "cylindrical":
+                    self._release_from = self.reference[:6].copy()
+                    self._release_hold = sample.joints[:6].copy()
+                    self._release_unload_duration = max(
+                        1.0,
+                        1.875 * np.max(np.abs(self._release_from - self._release_hold))
+                        / self.config.arm_speed_rad_s,
+                    )
         elif stage == "retract":
             # Withdraw between the open fingers, along their tangential direction.
             # Vertical arm recoil otherwise pulls the free spacecraft away from the plug.
@@ -405,6 +413,39 @@ class PlugInsertTask:
         )
         return float(np.linalg.norm(tool_velocity - target_velocity))
 
+    def _advance_insertion_goal(self, sample, dt):
+        next_z = max(
+            self._seat_z, self._plug_goal[2] - self.config.insert_speed_m_s * dt
+        )
+        if self.profile.prefix == "cylindrical":
+            metrics = self.metrics(sample)
+            aligned = (
+                metrics["radial_error_m"] < self.config.radial_tolerance_m / 2
+                and metrics["axis_error_rad"] < 0.002
+            )
+            lightly_loaded = (
+                np.linalg.norm(sample.wrench[:3]) < 0.75 * self.config.force_limit_n
+                and np.linalg.norm(sample.wrench[3:]) < 0.75 * self.config.torque_limit_nm
+            )
+            # Contact stalls the part while the outer position integrator can
+            # keep pushing. Unqueue descent until alignment/load recovers.
+            lead = 0.001 if aligned and lightly_loaded else 0.0
+            next_z = max(next_z, sample.plug_position_body_m[2] - lead)
+        self._plug_goal[2] = next_z
+
+    def _unload_before_release(self, sample):
+        elapsed = sample.time_s - self._entered
+        progress = np.clip(
+            elapsed / self._release_unload_duration, 0.0, 1.0
+        )
+        blend = progress**3 * (10.0 - 15.0 * progress + 6.0 * progress**2)
+        # The insertion reference contains load-supporting servo deflection.
+        # Remove it smoothly while still gripping, before its load disappears.
+        self.reference[:6] = self._release_from + blend * (
+            self._release_hold - self._release_from
+        )
+        return elapsed <= self._release_unload_duration
+
     def _part_feedback(self, sample, dt):
         p, r = self.chain.forward(sample.joints[:6])
         target, rotation = self._tool_for_plug(
@@ -481,7 +522,12 @@ class PlugInsertTask:
         except ValueError as exc:
             self.fail(f"tracking_ik_failed: {exc}", sample)
             return self.reference.copy(), np.zeros(8)
-        if self.stage in ("open", "grip", "release"):
+        unloading = (
+            self.stage == "release"
+            and self.profile.prefix == "cylindrical"
+            and self._unload_before_release(sample)
+        )
+        if self.stage in ("open", "grip", "release") and not unloading:
             target = (
                 self.config.release_open_rad
                 if self.stage == "release"
@@ -511,13 +557,15 @@ class PlugInsertTask:
             self._part_feedback(sample, dt)
         if self.stage in ("align_hole", "insert", "seat"):
             if self.stage == "insert":
-                self._plug_goal[2] = max(
-                    self._seat_z, self._plug_goal[2] - self.config.insert_speed_m_s * dt
-                )
+                self._advance_insertion_goal(sample, dt)
             if self.stage == "seat":
                 self._plug_goal[2] = self._seat_z
             self._part_feedback(sample, dt)
-        if self.stage == "release" and sample.joints[6] < 0.40:
+        if (
+            self.stage == "release"
+            and self.profile.prefix != "cylindrical"
+            and sample.joints[6] < 0.40
+        ):
             self._part_feedback(sample, dt)
         if self.stage in ("transfer", "above_hole", "align_hole", "insert", "seat"):
             p, r = self.chain.forward(sample.joints[:6])

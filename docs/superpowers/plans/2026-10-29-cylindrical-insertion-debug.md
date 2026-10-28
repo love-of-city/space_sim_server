@@ -1,0 +1,19 @@
+# Cylindrical insertion under unchanged wrist limits
+
+Goal: finish the existing native grasp/lift/transfer/insert/release/retreat task while preserving 40 N, 4 Nm and 0.15 s overload detection. Local branch only; preserve failed evidence. No reduction of connector friction or disabled collisions to obtain acceptance.
+
+1. Reproduce the failure with read-only contact diagnostics; correlate actual pose, wrist components, retention engagement and command tracking errors.
+2. Identify one root cause, add a failing regression and make the smallest task-controller or model correction justified by the evidence. Keep physical-state writes outside the controller and preserve independent scoring.
+3. Run the full original native scenario. If a candidate fails, preserve its trace and return to diagnosis before the next change.
+4. Validate complete seating, release, retreat and final stability with the independent physical scorer; freeze the corrected action and verify native replay. Report peaks, complete-predicate results and limitations.
+5. Run related regressions and fresh review; save the local change without pushing.
+
+Observed baseline: at 126 s, axial gap about 8.24 mm with negligible wrist wrench. In the final 8 mm, the original 20 N retention friction engages; axial movement stalls, alignment degrades and the unconstrained position integrator continues advancing. At 128 s, commanded TCP is 14.25 mm below measured TCP. Contact diagnostics pending; this is evidence of command accumulation, not yet proof of its physical cause.
+
+Native reproduction confirmed the original 128.29 s failure and unilateral plug/bore contacts beginning at 126.4 s. Candidate01 capped the cylinder's Cartesian insertion lead at 1 mm; paused descent on radial error >=0.2 mm, tilt >=0.002 rad or 75% of existing load limits; retained feedback and servo preload. It completed insertion/seating/release at insertion peaks 20.034 N and0.137 Nm, but retained preload drove the released hand into base_link_geom_collision_003. Retraction timed out at245.615 s. This failure is retained, not accepted.
+
+Candidate02 adds smooth cylinder-only unloading at release entry: capture commanded and measured arm joints once, interpolate to the measured target with minimum-jerk timing respecting original arm speed, hold both gripper references during unloading, then hold that arm target while opening. No feedback may rebuild the insertion preload during cylinder release. Existing task stages, seat predicates, 20 N retention friction, collisions, limits and dwell remain unchanged. Regression tests cover short and extended unloading velocity bounds and continuous opening transition.
+
+Measurement correction: global peak7.6297 Nm occurs in one extraction sample at47.46 s; the original insert-phase maximum is4.5073 Nm and sustained overload stops insertion. Report phase-specific peaks and continuous-exceedance duration separately; never describe the global peak as an insertion peak or claim an instantaneous4 Nm ceiling was met.
+
+Final verified outcome: candidate02 completed the whole native task at199.86 s. Independent scorer passed all physical predicates, stable10.02 s, insertion depth69.951 mm, gap0.0489 mm. One newly frozen native replay passed with online/offline agreement and stable12.52 s. Insert peaks20.034 N/0.137 Nm; release20.007 N/0.102 Nm; retreat0.0143 N/0.0038 Nm. Read-only10 Hz diagnostics recorded zero finger/board contacts during retreat (not a400 Hz no-contact certification). Verified identical model SHA, task config, retention config and substeps against original failure.112 related regressions passed; fresh independent code review found no must-fix findings. No UE/visual/random-scene acceptance claimed. Artifacts: D:/mingti/outputs/cylinder-insert-debug-20261029/validation-summary.json. Commit local only; no push.

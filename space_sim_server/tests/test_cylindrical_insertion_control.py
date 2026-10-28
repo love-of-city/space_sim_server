@@ -1,0 +1,71 @@
+from pathlib import Path
+from dataclasses import replace
+import numpy as np
+import pytest
+from simulation.scripted_tasks.plug_insert import PlugInsertTask,PlugSample,PlugInsertConfig
+from simulation.serial_chain_kinematics import axis_angle_to_matrix
+
+MODEL=Path(__file__).resolve().parents[1]/'model/SARM/platform/sarm_20261012.xml'
+
+def setup():
+    task=PlugInsertTask(MODEL)
+    task._seat_z=.03;task._plug_goal=np.array([.535,.355,.03])
+    sample=PlugSample(127.,np.zeros(8),np.zeros(8),np.array([.535,.355,.038]),
+                      np.diag([1.,-1.,-1.]),np.zeros(3),np.zeros(3),np.zeros(6),True)
+    return task,sample
+
+def test_axial_goal_cannot_run_far_ahead_of_stalled_part():
+    task,sample=setup();task._advance_insertion_goal(sample,.005)
+    assert task._plug_goal[2]>=sample.plug_position_body_m[2]-.001
+    assert task.config.force_limit_n==40 and task.config.torque_limit_nm==4
+
+@pytest.mark.parametrize('change', ['tilt','radial','torque','force'])
+def test_realign_before_advancing_under_side_contact(change):
+    task,sample=setup()
+    if change=='tilt':sample=replace(sample,plug_rotation_body=axis_angle_to_matrix([1,0,0],.003)@sample.plug_rotation_body)
+    if change=='radial':sample=replace(sample,plug_position_body_m=sample.plug_position_body_m+np.array([.0003,0,0]))
+    if change=='torque':sample=replace(sample,wrench=np.array([0,0,0,0,3.1,0]))
+    if change=='force':sample=replace(sample,wrench=np.array([0,0,31.,0,0,0]))
+    task._advance_insertion_goal(sample,.005)
+    assert task._plug_goal[2]>=sample.plug_position_body_m[2]
+
+def test_aligned_unloaded_part_keeps_nominal_insertion_speed():
+    task,sample=setup();task._plug_goal[2]=.038
+    task._advance_insertion_goal(sample,.005)
+    assert task._plug_goal[2]==pytest.approx(.038-.002*.005)
+
+def test_insert_step_applies_stalled_part_guard_before_feedback():
+    task,sample=setup()
+    task.stage='insert';task._entered=sample.time_s;task._last_time=sample.time_s-.005;task._timeout=90.
+    p,r=task.chain.forward(sample.joints[:6])
+    task._grasp_transform=(r.T@(sample.plug_position_body_m-p),r.T@sample.plug_rotation_body)
+    task.plug_rotation=sample.plug_rotation_body.copy()
+    task.step(sample)
+    assert task._plug_goal[2]>=.037
+    assert task.result is None
+
+def test_guide_keeps_existing_insertion_advance():
+    _,sample=setup()
+    task=PlugInsertTask(MODEL,PlugInsertConfig(plug_body='guide_plug'))
+    task._seat_z=.03;task._plug_goal=np.array([.535,.275,.038])
+    task._advance_insertion_goal(replace(sample,wrench=np.array([0,0,31.,0,0,0])),.005)
+    assert task._plug_goal[2]==pytest.approx(.038-.002*.005)
+
+@pytest.mark.parametrize('preload',[.04,.12])
+def test_cylinder_unloads_arm_before_opening_without_reference_jump(preload):
+    from test_scripted_plug_task import task_sample
+    task,sample=task_sample()
+    task.reference[:6]+=np.array([preload,-.02,0,0,0,0])
+    start=task.reference.copy();task._enter('release',sample)
+    previous=start.copy()
+    duration=task._release_unload_duration
+    ticks=int(np.ceil(duration/.005))
+    for stamp in np.linspace(0,duration,ticks+1)[1:]:
+        reference,velocity=task.step(replace(sample,time_s=stamp))
+        assert reference[6:]==pytest.approx(start[6:])
+        assert np.max(np.abs(velocity[:6]))<=task.config.arm_speed_rad_s+1e-9
+        previous=reference
+    assert previous[:6]==pytest.approx(sample.joints[:6])
+    reference,_=task.step(replace(sample,time_s=duration+.005))
+    assert reference[:6]==pytest.approx(sample.joints[:6])
+    assert reference[6]>start[6]

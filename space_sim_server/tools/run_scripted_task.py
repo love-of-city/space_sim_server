@@ -173,6 +173,16 @@ def run(args):
             "Initial arm angles must be finite and inside model joint limits"
         )
     command, velocity = initial.copy(), np.zeros(8)
+    if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task == "drawer_cycle":
+        scene_instance.setdefault("collection_config", {})["environment_planning"] = {
+            "schema": "native-environment-motion/2",
+            "enabled": True,
+            "free_motion": "straight coordinated approach first; checked free motion, then deterministic RRT-Connect and C2 smoothing",
+            "approach_opening": "synchronized monotone opening; checked execution owns the approach reference",
+            "contact_motion": "constrained corridor checks; original physical controllers",
+            "collision_check": "finite joint-space samples; not exact continuous collision detection",
+            "free_motion_clearance_m": .002,
+        }
     publisher = HeldJointReferencePublisher(lambda t: (command, velocity), 8)
     sim = stepper = orbit = capture = None
     report = dict(
@@ -201,6 +211,21 @@ def run(args):
     simulation_wall_seconds = 0.0
     loop_started = None
     try:
+        if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task=="drawer_cycle":
+            from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+            from copy import deepcopy
+            from simulation.scripted_tasks.environment_motion import enable
+            enable(task)
+            checked_scene = deepcopy(scene_instance)
+            checked_scene.setdefault("randomization", {}).update(arm_joint_position_rad=initial.tolist())
+            print(json.dumps({"type":"task_preflight","output":str(output)}),flush=True)
+            probe = NativePoseProbe(model)
+            try:
+                report["preflight"] = probe.validate(model,checked_scene,args.task,task=task)
+            finally:
+                probe.close()
+            if not report["preflight"]["accepted"]:
+                raise ValueError("initialization_rejected: "+json.dumps(report["preflight"]))
         print(json.dumps({"type": "loading_task", "output": str(output)}), flush=True)
         sim, scene, models, recorders = native._build_simulation(
             external_reference=publisher,
@@ -346,7 +371,14 @@ def run(args):
                             task.fail("capture_stopped_before_task_completed", sample)
                         elif elapsed >= args.max_sim_seconds:
                             task.fail("total_simulation_timeout", sample)
-                    nominal_command, nominal_velocity = task.step(sample)
+                    from simulation.scripted_tasks.obstacle_planner import PlanningFailure
+                    try:
+                        nominal_command, nominal_velocity = task.step(sample)
+                    except PlanningFailure as error:
+                        # Publish the failed task normally so both camera queues
+                        # can finish and the dataset records a rejected episode.
+                        task.fail(f"planning_failed: {error}", sample)
+                        nominal_command, nominal_velocity = task.reference.copy(), np.zeros(8)
                     if task.result is None:
                         command[:], velocity[:] = disturbances.action(nominal_command, nominal_velocity, elapsed, task.lower, task.upper)
                     else:
@@ -445,6 +477,7 @@ def run(args):
             None if loop_started is None else finished - loop_started
         )
         report["execute_simulation_wall_seconds"] = simulation_wall_seconds
+        report["motion_plans"] = getattr(task,"motion_plans",[])
         (output / "summary.json").write_text(
             json.dumps(report, indent=2), encoding="utf-8"
         )

@@ -186,6 +186,7 @@ class PlugInsertTask:
     shared_motion_version = "plug-insert/10-shared-continuous-motion"
     latch_version = "plug-insert/11-all-latch-aligned"
     cylindrical_clearance_version = "plug-insert/12-cylindrical-clearance"
+    straight_approach_version = "plug-insert/13-straight-approach"
     continuous_carry_stages = tuple(stage for stage in coordinated_stages if stage != "descend")
     latch_stages = tuple(stage for stage in continuous_carry_stages if stage not in ("align_hole", "seat"))
 
@@ -193,13 +194,11 @@ class PlugInsertTask:
     def task_version(cls, task_name):
         from .plug_profiles import plug_profile
         profile = plug_profile(task_name)
-        if profile.prefix == "cylindrical":
-            return cls.cylindrical_clearance_version
-        return cls.latch_version if profile.grasp_closing_axis else cls.version
+        return cls.straight_approach_version if profile.grasp_closing_axis else cls.version
 
     @classmethod
     def recorded_stages(cls, version):
-        if version in (cls.cylindrical_clearance_version, cls.latch_version, cls.shared_motion_version, cls.overlapped_release_version, cls.continuous_contact_version):
+        if version in (cls.straight_approach_version, cls.cylindrical_clearance_version, cls.latch_version, cls.shared_motion_version, cls.overlapped_release_version, cls.continuous_contact_version):
             return cls.latch_stages
         if version in (cls.continuous_carry_version, cls.gentle_carry_version, cls.smooth_tracking_version):
             return cls.continuous_carry_stages
@@ -274,6 +273,13 @@ class PlugInsertTask:
         self._axial_acceleration = 0.
         self._axial_measured_velocity = 0.
         self.retract_plan = None
+        self._release_clearance_probe = None
+        self._release_clearance_opening = None
+        self.release_clearance_checks = []
+        self._release_hold_joints = None
+        self.environment_planning = False
+        self.motion_plans = []
+        self._searched_carry = False
 
     def metrics(self, sample):
         axis = sample.plug_rotation_body[:, 2]
@@ -314,9 +320,12 @@ class PlugInsertTask:
             ever_lifted=bool(self._ever_lifted),
             grasp_hold_opening_rad=float(self._closed_reference),
             retract_plan=self.retract_plan,
+            release_clearance_checks=list(self.release_clearance_checks),
         )
 
     def fail(self, reason, sample):
+        from .plug_clearance import close_cylindrical_release_probe
+        close_cylindrical_release_probe(self)
         self.result, self.reason = "failed", reason
         self.reference[:], self.velocity[:] = sample.joints, 0.0
         self.events.append(
@@ -377,7 +386,7 @@ class PlugInsertTask:
             if approach_profile is not None:
                 linear, angular, opening = approach_profile.derivative_bounds()
                 distance, angle = linear[0], angular[0]
-                slow_distance = cfg.slow_distance_m * distance / approach_profile.height
+                slow_distance = cfg.slow_distance_m
             # Carrying a newly extracted connector needs a gentler envelope
             # than empty-arm motion, through lift, transfer AND hole approach.
             acceleration = cfg.linear_acceleration_m_s2
@@ -463,8 +472,20 @@ class PlugInsertTask:
             self.events.append(dict(stage=stage, sim_time_s=sample.time_s, **self.metrics(sample)))
             return
         incoming_stage = self.stage
+        if (incoming_stage,stage) != ("release","retract"):
+            from .plug_clearance import close_cylindrical_release_probe
+            close_cylindrical_release_probe(self)
+        if stage == "release":
+            self._release_clearance_opening = None
+            self.release_clearance_checks = []
+        searched_release_complete = (
+            incoming_stage == "retract" and stage == "verify"
+            and self._timing is not None
+            and self._timing.path.coefficients.shape[-1] == 7
+        )
         incoming_velocity = self.chain.jacobian(self.reference[:6])[:3] @ self.velocity[:6]
         self._carry_profile = None
+        self._searched_carry = False
         self.stage = stage
         if self._approach_rotation is not None:
             grasp, rotation = self._tracked_grasp(sample)
@@ -536,6 +557,7 @@ class PlugInsertTask:
                     # Unwind the insertion servo preload smoothly. Holding the
                     # old reference would drive the wrist down as fingers open.
                     goal, rotation = self.chain.forward(sample.joints[:6])
+                    self._release_hold_joints = sample.joints[:6].copy()
         elif stage == "retract":
             # Withdraw between the open fingers, along their tangential direction.
             # Vertical arm recoil otherwise pulls the free spacecraft away from the plug.
@@ -567,16 +589,55 @@ class PlugInsertTask:
             self._plug_goal = np.array([*self.pickup[:2], sample.plug_position_body_m[2]])
             self._extract_rotation = self.pickup_rotation @ np.diag([1., -1., -1.])
             goal = None
-        if self.coordinated_grasp and stage == "lift":
-            self._plan_carry(sample)
-        elif stage == "retract" and self.profile.prefix == "cylindrical" and sample.native_qpos is not None:
-            from .plug_clearance import plan_cylindrical_retract
-            plan_cylindrical_retract(self, sample)
-        elif goal is not None:
-            self._plan(goal, rotation)
+        error = None
+        retract_candidates = None
+        try:
+            if self.coordinated_grasp and stage == "lift":
+                self._plan_carry(sample)
+            elif stage == "retract" and self.profile.prefix == "cylindrical" and sample.native_qpos is not None:
+                from .plug_clearance import plan_cylindrical_retract, cylindrical_retract_candidates
+                retract_candidates = cylindrical_retract_candidates(self)
+                # A blocked diagonal still needs a rising destination. Do not
+                # fall back to the obsolete horizontal goal beside the plugs.
+                goal,rotation = retract_candidates[0]['position'],retract_candidates[0]['rotation']
+                plan_cylindrical_retract(self, sample, retract_candidates)
+            elif goal is not None:
+                self._plan(goal, rotation)
+        except ValueError as exc:
+            if not self.environment_planning or stage not in ("approach","lift","retract"):
+                raise
+            error = str(exc)
+        if self.environment_planning and stage in ("approach","lift","retract"):
+            from .environment_motion import plan
+            if stage == "lift":
+                offset, relative_r = self._grasp_transform
+                rotation = self.plug_rotation @ relative_r.T
+                goal = np.r_[self.hole[:2],self.hole[2]+self.profile.tip_m+.012]-rotation@offset
+            elif error is None and self._goal is not None:
+                goal,rotation=self._goal,self._rotation
+            self._goal,self._rotation=goal,rotation
+            report=plan(self,sample,goal,rotation,-rotation[:,2] if stage != "retract" else rotation[:,2],
+                        held=stage=="lift",error=error,
+                        opening=self.config.release_open_rad if stage=="retract" else 1.,
+                        path_reference=self.path_reference,
+                        fallback_positions=(None if retract_candidates is None else
+                                            [target['position'] for target in retract_candidates]))
+            self._searched_carry=stage=="lift" and report['route']=='searched'
+            if retract_candidates is not None and report['route']=='searched':
+                target = retract_candidates[report['goal_candidate_index']]
+                self.retract_plan = dict(
+                    height_m=target['height_m'],direction_body=target['direction_body'],
+                    route='searched',attempts=(self.retract_plan or {}).get('attempts',[]),
+                    goal_candidate_index=report['goal_candidate_index'])
+        if self.environment_planning and sample.native_qpos is not None and stage in ("extract", "insert"):
+            from .operation_clearance import check_operation
+            check_operation(self, sample)
         continue_opening = self.coordinated_grasp and (incoming_stage, stage) in (
             ("release", "retract"), ("retract", "verify"))
-        if not continue_opening:
+        if not continue_opening or searched_release_complete:
+            # The searched arm/jaw path completed the opening on its own clock.
+            # Its predecessor's release timer was not advanced during that
+            # path; replaying it in verify would abruptly close the fingers.
             self._gripper_timing = None
         if self.coordinated_grasp and stage == "release":
             self._release_opening_s = 0.
@@ -623,18 +684,28 @@ class PlugInsertTask:
     def _next(self, sample):
         self._enter(self.stages[self.stages.index(self.stage) + 1], sample)
 
+    def path_reference(self, progress):
+        if self._timing.path.coefficients.shape[-1] == 7:
+            q=self._timing.path.at(progress)
+            return np.r_[q[:6],q[6],-q[6]]
+        opening=(self._approach_profile.opening(progress) if self.stage=="approach" else self._opening_at_entry)
+        if self.stage == "retract" and self._gripper_timing is not None:
+            elapsed = self._release_opening_s + self._timing.seconds_at(progress)
+            if self._gripper_reverse:
+                elapsed = self._gripper_timing.duration - elapsed
+            opening = self._gripper_timing.joint_state(elapsed)[0][0]
+        return np.r_[self._timing.path.at(progress),opening,-opening]
+
     def planned_path_reference(self, elapsed):
         """Nominal timed arm/opening path, also used by collision preflight.
 
-        Runtime may pause the arm clock for tracking lag and add measured object
-        drift correction; preflight checks the nominal static scene only.
+        Runtime may pause the arm clock for tracking lag. Coordinated approach
+        uses this checked path without drift correction; contact feedback in
+        later stages still uses measured state. Preflight uses a static scene.
         """
         if self._timing is not None:
             progress = self._timing.at(elapsed)
-            opening = self._opening_at_entry
-            if self.stage == "approach":
-                opening = self._approach_profile.opening(progress)
-            return np.r_[self._timing.path.at(progress), opening, -opening]
+            return self.path_reference(progress)
         a = np.clip(elapsed / self._duration, 0.0, 1.0)
         u = (10 * a**3 - 15 * a**4 + 6 * a**5) * 80
         i = min(int(u), 79)
@@ -671,6 +742,12 @@ class PlugInsertTask:
     def _follow_pickup(self, sample, dt, previous):
         """Follow measured part drift without writing the physical state."""
         if self.stage not in ("above_pickup", "align", "open", "approach", "descend", "grip"):
+            return
+        if self.coordinated_grasp and self.stage == "approach" and self._timing is not None:
+            # The checked arm/finger trajectory owns the shared approach clock.
+            # Adding a second tracker here bends the straight line (or detour)
+            # after collision checking and can abruptly cap its velocity.
+            # Correct residual part drift during the physical grip phase.
             return
         if (
             self.stage == "grip"
@@ -757,6 +834,32 @@ class PlugInsertTask:
             candidate = np.clip(candidate, sample.joints[:6]-.06, sample.joints[:6]+.06)
         self.reference[:6] = np.clip(candidate, self.lower, self.upper)
 
+    def _hold_release_pose(self, sample, dt):
+        """Hold the measured release-entry pose throughout finger opening.
+
+        Recomputing a grasp transform from a slipping part follows the slip and
+        can sweep the wrist into a neighbor. The release path already saved the
+        measured wrist as its goal. Measured twist damps the unloading motion;
+        back-calculation toward that same joint pose prevents a blocked wrist
+        from accumulating a reference offset that springs free with the fingers.
+        Neither term switches off at the last contact or resets the reference.
+        """
+        p, r = self.chain.forward(sample.joints[:6])
+        error = np.r_[self._goal-p, .2*rotation_matrix_to_vector(self._rotation@r.T)]
+        jac = self.chain.jacobian(sample.joints[:6])
+        jac[3:] *= .2
+        measured_twist = jac @ sample.joint_velocities[:6]
+        dq = jac.T @ np.linalg.solve(jac@jac.T+1e-6*np.eye(6), 3.*error-measured_twist)
+        # The release-entry IK branch is the unloaded equilibrium reference.
+        # Use the pose feedback's existing 3/s rate for reference tracking as
+        # well: a stationary blocked wrist produces a finite correction.
+        dq -= 3.*(self.reference[:6]-self._release_hold_joints)
+        speed = min(.08, self.config.arm_speed_rad_s)
+        dq *= min(1., speed/max(float(np.max(np.abs(dq))),1e-12))
+        candidate = np.clip(self.reference[:6]+dt*dq,
+                            sample.joints[:6]-.06, sample.joints[:6]+.06)
+        self.reference[:6] = np.clip(candidate,self.lower,self.upper)
+
     def step(self, sample: PlugSample):
         if self._last_time is not None and sample.time_s < self._last_time:
             raise ValueError("Task time must be monotonic")
@@ -812,8 +915,9 @@ class PlugInsertTask:
             self.fail("stage_timeout", sample)
         if self.result is not None:
             return self.reference.copy(), np.zeros(8)
-        if self._path is not None:
-            unloading = self.coordinated_grasp and self.stage == "release"
+        unloading = self.coordinated_grasp and self.stage == "release"
+        seating_release = unloading and self.profile.prefix == "cylindrical"
+        if self._path is not None and not (seating_release and self._release_unloaded):
             # Preload can exceed the normal tracking-error gate. Unloading moves
             # the reference back toward the measured wrist, so it must not wait
             # for the loaded robot to reach that old (penetrating) reference.
@@ -828,7 +932,9 @@ class PlugInsertTask:
         opening_on_approach = self.coordinated_grasp and self.stage in (
             "raise", "above_pickup", "approach", "descend"
         )
-        if self.coordinated_grasp and self.stage == "approach":
+        if self._timing is not None and self._timing.path.coefficients.shape[-1] == 7:
+            self.reference[6:] = self.planned_path_reference(self._motion_s)[6:]
+        elif self.coordinated_grasp and self.stage == "approach":
             self.reference[6:] = self.planned_path_reference(self._motion_s)[6:]
         elif self._gripper_timing is not None:
             opening_time = sample.time_s-self._entered
@@ -953,6 +1059,13 @@ class PlugInsertTask:
             self._part_feedback(sample, dt, axial_velocity=axial_velocity)
         if self.stage == "release" and not self.coordinated_grasp and sample.joints[6] < 0.40:
             self._part_feedback(sample, dt)
+        if seating_release and self._release_unloaded:
+            # A four-bar finger can remain hooked while its partner clears.
+            # Hold the release-entry wrist pose as the jaws open, so measured
+            # servo deflection cannot drag the hook sideways along the head.
+            # Continue through clearance opening: dropping feedback when the
+            # last finger clears leaves its accumulated servo preload behind.
+            self._hold_release_pose(sample, dt)
         if self.stage in ("transfer", "above_hole", "align_hole", "insert", "seat") or (
             self.coordinated_grasp and self.stage in ("extract", "lift")
         ):
@@ -960,6 +1073,8 @@ class PlugInsertTask:
             expected = p + r @ self._grasp_transform[0]
             if np.linalg.norm(expected - sample.plug_position_body_m) > 0.015:
                 self.fail("plug_slipped_from_gripper", sample)
+        if self._searched_carry and sample.plug_position_body_m[2]-self._initial_position[2]>.12:
+            self._ever_lifted=True
         elapsed = sample.time_s - self._entered
         p, r = self.chain.forward(sample.joints[:6])
         if self.stage == "settle":
@@ -967,9 +1082,10 @@ class PlugInsertTask:
         elif self._carry_profile is not None and self.stage in ("lift", "transfer"):
             # Phase markers do not reset time, re-solve IK, or wait for settling.
             index = 0 if self.stage == "lift" else 1
-            ready = self._timing.at(self._motion_s) >= self._carry_profile.boundaries[index]
+            progress=self._timing.at(self._motion_s)
+            ready = progress >= (1. if self._searched_carry else self._carry_profile.boundaries[index])
             if ready and self.stage == "lift":
-                self._ever_lifted = bool(sample.plug_position_body_m[2] - self._initial_position[2] > .12)
+                self._ever_lifted = self._ever_lifted or bool(sample.plug_position_body_m[2] - self._initial_position[2] > .12)
                 if not self._ever_lifted:
                     self.fail("plug_not_lifted", sample)
                     ready = False
@@ -1034,6 +1150,13 @@ class PlugInsertTask:
                 )
             self._stable = self._stable + dt if ready else 0.0
             ready = self._stable >= (0.1 if self.coordinated_grasp else 1.0)
+            if ready and self.profile.prefix == "cylindrical" and sample.native_qpos is not None:
+                from .plug_clearance import cylindrical_release_clearance
+                try:
+                    ready = cylindrical_release_clearance(self, sample)
+                except ValueError as exc:
+                    self.fail(f"release_clearance_failed: {exc}", sample)
+                    ready = False
         elif self.stage == "grip":
             ready = (
                 elapsed > 6.0 and self.reference[6] < 0.001 and sample.joints[6] > 0.025
@@ -1083,6 +1206,14 @@ class PlugInsertTask:
                 )
             if self.stage == "insert" and not self.coordinated_grasp:
                 ready = ready and self._plug_goal[2] <= self._seat_z + 1e-6
+            if self.stage == "insert" and self.profile.prefix == "cylindrical":
+                # The round bore does not restrain axial spin. The generic
+                # 1-mm final pose tolerance allowed opening above the flange
+                # seat, where one hooked finger could lift and spin the plug.
+                # Finish the existing insertion feedback before releasing;
+                # this adds no dwell and does not relax final acceptance.
+                ready = ready and abs(metrics["seat_gap_m"]) < min(
+                    self.config.seat_tolerance_m, .0001)
             # Aviation seating is accepted from actual geometry and velocity,
             # not a virtual target that can lag during contact recentering.
             if self.stage == "verify":

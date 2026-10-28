@@ -171,7 +171,9 @@ def _library():
     lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
     lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_contacts.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
+    lib.lms_probe_clearance.argtypes = [ctypes.c_void_p, ctypes.c_double]
     lib.lms_contact_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
+    lib.lms_contact_materials.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_contact_geometry.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, _DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
@@ -418,6 +420,14 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._check(count, "contact-force count")
         rows = np.empty((count, 11), dtype=np.float64)
         self._check(self._lib.lms_contact_forces(self._handle, _pointer(rows), count), "contact forces")
+        return rows
+
+    def contact_material_snapshot(self) -> np.ndarray:
+        """Geom ids, solved contact dimension, and five mixed friction coefficients."""
+        count = self._lib.lms_contact_materials(self._handle, None, 0)
+        self._check(count, "contact-material count")
+        rows = np.empty((count, 8), dtype=np.float64)
+        self._check(self._lib.lms_contact_materials(self._handle, _pointer(rows), count), "contact materials")
         return rows
 
     def contact_geometry_snapshot(self) -> np.ndarray:

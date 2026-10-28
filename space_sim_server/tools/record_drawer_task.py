@@ -18,6 +18,9 @@ import sys
 import time
 import uuid
 
+PROCESS_STARTED = time.monotonic()
+PROCESS_STARTED_AT_NS = time.time_ns()
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
 
@@ -51,9 +54,6 @@ from simulation.scripted_tasks.plug_profiles import (
     plug_profile,
 )
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, THREADED_INSTRUCTIONS, task_default_duration_s
-
-PROCESS_STARTED = time.monotonic()
-PROCESS_STARTED_AT_NS = time.time_ns()
 
 CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
 
@@ -310,13 +310,14 @@ async def run(args):
                 if time.monotonic() > deadline:
                     raise TimeoutError("UE renderer did not start within 240 seconds")
                 await asyncio.sleep(0.25)
-        deadline = time.monotonic() + 180
+        state_timeout = getattr(args, "startup_timeout_seconds", 600)
+        deadline = time.monotonic() + state_timeout
         emit("renderer_listening")
         while hub.latest_observation is None:
             check_processes()
             if time.monotonic() > deadline:
                 raise TimeoutError(
-                    "No authoritative simulation state within 180 seconds"
+                    f"No authoritative simulation state within {state_timeout} seconds (including task preflight)"
                 )
             await asyncio.sleep(0.1)
         if not hub.capture_pair_ack_supported:
@@ -404,6 +405,8 @@ async def run(args):
                 )
             await asyncio.sleep(0.1)
         report["recording_wall_seconds"] = time.monotonic() - start_wall
+        report["recording_ended_at_ns"] = str(time.time_ns())
+        report["startup_to_recording_end_wall_seconds"] = time.monotonic() - PROCESS_STARTED
         emit("finalizing", task=task, sync=recorder.sync_status())
         finalizing_started = time.monotonic()
         result = await lifecycle.stop(
@@ -419,6 +422,8 @@ async def run(args):
         report["episode"] = result
         report["finalization_wall_seconds"] = time.monotonic() - finalizing_started
         report["capture_and_finalize_wall_seconds"] = time.monotonic() - start_wall
+        report["recording_finalized_at_ns"] = str(time.time_ns())
+        report["startup_to_finalized_wall_seconds"] = time.monotonic() - PROCESS_STARTED
         validate_episode(result)
         report["recorded_sim_seconds"] = (result["dataset_frame_count"] - 1) / DEFAULT_CAPTURE_HZ
         report["recording_realtime_factor"] = report["recorded_sim_seconds"] / report["recording_wall_seconds"]
@@ -520,6 +525,8 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--warmup-seconds", type=float, default=5.0)
     parser.add_argument("--warmup-sim-seconds", type=float, default=None)
     parser.add_argument("--timeout-seconds", type=float, default=None)
+    parser.add_argument("--startup-timeout-seconds", type=float, default=600,
+                        help="Deadline for native geometry load and all-task collision preflight")
     parser.add_argument("--max-sim-seconds", type=float, default=None)
     parser.add_argument("--substeps", type=int)
     parser.add_argument("--cancel-file", type=Path)
@@ -548,6 +555,7 @@ def main(default_task="drawer_cycle"):
         not 0 <= args.warmup_seconds <= 60
         or not 0 <= args.warmup_sim_seconds <= 60
         or not 0 < args.timeout_seconds <= 7200
+        or not 0 < args.startup_timeout_seconds <= 1800
         or not 0 < args.max_sim_seconds <= (1800 if args.task in THREADED_TASKS else 540)
     ):
         parser.error("Invalid warmup, recording timeout or simulation duration")

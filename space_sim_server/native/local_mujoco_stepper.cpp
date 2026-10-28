@@ -912,6 +912,23 @@ API int lms_momentum(void* handle, double* out) {
     return OK;
 }
 
+// Only for an independently loaded planning model. Include nearby separated
+// surfaces in collision queries; never call this on a production stepper.
+// Gap keeps these additional positive-distance contacts inactive in forward.
+API int lms_probe_clearance(void* handle, double clearance) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !std::isfinite(clearance) || clearance < 0 || clearance > .02) return ERR_ARGUMENT;
+    for (int g = 0; g < s->m->ngeom; ++g) {
+        s->m->geom_margin[g] = std::max(s->m->geom_margin[g], clearance);
+        s->m->geom_gap[g] = std::max(s->m->geom_gap[g], clearance);
+    }
+    for (int p = 0; p < s->m->npair; ++p) {
+        s->m->pair_margin[p] = std::max(s->m->pair_margin[p], clearance);
+        s->m->pair_gap[p] = std::max(s->m->pair_gap[p], clearance);
+    }
+    return OK;
+}
+
 // Read-only contact snapshot from the authoritative native model. Returns ncon.
 // Each row: geom1, geom2, body1, body2, signed separation [m]. No forward/step.
 API int lms_contacts(void* handle, double* out, int capacity) {
@@ -929,6 +946,19 @@ API int lms_contacts(void* handle, double* out, int capacity) {
 
 // Read the completed authoritative solver result without advancing physics.
 // Rows: geom1, geom2, body1, body2, separation [m], contact-frame wrench [N,N*m].
+API int lms_contact_materials(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    const int count = std::min(capacity, s->d->ncon);
+    for (int i = 0; i < count; ++i) {
+        const mjContact& c = s->d->contact[i];
+        double* row = out + 8*i;
+        row[0] = c.geom[0]; row[1] = c.geom[1]; row[2] = c.dim;
+        for (int j = 0; j < 5; ++j) row[3+j] = c.friction[j];
+    }
+    return s->d->ncon;
+}
+
 API int lms_contact_forces(void* handle, double* out, int capacity) {
     auto* s = static_cast<Stepper*>(handle);
     if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;

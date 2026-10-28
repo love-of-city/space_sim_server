@@ -79,10 +79,11 @@ def test_bilateral_contact_on_wrong_faces_does_not_start_extraction(task_name, w
     assert task.stage == ("grip" if wrong_heading else "extract")
 
 
-def test_continuous_approach_rotates_opens_and_enters_axial_zone_without_stopping():
+@pytest.mark.parametrize("task_name", ["aviation_plug_insert", "guide_plug_insert", "cylindrical_plug_insert"])
+def test_straight_approach_rotates_and_opens_without_stopping(task_name):
     from simulation.scripted_tasks.drawer_cycle import DrawerCycleConfig
     from simulation.serial_chain_kinematics import rotation_matrix_to_vector
-    task, sample = make_task("aviation_plug_insert")
+    task, sample = make_task(task_name)
     drawer = DrawerCycleConfig()
     assert task.config.linear_speed_m_s == drawer.linear_speed_m_s
     assert task.config.arm_speed_rad_s == drawer.arm_speed_rad_s
@@ -98,6 +99,7 @@ def test_continuous_approach_rotates_opens_and_enters_axial_zone_without_stoppin
         position, rotation = task.chain.forward(ref[:6])
         u = task._timing.at(t)
         np.testing.assert_allclose(position, task._approach_profile.pose(u)[0], atol=2e-5)
+        np.testing.assert_allclose(position, start_p+(task.grasp-start_p)*u, atol=2e-5)
         assert ref[6] == pytest.approx(task._approach_profile.opening(u))
         assert ref[7] == -ref[6]
         positions.append(position)
@@ -125,13 +127,26 @@ def test_continuous_approach_rotates_opens_and_enters_axial_zone_without_stoppin
     crossing = [task._timing.state(t) for t in times
                 if abs(task._timing.at(t)-boundary) < .005]
     assert crossing and all(state[1] > 0 for state in crossing)
-    # Rotation/opening are finished before the axial contact zone.
+    # Finishing rotation/opening never changes the TCP line of approach.
     for u in np.linspace(boundary, 1., 20):
         p, r = task._approach_profile.pose(u)
-        delta = p - task.grasp
-        assert np.linalg.norm(np.cross(delta, task.grasp_rotation[:, 2])) < 1e-10
+        np.testing.assert_allclose(p, start_p+(task.grasp-start_p)*u, atol=1e-12)
         np.testing.assert_allclose(r, task.grasp_rotation, atol=1e-12)
         assert task._approach_profile.opening(u) == 1.
+
+
+@pytest.mark.parametrize("task_name", ["aviation_plug_insert", "guide_plug_insert", "cylindrical_plug_insert"])
+def test_measured_drift_does_not_override_checked_approach(task_name):
+    task, sample = make_task(task_name)
+    task._enter("approach", sample)
+    task._last_time = sample.time_s
+    # A persistent shifted target used to modify the already collision-checked
+    # arm reference with a second tracker, including on searched approaches.
+    for tick in range(1, 81):
+        moved = replace(sample, time_s=tick*.005, joints=task.reference.copy(),
+                        plug_position_body_m=sample.plug_position_body_m+[.003, -.002, 0.])
+        reference, _ = task.step(moved)
+        np.testing.assert_allclose(reference, task.planned_path_reference(task._motion_s), atol=1e-12)
 
 
 def test_extract_keeps_grasp_heading_and_clears_pin_tips_before_turning():
@@ -250,7 +265,7 @@ def test_collection_version_and_historical_stage_validation():
     source = {"randomization": {"arm_joint_position_rad": [0.] * 8}}
     scene = randomized_scene(source, 42, task_name="aviation_plug_insert")
     version = scene["collection_config"]["task_version"]
-    assert version == PlugInsertTask.latch_version
+    assert version == PlugInsertTask.straight_approach_version
     assert "extract" in PlugInsertTask.recorded_stages(version)
     assert "open" in PlugInsertTask.recorded_stages("plug-insert/2")
     assert "raise" in PlugInsertTask.recorded_stages("plug-insert/3-latch-grasp")

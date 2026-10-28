@@ -63,7 +63,7 @@ class AviationBoltConfig(ThreadedMotionConfig):
 
 class AviationBoltTask(ThreadedTaskBase):
     name = "aviation_bolt_insert"
-    version = "aviation-bolt/2-latch-smooth-regrasp"
+    version = "aviation-bolt/4-straight-approach"
     stages = (
         "settle", "approach", "grip", "unscrew", "regrasp_release",
         "regrasp_rewind", "regrasp_grip", "carry", "screw_in",
@@ -72,7 +72,7 @@ class AviationBoltTask(ThreadedTaskBase):
 
     @classmethod
     def recorded_stages(cls, version):
-        if version != cls.version:
+        if version not in (cls.version, "aviation-bolt/3-environment-planning", "aviation-bolt/2-latch-smooth-regrasp"):
             raise ValueError(f"Unsupported aviation bolt version {version}")
         return cls.stages
 
@@ -172,7 +172,16 @@ class AviationBoltTask(ThreadedTaskBase):
             goal,rotation=self._grasp_pose(sample,offset_local=(0.,0.,self.config.head_offset_m))
             self._pickup_filter=PoseTargetFilter(goal,rotation)
             self._approach_anchor=(goal.copy(),rotation.copy())
-            self._plan_pose(goal,rotation,opening=self.config.approach_open_rad,approach=True)
+            error = None
+            try:
+                self._plan_pose(goal,rotation,opening=self.config.approach_open_rad,approach=True)
+            except ValueError as exc:
+                if not self.environment_planning:
+                    raise
+                error = str(exc)
+            if self.environment_planning:
+                from .collision_motion import plan_free_motion
+                plan_free_motion(self,sample,goal,rotation,-rotation[:,2],template_error=error)
         elif stage in ("grip","regrasp_grip"):
             gp,gr=self._regrasp_pose(sample)
             self._pickup_filter=PoseTargetFilter(gp,gr)
@@ -434,8 +443,18 @@ class AviationBoltTask(ThreadedTaskBase):
             pp,rr=self._carry_profile.pose(u)
             tr=rr@relr.T
             return pp-tr@relp,tr
-        self._plan_pose(*route(1.),path_fn=route,distance=self._carry_profile.length,
-                        angle=1.875*self._carry_profile.angle)
+        error = None
+        try:
+            self._plan_pose(*route(1.),path_fn=route,distance=self._carry_profile.length,
+                            angle=1.875*self._carry_profile.angle)
+        except ValueError as exc:
+            if not self.environment_planning:
+                raise
+            error = str(exc)
+        if self.environment_planning:
+            from .collision_motion import plan_free_motion
+            plan_free_motion(self,sample,*route(1.),self.target_outward,
+                             held=True,template_error=error)
 
     def _record_preflight_path(self,stage,body_pose,held=False,grasp_transform=None):
         from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
@@ -443,6 +462,8 @@ class AviationBoltTask(ThreadedTaskBase):
 
         bus_position,bus_quaternion=body_frames(self.root)["cubesat_bus"]
         bus_rotation=quaternion_wxyz_to_matrix(bus_quaternion)
+        if hasattr(self,"_planning_bus_pose"):
+            bus_position,bus_rotation=self._planning_bus_pose
         references=np.array([self.planned_path_reference(t) for t in np.linspace(0.,self._duration,241)])
         start_p,start_r=self.chain.forward(self.reference[:6])
         relp=start_r.T@(body_pose[0]-start_p)
@@ -508,6 +529,10 @@ class AviationBoltTask(ThreadedTaskBase):
         # poses. Runtime continues to send actuator references exclusively.
         probe=type(self)(self.model_path,self.config)
         probe.chain=self.chain
+        self._candidate_motion_plans=probe.motion_plans
+        probe.environment_planning=self.environment_planning
+        if hasattr(self,"_planning_native_state"):
+            probe._planning_native_state=self._planning_native_state
         probe.reference[:]=self.reference
         # A zero servo preload command does not close the physical jaws through
         # the hex head. Only this geometry probe uses their measured opening.
@@ -538,12 +563,20 @@ class AviationBoltTask(ThreadedTaskBase):
         self.retract_branch_checks=[]
         try:
             if sample.native_qpos is not None:
-                geometry.use_measured_qpos(sample.native_qpos,sample.joints)
+                self._planning_native_state=(sample.native_qpos.copy(),sample.joints.copy())
+            state=getattr(self,"_planning_native_state",None)
+            if state is not None:
+                geometry.use_measured_qpos(*state)
+            if self.environment_planning:
+                geometry.contacts(self.reference)
+                self._planning_bus_pose=geometry.body_pose("cubesat_bus")
             for direction in directions:
                 direction=direction/np.linalg.norm(direction)
                 try:
                     private=type(self)(self.model_path,self.config)
                     private.chain=self.chain
+                    if hasattr(self,"_planning_bus_pose"):
+                        private._planning_bus_pose=self._planning_bus_pose
                     private.reference[:]=self.reference
                     private.reference[6:]=sample.joints[6:]
                     private._plan_pose(p+self.config.retreat_distance_m*direction,r,
@@ -566,10 +599,25 @@ class AviationBoltTask(ThreadedTaskBase):
             geometry.close()
         if self.events and self.events[-1]["stage"]=="retract":
             self.events[-1]["retract_branch_checks"]=self.retract_branch_checks
-        if selected is None:
+        if selected is None and not self.environment_planning:
             raise ValueError("No collision-free upward threaded-part withdrawal")
-        self._plan_pose(p+self.config.retreat_distance_m*selected,r,
-                        opening=self.config.release_open_rad)
+        if selected is None:
+            selected=self.target_outward
+            template_error="upward_candidates_blocked"
+        else:
+            template_error=None
+        try:
+            self._plan_pose(p+self.config.retreat_distance_m*selected,r,
+                            opening=self.config.release_open_rad)
+        except ValueError as exc:
+            if not self.environment_planning:
+                raise
+            template_error=str(exc)
+        if self.environment_planning:
+            from .collision_motion import plan_free_motion
+            plan_free_motion(self,sample,p+self.config.retreat_distance_m*selected,r,
+                             -self.target_outward,template_error=template_error,
+                             opening=self.config.release_open_rad,stage="retract")
 
     def _release_retract_preflight_paths(self,body_pose):
         # Runtime begins withdrawal as soon as actual fingers clear the head,
@@ -592,12 +640,16 @@ class AviationBoltTask(ThreadedTaskBase):
         selected=None
         geometry_probe=NativePoseProbe(self.model_path)
         try:
+            if sample.native_qpos is not None:
+                geometry_probe.use_measured_qpos(sample.native_qpos,sample.joints)
             for symmetry in (0.,math.pi):
                 try:
                     paths=self._carry_candidate_paths(sample,symmetry)
                     result=geometry_probe.check_threaded_paths(self.name,paths)
                 except (ValueError,RuntimeError,np.linalg.LinAlgError) as exc:
-                    result=dict(accepted=False,reason="planning_failed",detail=str(exc))
+                    result=dict(accepted=False,reason="planning_failed",detail=str(exc),
+                                planning_failure=getattr(exc,"report",None))
+                result["motion_plans"]=getattr(self,"_candidate_motion_plans",[])
                 self.carry_branch_checks.append(dict(symmetry_rad=symmetry,**result))
                 if result["accepted"]:
                     if selected is None:selected=symmetry
@@ -617,6 +669,9 @@ class AviationBoltTask(ThreadedTaskBase):
         from .drawer_initialization import NativePoseProbe
 
         probe=type(self)(self.model_path,self.config)
+        self.preflight_motion_plans=probe.motion_plans
+        probe.environment_planning=self.environment_planning
+        probe.chain=self.chain
         sample=ThreadedSample(0.,np.asarray(initial_q).copy(),np.zeros(8),
                               probe.initial_position,probe.initial_rotation,np.zeros(3),np.zeros(3),np.zeros(6),True)
         probe.reference[:]=initial_q
@@ -642,6 +697,7 @@ class AviationBoltTask(ThreadedTaskBase):
             probe._plan_carry(moved,check_all=True)
         finally:
             self.preflight_carry_branches=probe.carry_branch_checks
+            self.preflight_motion_plans=probe.motion_plans
         self.preflight_carry_symmetry_rad=probe.carry_thread_symmetry_rad
         paths.extend(probe._carry_candidate_paths(moved,probe.carry_thread_symmetry_rad))
         return paths

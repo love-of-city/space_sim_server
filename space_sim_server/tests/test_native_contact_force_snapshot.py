@@ -21,8 +21,13 @@ def test_contact_force_matches_ball_acceleration_and_is_read_only(tmp_path):
         contacts = stepper.contact_snapshot()
         forces = stepper.contact_force_snapshot()
         geometry = stepper.contact_geometry_snapshot()
+        materials = stepper.contact_material_snapshot()
         assert forces.shape == (len(contacts), 11) and len(forces) > 0
         np.testing.assert_array_equal(forces[:, :5], contacts)
+        np.testing.assert_array_equal(materials[:, :2], contacts[:, :2])
+        assert materials.shape == (len(contacts), 8)
+        assert (materials[:, 2] >= 3).all()
+        assert (materials[:, 3:5] > 0).all()
         assert all({stepper._name(1, int(row[2])), stepper._name(1, int(row[3]))}
                    == {"bus", "ball"} for row in forces)
         assert np.isfinite(forces).all() and forces[:, 5].sum() > .1
@@ -49,6 +54,7 @@ def test_contact_force_matches_ball_acceleration_and_is_read_only(tmp_path):
         np.testing.assert_allclose(forces[:, 8:], 0., atol=1e-10)
         np.testing.assert_array_equal(forces, stepper.contact_force_snapshot())
         np.testing.assert_array_equal(geometry, stepper.contact_geometry_snapshot())
+        np.testing.assert_array_equal(materials, stepper.contact_material_snapshot())
         np.testing.assert_array_equal(ball, stepper.body_geometry_pose("ball")[0])
         for expected, actual in zip(before, (stepper.qpos, stepper.qvel, stepper.qacc,
                                              stepper.ctrl, stepper.actuator_force, stepper.stats)):

@@ -30,7 +30,9 @@
     "tests/test_public_gateway_integration.py": "External Caddy binary",
     "tests/test_capture_on_demand_renderer.py": "Opt-in real UE 5.6/GPU RGB smoke test requiring SPACE_SIM_UE_CAPTURE_SMOKE=1 and UE56_ROOT; basic CI does not install Unreal. Run separately for renderer acceptance.",
     "tests/test_wrist_wrench_native.py": "Basilisk MJScene and locally built MuJoCo helper: analytic wrench, contact, frame, passive measurement and rebase verification",
-    "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation"
+    "tests/test_native_contact_snapshot.py": "Basilisk MJScene and locally built MuJoCo helper: authoritative contact snapshot and state preservation",
+    "tests/test_native_planning_clearance.py": "Private native-model separation query and production state isolation; requires locally compiled helper and Basilisk, run separately on the simulation host",
+    "tests/test_native_contact_force_snapshot.py": "Native contact forces and mixed friction coefficients; requires locally compiled helper and Basilisk, run separately on the simulation host"
   },
   "nodes": {
     "tests/test_wrist_camera_modes.py::test_mode_roundtrip_and_recording_provenance": "Basilisk live scene loader; run on the simulation host; pure camera descriptor validation remains in basic CI",
@@ -58,7 +60,10 @@
     "tests/test_online_elbow_ik.py::test_joint3_switch_and_manual_positive_initialization": "Basilisk live runtime",
     "tests/test_linkage_gripper.py::test_live_target_opposes_linkages_and_holds_on_release": "Basilisk teleoperation runtime; run in the native simulation environment alongside test_teleop_target.py",
     "tests/test_multirate_wrench.py::test_real_scheduler_samples_native_each_second_physics_step": "Basilisk scheduler integration for native 200 Hz wrist sampling; run in the simulation environment",
-    "tests/test_policy_runtime.py::test_cartesian_target_uses_governor_and_rate_limits_without_ik_or_deadman_overwrite": "Basilisk live target imports; run separately in the native simulation environment alongside the policy UE/BSK acceptance"
+    "tests/test_policy_runtime.py::test_cartesian_target_uses_governor_and_rate_limits_without_ik_or_deadman_overwrite": "Basilisk live target imports; run separately in the native simulation environment alongside the policy UE/BSK acceptance",
+    "tests/test_cylindrical_plug_clearance.py::test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
+    "tests/test_cylindrical_plug_clearance.py::test_rising_retreat_avoids_neighbor_that_blocks_old_horizontal_path": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
+    "tests/test_threaded_collection_integration.py::test_native_grasp_opening_matches_delivered_head_and_measured_finger_geometry": "Native SARM geometry and measured passive gripper linkage; run separately on the simulation host"
   },
   "groups": {
     "deploy": {

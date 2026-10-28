@@ -599,6 +599,9 @@ def main(default_task="drawer_cycle"):
                 entry["recording_process_wall_seconds"] = result_info.get(
                     "end_to_end_wall_seconds"
                 )
+                for metric in ("startup_to_recording_end_wall_seconds", "startup_to_finalized_wall_seconds",
+                               "recording_ended_at_ns", "recording_finalized_at_ns"):
+                    entry[metric] = result_info.get(metric)
             if args.cancel_file and args.cancel_file.exists():
                 entry["status"] = "cancelled"
                 report["status"] = "cancelled"

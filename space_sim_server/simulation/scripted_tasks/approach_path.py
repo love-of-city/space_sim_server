@@ -1,7 +1,8 @@
-"""Continuous Cartesian approach with rotation/opening before the contact zone.
+"""Straight TCP approach with coordinated orientation and finger opening.
 
-The final segment is axial. Lateral motion and orientation finish with zero
-first/second/third spatial derivatives, without an intermediate time stop.
+Position stays on the start-to-grasp line. Rotation and opening finish smoothly
+before contact without bending the position path or introducing a time stop.
+The complete arm/finger trajectory must still pass the environment planner.
 """
 
 from dataclasses import dataclass
@@ -53,13 +54,16 @@ class ApproachPosePath:
                  goal_opening=1.):
         self.start_rotation = np.asarray(rotation).copy()
         self.goal = np.asarray(goal).copy()
-        self.axis = np.asarray(axis) / np.linalg.norm(axis)
-        delta = np.asarray(position) - self.goal
-        self.height = float(delta @ self.axis)
-        if not math.isfinite(clearance) or clearance <= 0 or self.height <= clearance:
-            raise ValueError("Continuous approach needs a start above its orientation clearance")
-        self.lateral = delta - self.axis * self.height
-        self.blend = FinishBlend(1 - clearance/self.height)
+        self.start_position = np.asarray(position).copy()
+        self.displacement = self.goal - self.start_position
+        self.distance = float(np.linalg.norm(self.displacement))
+        if not math.isfinite(clearance) or clearance <= 0:
+            raise ValueError("Approach orientation clearance must be positive")
+        # Clearance is distance along the direct line, not an axial waypoint.
+        # Short/lateral reapproaches are valid candidates too: let collision
+        # and IK checks decide rather than requiring the start above the grasp.
+        finish = max(.5, 1-clearance/self.distance) if self.distance > 1e-12 else 1.
+        self.blend = FinishBlend(finish)
         self.rotation_vector = rotation_matrix_to_vector(goal_rotation @ self.start_rotation.T)
         self.angle = float(np.linalg.norm(self.rotation_vector))
         self.initial_opening = float(np.clip(opening, 0, 1))
@@ -70,7 +74,7 @@ class ApproachPosePath:
     def pose(self, progress):
         u = float(np.clip(progress, 0, 1))
         s = self.blend.state(u)[0]
-        position = self.goal + self.axis*self.height*(1-u) + self.lateral*(1-s)
+        position = self.start_position + self.displacement*u
         rotation = self.start_rotation
         if self.angle > 1e-12:
             rotation = axis_angle_to_matrix(self.rotation_vector/self.angle, self.angle*s) @ rotation
@@ -81,7 +85,5 @@ class ApproachPosePath:
 
     def derivative_bounds(self):
         b = self.blend.derivative_bounds()
-        lateral = float(np.linalg.norm(self.lateral))
-        translation = b*lateral
-        translation[0] = math.hypot(self.height, translation[0])
+        translation = np.array([self.distance, 0., 0.])
         return translation, self.angle*b, abs(self.goal_opening-self.initial_opening)*b

@@ -42,6 +42,7 @@ def validate_case(case, model_path=None):
     from space_arm_platform.sampling import DYNAMICS_HZ, tick_time_ns
     from tools.run_scripted_task import default_target_state
 
+    lateral = case.startswith("lateral_")
     started = time.perf_counter()
     model = (Path(model_path).resolve() if model_path is not None
              else ROOT / "model/SARM/platform/sarm_20261012.xml")
@@ -78,15 +79,15 @@ def validate_case(case, model_path=None):
                                                default_target_state(model), initial, orbit.origin)
         seats = {}
         for name, module in retention.models.items():
-            seat = module.detent.sockets[0 if case == "extraction" else -1]
+            seat = module.detent.sockets[0 if case in ("extraction", "lateral_initial") else -1]
             seats[name] = seat
-            if case != "extraction":
+            if case not in ("extraction", "lateral_initial"):
                 plug = scene.getBody(name)
                 plug.setPosition(np.asarray(orbital["initial_position_m"]) + seat.position_body_m
-                                 + seat.rotation_body[:, 2] * (.004 if case.startswith("partial") else .0079))
+                                 + seat.rotation_body[:, 2] * (0. if lateral else .004 if case.startswith("partial") else .0079))
                 plug.setAttitude(native._quaternion_to_mrp(matrix_to_quaternion_wxyz(seat.plug_rotation_body)))
                 plug.setVelocity(np.asarray(orbital["initial_velocity_m_s"]) - seat.rotation_body[:, 2]
-                                 * (0. if case.startswith("partial") else .0001))
+                                 * (0. if lateral or case.startswith("partial") else .0001))
         state = ctx.ports.scene_state().addSubscriber()
         bus_layout = ctx.ports.free_body_layout("cubesat_bus")
 
@@ -95,11 +96,22 @@ def validate_case(case, model_path=None):
             qa = bus_layout[0]
             br = quaternion_wxyz_to_matrix(q[qa+3:qa+7])
             values = {}
+            contacts = stepper.contact_force_snapshot() if lateral else []
+            materials = stepper.contact_material_snapshot() if lateral else []
             for name, module in retention.models.items():
                 pa = module.plug_layout[0]
                 relative = br.T @ (q[pa:pa+3]-q[qa:qa+3])
                 delta = seats[name].rotation_body.T @ (relative-seats[name].position_body_m)
                 values[name] = dict(**module.telemetry(), relative_displacement_m=delta.tolist())
+                if lateral:
+                    wall = []
+                    for contact, material in zip(contacts, materials, strict=True):
+                        bodies = [stepper._name(1, int(i)) for i in contact[2:4]]
+                        if name in bodies:
+                            wall.append(dict(bodies=bodies, normal_n=float(contact[5]),
+                                tangent_n=contact[6:8].tolist(), dim=int(material[2]),
+                                friction=material[3:].tolist()))
+                    values[name]["wall_contacts"] = wall
             return values
 
         # Keep the drive above the configured breakaway threshold, with the
@@ -115,17 +127,31 @@ def validate_case(case, model_path=None):
         # Let initial collision penetration settle before measuring load-induced
         # motion. The friction rule does not remove or rewrite real contacts.
         phases = ((.2, 0.), *phases)
+        if lateral:
+            # Opposite lateral loads test both walls, then release. Loads are
+            # in the socket frame, not world XY, so rotated layouts work too.
+            phases = ((.2, 0.), (.5, 12.), (.8, -12.), (1.1, 12.), (1.4, -12.), (1.7, 0.))
         samples, trace, frame = [], [], 0
-        for end, force in phases:
+        for phase, (end, force) in enumerate(phases):
             for name, drive in drives.items():
                 drive.write(messaging.CmdForceInertialMsgPayload(
-                    forceRequestInertial=(seats[name].rotation_body[:, 2] * force).tolist()))
+                    forceRequestInertial=(seats[name].rotation_body[:, (0 if phase < 3 else 1) if lateral else 2] * force).tolist()))
             while frame <= int(round(end * DYNAMICS_HZ)):
+                if lateral:
+                    # Follow the free spacecraft's attitude so the test load
+                    # remains in the socket frame throughout the integration.
+                    current_q = np.asarray(state().qpos).reshape(-1)
+                    qa = bus_layout[0]
+                    bus_rotation = quaternion_wxyz_to_matrix(current_q[qa+3:qa+7])
+                    for name, drive in drives.items():
+                        local_axis = seats[name].rotation_body[:, 0 if phase < 3 else 1]
+                        drive.write(messaging.CmdForceInertialMsgPayload(
+                            forceRequestInertial=(bus_rotation @ local_axis * force).tolist()))
                 sim.ConfigureStopTime(tick_time_ns(frame, DYNAMICS_HZ))
                 sim.ExecuteSimulation()
-                trace.append(dict(time_s=frame/DYNAMICS_HZ, applied_axial_force_n=force, bodies=snapshot()))
+                trace.append(dict(time_s=frame/DYNAMICS_HZ, applied_force_n=force, applied_axial_force_n=0. if lateral else force, load_axis=((0 if phase < 3 else 1) if lateral else 2), bodies=snapshot()))
                 frame += 1
-            samples.append(dict(time_s=end, applied_axial_force_n=force, bodies=snapshot()))
+            samples.append(dict(time_s=end, applied_force_n=force, applied_axial_force_n=0. if lateral else force, load_axis=((0 if phase < 3 else 1) if lateral else 2), bodies=snapshot()))
             print(json.dumps(dict(case=case, time_s=end, axial_positions_m={
                 name: row["relative_displacement_m"][2] for name, row in samples[-1]["bodies"].items()})), flush=True)
             if not np.isfinite(np.asarray(state().qpos)).all():
@@ -150,12 +176,23 @@ def validate_case(case, model_path=None):
                                     no_axial_return=abs(z(d)-z(c)) < .00005,
                                     remains_engaged=d["socket"] == seats[name].name)
             rows = [row["bodies"][name] for row in trace]
+            if lateral:
+                contacts = [c for row in rows for c in row["wall_contacts"]]
+                checks[name] = dict(
+                    wall_contacts_present=bool(contacts),
+                    two_tangent_friction=bool(contacts) and all(c["dim"] >= 3 and min(c["friction"][:2]) > 0 for c in contacts),
+                    wall_reacts=any(c["normal_n"] > .1 for c in contacts),
+                    tangential_force_present=any(np.linalg.norm(c["tangent_n"]) > .001 for c in contacts),
+                    radial_motion_bounded=max(np.linalg.norm(row["relative_displacement_m"][:2]) for row in rows) < .003,
+                    stays_in_socket=all(row["socket"] == seats[name].name for row in rows[10:]))
+                continue
             sliding = [row for row in rows if row["friction_mode"] == "sliding"]
             checks[name]["friction_bounded"] = all(abs(row["axial_friction_force_n"]) <=
                                                     retention.parameters.static_friction_n + 1e-6 for row in rows)
             checks[name]["sliding_force_constant"] = bool(sliding) and all(
                 abs(abs(row["axial_friction_force_n"])-retention.parameters.sliding_friction_n) < 1e-6
                 for row in sliding)
+        checks = {name: {key: bool(value) for key,value in row.items()} for name,row in checks.items()}
         unchanged = original_hash == hashlib.sha256(model.read_bytes()).hexdigest()
         return dict(case=case, model=str(model), model_sha256=original_hash, model_unchanged=unchanged,
                     configuration=retention.configuration(), physics_hz=DYNAMICS_HZ, substeps=stepper.substeps,
@@ -172,7 +209,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", type=Path, help="Optional generated layout model to validate")
-    parser.add_argument("--case", choices=("extraction", "insertion", "partial_insertion", "partial_extraction"),
+    parser.add_argument("--case", choices=("extraction", "insertion", "partial_insertion", "partial_extraction", "lateral_initial", "lateral_target"),
                         action="append", help="Repeat to select cases; default runs all four")
     args = parser.parse_args()
     report = dict(scope="Production geometry, free base, orbit and contacts; direct force drives, no robot or UE test",

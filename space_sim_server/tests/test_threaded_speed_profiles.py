@@ -72,8 +72,8 @@ def test_approach_reaches_clearance_opening_before_contact_without_full_open(sta
     assert np.min(openings) >= min(start, .45)-1e-12
     assert np.max(openings) <= max(start, .45)+1e-12
     assert np.all(path.derivative_bounds()[2] >= 0.)
-    # Jaw motion ends with the orientation blend while axial entry continues.
-    assert path.pose(path.blend.finish)[0][2] == pytest.approx(.045)
+    # Jaw motion ends while the TCP continues along its original direct line.
+    assert np.linalg.norm(path.pose(path.blend.finish)[0]) == pytest.approx(.045)
     assert path.pose(1.)[0][2] == pytest.approx(0.)
 
 

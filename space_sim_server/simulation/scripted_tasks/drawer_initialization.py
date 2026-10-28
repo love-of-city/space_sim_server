@@ -100,7 +100,9 @@ class NativePoseProbe:
     is touched, and the Python mujoco package is never imported.
     """
 
-    def __init__(self, model_path):
+    def __init__(self, model_path, *, clearance_m=0.):
+        if not np.isfinite(clearance_m) or not 0. <= clearance_m <= .02:
+            raise ValueError("Planning clearance must be between 0 and 0.02 m")
         from .gripper_preflight import ParallelogramGripper
         self.gripper_kinematics = ParallelogramGripper(model_path)
         from simulation.mujoco_plugins import ensure_model_plugins
@@ -124,6 +126,8 @@ class NativePoseProbe:
         if not handle:
             raise RuntimeError(error.value.decode(errors="replace"))
         self.handle = ctypes.c_void_p(handle)
+        if clearance_m:
+            self.check(self.lib.lms_probe_clearance(self.handle, float(clearance_m)))
         dims = np.zeros(6, dtype=np.int64)
         self.check(self.lib.lms_dims(self.handle, dims.ctypes.data_as(self.i64)))
         self.q = np.zeros(int(dims[0]))
@@ -205,6 +209,12 @@ class NativePoseProbe:
             for name, value in self.gripper_kinematics.passive_positions(joints[6:8]).items()
         }
 
+    def body_pose(self, name):
+        body = self.lib.lms_name2id(self.handle, 1, name.encode())
+        values = np.zeros(12)
+        self.check(self.lib.lms_body_geometry_pose(self.handle, body, self.ptr(values)))
+        return values[:3].copy(), values[3:].reshape(3, 3).copy()
+
     def grasp_opening(self, candidate, part_body):
         """Actual parallel-jaw surface contact in this private native model.
 
@@ -242,10 +252,18 @@ class NativePoseProbe:
         raise ValueError("No bilateral finger/part contact along the closing sweep")
 
     def pose_collision(self, candidate, task_name, allowed_contact_bodies=(),
-                       joint_values=None, baseline=None, arm_penetration_m=.0005):
+                       joint_values=None, baseline=None, arm_penetration_m=.0005,
+                       clearance_m=0., mechanism_clearance_m=None, axial_socket=None):
         """The same private contact gate for reset preflight and carry branches."""
         moving_mechanism = ({"locking_rod", "fastener"} if task_name == "locking_rod_cycle"
-                            else {"bolt"} if task_name == "aviation_bolt_insert" else set())
+                            else {"bolt"} if task_name == "aviation_bolt_insert"
+                            else {task_name.removesuffix("_insert")} if task_name in ("aviation_plug_insert","guide_plug_insert","cylindrical_plug_insert")
+                            else {"cylindrical_plug"} if task_name == "plug_insert"
+                            else {"drawer_base", "drawer_buckle"} if task_name == "drawer_cycle" else set())
+        if task_name not in THREADED_TASKS and not allowed_contact_bodies and axial_socket is None:
+            # A released plug or drawer is static scene geometry. Its own seat
+            # contact must not reject an unrelated empty-gripper withdrawal.
+            moving_mechanism = set()
         own_rod_contacts = {
             frozenset(pair) for pair in (
                 ("locking_rod", "fastener"), ("fastener", "hook"),
@@ -278,9 +296,23 @@ class NativePoseProbe:
             if ((a in {"ee_finger1", "ee_finger2"} and b in allowed_contact_bodies)
                     or (b in {"ee_finger1", "ee_finger2"} and a in allowed_contact_bodies)):
                 continue
-            if (is_arm(a) or is_arm(b)) and distance < -arm_penetration_m:
-                return dict(body1=a, body2=b, penetration_m=float(-distance))
-            if moving_mechanism.intersection((a, b)) and distance < -0.0002:
+            arm_threshold = clearance_m if clearance_m else -arm_penetration_m
+            if (is_arm(a) or is_arm(b)) and distance < arm_threshold:
+                return dict(body1=a, body2=b, penetration_m=float(-distance), separation_m=float(distance))
+            mechanism_threshold = (mechanism_clearance_m if mechanism_clearance_m is not None
+                                   else clearance_m if clearance_m else -0.0002)
+            if moving_mechanism.intersection((a, b)) and distance < mechanism_threshold:
+                if task_name == "drawer_cycle" and {a,b} <= {"drawer_base", "drawer_buckle"}:
+                    continue
+                if axial_socket is not None:
+                    # Only the active connector's own mating wall is intentional
+                    # during its constrained axial stroke; never exempt an arm.
+                    prefix, pickup = axial_socket
+                    other = b if a == prefix + "_plug" else a
+                    geom = self.geom_name(geom2 if a == prefix + "_plug" else geom1)
+                    if ((pickup and other == "asm_board2") or
+                            (not pickup and geom.startswith(prefix + "_bore_"))):
+                        continue
                 if task_name == "locking_rod_cycle" and frozenset((a, b)) in own_rod_contacts:
                     continue
                 if task_name == "aviation_bolt_insert":
@@ -315,7 +347,7 @@ class NativePoseProbe:
                                 stage=stage, contact=hit, checked_poses=checked)
         return dict(accepted=True, checked_poses=checked, checked_stages=stages)
 
-    def validate(self, model, scene, task_name="drawer_cycle"):
+    def validate(self, model, scene, task_name="drawer_cycle", *, task=None):
         self.q[:] = self.home
         target = scene.get("randomization", {})
         if "target_position_m" in target:
@@ -331,16 +363,22 @@ class NativePoseProbe:
             profile = scene.get("collection_config", {}).get("threaded_speed_profile")
             if profile is not None:
                 options["speed_profile"] = profile
-            task = create_threaded_task(task_name, model, **options)
+            task = task or create_threaded_task(task_name, model, **options)
+            if hasattr(self, "handle"):
+                task.enable_environment_planning()
+                task.chain.enable_native_geometry()
         elif is_plug:
             from .plug_insert import PlugInsertTask, PlugInsertConfig, PlugSample
             from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
             import xml.etree.ElementTree as ET
 
             profile = plug_profile(task_name)
-            task = PlugInsertTask(model, PlugInsertConfig(plug_body=profile.body))
+            task = type(task)(model,task.config) if task is not None else PlugInsertTask(model, PlugInsertConfig(plug_body=profile.body))
         else:
-            task = DrawerCycleTask(model)
+            task = type(task)(model,task.config) if task is not None else DrawerCycleTask(model)
+        if hasattr(self,"handle") and task_name not in THREADED_TASKS:
+            from .environment_motion import enable
+            enable(task)
         if np.any(q[:6] < task.lower) or np.any(q[:6] > task.upper):
             return dict(accepted=False, reason="joint_limit")
         checked = 0
@@ -392,11 +430,14 @@ class NativePoseProbe:
             except (ValueError, RuntimeError, NotImplementedError) as exc:
                 return dict(accepted=False, reason="planning_failed", detail=str(exc),
                             carry_branches=getattr(task, "preflight_carry_branches", []),
+                            motion_plans=getattr(task, "preflight_motion_plans", []),
+                            planning_failure=getattr(exc,"report",None),
                             checked_poses=checked)
             return dict(
                 accepted=True, checked_poses=checked, checked_stages=stages,
                 carry_branches=getattr(task, "preflight_carry_branches", []),
                 carry_symmetry_rad=getattr(task, "preflight_carry_symmetry_rad", None),
+                motion_plans=getattr(task, "preflight_motion_plans", []),
                 collision_scope=("initial and controller-sampled approach/target paths; "
                                  "original native geometry; arm penetration threshold 0.5 mm; "
                                  "moving mechanism/environment threshold 0.2 mm; "
@@ -462,7 +503,7 @@ class NativePoseProbe:
                             contact=hit,
                             checked_poses=checked,
                         )
-                task.reference[:6] = task._path[-1]
+                task.reference[:6] = task._path[-1][:6]
                 if is_plug and task.coordinated_grasp:
                     task.reference[:] = candidates[-1]
                 if not is_plug and stage == "approach":
@@ -472,7 +513,7 @@ class NativePoseProbe:
                 (() if task.coordinated_grasp else ("descend",)) if is_plug else ("lift", "return", "retract")
             ):
                 task._enter(stage, sample)
-                task.reference[:6] = task._path[-1]
+                task.reference[:6] = task._path[-1][:6]
         except ValueError as exc:
             return dict(
                 accepted=False,
@@ -483,6 +524,7 @@ class NativePoseProbe:
         return dict(
             accepted=True,
             checked_poses=checked,
+            motion_plans=getattr(task,"motion_plans",[]),
             collision_scope="initial and discrete approach path; original native geometry; 0.5 mm penetration threshold; internal gripper contacts excluded",
         )
 

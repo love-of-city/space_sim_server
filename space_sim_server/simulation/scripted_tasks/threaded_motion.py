@@ -159,6 +159,8 @@ class ThreadedTaskBase:
         self._grasp_transform = None
         self._command_rate, self._command_acceleration = np.zeros(6), np.zeros(6)
         self._reference_stage = None
+        self.environment_planning = False
+        self.motion_plans = []
         self._published_acceleration = np.zeros(6)
         self._quality = dict(samples=0, max_speed_rad_s=0., max_acceleration_rad_s2=0.,
                              max_jerk_rad_s3=0., max_stage_velocity_jump_rad_s=0.,
@@ -179,7 +181,12 @@ class ThreadedTaskBase:
             wrist_axis_error_rad=self._wrist_axis_error(sample),
             scalar_joints=dict(sample.scalar_joints), overload_stop_enabled=False,
             reference_motion_quality=dict(self._quality),
+            environment_planning=self.environment_planning,
         )
+
+    def enable_environment_planning(self):
+        """Production/preflight entry points enable private native path queries."""
+        self.environment_planning = True
 
     @staticmethod
     def is_latch_contact(part_body, local_position):
@@ -286,6 +293,12 @@ class ThreadedTaskBase:
 
     def planned_path_reference(self, elapsed):
         progress = self._timing.at(elapsed)
+        return self.path_reference(progress)
+
+    def path_reference(self, progress):
+        if self._timing.path.coefficients.shape[-1] == 7:
+            q = self._timing.path.at(progress)
+            return np.r_[q[:6], q[6], -q[6]]
         start, end, approach = self._path_opening
         u = float(progress)
         opening = approach.opening(u) if approach is not None else start+(end-start)*u**3*(10.-15.*u+6.*u*u)
@@ -298,7 +311,7 @@ class ThreadedTaskBase:
             self._motion_s = min(self._duration,self._motion_s+dt)
         self.reference[:] = self.planned_path_reference(self._motion_s)
         p,r = self.chain.forward(sample.joints[:6])
-        goal,rr = self.chain.forward(self._path[-1])
+        goal,rr = self.chain.forward(self._path[-1][:6])
         return bool(self._motion_s >= self._duration and np.linalg.norm(p-goal)<.004
                     and np.linalg.norm(rotation_matrix_to_vector(rr@r.T))<.035)
 

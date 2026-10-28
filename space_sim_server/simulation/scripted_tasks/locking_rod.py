@@ -65,7 +65,7 @@ class LockingRodConfig(ThreadedMotionConfig):
 
 class LockingRodTask(ThreadedTaskBase):
     name = "locking_rod_cycle"
-    version = "locking-rod-cycle/2-coaxial-latch"
+    version = "locking-rod-cycle/3-straight-approach"
     stages = (
         "settle", "approach", "grip", "loosen", "fold_release", "fold_clear",
         "fold_approach", "fold_grip", "lower", "release_down", "clear_down",
@@ -80,7 +80,7 @@ class LockingRodTask(ThreadedTaskBase):
 
     @classmethod
     def recorded_stages(cls, version=None):
-        if version not in (None, cls.version):
+        if version not in (None, cls.version, "locking-rod-cycle/2-coaxial-latch"):
             raise ValueError(f"Unsupported locking rod task version: {version}")
         return cls.stages
 
@@ -294,8 +294,8 @@ class LockingRodTask(ThreadedTaskBase):
         if stage in ("approach", "reapproach", "fold_approach", "turn_approach"):
             self._grasp_sign = None
             p, r = self._grasp_pose(sample)
-            self._plan_pose(p, r, opening=self.config.approach_open_rad, approach=True,
-                            approach_clearance=self._approach_clearance(stage))
+            from .environment_motion import threaded_plan
+            threaded_plan(self,sample,p,r,approach=True,clearance=self._approach_clearance(stage))
         elif stage in ("grip", "regrip", "fold_grip", "turn_grip"):
             self._grip_hold = None
             self._grip_filter = PoseTargetFilter(*self._grasp_pose(sample))
@@ -310,7 +310,19 @@ class LockingRodTask(ThreadedTaskBase):
             self._plan_pose(p, r)
             self._start_opening(self.config.release_open_rad, sample, unload=True)
         elif stage in ("clear_down", "retract", "fold_clear", "turn_clear"):
-            self._plan_pose(*self._clear_pose(stage, sample))
+            from .environment_motion import threaded_plan
+            self._withdraw_opening_start = self._opening_elapsed
+            threaded_plan(self,sample,*self._clear_pose(stage,sample))
+
+    def path_reference(self, progress):
+        q = super().path_reference(progress)
+        if (self.environment_planning and self.stage in ("clear_down", "retract", "fold_clear", "turn_clear")
+                and self._timing.path.coefficients.shape[-1] == 6
+                and self._gripper_timing is not None):
+            elapsed = self._withdraw_opening_start + self._timing.seconds_at(progress)
+            opening = self._gripper_timing.joint_state(elapsed)[0][0]
+            q[6:] = [opening, -opening]
+        return q
 
     def _smooth_rate(self, target, dt):
         if dt <= 0:
@@ -433,7 +445,8 @@ class LockingRodTask(ThreadedTaskBase):
                              "fold_release": "fold_clear", "turn_release": "turn_clear"}[self.stage], sample)
         elif self.stage in ("clear_down", "retract", "fold_clear", "turn_clear"):
             done = self._path_step(sample, dt)
-            self._advance_opening(dt)
+            if not self.environment_planning:
+                self._advance_opening(dt)
             if self.stage == "clear_down" and not self._at_clip(sample):
                 self.fail("released_rod_not_retained_by_clip", sample)
             elif done:
@@ -484,6 +497,9 @@ class LockingRodTask(ThreadedTaskBase):
         describe candidate arm references to the private collision probe.
         """
         preview = type(self)(self.model_path, self.config)
+        preview.chain=self.chain
+        preview.environment_planning=self.environment_planning
+        self.preflight_motion_plans=preview.motion_plans
         preview.reference[:] = np.asarray(initial_q, dtype=float)
         if preview.reference.shape != (8,):
             raise ValueError("Preflight requires eight initial joint coordinates")
@@ -493,8 +509,13 @@ class LockingRodTask(ThreadedTaskBase):
                    approach=False, mechanism_fn=None):
             nonlocal mechanism_state
             preview.stage = stage
-            preview._plan_pose(p, r, opening=opening, path_fn=path_fn, distance=distance, angle=angle, approach=approach,
-                               approach_clearance=self._approach_clearance(stage))
+            if preview.environment_planning and (approach or stage in ("fold_clear","turn_clear","clear_down","retract")):
+                from .environment_motion import threaded_plan
+                threaded_plan(preview,sample(*mechanism_state),p,r,approach=approach,
+                              clearance=self._approach_clearance(stage))
+            else:
+                preview._plan_pose(p, r, opening=opening, path_fn=path_fn, distance=distance, angle=angle, approach=approach,
+                                   approach_clearance=self._approach_clearance(stage))
             times = np.linspace(0., preview._duration, 161)
             references = np.array([preview.planned_path_reference(t) for t in times])
             states = np.array([mechanism_state if mechanism_fn is None else mechanism_fn(float(preview._timing.at(t)))

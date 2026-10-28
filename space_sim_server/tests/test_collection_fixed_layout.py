@@ -161,8 +161,8 @@ def test_fixed_validation_preserves_files_and_rejects_monolithic_model(fixed_inp
 def test_explicit_random_layout_keeps_pool_semantics_with_fixed_config_present(layout_pool, tmp_path, monkeypatch):
     manager = CollectionManager(tmp_path, tmp_path/'episodes', tmp_path, tmp_path,
                                 layout_pool=layout_pool, fixed_model='unused-fixed.xml')
-    (tmp_path/'tools').mkdir()
-    (tmp_path/'tools/collect_plug_tasks.py').touch()
+    (tmp_path/'collection').mkdir()
+    (tmp_path/'collection/collect_scripted_tasks.py').touch()
     catalog = tmp_path/'Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json'
     catalog.parent.mkdir(parents=True)
     catalog.touch()

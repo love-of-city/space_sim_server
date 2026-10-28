@@ -85,7 +85,7 @@ MJCF 相机为 −Z 朝前/+Y 朝上，
 
 - 场景实例：勾选“全局相机随机初始化（5 个固定机位）”，再创建场景。旧实例及未勾选时沿用原相机。
 - 自动采集：同名开关默认勾选。每次尝试根据本次 seed 重新选择，允许相邻尝试选中同一机位。
-- 单批脚本：`collect_drawer_cycles.py`、`collect_plug_tasks.py`、`collect_scripted_tasks.py`
+- 统一批量采集脚本：`collect_scripted_tasks.py`
   增加 `--randomize-overview-camera`；`--no-randomize-overview-camera` 显式关闭；不传时继承源场景。
   采样方式默认 `presets`，即使源场景使用连续采样，新批次也从 5 个固定机位选择。
   `--overview-camera-sampling` 只接受 `presets`。
@@ -171,3 +171,5 @@ v6 机位、补光注册调用及相关 UE 实现。已恢复 Python 侧 v6 固�
 视觉验收不通过，`train_ready=false`。它们保留为性能样本，不能作为修复后画质证据。
 本次相机模块回归不启动仿真；修复后的真实 GPU 图像和完整采集尚需统一运行验收。
 上列 10/26 图像指标是历史证据，不代表本轮已完成实拍。
+
+按布局顺序采集使用独立的 `overview_camera_seed`：同一布局的任务共用该种子和固定机位，机械臂仍使用各自的任务种子。未提供该字段的历史场景保持原有 `scene.seed` 校验。日常入口见 [按布局顺序采集](LAYOUT_SEQUENCE_COLLECTION.md)。

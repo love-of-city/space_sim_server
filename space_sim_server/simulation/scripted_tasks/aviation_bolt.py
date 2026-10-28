@@ -439,7 +439,7 @@ class AviationBoltTask(ThreadedTaskBase):
 
     def _record_preflight_path(self,stage,body_pose,held=False,grasp_transform=None):
         from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
-        from tools.captive_fastener import body_frames
+        from simulation.model_preparation.captive_fastener import body_frames
 
         bus_position,bus_quaternion=body_frames(self.root)["cubesat_bus"]
         bus_rotation=quaternion_wxyz_to_matrix(bus_quaternion)

@@ -72,7 +72,7 @@ UE 权威 RGB -> 有界非阻塞出队 -> 图像 TCP -> CaptureReceiver --------
 隔离验证（不会读写生产认证库，不占生产端口，不把诊断录制混入训练数据）：
 
 ```powershell
-python tools/verify_realtime_capture.py `
+python tools/diagnostics/verify_realtime_capture.py `
   --adapter <UE仓库路径> --unreal <UE安装路径> `
   --scene run/scenes/<场景实例>.json `
   --output run/realtime-validation-<唯一名称> `

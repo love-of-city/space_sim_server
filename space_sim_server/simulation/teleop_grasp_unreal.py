@@ -991,7 +991,7 @@ def run(args: argparse.Namespace) -> None:
     if selected_posture_backend == "native":
         from simulation.native_posture import available
         if not available():
-            raise RuntimeError("Native posture backend was requested but is not built; run tools/build_native_acceleration.py.")
+            raise RuntimeError("Native posture backend was requested but is not built; run tools/assets/build_native_acceleration.py.")
     args.dynamics_backend = dynamics_backend(getattr(args, "dynamics_backend", None))
     if native.model_profile.linkage and args.dynamics_backend != BACKEND_LOCAL:
         raise ValueError('SARM 2026-10-12 requires the local implicitfast backend for its tendon and constraints')

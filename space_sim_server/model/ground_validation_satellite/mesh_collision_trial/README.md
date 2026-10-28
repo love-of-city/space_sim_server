@@ -27,8 +27,8 @@
 - `manifest.json`：每个源 OBJ 的 SHA-256、转换位姿、三角面数量、清理索引和数值误差。
 - `cleaned_meshes/`：只有 3 个导入时存在退化面的网格生成了碰撞专用副本，原文件不修改。
 - `validation_report.json`：本机真实运行结果（时间数字是局部性能测量，不是跨机器承诺）。
-- 生成器：`tools/build_satellite_mesh_collision.py`。
-- 验证器：`tools/validate_satellite_mesh_collision.py`。
+- 生成器：`tools/assets/build_satellite_mesh_collision.py`。
+- 验证器：`tools/diagnostics/validate_satellite_mesh_collision.py`。
 - 回归测试：`tests/test_mesh_collision_conversion.py`。
 
 ## 几何精度：测量了什么
@@ -119,7 +119,7 @@ uv：
 ```powershell
 uv venv .venv-mesh-collision --python 3.13
 $converterPython = (Resolve-Path .\.venv-mesh-collision\Scripts\python.exe).Path
-uv pip install --python $converterPython -r tools/requirements-mesh-collision.txt
+uv pip install --python $converterPython -r tools/assets/requirements-mesh-collision.txt
 ```
 
 Conda：
@@ -127,7 +127,7 @@ Conda：
 ```powershell
 conda create --prefix .\.venv-mesh-collision python=3.13 pip
 $converterPython = (Resolve-Path .\.venv-mesh-collision\python.exe).Path
-& $converterPython -m pip install -r tools/requirements-mesh-collision.txt
+& $converterPython -m pip install -r tools/assets/requirements-mesh-collision.txt
 ```
 
 传统 venv/pip：
@@ -135,9 +135,9 @@ $converterPython = (Resolve-Path .\.venv-mesh-collision\python.exe).Path
 ```powershell
 py -3.13 -m venv .venv-mesh-collision
 $converterPython = (Resolve-Path .\.venv-mesh-collision\Scripts\python.exe).Path
-& $converterPython -m pip install -r tools/requirements-mesh-collision.txt
+& $converterPython -m pip install -r tools/assets/requirements-mesh-collision.txt
 ```
 
-生成、检查、回归和验证入口分别为 `tools/build_satellite_mesh_collision.py`（支持 `--check`）、`tests/test_mesh_collision_conversion.py`、`tools/validate_satellite_mesh_collision.py`。原生验证的 `--native-python` 应显式传入含 Basilisk/MJScene 的解释器。
+生成、检查、回归和验证入口分别为 `tools/assets/build_satellite_mesh_collision.py`（支持 `--check`）、`tests/test_mesh_collision_conversion.py`、`tools/diagnostics/validate_satellite_mesh_collision.py`。原生验证的 `--native-python` 应显式传入含 Basilisk/MJScene 的解释器。
 
 后续需先确认真实铰链分件/配合，再评估几何简化与性能。精度下降或接触过滤必须明确记录并验证。

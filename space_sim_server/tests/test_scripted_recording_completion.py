@@ -9,7 +9,7 @@ from space_arm_platform.capture_lifecycle import CaptureLifecycle
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SimulationObservation
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.simulation_hub import SimulationHub
-from tools.record_drawer_task import CAMERAS, ScriptedObservationRecorder, validate_episode
+from collection.record_scripted_task import CAMERAS, ScriptedObservationRecorder, validate_episode
 
 
 class Writer:

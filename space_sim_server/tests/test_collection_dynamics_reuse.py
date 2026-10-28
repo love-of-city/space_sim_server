@@ -5,14 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools import collect_scripted_tasks as collector
+from collection import collect_scripted_tasks as collector
 
 
 @pytest.mark.parametrize("retire_after_first", [False, True])
 def test_batch_routes_two_validated_episodes_and_recycles_only_between_them(
         tmp_path, monkeypatch, retire_after_first):
     from simulation.scripted_tasks import randomization
-    from tools import record_drawer_task as recorder
+    from collection import record_scripted_task as recorder
 
     source = tmp_path / "source.json"
     source.write_text("{}")

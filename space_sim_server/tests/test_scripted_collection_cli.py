@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from space_arm_platform.overview_camera import SCHEMA
-from tools import collect_scripted_tasks as collector
+from collection import collect_scripted_tasks as collector
 
 
 @pytest.mark.parametrize("saved_layout", [
@@ -34,7 +34,7 @@ def test_saved_layout_requires_explicit_pool_before_startup(tmp_path, monkeypatc
 
 @pytest.mark.parametrize("sampling", [None, "presets"])
 def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkeypatch, sampling):
-    from tools import record_drawer_task as recorder
+    from collection import record_scripted_task as recorder
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "scene.json").write_text(json.dumps({

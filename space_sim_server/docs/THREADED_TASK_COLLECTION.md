@@ -62,14 +62,14 @@ jerk 限制。不能将速度误差直接除以 5 ms 控制周期：该组合会
 在服务端目录，使用已安装 Basilisk 的同一 Python 环境。先做原生动力学检查，再录制；将路径替换为实际场景与输出目录：
 
 ```bash
-python tools/run_scripted_task.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-dynamics
-python tools/run_scripted_task.py --task locking_rod_cycle --scene /absolute/scene.json --output /absolute/rod-dynamics
+python collection/run_scripted_task.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-dynamics
+python collection/run_scripted_task.py --task locking_rod_cycle --scene /absolute/scene.json --output /absolute/rod-dynamics
 ```
 
 单条正式双相机录制：
 
 ```bash
-python tools/record_threaded_task.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-recording --episodes-root /absolute/episodes --offline
+python collection/record_scripted_task.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-recording --episodes-root /absolute/episodes --offline
 ```
 
 网页新建这两个任务的采集批次时默认选择“快速采集”，也可切回“原始速度”。
@@ -77,8 +77,8 @@ python tools/record_threaded_task.py --task aviation_bolt_insert --scene /absolu
 缩短单条任务时间时显式选择快速采集档：
 
 ```bash
-python tools/record_threaded_task.py --task locking_rod_cycle --scene /absolute/scene.json --output /absolute/rod-fast-recording --episodes-root /absolute/episodes --offline --threaded-speed-profile fast_collection
-python tools/collect_threaded_tasks.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-fast-batch --episodes-root /absolute/episodes --count 5 --max-attempts 15 --offline --threaded-speed-profile fast_collection
+python collection/record_scripted_task.py --task locking_rod_cycle --scene /absolute/scene.json --output /absolute/rod-fast-recording --episodes-root /absolute/episodes --offline --threaded-speed-profile fast_collection
+python collection/collect_scripted_tasks.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-fast-batch --episodes-root /absolute/episodes --count 5 --max-attempts 15 --offline --threaded-speed-profile fast_collection
 ```
 
 `fast_collection` 将自由空间巡航从 5 cm/s 提到 8 cm/s，最终接近从
@@ -98,7 +98,7 @@ python tools/collect_threaded_tasks.py --task aviation_bolt_insert --scene /abso
 批量采集（另一个任务使用 `--task locking_rod_cycle`）：
 
 ```bash
-python tools/collect_threaded_tasks.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-batch --episodes-root /absolute/episodes --count 5 --max-attempts 15 --seed 20261026 --offline
+python collection/collect_scripted_tasks.py --task aviation_bolt_insert --scene /absolute/scene.json --output /absolute/bolt-batch --episodes-root /absolute/episodes --count 5 --max-attempts 15 --seed 20261026 --offline
 ```
 
 随机布局增加 `--layout-pool /absolute/layout-pool.json`，相机随机化使用既有 `--randomize-overview-camera`。完整运行配置、机构变体、初态拒绝、任务阶段、失败原因和逐帧真实机构状态都会保存到批次/单条记录中。

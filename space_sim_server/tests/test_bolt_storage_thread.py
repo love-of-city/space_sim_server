@@ -6,9 +6,9 @@ import xml.etree.ElementTree as E
 import numpy as np
 import pytest
 
-from tools.bolt_storage_thread import LEAD_M, apply_bolt_storage_thread, ensure_bolt_storage_thread
-from tools.build_sarm_20261012 import compose_platform_model
-from tools.captive_fastener import body_frames, quaternion_product, rotation
+from simulation.model_preparation.bolt_storage_thread import LEAD_M, apply_bolt_storage_thread, ensure_bolt_storage_thread
+from tools.assets.build_sarm_20261012 import compose_platform_model
+from simulation.model_preparation.captive_fastener import body_frames, quaternion_product, rotation
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT/'model/SARM_mjcf_20261012/SARM_convex.xml'
@@ -144,7 +144,7 @@ def test_existing_thread_requires_same_installation_unit_and_physical_contact(tm
 
 def test_storage_thread_moves_with_randomized_bore_in_latest_layout_builder(tmp_path):
     # Use the builder's ownership operation, with real source SDFs and bore sites.
-    from tools.bolt_storage_thread import attach_bolt_thread_mounts
+    from simulation.model_preparation.bolt_storage_thread import attach_bolt_thread_mounts
     root, _ = generated(tmp_path)
     board = root.find('.//body[@name="asm_board1"]')
     modules = {}

@@ -81,7 +81,7 @@ def supervise(config_path: Path, instance_path: Path):
         for port in (config["render_port"],):
             check_port_available(port)
         runtime = instance["runtime"]
-        prepare = [sys.executable, str(root / "tools/prepare_sarm_assets.py"),
+        prepare = [sys.executable, str(root / "tools/assets/prepare_sarm_assets.py"),
                    "--adapter", str(adapter), "--model-root", config["model_root"],
                    "--unreal", config["unreal_root"], "--template-id", instance["template_id"],
                    "--use-existing-model"]

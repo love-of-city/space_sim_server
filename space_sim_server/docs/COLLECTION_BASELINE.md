@@ -18,15 +18,15 @@
 |---|---|---|
 | 任务注册 | 抽屉完整循环、航空/导向/圆柱插头插入、航空螺丝装配、锁杆循环共六种网页采集任务；旧 drawer_lift 为诊断入口 | collection_jobs.TASKS、threaded_tasks；threaded_collection_integration 与各控制器测试。代码/单测通过不等于各任务在任意随机场景必成功 |
 | 初始关节 | 六轴相对基准独立均匀偏移，支持0–50°，本批±30°；保留限位、初始碰撞、接近路径检查 | collection_jobs、drawer_initialization、collect_scripted_tasks；网页/API/CLI范围一致 |
-| 安装单元随机布局 | 移动安装单元与对应底板开口，保留实体间距、操作包络、撤离通道与轨迹验收 | independent_task_box_layout、build/check工具、layout_trajectories、LayoutPool |
+| 安装单元随机布局 | 移动安装单元与对应底板开口，保留实体间距、操作包络、撤离通道及原生几何验收；布局入池不再要求逐套运行完整任务轨迹，每条采集仍保留初态及必要路径预检 | independent_task_box_layout、build/check工具、LayoutPool、drawer_initialization |
 | 布局切换 | 常驻UE按新manifest更新同ID几何/材质/灯光，避免保留旧孔位；A→B→A复用 | BskSceneController.cpp/.h、BskRuntimeTests、test_capture_on_demand_renderer |
 | 七孔颜色与指令 | 七个目标孔从红/橙/黄/绿/黑/蓝/紫不重复分配，源件独立随机；pickup/storage座中性；孔/件身份配对不随颜色改变 | socket_colors、scripted_tasks/randomization；颜色SHA绑定实际模型，缺可分色几何时拒绝虚假颜色指令 |
-| 英文指令 | 用源件颜色和固定目标孔颜色生成简洁英文；目标身份和技能细节另存metadata | randomization.task_instruction及颜色/任务边界测试 |
+| 英文指令 | 六种任务各20条长短英文模板，独立随机选句并冻结记录；按真实源件/目标孔颜色填入，目标身份和技能细节另存metadata | randomization.task_instruction及颜色/任务边界测试 |
 | 网页固定布局输入 | 可配置固定model/catalog并绑定SHA；固定模式各条布局不变，显式随机模式使用布局池；缺可分色模型时启动前拒绝 | collection_inputs、collection_jobs/API、网页能力提示；真实受控子进程argv验证 |
 | 五固定全局机位 | v7：卫星左侧实体安装面，7 cm等间距、45 cm高度、85°视野；覆盖任务板及上方工作区；新场景只用presets；历史v1–v6保留回放标定；三任务运动快照视觉验证不等于六任务全场景验收 | overview_camera、scene_runtime、采集CLI、网页说明；实体STL支撑与视锥测试 |
 | 全局补光与腕相机 | 既有overview_camera_lamp挂在最终全局相机上，宽锥、2m范围；保留腕部灯及四种腕部相机模式 | camera_lighting、RenderComponent、UE相机挂灯；不能仅测helper，须验证装配和实图 |
 | 初始化精简 | 状态发布副本删除不再引用的碰撞mesh；完整动力学碰撞仍由原模型加载 | publication_scene、scenario_sarm_grasp；summary保存分段与发布资产计数 |
-| UE/动力学复用 | 常驻进程中每条新建场景、任务、通信会话和随机流；失败/线程遗留/条数或RSS阈值时退休 | dynamics_worker、collect_parallel→collect_scripted_tasks→record_drawer_task→run_scripted_task |
+| UE/动力学复用 | 常驻进程中每条新建场景、任务、通信会话和随机流；失败/线程遗留/条数或RSS阈值时退休 | dynamics_worker、collect_parallel→collect_scripted_tasks→record_scripted_task→run_scripted_task |
 | 严格采集时序 | 400 Hz物理、200 Hz任务/腕力、双1024² RGB/50 Hz；预录对齐50Hz；终态两路RGB匹配并入writer后立即冻结采集区间，再执行OFF/封装，避免轮询间隙追加成功后的帧 | sampling、ScriptedObservationRecorder、compact/LeRobot、终态屏障测试 |
 | 启动与流式编码 | Linux禁用失败的Zen自动启动重试；H.264流式编码，显式veryfast配置；有界队列、完整解码，无丢帧提速 | collection_runtime、recording-veryfast.json、streaming_video、每相机encoding_metrics |
 | 保持力计算优化 | 小向量算术、阈值预计算及原生候选 integration 状态恢复/成功 step2 复用；不支持的模型保留原复制路径，频率和物理参数不变 | plug_retention及component；数值和native状态等价验收 |
@@ -46,7 +46,7 @@
 - Python回归、UE自动化、实际GPU画面和完整采集分别保存证据；不能用其中一种代替其他层。
 - 原先 `collection-speed-20261027-final` 两条数据只通过结构/时序验证；全局画面过暗，标为性能诊断样本，非训练合格数据。恢复后需独立新目录实采。
 - `collection-speed-20261027-validated` 已恢复补光，但实图仍存在上述颜色不匹配，也标为非训练合格数据。最新完整基线采集使用 `collection-baseline-20261027` 独立目录，是否通过以其中实图审计及总报告为准。
-- `layout-clearance-color-20261026/accepted-pool/pool.json` 是历史池。其轨迹报告绑定旧runner源码，当前正确拒绝直接重用；原始模型/资产保留。必须重新运行绑定的五任务轨迹验收并发布新池，不能篡改SHA或关闭门禁。固定模型的两条采集不等于整个随机池重新认证。
+- 布局池现按用户要求采用几何及操作间距验收，不再要求逐布局完整任务轨迹认证。`random150-20261028/pool.json` 已接入150套几何合格布局；旧轨迹诊断记录保留为历史证据，不作为入池门禁，也不代表当前任务均成功。
 - 灰色螺栓核查更正：远端平台模型已包含初始孔母螺纹 `bolt_storage_thread_sdf` 及显式接触对 `physical_bolt_storage_thread`，保留 `bolt_freejoint` 不代表没有物理螺纹保持。此前实采的旧 layout000 及圆柱 episode 实际动力学模型缺少这两项，原入口也仅为航空螺丝任务补齐。现已统一为所有脚本任务共用 `write_model_variant` 检查/补装母螺纹，并记录 `model_physics`；原布局文件不改写。布局生成器同步修正两处母螺纹的安装单元归属。真实旧布局的8个任务名（含兼容/诊断入口）生成检查及独立原生静置/直拉/旋出夹具验收通过；这不等于新版本已完成所有任务双相机实采或整个随机布局池重新认证。证据在本机 `migration/unified-collection-model-20261027-203817/`。
 
 ## 后续修改与合并顺序
@@ -54,3 +54,5 @@
 保存当前工作区和资产清单；逐功能对比旧本地版本、远端新增内容和最终入口；运行相关Python/网页/UE回归；重新构建变更的UE模块并核对加载文件；用连续两条完整采集检查布局/颜色/机位切换、零点复位、无丢帧与实际画面。基线完整后才进行新的性能改动。
 
 性能统计使用已验收attempt的 `end_to_end_wall_seconds`，其中已经包括validation。记录第二条完成时间减第一条完成时间；初始化、UE启动可能重叠，不能重复求和。测试场景、任务、源码、资源、命令和构建指纹随报告保存。详见 [采集性能说明](COLLECTION_PERFORMANCE.md)。
+
+2026-10-28 当前按布局顺序采集入口为 `tools/collect.py`，配置为 `config/collection.json`；六任务统一管理，默认启用五种、航空螺栓关闭。每个布局颜色/机位冻结，每条机械臂独立±30°及物理状态复位；失败跳过、不补成功数，UE跨任务复用。目录迁移和使用方法见 [按布局顺序采集](LAYOUT_SEQUENCE_COLLECTION.md)。网页/API保持单任务批采，旧安装包未自动重建。

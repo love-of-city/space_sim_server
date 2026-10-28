@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-from tools import run_scripted_task as runner
+from collection import run_scripted_task as runner
 
 
 def layout_model(tmp_path):

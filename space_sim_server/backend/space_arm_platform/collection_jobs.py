@@ -43,8 +43,9 @@ class CollectionTask:
 TASKS = {
     "drawer_cycle": CollectionTask(
         "抽屉取出、放回与撤离",
-        "tools/collect_drawer_cycles.py",
+        "collection/collect_scripted_tasks.py",
         "sarm-task-box-20261012",
+        arguments=("--task", "drawer_cycle"),
     ),
 }
 for _task, _label in (
@@ -54,7 +55,7 @@ for _task, _label in (
 ):
     TASKS[_task] = CollectionTask(
         _label + "拿取与插入",
-        "tools/collect_plug_tasks.py",
+        "collection/collect_scripted_tasks.py",
         "sarm-task-box-20261012",
         arguments=("--task", _task),
         description=f"独立任务：跟踪并抓取{_label} → 搬到前方对应插孔 → 对准插入 → 松爪撤离 → 验收。",
@@ -67,7 +68,7 @@ for _task, _label, _description in (
      "旋松防脱紧固件 → 绕底部铰链放倒至卡扣 → 松爪再抓取 → 扶起复位 → 旋紧 → 撤离验收。"),
 ):
     TASKS[_task] = CollectionTask(
-        _label, "tools/collect_threaded_tasks.py", "sarm-task-box-20261012",
+        _label, "collection/collect_scripted_tasks.py", "sarm-task-box-20261012",
         arguments=("--task", _task), description=_description,
     )
 
@@ -89,7 +90,7 @@ class CollectionCreate(BaseModel):
     layout_randomization: StrictBool = False
     randomize_overview_camera: StrictBool = False
     randomization: CollectionRandomization = Field(default_factory=CollectionRandomization)
-    range_deg: float = Field(default=10, ge=0, le=50, allow_inf_nan=False)
+    range_deg: float = Field(default=30, ge=0, le=50, allow_inf_nan=False)
     linear_speed_m_s: float | None = Field(
         default=None, gt=0, le=0.1, allow_inf_nan=False
     )

@@ -75,7 +75,7 @@ function Show-LauncherAccess { param($Settings, [switch]$NonInteractive)
     Write-Host ('ACCESS-ORIGIN: ' + $Settings.PublicUrl)
 }
 """)
-    (root / "tools/check_deployment_auth.py").write_text(
+    (root / "tools/deployment/check_deployment_auth.py").write_text(
         "import os, sys\nsys.exit(1 if os.getenv('TEST_AUTH_FAIL') else 0)\n", encoding="utf-8"
     )
     (root / "scripts/deploy_platform.ps1").write_text("""

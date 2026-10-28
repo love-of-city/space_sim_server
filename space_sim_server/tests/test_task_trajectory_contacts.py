@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.validate_task_trajectory_contacts import (
+from tools.diagnostics.validate_task_trajectory_contacts import (
     ContactAccumulator, ContactPolicy, TASKS, REQUIRED_OPERATION_STAGES, analyze_existing,
 )
 

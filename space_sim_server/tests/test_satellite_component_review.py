@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 np = pytest.importorskip('numpy')
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('component_review', ROOT/'tools/review_satellite_components.py')
+spec = importlib.util.spec_from_file_location('component_review', ROOT/'tools/diagnostics/review_satellite_components.py')
 review = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(review)
 FOLDER = ROOT/'model/ground_validation_satellite'

@@ -71,13 +71,13 @@ def test_sequential_requests_have_unique_results_and_release_mailbox(worker, tmp
 
 
 def test_recorder_routes_identical_episode_arguments_through_worker(worker, tmp_path):
-    from tools.record_drawer_task import ROOT, submit_dynamics
+    from collection.record_scripted_task import ROOT, submit_dynamics
 
     mailbox, _ = worker
     pids = []
     for index in range(2):
         output = tmp_path / f"record-{index}.json"
-        command = [sys.executable, str(ROOT / "tools/run_scripted_task.py"),
+        command = [sys.executable, str(ROOT / "collection/run_scripted_task.py"),
                    "12", str(output), "success"]
 
         def unexpected_launch(*_):
@@ -92,7 +92,7 @@ def test_recorder_routes_identical_episode_arguments_through_worker(worker, tmp_
 
 
 def test_recorder_dedicated_process_fallback_preserves_command(tmp_path):
-    from tools.record_drawer_task import submit_dynamics
+    from collection.record_scripted_task import submit_dynamics
 
     command = ["python", "episode.py", "--seed", "12"]
     handle = object()

@@ -32,7 +32,7 @@ def test_seeded_reset_preserves_scene_and_disables_all_noise():
     assert first["environment"] == source["environment"]
     assert not any(first["collection_config"]["disturbances"].values())
     offsets = first["collection_config"]["initialization"]["offset_deg"]
-    assert all(-10 <= x <= 10 for x in offsets) and max(map(abs, offsets)) > 2
+    assert all(-30 <= x <= 30 for x in offsets) and max(map(abs, offsets)) > 2
     assert first["randomization"]["arm_joint_position_rad"][-2:] == [0.0, 0.0]
     with pytest.raises(ValueError):
         randomized_scene(source, 1, float("nan"))

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.collect_parallel import CollectionConfig, worker_plan, validated_throughput
+from collection.collect_parallel import CollectionConfig, worker_plan, validated_throughput
 from space_arm_platform.collection_runtime import renderer_command
 
 
@@ -51,7 +51,7 @@ def test_offline_keeps_authoritative_capture_and_binds_gpu(tmp_path, monkeypatch
 
 
 def test_repository_config_loads_and_refers_to_recording_config():
-    path = Path(__file__).resolve().parents[1] / "config/collection.json"
+    path = Path(__file__).resolve().parents[1] / "config/collection-parallel.json"
     config = CollectionConfig.model_validate_json(path.read_text(encoding="utf-8"))
     recording = json.loads((path.parent / config.recording_config).read_text(encoding="utf-8"))
     assert recording["capture_rate_hz"] == 50
@@ -87,7 +87,7 @@ def test_coordinator_runs_concurrently_and_cleans_failed_workers(tmp_path, monke
     import socket
     import subprocess
     import sys
-    import tools.collect_parallel as parallel
+    import collection.collect_parallel as parallel
     monkeypatch.setattr(parallel.tempfile, "gettempdir", lambda: str(tmp_path))
 
     # Find a complete unused port block for both workers.

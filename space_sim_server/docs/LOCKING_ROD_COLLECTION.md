@@ -68,7 +68,7 @@
 先使用平台 Python 从服务端目录运行权威动力学诊断：
 
 ```bash
-python tools/run_scripted_task.py --task locking_rod_cycle \
+python collection/run_scripted_task.py --task locking_rod_cycle \
   --output /absolute/path/rod-diagnostic --max-sim-seconds 180 --native-geometry
 ```
 

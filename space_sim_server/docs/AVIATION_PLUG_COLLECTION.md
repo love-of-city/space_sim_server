@@ -3,7 +3,7 @@
 `aviation_plug_insert`、`guide_plug_insert` 和 `cylindrical_plug_insert`
 航空、导向沿用本地 `plug-insert/12-round-plug-release`，圆柱合并远端夹持/撤离修正与本地慢速松爪，使用
 `plug-insert/13-cylindrical-clearance-gentle-release`。网页自动采集、
-`tools/collect_plug_tasks.py`、`tools/record_plug_task.py` 和原生诊断入口共用
+`collection/collect_scripted_tasks.py`、`collection/record_scripted_task.py` 和原生诊断入口共用
 `simulation/scripted_tasks/plug_insert.py`，不需要另外切换采集算法。
 
 v10 将 v9 航空插头的连续接近、拔出、搬运、反馈插入及同步松爪撤离推广到

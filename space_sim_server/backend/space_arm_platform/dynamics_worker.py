@@ -100,7 +100,7 @@ class PersistentDynamics:
         self.directory.mkdir()
         self.log = (self.directory / 'worker.log').open('w', encoding='utf-8')
         parent = psutil.Process()
-        command = [sys.executable, str(Path(server) / 'tools/dynamics_worker.py'),
+        command = [sys.executable, str(Path(server) / 'collection/dynamics_worker.py'),
                    '--mailbox', str(self.directory), '--parent-pid', str(parent.pid),
                    '--parent-created', str(parent.create_time()),
                    '--max-episodes', str(max_episodes), '--max-rss-mb', str(max_rss_mb)]

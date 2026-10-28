@@ -20,7 +20,7 @@ REQUIRED_OPERATION_STAGES = {
 }
 INITIAL_JOINTS_DEG = [90., -60., 60., 0., -90., 0.]
 SERVER_ROOT = Path(__file__).resolve().parents[2]
-OBSERVER = SERVER_ROOT / "tools/validate_task_trajectory_contacts.py"
+OBSERVER = SERVER_ROOT / "tools/diagnostics/validate_task_trajectory_contacts.py"
 
 
 def digest(path):
@@ -116,7 +116,7 @@ def _case(task, item, model, manifest, scene):
         # production runner/physics and concrete inputs must still match.
         if Path(source) != OBSERVER and (resolved != Path(source) or digest(source) != sha):
             raise ValueError(f"Task {task} used a different production source: {source}")
-    for source in (OBSERVER, SERVER_ROOT / "tools/run_scripted_task.py",
+    for source in (OBSERVER, SERVER_ROOT / "collection/run_scripted_task.py",
                    SERVER_ROOT / "simulation/local_mujoco_stepper.py",
                    SERVER_ROOT / "simulation/scripted_tasks/native_state.py"):
         if str(source) not in sources:

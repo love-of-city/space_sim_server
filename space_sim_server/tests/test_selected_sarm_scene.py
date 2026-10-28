@@ -15,7 +15,7 @@ from space_arm_platform.scene_targets import (
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_ROOT = ROOT / "model/SARM/platform"
-spec = importlib.util.spec_from_file_location("select_sarm_scene", ROOT / "tools/select_sarm_scene.py")
+spec = importlib.util.spec_from_file_location("select_sarm_scene", ROOT / "tools/assets/select_sarm_scene.py")
 selector = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(selector)
 

@@ -144,7 +144,7 @@ MJScene 不在 `graspTask` 中：它放在只在 t=0 执行一次的任务 `loca
 ### 5.1 组成
 
 - [simulation/local_mujoco_stepper.py](../simulation/local_mujoco_stepper.py)：`LocalMujocoStepper`（Basilisk `SysModel`）、`OrbitOrigin` / `SpacecraftOrbitOrigin`、`ServoSpec`、后端选择函数。
-- [native/local_mujoco_stepper.cpp](../native/local_mujoco_stepper.cpp)：C 接口原生库，绑定 Basilisk 已加载的 `mujoco.dll`；进程中不导入 Python 的 `mujoco` 包。构建：`python tools/build_native_acceleration.py --component local_mujoco_stepper --mujoco-include <include 根目录>`，该目录下须有 `mujoco/mujoco.h`，且版本必须是 MuJoCo 3.7.0（与 Basilisk 内置的一致）。源码改动后，旧 DLL 会被哈希清单拒绝加载。
+- [native/local_mujoco_stepper.cpp](../native/local_mujoco_stepper.cpp)：C 接口原生库，绑定 Basilisk 已加载的 `mujoco.dll`；进程中不导入 Python 的 `mujoco` 包。构建：`python tools/assets/build_native_acceleration.py --component local_mujoco_stepper --mujoco-include <include 根目录>`，该目录下须有 `mujoco/mujoco.h`，且版本必须是 MuJoCo 3.7.0（与 Basilisk 内置的一致）。源码改动后，旧 DLL 会被哈希清单拒绝加载。
 - 独立的 `mjModel`：从同一份 MJCF 编译，积分器 `implicitfast`，重力为零，关闭自动复位。
 
 ### 5.2 输入
@@ -393,7 +393,7 @@ class AtmosphericDrag:
 
 - 新组件能低频就低频（`every`）。
 - 以 240 Hz 运行的 Python 模块要测量单步开销，热点改用原生实现。
-- 每个新组件合入时附基准结果：`python tools/profile_simulation_runtime.py --dynamics-backend local --posture-backend native ...`，与合入前对比。
+- 每个新组件合入时附基准结果：`python tools/benchmarks/profile_simulation_runtime.py --dynamics-backend local --posture-backend native ...`，与合入前对比。
 
 ## 9. 对外接口（保持不变）
 
@@ -419,7 +419,7 @@ class AtmosphericDrag:
 **阶段 2 的文件改动：**
 
 - 新增 `simulation/physics_ports.py`、`simulation/assembly.py`，以及 `simulation/components/`：`orbit.py`（星历 + 原点 O）、`arm_teleop.py`（IK + 关节参考 + 伺服接线）、`attitude.py`（包装 `AttitudeControl`）、`render.py`、`observation.py`。脚本轨迹仍由场景构建器 `_build_simulation` 处理，没有单独的组件。
-- 修改 `simulation/local_mujoco_stepper.py`（§6.4）；`scenario_sarm_grasp.py` 的 `_build_local_simulation` 只构建物理核心和发布层；`teleop_grasp_unreal.py` 的 `_run_session` 改为"组件清单 + 装配"；`tools/profile_simulation_runtime.py` 直接调用装配函数。
+- 修改 `simulation/local_mujoco_stepper.py`（§6.4）；`scenario_sarm_grasp.py` 的 `_build_local_simulation` 只构建物理核心和发布层；`teleop_grasp_unreal.py` 的 `_run_session` 改为"组件清单 + 装配"；`tools/benchmarks/profile_simulation_runtime.py` 直接调用装配函数。
 - 旧的 `BasiliskModuleRegistry` 已随 `simulation/architecture.py` 删除，其职责由 `AssemblyContext` 承担。
 
 **阶段 2 的"行为不变"判据：** 迁移现有模块时保留它们现在的优先级和执行相位。改造前后 `describe()` 给出的模块顺序一致；同一脚本轨迹的 A/B 运行中，qpos 轨迹和消息时间戳逐位一致（至少差 ≤ 1e-12）；全量测试通过；RTF 无明显变化。阶段 2 要改入口文件，影响面最大：先在新文件里完成框架和组件，再一次性切换入口。
@@ -485,6 +485,6 @@ MuJoCo 在轨道坐标下碰撞检测不可靠；Basilisk 的引力和星历模�
 | [simulation/physics_ports.py](../simulation/physics_ports.py) | 物理端口表 `PhysicsPorts` |
 | [simulation/assembly.py](../simulation/assembly.py) | 槽位、装配上下文、分频包装、执行顺序导出 |
 | [simulation/components/](../simulation/components/) | 各组件 |
-| [tools/profile_simulation_runtime.py](../tools/profile_simulation_runtime.py) | 只算物理的 RTF 基准 |
+| [tools/benchmarks/profile_simulation_runtime.py](../tools/benchmarks/profile_simulation_runtime.py) | 只算物理的 RTF 基准 |
 | [tests/test_local_mujoco_stepper.py](../tests/test_local_mujoco_stepper.py) | 物理核心单元测试 |
 | [LOCAL_DYNAMICS_BACKEND.md](LOCAL_DYNAMICS_BACKEND.md) | local 后端配置项与实测数据 |

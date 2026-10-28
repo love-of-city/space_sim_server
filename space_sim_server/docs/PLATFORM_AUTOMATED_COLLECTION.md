@@ -5,12 +5,12 @@
 ## 使用
 
 1. 按原方式启动平台并登录，从左侧导航选择“仿真工作台”“自动采集”或“数据集”。管理员还可进入“用户管理”。导航在同一标签页内切换，窄屏显示顶部导航。
-2. 在 `/collection` 设置成功条数、同时运行数（1–4）、最多尝试数、种子和关节初始化角偏移（半范围 0–50°，默认 10°）。默认两路。
+2. 在 `/collection` 设置成功条数、同时运行数（1–4）、最多尝试数、种子和关节初始化角偏移（半范围 0–50°，默认 30°）。默认两路。
 3. 点击开始，后台为各路启动独立的生产仿真/UE 采集进程。当前批次显示阶段、已记录帧数、每路尝试及验收结果；已结束批次归入可展开的历史列表。切页或关闭网页不终止采集。
 4. 点击成功记录或进入 `/datasets`，按来源、结果、任务、日期和文本筛选记录；进入详情查看两路同步视频，以及关节与夹爪、六维力、末端状态、任务状态四组曲线。支持逐帧、播放倍速、图表缩放和 CSV 导出；返回列表保留筛选。`?episode=<id>` 可直接定位记录，`?batch=<id>` 可限定批次。
 5. “停止该批次”先请求录制正常收尾。超过 180 秒则强制清理该批次进程，已验收记录保留，未完成记录不计入成功数量。
 
-任务菜单提供六个独立任务：抽屉完整循环，航空插头、导向插头、圆柱插头各自的拿取与插入，航空螺丝旋出与装配，以及杆状机构放倒与复位。每条 episode 只包含所选任务，不串行操作多个插头。抽屉流程为接近、抓取、抽出、放回、松爪、撤离和最终闭合检查。插头流程为跟踪接近、抓取、提起、搬运到前方对应 40.5 mm 装配孔、对准插入、松爪撤离和就位检查。航空螺丝与杆状机构见[螺纹任务采集](THREADED_TASK_COLLECTION.md)；`drawer_lift` 为诊断任务，不在网页菜单中。默认关闭运动/观测/六维力噪声和环境随机化；新建采集批次时可分别启用并配置参数。初始化默认使用项目操作姿态，加六轴独立 ±10° 均匀偏移，支持独立关闭。偏移半范围支持 0–50°；本批设置为 30°，即六个基准关节角各自独立加上 `Uniform(-30°, 30°)`。每次先检查模型关节限位、初始碰撞及实际接近路径；不通过时拒绝该初态并重采样，不把角度钳位到限位。配置语义见下方“可配置噪声与随机化”。
+任务菜单提供六个独立任务：抽屉完整循环，航空插头、导向插头、圆柱插头各自的拿取与插入，航空螺丝旋出与装配，以及杆状机构放倒与复位。每条 episode 只包含所选任务，不串行操作多个插头。抽屉流程为接近、抓取、抽出、放回、松爪、撤离和最终闭合检查。插头流程为跟踪接近、抓取、提起、搬运到前方对应 40.5 mm 装配孔、对准插入、松爪撤离和就位检查。航空螺丝与杆状机构见[螺纹任务采集](THREADED_TASK_COLLECTION.md)；`drawer_lift` 为诊断任务，不在网页菜单中。默认关闭运动/观测/六维力噪声和环境随机化；新建采集批次时可分别启用并配置参数。初始化默认使用项目操作姿态，加六轴独立 ±30° 均匀偏移，支持独立关闭。偏移半范围支持 0–50°；本批设置为 30°，即六个基准关节角各自独立加上 `Uniform(-30°, 30°)`。每次先检查模型关节限位、初始碰撞及实际接近路径；不通过时拒绝该初态并重采样，不把角度钳位到限位。配置语义见下方“可配置噪声与随机化”。
 
 ## 网页固定布局与颜色指令
 
@@ -45,12 +45,12 @@ export SPACE_SIM_COLLECTION_FIXED_CATALOG=/absolute/path/to/ue-assets/layout.cat
 从服务端子目录运行脚本（解释器按本机环境调整；输出目录必须是新目录）：
 
 ```powershell
-& ..\.venv\Scripts\python.exe tools\collect_drawer_cycles.py `
+& ..\.venv\Scripts\python.exe collection\collect_scripted_tasks.py `
   --scene run\scenes\<scene-id>.json `
   --output run\drawer-batch-001 --count 1 --max-attempts 3 --seed 20261016
 ```
 
-`collect_drawer_cycles.py` 负责随机初始化、碰撞预检查、重试和完整验收；`record_drawer_task.py` 录制单次任务；`run_scripted_task.py` 单独运行时只输出动力学诊断，没有训练视频。网页批量任务支持抽屉完整循环、三种独立插头任务、航空螺丝和杆状机构，后两者经 `collect_threaded_tasks.py` 进入共用采集器；详见[螺纹任务采集](THREADED_TASK_COLLECTION.md)。`drawer_lift` 仅作为独立诊断/轨迹校验任务。
+`collect_scripted_tasks.py` 负责随机初始化、碰撞预检查、重试和完整验收；`record_scripted_task.py` 录制单次任务；`run_scripted_task.py` 单独运行时只输出动力学诊断，没有训练视频。网页批量任务支持抽屉完整循环、三种独立插头任务、航空螺丝和杆状机构，全部任务经 `collect_scripted_tasks.py --task <任务名>` 进入共用采集器；详见[螺纹任务采集](THREADED_TASK_COLLECTION.md)。`drawer_lift` 仅作为独立诊断/轨迹校验任务。
 
 流式编码、原生几何计算、配置覆盖和测速口径见 [单机采集性能](COLLECTION_PERFORMANCE.md)。单条摘要记录启动、录制、收尾和总时间，不能将正式录制倍率当成包含启动与验收的全流程倍率。
 
@@ -83,7 +83,7 @@ export SPACE_SIM_COLLECTION_FIXED_CATALOG=/absolute/path/to/ue-assets/layout.cat
 速度配置保存在批次 `job.json`、任务摘要和每条观测的 `scripted_task.task_parameters` 中；任务版本为 `drawer-cycle/5`。加速度、跃度、夹爪参数也一并保存，旧数据保持原参数。支持从以下任一入口传入，例如：
 
 ```powershell
-python tools/collect_drawer_cycles.py --scene <scene.json> --output <new-output-directory> --count 1 --max-attempts 3 --linear-speed 0.1
+python collection/collect_scripted_tasks.py --scene <scene.json> --output <new-output-directory> --count 1 --max-attempts 3 --linear-speed 0.1
 ```
 
 首次提速对照见根 `archive/2026_10_18_抽屉分段提速与采集验证.md`；平滑改进和接触限制见 `archive/2026_10_18_抽屉速度曲线平滑与接触验证.md`。更新后构建前端并重启后端，刷新网页即可使用新参数；无需重新编译 UE。
@@ -119,9 +119,9 @@ approach_path.py 提供带平滑收尾的空间曲线；motion_timing.py 除关�
 - `collection_api.py`：鉴权 API、独立场景配置创建与数据/视频读取。创建自动采集场景不会覆盖遥操作管理器的当前实例。
 - `dataset_view.py`：纯数据读取与时间轴构建，保留独立传感器时间轴，缓存签名包含力数据文件。
 - `frontend/platform_shell.js`、`platform.css`、`ui.js`：统一导航、路由、公共样式和表单。`frontend/pages/` 中的 collection、datasets、users 分别提供页面模板与 activate/deactivate/reset 生命周期，保持原生 ES modules，不引入新框架。后端四个页面入口返回同一 Vite 构建，替代原 public 下的独立 HTML。
-- `tools/collect_scripted_tasks.py`（共享批次与验收）、`collect_drawer_cycles.py` / `collect_plug_tasks.py`（兼容入口）、`record_drawer_task.py`：复用已验证的真实 BSK/MuJoCo → UE 相机 → CaptureReceiver/SimulationHub → EpisodeRecorder → LeRobot 链路；增加协作停止与运行路径透传。
+- `collection/collect_scripted_tasks.py`（统一批次入口）和 `record_scripted_task.py`（单条录制实现）：复用已验证的真实 BSK/MuJoCo → UE 相机 → CaptureReceiver/SimulationHub → EpisodeRecorder → LeRobot 链路；增加协作停止与运行路径透传。
 
-新增任务在 `TASKS` 注册任务名、显示名称、场景模板和独立采集 CLI。适配 CLI 接受管理器传入的 count/max-attempts/seed/range-deg、场景/输出/数据目录、四个端口、UE/adapter 路径和 cancel-file；原子写入 summary.json，报告 attempts、accepted_episodes 和 status。各任务自行实现成功条件与数据校验，不能只依据进程退出码或录制时长判成功。插头的几何参数集中在 `simulation/scripted_tasks/plug_profiles.py`，控制器共用 `plug_insert.py`。新增插头时显式配置物体、取件位、装配孔、插入长度与键槽要求，并独立注册任务；不修改底层动力学和录制链路。
+新增任务在 `TASKS` 注册任务名、显示名称和场景模板，统一通过 `collect_scripted_tasks.py --task <任务名>` 调度。适配 CLI 接受管理器传入的 count/max-attempts/seed/range-deg、场景/输出/数据目录、四个端口、UE/adapter 路径和 cancel-file；原子写入 summary.json，报告 attempts、accepted_episodes 和 status。各任务自行实现成功条件与数据校验，不能只依据进程退出码或录制时长判成功。插头的几何参数集中在 `simulation/scripted_tasks/plug_profiles.py`，控制器共用 `plug_insert.py`。新增插头时显式配置物体、取件位、装配孔、插入长度与键槽要求，并独立注册任务；不修改底层动力学和录制链路。
 
 离开工作台时先停止遥操作输入，再释放该页的控制连接及视频资源；返回后重新连接。离开数据详情会暂停视频。退出登录会清空当前页面数据和表单，避免切换账号后出现上一账号的内容。后台采集任务的生命周期由服务端管理。
 
@@ -178,10 +178,10 @@ approach_path.py 提供带平滑收尾的空间曲线；motion_timing.py 除关�
 CLI 示例（从服务端目录，使用平台 Python）：
 
 ```powershell
-python tools/collect_plug_tasks.py --task aviation_plug_insert --scene <scene.json> --output <new-output-directory> --count 1 --max-attempts 3 --range-deg 0
+python collection/collect_scripted_tasks.py --task aviation_plug_insert --scene <scene.json> --output <new-output-directory> --count 1 --max-attempts 3 --range-deg 0
 ```
 
-首次验收使用零关节偏移，先确认各自任务的基础流程。页面支持偏移半范围 0–50°，默认 10°；不同随机初态需要预检查和实际重复验证，不能由单次成功推断成功率。
+首次验收使用零关节偏移，先确认各自任务的基础流程。页面支持偏移半范围 0–50°，默认 30°；不同随机初态需要预检查和实际重复验证，不能由单次成功推断成功率。
 
 无相机运行入口的默认自由目标位置也从当前 MJCF 读取；正式验收仍显式传入同一场景文件，避免旧抓取演示的初态影响旁边物体及接触结果。导向件保持夹持时以连续就位几何判定是否可以慢速松爪；最终成功继续要求松爪撤离后低于 2 mm/s 的相对线速和 0.03 rad/s 的相对角速。
 
@@ -209,4 +209,4 @@ python tools/collect_plug_tasks.py --task aviation_plug_insert --scene <scene.js
 
 每次尝试使用独立 seed；初始化保留旧 PCG64 序列，其他选项以稳定名称拆分随机流；开关其他选项不会消耗本选项的随机序列。随机参数、实际偏置/倍率、版本、采样语义保存到每条记录的 scene_instance.collection_config。并行 worker 的 seed 区间隔离。所有选项关闭时运动和原始传感器值保持不变；6+1 状态/动作、50 Hz 双相机与 200 Hz 六维力的采样规格保持不变。
 
-CLI 批采集从源 scene.collection_randomization 读取与 API 相同的配置对象，每次 randomized_scene 独立采样。单条 record_drawer_task/run_scripted_task 也支持该对象或已有 collection_config.randomization_options。不能仅编辑旧 disturbances 布尔标记而不提供参数配置。
+CLI 批采集从源 scene.collection_randomization 读取与 API 相同的配置对象，每次 randomized_scene 独立采样。单条 record_scripted_task/run_scripted_task 也支持该对象或已有 collection_config.randomization_options。不能仅编辑旧 disturbances 布尔标记而不提供参数配置。

@@ -1,16 +1,16 @@
 # 多进程脚本采集
 
-`tools/collect_parallel.py` 在同一台机器启动多个独立的批量采集进程。每路拥有自己的动力学、录制器和 UE，使用独立端口、种子区间、输出目录和停止文件。单卡可运行多路；多卡时在配置中逐路指定 GPU。只有通过原有完整校验的轨迹才计入吞吐量。
+`collection/collect_parallel.py` 在同一台机器启动多个独立的批量采集进程。每路拥有自己的动力学、录制器和 UE，使用独立端口、种子区间、输出目录和停止文件。单卡可运行多路；多卡时在配置中逐路指定 GPU。只有通过原有完整校验的轨迹才计入吞吐量。
 
 当前单 worker 连续两条的优化入口、`veryfast` 配置与最新结果索引见[单机采集性能](COLLECTION_PERFORMANCE.md#当前单-worker-顺序采集入口)。该入口直接使用串行 collector；不需要开启本文默认的两路调度。
 
 ## 配置与运行
 
-调度与资源设置统一放在 `config/collection.json`；相机、存储和视频编码仍由其引用的 `config/recording.json` 管理。`recording_config` 相对于采集配置文件所在目录解析，也接受绝对路径。操作台位置与朝向随机化通过 `layout_pool` 配置，网页也可启用，见[布局随机化采集](COLLECTION_LAYOUT_RANDOMIZATION.md)。
+调度与资源设置统一放在 `config/collection-parallel.json`；相机、存储和视频编码仍由其引用的 `config/recording.json` 管理。`recording_config` 相对于采集配置文件所在目录解析，也接受绝对路径。操作台位置与朝向随机化通过 `layout_pool` 配置，网页也可启用，见[布局随机化采集](COLLECTION_LAYOUT_RANDOMIZATION.md)。
 
 ```bash
 cd ~/src/space_sim_server/space_sim_server
-~/envs/spacesim/bin/python tools/collect_parallel.py \
+~/envs/spacesim/bin/python collection/collect_parallel.py \
   --scene ~/migration/validation-scene.json \
   --unreal ~/engines/UE_5.6 \
   --output ~/data/collection/run-001
@@ -77,3 +77,5 @@ run-001/
 吞吐量采用 `通过校验条数 / 整批墙钟时间 × 3600`，包括预检查、首条启动、文件收尾、全视频校验和最终进程退出。短批次不是长期稳态吞吐量。资源中的进程 CPU 100% 对应一个逻辑核；RSS 相加可能重复计入共享内存。GPU 查询是整张卡的系统占用，不能在有其他 GPU 作业时归因给录制任务。
 
 单条脚本支持 `--offline`、`--gpu-index`；串行批量脚本支持 `--reuse-renderer`、`--reuse-dynamics` 和两种预热参数。未传复用参数的直接 collector 调用保持逐条启动行为。
+
+日常150布局×多任务的顺序采集使用 `tools/collect.py` 与 `config/collection.json`，本页的隔离多进程模式仍保留，详见 [按布局顺序采集](LAYOUT_SEQUENCE_COLLECTION.md)。

@@ -12,7 +12,7 @@ from simulation.scripted_tasks.locking_rod import LockingRodConfig, LockingRodTa
 from simulation.scripted_tasks.threaded_motion import ThreadedSample, model_body_pose
 from simulation.scripted_tasks.threaded_tasks import create_threaded_task
 from simulation.serial_chain_kinematics import axis_angle_to_matrix
-from tools.threaded_task_initialization import apply_locking_cycle_initial_state
+from simulation.model_preparation.threaded_task_initialization import apply_locking_cycle_initial_state
 from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
 
 

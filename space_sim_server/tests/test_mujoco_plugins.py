@@ -17,7 +17,7 @@ def test_plugin_version_and_hash_checked(tmp_path):
 
 def test_platform_thread_source_changes_only_tooth_radius():
  # The platform plugin must stay the delivered source except for the faster
- # tooth_radius(); tools/build_sarm_plugin.py proves that function numerically.
+ # tooth_radius(); tools/assets/build_sarm_plugin.py proves that function numerically.
  import re
  from pathlib import Path
  from simulation.mujoco_plugins import DELIVERED_SOURCE, PLATFORM_SOURCE

@@ -11,7 +11,7 @@ def test_catalog_generator_registers_plugin_in_its_own_process(tmp_path):
     root = Path(__file__).resolve().parents[1]
     manifest = root / 'run/native_acceleration/sarm_thread.json'
     if not manifest.is_file():
-        pytest.skip('Requires tools/build_sarm_plugin.py on this machine')
+        pytest.skip('Requires tools/assets/build_sarm_plugin.py on this machine')
     mujoco = pytest.importorskip('mujoco')
     record = json.loads(manifest.read_text(encoding='utf-8-sig'))
     from simulation.mujoco_plugins import validate_plugin_manifest

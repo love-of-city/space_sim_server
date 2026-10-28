@@ -3,9 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools import collect_scripted_tasks as collector
-from tools import record_drawer_task as recorder
-from tools.collect_parallel import CollectionConfig
+from collection import collect_scripted_tasks as collector
+from collection import record_scripted_task as recorder
+from collection.collect_parallel import CollectionConfig
 
 
 def finish_immediate(coroutine):

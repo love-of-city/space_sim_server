@@ -17,7 +17,7 @@ MODEL = BASE.with_name("sarm_ground_target.xml")
 
 
 def test_composition_is_current_and_does_not_change_sarm_or_source_cad():
-    spec = importlib.util.spec_from_file_location("ground_target_builder", ROOT / "tools/build_sarm_ground_target.py")
+    spec = importlib.util.spec_from_file_location("ground_target_builder", ROOT / "tools/assets/build_sarm_ground_target.py")
     builder = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(builder)
     xml, manifest = builder.composed_bytes()

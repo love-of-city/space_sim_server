@@ -172,7 +172,7 @@ def launcher_repo(tmp_path):
         shutil.copyfile(ROOT / "scripts" / name, root / "scripts" / name)
     for name in ("deployment.example.json", "Caddyfile.template"):
         shutil.copyfile(ROOT / "deploy" / name, root / "deploy" / name)
-    (root / "tools/check_deployment_auth.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    (root / "tools/deployment/check_deployment_auth.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
     (root / "scripts/run_platform.ps1").write_text("exit 0\n", encoding="utf-8")
     (root / "scripts/public_deployment_helpers.ps1").write_text("# Fake public helpers.\n", encoding="utf-8")
     (root / "scripts/public_deployment.ps1").write_text("""

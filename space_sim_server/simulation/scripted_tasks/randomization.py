@@ -61,8 +61,8 @@ def _assignment_digest(hole_colors, source_colors):
     ).hexdigest()
 
 
-def _colour_prompt(task, hole_colors, source_colors, palette, target_site=None):
-    """Build the human-readable instruction from the realized assignment."""
+def _colour_prompt_values(task, hole_colors, source_colors, palette, target_site=None):
+    """Resolve instruction colours using the physical source/target identities."""
     from simulation.scripted_tasks.plug_profiles import is_plug_task, plug_profile
 
     def label(key):
@@ -82,24 +82,13 @@ def _colour_prompt(task, hole_colors, source_colors, palette, target_site=None):
         source = profile.body
         target_key = hole_colors[target]
         source_key = source_colors[source]
-        object_name = {
-            "aviation_plug": "aviation plug",
-            "guide_plug": "guide plug",
-            "cylindrical_plug": "cylindrical plug",
-        }[source]
-        return (
-            f"Pick up the {label(source_key)} {object_name}, align it with the "
-            f"{label(target_key)} socket, and insert it fully."
-        )
+        return dict(source_color=label(source_key), target_color=label(target_key))
     if task == "aviation_bolt_insert":
         if target_site is not None and target_site != "bolt_assembly_hole":
             raise ValueError(f"Target {target_site!r} is not this bolt's assembly hole")
         source_key = source_colors["bolt"]
         target_key = hole_colors["bolt_assembly_hole"]
-        return (
-            f"Unscrew the {label(source_key)} aviation bolt from its holder, "
-            f"then screw it fully into the {label(target_key)} hole."
-        )
+        return dict(source_color=label(source_key), target_color=label(target_key))
     raise ValueError(f"Colour prompt is unsupported for task {task!r}")
 
 
@@ -149,12 +138,16 @@ def _prepare_color_randomization(scene, cfg):
     if missing:
         raise ValueError(f"color_randomization is missing identities: {missing}")
     digest = _assignment_digest(holes, sources)
-    prompt = None
+    from .instructions import STREAM, prepare_instruction
+    values = None
     if task in COLOR_RANDOMIZATION_TASKS:
-        prompt = _colour_prompt(
+        values = _colour_prompt_values(
             task, holes, sources, COLOR_PALETTE,
             cfg.get("target_site") or scene.get("target_site"),
         )
+    seed = int(scene.get("seed", 0))
+    instruction = prepare_instruction(cfg, task, seed, generator(seed, STREAM), values)
+    prompt = instruction["instruction"] if values is not None else None
     previous_wrapper = cfg.get("color_randomization")
     applied_schema = (
         previous_wrapper.get("applied_schema")
@@ -309,7 +302,7 @@ def write_model_variant(source, output, scene):
     # Physical storage retention belongs to the platform, even when another
     # object is the task target. Use this same preparation for preflight and
     # recording; a source layout predating the liner is never run unchanged.
-    from tools.bolt_storage_thread import ensure_bolt_storage_thread
+    from simulation.model_preparation.bolt_storage_thread import ensure_bolt_storage_thread
     storage_thread = ensure_bolt_storage_thread(root)
     physics_upgraded = storage_thread is not None and storage_thread['status'] == 'installed'
     if storage_thread is not None:
@@ -334,7 +327,7 @@ def write_model_variant(source, output, scene):
         )
         appearance = apply_socket_colors(root, appearance_assignment)
     if task == 'locking_rod_cycle':
-        from tools.threaded_task_initialization import apply_locking_cycle_initial_state
+        from simulation.model_preparation.threaded_task_initialization import apply_locking_cycle_initial_state
         initialization['locking_rod'] = apply_locking_cycle_initial_state(root)
     if root.find(".//include") is not None:
         raise ValueError(

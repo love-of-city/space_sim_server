@@ -17,7 +17,7 @@ git lfs pull
 移动固定安装件需要同步重建底板开口、碰撞几何和 UE 资产，因此在开始并发采集前串行准备，采集进程仅只读使用。下面生成 10 个布局（耗时较长），输出必须是新的、位于仓库外的目录：
 
 ```bash
-SIM_PY tools/prepare_collection_layout_pool.py \
+SIM_PY tools/assets/prepare_collection_layout_pool.py \
   --geometry-python GEOMETRY_PY \
   --count 10 --seed 2026102300 --yaw-range-deg 180 \
   --adapter /path/to/ue_adapter --unreal /path/to/UE_5.6 \
@@ -30,11 +30,13 @@ SIM_PY tools/prepare_collection_layout_pool.py \
 
 已有布局可重复指定 `--existing MODEL CATALOG NATIVE_REPORT` 注册，亦可与生成新布局组合。池至少需要两个不同模型。准备工具逐套执行布局生成、原生几何校验、底板/孔套几何校验、独立 UE 资产导入；全部通过后才发布 `pool.json`。失败时保留日志且不发布半成品池。UE 导入使用新命名空间并对同一项目加锁。
 
+布局入池仅要求当前几何检查和资产一致性通过，不再逐套运行五个任务，也不要求历史 `trajectory_acceptance` 报告。选择记录使用 `acceptance_scope: native_geometry`，不宣称任务轨迹已认证。历史轨迹诊断可单独查看，其结果不会阻止几何合格布局入池。
+
 布局池约束保证几何和资产一致，并不保证所有任务可达或成功。自动采集对每次选中的布局重新编译原生预检模型，检查关节限制和接近路径；不通过记为 `initialization_rejected`，仍占用尝试次数。
 
 ## 使用自动采集
 
-单批脚本 `collect_drawer_cycles.py`、`collect_plug_tasks.py`、`collect_scripted_tasks.py` 增加：
+统一批量采集入口 `collect_scripted_tasks.py` 支持：
 
 ```bash
 --layout-pool /path/to/data/layout-pools/pool-001/pool.json
@@ -65,6 +67,8 @@ export SPACE_SIM_COLLECTION_LAYOUT_POOL=/path/to/pool.json
 七个任务目标孔为三类插头各自的 `40p1`、`40p5` 孔，以及 `bolt_assembly_hole`。每条尝试将 red、orange、yellow、green、black、blue、purple 无放回分配给七孔；三个插头和螺栓从同一色板独立无放回选取四色。孔组和零件组允许同色，物理配对仍由稳定的 body/site 决定，颜色不改变兼容关系。取件座与 `bolt_storage_hole` 在每条数据中使用中性灰，不属于七个任务目标孔，也不参与指令颜色分配，避免与有色目标孔混淆。
 
 `prepare_episode` 使用独立 `hole-colors-v1`、`source-colors-v1` 随机流，将一次分配冻结到 `collection_config.episode_color_assignment`，重放不会重新取色。插头任务使用简洁英语，例如 `Pick up the red aviation plug, align it with the blue socket, and insert it fully.`；螺栓任务使用 `screw it in fully.`。抽屉任务没有颜色指令。
+
+六种正式任务各有 20 条长短不同的英文指令，采集时使用独立 `task-instruction-v1` 随机流选句，再填入本条真实颜色。模板编号及最终文本保存在 `collection_config.instruction_randomization`。完整清单及编辑位置见[英文指令模板](TASK_INSTRUCTIONS.md)。
 
 录制前由 `write_model_variant` 将同一分配应用到独立模型中现有的非接触可见表面，另写外观变体和摘要；源模型、布局池、mesh、碰撞、关节和目标 site 不变。默认整体模型的多个孔共用一块视觉网格，不能独立实现七孔配色；带颜色指令的任务使用该模型时会明确报错，须传入具有完整独立孔面绑定的模型。无颜色语义的默认抽屉和诊断入口继续可用。
 

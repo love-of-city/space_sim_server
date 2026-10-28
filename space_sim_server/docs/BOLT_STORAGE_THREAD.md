@@ -1,6 +1,6 @@
 # 航空螺丝初始孔的物理螺纹
 
-`tools/bolt_storage_thread.py` 在平台派生模型中给初始存放孔增加一个内螺纹 SDF，
+`simulation/model_preparation/bolt_storage_thread.py` 在平台派生模型中给初始存放孔增加一个内螺纹 SDF，
 与原目标孔复用同一个已交付的 SDF 形状及接触参数。原始交付模型、螺丝自由关节、
 初始位姿、质量与惯性、目标孔和机器人抓取几何均保留。
 
@@ -37,7 +37,7 @@
 独立物理验收（独立进程运行，不能与 Basilisk 导入到同一 Python 进程）：
 
 ```bash
-python tools/validate_bolt_storage_thread.py \
+python tools/diagnostics/validate_bolt_storage_thread.py \
   --model model/SARM/platform/sarm_20261012.xml \
   --output /path/to/storage-validation.json
 ```
@@ -47,7 +47,7 @@ python tools/validate_bolt_storage_thread.py \
 这是物理接口验收，不代表机械臂已经完成抓取、换抓和完整装配任务。
 接触摩擦、柔度是沿用的仿真参数，尚未按真实航空螺丝标定。
 
-锁杆任务另使用 `tools/threaded_task_initialization.py` 生成任务专用初态：
+锁杆任务另使用 `simulation/model_preparation/threaded_task_initialization.py` 生成任务专用初态：
 螺母沿原轴推进 4.79054 mm、旋转 1.881240659 rad；匹配的 MJCF `joint ref`
 与本体初始变换使 `qpos0` 合法地表示锁住状态，旋松到坐标 0 仍恢复原始松开姿态。
 该值根据原始凸碰撞几何的首次就位接触选择，避免把 0.18 mm 预穿透当作预紧力。
@@ -56,7 +56,7 @@ python tools/validate_bolt_storage_thread.py \
 ## 锁杆的真实卡扣接触
 
 原模型的锁杆—底座碰撞排除也会作用到固定在同一焊接刚体上的卡扣，导致杆穿过
-卡扣而没有接触。`tools/locking_cycle_contacts.py` 为锁杆与卡扣的凸碰撞体增加
+卡扣而没有接触。`simulation/model_preparation/locking_cycle_contacts.py` 为锁杆与卡扣的凸碰撞体增加
 960 对显式接触，保留原碰撞掩码。卡扣原始 CAD 带有收口，落座需要通过弹性卡口；
 任务派生模型采用 `solref=".03 1"`、`solimp=".9 .95 .001"` 和切向摩擦系数 0.3
 表示名义柔度。这是未经材料试验标定的弹性卡扣近似，不能解释为真实卡扣的刚度
@@ -75,7 +75,7 @@ python tools/validate_bolt_storage_thread.py \
 `trimesh` 和 `manifold3d` 的几何环境后，可复建：
 
 ```bash
-python tools/build_locking_cycle_collision.py \
+python tools/assets/build_locking_cycle_collision.py \
   --source model/SARM/platform/sarm_20261012.xml
 ```
 
@@ -87,7 +87,7 @@ python tools/build_locking_cycle_collision.py \
 独立锁杆接口验收：
 
 ```bash
-python tools/validate_locking_cycle_contacts.py \
+python tools/diagnostics/validate_locking_cycle_contacts.py \
   --model model/SARM/platform/sarm_20261012.xml \
   --output /path/to/locking-validation
 ```

@@ -21,7 +21,7 @@
 使用与仿真匹配的 Python，从服务端仓库根目录运行：
 
 ```powershell
-python tools/build_native_acceleration.py --component posture
+python tools/assets/build_native_acceleration.py --component posture
 ```
 
 需要已安装 MSVC x64 Build Tools 和 Windows SDK。构建助手读取编译器环境，
@@ -31,7 +31,7 @@ python tools/build_native_acceleration.py --component posture
 线程池探针另需**完全匹配 3.7.0** 的 MuJoCo C 头文件：
 
 ```powershell
-python tools/build_native_acceleration.py --component mjscene_probe `
+python tools/assets/build_native_acceleration.py --component mjscene_probe `
   --mujoco-include <MuJoCo-3.7.0的include目录>
 ```
 
@@ -52,7 +52,7 @@ python -m pytest tests/test_online_elbow_ik.py tests/test_native_posture.py `
 公平测速使用**独立子进程依次运行**，不要同时运行其他重负载测试：
 
 ```powershell
-python tools/benchmark_native_acceleration.py `
+python tools/benchmarks/benchmark_native_acceleration.py `
   --adapter-root <UE适配器仓库> `
   --scene-instance <已保存场景JSON> `
   --output-root run/native-benchmark-new `
@@ -69,7 +69,7 @@ python tools/benchmark_native_acceleration.py `
 单独测试组合：
 
 ```powershell
-python tools/profile_simulation_runtime.py `
+python tools/benchmarks/profile_simulation_runtime.py `
   --adapter-root <UE适配器仓库> --scene-instance <场景JSON> `
   --output run/native-one.json --initial-state operating `
   --duration 8 --motion linear_x --speed 0.05 `

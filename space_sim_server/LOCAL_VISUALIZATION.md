@@ -37,6 +37,6 @@
 
 ## 验证
 
-平台停止后，用后端 Python 执行 `tools/verify_local_platform.py`。它实际启动平台和 SARM 场景，使用独立随机账号数据库测试登录、场景 API、观测时间推进、低速控制脉冲与 IK 目标反馈、浏览器持续视频解码、停止场景后网页仍在线，最后清理测试进程。需要已安装的 httpx、websockets、Node 和 Edge。
+平台停止后，用后端 Python 执行 `tools/deployment/verify_local_platform.py`。它实际启动平台和 SARM 场景，使用独立随机账号数据库测试登录、场景 API、观测时间推进、低速控制脉冲与 IK 目标反馈、浏览器持续视频解码、停止场景后网页仍在线，最后清理测试进程。需要已安装的 httpx、websockets、Node 和 Edge。
 
 测试结果、截图和隔离数据库存于忽略的 `run/`，不修改原账号。不要在已有平台运行时执行这项端到端验证。

@@ -16,8 +16,18 @@ from simulation.independent_task_box_layout import (
 from simulation.scripted_tasks.drawer_initialization import randomized_scene
 from space_arm_platform.layout_trajectories import (
     INITIAL_JOINTS_DEG, OBSERVER, REQUIRED_OPERATION_STAGES, SERVER_ROOT, TASKS,
-    bind_trajectory_acceptance, reference,
+    bind_trajectory_acceptance, reference, validate_trajectory_acceptance,
 )
+
+
+def validate_diagnostic(entry):
+    """Trajectory reports remain optional diagnostics, outside pool admission."""
+    native = json.loads(Path(entry["native_report"]).read_text())
+    binding = native.get("trajectory_acceptance")
+    if not isinstance(binding, dict):
+        raise ValueError("Missing optional trajectory diagnostic binding")
+    model = Path(entry["model"])
+    return validate_trajectory_acceptance(binding, model, model.with_suffix(".layout.json"))
 
 
 def trajectory_evidence(directory, model, native, *, successful=True):
@@ -26,7 +36,7 @@ def trajectory_evidence(directory, model, native, *, successful=True):
                                     randomization=dict(arm_joint_position_rad=[
                                         *map(math.radians, INITIAL_JOINTS_DEG), 0., 0.]))))
     sources = [model, model.with_suffix(".layout.json"), scene, OBSERVER,
-               SERVER_ROOT / "tools/run_scripted_task.py",
+               SERVER_ROOT / "collection/run_scripted_task.py",
                SERVER_ROOT / "simulation/local_mujoco_stepper.py",
                SERVER_ROOT / "simulation/scripted_tasks/native_state.py"]
     directories = {}
@@ -114,7 +124,26 @@ def test_selection_reproduces_and_does_not_change_arm_noise_or_orbit(layout_pool
         selection = pool.select(seed)[3]
         assert selection["operation_clearance_schema"] == OPERATION_CLEARANCE_SCHEMA
         assert selection["native_report_sha256"] == pool.document["layouts"][selection["pool_index"]]["native_report_sha256"]
-        assert selection["trajectory_operational_path_complete"] is True
+        assert selection["acceptance_scope"] == "native_geometry"
+        assert not any(key.startswith("trajectory_") for key in selection)
+
+
+@pytest.mark.parametrize("binding", [None, {"path": "/missing/old-trajectory.json", "sha256": "stale"}])
+def test_geometry_accepted_layout_needs_no_trajectory_evidence(layout_pool, binding):
+    document = json.loads(layout_pool.read_text())
+    for entry in document["layouts"]:
+        native = Path(entry["native_report"])
+        report = json.loads(native.read_text())
+        if binding is None:
+            report.pop("trajectory_acceptance", None)
+        else:
+            report["trajectory_acceptance"] = binding
+        native.write_text(json.dumps(report))
+        entry["native_report_sha256"] = digest(native)
+    layout_pool.write_text(json.dumps(document))
+    pool = LayoutPool(layout_pool)
+    assert len(pool.document["layouts"]) == 2
+    assert pool.select(7)[3]["acceptance_scope"] == "native_geometry"
 
 
 def test_clear_trajectory_with_failed_target_is_not_a_success_demonstration(layout_pool):
@@ -127,7 +156,7 @@ def test_clear_trajectory_with_failed_target_is_not_a_success_demonstration(layo
 
 
 @pytest.mark.parametrize("changed", ["missing_binding", "missing_task", "forbidden_contact", "incomplete_coverage", "wrong_model", "strict_free_bolt", "incomplete_path", "missing_stage", "wrong_stage_order", "shortened_contract", "planning_failed"])
-def test_native_trajectory_gate_fails_closed(layout_pool, changed):
+def test_optional_trajectory_diagnostic_rejects_invalid_evidence(layout_pool, changed):
     entry = json.loads(layout_pool.read_text())["layouts"][0]
     model, native = Path(entry["model"]), Path(entry["native_report"])
     report = json.loads(native.read_text())
@@ -168,7 +197,7 @@ def test_native_trajectory_gate_fails_closed(layout_pool, changed):
         report["trajectory_acceptance"]["sha256"] = digest(path)
     native.write_text(json.dumps(report))
     with pytest.raises(ValueError, match="trajectory|coverage"):
-        pool_entry("invalid-trajectory", model, entry["catalog"], native)
+        validate_diagnostic(entry)
 
 
 @pytest.mark.parametrize("changed", ["observed_stages", "deferred_bolt_contact_point_samples", "operational_path_complete"])
@@ -188,7 +217,7 @@ def test_aggregate_cannot_hide_native_path_or_deferred_contacts(layout_pool, cha
     report["trajectory_acceptance"] = reference(path)
     native.write_text(json.dumps(report))
     with pytest.raises(ValueError, match="trajectory|stages|bolt"):
-        pool_entry("invalid-aggregate", entry["model"], entry["catalog"], native)
+        validate_diagnostic(entry)
 
 
 def test_reanalysis_binds_original_launch_and_exact_archived_observer(layout_pool):
@@ -224,7 +253,7 @@ def test_reanalysis_binds_original_launch_and_exact_archived_observer(layout_poo
     assert pool_entry("reanalysis", model, entry["catalog"], native)
     original_inputs[0].write_bytes(b"changed trajectory evidence")
     with pytest.raises(ValueError, match="changed trajectory analysis input"):
-        pool_entry("changed-input", model, entry["catalog"], native)
+        validate_diagnostic(entry)
     original_inputs[0].write_bytes(b"original trajectory evidence")
     # Even rehashing the report cannot pair a reanalysis with another launch.
     original.write_text(json.dumps(dict(argv=["different-run"])))
@@ -237,7 +266,7 @@ def test_reanalysis_binds_original_launch_and_exact_archived_observer(layout_poo
     native_report["trajectory_acceptance"] = reference(aggregate_path)
     native.write_text(json.dumps(native_report))
     with pytest.raises(ValueError, match="original launch"):
-        pool_entry("invalid-reanalysis", model, entry["catalog"], native)
+        validate_diagnostic(entry)
 
 
 @pytest.mark.parametrize("changed", ["missing_manifest_policy", "old_manifest_policy", "missing_native_policy", "old_native_policy"])
@@ -303,8 +332,8 @@ def test_requires_two_distinct_layouts_and_valid_native_acceptance(layout_pool):
 
 @pytest.mark.parametrize("mismatched_recording", [False, True])
 def test_collector_passes_same_layout_to_probe_renderer_and_recording(layout_pool, tmp_path, monkeypatch, mismatched_recording):
-    import tools.collect_scripted_tasks as collector
-    import tools.record_drawer_task as recorder
+    import collection.collect_scripted_tasks as collector
+    import collection.record_scripted_task as recorder
 
     scene = tmp_path / "scene.json"
     scene.write_text(json.dumps(dict(randomization=dict(arm_joint_position_rad=[0.]*8),
@@ -379,8 +408,8 @@ def test_api_manager_requires_pool_and_snapshots_it(layout_pool, tmp_path, monke
         with pytest.raises(ValueError, match="布局池"):
             manager.start(request, {}, {})
         manager.layout_pool = layout_pool
-        (tmp_path / "tools").mkdir()
-        (tmp_path / "tools/collect_drawer_cycles.py").touch()
+        (tmp_path / "collection").mkdir()
+        (tmp_path / "collection/collect_scripted_tasks.py").touch()
         base = tmp_path / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json"
         base.parent.mkdir(parents=True)
         base.touch()
@@ -399,7 +428,7 @@ def test_api_manager_requires_pool_and_snapshots_it(layout_pool, tmp_path, monke
 
 
 def test_parallel_workers_receive_same_pool_with_disjoint_attempt_seeds(layout_pool, tmp_path, monkeypatch):
-    import tools.collect_parallel as parallel
+    import collection.collect_parallel as parallel
 
     # Exercise real leases without sharing lock files with other host users.
     monkeypatch.setattr(parallel.tempfile, "gettempdir", lambda: str(tmp_path))

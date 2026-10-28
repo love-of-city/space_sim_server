@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools import record_drawer_task as recorder
+from collection import record_scripted_task as recorder
 
 
 def scene_file(tmp_path, saved_layout):

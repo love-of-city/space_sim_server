@@ -234,11 +234,13 @@ def test_color_prompt_is_concise_english_and_rebuilt_from_assignment():
     colour = value["collection_config"]["color_randomization"]
     source_key = colour["source_colors"]["aviation_plug"]
     target_key = colour["hole_colors"]["aviation_insert_40p5"]
-    expected = (
-        f"Pick up the {colour['palette'][source_key]['color_name']} aviation plug, "
-        f"align it with the {colour['palette'][target_key]['color_name']} socket, "
-        "and insert it fully."
+    selected = value["collection_config"]["instruction_randomization"]
+    expected = selected["template"].format(
+        source_color=colour['palette'][source_key]['color_name'],
+        target_color=colour['palette'][target_key]['color_name'],
     )
+    assert f"{source_key} aviation plug" in expected
+    assert f"{target_key} socket" in expected
     assert colour["prompt_instruction"] == expected
     assert all(ord(char) < 128 for char in expected)
     assert "aviation_insert_40p5" not in expected
@@ -294,15 +296,10 @@ def test_each_colour_instruction_uses_its_actual_source_and_target(task, source,
     colour = value["collection_config"]["color_randomization"]
     source_colour = assignment["source_colors"][source]
     target_colour = assignment["hole_colors"][target]
-    if task == "aviation_bolt_insert":
-        expected = (
-            f"Unscrew the {source_colour} aviation bolt from its holder, "
-            f"then screw it fully into the {target_colour} hole."
-        )
-    else:
-        expected = (
-            f"Pick up the {source_colour} {object_name}, align it with the {target_colour} socket, and {ending}"
-        )
+    selected = value["collection_config"]["instruction_randomization"]
+    expected = selected["template"].format(source_color=source_colour, target_color=target_colour)
+    assert f"{source_colour} {object_name}" in expected
+    assert f"{target_colour} {'hole' if task == 'aviation_bolt_insert' else 'socket'}" in expected
     assert colour["prompt_instruction"] == expected
     assert colour["prompt_instruction"].isascii()
     assert colour["assignment_sha256"] == assignment["assignment_sha256"]

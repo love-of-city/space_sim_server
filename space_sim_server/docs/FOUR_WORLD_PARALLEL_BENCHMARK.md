@@ -7,7 +7,7 @@
 运行命令（平台 Python，space_sim_server 目录）：
 
 ```powershell
-python tools/benchmark_parallel_capture.py --mode capture --workers 4 --jobs 4 --seconds 20 --scene run/scenes/scene-20261014-170501-01b5c238.json --output run/four-world-benchmark/capture-parallel --port-base 19760
+python tools/benchmarks/benchmark_parallel_capture.py --mode capture --workers 4 --jobs 4 --seconds 20 --scene run/scenes/scene-20261014-170501-01b5c238.json --output run/four-world-benchmark/capture-parallel --port-base 19760
 ```
 
 四套实例分别使用 19760–19763、19770–19773、19780–19783、19790–19793；输出目录必须未使用。脚本继续默认双并发，参数现在允许 1–4 并发。进程树内存每秒采样，GPU 每约 5 秒采样，同时记录 UE 进程数和系统可用内存。

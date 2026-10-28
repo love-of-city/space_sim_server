@@ -303,7 +303,7 @@ def validate_overview_camera(scene):
         return None
     if scene.get("template_id") not in TEMPLATES:
         raise ValueError("overview camera randomization requires the full 20261012 SARM workbench template")
-    seed = scene.get("seed")
+    seed = scene.get("overview_camera_seed", scene.get("seed"))
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("overview camera seed must be a nonnegative integer")
     expected = None
@@ -325,7 +325,8 @@ def initialize_overview_camera(scene):
     # Historical records are still replayed unchanged by validate_overview_camera.
     scene["overview_camera_sampling"] = "presets"
     if enabled:
-        scene["overview_camera"] = sample_overview_camera(scene["seed"])
+        seed = scene.get("overview_camera_seed", scene["seed"])
+        scene["overview_camera"] = sample_overview_camera(seed)
     else:
         scene.pop("overview_camera", None)
     return validate_overview_camera(scene)

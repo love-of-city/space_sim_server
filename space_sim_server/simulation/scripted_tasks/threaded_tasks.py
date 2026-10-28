@@ -12,15 +12,12 @@ def task_default_duration_s(name):
 
 THREADED_INSTRUCTIONS = {
     "aviation_bolt_insert": (
-        "Grasp the aviation bolt in its initial threaded holder. Unscrew and "
-        "remove it, transfer it to the matching target hole, align the thread, "
-        "and screw it in fully. Release the bolt and retract the gripper."
+        "Unscrew the aviation bolt from its holder, then screw it fully "
+        "into the corresponding hole."
     ),
     "locking_rod_cycle": (
-        "Grasp the captive fastener of the upright locking rod and unscrew it "
-        "to release the rod from its hook. Keep the lower hinge connected, "
-        "lower the rod into its clip, release it, then grasp and raise it back "
-        "to the hook. Screw the captive fastener tight, release, and retract."
+        "Loosen the locking rod's fastener, fold the rod into its clip, "
+        "then raise it and tighten the fastener."
     ),
 }
 

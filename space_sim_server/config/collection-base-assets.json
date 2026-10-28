@@ -1,0 +1,2451 @@
+{
+  "schema": "collection-base-assets/1",
+  "source_mjcf": "model/SARM/platform/sarm_20261012.xml",
+  "assets": {
+    "model/ground_validation_satellite/articulated_meshes/hinge_fixed_visual.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/hinge_fixed_visual.hinge_fixed_visual",
+      "source_format": "obj",
+      "source_sha256": "ba26433f42bcf7122b251737567c4df657e761900f32a5d88e854bffb8416f7d",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/articulated_meshes/hinge_moving_visual.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/hinge_moving_visual.hinge_moving_visual",
+      "source_format": "obj",
+      "source_sha256": "aade77d1b226d44001c245e0062012189fe512e37ce9ff679a01644eb2e7a8b3",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_001_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_001_color_00.part_001_color_00",
+      "source_format": "obj",
+      "source_sha256": "7e5aefc36b541fbdd21c1d3c25c6d74a88e9d2fb5b136bc350dadfb66463ba3c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_002_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_002_color_00.part_002_color_00",
+      "source_format": "obj",
+      "source_sha256": "0a461c5d8909eeaa8cacbdbe3b3adf43bae620eb38446c303d9071668532a73c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_003_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_003_color_00.part_003_color_00",
+      "source_format": "obj",
+      "source_sha256": "f8d9533176c615a5737d574873a1bf2641e83eb51bdc76869e4d51362325e752",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_004_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_004_color_00.part_004_color_00",
+      "source_format": "obj",
+      "source_sha256": "c6dd6ca10d076e4621fc1f8f3b19a9296ca2dd29c2542910543bb244a313f65b",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_005_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_005_color_00.part_005_color_00",
+      "source_format": "obj",
+      "source_sha256": "0a885092bfa4c9fd002fb3ab03aff5aa47b0fc6a45eb2b2be31804c280286564",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_006_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_006_color_00.part_006_color_00",
+      "source_format": "obj",
+      "source_sha256": "fdae95d3d2c5cd2ee9173a0083fbe46effff1bc19970f1a5ccdc3a05d95d456f",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_007_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_007_color_00.part_007_color_00",
+      "source_format": "obj",
+      "source_sha256": "73190e52c053ffe6d3e9dac9fc87bb0d32509b90747e35ffd25158faff04162f",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_007_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_007_color_01.part_007_color_01",
+      "source_format": "obj",
+      "source_sha256": "9d6b3587912340926881f5c6ecfa2a935dc53b50c1753bcea91180cae636ee62",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_008_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_008_color_00.part_008_color_00",
+      "source_format": "obj",
+      "source_sha256": "a761d9e4945b3ce529c2c0a9cd659627c0b5c051b63cdd9db85838a18055770f",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_009_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_009_color_00.part_009_color_00",
+      "source_format": "obj",
+      "source_sha256": "4c1f0ad17ffed8dada2e54f1ee49a49447cfb792dc9bd4dc633f5e44d3170dcb",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_010_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_010_color_00.part_010_color_00",
+      "source_format": "obj",
+      "source_sha256": "fd26f5e700fecfa9d4f3433dc07b7f819849467a41cdd5653d9ebe33828aba56",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_011_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_011_color_00.part_011_color_00",
+      "source_format": "obj",
+      "source_sha256": "41e337cc52ec9c90aa640dfa404008e5abc993dbab209f7dc8f1d402b5c3b9d4",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_012_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_012_color_00.part_012_color_00",
+      "source_format": "obj",
+      "source_sha256": "bd2f918fad4a09841d21b38fdb3866bcfee9cd833eb5e7bd1927a164e8703fae",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_013_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_013_color_00.part_013_color_00",
+      "source_format": "obj",
+      "source_sha256": "7436a687614b881993c7465137a89396f398d1da5c2fed86a28fb66794727801",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_014_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_014_color_00.part_014_color_00",
+      "source_format": "obj",
+      "source_sha256": "cd1c8bd8030e1942f86b08f76b64db4e51db36544c7f009ddcf97799cb8fe011",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_015_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_015_color_00.part_015_color_00",
+      "source_format": "obj",
+      "source_sha256": "1def87fac5527c810cfbca4f74ccdaeebaacdd356c68da6a1a67b4028db8630a",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_020_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_020_color_00.part_020_color_00",
+      "source_format": "obj",
+      "source_sha256": "81c16915579601f056b9f137eb3898459f3edae19096d5bdd70e330263fab8ff",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_020_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_020_color_01.part_020_color_01",
+      "source_format": "obj",
+      "source_sha256": "74096a41dfcd9d3bb37abe97e3c483513a934e07375c9d13832ead94bf15393f",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_021_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_021_color_00.part_021_color_00",
+      "source_format": "obj",
+      "source_sha256": "0e2736f93dff87ea3f0d79734ece776167223dfe4e373bbb7fffbe6f253fd35c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_021_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_021_color_01.part_021_color_01",
+      "source_format": "obj",
+      "source_sha256": "1d6a846b769cc85e877467a04949d6b2bee8d80580e1a9dfc2ac3a4d2108c540",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_022_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_022_color_00.part_022_color_00",
+      "source_format": "obj",
+      "source_sha256": "5464111d836d24830555e2ecb00ff0c472880f48e293400e125742908b3c4367",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_023_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_023_color_00.part_023_color_00",
+      "source_format": "obj",
+      "source_sha256": "56d7a03cca7f88539ee4e335507ab4de33a9ffdbade5f3b17e5d8f9ae7b93bdb",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_024_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_024_color_00.part_024_color_00",
+      "source_format": "obj",
+      "source_sha256": "1bfd638eec945f54d96bcc9bd378dbeca8e2bc63fb1dfd4485f44a9e36e68fb0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_025_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_025_color_00.part_025_color_00",
+      "source_format": "obj",
+      "source_sha256": "a312f4b799c5fd5323dc2ea89ad8b441f522eff115f571d018229200802df2ec",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_026_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_026_color_00.part_026_color_00",
+      "source_format": "obj",
+      "source_sha256": "51ea6c7e37566ff1e8124bd35174bb834675333384abab8983cce795afcd7e04",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_027_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_027_color_00.part_027_color_00",
+      "source_format": "obj",
+      "source_sha256": "f7824f9fc5eb71e1e0ab7aabd829e68114f4384855d25b8242408f8ad3f4ae10",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_028_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_028_color_00.part_028_color_00",
+      "source_format": "obj",
+      "source_sha256": "56027927969ee7f0d7e0147c392705e5e3b0b88ed8a63855084b9e369da6a044",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_029_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_029_color_00.part_029_color_00",
+      "source_format": "obj",
+      "source_sha256": "5fd51ebe57cd5ce78660803066443d5c7611d9a5059fe7d55bb5d79d6d75f717",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_030_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_030_color_00.part_030_color_00",
+      "source_format": "obj",
+      "source_sha256": "5fd51ebe57cd5ce78660803066443d5c7611d9a5059fe7d55bb5d79d6d75f717",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_032_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_032_color_00.part_032_color_00",
+      "source_format": "obj",
+      "source_sha256": "8b762072841e71d69d5d8c09f51eb6f3a604ab9223c4bce6dac5b1f2473aeec5",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_032_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_032_color_01.part_032_color_01",
+      "source_format": "obj",
+      "source_sha256": "0a2c593cb25819c5210bd43dfc820d0c1e99838054e76629ada81b76b9ac2c09",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_033_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_033_color_00.part_033_color_00",
+      "source_format": "obj",
+      "source_sha256": "39e3bc296bae09144c9d28d79f64b132abd0e86186ea8c0c561ccbc934e5a48d",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_034_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_034_color_00.part_034_color_00",
+      "source_format": "obj",
+      "source_sha256": "17335c2210d11442fdcc8812011dbc618c336daca12d19e0161525e8d32fb41c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_035_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_035_color_00.part_035_color_00",
+      "source_format": "obj",
+      "source_sha256": "bcc65781fffec8f4c57e6813b5df20d2fbae3bc8a91a89616515c999ef151848",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_036_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_036_color_00.part_036_color_00",
+      "source_format": "obj",
+      "source_sha256": "7348d79c19f688e507de896532910d8f5f24ea47dd617290cecd9e4feb8ed189",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_036_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_036_color_01.part_036_color_01",
+      "source_format": "obj",
+      "source_sha256": "334f819e56330fca13a8b609c30958ef98abf4908ce142c1224c37aa818c425b",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_036_color_02.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_036_color_02.part_036_color_02",
+      "source_format": "obj",
+      "source_sha256": "23bfc8ae0dc79294870ceb5c2cc84b78d1556d9a633dc6ea293b6dd95911e62b",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_036_color_03.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_036_color_03.part_036_color_03",
+      "source_format": "obj",
+      "source_sha256": "76bf71d7fe1e837ed67f6bcf569664c9798c839ea04b1851b1beb231c3888f0c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_036_color_04.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_036_color_04.part_036_color_04",
+      "source_format": "obj",
+      "source_sha256": "1926d463462447e11195b6c16a646030f5da71cae812d0cea7a60e7c9cc5357c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_036_color_05.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_036_color_05.part_036_color_05",
+      "source_format": "obj",
+      "source_sha256": "77ebc9a5bbedaaa4105ca09d6a063ed522033a00236e4fe4d219954f9ec4f7ab",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_037_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_037_color_00.part_037_color_00",
+      "source_format": "obj",
+      "source_sha256": "0d5aff8923341ff063aa1dabe81b2fe89a56e6ce6cdfc083628aec17932c28c7",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_038_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_038_color_00.part_038_color_00",
+      "source_format": "obj",
+      "source_sha256": "5dcbea63cc59737eaaa8c3170ba33e92edb6825f7e527cd69e2d7d93d3431e64",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_039_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_039_color_00.part_039_color_00",
+      "source_format": "obj",
+      "source_sha256": "00a3eed61b36f6be361848fb28013f147822de3fcb7381184bc1eb6bda0308b8",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_040_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_040_color_00.part_040_color_00",
+      "source_format": "obj",
+      "source_sha256": "31e86cf512de7055a0ac88b57fc1cfae0f29ed1553a324955667dd8fce3470cd",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_041_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_041_color_00.part_041_color_00",
+      "source_format": "obj",
+      "source_sha256": "64b89f3b47e8f042d91328c19f10f513eaafb528a68dc73944b304f7b9c78c3e",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_042_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_042_color_00.part_042_color_00",
+      "source_format": "obj",
+      "source_sha256": "a5cf1b62abf618e0dcd16313354889520631fdabe6db56a995a0013236f9b54b",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_043_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_043_color_00.part_043_color_00",
+      "source_format": "obj",
+      "source_sha256": "617cd0f065cf4d36fcd8317e3d3cfa3f546ee3c302c0f69a57738ab4208520d2",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_044_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_044_color_00.part_044_color_00",
+      "source_format": "obj",
+      "source_sha256": "9c26719852d383122d9761576e98c16b29ecabbde0cfef442d1627d1061b5260",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_044_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_044_color_01.part_044_color_01",
+      "source_format": "obj",
+      "source_sha256": "0cb053db9e9e10f366706a148338d148e8461756fd855fbdd5b3cad4c34e4322",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_00.part_045_color_00",
+      "source_format": "obj",
+      "source_sha256": "595d94d7e3a2b21720d3b6b3355439c1d13acfe820270ae3366df90e5a042b37",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_01.part_045_color_01",
+      "source_format": "obj",
+      "source_sha256": "b2ca9505c620d155468e58ee0f20d0cbdf14c7ee774688e00c48c22f7b02d7c2",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_02.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_02.part_045_color_02",
+      "source_format": "obj",
+      "source_sha256": "3a1edff962e54b578e1ec0119026d1a73bb301a4c4c0b7c80bd09d649d38de54",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_03.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_03.part_045_color_03",
+      "source_format": "obj",
+      "source_sha256": "0b09c9374ec617c782d5c2b52d045835dfbdd6a53c54302985d2a1d33f575aed",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_04.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_04.part_045_color_04",
+      "source_format": "obj",
+      "source_sha256": "84f1f511a77d2b21eddca487bad71ccc2c3349d4f274f6f2620548534facdc0e",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_05.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_05.part_045_color_05",
+      "source_format": "obj",
+      "source_sha256": "e99f79999299714c5fa89b47b0495d16b5b586aa8ab0910ea2f27f459fe82532",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_06.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_06.part_045_color_06",
+      "source_format": "obj",
+      "source_sha256": "c938a0e8db9fbab058463766cea6177bd95882611cc7608fa52e9058769b813b",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_07.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_07.part_045_color_07",
+      "source_format": "obj",
+      "source_sha256": "35b0f2755aa2645e841380db413012b15314e0b09e7cfeb1e9142f0c46deaeef",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_08.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_08.part_045_color_08",
+      "source_format": "obj",
+      "source_sha256": "62bba8d6a7226bf839990c81fcd67e97b1765b82b2dd68e2651d811e70406896",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_09.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_09.part_045_color_09",
+      "source_format": "obj",
+      "source_sha256": "b239e5c126bc29bb154c6575d77012a1303a35ca526611768f5480617ab5648d",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_10.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_10.part_045_color_10",
+      "source_format": "obj",
+      "source_sha256": "5e32dfd3e5a2a33b99447b8fdd244e9e25887c7406bb8a161160567ea4d9d2e6",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_11.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_11.part_045_color_11",
+      "source_format": "obj",
+      "source_sha256": "0d51438134007474d046118ea4186cb8fdd3675190cb6e7ed1df6841e23d5dad",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_12.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_12.part_045_color_12",
+      "source_format": "obj",
+      "source_sha256": "dd3042aa164e3358f8a2f50918ccdd3b5f92964dc336475431d97eceb486ba9b",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_13.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_13.part_045_color_13",
+      "source_format": "obj",
+      "source_sha256": "da4dd7b9eacdd3017cb62415076260b4349664e619ea179d2c661f1dccef5878",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_14.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_14.part_045_color_14",
+      "source_format": "obj",
+      "source_sha256": "4d260d750fd9ee563d8448b1fd87a6fe497cc7effe58c19e27822b960a5fbdce",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_15.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_15.part_045_color_15",
+      "source_format": "obj",
+      "source_sha256": "3dc0a375aaf4a456a96eadfffa443faae716cfd51ea971b1d931c3a45e78b9ba",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_16.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_16.part_045_color_16",
+      "source_format": "obj",
+      "source_sha256": "269a26f3251d7e6dac654948cc90bd318f0d8b98a46f3532531a46ec45ed549c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_17.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_17.part_045_color_17",
+      "source_format": "obj",
+      "source_sha256": "96a2eb0c2400eee1163c6daa55118528492d59e43e5b65f7ce37e80e18c8bd5c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_18.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_18.part_045_color_18",
+      "source_format": "obj",
+      "source_sha256": "916aa480a6db398ab409cb7729d8c415c968776cc2e3f515e51edca94e69df24",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_045_color_19.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_045_color_19.part_045_color_19",
+      "source_format": "obj",
+      "source_sha256": "25ba25e59b706288a34cf81f406d696a3cb66725f63bcd76e25b01a8f8de3ea9",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_046_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_046_color_00.part_046_color_00",
+      "source_format": "obj",
+      "source_sha256": "eb3effe3e74b2c78cd17fcbe1568ad6e1a515828e98f858a76c0b09ec6d322fc",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_047_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_047_color_00.part_047_color_00",
+      "source_format": "obj",
+      "source_sha256": "1c3eed72a52e4ff11a9d7383073b1514cb8fd1607623cd99574b210ae912fbcd",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_048_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_048_color_00.part_048_color_00",
+      "source_format": "obj",
+      "source_sha256": "8701ec42e9667835a31ea92408f734c6b0c83d60f5b3a4ea17ba95250c916c13",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_048_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_048_color_01.part_048_color_01",
+      "source_format": "obj",
+      "source_sha256": "5e41e1182f279a9cd291fcac2bd54c4bc8f1a9f99353913b21ee23d9c9cabaa8",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_049_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_049_color_00.part_049_color_00",
+      "source_format": "obj",
+      "source_sha256": "fea5bdf55d0692317303695682f7f19318059881b1b10566514a97d6f1aecf8c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_050_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_050_color_00.part_050_color_00",
+      "source_format": "obj",
+      "source_sha256": "a91584ed0a30e70be5f09e0fa8009a9334906f0ff5c8fb60613bba3c88455b51",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_051_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_051_color_00.part_051_color_00",
+      "source_format": "obj",
+      "source_sha256": "9daec4c3ab2677870da91dab59aa0907ff9c8b5f16004c59dc863aa2c216bf10",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_052_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_052_color_00.part_052_color_00",
+      "source_format": "obj",
+      "source_sha256": "d2b14f27d991d10a1ad0106fbea0fda1fc3bbf9ddd4cb23fe693f7d789d9462e",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_053_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_053_color_00.part_053_color_00",
+      "source_format": "obj",
+      "source_sha256": "a441582faeb88948cf135a2ac9fb74a835be3a3aee7df825326d6b958b7de17c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_054_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_054_color_00.part_054_color_00",
+      "source_format": "obj",
+      "source_sha256": "3246d6217639afadb73c020e470bdca2b687de96018be44dff3359856418ff1c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_054_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_054_color_01.part_054_color_01",
+      "source_format": "obj",
+      "source_sha256": "9c2916913513d49b147b9ee64f0935b4d68c921685697fc35a2d339f2ef247f0",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_054_color_02.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_054_color_02.part_054_color_02",
+      "source_format": "obj",
+      "source_sha256": "6943a06e1437d0480de35f0fa77ed9a6ac520c13d2612f0342e5adb5d740dcae",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_055_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_055_color_00.part_055_color_00",
+      "source_format": "obj",
+      "source_sha256": "7b12f0b85327e162725df0334936ce818637f3e4803b061d1bb7d6b88a5d18cc",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_056_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_056_color_00.part_056_color_00",
+      "source_format": "obj",
+      "source_sha256": "918e073fc04293346bf245c82ab1e0584a95b8fd41584f038790300dd670b22f",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_057_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_057_color_00.part_057_color_00",
+      "source_format": "obj",
+      "source_sha256": "c2389edb8227a998151deb038124a566d73437c9764ad140be1d381fe31007a8",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_058_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_058_color_00.part_058_color_00",
+      "source_format": "obj",
+      "source_sha256": "965202891a2b5c530f84ffb0ac0dff404d7f4511ed8296869e0cf460489e5fa9",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_058_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_058_color_01.part_058_color_01",
+      "source_format": "obj",
+      "source_sha256": "5b09262d95887e5bac85b9b5b0536864afc15731e4cbcbdb9417e63f4e3047f7",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_059_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_059_color_00.part_059_color_00",
+      "source_format": "obj",
+      "source_sha256": "39e989b5b6e7dc7c08e132d7ae6eb90f75080cc91ebe74dba76f74367802bb86",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_060_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_060_color_00.part_060_color_00",
+      "source_format": "obj",
+      "source_sha256": "4bd3841ad5331d1405a9f5475b05171620f2f0fa78ef2e954d941ea5340b5fc3",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_061_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_061_color_00.part_061_color_00",
+      "source_format": "obj",
+      "source_sha256": "e57c1201fc32150811c8b075e51ab9b2e2493698ca286e276da50c2cb3bdec3a",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_062_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_062_color_00.part_062_color_00",
+      "source_format": "obj",
+      "source_sha256": "77895ec48a88a47b4ad2b3a6791ceeeb83e5dd4cdcc367d00087f9fc3da03db8",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_063_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_063_color_00.part_063_color_00",
+      "source_format": "obj",
+      "source_sha256": "cff32aa81a4ce0a4f718119900d1fcb683397cb645d99e1f7d3ddb41d6f82974",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_064_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_064_color_00.part_064_color_00",
+      "source_format": "obj",
+      "source_sha256": "3431f10c036dad22e8ffcfe2826f1a422733e780665272bf0ca4645f7dc031ea",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_066_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_066_color_00.part_066_color_00",
+      "source_format": "obj",
+      "source_sha256": "bc080dc9bc1462dd9be05619bb68d51f82c827d925448bdc0b6f54d1c2b4a496",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_067_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_067_color_00.part_067_color_00",
+      "source_format": "obj",
+      "source_sha256": "df4e8488c39c023dfa60b3e0f65f5d2e6909f241dc50ccb7fabacb9561b5da7f",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_068_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_068_color_00.part_068_color_00",
+      "source_format": "obj",
+      "source_sha256": "f9e8d121268b89244641b05771725ce974bb9d1fb41754ad8905fb356fcc3d3e",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_069_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_069_color_00.part_069_color_00",
+      "source_format": "obj",
+      "source_sha256": "965202891a2b5c530f84ffb0ac0dff404d7f4511ed8296869e0cf460489e5fa9",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_069_color_01.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_069_color_01.part_069_color_01",
+      "source_format": "obj",
+      "source_sha256": "5b09262d95887e5bac85b9b5b0536864afc15731e4cbcbdb9417e63f4e3047f7",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_070_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_070_color_00.part_070_color_00",
+      "source_format": "obj",
+      "source_sha256": "ad4c5c98bac5233d20729393b95662dc0521f5a9de70d628732dbb4e7613acc7",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_071_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_071_color_00.part_071_color_00",
+      "source_format": "obj",
+      "source_sha256": "4ed1d8598c90b79360f3b1587f53ad3460eff6c0235aff4015b71e75c1e1fe59",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_072_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_072_color_00.part_072_color_00",
+      "source_format": "obj",
+      "source_sha256": "ee22ac0d11b3b20fc7a2499603e2fb862fdd337661c83a5e79d2ac6f6d8b7032",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_073_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_073_color_00.part_073_color_00",
+      "source_format": "obj",
+      "source_sha256": "fc21960cab3ac0a4fa9e40f35c5bad548a94bfc4bc02901f1b83522e07aeb416",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/ground_validation_satellite/meshes/part_074_color_00.obj": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/part_074_color_00.part_074_color_00",
+      "source_format": "obj",
+      "source_sha256": "7259acf1b2453ddafc30b36a9c5d3d03fe959d940f436c12c025ce22ade1aabb",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "model/SARM_mjcf_20261012/meshes/ASM_board1.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ASM_board1.ASM_board1",
+      "source_format": "stl",
+      "source_sha256": "4615a46e6a81e3e595e12e04a235f08c315ee5106b922a027ca8c6a8a569cf33",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 8684,
+        "unique_vertex_count": 4306,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ASM_board2.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ASM_board2.ASM_board2",
+      "source_format": "stl",
+      "source_sha256": "df9007ef854bcd543473ff76ff74b4c49595bb584d287e4ff8de65cc06cdac87",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 2040,
+        "unique_vertex_count": 1010,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ASM_board3.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ASM_board3.ASM_board3",
+      "source_format": "stl",
+      "source_sha256": "c891e2d5918ab3702f426907c84a8131189e395ccee1945e8de292952b166ca5",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 1036,
+        "unique_vertex_count": 508,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/aviation_plug.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/aviation_plug.aviation_plug",
+      "source_format": "stl",
+      "source_sha256": "2c29ff64d9077074384714dc7bd91fd2461f1a0a86fa9515cf23b9140c9c3d00",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 996,
+        "unique_vertex_count": 512,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/base_link_mujoco.stl": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/base_link_mujoco.base_link_mujoco",
+      "source_format": "stl",
+      "source_sha256": "fbf64112eb8356c2800879357a1dcef7b0c6df25cc7fb8456bb2f6001ad4a809",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 150001,
+        "unique_vertex_count": 72656,
+        "degenerate_triangle_count": 10,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/bolt.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/bolt.bolt",
+      "source_format": "stl",
+      "source_sha256": "73f5270693e1db260015840c550dac049aeb563b047d0f74b6c15bc065748bcf",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 8050,
+        "unique_vertex_count": 4037,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/cylindrical_plug.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/cylindrical_plug.cylindrical_plug",
+      "source_format": "stl",
+      "source_sha256": "e5ce460b4a941cf2344097f45e1a3aa74441d2651249d42d6a6c33d3ad3ed226",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 406,
+        "unique_vertex_count": 219,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/drawer_base.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/drawer_base.drawer_base",
+      "source_format": "stl",
+      "source_sha256": "714e87a52281159211fabbe1d2acaa0d24f221f822e2678582f2af2e06201b9f",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 2748,
+        "unique_vertex_count": 1354,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/drawer_buckle.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/drawer_buckle.drawer_buckle",
+      "source_format": "stl",
+      "source_sha256": "a8fbc62ae7fbe3d9ec59d1b44887fb96c97b68d87ae64a2113fa15055bd629b4",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 300,
+        "unique_vertex_count": 152,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ee_base.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ee_base.ee_base",
+      "source_format": "stl",
+      "source_sha256": "f2b2cf114e811c2c7fa44058126b54966674e04c96cc0ebe54b4525294a91070",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 3160,
+        "unique_vertex_count": 1662,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ee_finger1.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ee_finger1.ee_finger1",
+      "source_format": "stl",
+      "source_sha256": "0d0108ef45862c2b29b3276c6f8eae13db9a0eb8e867d395d96a93298948560b",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 2430,
+        "unique_vertex_count": 1193,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ee_finger2.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ee_finger2.ee_finger2",
+      "source_format": "stl",
+      "source_sha256": "4036949735a0973aa3aa1ff8d94fbba7fa9f0dd7db9a8002e663a56d9e45e129",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 2430,
+        "unique_vertex_count": 1193,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ee_link11.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ee_link11.ee_link11",
+      "source_format": "stl",
+      "source_sha256": "6a39b41b0239be86331a8e81ac2928f87b631df466b557f108a9cd189865b253",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 1176,
+        "unique_vertex_count": 582,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ee_link12.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ee_link12.ee_link12",
+      "source_format": "stl",
+      "source_sha256": "d2d64f7605525f701a690e48587b8c3606daa379df51d7504439d9506154bca6",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 1176,
+        "unique_vertex_count": 582,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ee_link21.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ee_link21.ee_link21",
+      "source_format": "stl",
+      "source_sha256": "94f2187d93050e2ca2232c1ec381ad4b49754d4e7401ec41d2637cf6ca3866dc",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 1164,
+        "unique_vertex_count": 576,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/ee_link22.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/ee_link22.ee_link22",
+      "source_format": "stl",
+      "source_sha256": "3fa79e723edc639c46c09494a2844bebdc8cd1fcdbf369437a74e0094fd4b639",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 1164,
+        "unique_vertex_count": 576,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/fastener.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/fastener.fastener",
+      "source_format": "stl",
+      "source_sha256": "d41b994cfe40389415011e0e4ed7f5ba030e91662d2a0614b544bb5612821765",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 11670,
+        "unique_vertex_count": 5835,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/guide_plug.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/guide_plug.guide_plug",
+      "source_format": "stl",
+      "source_sha256": "2d71dabe58b11086fa66f6d7ec2bb187b2e3a85350652f6719daec921f91039a",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 814,
+        "unique_vertex_count": 424,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/hook.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/hook.hook",
+      "source_format": "stl",
+      "source_sha256": "88c5625f72724a621c4596f4c3bd87051ee7a297b274166ac5ee5a253461c5f7",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 1538,
+        "unique_vertex_count": 767,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/limit_clip.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/limit_clip.limit_clip",
+      "source_format": "stl",
+      "source_sha256": "d324bb62da35e6005ea9174337ba755440aa4a2787a2c4120b933819b2e38f49",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 816,
+        "unique_vertex_count": 410,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/link1.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/link1.link1",
+      "source_format": "stl",
+      "source_sha256": "8745e15bffeb49e4caa5702f855581f8b3f2f86f6f3bce01169dbe8a77831238",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 408,
+        "unique_vertex_count": 209,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/link2.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/link2.link2",
+      "source_format": "stl",
+      "source_sha256": "bd9fd608c034a2d69bfd0b0b5ece6dbe4555b16db070347d9e0d4f117dc98d4e",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 388,
+        "unique_vertex_count": 196,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/link3.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/link3.link3",
+      "source_format": "stl",
+      "source_sha256": "9c4a0117b216badd0fbc2505f6b72d75feeba0fe0bd437b1a2bfad4377b6a48c",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 2018,
+        "unique_vertex_count": 1013,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/link4.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/link4.link4",
+      "source_format": "stl",
+      "source_sha256": "85c74f2f82754e08b9e0e5db4815b9e53cb1d0296499d020865c65b2736f7d3d",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 298,
+        "unique_vertex_count": 151,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/link5.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/link5.link5",
+      "source_format": "stl",
+      "source_sha256": "b292f678a27fe58196ad5cff93d4da7be3606865941394a43808aafa0994bec4",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 298,
+        "unique_vertex_count": 151,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/locking_rod.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/locking_rod.locking_rod",
+      "source_format": "stl",
+      "source_sha256": "fa6390027a4fdf3afa8a224b00a44cec0527c3c3a657cdd7c1f7439b88bebf30",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 12238,
+        "unique_vertex_count": 6119,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    },
+    "model/SARM_mjcf_20261012/meshes/task_box_base.STL": {
+      "asset_type": "static_mesh",
+      "asset_path": "/Game/BSK/Generated/Sarm20261012/task_box_base.task_box_base",
+      "source_format": "stl",
+      "source_sha256": "eeb1623e34a77199ad2f40929b54ba071da7ce2909f62f587c40793052c25da6",
+      "build_scale": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "component_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stl": {
+        "encoding": "binary",
+        "triangle_count": 2384,
+        "unique_vertex_count": 1190,
+        "degenerate_triangle_count": 0,
+        "normal_mode": "preserve",
+        "smoothing_angle_degrees": 60.0
+      }
+    }
+  },
+  "ue_assets": {
+    "BSK/Generated/Sarm20261012/hinge_fixed_visual.uasset": "3f3f4e9d99284a2c9e1e574158f9abcad61cd1d4460d24376f9e4141d5a9158e",
+    "BSK/Generated/Sarm20261012/hinge_moving_visual.uasset": "7fb724467225623ed41273c963667ab58667d62cb0e1b1e94f80ba569d8f7865",
+    "BSK/Generated/Sarm20261012/part_001_color_00.uasset": "641aefd5aed91f3c3885f0630e8da8b09a64bead8e8776df936b517eb7145527",
+    "BSK/Generated/Sarm20261012/part_002_color_00.uasset": "deea7b0489ebd297ebf18db52bc258b1c81af37784facd65d394350034c77028",
+    "BSK/Generated/Sarm20261012/part_003_color_00.uasset": "d56f64d33c4144fb70a0a8d4993bbf8ebfacb0a508ecc3b1c0eb55ef72096f18",
+    "BSK/Generated/Sarm20261012/part_004_color_00.uasset": "74a74104fccad6d486751b979d0e821272abb9a46639a4ebc9f44ac6d3ad2302",
+    "BSK/Generated/Sarm20261012/part_005_color_00.uasset": "6d262f5f23d4857d40c56abd909ea75858253e8685105221152d0bed966b551a",
+    "BSK/Generated/Sarm20261012/part_006_color_00.uasset": "e4b14fbbde578b94106819a71176c19bbaa9c3933887214e4be0adf90441935f",
+    "BSK/Generated/Sarm20261012/part_007_color_00.uasset": "e655e8d3ccc4643109a58791dac2eb7f9d3bf05751413ab1470e95911a1da6f8",
+    "BSK/Generated/Sarm20261012/part_007_color_01.uasset": "f13fc883e59ad8df6831cfc81bae79742ebd61fcf446eed4c7eba2ccf557d82d",
+    "BSK/Generated/Sarm20261012/part_008_color_00.uasset": "1a2a939badffa956612a52487c83e2f51b885bd5b83df7ec1e05c2a7d2bdd3ed",
+    "BSK/Generated/Sarm20261012/part_009_color_00.uasset": "8de9ca21b551c1c5e187668fe93b9b8a86ab9ea5946a2ea78d1333a026067095",
+    "BSK/Generated/Sarm20261012/part_010_color_00.uasset": "6b4b70998282e613c73a675a8c2f6b7827738dce8bf3b07a2e51c7ec92ea414d",
+    "BSK/Generated/Sarm20261012/part_011_color_00.uasset": "f108c9cd2e96a41b58558f8b713ff9df35a94439f2042446038d9a16a968e23a",
+    "BSK/Generated/Sarm20261012/part_012_color_00.uasset": "34bf7e27ce2d5983e26cdce982eb13d1907a66215d50c8ed8559b09ea183ea1e",
+    "BSK/Generated/Sarm20261012/part_013_color_00.uasset": "9f9d93335669690755f0d3efc4b5707ab49037764d61e78cd64b75d16433bb32",
+    "BSK/Generated/Sarm20261012/part_014_color_00.uasset": "d09f5b2636ee5778ae80e698372dcd376e5d48100a712063b3afbae9d7baac31",
+    "BSK/Generated/Sarm20261012/part_015_color_00.uasset": "8253e87a922d4beabc1c66c36e2672cee1d5f748951800d01ad94719e9278ebb",
+    "BSK/Generated/Sarm20261012/part_020_color_00.uasset": "e3cb890064a9a7c515bb324a7012af09abaef59346873aef644eb6beeee22b00",
+    "BSK/Generated/Sarm20261012/part_020_color_01.uasset": "5f82c8df5354fb00f63ee709def8ccc49db1a3a119fb6df68764c360b5520595",
+    "BSK/Generated/Sarm20261012/part_021_color_00.uasset": "536b9bb0d719adf62557ebd43505c18b87effdfb93e962314f5cfc414fd7e110",
+    "BSK/Generated/Sarm20261012/part_021_color_01.uasset": "4f4abc9692e3791bb7ed39cea1ad9558b688b28b03c773a66cea0aba1c00af0e",
+    "BSK/Generated/Sarm20261012/part_022_color_00.uasset": "dafcf80a53830a0cce275c0a80ef24c129862521041dcdaed03cc021fb274e0e",
+    "BSK/Generated/Sarm20261012/part_023_color_00.uasset": "c1c9ad7838a9f546bf2f88e174af404a6d1f0745d1b737517d9d4157d3e6e12e",
+    "BSK/Generated/Sarm20261012/part_024_color_00.uasset": "1258647079352bcec1d94771b5902330dbc3448256bdc860448c76fd4fe8b75c",
+    "BSK/Generated/Sarm20261012/part_025_color_00.uasset": "348e8992b2fb435452e10d4a306a5492dba7e1d52900a9e6ead092d7b8d80e2c",
+    "BSK/Generated/Sarm20261012/part_026_color_00.uasset": "27a98432fb91673fad854f8a3af76f820c135d381fe23e0c62c74a5634a1ed6f",
+    "BSK/Generated/Sarm20261012/part_027_color_00.uasset": "147dcf1aaced316abbe5805ff5e09b98f16476d932671f08432c9a91def6cc49",
+    "BSK/Generated/Sarm20261012/part_028_color_00.uasset": "1335ac96648ef6c810f0a53e197d20784d78073ec065cb7445d80d3f5f8e1ca8",
+    "BSK/Generated/Sarm20261012/part_029_color_00.uasset": "7fee9c998ffe2c5fe02b18d4407ae5b55d49fd75f8868dec2c90d5619b2ad12e",
+    "BSK/Generated/Sarm20261012/part_030_color_00.uasset": "ae2c2c1a39dc09608a9f86fee6a92de3f787979f80b774aeb41a141f34750f80",
+    "BSK/Generated/Sarm20261012/part_032_color_00.uasset": "134fa868d182a15683eb0f2f0b119a45b2feb21fee32ae792d896cec1ec2e92d",
+    "BSK/Generated/Sarm20261012/part_032_color_01.uasset": "d1c2393b0fe3309840ccede441f2a800f9aa091ff00083d1af43d7be8c5658c9",
+    "BSK/Generated/Sarm20261012/part_033_color_00.uasset": "512c188064f1ce5d4d3d4ac26f70ea61995bde6edd7b5e80fd0da5e25025349b",
+    "BSK/Generated/Sarm20261012/part_034_color_00.uasset": "0725438f87f0f184e95ff18764d983ae364ae0f17c495360389f451e281a2c40",
+    "BSK/Generated/Sarm20261012/part_035_color_00.uasset": "408acf935ccba59816d679cda8e8b5078158b5f199fc677f7afa8faf4c15b09d",
+    "BSK/Generated/Sarm20261012/part_036_color_00.uasset": "2fbd7cdf189f8e1531a67aba9a435159f2d4c3f35752b0d724765f8568b54619",
+    "BSK/Generated/Sarm20261012/part_036_color_01.uasset": "13029f912dab928fa1de590dd41f63f14e9c189e2ace60b1a04bb86fb3b72f55",
+    "BSK/Generated/Sarm20261012/part_036_color_02.uasset": "9478d942906ef22d596d0804c69af371da306c7e5958c20cda30415da2a95e70",
+    "BSK/Generated/Sarm20261012/part_036_color_03.uasset": "0013d2296c689ac0502db80ca4a204324189e2690b5598b15b3c306bb90ed035",
+    "BSK/Generated/Sarm20261012/part_036_color_04.uasset": "e5567cd94d5e5c21f30137df1801f9c632ce6850ee9cbf3b4a23ca20a39f23f4",
+    "BSK/Generated/Sarm20261012/part_036_color_05.uasset": "241662ecfce5bcd0ff53c23931d93aab859886557c17f0614760cbbd7f559044",
+    "BSK/Generated/Sarm20261012/part_037_color_00.uasset": "cc651cc5f45baa3116ce7f8637c9aa9a6092b4b3ad6f571a2dab9ae5330a9438",
+    "BSK/Generated/Sarm20261012/part_038_color_00.uasset": "b42d95a9d80ce49623ec75586dfcebbd40aa44e989d5e11bff15719de8453d0f",
+    "BSK/Generated/Sarm20261012/part_039_color_00.uasset": "0b93e931b2daa58ae91cffe6eb89db4774b570031dbde9dd430b90af20b4b36b",
+    "BSK/Generated/Sarm20261012/part_040_color_00.uasset": "08d73a41a089e63c1a64376f3ec1d1a2fd820acc73eaf4e4dcf2a4add34546b9",
+    "BSK/Generated/Sarm20261012/part_041_color_00.uasset": "587d09195cb2105417a374ded646fb6425f361d3d589e66204a7947164147c28",
+    "BSK/Generated/Sarm20261012/part_042_color_00.uasset": "18cccad90107b45ec641350d50d45b16cf367a60d499175dabac0f933e859f41",
+    "BSK/Generated/Sarm20261012/part_043_color_00.uasset": "f198f2c9e0fe74e2aaddf5e75cfdf1bc6145961941e45d89d2f0dfc406a166d2",
+    "BSK/Generated/Sarm20261012/part_044_color_00.uasset": "dba4f8262871167f35cc79eccc9eaf44e26fe64d646c0a37161286f07608e1bc",
+    "BSK/Generated/Sarm20261012/part_044_color_01.uasset": "38d5fa598fed98aa12ee299105874e3c22d879e67f556e10892ef76418625f48",
+    "BSK/Generated/Sarm20261012/part_045_color_00.uasset": "5b2a0dc786ba589754928411eb133499f54206f8fbff82d76dd6df49a2b8294b",
+    "BSK/Generated/Sarm20261012/part_045_color_01.uasset": "0a8a1f60e911cc247702c637297d6e634ab013a03a0006859bfdd97bdb7f1b25",
+    "BSK/Generated/Sarm20261012/part_045_color_02.uasset": "3693c9c4c927fbe23241fdde6d143fdca061207f7430aaafeaeb75cd3343768f",
+    "BSK/Generated/Sarm20261012/part_045_color_03.uasset": "084e5cabb9023e8b9026f1a82c2c47ef79fa397de00aa595afff7a57f7f2f0e2",
+    "BSK/Generated/Sarm20261012/part_045_color_04.uasset": "d8838ac7fccc68eaedf06896ec5f09a8e4e719db57db501574dbba08926c9139",
+    "BSK/Generated/Sarm20261012/part_045_color_05.uasset": "c34ac7ea7f9d3cbd7b337ff3790188dfba9e5359559698a60cc32683bfd71ddc",
+    "BSK/Generated/Sarm20261012/part_045_color_06.uasset": "552eb499845fb233068e26dd9f109d14a8b1c4e9d5d18e49119666ac14c0aaf1",
+    "BSK/Generated/Sarm20261012/part_045_color_07.uasset": "c92bb90a1752533729d289f17ee93f1488495ad8edc2567e477943e6248dc849",
+    "BSK/Generated/Sarm20261012/part_045_color_08.uasset": "5faa92abf71228d038f154f88b6628594b7d1060fd60000ff9539c391d3ad9a2",
+    "BSK/Generated/Sarm20261012/part_045_color_09.uasset": "337bb0af8dfbf0ae50e35d8f2a07dedb80265315e274687ff342dff720f1eb41",
+    "BSK/Generated/Sarm20261012/part_045_color_10.uasset": "bed1fed05ae2539fa44c5473cc07edb357dc1411974706962734e3d3505691be",
+    "BSK/Generated/Sarm20261012/part_045_color_11.uasset": "8a328b9947a33bd46ea246e2e68a2155a8ed0bfc828a41341d17daf9bb48bffa",
+    "BSK/Generated/Sarm20261012/part_045_color_12.uasset": "b8d6d673f1ce7808adf7d5147d23357d0fc2c9adc1c556fc10d672d9c974828c",
+    "BSK/Generated/Sarm20261012/part_045_color_13.uasset": "63ec0afc4c4455a11e4c033c6890bf10eada0518cb0e4e01c546a3a4c57cb0c9",
+    "BSK/Generated/Sarm20261012/part_045_color_14.uasset": "0133db67f70dbf941023bb9b4da188563b432fa370c1df61b01cc82d7410cbeb",
+    "BSK/Generated/Sarm20261012/part_045_color_15.uasset": "be966a1c3235e5f3ce832eb5c0832ee13a81d62ea83913b2e49636cf14064cc1",
+    "BSK/Generated/Sarm20261012/part_045_color_16.uasset": "9d6e1316c7e38feb1320035f74993f558997d0efdf3ad98326208d98d1214052",
+    "BSK/Generated/Sarm20261012/part_045_color_17.uasset": "92971f23bc90ecd974a48439ba2b3cb757e4f7ccd7084fbbb7b81d7cbbe9ed47",
+    "BSK/Generated/Sarm20261012/part_045_color_18.uasset": "1c79114642d84f3665f057f53be0ec4d4d5b53dda0b4b23bc81330cda85efacf",
+    "BSK/Generated/Sarm20261012/part_045_color_19.uasset": "c8d607176dde2133c096515e975c923a4eadb193ef68f561f9b02db5c03e9b9e",
+    "BSK/Generated/Sarm20261012/part_046_color_00.uasset": "492f19b35fe61bcb5a8f2ca5d97f1f7be5401788d919179de5773ef7307f4a4d",
+    "BSK/Generated/Sarm20261012/part_047_color_00.uasset": "cf156cdf9906000c265f9a8760c2968d2aa28202426b12a3e3904b6fe93fbf75",
+    "BSK/Generated/Sarm20261012/part_048_color_00.uasset": "33c5f2da6ec1a5ee219aa147a2293d24abd9da9c5b88cbc0ae8000306056ae18",
+    "BSK/Generated/Sarm20261012/part_048_color_01.uasset": "3858fda3edb0ebf0de35fef919e5a91858c30d642c1b6f6ef64795d4ce65fac3",
+    "BSK/Generated/Sarm20261012/part_049_color_00.uasset": "c1ae26d340476b1f07f896a5417e2c30c5b4ad2449601be2b53e8bc538a2d34f",
+    "BSK/Generated/Sarm20261012/part_050_color_00.uasset": "f0bbb62e9c53beedc39d0e4e157084326a079fbb96a5ce2726ced175b99b08f0",
+    "BSK/Generated/Sarm20261012/part_051_color_00.uasset": "e292826475df74bd132e852faf95b8eb631c82f6ade8a8c697ab5f2a78270128",
+    "BSK/Generated/Sarm20261012/part_052_color_00.uasset": "aa804954a457d27237dd85c747375420e923dc28dcfcd8b0e20d1f73b3e045b5",
+    "BSK/Generated/Sarm20261012/part_053_color_00.uasset": "e28fab6754a638e3acfc8a382972827a0d470b1c50e245a95601731bc1ab6ae7",
+    "BSK/Generated/Sarm20261012/part_054_color_00.uasset": "1155d4bbcd104c126617862e6bf2cfe1db8fae562c89d66bbe10004dde2a0325",
+    "BSK/Generated/Sarm20261012/part_054_color_01.uasset": "3a40c63633fed2e7adbfe3f5511955a5306b18417dcc7aa7227f497a6bc1e129",
+    "BSK/Generated/Sarm20261012/part_054_color_02.uasset": "105cd5373f8dba487d93532c871c684b3577f68b2be872824ba0d1bf1092b8cd",
+    "BSK/Generated/Sarm20261012/part_055_color_00.uasset": "e992a73359cab64a7cf2635fab25773cc85e1a0a650da5f64233658115b029d9",
+    "BSK/Generated/Sarm20261012/part_056_color_00.uasset": "99a1caa5bcd5577a42b221ca2643c08755ad48ca641af0829662c16bd528b471",
+    "BSK/Generated/Sarm20261012/part_057_color_00.uasset": "39cc7aafd37b3fac334a4887c7af6b1ba986f6c66f41f6d81273e2bd92e14d28",
+    "BSK/Generated/Sarm20261012/part_058_color_00.uasset": "037d41694f726c94e708bc69745318368c396b96a0e6322911cd22228fd7e56f",
+    "BSK/Generated/Sarm20261012/part_058_color_01.uasset": "6f74b20635261d7c973458f7d059ea7bde3ef0357d8895504fc4c61f8f485019",
+    "BSK/Generated/Sarm20261012/part_059_color_00.uasset": "d816e396413358c2404cd1fadd2671f072f1de1629a3b20e60e9037505e14545",
+    "BSK/Generated/Sarm20261012/part_060_color_00.uasset": "55a15c2358e3e4ba21e31d95c6a4b975659dee8a7c137f090a21700fc9c422d8",
+    "BSK/Generated/Sarm20261012/part_061_color_00.uasset": "e92e97f81e5c7dec208e9a360847d26f651e4a1a654276e33b049e68d5897e28",
+    "BSK/Generated/Sarm20261012/part_062_color_00.uasset": "38dd5df750f655e886a0a4d6de2e38df1e84010f75ea860494feeda04fa1ceea",
+    "BSK/Generated/Sarm20261012/part_063_color_00.uasset": "e31797a391551e1e4227f17adc25dccfe5689d2dc885171abde7b53f4eec6387",
+    "BSK/Generated/Sarm20261012/part_064_color_00.uasset": "89856853a2063e5238b8781babb68a8175eed610ac28ac4c4b9b91c03c44b1fe",
+    "BSK/Generated/Sarm20261012/part_066_color_00.uasset": "263318c2c9c79cd9eddda54c0793e277ac7c0a4c2171b6fe0724855a51db66db",
+    "BSK/Generated/Sarm20261012/part_067_color_00.uasset": "0bfd94b1cc49fe86c1996e80d3071d8b7d05764560d93ed3d85544e4e9a16340",
+    "BSK/Generated/Sarm20261012/part_068_color_00.uasset": "7011386b651a8c5339b2588691481bb12bf3fa8f27bdfb17f109579fee910c08",
+    "BSK/Generated/Sarm20261012/part_069_color_00.uasset": "e7ae444ce8a6ea7fb552ac58314ae018aec25d263cafe35edbede1d88da4730d",
+    "BSK/Generated/Sarm20261012/part_069_color_01.uasset": "9355af0d3cbc4fe2c2ec50ddeae39e1c29532bfe13f832ce903d5ba2c1f15672",
+    "BSK/Generated/Sarm20261012/part_070_color_00.uasset": "e30a39e57400eda9c6677739d706530834c945d8dc08d839a52be5516d9d612c",
+    "BSK/Generated/Sarm20261012/part_071_color_00.uasset": "b2183b88631fefd4acb372a16688aaa465eaf44f266d7445df722f49f5c782dc",
+    "BSK/Generated/Sarm20261012/part_072_color_00.uasset": "95d4167182838f19428370c76a2e4a6962fefacc6be66c4d42d6a5973edc4c36",
+    "BSK/Generated/Sarm20261012/part_073_color_00.uasset": "c9dcd2c0a6fc5826f2b212c24c19a8ec9d3463983aeb6743a823c8978cc3a59c",
+    "BSK/Generated/Sarm20261012/part_074_color_00.uasset": "c35990a002760d902ee63c82cb105c6e7264b6cc1772b766dbbc6e774bc4d68b",
+    "BSK/Generated/Sarm20261012/ASM_board1.uasset": "d7537bc26568ff71e8495098a397ad4c1e749e9674702dc93c50008da982cf8c",
+    "BSK/Generated/Sarm20261012/ASM_board2.uasset": "29ffaec459206dafbe2a932e9dd075ed26e0bb9833b9f4b230c61f5bfd57e5d5",
+    "BSK/Generated/Sarm20261012/ASM_board3.uasset": "4f1395aea0800104228f2bcce917fe537ee314ad484388bedfae7e1b4f6d6f8d",
+    "BSK/Generated/Sarm20261012/aviation_plug.uasset": "df5c9983a4931e07f5add9fced93fafbc4332b16049f1c9a0c627d1c004acab7",
+    "BSK/Generated/Sarm20261012/base_link_mujoco.uasset": "e79304a2333ce0bacbed8d2d1c0133877dffddef36d1ad99913e95e6bcb2fd05",
+    "BSK/Generated/Sarm20261012/bolt.uasset": "93ee13cf90dc798453b9c4b0b64f07fc83f63bc5278e20ad346f04b81b71e221",
+    "BSK/Generated/Sarm20261012/cylindrical_plug.uasset": "da44c1bdc7392280811d9147d77201d466bb0754ebca5fae1054cb56e56b61f5",
+    "BSK/Generated/Sarm20261012/drawer_base.uasset": "efb0094c24d6a0ebaa3b7d58cf1168fe4715644a7d2d0b7b75c3745596e555db",
+    "BSK/Generated/Sarm20261012/drawer_buckle.uasset": "5d96226184beaf7fabd0a745e2d67d6e21a1f730ae913922f69e736e1ed837bc",
+    "BSK/Generated/Sarm20261012/ee_base.uasset": "dfcaae6cba76fd456f78527c5b920ae782a5bc95b37def391d93963e623eb50c",
+    "BSK/Generated/Sarm20261012/ee_finger1.uasset": "63dc6f92dff851820b9f066608a72ca74b2b2950e94902518038b091c594beb9",
+    "BSK/Generated/Sarm20261012/ee_finger2.uasset": "468f5be527b53ab347ec2f9ca993c0755c542f1f6dab713d7dfa4c6d7bec6c60",
+    "BSK/Generated/Sarm20261012/ee_link11.uasset": "523f91cc8f4aff95f4f4fc101fd71dc0e0d8feef82a5fa37afae1addaae81531",
+    "BSK/Generated/Sarm20261012/ee_link12.uasset": "2f5f94f9a40d3db7bf173833f7f6542f2603e41dbc6d4b8c83bb68c14a071d0e",
+    "BSK/Generated/Sarm20261012/ee_link21.uasset": "2fd9afb0c345bfb668ed1f6781444dce1ef462d1a2455af52e9053114fbea9c6",
+    "BSK/Generated/Sarm20261012/ee_link22.uasset": "b6868c0c0a909bca1779070184aafa7e7c5f7d055c16a43e4ad7660bc870e911",
+    "BSK/Generated/Sarm20261012/fastener.uasset": "7bad2bc0033cbee20930b607598b8f0aca546c20dfefb330e5c5f03605e12cdc",
+    "BSK/Generated/Sarm20261012/guide_plug.uasset": "6d86cfb4ed33ed0e60457d04179891988c4199bc8750ef360fa4e6694c51ac0b",
+    "BSK/Generated/Sarm20261012/hook.uasset": "982754fa1f5aea72c8502b69c7b5da707a95b252c4ef5ab480b81aeac936e380",
+    "BSK/Generated/Sarm20261012/limit_clip.uasset": "ae72f6a9800e6057daf67b4b14aa6a534aef505bc56fe118dfa74d7e187441a1",
+    "BSK/Generated/Sarm20261012/link1.uasset": "2d513d7aad04ad736310cf1e0a5420acf30335ec37b2445f83994fe0130d0bab",
+    "BSK/Generated/Sarm20261012/link2.uasset": "2859c95bc485cd973f62814792353ff06fb09789cfd81e9eefa93b8eb6f281c3",
+    "BSK/Generated/Sarm20261012/link3.uasset": "9182965ad2164c0e1c413193d24d3c548cd4112735921e1ea8aa74819574b076",
+    "BSK/Generated/Sarm20261012/link4.uasset": "01dfa8d2e53f80a2f7eb889b28e46542c7371cb5945e6be3dcec62b187604d52",
+    "BSK/Generated/Sarm20261012/link5.uasset": "8fac5430497d0d220320fa153b16c61a880e9949b8ca754ed198fd4e3f966e6a",
+    "BSK/Generated/Sarm20261012/locking_rod.uasset": "b50ba480ea857f3d73d1159b0142ecb051c7dc80874de74a43d3678b185c7d4d",
+    "BSK/Generated/Sarm20261012/task_box_base.uasset": "8c4bdbda9a5b10e34906a8d3ea5950e11ed5d3cdb5929e7b88ab66574e38bca9"
+  }
+}

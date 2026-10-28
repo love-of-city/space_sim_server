@@ -185,8 +185,11 @@ class PlugInsertTask:
     overlapped_release_version = "plug-insert/9-overlapped-release"
     shared_motion_version = "plug-insert/10-shared-continuous-motion"
     latch_version = "plug-insert/11-all-latch-aligned"
+    gentle_release_version = "plug-insert/12-round-plug-release"
     cylindrical_clearance_version = "plug-insert/12-cylindrical-clearance"
-    straight_approach_version = "plug-insert/13-straight-approach"
+    integrated_cylindrical_version = "plug-insert/13-cylindrical-clearance-gentle-release"
+    legacy_straight_approach_version = "plug-insert/13-straight-approach"
+    straight_approach_version = "plug-insert/14-straight-approach-gentle-release"
     continuous_carry_stages = tuple(stage for stage in coordinated_stages if stage != "descend")
     latch_stages = tuple(stage for stage in continuous_carry_stages if stage not in ("align_hole", "seat"))
 
@@ -198,7 +201,7 @@ class PlugInsertTask:
 
     @classmethod
     def recorded_stages(cls, version):
-        if version in (cls.straight_approach_version, cls.cylindrical_clearance_version, cls.latch_version, cls.shared_motion_version, cls.overlapped_release_version, cls.continuous_contact_version):
+        if version in (cls.straight_approach_version, cls.legacy_straight_approach_version, cls.integrated_cylindrical_version, cls.gentle_release_version, cls.cylindrical_clearance_version, cls.latch_version, cls.shared_motion_version, cls.overlapped_release_version, cls.continuous_contact_version):
             return cls.latch_stages
         if version in (cls.continuous_carry_version, cls.gentle_carry_version, cls.smooth_tracking_version):
             return cls.continuous_carry_stages
@@ -658,6 +661,7 @@ class PlugInsertTask:
             speed = self.config.release_speed_rad_s if stage == "release" else self.config.gripper_speed_rad_s
             self._gripper_reverse = stage == "release"
             waypoints = [[target], [self._release_start_opening]] if self._gripper_reverse else [[self.reference[6]], [target]]
+            round_release = self._gripper_reverse and not self.profile.keyed
             self._gripper_timing = time_joint_path(
                 waypoints, 0., 0.,
                 joint_speed=speed, linear_speed=cfg.linear_speed_m_s,
@@ -668,8 +672,9 @@ class PlugInsertTask:
                 joint_jerk=cfg.gripper_jerk_rad_s3,
                 # Reverse-time release: gently clear the finger/head contacts,
                 # then open faster in free space. No added dwell.
-                slow_fraction=.25 if self._gripper_reverse else 0.,
-                slow_joint_speed=min(speed, .05) if self._gripper_reverse else None,
+                slow_fraction=(min(1., .10 / max(target - self._release_start_opening, 1e-9))
+                               if round_release else (.25 if self._gripper_reverse else 0.)),
+                slow_joint_speed=min(speed, .005 if round_release else .05) if self._gripper_reverse else None,
             )
         self._nominal_goal = None if self._goal is None else self._goal.copy()
         self._nominal_rotation = (
@@ -1139,6 +1144,11 @@ class PlugInsertTask:
                 # concurrently. Do not wait for the full free-space aperture.
                 clear_opening = min(self.config.release_open_rad - .02,
                                     self._release_start_opening + .08)
+                if not self.profile.keyed:
+                    # The round shaft has no torsional restraint. A partial
+                    # opening can clear the fingers now but hit the head again
+                    # during lateral withdrawal, leaving a freely spinning part.
+                    clear_opening = self.config.release_open_rad - .002
                 ready = (self._release_unloaded
                          and not any(sample.finger_plug_contacts)
                          and min(sample.joints[6], -sample.joints[7]) >= clear_opening)

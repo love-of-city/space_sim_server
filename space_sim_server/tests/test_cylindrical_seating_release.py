@@ -230,8 +230,9 @@ def test_other_connector_release_does_not_gain_cylinder_contact_feedback(name):
 def test_release_keeps_opening_until_geometry_gate_accepts_before_retract(monkeypatch):
     from simulation.scripted_tasks import plug_clearance
     task,sample=release_sample(contacts=(0,0),wrist_drift=False)
-    sample=replace(sample,joints=np.r_[sample.joints[:6],.5,-.5],native_qpos=np.zeros(1))
-    task.reference[6:]=[.5,-.5]
+    opening=task.config.release_open_rad-.002
+    sample=replace(sample,joints=np.r_[sample.joints[:6],opening,-opening],native_qpos=np.zeros(1))
+    task.reference[6:]=[opening,-opening]
     task._gripper_timing=task._timing=task._path=None
     task._stable=.1
     checks=[]
@@ -245,15 +246,16 @@ def test_release_keeps_opening_until_geometry_gate_accepts_before_retract(monkey
     assert len(checks)==1 and not transitions
     second,_=task.step(replace(sample,time_s=.010))
     assert len(checks)==2 and transitions==[.010]
-    assert second[6]>first[6]>.5
+    assert second[6]>first[6]>opening
 
 
 def test_release_geometry_failure_is_recorded_and_closes_private_probe(monkeypatch):
     from types import SimpleNamespace
     from simulation.scripted_tasks import plug_clearance
     task,sample=release_sample(contacts=(0,0),wrist_drift=False)
-    sample=replace(sample,joints=np.r_[sample.joints[:6],.5,-.5],native_qpos=np.zeros(1))
-    task.reference[6:]=[.5,-.5]
+    opening=task.config.release_open_rad-.002
+    sample=replace(sample,joints=np.r_[sample.joints[:6],opening,-opening],native_qpos=np.zeros(1))
+    task.reference[6:]=[opening,-opening]
     task._gripper_timing=task._timing=task._path=None
     task._stable=.1
     closed=[]

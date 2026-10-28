@@ -14,16 +14,16 @@ $env:SPACE_SIM_PYTHON = $pythonExe
 $pluginLibraries = @()
 if ($TemplateId -in @('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo')) {
     $fastenerModel = if ($TemplateId -eq 'sarm-task-box-20261012-sdf') { 'sdf' } else { 'captive' }
-    & $pythonExe (Join-Path $projectRoot 'tools\build_sarm_20261012.py') --fastener-model $fastenerModel
+    & $pythonExe (Join-Path $projectRoot 'tools\assets\build_sarm_20261012.py') --fastener-model $fastenerModel
     if ($LASTEXITCODE -ne 0) { throw 'SARM assembly generation failed.' }
-    & $pythonExe (Join-Path $projectRoot 'tools\build_sarm_plugin.py')
+    & $pythonExe (Join-Path $projectRoot 'tools\assets\build_sarm_plugin.py')
     if ($LASTEXITCODE -ne 0) { throw 'SARM thread plugin build failed.' }
     # Asset compilation runs in a separate Python MuJoCo process; registration
     # in the simulation's Basilisk runtime does not carry over to this process.
     $manifest = Get-Content -Raw (Join-Path $projectRoot 'run/native_acceleration/sarm_thread.json') | ConvertFrom-Json
     $pluginLibraries = @((Join-Path $projectRoot $manifest.library))
 }
-$selectionArgs = @((Join-Path $projectRoot 'tools\select_sarm_scene.py'), '--model-root', $ModelRoot, '--check')
+$selectionArgs = @((Join-Path $projectRoot 'tools\assets\select_sarm_scene.py'), '--model-root', $ModelRoot, '--check')
 if ($TemplateId) { $selectionArgs += @('--template-id', $TemplateId) }
 $selected = @(& $pythonExe @selectionArgs)
 if ($LASTEXITCODE -ne 0 -or $selected.Count -ne 1) { throw 'Selected SARM scene/assets failed validation; see the model diagnostic above.' }

@@ -11,7 +11,7 @@ from simulation.scripted_tasks.threaded_motion import ThreadedSample
 from simulation.scripted_tasks.threaded_tasks import create_threaded_task
 from simulation.serial_chain_kinematics import axis_angle_to_matrix, rotation_matrix_to_vector
 from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
-from tools.threaded_task_initialization import apply_locking_cycle_initial_state
+from simulation.model_preparation.threaded_task_initialization import apply_locking_cycle_initial_state
 
 
 MODEL = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_20261012.xml"

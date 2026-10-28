@@ -1,6 +1,6 @@
 from pathlib import Path
 import xml.etree.ElementTree as E
-from tools.build_sarm_20261012 import compose_platform_model
+from tools.assets.build_sarm_20261012 import compose_platform_model
 ROOT=Path(__file__).resolve().parents[1]
 
 def test_source_preserved_and_platform_assembly(tmp_path):
@@ -148,7 +148,7 @@ def test_adapter_turns_the_wrist_lamp_into_a_body_mounted_spot_light(tmp_path):
  camera=next(c for c in metadata.cameras if c['display_name']=='sarm_wrist_cam')
  assert lamp['parent_id']==camera['parent_id']=='teleop/ee_base'
  np.testing.assert_allclose(lamp['position_body_m'],camera['position_body_m'],atol=1e-12)
- from tools.build_sarm_20261012 import WRIST_LIGHT_CUTOFF_DEG,WRIST_LIGHT_DIFFUSE
+ from tools.assets.build_sarm_20261012 import WRIST_LIGHT_CUTOFF_DEG,WRIST_LIGHT_DIFFUSE
  assert lamp['properties']['light_type']=='spot' and lamp['properties']['cast_shadows'] is False
  # The cone and brightness reach UE unchanged (UE builds 650 * intensity and cone = cutoff_deg).
  assert lamp['properties']['cutoff_deg']==WRIST_LIGHT_CUTOFF_DEG and lamp['properties']['intensity']==WRIST_LIGHT_DIFFUSE

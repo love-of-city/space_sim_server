@@ -67,8 +67,8 @@ OSQP/SciPy 不再是本项目运行依赖；未卸载共享环境中已经安装
 ```powershell
 python -m pip install -e ".[test,simulation]"
 python -m pytest tests/test_teleop_target.py tests/test_teleop_channels.py tests/test_simplified_teleop.py tests/test_motion_diagnostics.py tests/test_joint_limits.py
-python tools/validate_teleop.py --output run/simplified-teleop-validation/kinematic.json
-python tools/validate_teleop.py --physics --adapter-root <适配器目录> --output run/simplified-teleop-validation/dynamics.json
+python tools/diagnostics/validate_teleop.py --output run/simplified-teleop-validation/kinematic.json
+python tools/diagnostics/validate_teleop.py --physics --adapter-root <适配器目录> --output run/simplified-teleop-validation/dynamics.json
 # 可选：--scene-instance <保存的场景 JSON> 或 --ik-mode strict
 cd frontend
 npm test

@@ -21,6 +21,10 @@ def check_port_available(port):
 
 def renderer_command(args, output: Path):
     project = args.adapter / "Unreal/BskUnrealRenderer"
+    # Linux capture hosts use the same persistent filesystem cache directly;
+    # a broken Zen autolaunch otherwise adds ~21 s before falling back to it.
+    ddc_graph = ("InstalledNoZenLocalFallback" if os.name != "nt"
+                 else "InstalledDerivedDataBackendGraph")
     command = [
         str(unreal_editor(args.unreal)), str(project / "BskUnrealRenderer.uproject"),
         "-game", "-RenderOffscreen", "-ForceRes", "-unattended", "-nosplash",
@@ -28,7 +32,7 @@ def renderer_command(args, output: Path):
         "-BskListen=127.0.0.1", f"-BskPort={args.render_port}",
         "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={args.capture_port}",
         f"-BskCaptureRate={DEFAULT_CAPTURE_HZ}", "-BskCaptureProducts=rgb",
-        "-ExecCmds=t.MaxFPS 90,r.VSync 0", "-DDC=InstalledDerivedDataBackendGraph",
+        "-ExecCmds=t.MaxFPS 90,r.VSync 0", f"-DDC={ddc_graph}",
         f"-abslog={output / 'renderer.log'}",
     ]
     gpu = getattr(args, "gpu_index", None)

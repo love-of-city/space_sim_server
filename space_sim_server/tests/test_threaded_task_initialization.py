@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 
 from simulation.scripted_tasks.randomization import write_model_variant
-from tools.captive_fastener import body_frames, quaternion_product, rotation
-from tools.threaded_task_initialization import LOCKED_TRAVEL_M, apply_locking_cycle_initial_state
+from simulation.model_preparation.captive_fastener import body_frames, quaternion_product, rotation
+from simulation.model_preparation.threaded_task_initialization import LOCKED_TRAVEL_M, apply_locking_cycle_initial_state
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT/'model/SARM/platform/sarm_20261012.xml'

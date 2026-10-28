@@ -266,6 +266,8 @@ def test_collection_version_and_historical_stage_validation():
     scene = randomized_scene(source, 42, task_name="aviation_plug_insert")
     version = scene["collection_config"]["task_version"]
     assert version == PlugInsertTask.straight_approach_version
+    assert version == make_task("aviation_plug_insert")[0].version
+    assert PlugInsertTask.recorded_stages(PlugInsertTask.latch_version) == PlugInsertTask.recorded_stages(version)
     assert "extract" in PlugInsertTask.recorded_stages(version)
     assert "open" in PlugInsertTask.recorded_stages("plug-insert/2")
     assert "raise" in PlugInsertTask.recorded_stages("plug-insert/3-latch-grasp")
@@ -407,13 +409,13 @@ def test_release_unloads_finger_preload_with_arm_before_opening(task_name):
 
 @pytest.mark.parametrize("contacts", [(0, 0), (1, 0), (0, 1)])
 @pytest.mark.parametrize("task_name", ["aviation_plug_insert", "guide_plug_insert", "cylindrical_plug_insert"])
-def test_release_retracts_before_full_open_only_after_both_fingers_clear(task_name, contacts):
+def test_release_waits_for_part_specific_clearance_and_both_fingers(task_name, contacts):
     task, sample = make_task(task_name)
     sample = at_grasp(task, sample)
     task.reference[:] = sample.joints
     task._enter("release", sample)
     timing = task._gripper_timing
-    for tick in range(1, 1501):
+    for tick in range(1, 5801):
         # An ideal tracking fixture isolates the stage handoff from dynamics.
         moving = replace(sample, time_s=tick*.005, joints=task.reference.copy(),
                          finger_plug_contacts=contacts)
@@ -424,7 +426,10 @@ def test_release_retracts_before_full_open_only_after_both_fingers_clear(task_na
         assert task.stage == "release"
         return
     assert task.stage == "retract"
-    assert .23 <= moving.joints[6] < task.config.release_open_rad-.1
+    if task.profile.keyed:
+        assert .23 <= moving.joints[6] < task.config.release_open_rad-.1
+    else:
+        assert moving.joints[6] >= task.config.release_open_rad-.002
     assert task._gripper_timing is timing
     before = task.reference.copy()
     elapsed = task._release_opening_s

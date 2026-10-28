@@ -77,7 +77,8 @@ class RenderComponent:
             camera = matches[0]
             for key in ("parent_id", "position_body_m", "orientation_body_from_camera_wxyz", "field_of_view_rad"):
                 setattr(camera, key, self.overview_camera[key])
-            camera.display_name += f" ({self.overview_camera['preset_id']})"
+            # Historical v5 recordings used continuous poses without a preset ID.
+            camera.display_name += f" ({self.overview_camera.get('preset_id', 'Continuous')})"
         if ctx.extra.get('template_id') == 'sarm-task-box-20261012-demo':
             # Reuse the existing overview stream slot for a body-fixed close-up.
             # Pose derived from the validated MuJoCo side-view camera, in rod axes.
@@ -88,6 +89,13 @@ class RenderComponent:
                     camera.orientation_body_from_camera_wxyz = (.53344552, -.53344625, -.36045813, -.54858083)
                     camera.field_of_view_rad = 1.0471975511965976
                     camera.display_name = 'Fastener close-up (demo)'
+        from simulation.camera_lighting import overview_camera_lamp
+
+        for camera in bridge._cameras:
+            if camera.camera_id == "teleop/camera/spacecraft_overview":
+                # Mount to the final camera, including sampled and demo poses.
+                # UE uses this same world light for preview and strict captures.
+                bridge.add_lights(overview_camera_lamp(camera.camera_id))
         celestial = ctx.extra.get("celestial")
         if celestial is not None:
             _register_celestial_bodies(bridge, *celestial)

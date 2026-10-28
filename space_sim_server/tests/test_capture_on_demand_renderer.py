@@ -167,6 +167,116 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
         captures.close()
 
 
+def test_real_ue_rebuilds_geometry_when_reused_renderer_changes_layout(tmp_path):
+    """Same body IDs must render geometry at the new body-local pose."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+    from Basilisk.architecture import messaging
+    from space_arm_platform.capture_receiver import CaptureReceiver
+    from space_arm_platform.unreal_runtime import unreal_editor
+
+    root = Path(__file__).resolve().parents[1]
+    adapter = Path(os.environ.get("SPACE_SIM_RESET_ADAPTER", str(root.parent / "space_sim_UE_Adapter")))
+    sys.path.insert(0, str(adapter / "Adapters"))
+    from bsk_render_adapter import BasiliskRenderBridge, CameraVisual, GeometryVisual
+
+    unreal_root = os.environ.get("UE56_ROOT")
+    if not unreal_root:
+        pytest.skip("set UE56_ROOT to launch the isolated renderer")
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        render_port = reservation.getsockname()[1]
+    received, errors = [], []
+    captures = CaptureReceiver("127.0.0.1", 0, lambda m, p: received.append((m, p)), errors.append)
+    captures.start()
+    process = bridge = None
+    try:
+        deadline = time.monotonic() + 5
+        while captures._listener is None or not captures._listener.getsockname()[1]:
+            assert time.monotonic() < deadline
+            time.sleep(.01)
+        capture_port = captures._listener.getsockname()[1]
+        process = subprocess.Popen([
+            str(unreal_editor(Path(unreal_root))),
+            str(adapter / "Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject"),
+            "-game", "-unattended", "-nop4", "-nosplash", "-RenderOffscreen", "-ForceRes",
+            "-ResX=320", "-ResY=180", "-BskOfflineCapture", "-BskListen=127.0.0.1",
+            f"-BskPort={render_port}", "-BskCaptureProducts=rgb", "-BskCaptureRate=30",
+            "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={capture_port}",
+            "-ExecCmds=t.MaxFPS 60,r.VSync 0", f"-AbsLog={tmp_path / 'ue.log'}",
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + float(os.environ.get("SPACE_SIM_UE_STARTUP_TIMEOUT", "60"))
+        while True:
+            assert process.poll() is None, (tmp_path / "ue.log").read_text(errors="replace")
+            try:
+                with socket.create_connection(("127.0.0.1", render_port), timeout=.2):
+                    break
+            except OSError:
+                assert time.monotonic() < deadline
+                time.sleep(.1)
+        cases = [
+            ("layout-A", "box", .45, (1., 0., 0., 1.)),
+            ("layout-B", "sphere", -.45, (0., 1., 0., 1.)),
+            ("layout-A-again", "box", .45, (1., 0., 0., 1.)),
+        ]
+        for episode, shape, y, color in cases:
+            mode = {"capture_episode_id": "", "capture_request_id": "warmup"}
+            bridge = BasiliskRenderBridge(port=render_port, origin_object="layout/body",
+                                          capture_state_provider=lambda: dict(mode))
+            body = messaging.SCStatesMsg().write(messaging.SCStatesMsgPayload())
+            bridge.add_object("layout/body", body, geometries=[
+                GeometryVisual("layout/installation", shape, (.3, .3, .3),
+                               position_body_m=(0., y, .25), color_rgba=color, material_emission=1.),
+            ])
+            bridge.add_camera(CameraVisual(camera_id="layout/camera", parent_id="layout/body",
+                position_body_m=(-2., 0., 0.), resolution=(160, 90), capture_rate_hz=30,
+                capture_products=("rgb",)))
+            bridge.Reset(0)
+            for frame in range(30):
+                bridge.UpdateState((frame * 1_000_000_000 + 15) // 30)
+                time.sleep(.04)
+            mode.update(capture_episode_id=episode, capture_request_id=episode)
+            for frame in range(30, 34):
+                bridge.UpdateState((frame * 1_000_000_000 + 15) // 30)
+                time.sleep(.04)
+            mode.update(capture_episode_id="", capture_request_id="stop")
+            deadline = time.monotonic() + 15
+            while len([m for m, _ in received if m["capture_episode_id"] == episode]) < 4:
+                assert process.poll() is None and time.monotonic() < deadline, errors
+                time.sleep(.02)
+            rows = [(m, p) for m, p in received if m["capture_episode_id"] == episode]
+            assert len(rows) == 4 and not errors
+            for metadata, products in rows:
+                assert metadata["session_id"] == bridge.session_id
+                image = Image.open(io.BytesIO(products["rgb"])).convert("RGB")
+                image.save(tmp_path / f"{episode}-{metadata['source_frame_id']}.png")
+                rgb = np.asarray(image, dtype=np.int16)
+                # A cold UE shader cache may show its grey fallback material.
+                # Position remains observable against the black scene then too.
+                yy, xx = np.nonzero(rgb.max(axis=2) > 60)
+                assert len(xx) > 25, f"{episode}: missing installation geometry"
+                assert yy.mean() < 40
+                assert (xx.mean() > 90) if episode == "layout-B" else (xx.mean() < 70), (
+                    episode, float(xx.mean()), "renderer retained the old installation position")
+            bridge.close()
+            bridge = None
+        print("UE reused renderer: A -> B -> A local geometry position and camera attachment passed")
+    finally:
+        if bridge:
+            bridge.close()
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(15)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(10)
+        captures.close()
+
+
+
 def test_real_ue_camera_modes_combine_fisheye_projection_and_monochrome(tmp_path):
     import io
     import json

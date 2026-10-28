@@ -7,14 +7,19 @@
 #include "BskRenderWorldSubsystem.h"
 #include "BskSceneController.h"
 #include "BskTcpReceiver.h"
+#include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/SpotLight.h"
 #include "Components/LightComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/ScopeExit.h"
 #include "Engine/World.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SceneComponent.h"
 
 namespace
 {
@@ -860,6 +865,378 @@ bool FBskEmptyManifestBodyTest::RunTest(const FString& Parameters)
         TestNotNull(TEXT("anchor root supports camera/body transforms"), Actor->GetRootComponent());
     }
     World->DestroyWorld(false);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskManifestGeometryRefreshTest,
+    "BskUnreal.Visuals.ManifestGeometryRefresh",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBskManifestGeometryRefreshTest::RunTest(const FString& Parameters)
+{
+    if (!TestNotNull(TEXT("engine exists for test world context"), GEngine))
+        return false;
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    if (!TestNotNull(TEXT("test world created"), World))
+        return false;
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    ON_SCOPE_EXIT
+    {
+        World->DestroyWorld(false);
+        GEngine->DestroyWorldContext(World);
+    };
+    ABskSceneController* Controller = World->SpawnActor<ABskSceneController>();
+    AActor* ExternalActor = World->SpawnActor<AActor>();
+    ExternalActor->Tags.Add(TEXT("BSK.external"));
+    USceneComponent* ExternalRoot = NewObject<USceneComponent>(ExternalActor);
+    ExternalRoot->SetMobility(EComponentMobility::Movable);
+    ExternalRoot->RegisterComponent();
+    ExternalActor->SetRootComponent(ExternalRoot);
+
+    FBskGeometryDefinition Geometry;
+    Geometry.GeometryId = TEXT("installed-unit");
+    Geometry.Shape = TEXT("mesh");
+    Geometry.AssetPath = TEXT("/Engine/BasicShapes/Cube.Cube");
+    Geometry.PositionBodyMeters = FVector3d(0.1, 0.2, 0.03);
+    Geometry.Scale = FVector3d(0.04, 0.05, 0.06);
+    FBskObjectDefinition Body;
+    Body.ObjectId = TEXT("workbench");
+    Body.DisplayName = Body.ObjectId;
+    Body.Geometries.Add(Geometry);
+    FBskObjectDefinition Fixture;
+    Fixture.ObjectId = TEXT("fixture");
+    Fixture.ParentId = Body.ObjectId;
+    FBskObjectDefinition RemovedBody;
+    RemovedBody.ObjectId = TEXT("previous-installation");
+    RemovedBody.Geometries.Add(Geometry);
+    FBskObjectDefinition ExternalBody;
+    ExternalBody.ObjectId = TEXT("external");
+    ExternalBody.Geometries.Add(Geometry);
+    FBskVisualDefinition Marker;
+    Marker.VisualId = TEXT("mount-marker");
+    Marker.Kind = TEXT("marker");
+    Marker.ParentId = Body.ObjectId;
+    Marker.PositionBodyMeters = FVector3d(0.02, 0.03, 0.04);
+    Marker.SizeMeters = 0.01;
+    FBskVisualDefinition RemovedMarker = Marker;
+    RemovedMarker.VisualId = TEXT("previous-marker");
+    FBskCameraDefinition Camera;
+    Camera.CameraId = TEXT("overview");
+    Camera.ParentId = Body.ObjectId;
+    Camera.PositionBodyMeters = FVector3d(-0.18, 0.27, 0.3);
+    FBskSceneManifest Manifest;
+    Manifest.SessionId = TEXT("layout-A");
+    Manifest.Revision = 1;
+    Manifest.Objects = {Body, Fixture, RemovedBody, ExternalBody};
+    Manifest.Visuals = {Marker, RemovedMarker};
+    Manifest.Cameras.Add(Camera);
+    Controller->ApplyManifest(Manifest);
+    AActor* FirstBody = Controller->BoundActors.FindRef(Body.ObjectId);
+    AActor* FixtureActor = Controller->BoundActors.FindRef(Fixture.ObjectId);
+    AActor* RemovedActor = Controller->BoundActors.FindRef(RemovedBody.ObjectId);
+    AActor* MarkerActor = Controller->VisualActors.FindRef(Marker.VisualId);
+    AActor* RemovedVisual = Controller->VisualActors.FindRef(RemovedMarker.VisualId);
+    AActor* CameraActor = Controller->CameraActors.FindRef(Camera.CameraId);
+    if (!TestNotNull(TEXT("manifest object spawned"), FirstBody) ||
+        !TestNotNull(TEXT("fixture spawned"), FixtureActor) ||
+        !TestNotNull(TEXT("marker spawned"), MarkerActor) ||
+        !TestNotNull(TEXT("camera spawned"), CameraActor))
+    {
+        return false;
+    }
+    TestTrue(TEXT("level actor binding is used"), Controller->BoundActors.FindRef(TEXT("external")) == ExternalActor);
+    TestFalse(TEXT("level actor is not runtime-owned"), Controller->OwnedObjectIds.Contains(TEXT("external")));
+    FirstBody->SetActorLocation(FVector(12.0, 34.0, 56.0));
+    Controller->LastFrameId = 7;
+    Controller->bHasPresentationFrame = true;
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestTrue(TEXT("same-session identical geometry retains body"), Controller->BoundActors.FindRef(Body.ObjectId) == FirstBody);
+    TestTrue(TEXT("same-session identical visual retains actor"), Controller->VisualActors.FindRef(Marker.VisualId) == MarkerActor);
+    TestEqual(TEXT("same-session manifest preserves frame counter"), Controller->LastFrameId, int64(7));
+    TestTrue(TEXT("same-session manifest preserves presentation"), Controller->bHasPresentationFrame);
+
+    // A layout may change assets, offsets, orientations and the geometry list
+    // while keeping the body ID and session. Every descriptor must take effect.
+    FBskGeometryDefinition Updated = Geometry;
+    Updated.AssetPath = TEXT("/Engine/BasicShapes/Sphere.Sphere");
+    Updated.PositionBodyMeters = FVector3d(-0.08, 0.4, 0.09);
+    Updated.OrientationBodyFromGeometryWxyz = FQuat4d(FVector3d::UnitZ(), PI / 3.0);
+    Updated.Scale = FVector3d(0.07, 0.08, 0.09);
+    Manifest.Objects[0].Geometries = {Updated, Geometry};
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    AActor* UpdatedBody = Controller->BoundActors.FindRef(Body.ObjectId);
+    TestTrue(TEXT("same-session changed geometry replaces owned body"), UpdatedBody && UpdatedBody != FirstBody);
+    TestTrue(TEXT("old geometry actor is destroyed"), FirstBody->IsActorBeingDestroyed() && !IsValid(FirstBody));
+    TestTrue(TEXT("replacement preserves current world pose"), UpdatedBody && UpdatedBody->GetActorLocation().Equals(FVector(12.0, 34.0, 56.0)));
+    TestTrue(TEXT("unchanged child body survives parent replacement"), Controller->BoundActors.FindRef(Fixture.ObjectId) == FixtureActor);
+    TestTrue(TEXT("child body reattaches to replacement"), FixtureActor->GetAttachParentActor() == UpdatedBody);
+    TestTrue(TEXT("visual reattaches to replacement"), MarkerActor->GetAttachParentActor() == UpdatedBody);
+    TestTrue(TEXT("camera reattaches to replacement"), CameraActor->GetAttachParentActor() == UpdatedBody);
+    TestTrue(TEXT("camera mount survives parent replacement"), CameraActor->GetRootComponent()->GetRelativeLocation().Equals(
+        FVector(Controller->Converter.LocalMetersToUnrealCentimeters(Camera.PositionBodyMeters)), 1e-6));
+    if (UpdatedBody)
+    {
+        TArray<UStaticMeshComponent*> Meshes;
+        UpdatedBody->GetComponents(Meshes);
+        TestEqual(TEXT("complete new geometry list installed"), Meshes.Num(), 2);
+        UStaticMeshComponent* Installed = nullptr;
+        for (UStaticMeshComponent* Component : Meshes)
+            if (Component->GetFName() == FName(TEXT("Geometry_0"))) Installed = Component;
+        if (TestNotNull(TEXT("updated geometry component exists"), Installed))
+        {
+            TestTrue(TEXT("new asset replaces old layout mesh"), Installed->GetStaticMesh() == LoadObject<UStaticMesh>(nullptr, *Updated.AssetPath));
+            TestTrue(TEXT("new local position applied"), Installed->GetRelativeLocation().Equals(
+                FVector(Controller->Converter.LocalMetersToUnrealCentimeters(Updated.PositionBodyMeters)), 1e-6));
+            TestTrue(TEXT("new local orientation applied"), Installed->GetRelativeRotation().Quaternion().Equals(
+                FQuat(Controller->Converter.ActiveLocalWxyzToUnreal(Updated.OrientationBodyFromGeometryWxyz)), 1e-6));
+            TestTrue(TEXT("new mesh scale applied"), Installed->GetRelativeScale3D().Equals(FVector(Updated.Scale), 1e-6));
+        }
+    }
+
+    // The next episode reuses the same IDs, removes some installations and
+    // keeps the capture camera. No previous-layout mesh or helper may remain.
+    Manifest.SessionId = TEXT("layout-B");
+    Manifest.Revision = 1;
+    Manifest.Objects[0].Geometries = {Geometry};
+    Manifest.Objects.RemoveAll([&](const FBskObjectDefinition& Item) { return Item.ObjectId == RemovedBody.ObjectId; });
+    Manifest.Visuals.RemoveAll([&](const FBskVisualDefinition& Item) { return Item.VisualId == RemovedMarker.VisualId; });
+    Controller->ApplyManifest(Manifest);
+    AActor* NewSessionBody = Controller->BoundActors.FindRef(Body.ObjectId);
+    TestTrue(TEXT("new session rebuilds object with reused ID"), NewSessionBody && NewSessionBody != UpdatedBody);
+    TestTrue(TEXT("new session destroys prior geometry actor"), UpdatedBody && UpdatedBody->IsActorBeingDestroyed() && !IsValid(UpdatedBody));
+    TestTrue(TEXT("new session destroys prior child body"), FixtureActor->IsActorBeingDestroyed() && !IsValid(FixtureActor));
+    TestFalse(TEXT("absent installation is unbound"), Controller->BoundActors.Contains(RemovedBody.ObjectId));
+    TestTrue(TEXT("absent installation is destroyed"), RemovedActor && RemovedActor->IsActorBeingDestroyed() && !IsValid(RemovedActor));
+    TestFalse(TEXT("absent visual is removed"), Controller->VisualActors.Contains(RemovedMarker.VisualId));
+    TestTrue(TEXT("absent visual is destroyed"), RemovedVisual && RemovedVisual->IsActorBeingDestroyed() && !IsValid(RemovedVisual));
+    TestTrue(TEXT("new session destroys prior helper"), MarkerActor->IsActorBeingDestroyed() && !IsValid(MarkerActor));
+    TestTrue(TEXT("camera actor remains registered"), IsValid(CameraActor) && Controller->CameraActors.FindRef(Camera.CameraId) == CameraActor);
+    TestTrue(TEXT("camera follows new-session body"), CameraActor->GetAttachParentActor() == NewSessionBody);
+    TestTrue(TEXT("new-session helper follows new body"), Controller->VisualActors.FindRef(Marker.VisualId)->GetAttachParentActor() == NewSessionBody);
+    TestTrue(TEXT("externally bound actor is preserved across sessions"), IsValid(ExternalActor) && Controller->BoundActors.FindRef(TEXT("external")) == ExternalActor);
+    TestEqual(TEXT("new session resets frame counter"), Controller->LastFrameId, int64(-1));
+    TestFalse(TEXT("new session resets presentation frame"), Controller->bHasPresentationFrame);
+    if (NewSessionBody)
+    {
+        TArray<UStaticMeshComponent*> Meshes;
+        NewSessionBody->GetComponents(Meshes);
+        TestEqual(TEXT("stale extra geometry is absent"), Meshes.Num(), 1);
+        if (Meshes.Num() == 1)
+            TestTrue(TEXT("new session uses its own catalog asset"), Meshes[0]->GetStaticMesh() == LoadObject<UStaticMesh>(nullptr, *Geometry.AssetPath));
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskCameraMountedLightTest,
+    "BskUnreal.Visuals.CameraMountedLight",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBskCameraMountedLightTest::RunTest(const FString& Parameters)
+{
+    if (!TestNotNull(TEXT("engine exists for test world context"), GEngine))
+        return false;
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    if (!TestNotNull(TEXT("test world created"), World))
+        return false;
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    ON_SCOPE_EXIT
+    {
+        World->DestroyWorld(false);
+        GEngine->DestroyWorldContext(World);
+    };
+    ABskSceneController* Controller = World->SpawnActor<ABskSceneController>();
+    FBskObjectDefinition Body;
+    Body.ObjectId = TEXT("workbench");
+    FBskObjectDefinition OtherBody;
+    OtherBody.ObjectId = TEXT("other-mount");
+    FBskCameraDefinition Camera;
+    Camera.CameraId = TEXT("teleop/camera/spacecraft_overview");
+    Camera.ParentId = Body.ObjectId;
+    Camera.PositionBodyMeters = FVector3d(-0.3, 0.1, 0.4);
+    Camera.OrientationBodyFromCameraWxyz = FQuat4d(FVector3d::UnitY(), 0.4);
+    FBskVisualDefinition Lamp;
+    Lamp.VisualId = TEXT("teleop/light/overview_lamp");
+    Lamp.Kind = TEXT("light");
+    Lamp.ParentId = Camera.CameraId;
+    Lamp.NormalBody = FVector3d::UnitX();
+    Lamp.RangeMeters = 2.0;
+    Lamp.LightType = TEXT("spot");
+    Lamp.LightIntensity = 8000.0;
+    Lamp.LightCutoffDegrees = 89.0;
+    Lamp.bLightCastShadows = false;
+    FBskVisualDefinition LegacyLamp = Lamp;
+    LegacyLamp.VisualId = TEXT("wrist-lamp");
+    LegacyLamp.ParentId = Body.ObjectId;
+    LegacyLamp.RangeMeters = 0.0;
+    FBskSceneManifest Manifest;
+    Manifest.SessionId = TEXT("camera-light-A");
+    Manifest.Revision = 1;
+    Manifest.SunlightIntensityScale = 0.0;
+    Manifest.FillLightIntensityLux = 0.0;
+    Manifest.Objects = {Body, OtherBody};
+    Manifest.Cameras = {Camera};
+    Manifest.Visuals = {Lamp, LegacyLamp};
+    Controller->ApplyManifest(Manifest);
+    AActor* BodyActor = Controller->BoundActors.FindRef(Body.ObjectId);
+    AActor* OtherBodyActor = Controller->BoundActors.FindRef(OtherBody.ObjectId);
+    AActor* CameraActor = Controller->CameraActors.FindRef(Camera.CameraId);
+    ASpotLight* LightActor = Cast<ASpotLight>(Controller->VisualActors.FindRef(Lamp.VisualId));
+    if (!TestNotNull(TEXT("body anchor created"), BodyActor) ||
+        !TestNotNull(TEXT("second body anchor created"), OtherBodyActor) ||
+        !TestNotNull(TEXT("overview camera created"), CameraActor) ||
+        !TestNotNull(TEXT("overview spot light created"), LightActor))
+        return false;
+    USpotLightComponent* Spot = CastChecked<USpotLightComponent>(LightActor->GetLightComponent());
+    TestTrue(TEXT("first manifest attaches light after camera creation"), LightActor->GetAttachParentActor() == CameraActor);
+    TestFalse(TEXT("camera light works without sunlight or fill"), LightActor->IsHidden());
+    TestTrue(TEXT("light is movable before cone configuration"), Spot->Mobility == EComponentMobility::Movable);
+    TestEqual(TEXT("explicit two-metre light range is respected"), Spot->AttenuationRadius, 200.0f);
+    TestEqual(TEXT("wide cone is retained"), Spot->OuterConeAngle, 89.0f);
+    TestFalse(TEXT("overview lamp does not cast occluding shadows"), Spot->CastShadows);
+    TestEqual(TEXT("overview intensity is independent of scene sunlight scale"), Spot->Intensity, 650.0f * 8000.0f);
+    ASpotLight* LegacyActor = Cast<ASpotLight>(Controller->VisualActors.FindRef(LegacyLamp.VisualId));
+    if (TestNotNull(TEXT("legacy body lamp created"), LegacyActor))
+        TestEqual(TEXT("unspecified legacy light range retains twenty-metre fallback"),
+            CastChecked<USpotLightComponent>(LegacyActor->GetLightComponent())->AttenuationRadius, 2000.0f);
+    const auto CheckCameraAlignment = [&]()
+    {
+        TestTrue(TEXT("lamp origin coincides with final camera"),
+            LightActor->GetActorLocation().Equals(CameraActor->GetActorLocation(), 1e-5));
+        TestTrue(TEXT("lamp illuminates along camera forward axis"),
+            LightActor->GetActorForwardVector().Equals(CameraActor->GetActorForwardVector(), 1e-6));
+    };
+    CheckCameraAlignment();
+    BodyActor->SetActorTransform(FTransform(FRotator(12.0, 35.0, -8.0), FVector(120.0, -50.0, 80.0)));
+    CheckCameraAlignment();
+
+    // A sampled pose can move or reparent the camera while retaining its ID.
+    Manifest.Cameras[0].ParentId = OtherBody.ObjectId;
+    Manifest.Cameras[0].PositionBodyMeters = FVector3d(0.2, -0.5, 0.3);
+    Manifest.Cameras[0].OrientationBodyFromCameraWxyz = FQuat4d(FVector3d::UnitZ(), -0.7);
+    OtherBodyActor->SetActorTransform(FTransform(FRotator(-5.0, 19.0, 2.0), FVector(-30.0, 80.0, 25.0)));
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestTrue(TEXT("pose change retains the existing lamp"), Controller->VisualActors.FindRef(Lamp.VisualId) == LightActor);
+    TestTrue(TEXT("camera uses changed body mount"), CameraActor->GetAttachParentActor() == OtherBodyActor);
+    CheckCameraAlignment();
+    Manifest.Cameras[0].ParentId.Reset();
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestNull(TEXT("world-mounted camera detaches its previous body"), CameraActor->GetAttachParentActor());
+    CheckCameraAlignment();
+
+    // Reused renderer sessions replace geometry, preserving the camera cache.
+    Manifest.Cameras[0].ParentId = Body.ObjectId;
+    Manifest.SessionId = TEXT("camera-light-B");
+    Manifest.Revision = 1;
+    Controller->ApplyManifest(Manifest);
+    TestTrue(TEXT("new session replaces the previous body"), Controller->BoundActors.FindRef(Body.ObjectId) != BodyActor);
+    TestTrue(TEXT("new session retains camera registration"), Controller->CameraActors.FindRef(Camera.CameraId) == CameraActor);
+    TestTrue(TEXT("new session retires the previous lamp"), LightActor->IsActorBeingDestroyed());
+    LightActor = Cast<ASpotLight>(Controller->VisualActors.FindRef(Lamp.VisualId));
+    if (!TestNotNull(TEXT("new session recreates the lamp"), LightActor))
+        return false;
+    TestTrue(TEXT("new lamp attaches to the retained camera"), LightActor->GetAttachParentActor() == CameraActor);
+    CheckCameraAlignment();
+
+    // Cached camera actors are not valid mounts while absent from a manifest.
+    Manifest.Cameras.Reset();
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestNull(TEXT("orphan lamp detaches stale camera"), LightActor->GetAttachParentActor());
+    TestTrue(TEXT("orphan lamp cannot shine from a removed camera"), LightActor->IsHidden());
+    Manifest.Cameras = {Camera};
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestTrue(TEXT("restored camera reattaches retained lamp"), LightActor->GetAttachParentActor() == CameraActor);
+    TestFalse(TEXT("restored camera makes its lamp visible"), LightActor->IsHidden());
+    CheckCameraAlignment();
+    Manifest.Visuals.Reset();
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestFalse(TEXT("removed lamp is unregistered"), Controller->VisualActors.Contains(Lamp.VisualId));
+    TestTrue(TEXT("removed lamp actor is destroyed"), LightActor->IsActorBeingDestroyed());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskOfflineCameraWarmupTest,
+    "BskUnreal.Capture.OfflineIdleCameraWarmup",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBskOfflineCameraWarmupTest::RunTest(const FString& Parameters)
+{
+    if (!TestNotNull(TEXT("engine exists for test world context"), GEngine))
+        return false;
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    if (!TestNotNull(TEXT("test world created"), World))
+        return false;
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    ON_SCOPE_EXIT
+    {
+        World->DestroyWorld(false);
+        GEngine->DestroyWorldContext(World);
+    };
+    ABskSceneController* Controller = World->SpawnActor<ABskSceneController>();
+    FBskCameraDefinition Overview;
+    Overview.CameraId = TEXT("overview");
+    Overview.Resolution = FIntPoint(64, 64);
+    Overview.CaptureProducts.Add(TEXT("rgb"));
+    FBskCameraDefinition Wrist = Overview;
+    Wrist.CameraId = TEXT("wrist");
+    FBskSceneManifest Manifest;
+    Manifest.SessionId = TEXT("warmup-A");
+    Manifest.Revision = 1;
+    Manifest.Cameras = {Overview, Wrist};
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("no warmup before the first presentation pose"), Controller->UpdateOfflineCameraWarmup(100.0), 0);
+    TestEqual(TEXT("two RGB capture resources exist"), Controller->CameraCaptureComponents.Num(), 2);
+
+    FBskRenderFrame Idle;
+    Idle.FrameId = 7;
+    Idle.SimulationTimeNanoseconds = 140000000;
+    Idle.bCaptureOnDemand = true;
+    Controller->ApplyFrame(Idle);
+    Controller->TargetFrame = Idle;
+    Controller->bHasTargetFrame = true;
+    Controller->CaptureSequence = 31;
+    Controller->CameraNextDataCaptureSimulationNanoseconds.Add(Overview.CameraId, 123456789);
+    TestEqual(TEXT("held idle pose renders both cameras without a HUD or viewers"), Controller->UpdateOfflineCameraWarmup(100.0), 2);
+    TestEqual(TEXT("same tick adds no duplicate renders"), Controller->UpdateOfflineCameraWarmup(100.0), 0);
+    TestEqual(TEXT("warmup is limited to ten hertz"), Controller->UpdateOfflineCameraWarmup(100.05), 0);
+    TestEqual(TEXT("both cameras render at the next warmup deadline"), Controller->UpdateOfflineCameraWarmup(100.1), 2);
+    TestEqual(TEXT("warmup creates no dataset jobs"), Controller->PendingCaptureJobs.Num(), 0);
+    TestEqual(TEXT("warmup reserves no dataset bytes"), Controller->PendingCaptureBytes, uint64(0));
+    TestEqual(TEXT("warmup does not consume capture sequence IDs"), Controller->CaptureSequence, int64(31));
+    TestEqual(TEXT("warmup leaves authoritative camera deadlines unchanged"),
+        Controller->CameraNextDataCaptureSimulationNanoseconds.FindRef(Overview.CameraId), int64(123456789));
+    TestEqual(TEXT("warmup preserves source frame ID"), Controller->PresentationFrame.FrameId, Idle.FrameId);
+    TestEqual(TEXT("warmup preserves source time"), Controller->PresentationFrame.SimulationTimeNanoseconds, Idle.SimulationTimeNanoseconds);
+    TestEqual(TEXT("warmup emits no presentation frames"), Controller->LastFrameId, Idle.FrameId);
+
+    Controller->TargetFrame.CaptureEpisodeId = TEXT("strict-episode");
+    TestEqual(TEXT("queued strict target stops warmup before presentation catches up"), Controller->UpdateOfflineCameraWarmup(101.0), 0);
+    Controller->TargetFrame = Idle;
+    Controller->PresentationFrame.CaptureEpisodeId = TEXT("strict-episode");
+    TestEqual(TEXT("strict presentation adds no preview renders"), Controller->UpdateOfflineCameraWarmup(101.0), 0);
+    Controller->PresentationFrame = Idle;
+    Controller->PresentationFrame.bCaptureOnDemand = false;
+    TestEqual(TEXT("legacy continuous dataset mode is never treated as warmup"), Controller->UpdateOfflineCameraWarmup(101.0), 0);
+    Controller->PresentationFrame = Idle;
+
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("same-session manifest camera changes reset warmup deadlines"), Controller->UpdateOfflineCameraWarmup(100.1), 2);
+    Manifest.SessionId = TEXT("warmup-B");
+    Manifest.Revision = 1;
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("new session waits for its own source pose"), Controller->UpdateOfflineCameraWarmup(102.0), 0);
+    Controller->ApplyFrame(Idle);
+    TestEqual(TEXT("reused renderer warms the next session's cameras"), Controller->UpdateOfflineCameraWarmup(102.0), 2);
+    Manifest.Cameras = {Overview};
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("removed cameras do not warm cached captures"), Controller->UpdateOfflineCameraWarmup(102.0), 1);
+    TestEqual(TEXT("all idle passes remain outside dataset jobs"), Controller->PendingCaptureJobs.Num(), 0);
+    TestEqual(TEXT("all idle passes preserve capture sequence IDs"), Controller->CaptureSequence, int64(31));
     return true;
 }
 

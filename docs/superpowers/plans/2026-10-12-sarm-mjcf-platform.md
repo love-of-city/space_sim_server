@@ -37,7 +37,7 @@
 
 ## Task 1: 平台运行库的螺纹插件
 
-**Files:** 新建 space_sim_server/simulation/mujoco_plugins.py、space_sim_server/tests/test_mujoco_plugins.py；修改 space_sim_server/tools/build_native_acceleration.py。源码引用 model/SARM_mjcf_20261012/thread_sdf.cpp。
+**Files:** 新建 space_sim_server/simulation/mujoco_plugins.py、space_sim_server/tests/test_mujoco_plugins.py；修改 space_sim_server/tools/assets/build_native_acceleration.py。源码引用 model/SARM_mjcf_20261012/thread_sdf.cpp。
 
 **Interfaces:** `ensure_sarm_plugin(runtime_path: Path, plugin_path: Path, manifest_path: Path) -> dict`，返回源码哈希和已确认的运行库版本；失败抛出带路径与版本信息的异常。
 
@@ -48,7 +48,7 @@
 
 ## Task 2: 可复现的平台装配与模型描述
 
-**Files:** 新建 space_sim_server/tools/build_sarm_20261012.py、simulation/sarm_model_profile.py、tests/test_sarm_20261012_model.py；输出至 model/SARM/platform/sarm_20261012.xml 及同名 manifest.json。
+**Files:** 新建 space_sim_server/tools/assets/build_sarm_20261012.py、simulation/sarm_model_profile.py、tests/test_sarm_20261012_model.py；输出至 model/SARM/platform/sarm_20261012.xml 及同名 manifest.json。
 
 **Interfaces:** `compose_platform_model(source: Path, platform_reference: Path, output: Path) -> dict`；`load_model_profile(model_path: Path) -> SarmModelProfile`，描述基座名、六轴关节、工具 site、抓夹类型/驱动/被动关节和自由件，不依赖数组固定索引。
 
@@ -83,7 +83,7 @@
 
 ## Task 5: 受管场景与实时 UE 几何
 
-**Files:** 修改 backend/space_arm_platform/scene_targets.py、scene_runtime.py、scripts/prepare_sarm_scene.ps1、scripts/start_scene_instance.ps1、scripts/run_simulation.ps1、simulation/components/render.py、tools/select_sarm_scene.py；适配器修改必要的 mjcf_assets.py 和独立外覆配置；扩展 tests/test_scene_runtime.py、test_local_simulation_launcher.py。
+**Files:** 修改 backend/space_arm_platform/scene_targets.py、scene_runtime.py、scripts/prepare_sarm_scene.ps1、scripts/start_scene_instance.ps1、scripts/run_simulation.ps1、simulation/components/render.py、tools/assets/select_sarm_scene.py；适配器修改必要的 mjcf_assets.py 和独立外覆配置；扩展 tests/test_scene_runtime.py、test_local_simulation_launcher.py。
 
 **Interfaces:** 模板 ID `sarm-task-box-20261012`，名称“新版 SARM 与完整任务盒（2026-10-12·实验）”；模型、插件清单和 catalog 均从模板解析。标记不支持旧自动展开 profile。
 
@@ -95,7 +95,7 @@
 
 ## Task 6: 网页端到端验收与稳定性报告
 
-**Files:** 新建 tools/validate_sarm_20261012_platform.py、docs/SARM_20261012_PLATFORM.md；报告摘要放 archive/2026_10_12_SARM_MJCF接入验收.md，原始日志/录制放本地忽略目录。
+**Files:** 新建 tools/diagnostics/validate_sarm_20261012_platform.py、docs/SARM_20261012_PLATFORM.md；报告摘要放 archive/2026_10_12_SARM_MJCF接入验收.md，原始日志/录制放本地忽略目录。
 
 - [ ] 从平台新版模板启动真实仿真，确认实时观测模型哈希、时间增长、UE 状态帧及网页视频，保留截图和进程身份。
 - [ ] 实测六轴小幅动作及抓夹开合；输入停止后检查实际速度；进行重置并逐项比对所有活动件初态。
@@ -106,7 +106,7 @@
 
 ## Handoff
 
-2026-10-12 执行记录：用户授权顺序执行，已完成插件、派生模型、tendon 控制、角度协议、采集元数据和受管场景接入；在已有 feature 分支原位执行，保留未跟踪导入源和已有 UE 资产，未另建 worktree 丢失这些输入。插件构建使用独立 tools/build_sarm_plugin.py，缓存及构建清单置于忽略目录。
+2026-10-12 执行记录：用户授权顺序执行，已完成插件、派生模型、tendon 控制、角度协议、采集元数据和受管场景接入；在已有 feature 分支原位执行，保留未跟踪导入源和已有 UE 资产，未另建 worktree 丢失这些输入。插件构建使用独立 tools/assets/build_sarm_plugin.py，缓存及构建清单置于忽略目录。
 
 已完成原生共同漂移 40 秒/三次全行程测试、实际网页开合和六方向末端输入、网页重置、两次原生全 qpos/qvel 重建比较、61 条状态与双路各 61 帧视频解码。源三种插头 free joint 世界阻尼 5→0 的必要在轨适配记录于派生 manifest 和验收文档，源文件不改。
 

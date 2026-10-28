@@ -6,7 +6,7 @@
 
 ## 启用与配置
 
-网页遥操作和 `tools/run_scripted_task.py` 共用 `config/plug_retention.json`，新启动场景加载：
+网页遥操作和 `collection/run_scripted_task.py` 共用 `config/plug_retention.json`，新启动场景加载：
 
 ```json
 {
@@ -56,9 +56,9 @@
 原生源码更新后先重建（使用含 Basilisk 的项目解释器）：
 
 ```bash
-python tools/build_native_acceleration.py --component local_mujoco_stepper
+python tools/assets/build_native_acceleration.py --component local_mujoco_stepper
 python -m pytest -q tests/test_plug_retention.py tests/test_scripted_capture.py tests/test_assembly.py tests/test_local_mujoco_stepper.py tests/test_independent_plug_tasks.py tests/test_scripted_plug_task.py tests/test_compact_recording.py
-python tools/validate_plug_retention.py --output run/diagnostics/plug_retention/production-dry-friction.json
+python tools/diagnostics/validate_plug_retention.py --output run/diagnostics/plug_retention/production-dry-friction.json
 ```
 
 测试覆盖静摩擦无爬移、不同深度/速度下双向恒定摩擦、途中撤力停留、脱离自由漂移、错位不吸附、圆柱轴向自由转动及力/力矩配对。生产验收使用原始模型、自由基座、现有接触和 BSK 轨道组件直接施力，保存逐步曲线并核对原模型哈希；它不包含机器人抓取、路径规划或 UE 画面验收。

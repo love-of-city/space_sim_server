@@ -67,7 +67,7 @@ function Ensure-SpaceSimNativeAcceleration {
     }
     if ($missing.Count -eq 0) { return }
 
-    $builder = Join-Path $RepositoryRoot 'tools/build_native_acceleration.py'
+    $builder = Join-Path $RepositoryRoot 'tools/assets/build_native_acceleration.py'
     Write-Host ("构建原生加速组件：{0}" -f ($missing -join ', '))
     foreach ($component in $missing) {
         & $Python $builder --component $component

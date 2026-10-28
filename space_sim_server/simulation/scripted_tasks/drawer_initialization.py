@@ -24,9 +24,9 @@ NOISE_DISABLED = {
 }
 
 
-def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"):
-    if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 10:
-        raise ValueError("initialization range must be finite and in [0,10] degrees")
+def randomized_scene(source, seed, half_range_deg=30.0, task_name="drawer_cycle", *, color_assignment=None):
+    if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 50:
+        raise ValueError("initialization range must be finite and in [0,50] degrees")
     if not source.get("initialization_enabled", True):
         half_range_deg = 0.0
     scene = deepcopy(source)
@@ -89,6 +89,8 @@ def randomized_scene(source, seed, half_range_deg=10.0, task_name="drawer_cycle"
     )
     if camera is not None:
         scene["collection_config"]["overview_camera_randomization"] = camera
+    if color_assignment is not None:
+        scene["collection_config"]["episode_color_assignment"] = deepcopy(color_assignment)
     from .randomization import prepare_episode
     return prepare_episode(scene)
 

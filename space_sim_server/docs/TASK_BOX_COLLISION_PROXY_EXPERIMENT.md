@@ -117,12 +117,12 @@
 
 ```powershell
 $trial = 'run/diagnostics/proxy-retest-unique'
-& $geomPython tools/task_box_proxy_experiment.py build --folder $trial
-& $geomPython tools/task_box_proxy_experiment.py validate --folder $trial
-& $geomPython tools/task_box_proxy_experiment.py benchmark --folder $trial `
+& $geomPython tools/assets/task_box_proxy_experiment.py build --folder $trial
+& $geomPython tools/assets/task_box_proxy_experiment.py validate --folder $trial
+& $geomPython tools/assets/task_box_proxy_experiment.py benchmark --folder $trial `
   --native-python $nativePython --adapter-root $adapterRoot --scene-instance $sceneInstance
-& $geomPython tools/task_box_proxy_experiment.py contact-motion --folder $trial
-& $geomPython tools/task_box_proxy_experiment.py cleanup --folder $trial
+& $geomPython tools/assets/task_box_proxy_experiment.py contact-motion --folder $trial
+& $geomPython tools/assets/task_box_proxy_experiment.py cleanup --folder $trial
 ```
 
 吞吐测试期间应停止其他仿真负载，不并行跑多个性能测试。benchmark 每个子进程有 300 秒超时；失败保留日志，不覆盖旧结果。
@@ -204,15 +204,15 @@ $trial = 'run/diagnostics/proxy-retest-unique'
 
 ```powershell
 $trial = 'run/diagnostics/proxy-precision-retest-unique'
-& $geomPython tools/task_box_proxy_experiment.py build --suite precision --folder $trial
-& $geomPython tools/task_box_proxy_experiment.py validate --folder $trial
-& $geomPython tools/task_box_proxy_experiment.py benchmark --folder $trial `
+& $geomPython tools/assets/task_box_proxy_experiment.py build --suite precision --folder $trial
+& $geomPython tools/assets/task_box_proxy_experiment.py validate --folder $trial
+& $geomPython tools/assets/task_box_proxy_experiment.py benchmark --folder $trial `
   --native-python $nativePython --adapter-root $adapterRoot --scene-instance $sceneInstance --long-duration 0
-& $geomPython tools/task_box_proxy_experiment.py contact-motion --folder $trial --variants baseline,plug_proxy,pins_retained
-& $geomPython tools/task_box_proxy_experiment.py benchmark --folder $trial `
+& $geomPython tools/assets/task_box_proxy_experiment.py contact-motion --folder $trial --variants baseline,plug_proxy,pins_retained
+& $geomPython tools/assets/task_box_proxy_experiment.py benchmark --folder $trial `
   --native-python $nativePython --adapter-root $adapterRoot --scene-instance $sceneInstance `
   --variants baseline,pins_retained --motion linear_x --long-duration 0
-& $geomPython tools/task_box_proxy_experiment.py cleanup --folder $trial
+& $geomPython tools/assets/task_box_proxy_experiment.py cleanup --folder $trial
 ```
 
 仅需重现被静态回归淘汰的拆针脚方案时，用新的目录和 `build --suite local-pins`，然后 `validate`、`cleanup`。

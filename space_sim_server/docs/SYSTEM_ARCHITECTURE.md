@@ -324,7 +324,7 @@ running → stopped / completed / failed
 
 | 内容 | 当前来源 | 消费方 |
 | --- | --- | --- |
-| 刚体质量、质心、惯性张量、关节轴/范围、阻尼/摩擦、碰撞、执行器 | SARM 源参数在 `model/SARM/platform/sarm_platform.xml`；目标估算质量/惯量在 `tools/build_sarm_ground_target.py`；当前默认为 `sarm_ground_target_self_collision.xml`，含原外部粗盒及两个内部接触代理，参数同样由该生成器维护；`tools/build_satellite_mesh_collision.py` 派生的 `mesh_collision_trial/sarm_mesh_collision.xml` 仅保留供手动试验 | MJScene；部分元数据也被运动学/渲染适配器读取 |
+| 刚体质量、质心、惯性张量、关节轴/范围、阻尼/摩擦、碰撞、执行器 | SARM 源参数在 `model/SARM/platform/sarm_platform.xml`；目标估算质量/惯量在 `tools/assets/build_sarm_ground_target.py`；当前默认为 `sarm_ground_target_self_collision.xml`，含原外部粗盒及两个内部接触代理，参数同样由该生成器维护；`tools/assets/build_satellite_mesh_collision.py` 派生的 `mesh_collision_trial/sarm_mesh_collision.xml` 仅保留供手动试验 | MJScene；部分元数据也被运动学/渲染适配器读取 |
 | 太阳照明倍率（默认 1，范围 0～20,000） | 创建请求 → 场景实例 `environment.lighting.sunlight_intensity_scale` | 仅渲染 SceneSettings/UE，不参与动力学；见[配置说明](SUNLIGHT_CONFIGURATION.md) |
 | 姿态开关、频率、PD 增益、轮速保护裕量 | `model/SARM/platform/attitude_control.json` | BSK 姿态模块；轮的物理参数仍从 MJCF 读取 |
 | 相机挂载位姿、垂直 FOV、原始分辨率 | 同一 MJCF 的 `<camera>` | 适配器 manifest → UE 相机 |
@@ -704,7 +704,7 @@ pwsh -NoProfile -File .\scripts\run_platform.ps1 -AdapterRoot 'D:\workspace\spac
 | 适配器 Python 测试 | `UE:scripts/test.ps1 -SkipUnreal` | 设备适配、协议、相机、网格等；内部使用 unittest |
 | UE 自动化 | `UE:scripts/test.ps1`（按需 `-SkipBuild`） | 插件运行时测试；其 NullRHI 路径不等于真实 GPU 成像验收 |
 | 原生姿态测试与轨道链路探针 | [test_attitude_control.py](../tests/test_attitude_control.py)、[validate_attitude_control.py](../scripts/validate_attitude_control.py) | 真实轮力学、姿态闭环、真实 Hub/Recorder 与渲染协议；不替代 GPU 验收 |
-| 浏览器视频检查 | [verify_pixel_streaming.mjs](../tools/verify_pixel_streaming.mjs) | 实际 WebRTC 解码；不是动力学守恒或权威帧标签正确性测试 |
+| 浏览器视频检查 | [verify_pixel_streaming.mjs](../tools/diagnostics/verify_pixel_streaming.mjs) | 实际 WebRTC 解码；不是动力学守恒或权威帧标签正确性测试 |
 | UE/星历专题验证 | [CELESTIAL_ALIGNMENT.md](CELESTIAL_ALIGNMENT.md) 等 | 指定场景下的原生/UE 行为；受各专题列出的精度和覆盖边界限制 |
 
 运行服务端全部测试的 Python 环境需同时可见后端测试依赖、NumPy 和 Basilisk；只安装 Web 后端依赖不等于具备所有仿真测试依赖。不要为跑测试而在同一进程引入冲突的 Python MuJoCo DLL。

@@ -10,13 +10,13 @@ import pytest
 from simulation.scripted_tasks.native_state import STATE_READERS, ThreadedState
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
 from space_arm_platform.collection_jobs import CollectionCreate, TASKS
-from tools.collect_scripted_tasks import validate_threaded_recording
+from collection.collect_scripted_tasks import validate_threaded_recording
 
 
 @pytest.mark.parametrize("name", THREADED_TASKS)
 def test_web_collection_dispatches_latest_controller(name):
     assert CollectionCreate(task=name).task == name
-    assert TASKS[name].script == "tools/collect_threaded_tasks.py"
+    assert TASKS[name].script == "collection/collect_scripted_tasks.py"
     assert TASKS[name].arguments == ("--task", name)
     assert STATE_READERS[name] is ThreadedState
     assert threaded_task_class(name).name == name
@@ -94,7 +94,7 @@ def test_private_preflight_uses_the_executed_collection_profile(
 def test_threaded_duration_can_complete_real_turns_without_changing_global_recording_limits():
     from simulation.scripted_tasks.threaded_tasks import task_default_duration_s
     from space_arm_platform.recording_config import RecordingConfig
-    from tools.record_drawer_task import task_recording_settings
+    from collection.record_scripted_task import task_recording_settings
 
     original = RecordingConfig()
     settings, override = task_recording_settings(original, "aviation_bolt_insert", 900.)
@@ -387,7 +387,7 @@ def test_bolt_recording_rejects_carry_before_actual_thread_tip_disengages(field,
 
 def rod_recording():
     from simulation.scripted_tasks.locking_rod import LockingRodConfig,LockingRodTask
-    from tools.captive_fastener import LEAD
+    from simulation.model_preparation.captive_fastener import LEAD
 
     config=LockingRodConfig()
     seated=.0055

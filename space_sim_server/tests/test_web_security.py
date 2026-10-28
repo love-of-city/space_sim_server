@@ -156,7 +156,7 @@ def test_cli_environment_wires_proxy_and_secure_settings_without_multiple_worker
 
 def test_default_admin_preflight_is_read_only(tmp_path):
     import runpy
-    check_database = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tools/check_deployment_auth.py"))["check_database"]
+    check_database = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tools/deployment/check_deployment_auth.py"))["check_database"]
     missing = tmp_path / "does-not-exist.sqlite3"
     check_database(missing)
     assert not missing.exists()

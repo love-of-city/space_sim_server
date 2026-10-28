@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from tools.migrate_local_auth import migrate
+from tools.deployment.migrate_local_auth import migrate
 
 
 def test_preserves_accounts_including_wal(tmp_path):

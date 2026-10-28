@@ -151,7 +151,7 @@ def test_final_acceptance_rejects_a_seated_but_spinning_part(name):
 
 
 def test_headless_default_target_matches_current_scene_model():
-    from tools.run_scripted_task import default_target_state
+    from collection.run_scripted_task import default_target_state
 
     state = default_target_state(MODEL)
     np.testing.assert_allclose(state["target_position_m"], [0.94, 0.039086, 0.4])

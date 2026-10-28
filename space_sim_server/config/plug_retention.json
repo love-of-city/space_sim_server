@@ -3,6 +3,7 @@
   "parameters": {
     "static_friction_n": 20.0,
     "sliding_friction_n": 20.0,
-    "friction_travel_m": 0.008
+    "friction_travel_m": 0.008,
+    "torsional_damping_nms_rad": 0.02
   }
 }

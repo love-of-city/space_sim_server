@@ -107,7 +107,8 @@ def test_wrist_view_contains_horizontal_fingers_entering_from_below():
 
 @pytest.mark.parametrize("template", ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf", "sarm-task-box-20261012-demo"])
 @pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome", "monochrome_fisheye"])
-def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, template, mode):
+@pytest.mark.parametrize("sunlight_scale", [0., 1.])
+def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, template, mode, sunlight_scale):
     import sys
     from types import SimpleNamespace
     import importlib.util
@@ -125,17 +126,27 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
                                position_body_m=(1, 2, 3), field_of_view_rad=0.9)
     wrist = SimpleNamespace(camera_id="teleop/camera/sarm_wrist_cam", parent_id="teleop/ee_base",
                             position_body_m=(4, 5, 6), field_of_view_rad=1.2, display_name="Wrist")
-    bridge = SimpleNamespace(_cameras=[overview, wrist], add_mj_scene=lambda *a, **kw: None)
+    lights = []
+    bridge = SimpleNamespace(_cameras=[overview, wrist], add_mj_scene=lambda *a, **kw: None,
+                             add_lights=lambda light: lights.append(light))
     bridge.set_scene_settings = lambda settings: setattr(bridge, "settings", settings)
     monkeypatch.setitem(sys.modules, "bsk_render_adapter", SimpleNamespace(
-        BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace))
+        BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace,
+        VisualElement=SimpleNamespace))
     monkeypatch.setitem(sys.modules, "simulation.teleop_grasp_unreal", SimpleNamespace(
         _register_celestial_bodies=lambda *a: None))
     ctx = SimpleNamespace(scene=object(), extra={"template_id": template},
                           add=lambda *a, **kw: None, keep_alive=lambda *a: None)
     RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,
                     render_rate_hz=60, capture_rate_hz=30, capture_state_provider=None,
-                    wrist_camera_mode=mode).install(ctx)
+                    wrist_camera_mode=mode, sunlight_intensity_scale=sunlight_scale).install(ctx)
+    assert bridge.settings.sunlight_intensity_scale == sunlight_scale
+    assert len(lights) == 1
+    assert lights[0].visual_id == "teleop/light/overview_lamp"
+    assert lights[0].parent_id == overview.camera_id
+    assert lights[0].position_body_m == (0., 0., 0.)
+    assert lights[0].normal_body == (1., 0., 0.)
+    assert lights[0].properties["intensity"] == 8000.
     assert wrist.parent_id == "teleop/ee_base"
     assert wrist.position_body_m == (4, 5, 6)
     assert wrist.camera_mode == mode

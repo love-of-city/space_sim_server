@@ -18,12 +18,16 @@ import threading
 import time
 from typing import Literal
 import uuid
+import xml.etree.ElementTree as ET
 
 import psutil
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .collection_processes import ManagerLease, WindowsProcessGroup
 from .collection_layouts import LayoutPool
+from .collection_inputs import (
+    fixed_layout_input, requires_color_layout, validate_fixed_snapshot, validate_saved_layout,
+)
 from .unreal_runtime import default_unreal_root, unreal_editor
 
 
@@ -39,8 +43,9 @@ class CollectionTask:
 TASKS = {
     "drawer_cycle": CollectionTask(
         "抽屉取出、放回与撤离",
-        "tools/collect_drawer_cycles.py",
+        "collection/collect_scripted_tasks.py",
         "sarm-task-box-20261012",
+        arguments=("--task", "drawer_cycle"),
     ),
 }
 for _task, _label in (
@@ -50,7 +55,7 @@ for _task, _label in (
 ):
     TASKS[_task] = CollectionTask(
         _label + "拿取与插入",
-        "tools/collect_plug_tasks.py",
+        "collection/collect_scripted_tasks.py",
         "sarm-task-box-20261012",
         arguments=("--task", _task),
         description=f"独立任务：跟踪并抓取{_label} → 搬到前方对应插孔 → 对准插入 → 松爪撤离 → 验收。",
@@ -63,7 +68,7 @@ for _task, _label, _description in (
      "旋松防脱紧固件 → 绕底部铰链放倒至卡扣 → 松爪再抓取 → 扶起复位 → 旋紧 → 撤离验收。"),
 ):
     TASKS[_task] = CollectionTask(
-        _label, "tools/collect_threaded_tasks.py", "sarm-task-box-20261012",
+        _label, "collection/collect_scripted_tasks.py", "sarm-task-box-20261012",
         arguments=("--task", _task), description=_description,
     )
 
@@ -85,7 +90,7 @@ class CollectionCreate(BaseModel):
     layout_randomization: StrictBool = False
     randomize_overview_camera: StrictBool = False
     randomization: CollectionRandomization = Field(default_factory=CollectionRandomization)
-    range_deg: float = Field(default=10, ge=0, le=10, allow_inf_nan=False)
+    range_deg: float = Field(default=30, ge=0, le=50, allow_inf_nan=False)
     linear_speed_m_s: float | None = Field(
         default=None, gt=0, le=0.1, allow_inf_nan=False
     )
@@ -170,7 +175,8 @@ def free_ports(count):
 
 
 class CollectionManager:
-    def __init__(self, project_root, data_root, adapter=None, unreal=None, layout_pool=None):
+    def __init__(self, project_root, data_root, adapter=None, unreal=None, layout_pool=None,
+                 fixed_model=None, fixed_catalog=None):
         self.project_root = Path(project_root).resolve()
         self.data_root = Path(data_root).resolve()
         self.root = self.data_root.parent / "collection_jobs"
@@ -180,6 +186,8 @@ class CollectionManager:
         self.unreal = Path(unreal or default_unreal_root())
         configured_pool = layout_pool or os.environ.get("SPACE_SIM_COLLECTION_LAYOUT_POOL")
         self.layout_pool = Path(configured_pool).expanduser().resolve() if configured_pool else None
+        self.fixed_model = fixed_model or os.environ.get("SPACE_SIM_COLLECTION_FIXED_MODEL")
+        self.fixed_catalog = fixed_catalog or os.environ.get("SPACE_SIM_COLLECTION_FIXED_CATALOG")
         self.lock = threading.RLock()
         self.thread = None
         self.closing = False
@@ -243,6 +251,16 @@ class CollectionManager:
             worker.pop("created", None)
         return result
 
+    def fixed_layout_capability(self):
+        if not self.fixed_model and not self.fixed_catalog:
+            return dict(available=False, configured=False, description="尚未配置可区分孔位的固定操作台")
+        try:
+            record, _ = fixed_layout_input(self.fixed_model, self.fixed_catalog)
+            return dict(available=True, configured=True, model_sha256=record["model_sha256"],
+                        description="已校验固定操作台；本批次所有记录使用同一布局")
+        except (OSError, ValueError, KeyError, ET.ParseError) as error:
+            return dict(available=False, configured=True, description=f"固定采集布局校验失败：{error}")
+
     def start(self, request, owner, scene):
         with self.lock:
             if self.closing or any(
@@ -251,6 +269,7 @@ class CollectionManager:
                 raise ValueError("已有自动采集批次运行中，请等待完成或先停止该批次")
             task = TASKS[request.task]
             pool = None
+            fixed = placement = None
             if request.layout_randomization:
                 if self.layout_pool is None:
                     raise ValueError("尚未配置已校验的随机布局池，不能启用布局随机化")
@@ -258,6 +277,19 @@ class CollectionManager:
                     pool = LayoutPool(self.layout_pool)
                 except (OSError, ValueError, KeyError) as error:
                     raise ValueError(f"随机布局池校验失败：{error}") from error
+            elif self.fixed_model or self.fixed_catalog:
+                try:
+                    fixed, placement = fixed_layout_input(self.fixed_model, self.fixed_catalog)
+                    validate_saved_layout(scene, fixed)
+                except (OSError, ValueError, KeyError, ET.ParseError) as error:
+                    raise ValueError(f"固定采集布局校验失败：{error}") from error
+            elif requires_color_layout(request.task):
+                raise ValueError("该颜色指令任务需要可区分孔位的固定操作台；请配置 "
+                                 "SPACE_SIM_COLLECTION_FIXED_MODEL 和 SPACE_SIM_COLLECTION_FIXED_CATALOG，"
+                                 "或显式启用已校验的随机布局池")
+            elif (scene.get("task_box_layout") or scene.get("collection_layout_randomization")
+                  or (scene.get("collection_config") or {}).get("layout_randomization", {}).get("enabled")):
+                raise ValueError("已保存布局场景需要配置与其匹配的固定 model 和 catalog，或显式启用随机布局池")
             try:
                 editor = unreal_editor(self.unreal)
             except OSError as error:
@@ -265,7 +297,7 @@ class CollectionManager:
             for path in (
                 self.project_root / task.script,
                 editor,
-                self.adapter
+                Path(fixed["catalog"]) if fixed else self.adapter
                 / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json",
             ):
                 if not path.is_file():
@@ -278,10 +310,17 @@ class CollectionManager:
             scene["initialization_enabled"] = request.initialization_enabled
             scene["collection_layout_randomization"] = request.layout_randomization
             scene["randomize_overview_camera"] = request.randomize_overview_camera
+            scene["overview_camera_sampling"] = "presets"
             from .overview_camera import initialize_overview_camera
             initialize_overview_camera(scene)
             scene["created_by"] = {k: owner[k] for k in ("user_id", "username", "role")}
+            if fixed is not None:
+                scene["task_box_layout"] = placement
+                scene["collection_fixed_layout"] = fixed
+                scene.setdefault("collection_config", {})["layout_randomization"] = {"enabled": False}
             write_json(directory / "scene.json", scene)
+            if fixed is not None:
+                write_json(directory / "fixed-layout.json", fixed)
             if pool is not None:
                 # Each batch pins the validated membership before workers start.
                 write_json(directory / "layout-pool.json", pool.document)
@@ -312,6 +351,7 @@ class CollectionManager:
                 status="running",
                 owner=scene["created_by"],
                 config=request.model_dump(),
+                fixed_layout=fixed,
                 started_at=time.time(),
                 workers=workers,
             )
@@ -392,6 +432,8 @@ class CollectionManager:
                         str(worker["seed"]),
                         "--range-deg",
                         str(cfg["range_deg"] if cfg.get("initialization_enabled", True) else 0),
+                        "--overview-camera-sampling",
+                        "presets",
                         "--cancel-file",
                         str(folder / "cancel.request"),
                         "--adapter",
@@ -402,6 +444,10 @@ class CollectionManager:
                     command += list(TASKS[cfg["task"]].arguments)
                     if cfg.get("layout_randomization"):
                         command += ["--layout-pool", str(folder / "layout-pool.json")]
+                    elif job.get("fixed_layout") is not None:
+                        fixed = job["fixed_layout"]
+                        validate_fixed_snapshot(fixed)
+                        command += ["--model", fixed["model"], "--catalog", fixed["catalog"]]
                     if cfg["task"] == "drawer_cycle":
                         command += [
                             "--linear-speed",

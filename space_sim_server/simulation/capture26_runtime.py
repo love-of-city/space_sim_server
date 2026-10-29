@@ -958,8 +958,9 @@ def run(args):
                     **demo_telemetry(guidance),
                     processing_real_time_factor=elapsed/max(compute, 1e-9)))
                 if demo:
-                    key = (('Entry300km' if args.scenario == 'orbit-raise' else 'Entry7km') if flight else 'NearEntry') if tick == 0 else (
-                        ('FarHandoffComplete' if flight else 'WorkingPositionHold') if guidance.get('released')
+                    key = (('Entry300km' if args.scenario == 'orbit-raise' else 'Entry7km') if flight else
+                        'OperationsEntry' if operations else 'NearEntry') if tick == 0 else (
+                        ('FarHandoffComplete' if flight else 'OperationsHold' if operations else 'WorkingPositionHold') if guidance.get('released')
                         else guidance.get('node', 'Flight'))
                     if (key not in stage_snapshots and (guidance.get('dwell_s', 0.) >= 2. or guidance.get('released')
                             or tick == 0)):

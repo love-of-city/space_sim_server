@@ -41,14 +41,21 @@ def records(path):
 
 
 def phase_evidence(controls):
-    expected=['open','extend','approach_visual','approach_encoder','close','tighten','hold_force']
-    cursor=0;transitions=[];aborts=[]
+    # Existing controller closes the jaws in either branch: contact_seek does
+    # not require an initial pad contact, whereas close follows such contact.
+    expected=[{'open'},{'extend'},{'approach_visual'},{'approach_encoder'},
+        {'close','contact_seek'},{'tighten'},{'hold_force'}]
+    cursor=0;transitions=[];aborts=[];inward_commands=0
     for row in controls:
         status=row['status']
         if not transitions or transitions[-1]['phase']!=status:transitions.append(dict(t=row['t'],phase=status))
         if 'abort' in status:aborts.append(row)
-        if cursor<len(expected) and status=='predictive_'+expected[cursor]:cursor+=1
-    return dict(complete=cursor==len(expected) and not aborts,transitions=transitions,aborts=aborts)
+        if (status in ('predictive_close','predictive_contact_seek')
+                and (row.get('command') or {}).get('capture_radial_velocity_m_s',0)<0):
+            inward_commands+=1
+        if cursor<len(expected) and status in {'predictive_'+name for name in expected[cursor]}:cursor+=1
+    return dict(complete=cursor==len(expected) and not aborts and inward_commands>0,
+        transitions=transitions,aborts=aborts,inward_closure_commands=inward_commands)
 
 
 def score_hold(rows):

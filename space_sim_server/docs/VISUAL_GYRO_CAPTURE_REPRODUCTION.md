@@ -72,6 +72,8 @@ Success requires a fresh four-marker native PNG independently re-decoded through
 PnP, matching UE/PnP K, the complete visual→gyro prediction→force-hold phase
 sequence, contiguous valid gyro samples, no service self-contact, unchanged
 physical fingerprints and at least20s continuous four-jaw support at4.5..5.5N.
+The original controller can close through `close` or `contact_seek`; both are
+accepted only with recorded inward jaw commands and subsequent physical support.
 UE, backend and simulation must remain alive through the scored hold endpoint;
 their return codes are saved before intentional teardown. Contact-record gaps
 reset the continuous-hold window. Gyro records must match the run session/epoch,

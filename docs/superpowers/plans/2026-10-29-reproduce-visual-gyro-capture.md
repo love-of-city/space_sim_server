@@ -11,7 +11,7 @@
 ## Global constraints
 
 - Use the retained nominal seed26016 initial scene: adjacent-face dual arms, COM-coorbital initialization, 0.5m grip/interface gap, attitude control enabled, formation_hold disabled.
-- 1920×1200,100°×100°,10Hz native single-camera PNGs and original 50Hz shared gyro; no truth navigation or injected fault.
+- 1920×1200,100°×100°,10Hz native single-camera PNGs and original 50Hz shared gyro; no target-truth feedback to grasp guidance or injected fault. Preserve the existing main attitude-control chain.
 - Preserve all model/physics/gyro/controller sources and physical parameters. No weld/equality between satellites.
 - Default manual startup stays manual. Experiment opt-in applies only to this entry.
 - Resolve repository paths from the entry itself; runtime/vision interpreter and UE installation are explicit machine parameters. Do not depend on the old experimental checkout or output folder.

@@ -172,9 +172,19 @@ def test_gyro_gate_binds_full_interval_session_and_control_consumption():
 def test_phase_evidence_rejects_abort_and_absent_prediction():
     names=['open','extend','approach_visual','approach_encoder','close','tighten','hold_force']
     controls=[dict(t=i,status='predictive_'+name) for i,name in enumerate(names)]
+    controls[4]['command']={'capture_radial_velocity_m_s':-.001}
     assert phase_evidence(controls)['complete']
     assert not phase_evidence(controls[:3]+controls[4:])['complete']
     assert not phase_evidence(controls+[dict(t=8,status='predictive_abort_fault')])['complete']
+
+
+def test_contact_seek_is_a_closure_branch_only_with_actual_inward_jaw_commands():
+    names=['open','extend','approach_visual','approach_encoder','contact_seek','tighten','hold_force']
+    controls=[dict(t=i,status='predictive_'+name) for i,name in enumerate(names)]
+    controls[4]['command']={'capture_radial_velocity_m_s':-.001}
+    assert phase_evidence(controls)['complete']
+    controls[4]['command']={'capture_radial_velocity_m_s':0}
+    assert not phase_evidence(controls)['complete']
 
 
 def test_occupied_port_is_rejected_without_touching_listener():

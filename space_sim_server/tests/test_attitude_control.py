@@ -10,7 +10,7 @@ import pytest
 from Basilisk.architecture import messaging
 from Basilisk.utilities import RigidBodyKinematics as rbk
 
-from simulation.attitude_control import _inertia, limit_wheel_torque, load_hardware, load_settings
+from simulation.attitude_control import AttitudeControl, _inertia, limit_wheel_torque, load_hardware, load_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / 'model/SARM/platform/sarm_platform.xml'
@@ -45,6 +45,78 @@ def build(native, *, enabled=True, move_arm=False):
     native._initialize_state(sim, scene)
     scene.getBody('capture_target').setPosition([5, 0, 0])  # [m], avoid contact
     return sim, scene, models, logs
+
+
+def test_estimated_attitude_drives_wheels_without_truth_navigation(native):
+    sim, scene, models, logs = native._build_simulation(defer_attitude_control=True)
+    estimate = messaging.NavAttMsg().write(messaging.NavAttMsgPayload(sigma_BN=[.02, 0., 0.]))
+    with pytest.raises(ValueError, match='explicit startup prior'):
+        AttitudeControl(sim, sim.procList[0], scene, MODEL, estimated_navigation=estimate)
+    control = AttitudeControl(sim, sim.procList[0], scene, MODEL,
+                              estimated_navigation=estimate, initial_attitude_prior=[0., 0., 0.],
+                              control_rate_hz=100)
+    native._initialize_state(sim, scene)
+    scene.getBody('capture_target').setPosition([5, 0, 0])
+    advance(native, sim, .02)
+    # The independent supplied estimate differs from the physical attitude.
+    # Tracking error and wheel actuation must follow that estimate.
+    np.testing.assert_allclose(control.tracking_error.attGuidOutMsg.read().sigma_BR, [.02, 0., 0.], atol=1e-12)
+    assert np.linalg.norm(scene.getBody('cubesat_bus').getOrigin().stateOutMsg.read().sigma_BN) < 1e-3
+    assert any(abs(v) > 1e-6 for v in control.telemetry()['reaction_wheels']['applied_motor_torque_nm'])
+    assert not any(getattr(m, 'ModelTag', '') == 'sarmTruthNavigation' for m in control.models)
+
+
+def test_body_rate_damping_ignores_attitude_estimates_and_passive_target_motion(native):
+    sim, scene, _, _ = native._build_simulation(defer_attitude_control=True)
+    estimate = messaging.NavAttMsg().write(messaging.NavAttMsgPayload(sigma_BN=[.2, -.1, .3]))
+    with pytest.raises(ValueError, match='cannot track'):
+        AttitudeControl(sim, sim.procList[0], scene, MODEL, control_mode='body_rate_damping',
+                        reference_provider=lambda t: None)
+    control = AttitudeControl(sim, sim.procList[0], scene, MODEL, estimated_navigation=estimate,
+        initial_attitude_prior=[0., 0., 0.], control_mode='body_rate_damping', control_rate_hz=100)
+    native._initialize_state(sim, scene)
+    target = scene.getBody('capture_target')
+    target.setPosition([5., 0., 0.])
+    target.setAttitude([-.3, .2, .1])
+    target.setAttitudeRate([.1, -.2, .3])
+    advance(native, sim, .05)
+    assert control.controller.K == 0.
+    np.testing.assert_allclose(control.controller.cmdTorqueOutMsg.read().torqueRequestBody, 0., atol=1e-12)
+    estimate.write(messaging.NavAttMsgPayload(sigma_BN=[-.4, .3, -.1]))
+    advance(native, sim, .1)
+    np.testing.assert_allclose(control.controller.cmdTorqueOutMsg.read().torqueRequestBody, 0., atol=1e-12)
+    estimate.write(messaging.NavAttMsgPayload(sigma_BN=[.5, 0., 0.], omega_BN_B=[.001, -.002, .003]))
+    advance(native, sim, .15)
+    before = np.array(control.controller.cmdTorqueOutMsg.read().torqueRequestBody)
+    assert np.linalg.norm(before) > .01
+    estimate.write(messaging.NavAttMsgPayload(sigma_BN=[0., -.5, .2], omega_BN_B=[.001, -.002, .003]))
+    advance(native, sim, .16)
+    # The spinning wheels add rate-dependent momentum compensation, but a
+    # changed attitude estimate cannot add a proportional alignment torque.
+    after = np.array(control.controller.cmdTorqueOutMsg.read().torqueRequestBody)
+    np.testing.assert_allclose(after, before, atol=1e-5)
+    telemetry = control.telemetry()['attitude_control']
+    assert telemetry['mode'] == 'body_rate_damping'
+    assert telemetry['attitude_error_angle_rad'] is None
+    assert telemetry['reference_orientation_inertial_wxyz'] is None
+    from space_arm_platform.models import AttitudeControlObservation
+    AttitudeControlObservation.model_validate(telemetry)
+
+
+def test_native_rate_damping_slows_spin_without_returning_to_startup_heading(native):
+    sim, scene, _, _ = native._build_simulation(defer_attitude_control=True)
+    control = AttitudeControl(sim, sim.procList[0], scene, MODEL, control_mode='body_rate_damping')
+    native._initialize_state(sim, scene)
+    scene.getBody('capture_target').setPosition([5., 0., 0.])
+    scene.getBody('cubesat_bus').setAttitudeRate([.015, -.01, .02])
+    advance(native, sim, .1)
+    first = control.telemetry()
+    advance(native, sim, 25.)
+    last = control.telemetry()
+    assert np.linalg.norm(last['attitude_control']['angular_velocity_body_rad_s']) < .0002
+    assert np.linalg.norm(last['attitude_control']['orientation_inertial_wxyz'][1:]) > .002
+    assert max(abs(v) for v in first['reaction_wheels']['applied_motor_torque_nm']) > .01
+    assert max(abs(v) for v in last['reaction_wheels']['relative_momentum_nms']) > .05
 
 
 def momenta(control):

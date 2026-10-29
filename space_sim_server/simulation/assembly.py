@@ -185,7 +185,8 @@ class AssemblyContext:
 
     # --- placement ---------------------------------------------------------------
     def add(self, model: Any, slot: Slot, *, every: int = 1, phase: int | None = None,
-            component: str | None = None, task: str | None = None) -> Any:
+            component: str | None = None, task: str | None = None,
+            reads_kinematics: bool | None = None) -> Any:
         """Place one module in a segment, at a rate that divides the physics grid."""
         slot = Slot(slot)
         task = task or self.config.physics_task
@@ -193,7 +194,8 @@ class AssemblyContext:
         if every < 1:
             raise PortError("every must be a positive number of physics steps")
         stride = max(1, int(self.config.publish_stride))
-        reads_kinematics = slot in _BEFORE_CORE or slot in (Slot.SENSOR, Slot.RECORD, Slot.OUTPUT)
+        if reads_kinematics is None:
+            reads_kinematics = slot in _BEFORE_CORE or slot in (Slot.SENSOR, Slot.RECORD, Slot.OUTPUT)
         if reads_kinematics and every > 1 and every % stride:
             raise PortError(
                 f"every={every} is not a multiple of the body/site publication stride {stride}; "

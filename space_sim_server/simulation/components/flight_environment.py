@@ -66,16 +66,18 @@ class FlightEnvironment(sysModel.SysModel):
             raise ValueError("non-finite environment force")
         self.forceOutMsg.write(messaging.CmdForceInertialMsgPayload(forceRequestInertial=total.tolist()), nanos, self.moduleID)
 
-    def snapshot(self):
-        return {"acceleration_m_s2": self.acceleration.tolist(), "rng_state": self.rng.bit_generator.state}
+    def snapshot(self, *, epoch_ns=0):
+        return {"acceleration_m_s2": self.acceleration.tolist(), "rng_state": self.rng.bit_generator.state,
+                "last_time_ns": None if self.last_time is None else epoch_ns+self.last_time}
 
-    def restore(self, state):
+    def restore(self, state, *, epoch_ns=0):
         value = np.asarray(state["acceleration_m_s2"], dtype=float)
         if value.shape != (3,) or not np.isfinite(value).all():
             raise ValueError("invalid handoff disturbance state")
         self.acceleration = value.copy()
         self.rng.bit_generator.state = state["rng_state"]
-        self.last_time = 0
+        self.last_time = (state['last_time_ns']-epoch_ns
+                          if epoch_ns and state.get('last_time_ns') is not None else 0)
 
 
 class FlightEnvironmentComponent:

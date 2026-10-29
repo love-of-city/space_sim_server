@@ -6,10 +6,13 @@ import math
 @dataclass(frozen=True)
 class NearFieldOptions:
     seed: int = 7
+    model_id: str = "sarm-ground-target-self-collision"
     vision_loss_phase: str = ""
     communication_loss_s: float | None = None
 
     def __post_init__(self):
+        if self.model_id not in ("sarm-ground-target-self-collision", "sarm-dual-capture26"):
+            raise ValueError("unsupported near-field model_id")
         if type(self.seed) is not int or not 0 <= self.seed < 2**32:
             raise ValueError("seed must be an integer in [0, 2**32)")
         if self.vision_loss_phase not in ("", "VisualApproach", "FinalApproach", "Grasp"):

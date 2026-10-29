@@ -62,3 +62,44 @@ def test_stale_or_unwritten_truth_is_never_relabelled():
         sampler.Reset(20_000_000)
     sampler.Reset(0)
     assert sampler.sensor.latest is None
+
+
+@pytest.mark.parametrize('epoch_ns', [2_500_000, 7_500_000, 20_000_000, 37_500_000])
+def test_restart_off_gyro_grid_keeps_absolute_epochs_and_rng(epoch_ns):
+    from simulation.gyroscope import GyroConfig
+
+    config = GyroConfig(white_noise_std_rad_s=.001, initial_bias_std_rad_s=.0001,
+                        bias_random_walk_rad_s_sqrt_s=.00001)
+    original = Gyroscope(config, seed=2)
+    for stamp in range(0, epoch_ns+1, 20_000_000):
+        original.sample(stamp, [.01, -.02, .03])
+
+    class Bulk(sysModel.SysModel):
+        def __init__(self):
+            super().__init__()
+            self.ModelTag = 'gyroBulkTruth'
+            self.message = messaging.MJSceneStateMsg()
+
+        def UpdateState(self, nanos):
+            self.message.write(messaging.MJSceneStateMsgPayload(
+                qpos=[0.]*7, qvel=[0., 0., 0., .01, -.02, .03]), nanos, self.moduleID)
+
+    source = Bulk()
+    sim = SimulationBaseClass.SimBaseClass()
+    process = sim.CreateNewProcess('graspProcess')
+    process.addTask(sim.CreateNewTask('graspTask', 2_500_000))
+    ports = SimpleNamespace(stepper=object(), scene_state=lambda: source.message,
+                            free_body_layout=lambda name: (0, 0, [0, 0, 0]))
+    ctx = AssemblyContext(sim, None, config=SessionConfig(publish_stride=4), physics_ports=ports)
+    ctx.install([ClockComponent()])
+    ctx.add(source, Slot.PHYSICS)
+    gyro = GyroscopeComponent(vars(config), seed=2, epoch_ns=epoch_ns, restart=original.snapshot())
+    ctx.install([gyro])
+    sim.InitializeSimulation()
+    end_ns = 100_000_000
+    sim.ConfigureStopTime(end_ns-epoch_ns)
+    sim.ExecuteSimulation()
+    for stamp in range((epoch_ns//20_000_000+1)*20_000_000, end_ns+1, 20_000_000):
+        original.sample(stamp, [.01, -.02, .03])
+    assert gyro.sensor.snapshot() == original.snapshot()
+    assert next(r for r in ctx.describe() if r['component'] == 'service_gyro')['rate_hz'] == 50

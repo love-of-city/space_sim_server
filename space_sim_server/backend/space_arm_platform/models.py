@@ -123,15 +123,15 @@ class AttitudeControlObservation(BaseModel):
     """Truth attitude and controller status; quaternions use w-x-y-z order."""
     model_config = ConfigDict(extra="forbid")
     enabled: bool
-    mode: Literal["initial_inertial_hold"]
+    mode: Literal["initial_inertial_hold", "body_rate_damping"]
     reference_frame: Literal["J2000"]
     reference_initialized: bool
     state_time_ns: str = Field(pattern=r"^[0-9]+$")
     control_time_ns: str = Field(pattern=r"^[0-9]+$")
     orientation_inertial_wxyz: Quaternion
-    reference_orientation_inertial_wxyz: Quaternion
+    reference_orientation_inertial_wxyz: Quaternion | None
     angular_velocity_body_rad_s: Vector3
-    attitude_error_angle_rad: FiniteFloat = Field(ge=0.0, le=3.141592653589794)
+    attitude_error_angle_rad: FiniteFloat | None = Field(ge=0.0, le=3.141592653589794)
     control_rate_hz: FiniteFloat = Field(gt=0.0, le=500.0)
     saturated: bool
 

@@ -17,10 +17,11 @@ class SimulationControlClient:
 
     def __init__(self, host: str, port: int, simulation_id: str, *,
                  max_pending_observations: int = 128, observation_timeout_s: float = 30., policy_timeout_s: float = 30.,
-                 policy_runtime: bool = False) -> None:
+                 policy_runtime: bool = False, allow_scene_reset: bool = True) -> None:
         self.host = host
         self.port = int(port)
         self.simulation_id = simulation_id
+        self.allow_scene_reset = allow_scene_reset
         self._lock = threading.RLock()
         self._send_lock = threading.Lock()
         self._action: dict[str, Any] = self._neutral_action()
@@ -247,10 +248,11 @@ class SimulationControlClient:
                     hello = {"protocol": CONTROL_PROTOCOL, "type": "sim_hello", "simulation_id": self.simulation_id,
                              "reset_generation": self._reset_generation, "observation_stream_id": self._stream_id,
                              "observation_resume_after": str(self._acked_sequence),
-                             "capabilities": ["reliable_observations_v1", "capture_on_demand_v1", "capture_pair_ack_v1", "scene_reset", "arm_preparation",
+                             "capabilities": ["reliable_observations_v1", "capture_on_demand_v1", "capture_pair_ack_v1", "arm_preparation",
                                  "cartesian_twist_6d", "damped_least_squares_ik", "gripper_velocity",
                                  "joint_observation", "cartesian_observation", "sarm_si_joint_observation",
-                                 "reaction_wheel_attitude_control"] + (["joint_policy_v1"] if self.policy.enabled else [])}
+                                 "reaction_wheel_attitude_control"] + (["scene_reset"] if self.allow_scene_reset else [])
+                                 + (["joint_policy_v1"] if self.policy.enabled else [])}
                     self._socket = connection
                 connection.sendall(encode_packet(hello))
                 handshake_deadline = time.monotonic() + 3.

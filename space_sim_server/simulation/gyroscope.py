@@ -50,12 +50,37 @@ class GyroConfig:
 class Gyroscope:
     """One measurement per physical 50 Hz tick, independent of telemetry reads."""
 
-    def __init__(self, config: GyroConfig | None = None, *, seed: int = 0):
+    def __init__(self, config: GyroConfig | None = None, *, seed: int = 0,
+                 body_name="cubesat_bus", sensor_name="service_gyro"):
         if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**64:
             raise ValueError("gyro seed must be an unsigned 64-bit integer")
         self.config = config or GyroConfig()
         self.seed = seed
+        self.body_name, self.sensor_name = body_name, sensor_name
         self.reset()
+
+    def snapshot(self):
+        """Private restart state, never a navigation observation or public HUD."""
+        return deepcopy(dict(schema="space-sim-gyro-state/1", config=asdict(self.config),
+            seed=self.seed, body_name=self.body_name, sensor_name=self.sensor_name,
+            bias=self._bias.tolist(), bias_rng=self._bias_rng.bit_generator.state,
+            noise_rng=self._noise_rng.bit_generator.state, last=self._last))
+
+    def restore(self, state):
+        if (state.get("schema") != "space-sim-gyro-state/1" or state.get("config") != asdict(self.config)
+                or state.get("seed") != self.seed or state.get("body_name") != self.body_name
+                or state.get("sensor_name") != self.sensor_name):
+            raise ValueError("gyro restart configuration mismatch")
+        bias = np.asarray(state["bias"], dtype=float)
+        if bias.shape != (3,) or not np.isfinite(bias).all():
+            raise ValueError("invalid gyro restart bias")
+        bias_rng, noise_rng = np.random.default_rng(), np.random.default_rng()
+        bias_rng.bit_generator.state = deepcopy(state["bias_rng"])
+        noise_rng.bit_generator.state = deepcopy(state["noise_rng"])
+        last = deepcopy(state["last"])
+        if last is not None and (int(last["sample_time_ns"]) < 0 or int(last["sample_time_ns"]) % GYRO_PERIOD_NS):
+            raise ValueError("invalid gyro restart epoch")
+        self._bias, self._bias_rng, self._noise_rng, self._last = bias.copy(), bias_rng, noise_rng, last
 
     def reset(self):
         # A private stream never changes scene/GNSS/vision randomness. Separate
@@ -99,7 +124,7 @@ class Gyroscope:
                     + self.config.initial_bias_std_rad_s**2
                     + self.config.bias_random_walk_rad_s_sqrt_s**2 * sample_time_ns * 1e-9)
         self._last = {
-            "sensor_name": "service_gyro", "body_name": "cubesat_bus",
+            "sensor_name": self.sensor_name, "body_name": self.body_name,
             "frame": "spacecraft_body", "reference_frame": "J2000",
             "measurement": "simulated_body_angular_rate", "sample_rate_hz": GYRO_HZ,
             "sample_time_ns": str(sample_time_ns),

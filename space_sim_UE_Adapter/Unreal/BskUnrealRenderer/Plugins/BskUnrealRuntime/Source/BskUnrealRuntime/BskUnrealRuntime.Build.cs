@@ -11,6 +11,7 @@ public class BskUnrealRuntime : ModuleRules
             "PixelStreaming2", "PixelStreaming2Core", "PixelStreaming2Input", "PixelCapture"
         });
         PrivateDependencyModuleNames.AddRange(new[] {"PixelStreaming2RTC", "BskCameraShaders"});
+        AddEngineThirdPartyPrivateStaticDependencies(Target, "zlib", "UElibPNG");
         PrivateIncludePaths.Add(System.IO.Path.Combine(
             EngineDirectory,
             "Plugins/Media/PixelStreaming2/Source/PixelStreaming2/Internal"));

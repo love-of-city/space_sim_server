@@ -127,10 +127,13 @@ def supervise(config_path: Path, instance_path: Path):
         catalog_names = {"sarm-task-box-contacts": "sarm_task_box", "sarm-task-box-free-plugs": "sarm_task_box_plugs"}
         template = instance["template_id"]
         catalog = "sarm_20261012" if template.startswith("sarm-task-box-20261012") else catalog_names.get(template, "sarm_platform")
+        if template == 'sarm-dual-capture26':
+            catalog = 'sarm_dual_capture26'
         children.start("simulation", [sys.executable, "-u", str(root / "simulation/teleop_grasp_unreal.py"),
             "--adapter-root", str(adapter), "--model-root", config["model_root"],
             "--catalog", str(adapter / f"Unreal/BskUnrealRenderer/Saved/AssetImport/{catalog}.catalog.json"),
             "--control-port", str(config["control_port"]), "--render-port", str(config["render_port"]),
+            "--capture-port", str(config["capture_port"]),
             "--scene-instance", str(instance_path), "--dynamics-backend", "local",
             "--simulation-rate", str(runtime["simulation_rate"]),
             "--capture-rate", str(runtime["capture_rate_hz"]), "--ik-rate", str(runtime["ik_rate_hz"])],

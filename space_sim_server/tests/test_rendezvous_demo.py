@@ -1,7 +1,9 @@
 import gzip
 import json
 import struct
-import time
+from types import SimpleNamespace
+
+import pytest
 
 from space_arm_platform.rendezvous_demo import RendezvousDemo
 
@@ -47,6 +49,20 @@ def test_playback_channels_share_time_and_latch(monkeypatch, tmp_path):
     render, state = Socket(), Socket()
     monkeypatch.setattr('socket.create_connection', lambda address, **_: render if address[1] == 5558 else state)
     demo = RendezvousDemo(package(tmp_path), 8768)
+    # Verify monotonic pacing even when the reported system clock moves back.
+    clock = {'monotonic_s': 0.0}
+
+    def wait(timeout):
+        assert timeout >= 0
+        clock['monotonic_s'] += timeout
+        return False
+
+    monkeypatch.setattr(demo._stop, 'wait', wait)
+    monkeypatch.setattr('space_arm_platform.rendezvous_demo.time', SimpleNamespace(
+        perf_counter=lambda: clock['monotonic_s'],
+        time=lambda: 1_800_000_000 - clock['monotonic_s'],
+        time_ns=lambda: int((1_800_000_000 - clock['monotonic_s']) * 1e9),
+    ))
     demo.start()
     demo._thread.join(timeout=2)
     assert demo.completed and not demo.error
@@ -57,7 +73,8 @@ def test_playback_channels_share_time_and_latch(monkeypatch, tmp_path):
         assert video['objects'][0]['position_m'] == dashboard['bodies'][0]['position_m']
     assert state.messages[0]['metadata']['capture_time_s'] is None
     assert state.messages[-1]['metadata']['capture_time_s'] == 2
-    assert demo.finished_at - demo.started_at >= .04
+    assert clock['monotonic_s'] == pytest.approx(.2 + .04)
+    assert demo.finished_at < demo.started_at
 
 
 def test_stop_then_repeat_gets_new_run(monkeypatch, tmp_path):

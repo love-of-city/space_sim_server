@@ -7,6 +7,7 @@ param(
     [string]$ReplayPath = '',
     [double]$ReplayRate = 1.0,
     [string]$ScreenshotPath = '',
+    [string]$DemoEvidenceDirectory = $env:SPACE_SIM_DEMO_EVIDENCE_DIR,
     [string]$CaptureDirectory = '',
     [string[]]$CaptureProducts = @(),
     [ValidateRange(0.0, 60.0)]
@@ -31,6 +32,7 @@ param(
     [int]$CaptureNetworkPort = 0,
     [string]$AutoCommand = '',
     [string]$DerivedDataCachePath = '',
+    [switch]$OfflineCapture,
     [switch]$Foreground
 )
 
@@ -55,6 +57,13 @@ $arguments = @(
     $ProjectFile, '-game', '-windowed', "-ResX=$Width", "-ResY=$Height",
     "-BskListen=$ListenAddress", "-BskPort=$Port", '-log', '-DDC=InstalledDerivedDataBackendGraph'
 )
+if ($OfflineCapture) {
+    if ($PixelStreamingURL) { throw 'OfflineCapture cannot run Pixel Streaming.' }
+    $arguments += @('-BskOfflineCapture', '-BskVisionFastPng', '-RenderOffscreen', '-ForceRes', '-ExecCmds="t.MaxFPS 50,r.VSync 0"')
+}
+if ($CaptureNetworkPort -gt 0 -and -not $OfflineCapture) {
+    $arguments += '-BskVisionFastPng'
+}
 $normalizedCaptureProducts = @()
 foreach ($item in $CaptureProducts) {
     foreach ($product in ($item -split ',')) {
@@ -79,6 +88,9 @@ if ($ReplayPath) {
 }
 if ($ScreenshotPath) {
     $arguments += "-BskScreenshot=$([IO.Path]::GetFullPath($ScreenshotPath))"
+}
+if ($DemoEvidenceDirectory) {
+    $arguments += "-BskDemoEvidenceDir=$([IO.Path]::GetFullPath($DemoEvidenceDirectory))"
 }
 if ($CaptureDirectory) {
     $arguments += "-BskCaptureDir=$([IO.Path]::GetFullPath($CaptureDirectory))"

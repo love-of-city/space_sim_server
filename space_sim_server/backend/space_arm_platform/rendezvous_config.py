@@ -8,6 +8,7 @@ from .orbital_physics import OrbitalPhysics
 @dataclass(frozen=True)
 class FlightOptions:
     seed: int = 7
+    model_id: str = "sarm-ground-target-self-collision"
     # None reproduces historical independent-receiver flights. The unified
     # mission supplies one explicit receiver contract for every phase.
     differential_gnss: dict | None = None
@@ -31,6 +32,8 @@ class FlightOptions:
     handoff_distance_m: float = 110.0
 
     def __post_init__(self):
+        if self.model_id not in ("sarm-ground-target-self-collision", "sarm-dual-capture26"):
+            raise ValueError("unsupported flight model_id")
         if self.orbital_physics is not None:
             physics = OrbitalPhysics.model_validate(self.orbital_physics)
             if physics.drag is not None:

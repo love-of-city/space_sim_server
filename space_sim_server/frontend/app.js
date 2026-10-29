@@ -660,7 +660,7 @@ function connect() {
       const wheels = obs.reaction_wheels;
       $("attitudeMode").textContent = !attitude ? "—" : !attitude.enabled ? "控制关闭" :
         !attitude.reference_initialized ? "初始化" : (formation?.enabled || raw.coorbital_initialization ? "轨道定向保持" : "惯性保持") + (attitude.saturated ? " · 饱和" : "");
-      $("attitudeError").textContent = attitude ? `${(attitude.attitude_error_angle_rad * 180 / Math.PI).toFixed(3)} °` : "—";
+      $("attitudeError").textContent = attitude?.mode === "body_rate_damping" ? "角速度阻尼" : attitude ? `${(attitude.attitude_error_angle_rad * 180 / Math.PI).toFixed(3)} °` : "—";
       $("bodyRate").textContent = attitude ? attitude.angular_velocity_body_rad_s.map(v => Number(v).toFixed(4)).join(", ") + " rad/s" : "—";
       $("wheelSpeeds").textContent = wheels ? wheels.speed_rad_s.map(v => (v * 60 / (2 * Math.PI)).toFixed(1)).join(", ") + " rpm" : "—";
       $("wheelTorques").textContent = wheels ? wheels.applied_motor_torque_nm.map(v => Number(v).toFixed(3)).join(", ") + " N·m" : "—";
@@ -1500,7 +1500,7 @@ async function refreshState() {
     if (data.mission) {
       setOnline("backendDot", true);
       $("backendState").textContent = "后端在线";
-      missionPanel.render(data.mission);
+      missionPanel.render(data.mission, data.simulation.latest_observation);
       const flightOnline = data.mission.stage === "flight" && data.mission.telemetry?.connected;
       setOnline("simDot", data.simulation.connected || flightOnline);
       $("simState").textContent = flightOnline ? "交会仿真在线" : data.simulation.connected ? "仿真在线" : "仿真未连接";

@@ -6,7 +6,7 @@ lateral/angular guidance and the seated backstop, without rewriting geometry.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import asdict, dataclass, fields
 import json
 import math
 import os
@@ -125,9 +125,14 @@ def _limited(vector, maximum):
     return vector * min(1., maximum / magnitude) if magnitude else vector
 
 
+def cross3(a, b):
+    """Three-vector cross without NumPy's general axis/broadcast machinery."""
+    return np.array([a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]])
+
+
 def _axis_error(desired, actual, fallback_axis):
     """Shortest tilt rotation, leaving a round plug's axial roll unconstrained."""
-    cross = np.cross(desired, actual)
+    cross = cross3(desired, actual)
     sine = float(np.linalg.norm(cross))
     cosine = float(np.clip(np.dot(desired, actual), -1., 1.))
     if sine < 1e-10:
@@ -158,6 +163,27 @@ class PlugFriction:
         self.status = "free"
         self.displacement_m = None
 
+    def snapshot(self):
+        return dict(schema='space-sim-plug-detent/1',
+                    sockets=[s.name for s in self.sockets], parameters=asdict(self.parameters),
+                    active=None if self.active is None else self.active.name,
+                    first_sample=self.first_sample, status=self.status, displacement_m=self.displacement_m)
+
+    def restore(self, state):
+        active = next((s for s in self.sockets if s.name == state.get('active')), None)
+        displacement = state.get('displacement_m')
+        if (state.get('schema') != 'space-sim-plug-detent/1'
+                or state.get('sockets') != [s.name for s in self.sockets]
+                or state.get('parameters') != asdict(self.parameters)
+                or state.get('active') is not None and active is None
+                or type(state.get('first_sample')) is not bool
+                or state.get('status') not in ('free', 'retained', 'held', 'extracting', 'inserting')
+                or displacement is not None and (isinstance(displacement, bool)
+                    or not isinstance(displacement, (int, float)) or not math.isfinite(displacement))):
+            raise ValueError('invalid plug detent restart state')
+        self.active, self.first_sample = active, state['first_sample']
+        self.status, self.displacement_m = state['status'], displacement
+
     def wrench(self, relative_position, relative_rotation, relative_velocity, relative_omega):
         p = self.parameters
         values = [np.asarray(v, dtype=float) for v in
@@ -173,11 +199,14 @@ class PlugFriction:
                      _axis_error(socket.plug_rotation_body[:, 2], rotation[:, 2], socket.plug_rotation_body[:, 0]))
             return delta, speed, error
 
+        local = None
         if self.active is not None:
             delta, speed, error = coordinates(self.active)
+            local = delta, speed, error
             if (delta[2] >= p.friction_travel_m or np.linalg.norm(delta[:2]) > p.lateral_release_m
                     or np.linalg.norm(error) > math.radians(p.angular_release_deg)):
                 self.active = None
+                local = None
         if self.active is None:
             # No attraction at a distance or across a wrong key orientation.
             # An initialized plug may already be seated or partially inserted.
@@ -189,12 +218,13 @@ class PlugFriction:
                         and -.001 <= delta[2] < p.friction_travel_m
                         and (speed[2] < -1e-6 or initial_capture)):
                     self.active = socket
+                    local = delta, speed, error
                     break
         self.first_sample = False
         if self.active is None:
             self.status, self.displacement_m = "free", None
             return np.zeros(3), np.zeros(3)
-        delta, speed, error = coordinates(self.active)
+        delta, speed, error = local
         force = np.zeros(3)
         force[:2] = _limited(-p.lateral_stiffness_n_m * delta[:2] - p.lateral_damping_ns_m * speed[:2],
                               p.lateral_force_limit_n)
@@ -223,7 +253,7 @@ def paired_com_wrenches(force_n, torque_n, point_n, plug_com_n, base_com_n,
     Returns inertial forces and body-axis torques for the existing physics port.
     The offset term is essential for conservation of angular momentum.
     """
-    plug_torque = torque_n + np.cross(point_n - plug_com_n, force_n)
-    base_torque = -torque_n + np.cross(point_n - base_com_n, -force_n)
+    plug_torque = torque_n + cross3(point_n - plug_com_n, force_n)
+    base_torque = -torque_n + cross3(point_n - base_com_n, -force_n)
     return (force_n, plug_rotation_n.T @ plug_torque,
             -force_n, base_rotation_n.T @ base_torque)

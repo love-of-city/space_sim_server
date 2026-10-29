@@ -130,7 +130,7 @@ void ABskCameraPawn::UpdateTrackingCamera()
             {
                 const bool bFixed = RelativeViewMode == TEXT("overview-fixed");
                 Pose = BskRelativeView::Overview(View.PrimaryCentimeters, View.SecondaryCentimeters, Camera->FieldOfView,
-                    bFixed ? FixedOverviewDistanceCentimeters : 0.0);
+                    bFixed ? FixedOverviewDistanceCentimeters : 0.0, bCapture26WorkingView ? 300.0 : 1000.0);
                 if (bFixed && FixedOverviewDistanceCentimeters <= 0.0)
                     FixedOverviewDistanceCentimeters = (Pose.GetLocation() - (View.PrimaryCentimeters + View.SecondaryCentimeters) * 0.5).Length();
             }

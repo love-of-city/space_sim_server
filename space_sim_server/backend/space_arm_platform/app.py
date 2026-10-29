@@ -216,6 +216,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     capture_lifecycle = CaptureLifecycle(hub, recorder)
     sessions = OperatorSessions()
     vision = StereoVisionService(config.project_root)
+    from .mission_vision import MissionVisionRouter
     wrist_vision = WristVisionService(config.project_root)
     policy_cache = PolicyObservationCache()
 
@@ -232,6 +233,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         recorder.record_authoritative_capture(metadata, products)
 
     def accept_vision_capture(metadata, products):
+        if mission_vision.accepts(metadata):
+            vision.on_capture(metadata, products)
+            return
         if hub.resetting:
             return
         observation = hub.latest_observation
@@ -274,6 +278,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             python_exe=Path(sys.executable) if sys.platform.startswith("linux") else None,
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
+    mission_vision = MissionVisionRouter(config.project_root, rendezvous_runtime, vision, scenes=scenes)
     missions = MissionRuntime(config.data_root / ".missions", scenes, rendezvous_runtime, rendezvous,
                               lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active),
                               scene_defaults=capture_defaults)
@@ -346,6 +351,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         if config.rendezvous_port:
             await rendezvous.start("127.0.0.1", config.rendezvous_port)
         vision.start()
+        mission_vision.start()
         wrist_vision.start()
         captures.start()
         timeout_task = asyncio.create_task(watchdog(), name="deadman-watchdog")
@@ -379,6 +385,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             await asyncio.to_thread(scenes.close)
             policy.scene_stopped()
             await asyncio.to_thread(captures.close)
+            await asyncio.to_thread(mission_vision.close)
             await asyncio.to_thread(vision.close)
             await asyncio.to_thread(wrist_vision.close)
             await asyncio.to_thread(recorder.close)
@@ -644,7 +651,9 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
 
     @app.get("/api/rendezvous/artifact/{name}")
     async def rendezvous_artifact(name: str, mission_id: str | None = None, phase: str | None = None) -> FileResponse:
-        if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz", "gnss_measurements.npz"}:
+        if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz", "gnss_measurements.npz",
+                        "score.jsonl", "measurements.jsonl", "performance.json", "source.json",
+                        "parking-audit.json", "continuity-audit.json", "platform-estimates.jsonl"}:
             raise HTTPException(status_code=404, detail="Unknown rendezvous artifact")
         if mission_id:
             try:
@@ -715,9 +724,14 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             if payload.mode == "teleop":
                 return await missions.start_scene(scene_recording_defaults(payload.scene), user, background=True)
             from .scene_targets import SELF_COLLISION_TEMPLATE
-            if payload.scene.template_id != SELF_COLLISION_TEMPLATE:
-                raise ValueError("交会任务仅支持团队 SARM + 地面验证星默认模型")
-            return await missions.start_flight(user, scenario=payload.mode, options=payload.options,
+            if payload.scene.template_id not in (SELF_COLLISION_TEMPLATE, 'sarm-dual-capture26'):
+                raise ValueError("交会任务支持默认团队模型或 capture26 双臂模型")
+            options = dict(payload.options)
+            if payload.scene.template_id == 'sarm-dual-capture26':
+                options['model_id'] = 'sarm-dual-capture26'
+            elif options.get('model_id') == 'sarm-dual-capture26':
+                raise ValueError('交会模型与场景选择不一致')
+            return await missions.start_flight(user, scenario=payload.mode, options=options,
                                                 live=payload.live, background=True, continuous=payload.continuous)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -734,6 +748,16 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except (ValueError, OSError, RuntimeError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
+    @app.post('/api/mission/retry-near', status_code=202)
+    async def retry_near_mission(request: Request):
+        policy.require_free()
+        try:
+            return await missions.retry_near(current_user(request), background=True)
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except (ValueError, OSError, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @app.post("/api/mission/stop")
     async def stop_mission(request: Request):
         try:
@@ -741,6 +765,15 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except PermissionError as error:
             raise HTTPException(status_code=403, detail=str(error)) from error
         except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post('/api/mission/emergency-stop')
+    async def emergency_stop_mission(request: Request):
+        try:
+            return missions.emergency_stop(current_user(request))
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except (OSError, RuntimeError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.get("/api/scenes/catalog")

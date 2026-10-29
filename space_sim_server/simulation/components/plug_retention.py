@@ -8,16 +8,43 @@ from Basilisk.architecture import messaging, sysModel
 
 from simulation.assembly import Slot
 from simulation.plug_retention import (
-    PlugFriction, load_retention_parameters, model_retention_sockets, paired_com_wrenches,
+    PlugFriction, load_retention_parameters, model_retention_sockets, paired_com_wrenches, cross3,
 )
 from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 
 
+class RetentionSample:
+    """One immutable bulk conversion per physical epoch for all plug models."""
+    def __init__(self, state, base_layout):
+        self.reader = state.addSubscriber()
+        self.base_layout = base_layout
+        self.stamp = None
+        self.q = self.v = self.base = None
+
+    def pose(self, layout):
+        qa, va, com = layout
+        rotation = quaternion_wxyz_to_matrix(self.q[qa+3:qa+7])
+        position = self.q[qa:qa+3]
+        return (position, rotation, self.v[va:va+3], rotation @ self.v[va+3:va+6],
+                position + rotation @ com)
+
+    def read(self):
+        stamp = int(self.reader.timeWritten())
+        if stamp != self.stamp:
+            state = self.reader()
+            self.q = np.asarray(state.qpos, dtype=float).reshape(-1)
+            self.v = np.asarray(state.qvel, dtype=float).reshape(-1)
+            self.base = self.pose(self.base_layout)
+            self.stamp = stamp
+        return self.base
+
+
 class PlugRetentionModel(sysModel.SysModel):
-    def __init__(self, state, base_layout, plug_layout, detent, friction, *, name):
+    def __init__(self, state, base_layout, plug_layout, detent, friction, *, name, shared_sample=None):
         super().__init__()
         self.ModelTag = f"plugRetention_{name}"
-        self.reader = state.addSubscriber()
+        self.sample = shared_sample or RetentionSample(state, base_layout)
+        self.reader = self.sample.reader
         self.base_layout, self.plug_layout, self.detent = base_layout, plug_layout, detent
         self.friction = friction
         self.outputs = [messaging.CmdForceInertialMsg(), messaging.CmdTorqueBodyMsg(),
@@ -26,6 +53,7 @@ class PlugRetentionModel(sysModel.SysModel):
         self.last_sample_ns = None
 
     def Reset(self, nanos):
+        self.sample.stamp = None
         self.detent.reset()
         self.friction.configure()
         self.last_force_n = np.zeros(3)
@@ -44,21 +72,11 @@ class PlugRetentionModel(sysModel.SysModel):
         # still contain the XML pose and would consume the one initial capture.
         if not self.friction.stepper.state_initialized or not self.reader.isWritten():
             return
-        state = self.reader()
-        q = np.asarray(state.qpos, dtype=float).reshape(-1)
-        v = np.asarray(state.qvel, dtype=float).reshape(-1)
-
-        def pose(layout):
-            qa, va, com = layout
-            rotation = quaternion_wxyz_to_matrix(q[qa+3:qa+7])
-            position = q[qa:qa+3]
-            return position, rotation, v[va:va+3], rotation @ v[va+3:va+6], position + rotation @ com
-
-        bp, br, bv, bw, bc = pose(self.base_layout)
-        pp, pr, pv, pw, pc = pose(self.plug_layout)
+        bp, br, bv, bw, bc = self.sample.read()
+        pp, pr, pv, pw, pc = self.sample.pose(self.plug_layout)
         offset = pp-bp
         force, torque = self.detent.wrench(
-            br.T @ offset, br.T @ pr, br.T @ (pv-bv-np.cross(bw, offset)), br.T @ (pw-bw))
+            br.T @ offset, br.T @ pr, br.T @ (pv-bv-cross3(bw, offset)), br.T @ (pw-bw))
         force, torque = br @ force, br @ torque
         socket = self.detent.active
         self.friction.configure(enabled=socket is not None,
@@ -98,13 +116,14 @@ class PlugRetentionComponent:
         if not sockets:
             return
         base_layout = ctx.ports.free_body_layout(self.base)
+        sample = RetentionSample(ctx.ports.scene_state(), base_layout)
         for body, seats in sockets.items():
             friction = ctx.ports.axial_friction(body, self.base, static_n=self.parameters.static_friction_n,
                                                 kinetic_n=self.parameters.sliding_friction_n,
                                                 travel_m=self.parameters.friction_travel_m)
             model = PlugRetentionModel(ctx.ports.scene_state(), base_layout,
                                        ctx.ports.free_body_layout(body), PlugFriction(seats, self.parameters),
-                                       friction, name=body)
+                                       friction, name=body, shared_sample=sample)
             ctx.ports.add_body_wrench(body, source=f"{self.name}_{body}",
                                      force_inertial=model.outputs[0], torque_body=model.outputs[1])
             ctx.ports.add_body_wrench(self.base, source=f"{self.name}_{body}_reaction",
@@ -116,6 +135,27 @@ class PlugRetentionComponent:
 
     def telemetry(self):
         return {body: model.telemetry() for body, model in self.models.items()}
+
+    def snapshot(self):
+        return dict(schema='space-sim-plug-retention-state/1', configuration=self.configuration(),
+                    detents={body: model.detent.snapshot() for body, model in self.models.items()})
+
+    def restore(self, state):
+        if (state.get('schema') != 'space-sim-plug-retention-state/1'
+                or state.get('configuration') != self.configuration()
+                or set(state.get('detents', {})) != set(self.models)):
+            raise ValueError('plug retention restart configuration mismatch')
+        # Validate every detent on an isolated object before changing live owners.
+        from copy import deepcopy
+        checked = {body: deepcopy(model.detent) for body, model in self.models.items()}
+        for body, detent in checked.items():
+            detent.restore(state['detents'][body])
+        for body, model in self.models.items():
+            model.detent = checked[body]
+            socket = model.detent.active
+            model.friction.configure(enabled=socket is not None,
+                axis=(0., 0., 1.) if socket is None else socket.rotation_body[:, 2],
+                seat=(0., 0., 0.) if socket is None else socket.position_body_m)
 
     def configuration(self):
         return dict(enabled=True, version="plug-retention/2-dry-friction", parameters=asdict(self.parameters),

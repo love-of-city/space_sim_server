@@ -199,6 +199,16 @@ rejects strings, booleans, nulls and out-of-range values. Update/rebuild the UE
 runtime to use this additive version-2 setting; older receivers ignore it.
 
 `camera_mode` selects `rgb` (default), `monochrome`, or `fisheye` per camera.
+RGB and monochrome may additionally specify `vertical_field_of_view_rad` in
+`(0, pi)`. This opts into independent horizontal/vertical pinhole projection;
+omission or zero keeps the existing square-pixel projection derived from raster
+aspect. Native RGB and preview captures use the same projection, with
+`fy_px = height / (2*tan(vertical_fov/2))` in native metadata. The existing
+`field_of_view_rad` remains the horizontal span. Nonzero vertical FOV requires
+a valid horizontal FOV and is rejected for fisheye, whose equidistant semantics
+remain unchanged. Update/rebuild both adapter and UE runtime together; old
+receivers ignore the added field and cannot reproduce independent-axis optics.
+
 Monochrome uses Rec.709 luminance on the GPU and repeats it in all three RGB
 channels. Fisheye uses circular equidistant projection (`r = f * theta`), with
 black pixels outside the inscribed image circle. Its `field_of_view_rad` is the

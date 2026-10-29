@@ -76,7 +76,9 @@ class RenderComponent:
         # Added after MJCF registration to preserve full stereo resolution and all
         # existing preview-camera poses, dimensions and product settings.
         register_stereo_cameras(bridge, stereo)
-        configure_wrist_capture(bridge, wrist_enabled)
+        if wrist_enabled:
+            from space_arm_platform.wrist_vision_config import build_wrist_config
+            configure_wrist_capture(bridge, True, calibration=build_wrist_config(Path(__file__).resolve().parents[2]))
         if self.visual_attachments:
             import json
             from pathlib import Path

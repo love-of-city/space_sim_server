@@ -118,8 +118,19 @@ class CameraVisual:
     aperture_fnumber: float = 0.0
 
     camera_mode: str = "rgb"
+    # Zero retains the existing square-pixel projection.
+    vertical_field_of_view_rad: float = 0.0
 
     def to_payload(self) -> dict[str, Any]:
+        vertical_fov = self.vertical_field_of_view_rad
+        if (isinstance(vertical_fov, bool) or not isinstance(vertical_fov, (int, float))
+                or not math.isfinite(vertical_fov) or not 0 <= vertical_fov < math.pi):
+            raise ValueError("vertical_field_of_view_rad must be zero or in (0, pi)")
+        if vertical_fov and self.camera_mode == "fisheye":
+            raise ValueError("fisheye does not use independent pinhole vertical FOV")
+        if vertical_fov and (not math.isfinite(self.field_of_view_rad)
+                             or not 0 < self.field_of_view_rad < math.pi):
+            raise ValueError("field_of_view_rad must be in (0, pi) for independent projection")
         if self.capture_consumer not in {"dataset", "vision"}:
             raise ValueError("capture_consumer must be dataset or vision")
         for name in ("exposure_time_s", "aperture_fnumber"):
@@ -144,6 +155,7 @@ class CameraVisual:
                 self.orientation_body_from_camera_wxyz
             ),
             "field_of_view_rad": float(self.field_of_view_rad),
+            "vertical_field_of_view_rad": float(vertical_fov),
             "resolution": [int(value) for value in self.resolution],
             "semantic_label": self.semantic_label,
             "display_name": self.display_name or self.camera_id,

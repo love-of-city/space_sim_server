@@ -1,0 +1,168 @@
+{
+  "schema": "space-arm-scene-instance/1",
+  "instance_id": "visual-gyro-capture-nominal",
+  "template_id": "sarm-dual-capture26",
+  "randomization_profile": "teleop-zero-prepare-v1",
+  "randomize_orbit_phase": false,
+  "initial_arm_joint_position_deg": null,
+  "arm_preparation_required": false,
+  "operating_arm_joint_position_deg": [
+    90.0,
+    -60.0,
+    60.0,
+    0.0,
+    -90.0,
+    0.0
+  ],
+  "seed": 26016,
+  "capture_target": {
+    "source_model": "model/SARM_mjcf_20261012/SARM_convex.xml",
+    "runtime_model": "model/SARM/platform/sarm_dual_capture26.xml",
+    "collision_model": "dual_capture26_import_preview",
+    "synthetic_mass_kg": 10.0,
+    "passive_joint": "outer_panel_hinge"
+  },
+  "created_at_ns": "0",
+  "created_by": null,
+  "environment": {
+    "ephemeris_epoch_utc": "2026 SEPTEMBER 02 00:00:00.000",
+    "ephemeris_center": "Earth",
+    "ephemeris_frame": "J2000",
+    "orbit": {
+      "altitude_m": 500000.0,
+      "eccentricity": 0.0,
+      "inclination_deg": 51.6,
+      "raan_deg": 0.0,
+      "argument_of_periapsis_deg": 0.0,
+      "true_anomaly_deg": 180.0
+    },
+    "lighting": {
+      "sunlight_intensity_scale": 1.0
+    }
+  },
+  "runtime": {
+    "dynamics_rate_hz": 400,
+    "clock": "absolute-rational-nanoseconds",
+    "simulation_rate": 0.5,
+    "capture_rate_hz": 50,
+    "ik_rate_hz": 100,
+    "dynamics_step_s": 0.0025,
+    "dataset_capture": false
+  },
+  "randomization": {
+    "target_position_m": [
+      1.2345,
+      0.5305,
+      -0.585
+    ],
+    "target_orientation_wxyz": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "target_linear_velocity_m_s": [
+      0.01,
+      -0.004,
+      0.002
+    ],
+    "target_angular_velocity_rad_s": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "arm_joint_position_rad": [
+      1.5707963267948966,
+      -1.0471975511965976,
+      1.0471975511965976,
+      0.0,
+      -1.5707963267948966,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "target_hinge_position_rad": 0.0,
+    "target_relative_velocity_m_s": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "formation_hold": {
+      "enabled": false,
+      "separation_m": 1.5,
+      "force_limit_n": 0.2,
+      "torque_limit_nm": 0.02,
+      "interface_origin_target_m": [
+        0.1755,
+        0.07825,
+        0.0420787
+      ],
+      "grip_frame_standoff_m": 0.25
+    },
+    "capture_arm_joint_position_rad": [
+      1.5548788016698063,
+      -2.3516604245248276,
+      1.205474100627967,
+      0.7971602434582875,
+      1.5653497124368834,
+      0.01494826768890898
+    ],
+    "coorbital_initialization": {
+      "enabled": true,
+      "separation_m": 1.15,
+      "service_body_rotation_wxyz": [
+        0.573576436351046,
+        0.8191520442889918,
+        0,
+        0
+      ],
+      "reference_point": "assembly_com",
+      "grip_frame_standoff_m": 0.5
+    },
+    "capture_window_trial": true,
+    "layout_variant": "adjacent_face_v1",
+    "capture_visual_test": {
+      "enabled": true,
+      "mode": "predictive_grasp",
+      "output_directory": "$OUTPUT/capture",
+      "held_target_pose": true
+    }
+  },
+  "render_profile": {
+    "camera_ids": [
+      "teleop/camera/spacecraft_overview",
+      "teleop/camera/sarm_wrist_cam",
+      "teleop/camera/capture_wrist_cam"
+    ],
+    "asset_catalog": "sarm_dual_capture26.catalog.json",
+    "source_catalogs": [
+      "sarm_20261012.catalog.json",
+      "capture26.catalog.json",
+      "capture26_trim.catalog.json"
+    ],
+    "automatic_capture_default": false,
+    "camera_mounts": {
+      "capture_wrist_cam": {
+        "body": "gripper",
+        "mode": "fixed",
+        "pos": "0.075 0 0.031",
+        "quat": "0.707106781187 -0.000000000000 0.000000000000 -0.707106781187",
+        "fovy": "100"
+      }
+    },
+    "visual_attachments": [
+      {
+        "parent_id": "teleop/capture_target",
+        "geometry_file": "config/visual_attachments/target_aruco_flush_5cm_v2/geometry_metres.json",
+        "sha256": "51024580e81c93014cd3e41264d5568d05547e2ad3026f46324ce47a22cb281c"
+      }
+    ],
+    "vision_capture": {
+      "enabled": true,
+      "config_file": "config/vision/capture26_stereo.json",
+      "wrist_alignment_enabled": true,
+      "stereo_enabled": false
+    }
+  },
+  "wrist_camera_mode": "rgb"
+}

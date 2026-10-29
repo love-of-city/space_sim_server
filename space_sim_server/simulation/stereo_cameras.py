@@ -1,6 +1,10 @@
-"""Explicit body-mounted stereo descriptors; no changes to MJCF physics/cameras."""
+"""Calibrated stereo mounts, attached to the named spacecraft or gripper body."""
 import json
+import math
 from pathlib import Path
+
+import numpy as np
+from scipy.spatial.transform import Rotation
 
 
 def load_stereo_setup(root: Path, spec: dict | None):
@@ -16,11 +20,45 @@ def load_stereo_setup(root: Path, spec: dict | None):
     ids = [c['camera_id'] for c in config['cameras']]
     if len(set(ids)) != 2 or set(ids) != set(config['camera_ids'].values()):
         raise ValueError('stereo camera IDs must be unique and match calibration eyes')
-    for camera in config['cameras']:
-        if camera.get('parent_id') != 'teleop/cubesat_bus':
-            raise ValueError('capture26 stereo must be fixed to service spacecraft body')
-        if camera.get('capture_consumer') != 'vision' or camera.get('resolution') != [1920, 1200]:
+    parent = config.get('mount_parent_id', 'teleop/cubesat_bus')
+    if parent not in ('teleop/cubesat_bus', 'teleop/gripper'):
+        raise ValueError('unsupported stereo mount parent')
+    calibration = config.get('calibration')
+    rendered_mounts = {}
+    for eye in ('left', 'right'):
+        camera = next(c for c in config['cameras'] if c['camera_id'] == config['camera_ids'][eye])
+        if camera.get('parent_id') != parent:
+            raise ValueError('stereo camera parent differs from calibrated mount')
+        size = camera.get('resolution')
+        if (camera.get('capture_consumer') != 'vision' or not isinstance(size, list)
+                or len(size) != 2 or any(type(v) is not int or v <= 0 for v in size)):
             raise ValueError('stereo must use full-resolution vision capture')
+        if calibration is not None:
+            if size != calibration['image_size']:
+                raise ValueError('render resolution differs from stereo calibration')
+            k = np.asarray(calibration['K_' + eye], float)
+            focal = size[0] / (2 * math.tan(camera['field_of_view_rad'] / 2))
+            if (k.shape != (3, 3) or not np.isfinite(k).all()
+                    or not np.allclose([k[0, 0], k[1, 1]], focal, atol=1e-7)
+                    or not np.allclose(k[:2, 2], [(size[0]-1)/2, (size[1]-1)/2])):
+                raise ValueError('renderer pinhole optics differ from calibration')
+            conv = np.array([[0., -1., 0.], [0., 0., -1.], [1., 0., 0.]])
+            q = np.asarray(camera['orientation_body_from_camera_wxyz'], float)
+            r = Rotation.from_quat(np.roll(q, -1)).as_matrix() @ conv.T
+            p = np.asarray(camera['position_body_m'], float)
+            rendered_mounts[eye] = (r, p)
+            mounting = config.get('parent_from_optical', config.get('body_from_optical'))
+            if mounting is not None:
+                m = mounting[eye]
+                rm = m.get('R_parent_from_optical', m.get('R_body_from_optical'))
+                pm = m.get('position_parent_m', m.get('position_body_m'))
+                if not np.allclose(r, rm, atol=1e-8) or not np.allclose(p, pm, atol=1e-8):
+                    raise ValueError('rendered camera mount differs from hand-eye calibration')
+    if calibration is not None:
+        rl, pl = rendered_mounts['left']; rr, pr = rendered_mounts['right']
+        if (not np.allclose(rr.T@rl, calibration['R_right_from_left'], atol=1e-8)
+                or not np.allclose(rr.T@(pl-pr), calibration['t_right_from_left_m'], atol=1e-8)):
+            raise ValueError('rendered camera pair differs from stereo extrinsic calibration')
     return config
 
 

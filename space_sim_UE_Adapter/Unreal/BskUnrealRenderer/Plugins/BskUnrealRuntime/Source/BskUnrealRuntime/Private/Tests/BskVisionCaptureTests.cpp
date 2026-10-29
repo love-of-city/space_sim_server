@@ -215,4 +215,33 @@ bool FBskVerticalCameraManifestTest::RunTest(const FString& Parameters)
 }
 
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskIndependentCameraInputTypesTest,
+    "BskUnreal.Capture.IndependentCameraInputTypes", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBskIndependentCameraInputTypesTest::RunTest(const FString& Parameters)
+{
+    for (const FString& Fields : {
+        FString(TEXT("\"vertical_field_of_view_rad\":true")),
+        FString(TEXT("\"vertical_field_of_view_rad\":\"1.7\"")),
+        FString(TEXT("\"vertical_field_of_view_rad\":null")),
+        FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"field_of_view_rad\":null")),
+        FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"field_of_view_rad\":\"bad\"")),
+        FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"field_of_view_rad\":\"1.7\"")),
+        FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"field_of_view_rad\":true"))})
+    {
+        const FString Json = FString::Printf(TEXT("{\"protocol\":\"bsk-render/2\",\"type\":\"scene_manifest\",\"session_id\":\"S\",\"revision\":\"1\",\"objects\":[],\"cameras\":[{\"camera_id\":\"wrist\",%s}]}"), *Fields);
+        FTCHARToUTF8 Utf8(*Json);
+        TArray<uint8> Packet;
+        const uint32 Length = static_cast<uint32>(Utf8.Length());
+        for (int32 Shift : {24,16,8,0}) Packet.Add(static_cast<uint8>((Length >> Shift) & 0xff));
+        Packet.Append(reinterpret_cast<const uint8*>(Utf8.Get()),Utf8.Length());
+        FBskFrameParser Parser;
+        TArray<FBskRenderMessage> Messages;
+        FString Error;
+        TestFalse(*FString::Printf(TEXT("malformed independent FOV rejected: %s"),*Fields),
+            Parser.AppendMessages(Packet.GetData(),Packet.Num(),Messages,Error));
+    }
+    return true;
+}
+
 #endif

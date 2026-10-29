@@ -13,8 +13,8 @@ def build_wrist_config(root: Path):
     source=root/'config/vision/capture_wrist_camera.json'
     optics=json.loads(source.read_text('utf-8-sig'))
     dimensions=optics['resolution_wh']
-    if len(dimensions)!=2 or any(isinstance(x,bool) or not isinstance(x,int) or x<=0 for x in dimensions):
-        raise ValueError('invalid wrist camera resolution')
+    if len(dimensions)!=2 or any(isinstance(x,bool) or not isinstance(x,int) or not 64<=x<=4096 for x in dimensions):
+        raise ValueError('invalid wrist camera resolution; UE supports 64..4096 pixels per axis')
     w,h=dimensions
     K=optics['K'];fx,fy=float(K[0][0]),float(K[1][1])
     # Independent horizontal/vertical FOV supports an anisotropic raster while

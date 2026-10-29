@@ -38,3 +38,13 @@ Verification covers calibration/startup and unchanged mounts, existing camera
 modes, legacy projection, malformed inputs, UE projection/parser automation and
 native image/metadata checks. Basic CI and optical checks do not by themselves
 constitute a new full-grasp, hardware or fault-tolerance qualification.
+
+Publication validation on 2026-10-29: server basic CI 1670 passed; adapter basic
+CI 106 passed; native transport 25 passed; frontend 251 passed and Vite build;
+signalling 10 passed and syntax check; UE Editor C++ build and 41 BskUnreal
+automation tests passed. A separate GPU optical fixture produced native
+1920×1200 PNGs with the exact configured K, detected all four 5 cm markers and
+recovered camera-target translation within 0.71 mm of the independent fixture
+scorer. This fixture used a small volumetric body and bright emissive markers
+to isolate projection from lighting; it did not run satellite contact dynamics.
+Each raster dimension is validated within UE's supported 64..4096 range.

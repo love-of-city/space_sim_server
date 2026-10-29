@@ -154,3 +154,26 @@ def test_startup_applies_capture_calibration_and_preserves_operation_arm_modes(m
         assert camera.parent_id == 'teleop/gripper'
     assert capture.capture_consumer == 'dataset'
     assert bridge._cameras[-1].capture_consumer == 'vision'
+
+
+@pytest.mark.parametrize('size,accepted', [([63,1200],False),([4097,1200],False),
+    ([1920,63],False),([1920,4097],False),([64,64],True),([4096,4096],True)])
+def test_calibration_respects_ue_raster_limits(tmp_path, monkeypatch, size, accepted):
+    import json
+    import space_arm_platform.wrist_vision_config as config_module
+    optics=json.loads((ROOT/'config/vision/capture_wrist_camera.json').read_text())
+    w,h=size
+    optics['resolution_wh']=size
+    optics['K']=[[w/(2*math.tan(math.radians(50))),0,(w-1)/2],
+                 [0,h/(2*math.tan(math.radians(50))),(h-1)/2],[0,0,1]]
+    source=tmp_path/'config/vision/capture_wrist_camera.json'
+    source.parent.mkdir(parents=True)
+    source.write_text(json.dumps(optics))
+    rig=tmp_path/'config/visual_attachments/target_aruco_flush_5cm_v2/aruco_rig.json'
+    rig.parent.mkdir(parents=True);rig.write_text('{}')
+    monkeypatch.setattr(config_module,'load_capture_mount',lambda _: {})
+    if accepted:
+        assert build_wrist_config(tmp_path)['image_size']==size
+    else:
+        with pytest.raises(ValueError,match='resolution'):
+            build_wrist_config(tmp_path)

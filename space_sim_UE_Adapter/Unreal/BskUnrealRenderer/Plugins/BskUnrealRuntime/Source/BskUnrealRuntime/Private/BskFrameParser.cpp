@@ -375,7 +375,8 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
             if (!Error.IsEmpty()) return false;
             Object->TryGetNumberField(TEXT("field_of_view_rad"), Definition.FieldOfViewRadians);
             if (Object->HasField(TEXT("vertical_field_of_view_rad"))
-                && (!Object->TryGetNumberField(TEXT("vertical_field_of_view_rad"), Definition.VerticalFieldOfViewRadians)
+                && (!Object->HasTypedField<EJson::Number>(TEXT("vertical_field_of_view_rad"))
+                    || !Object->TryGetNumberField(TEXT("vertical_field_of_view_rad"), Definition.VerticalFieldOfViewRadians)
                     || !FMath::IsFinite(Definition.VerticalFieldOfViewRadians)
                     || Definition.VerticalFieldOfViewRadians < 0 || Definition.VerticalFieldOfViewRadians >= UE_DOUBLE_PI))
             {
@@ -397,7 +398,9 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
                 return false;
             }
             if (Definition.VerticalFieldOfViewRadians > 0
-                && (Definition.CameraMode == TEXT("fisheye") || !FMath::IsFinite(Definition.FieldOfViewRadians)
+                && ((Object->HasField(TEXT("field_of_view_rad"))
+                        && !Object->HasTypedField<EJson::Number>(TEXT("field_of_view_rad")))
+                    || Definition.CameraMode == TEXT("fisheye") || !FMath::IsFinite(Definition.FieldOfViewRadians)
                     || Definition.FieldOfViewRadians <= 0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI))
             {
                 Error = TEXT("independent pinhole vertical FOV requires valid horizontal FOV and non-fisheye mode");

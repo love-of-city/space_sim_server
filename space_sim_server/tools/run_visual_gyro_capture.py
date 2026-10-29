@@ -89,12 +89,14 @@ def main():
         with temporary_vision_runtime(ROOT,prepared.vision,cleanup=lambda:managed.close()):
             write(output/'progress.json',dict(stage='preparing_native_assets'))
             prepare_native_assets(ROOT,adapter,python,args.powershell,unreal,vision,output,env)
+            write(output/'progress.json',dict(stage='starting_backend'))
             backend=managed.start('backend',[python,'-m','space_arm_platform.main','--port',ports[0],
                 '--simulation-port',ports[1],'--capture-port',ports[2],'--rendezvous-port',ports[3],
                 '--data-root',output/'episodes','--auth-database',output/'auth.sqlite3',
                 '--no-access-log','--log-level','warning'],env=env,cwd=ROOT)
             wait_ready(backend,ports[0],api=True)
             project=adapter/'Unreal/BskUnrealRenderer'
+            write(output/'progress.json',dict(stage='starting_ue'))
             renderer=managed.start('renderer',[unreal/'Engine/Binaries/Win64/UnrealEditor.exe',
                 project/'BskUnrealRenderer.uproject','-game','-RenderOffscreen','-unattended','-nosplash','-nosound',
                 '-ResX=1280','-ResY=720',f'-BskPort={ports[4]}','-BskCaptureHost=127.0.0.1',
@@ -102,6 +104,7 @@ def main():
                 '-DDC=InstalledDerivedDataBackendGraph',f'-LocalDataCachePath={os.environ.get("LOCALAPPDATA",str(output))}/BskDDC/capture-regression',
                 f'-abslog={output}/ue.log'],env=env,cwd=ROOT)
             wait_ready(renderer,ports[4])
+            write(output/'progress.json',dict(stage='starting_physics_and_vision'))
             simulation=managed.start('simulation',[python,ROOT/'simulation/teleop_grasp_unreal.py',
                 '--adapter-root',adapter,'--model-root',ROOT/'model/SARM/platform',
                 '--catalog',project/'Saved/AssetImport/sarm_dual_capture26.catalog.json',

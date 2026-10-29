@@ -3,6 +3,7 @@ import json
 import pytest
 
 from space_arm_platform.capture_regression import prepare_trial, temporary_vision_runtime, physical_fingerprint
+from space_arm_platform.capture_regression import free_reference_scene
 from space_arm_platform.capture_regression_score import score_hold, phase_evidence
 from space_arm_platform.capture_regression_runtime import ensure_ports_free, ManagedProcesses
 
@@ -76,6 +77,17 @@ def test_physics_is_free_and_contains_expected_mass_data():
     assert frozen['inter_satellite_fixed_constraints']==[]
     assert frozen['inertials']['capture_target']['mass']=='8.0'
     assert frozen['target_assembly_mass_kg']==10
+
+
+def test_reference_changes_only_experiment_toggles_and_run_speed():
+    scene=json.loads((ROOT/'config/experiments/visual_gyro_capture/scene.json').read_text())
+    reference=free_reference_scene(scene)
+    assert scene['randomization']['capture_window_trial'] is True
+    assert reference['randomization']['capture_window_trial'] is False
+    assert reference['render_profile']['vision_capture']['wrist_alignment_enabled'] is False
+    for key in ('capture_arm_joint_position_rad','coorbital_initialization','target_position_m','formation_hold'):
+        assert reference['randomization'][key]==scene['randomization'][key]
+    assert reference['environment']==scene['environment']
 
 
 def test_hold_requires_continuous_four_support_force_and_does_not_bridge_bad_sample():

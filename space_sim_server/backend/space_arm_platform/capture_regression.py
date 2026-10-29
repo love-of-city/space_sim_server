@@ -1,6 +1,7 @@
 """Portable opt-in capture fixture and reversible checkout-local runtime lease."""
 from contextlib import contextmanager
 from dataclasses import dataclass
+import copy
 import hashlib
 import json
 import os
@@ -9,6 +10,15 @@ import uuid
 import xml.etree.ElementTree as ET
 
 ROOT=Path(__file__).resolve().parents[2]
+
+
+def free_reference_scene(scene):
+    reference=copy.deepcopy(scene)
+    reference['randomization']['capture_window_trial']=False
+    reference['randomization']['capture_visual_test']['enabled']=False
+    reference['render_profile']['vision_capture'].update(enabled=False,wrist_alignment_enabled=False,stereo_enabled=False)
+    reference['runtime']['simulation_rate']=100
+    return reference
 
 
 @dataclass(frozen=True)

@@ -21,11 +21,8 @@ def main():
     parser.add_argument('--control-port',type=int,required=True)
     parser.add_argument('--duration',type=float,required=True)
     args=parser.parse_args()
-    scene=json.loads(args.scene.read_text('utf-8'))
-    scene['randomization']['capture_window_trial']=False
-    scene['randomization']['capture_visual_test']['enabled']=False
-    scene['render_profile']['vision_capture']['enabled']=False
-    scene['runtime']['simulation_rate']=100
+    from space_arm_platform.capture_regression import free_reference_scene
+    scene=free_reference_scene(json.loads(args.scene.read_text('utf-8')))
     path=args.output/'free_reference_scene.json'
     path.write_text(json.dumps(scene,indent=2),encoding='utf-8')
     from simulation import teleop_grasp_unreal as app

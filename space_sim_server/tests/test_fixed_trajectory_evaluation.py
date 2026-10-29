@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from simulation.evaluation.fixed_trajectory import FrozenTrajectory
 from simulation.evaluation.scoring import PhysicalScorer, aggregate
+from test_unified_drawer_scoring import scorer as drawer_scorer, cycle, ROTATION
 
 
 def document():
@@ -16,6 +17,7 @@ def document():
 def row(t, **kw):
     return dict(time_s=t,tool_position_m=[0.,0.,.2],joint_position=[0.]*6+[1.,-1.],
                 wrench=[0.]*6,wrench_valid=True,contacts=[0,0],drawer_m=0.,
+                tool_rotation=ROTATION,joint_velocity=[0.]*8,
                 drawer_velocity_m_s=0.,buckle_rad=0.,**kw)
 
 
@@ -38,25 +40,23 @@ def test_trajectory_rejects_invalid_input(edit):
 
 
 def test_script_success_without_physical_opening_cannot_pass():
-    s=PhysicalScorer('drawer_cycle',final_tool_position=[0,0,.2])
+    s=drawer_scorer()
     for i in range(601):s.update(row(i*.005,result='success',open_verified=True,stage='verify'))
     assert not s.report()['success'];assert s.report()['progress']==0
 
 
 def test_ordered_drawer_cycle_and_final_hold():
-    s=PhysicalScorer('drawer_cycle',final_tool_position=[0,0,.2])
-    for i in range(40):
-        x=row(i*.005);x.update(drawer_m=.08 if i>=10 else 0.,contacts=[1,1],joint_position=[0.]*6+[.4,-.4]);s.update(x)
-    for i in range(40,80):
-        x=row(i*.005);x.update(contacts=[0,1],joint_position=[0.]*6+[.4,-.4]);s.update(x)
-    for i in range(80,500):s.update(row(i*.005))
+    s=drawer_scorer()
+    rows=list(cycle())
+    for sample in rows:s.update(sample)
     assert s.report()['success'];assert s.report()['progress']==1
-    x=row(2.5);x['drawer_m']=.02;s.update(x)
-    assert not s.report()['success']
+    x=row(rows[-1]['time_s']+.005);x['drawer_m']=.02;s.update(x)
+    assert s.report()['status']=='task_failure'
+
 
 
 def test_missing_or_gapped_measurements_are_unscorable():
-    s=PhysicalScorer('drawer_cycle',final_tool_position=[0,0,.2]);s.update(row(0))
+    s=drawer_scorer();s.update(row(0))
     s.update(row(.1))
     assert s.report()['status']=='unscorable'
     with pytest.raises(ValueError):PhysicalScorer('unknown',final_tool_position=[0,0,0])
@@ -108,7 +108,7 @@ def test_batch_keeps_exact_count_when_every_initialization_rejects(tmp_path):
 def test_offline_rescore_agrees(tmp_path):
     import json
     from tools.evaluate_fixed_trajectories import score_recording
-    spec=dict(task='drawer_cycle',final_tool_position=[0,0,.2])
+    spec=dict(task='drawer_cycle',final_tool_position=[0,0,.2],drawer_spec=drawer_scorer().drawer_monitor.specification())
     (tmp_path/'scorer_spec.json').write_text(json.dumps(spec))
     rows=[row(i*.005) for i in range(10)]
     (tmp_path/'evaluation_rows.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
@@ -118,7 +118,7 @@ def test_offline_rescore_agrees(tmp_path):
 
 
 def test_only_zero_time_wrench_bootstrap_may_be_unavailable():
-    s=PhysicalScorer('drawer_cycle',[0,0,.2])
+    s=drawer_scorer()
     x=row(0);x['wrench_valid']=False;s.update(x)
     s.update(row(.005))
     assert s.report()['status']=='task_failure'
@@ -158,9 +158,9 @@ def test_replay_step_does_not_call_adaptive_controller():
     def forbidden(*args):raise AssertionError('Adaptive controller was called')
     donor=SimpleNamespace(step=forbidden,chain=SimpleNamespace(forward=lambda q:(np.array([0.,0.,.2]),np.eye(3))))
     replay=FixedReplayTask.__new__(FixedReplayTask)
-    replay.donor=donor;replay.trajectory=FrozenTrajectory(document());replay.scorer=PhysicalScorer('drawer_cycle',[0,0,.2])
+    replay.donor=donor;replay.trajectory=FrozenTrajectory(document());replay.scorer=drawer_scorer()
     replay.result=None;replay.events=[];replay.reason=''
-    sample=SimpleNamespace(time_s=0.,joints=np.zeros(8),wrench=np.zeros(6),wrench_valid=False,
+    sample=SimpleNamespace(time_s=0.,joints=np.zeros(8),joint_velocities=np.zeros(8),wrench=np.zeros(6),wrench_valid=False,
                            drawer_m=0.,drawer_velocity_m_s=0.,buckle_rad=0.,finger_drawer_contacts=[0,0])
     command,_=replay.step(sample)
     assert command==pytest.approx([0.]*8)
@@ -168,7 +168,7 @@ def test_replay_step_does_not_call_adaptive_controller():
 
 
 def test_overload_blocks_otherwise_successful_drawer():
-    s=PhysicalScorer('drawer_cycle',[0,0,.2])
+    s=drawer_scorer()
     for i in range(30):
         x=row(i*.005);x['wrench']=[81.,0,0,0,0,0];s.update(x)
     assert s.report()['reason']=='wrist_overload'
@@ -209,7 +209,7 @@ def test_timeout_kills_interpreter_children(tmp_path,monkeypatch):
 
 
 def test_single_missing_200hz_sample_is_unscorable():
-    s=PhysicalScorer('drawer_cycle',[0,0,.2]);s.update(row(0));s.update(row(.01))
+    s=drawer_scorer();s.update(row(0));s.update(row(.01))
     assert s.report()['status']=='unscorable'
 
 
@@ -221,7 +221,8 @@ def test_missing_reference_velocity_is_not_silently_replaced():
 def test_drawer_retreat_goal_cannot_be_weakened_by_failed_donor_endpoint():
     from types import SimpleNamespace
     from simulation.evaluation.replay import scorer_for
-    donor=SimpleNamespace(grip_origin=np.array([.455,.105,.04]),axis=np.array([0.,0.,1.]),
-                          config=SimpleNamespace(clearance_m=.205))
-    s=scorer_for(donor,FrozenTrajectory(document()))
-    assert s.final==pytest.approx([.455,.105,.245])
+    from test_unified_drawer_scoring import MODEL
+    donor=SimpleNamespace(grip_origin=np.array([9.,9.,9.]),axis=np.array([1.,0.,0.]),
+                          config=SimpleNamespace(clearance_m=0.))
+    s=scorer_for(donor,FrozenTrajectory(document()),model=MODEL)
+    assert s.final==pytest.approx([.455,.105,.240])

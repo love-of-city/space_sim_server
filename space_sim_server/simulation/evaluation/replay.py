@@ -4,28 +4,32 @@ import json
 import numpy as np
 from .fixed_trajectory import FrozenTrajectory, sha256
 from .scoring import PhysicalScorer
+from simulation.policy_task_success import DrawerCycleSuccess, EVALUATION_PERIOD_NS
 
 
-def scorer_for(task, trajectory):
+def scorer_for(task, trajectory, *, model=None):
     kwargs={}
     if hasattr(task, 'hole'):
         kwargs=dict(hole=task.hole,hole_rotation=task.hole_rotation,
                     tip=task.config.shaft_tip_local_m,flange=task.config.flange_local_m,keyed=task.profile.keyed)
     final=trajectory.document['samples'][-1]['position_m']
     if trajectory.document['task']=='drawer_cycle':
-        # Delivered fixed model starts at zero slide displacement. Retreat is a
-        # task geometry requirement, independent of where a failed donor stops.
-        final=task.grip_origin+task.axis*task.config.clearance_m
+        # Share the policy monitor's full geometry/dwell criteria; no script flags.
+        if model is None:raise ValueError('Drawer benchmark scoring requires the immutable model, not controller targets')
+        monitor=DrawerCycleSuccess(model,sample_period_ns=EVALUATION_PERIOD_NS,mode="benchmark")
+        final=monitor.grip_origin+monitor.axis*monitor.config.clearance_m
+        kwargs['drawer_spec']=monitor.specification()
     return PhysicalScorer(trajectory.document['task'], final, **kwargs)
 
 
 def physical_row(sample, task, reference):
-    p,_=task.chain.forward(sample.joints[:6]);ref,_=task.chain.forward(reference[:6])
+    p,rotation=task.chain.forward(sample.joints[:6]);ref,_=task.chain.forward(reference[:6])
     row=dict(time_s=float(sample.time_s),tool_position_m=p.tolist(),reference_position_m=ref.tolist(),
              joint_position=sample.joints.tolist(),wrench=sample.wrench.tolist(),wrench_valid=bool(sample.wrench_valid))
     if hasattr(sample,'drawer_m'):
         row.update(drawer_m=float(sample.drawer_m),drawer_velocity_m_s=float(sample.drawer_velocity_m_s),
-                   buckle_rad=float(sample.buckle_rad),contacts=sample.finger_drawer_contacts)
+                   buckle_rad=float(sample.buckle_rad),contacts=sample.finger_drawer_contacts,
+                   tool_rotation=rotation.tolist(),joint_velocity=sample.joint_velocities.tolist())
     else:
         row.update(plug_position_m=sample.plug_position_body_m.tolist(),plug_rotation=sample.plug_rotation_body.tolist(),
                    plug_velocity_m_s=sample.plug_velocity_body_m_s.tolist(),plug_angular_velocity_rad_s=sample.plug_angular_velocity_body_rad_s.tolist(),
@@ -49,7 +53,7 @@ class FixedReplayTask:
         for q in self.trajectory.commands:
             if np.any(q[:6]<donor.lower) or np.any(q[:6]>donor.upper) or not 0<=q[6]<=1.01 or not -1.01<=q[7]<=0:
                 raise ValueError('Frozen reference violates actuator limits')
-        self.scorer=scorer_for(donor,self.trajectory)
+        self.scorer=scorer_for(donor,self.trajectory,model=model)
         self.name=donor.name;self.reference=np.asarray(initial).copy();self.velocity=np.zeros(8)
         self.stage='fixed_playback';self.result=None;self.reason='';self.events=[]
         self.max_force_n=0.;self.max_torque_nm=0.;self.last_physical_row=None
@@ -86,5 +90,7 @@ class FixedReplayTask:
 
     def scorer_spec(self):
         s=self.scorer
-        return deepcopy(dict(task=s.task,final_tool_position=s.final.tolist(),hole=None if s.hole is None else s.hole.tolist(),
-                             hole_rotation=s.hole_rotation.tolist(),tip=s.tip,flange=s.flange,keyed=s.keyed))
+        spec=dict(task=s.task,final_tool_position=s.final.tolist(),hole=None if s.hole is None else s.hole.tolist(),
+                  hole_rotation=s.hole_rotation.tolist(),tip=s.tip,flange=s.flange,keyed=s.keyed)
+        if s.drawer_monitor is not None:spec['drawer_spec']=s.drawer_monitor.specification()
+        return deepcopy(spec)

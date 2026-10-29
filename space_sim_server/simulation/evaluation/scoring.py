@@ -2,17 +2,28 @@
 import math
 import numpy as np
 from .fixed_trajectory import TASKS
+from simulation.policy_task_success import DrawerCycleSuccess, EVALUATION_PERIOD_NS
 
 
 class PhysicalScorer:
     version='space-arm-physical-score/1'
 
-    def __init__(self, task, final_tool_position, *, hole=None, hole_rotation=None, tip=.095, flange=.025, keyed=False):
+    def __init__(self, task, final_tool_position, *, hole=None, hole_rotation=None, tip=.095, flange=.025, keyed=False, drawer_spec=None):
         if task not in TASKS:raise ValueError('Unsupported evaluation task')
         self.task=task;self.final=np.array(final_tool_position,dtype=float)
         self.hole=None if hole is None else np.array(hole,dtype=float)
         self.hole_rotation=np.eye(3) if hole_rotation is None else np.array(hole_rotation,dtype=float)
         self.tip,self.flange,self.keyed=tip,flange,keyed
+        self.drawer_monitor=None
+        self.drawer_state={}
+        if task=='drawer_cycle':
+            self.version='space-arm-physical-score/2'
+            if drawer_spec is None:raise ValueError('Drawer scoring v2 requires a frozen drawer_spec; regenerate from complete raw observations')
+            self.drawer_monitor=DrawerCycleSuccess.from_spec(drawer_spec)
+            if self.drawer_monitor.sample_period_ns!=EVALUATION_PERIOD_NS:
+                raise ValueError('Drawer evaluation requires a 200 Hz drawer_spec')
+            if self.drawer_monitor.mode!='benchmark':
+                raise ValueError('Drawer evaluation requires benchmark task criteria, not calibrated expert-pose checks')
         if task!='drawer_cycle' and (self.hole is None or self.hole.shape!=(3,)):raise ValueError('Plug scorer requires its fixed interface pose')
         self.initial=None;self.last=None;self.hold=None;self.overload=None
         self.milestones=[False]*3;self.success=False;self.error=None;self.safety_failure=None
@@ -42,15 +53,24 @@ class PhysicalScorer:
                 if ref.shape!=(3,) or not np.isfinite(ref).all():raise ValueError('Invalid reference pose')
                 self.tracking_sum+=float(np.sum((p-ref)**2));self.tracking_count+=1
             if self.task=='drawer_cycle':
-                vals=np.array([row[k] for k in ['drawer_m','drawer_velocity_m_s','buckle_rad']],dtype=float)
-                if not np.isfinite(vals).all():raise ValueError('Invalid drawer state')
-                disp=vals[0]-float(self.initial['drawer_m']);self.peak_displacement=max(self.peak_displacement,float(disp))
-                closed=abs(disp)<=.002 and abs(vals[1])<.003 and abs(vals[2]-float(self.initial['buckle_rad']))<=.025
-                if disp>=.075 and abs(vals[1])<.003 and np.all(contacts>0):self.milestones[0]=True
-                if self.milestones[0] and closed and q[6]<.95:self.milestones[1]=True
-                if self.milestones[1] and closed and q[6]>.95 and np.all(contacts==0):self.milestones[2]=True
-                ready=self.milestones[2] and closed and q[6]>.95 and np.all(contacts==0) and np.linalg.norm(p-self.final)<.003
-                self.final_metrics=dict(drawer_displacement_m=float(disp),buckle_error_rad=float(vals[2]-float(self.initial['buckle_rad'])))
+                velocity=None
+                if 'joint_velocity' in row:
+                    velocity=np.asarray(row['joint_velocity'],dtype=float)
+                    if velocity.shape!=(8,) or not np.isfinite(velocity).all():raise ValueError('Invalid drawer joint velocity evidence')
+                sample=dict(sim_time_ns=round(t*1e9),drawer_position_m=row['drawer_m'],
+                            drawer_velocity_m_s=row['drawer_velocity_m_s'],buckle_rad=row['buckle_rad'],
+                            gripper_drive_position_rad=float(q[6]),finger_drawer_contacts=row['contacts'],
+                            end_effector_position_body_m=p.tolist(),end_effector_rotation_body=row.get('tool_rotation'),
+                            arm_joint_velocity_rad_s=None if velocity is None else velocity[:6].tolist())
+                if self.samples==0:self.drawer_monitor.reset(sample)
+                self.drawer_state=self.drawer_monitor.update(sample)
+                if not self.drawer_state['success_available']:
+                    raise ValueError(self.drawer_state['success_unavailable_reason'])
+                self.milestones=[self.drawer_state[k] for k in ['open_verified','seated_before_release_verified','release_verified']]
+                self.peak_displacement=self.drawer_state['peak_drawer_displacement_m']
+                self.success=bool(self.drawer_state['success'] and not self.safety_failure)
+                self.final_metrics=dict(drawer_displacement_m=float(row['drawer_m']-self.initial['drawer_m']),
+                                        buckle_error_rad=float(row['buckle_rad']-self.initial['buckle_rad']))
             else:
                 pos=np.asarray(row['plug_position_m'],dtype=float);rot=np.asarray(row['plug_rotation'],dtype=float)
                 vel=np.asarray(row['plug_velocity_m_s'],dtype=float);omega=np.asarray(row['plug_angular_velocity_rad_s'],dtype=float)
@@ -69,10 +89,11 @@ class PhysicalScorer:
                 if self.milestones[1] and seated and q[6]>=.62 and np.all(contacts==0):self.milestones[2]=True
                 ready=self.milestones[2] and seated and q[6]>=.62 and np.all(contacts==0) and np.linalg.norm(vel)<.002 and np.linalg.norm(omega)<.03 and np.linalg.norm(p[:2]-self.hole[:2])>=.09
                 self.final_metrics=dict(radial_error_m=radial,axis_error_rad=angle,orientation_error_rad=orient,insertion_depth_m=depth,seat_gap_m=gap)
-            if ready:
-                if self.hold is None:self.hold=t
-            else:self.hold=None
-            self.success=bool(self.hold is not None and t-self.hold>=2.-1e-9 and not self.safety_failure)
+            if self.task!='drawer_cycle':
+                if ready:
+                    if self.hold is None:self.hold=t
+                else:self.hold=None
+                self.success=bool(self.hold is not None and t-self.hold>=2.-1e-9 and not self.safety_failure)
             self.last=t;self.samples+=1
         except (KeyError,ValueError,TypeError,IndexError) as exc:
             self.error=str(exc);self.success=False
@@ -80,15 +101,23 @@ class PhysicalScorer:
     def report(self):
         valid=self.samples>=2 and self.error is None
         status='unscorable' if not valid else 'success' if self.success else 'task_failure'
+        extra={}
+        final_hold=0. if self.hold is None or self.last is None else self.last-self.hold
+        if self.drawer_monitor is not None:
+            state=self.drawer_state or self.drawer_monitor.status()
+            extra={key:state[key] for key in ['grasp_verified','max_grasp_hold_s','max_open_hold_s','max_seat_hold_s',
+                                             'hover_position_error_m','jaw_alignment_error_rad','criteria_mode','retreat_distance_m']}
+            extra['criteria_version']=state['task_version']
+            final_hold=state['verification_stable_s']
         return dict(schema=self.version,task=self.task,status=status,success=status=='success',
                     reason=self.error or self.safety_failure or ('physical_predicates_satisfied' if self.success else 'physical_predicates_not_satisfied'),
                     progress=(sum(self.milestones)+int(self.success))/4 if valid else None,
                     milestones=dict(zip(['opened_or_lifted','returned_or_inserted','released'],self.milestones)),
-                    final_hold_s=0. if self.hold is None or self.last is None else self.last-self.hold,
+                    final_hold_s=final_hold,
                     max_wrist_force_n=self.max_force,max_wrist_torque_nm=self.max_torque,
                     peak_object_displacement_m=self.peak_displacement,samples=self.samples,
                     tcp_tracking_rmse_m=math.sqrt(self.tracking_sum/self.tracking_count) if self.tracking_count else None,
-                    **self.final_metrics)
+                    **self.final_metrics,**extra)
 
 
 def aggregate(results):

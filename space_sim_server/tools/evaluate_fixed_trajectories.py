@@ -53,6 +53,69 @@ def score_recording(directory):
     return scorer.report()
 
 
+def rescore_drawer_trace(args):
+    """Reassess complete native measurements, never migrate old success flags."""
+    from simulation.policy_task_success import DrawerCycleSuccess,EVALUATION_PERIOD_NS
+    trace=args.trace.resolve();model=args.model.resolve()
+    report_path=trace.parent/'summary.json'
+    original=json.loads(report_path.read_text(encoding='utf-8'))
+    if original.get('task_name')!='drawer_cycle':raise ValueError('Raw reassessment requires a drawer_cycle trace')
+    if sha256(model)!=original.get('model_sha256'):raise ValueError('Raw trace model hash mismatch')
+    monitor=DrawerCycleSuccess(model,sample_period_ns=EVALUATION_PERIOD_NS,mode='benchmark')
+    spec=dict(task='drawer_cycle',final_tool_position=(monitor.grip_origin+monitor.axis*monitor.config.clearance_m).tolist(),
+              drawer_spec=monitor.specification())
+    scorer=PhysicalScorer(**spec)
+    source_hash=sha256(trace)
+    args.output.mkdir(parents=True,exist_ok=False)
+    write_json(args.output/'scorer_spec.json',spec)
+    fields={'joint_position':'joint_position','joint_velocity':'joint_velocity',
+            'tool_position_m':'tool_position_body_m','tool_rotation':'tool_rotation_body',
+            'drawer_m':'drawer_m','drawer_velocity_m_s':'drawer_velocity_m_s',
+            'buckle_rad':'buckle_rad','contacts':'finger_drawer_contacts'}
+    lines=0;source_errors=[]
+    with trace.open(encoding='utf-8') as raw,(args.output/'evaluation_rows.jsonl').open('x',encoding='utf-8') as evidence:
+        for lines,line in enumerate(raw,1):
+            try:record=json.loads(line)
+            except ValueError:
+                source_errors.append(f'Malformed raw JSON at line {lines}')
+                scorer.update({});evidence.write('{}\n');break
+            if not isinstance(record,dict):
+                source_errors.append(f'Invalid raw observation at line {lines}')
+                scorer.update({});evidence.write('{}\n');break
+            row={key:record[source] for key,source in fields.items() if source in record}
+            for key in [*fields,'reference_position_m','wrench','wrench_valid']:
+                if key in record:row[key]=record[key]
+            if 'time_s' in record:row['time_s']=record['time_s']
+            else:
+                try:row['time_s']=int(record['sim_time_ns'])*1e-9
+                except (KeyError,TypeError,ValueError,OverflowError):pass
+            wrench=record.get('wrist_wrench')
+            if isinstance(wrench,dict):
+                if isinstance(wrench.get('force_n'),list) and isinstance(wrench.get('torque_nm'),list):
+                    row['wrench']=wrench['force_n']+wrench['torque_nm']
+                if 'valid' in wrench:row['wrench_valid']=wrench['valid']
+            scorer.update(row);evidence.write(json.dumps(row)+'\n')
+    if lines==0:source_errors.append('Raw trace contains no observations')
+    if sha256(trace)!=source_hash:source_errors.append('Raw trace changed during reassessment')
+    if source_errors and (lines==0 or source_errors[-1]=='Raw trace changed during reassessment'):
+        # Preserve an invalid-observation witness so offline replay cannot accept
+        # a valid prefix after an ingestion failure.
+        scorer.update({})
+        with (args.output/'evaluation_rows.jsonl').open('a',encoding='utf-8') as evidence:evidence.write('{}\n')
+    score=scorer.report();write_json(args.output/'score.json',score)
+    sources={path:sha256(ROOT/path) for path in ['tools/evaluate_fixed_trajectories.py',
+             'simulation/policy_task_success.py','simulation/evaluation/scoring.py','simulation/evaluation/task_specs.py']}
+    for path in sources:
+        destination=args.output/'sources'/path;destination.parent.mkdir(parents=True,exist_ok=True)
+        destination.write_bytes((ROOT/path).read_bytes())
+    write_json(args.output/'provenance.json',dict(source_trace=str(trace),source_trace_sha256=source_hash,
+               source_report_sha256=sha256(report_path),source_report_result=original.get('result'),
+               model_sha256=sha256(model),evidence_sha256=sha256(args.output/'evaluation_rows.jsonl'),
+               scorer_spec_sha256=sha256(args.output/'scorer_spec.json'),source_errors=source_errors,sources=sources))
+    print(json.dumps(score),flush=True)
+    return 2 if score['status']=='unscorable' else 0
+
+
 def canonical(args):
     args.output.mkdir(parents=True,exist_ok=False)
     tasks=TASKS if args.task=='all' else [args.task]
@@ -83,7 +146,7 @@ def evaluate(args):
                   observer='native physical state; no visual policy',python=sys.version,platform=platform.platform(),
                   terminal_hold_s=2.5,
                   environment={k:v for k,v in os.environ.items() if k.startswith(('SPACE_SIM_ORBITAL_','SPACE_SIM_PLUG_RETENTION','SPACE_SIM_LOCAL_SUBSTEPS'))},
-                  sources={p:sha256(ROOT/p) for p in ['tools/evaluate_fixed_trajectories.py','tools/run_scripted_task.py','simulation/evaluation/fixed_trajectory.py','simulation/evaluation/scoring.py','simulation/evaluation/replay.py']})
+                  sources={p:sha256(ROOT/p) for p in ['tools/evaluate_fixed_trajectories.py','tools/run_scripted_task.py','simulation/evaluation/fixed_trajectory.py','simulation/evaluation/scoring.py','simulation/evaluation/replay.py','simulation/policy_task_success.py','simulation/evaluation/task_specs.py']})
     for relative in protocol['sources']:
         destination=args.output/'sources'/relative;destination.parent.mkdir(parents=True,exist_ok=True)
         destination.write_bytes((ROOT/relative).read_bytes())
@@ -147,8 +210,16 @@ def main():
         if name=='canonical':p.add_argument('--max-sim-seconds',type=float,default=360.)
         else:p.add_argument('--canonical-dir',type=Path,required=True);p.add_argument('--trials',type=int,default=10)
     p=sub.add_parser('rescore');p.add_argument('directory',type=Path)
+    p=sub.add_parser('rescore-drawer-trace',help='Reassess a complete native drawer trace under benchmark v2 criteria')
+    p.add_argument('--trace',type=Path,required=True)
+    p.add_argument('--model',type=Path,default=ROOT/'model/SARM/platform/sarm_20261012.xml')
+    p.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
-    if args.command=='rescore':print(json.dumps(score_recording(args.directory),indent=2));return 0
+    if args.command in ('rescore','rescore-drawer-trace'):
+        try:
+            if args.command=='rescore-drawer-trace':return rescore_drawer_trace(args)
+            print(json.dumps(score_recording(args.directory),indent=2));return 0
+        except (OSError,ValueError,KeyError,TypeError) as exc:parser.error(str(exc))
     if args.wall_timeout<=0 or not __import__('math').isfinite(args.wall_timeout):parser.error('wall-timeout must be finite and positive')
     if args.command=='evaluate' and args.trials<=0:parser.error('trials must be positive')
     if args.command=='canonical' and (args.max_sim_seconds<=0 or not __import__('math').isfinite(args.max_sim_seconds)):parser.error('max-sim-seconds must be finite and positive')

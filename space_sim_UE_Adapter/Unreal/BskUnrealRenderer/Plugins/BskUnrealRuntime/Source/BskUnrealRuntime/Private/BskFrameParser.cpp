@@ -374,6 +374,14 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
             ReadQuaternion(Object, TEXT("orientation_body_from_camera_wxyz"), Definition.OrientationBodyFromCameraWxyz, false, Error);
             if (!Error.IsEmpty()) return false;
             Object->TryGetNumberField(TEXT("field_of_view_rad"), Definition.FieldOfViewRadians);
+            if (Object->HasField(TEXT("vertical_field_of_view_rad"))
+                && (!Object->TryGetNumberField(TEXT("vertical_field_of_view_rad"), Definition.VerticalFieldOfViewRadians)
+                    || !FMath::IsFinite(Definition.VerticalFieldOfViewRadians)
+                    || Definition.VerticalFieldOfViewRadians < 0 || Definition.VerticalFieldOfViewRadians >= UE_DOUBLE_PI))
+            {
+                Error = TEXT("camera vertical_field_of_view_rad must be zero or in (0, pi)");
+                return false;
+            }
             if (Object->Values.Contains(TEXT("camera_mode"))
                 && !Object->TryGetStringField(TEXT("camera_mode"), Definition.CameraMode))
             {
@@ -386,6 +394,13 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
                     || Definition.FieldOfViewRadians <= 0.0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI)))
             {
                 Error = TEXT("invalid camera_mode or fisheye field_of_view_rad (requires 0 < fov < pi)");
+                return false;
+            }
+            if (Definition.VerticalFieldOfViewRadians > 0
+                && (Definition.CameraMode == TEXT("fisheye") || !FMath::IsFinite(Definition.FieldOfViewRadians)
+                    || Definition.FieldOfViewRadians <= 0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI))
+            {
+                Error = TEXT("independent pinhole vertical FOV requires valid horizontal FOV and non-fisheye mode");
                 return false;
             }
             const TArray<TSharedPtr<FJsonValue>>* Resolution = nullptr;

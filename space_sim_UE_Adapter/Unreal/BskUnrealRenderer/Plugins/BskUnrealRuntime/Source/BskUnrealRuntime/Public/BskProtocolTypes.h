@@ -104,6 +104,7 @@ struct BSKUNREALRUNTIME_API FBskCameraDefinition
     FQuat4d OrientationBodyFromCameraWxyz = FQuat4d::Identity;
     FString CameraMode = TEXT("rgb");
     double FieldOfViewRadians = PI / 3.0;
+    double VerticalFieldOfViewRadians = 0.0; // Zero: derive from raster aspect.
     FIntPoint Resolution = FIntPoint(1920, 1080);
     FString SemanticLabel;
     bool bPictureInPicture = false;

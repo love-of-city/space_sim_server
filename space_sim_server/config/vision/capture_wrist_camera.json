@@ -1,0 +1,44 @@
+{
+  "camera_id": "teleop/camera/capture_wrist_cam",
+  "camera_count": 1,
+  "camera_model": "Virtual pinhole: independent 100 x 100 degree FOV",
+  "sensor": "Sony IMX392",
+  "lens": "Virtual optics; not the nominal 6 mm lens",
+  "model": "ideal_pinhole",
+  "resolution_wh": [
+    1920,
+    1200
+  ],
+  "K": [
+    [
+      805.5356459301888,
+      0,
+      959.5
+    ],
+    [
+      0,
+      503.459778706368,
+      599.5
+    ],
+    [
+      0,
+      0,
+      1
+    ]
+  ],
+  "distortion_model": "none",
+  "distortion_coefficients": [],
+  "fov_xy_deg": [
+    100,
+    100
+  ],
+  "capture_rate_hz": 10,
+  "global_shutter": true,
+  "max_exposure_ms_requirement": 2.0,
+  "intrinsics_version": "capture-wrist-fov100x100-1920x1200-v1",
+  "calibration_status": "nominal_virtual_fov_not_hardware_calibration",
+  "optical_axes": "x_right_y_down_z_forward",
+  "mount": "Existing capture gripper outer end face; 0 degree axis retained",
+  "parameter_source": "User requested 100 x 100 degree FOV with 1920x1200 and all other settings unchanged",
+  "capture_note": "Native 1920x1200 rendering at 10 Hz; independent projection axes; no finite-time motion blur"
+}

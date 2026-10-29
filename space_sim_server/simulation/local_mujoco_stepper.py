@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -161,6 +162,8 @@ def _library():
     lib.lms_id2name.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     lib.lms_joint.argtypes = [ctypes.c_void_p, ctypes.c_int, _INT64_P]
     lib.lms_body_inertial.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
+    lib.lms_body_com_velocities.argtypes = [ctypes.c_void_p, _DOUBLE_P]
+    lib.lms_body_inertias.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_free_joints.argtypes = [ctypes.c_void_p, _INT64_P, ctypes.c_int]
     lib.lms_set_servo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double]
     lib.lms_set_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
@@ -317,6 +320,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         super().__init__()
         self.ModelTag = "localMujocoStepper"
         self.scene = scene
+        self.model_xml_sha256 = hashlib.sha256(Path(model_path).read_bytes()).hexdigest()
+        self._checkpoint_restored = False
         self.origin = origin or OrbitOrigin()
         self.orbital_environment: OrbitalForceProvider | None = None
         self._previous_origin = None
@@ -718,6 +723,42 @@ class LocalMujocoStepper(sysModel.SysModel):
             self._check(self._lib.lms_set_state(self._handle, _pointer(saved_q), _pointer(saved_v)), 'restore initial state')
         return result
 
+    def assembly_truth(self, model_path, root_names):
+        """Fresh native COMs/velocities/inertias for independent scoring only."""
+        import xml.etree.ElementTree as ET
+        from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+        cache = getattr(self, '_assembly_score_bodies', None)
+        if cache is None:
+            root = ET.parse(model_path).getroot()
+            ids = {self._name(_OBJ_BODY, i): i for i in range(self.nbody)}
+            def attached(body):
+                if body.get('name') in ids:
+                    yield ids[body.get('name')]
+                for child in body.findall('body'):
+                    if child.find('freejoint') is None and child.find('joint[@type="free"]') is None:
+                        yield from attached(child)
+            cache = {name: list(attached(root.find(f"./worldbody/body[@name='{name}']"))) for name in root_names}
+            self._assembly_score_bodies = cache
+        positions, velocities = np.zeros((self.nbody, 3)), np.zeros((self.nbody, 3))
+        masses = np.zeros(self.nbody)
+        self._check(self._lib.lms_body_coms(self._handle, _pointer(positions), _pointer(masses)), 'score COMs')
+        self._check(self._lib.lms_body_com_velocities(self._handle, _pointer(velocities)), 'score COM velocities')
+        inertias = np.zeros((self.nbody, 3, 3))
+        self._check(self._lib.lms_body_inertias(self._handle, _pointer(inertias)), 'score body inertias')
+        r_o, v_o = self._previous_origin
+        result = {}
+        for name, selected in cache.items():
+            mass = masses[selected].sum()
+            centre = np.sum(positions[selected]*masses[selected, None], axis=0)/mass
+            delta = positions[selected]-centre
+            tensor = np.sum(inertias[selected]+masses[selected, None, None]*(
+                np.sum(delta**2, axis=1)[:, None, None]*np.eye(3)-delta[:, :, None]*delta[:, None, :]), axis=0)
+            rotation = quaternion_wxyz_to_matrix(self.body_detail(name)[3:7])
+            result[name] = dict(position_n_m=centre+r_o,
+                velocity_n_m_s=np.sum(velocities[selected]*masses[selected, None], axis=0)/mass+v_o,
+                inertia_com_body_kg_m2=rotation.T@tensor@rotation)
+        return result
+
     def _verify_mass_properties(self) -> None:
         """The publish-only copy must describe the same masses as this model.
 
@@ -776,6 +817,64 @@ class LocalMujocoStepper(sysModel.SysModel):
         return (np.asarray(self._qpos_state.getState(), dtype=float).reshape(-1),
                 np.asarray(self._qvel_state.getState(), dtype=float).reshape(-1))
 
+    def physical_snapshot(self, *, epoch_ns=0):
+        """All inertial coordinates, including detached tools and wheel angles.
+
+        This is one versioned extension of a mission checkpoint, not a mission
+        acceptance decision. Navigation, sensor RNGs, environment and controller
+        references must be checkpointed by their respective owners as well.
+        """
+        if self._last_nanos is None or self._published_q is None:
+            raise RuntimeError('physical checkpoint requires a published native state')
+        if type(epoch_ns) is not int or epoch_ns < 0:
+            raise ValueError('invalid physical checkpoint epoch offset')
+        position, velocity = self.origin.state(self._last_nanos*1e-9)
+        return dict(schema='space-sim-native-physical-state/1',
+            model_xml_sha256=self.model_xml_sha256, nq=self.nq, nv=self.nv,
+            time_ns=epoch_ns+self._last_nanos, substeps=self.substeps,
+            free_qpos=self.free_qpos.tolist(), free_dof=self.free_dof.tolist(),
+            qpos_inertial=self._published_q.tolist(), qvel_inertial=self._published_v.tolist(),
+            origin_position_m=position.tolist(), origin_velocity_m_s=velocity.tolist())
+
+    def restore_physical_snapshot(self, document):
+        """Initialize once after MJScene Reset, before any native update.
+
+        Validate everything before touching a physical state. qvel free-joint
+        translation is inertial and angular velocity is body-referenced, exactly
+        as in the existing MJScene bulk-state contract.
+        """
+        if self._last_nanos is not None or self._checkpoint_restored:
+            raise RuntimeError('physical checkpoint can only initialize an unstepped scene once')
+        if (document.get('schema') != 'space-sim-native-physical-state/1'
+                or document.get('model_xml_sha256') != self.model_xml_sha256
+                or (document.get('nq'), document.get('nv'), document.get('substeps')) != (self.nq, self.nv, self.substeps)
+                or document.get('free_qpos') != self.free_qpos.tolist()
+                or document.get('free_dof') != self.free_dof.tolist()):
+            raise ValueError('physical checkpoint model or layout mismatch')
+        epoch = document['time_ns']
+        if type(epoch) is not int or epoch < 0:
+            raise ValueError('invalid physical checkpoint epoch')
+        values = [np.asarray(document[k], dtype=float) for k in
+                  ('qpos_inertial', 'qvel_inertial', 'origin_position_m', 'origin_velocity_m_s')]
+        if ([v.shape for v in values] != [(self.nq,), (self.nv,), (3,), (3,)]
+                or not all(np.isfinite(v).all() for v in values)):
+            raise ValueError('invalid physical checkpoint coordinates')
+        q, v, position, velocity = values
+        if any(not np.isclose(np.linalg.norm(q[qa+3:qa+7]), 1., atol=1e-8, rtol=0)
+               for qa in self.free_qpos):
+            raise ValueError('physical checkpoint has a nonunit free-body quaternion')
+        self._bind_scene()
+        previous_position, previous_velocity = self.origin.state(0.)
+        self.origin.shift(position-previous_position, velocity-previous_velocity, 0.)
+        self._qpos_state.setState(q.reshape(-1, 1))
+        self._qvel_state.setState(v.reshape(-1, 1))
+        # Publish initial conditions without advancing either integrator. The
+        # first native tick adopts these coordinates through the standard path.
+        self.scene.postIntegration(0)
+        self.scene.UpdateState(0)
+        self._checkpoint_restored = True
+        return epoch
+
     def _invalidate_orbital_forces(self) -> None:
         """Held differential forces depend on positions relative to O; recompute next step."""
         self._orbital_forces_current = False
@@ -808,6 +907,7 @@ class LocalMujocoStepper(sysModel.SysModel):
 
     # --- Basilisk interface -------------------------------------------------------
     def Reset(self, current_sim_nanos: int) -> None:
+        self._checkpoint_restored = False
         self.wrench_sample_time_ns = None
         self.wrench_interval_end_ns = None
         self._last_nanos = None

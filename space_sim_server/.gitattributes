@@ -18,6 +18,8 @@ model/SARM/platform/sarm_dual_capture26*.xml text eol=lf
 # Supplied reference packages are verified byte-for-byte by FILES.sha256.
 config/vision/vendor/** -text -whitespace
 config/visual_attachments/target_aruco_5cm/** -text -whitespace
+# The operating geometry is bound byte-for-byte by the mission configuration.
+config/missions/capture26-demo-geometry.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 
 # Visual attachment source assets follow the model/UE LFS policy.
 config/visual_attachments/**/*.obj filter=lfs diff=lfs merge=lfs -text

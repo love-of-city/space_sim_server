@@ -180,7 +180,7 @@ try {
     $simulationArgs = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'run_simulation.ps1'),
         '-AdapterRoot', $AdapterRoot, '-ModelRoot', $ModelRoot,
-        '-ControlPort', $ControlPort, '-RenderPort', $RenderPort,
+        '-ControlPort', $ControlPort, '-RenderPort', $RenderPort, '-CapturePort', $CapturePort,
         '-Duration', 0.0, '-SimulationRate', $simulationRate,
         '-CaptureRate', $captureRate, '-IkRate', $ikRate,
         '-SceneInstancePath', $SceneInstancePath

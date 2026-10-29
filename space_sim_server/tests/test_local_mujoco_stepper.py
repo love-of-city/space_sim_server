@@ -146,6 +146,48 @@ def run_to(simulation, seconds):
     simulation.ExecuteSimulation()
 
 
+def test_full_physical_checkpoint_keeps_tools_joints_wheels_and_origin(model_path):
+    import json
+    origin = OrbitOrigin()
+    origin.shift(np.array([10., 20., 30.]), np.array([1., 2., 3.]), 0.)
+    original, _, core, keep = build(model_path, 'local', wheel_torque=.1, origin=origin)
+    run_to(original, .25)
+    saved = json.loads(json.dumps(core.physical_snapshot(epoch_ns=2_500_000)))
+    resumed, _, next_core, next_keep = build(model_path, 'local', wheel_torque=.1)
+    assert next_core.restore_physical_snapshot(saved) == saved['time_ns']
+    run_to(resumed, 0.)
+    restored = next_core.physical_snapshot(epoch_ns=saved['time_ns'])
+    assert restored['qpos_inertial'] == saved['qpos_inertial']
+    assert restored['qvel_inertial'] == saved['qvel_inertial']
+    assert restored['origin_position_m'] == saved['origin_position_m']
+    assert restored['origin_velocity_m_s'] == saved['origin_velocity_m_s']
+    assert next_core.external_writes == 0
+    with pytest.raises(RuntimeError, match='unstepped scene once'):
+        next_core.restore_physical_snapshot(saved)
+    assert keep and next_keep  # Retain all native message owners until teardown.
+
+
+@pytest.mark.parametrize('invalid', ['model', 'quaternion', 'nan'])
+def test_invalid_physical_checkpoint_is_rejected_before_initialization(model_path, invalid):
+    original, _, core, keep = build(model_path, 'local')
+    run_to(original, .1)
+    saved = core.physical_snapshot()
+    resumed, _, next_core, next_keep = build(model_path, 'local')
+    if invalid == 'model':
+        saved['model_xml_sha256'] = '0'*64
+    elif invalid == 'quaternion':
+        saved['qpos_inertial'][3:7] = [0.]*4
+    else:
+        saved['qvel_inertial'][0] = float('nan')
+    with pytest.raises(ValueError, match='physical checkpoint'):
+        next_core.restore_physical_snapshot(saved)
+    # Rejection is atomic: a correct document can still initialize this scene.
+    next_core.restore_physical_snapshot(core.physical_snapshot())
+    run_to(resumed, .1)
+    assert next_core.external_writes == 0
+    assert keep and next_keep
+
+
 def arm_history(model_path, backend, substeps=1):
     simulation, scene, stepper, keep = build(model_path, backend, substeps=substeps)
     reader = scene.getBody("link").getScalarJoint("arm").stateOutMsg.addSubscriber()
@@ -382,3 +424,26 @@ def test_servo_can_be_connected_after_construction(model_path):
     assert set(stepper.actuator_names[i] for i in stepper.command_index) == set()
     run_to(simulation, 0.5)
     assert stepper.servos_finalized
+
+
+def test_independent_assembly_inertia_tracks_articulation_and_analytic_sphere(model_path):
+    from simulation.assembly_geometry import AssemblyGeometry
+    simulation, scene, stepper, keep = build(model_path, 'local')
+    readers = {name: (scene.getBody(body).getScalarJoint(name).stateOutMsg.addSubscriber(),
+        scene.getBody(body).getScalarJoint(name).stateDotOutMsg.addSubscriber())
+        for name, body in (('arm', 'link'), ('wheel_spin', 'wheel'))}
+    geometry = AssemblyGeometry(model_path, stepper.body_inertial, roots=('bus',))
+    tensors = []
+    for elapsed in (.1, .5, 1.):
+        run_to(simulation, elapsed)
+        q, v = stepper.qpos.copy(), stepper.qvel.copy()
+        actual = stepper.assembly_truth(model_path, ('bus', 'ball'))
+        estimated = geometry.evaluate(round(elapsed*1e9), {n: [p().state, d().state] for n, (p, d) in readers.items()})
+        np.testing.assert_allclose(actual['bus']['inertia_com_body_kg_m2'],
+            estimated['bus']['inertia_com_body_kg_m2'], atol=1e-12)
+        np.testing.assert_allclose(actual['ball']['inertia_com_body_kg_m2'],
+            np.eye(3)*(.4*.2*.05**2), atol=1e-15)
+        np.testing.assert_array_equal(stepper.qpos, q)
+        np.testing.assert_array_equal(stepper.qvel, v)
+        tensors.append(actual['bus']['inertia_com_body_kg_m2'])
+    assert np.linalg.norm(tensors[-1]-tensors[0]) > .001

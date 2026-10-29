@@ -5,6 +5,7 @@
     "Unreal/BskUnrealRenderer/tests/test_protocol_v2.py": "Real Basilisk message/bridge integration (basic wire tests run separately)"
   },
   "nodes": {
+    "Unreal/BskUnrealRenderer/tests/test_vision_capture_transport.py::test_restored_frame_and_exposure_keep_mission_epoch_on_sensor_grid": "Real Basilisk SysModel bridge and absolute mission clock; run in the native simulation environment. Verified alongside native gyro/stepper continuity tests.",
     "Unreal/BskUnrealRenderer/tests/test_vision_capture_transport.py::test_default_bridge_does_not_request_vision": "Real Basilisk SysModel bridge; run in the native simulation environment. Pure FIFO and descriptor tests remain in basic CI.",
     "Unreal/BskUnrealRenderer/tests/test_vision_capture_transport.py::test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idle": "Real Basilisk SysModel bridge; run in the native simulation environment. Pure FIFO and descriptor tests remain in basic CI.",
     "Unreal/BskUnrealRenderer/tests/test_vision_capture_transport.py::test_vision_rejects_invalid_sampling_rate": "Real Basilisk SysModel constructor; run in the native simulation environment. Pure FIFO and descriptor tests remain in basic CI.",

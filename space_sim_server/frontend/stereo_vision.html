@@ -26,7 +26,9 @@ async function refresh(){
  const response=await fetch('/api/vision/status',{cache:'no-store'});
  if(response.status===401){document.getElementById('state').textContent='请先在仿真工作台登录';return}
  const s=await response.json(),r=s.last_result;
- document.getElementById('state').textContent=s.stale?'等待当前场景的双目原图':r?('单目 L:'+r.provided_monocular?.left?.status+' R:'+r.provided_monocular?.right?.status+' ｜ 双目融合:'+r.status+' · 源帧 '+r.source_frame_id+' · 同步差 '+r.stereo_skew_ns+' ns'):'已收到图像，等待配对／计算';
+ const mono=r?.provided_monocular;
+ const comparison=mono?('单目 L:'+mono.left?.status+' R:'+mono.right?.status+' ｜ '):'';
+ document.getElementById('state').textContent=s.stale?'等待当前场景的双目原图':r?(comparison+'双目解算:'+r.status+' · 源帧 '+r.source_frame_id+' · 同步差 '+r.stereo_skew_ns+' ns'):'已收到图像，等待配对／计算';
  const frame=r?(r.session_id+':'+r.source_frame_id):String(s.received_images);
  if(frame!==lastFrame){lastFrame=frame;await Promise.all(['left','right'].map(e=>draw(e,frame,r?.detected_corners_px?.[e])))}
  document.getElementById('result').textContent=JSON.stringify({result:r,last_error:s.last_error,received_images:s.received_images,matched_pairs:s.matched_pairs,processed_pairs:s.processed_pairs,dropped_pairs:s.dropped_pairs,rejected_pairs:s.rejected_pairs},null,2);

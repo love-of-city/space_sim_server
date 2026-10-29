@@ -22,10 +22,17 @@ class AttitudeComponent:
 
     name = "attitude"
 
-    def __init__(self, model_path: Any, *, enabled: bool | None = None) -> None:
+    def __init__(self, model_path: Any, *, enabled: bool | None = None,
+                 estimated_navigation=None, initial_attitude_prior=None, reference_provider=None,
+                 control_rate_hz=None, control_mode=None) -> None:
         self.model_path = model_path
         self.enabled = enabled
         self.control: Any = None
+        self.estimated_navigation = estimated_navigation
+        self.initial_attitude_prior = initial_attitude_prior
+        self.reference_provider = reference_provider
+        self.control_rate_hz = control_rate_hz
+        self.control_mode = control_mode
 
     def install(self, ctx: AssemblyContext) -> None:
         from simulation.attitude_control import AttitudeControl
@@ -44,13 +51,14 @@ class AttitudeComponent:
             from space_arm_platform.sampling import DYNAMICS_HZ
             from simulation.attitude_control import load_settings
 
-            rate = load_settings(self.model_path.with_name("attitude_control.json"))["control_rate_hz"]
+            rate = self.control_rate_hz or load_settings(self.model_path.with_name("attitude_control.json"))["control_rate_hz"]
             every = int(round(DYNAMICS_HZ / rate))
             # The chain reads body states, which the core publishes every
             # `publish_stride` steps. It installs itself outside ctx.add, so apply
-            # the same rule here: a faster chain would reuse a stale state.
+            # the same rule here. An injected NavAtt estimate has an independent
+            # update rate and never reads the thinned physical body message.
             stride = max(1, int(ctx.config.publish_stride))
-            if every > 1 and every % stride:
+            if self.estimated_navigation is None and every > 1 and every % stride:
                 from simulation.physics_ports import PortError
                 raise PortError(
                     f"attitude control at {rate:g} Hz runs every {every} physics steps, not a multiple "
@@ -58,7 +66,10 @@ class AttitudeComponent:
             physics_grid = (ctx.config.physics_task, ATTITUDE_CHAIN_PRIORITY, every, ctx.clock)
         control = AttitudeControl(
             ctx.simulation, self._process(ctx), ctx.scene, self.model_path,
-            enabled=self.enabled, drive_task=drive_task, physics_grid=physics_grid)
+            enabled=self.enabled, drive_task=drive_task, physics_grid=physics_grid,
+            estimated_navigation=self.estimated_navigation,
+            initial_attitude_prior=self.initial_attitude_prior, reference_provider=self.reference_provider,
+            control_rate_hz=self.control_rate_hz, control_mode=self.control_mode)
         self.control = control
         ctx.simulation.attitude_control = control
         ctx.extra["attitude_control"] = control

@@ -469,17 +469,28 @@ class SceneRuntimeManager:
         if handoff is not None:
             from datetime import datetime, timedelta
             from .rendezvous_config import FlightOptions
-            if request.template_id != SELF_COLLISION_TEMPLATE or handoff.get("accepted") is not True:
+            capture26 = handoff.get('model_id') == 'sarm-dual-capture26'
+            if capture26:
+                from simulation.capture26_handoff import validate
+                handoff = validate(handoff, self.project_root)
+                if request.template_id != 'sarm-dual-capture26' or handoff['phase'] != 'NearParked':
+                    raise ValueError('capture26 operations require the same model and an accepted NearParked handoff')
+            elif request.template_id != SELF_COLLISION_TEMPLATE or handoff.get("accepted") is not True:
                 raise ValueError("handoff requires the original team model and an accepted flight")
             physics = FlightOptions.from_dict(handoff.get("mission_options", {})).physics
             if "orbital_physics" in request.model_fields_set and request.orbital_physics != physics:
                 raise ValueError("handoff must preserve the flight orbital physics configuration")
             instance["environment"]["physics"] = physics.model_dump(mode="json")
             epoch = datetime.strptime(handoff["ephemeris_epoch_utc"], "%Y %B %d %H:%M:%S.%f")
-            epoch += timedelta(seconds=float(handoff["state"]["sim_time_s"]))
+            epoch += timedelta(seconds=handoff['time_ns']*1e-9 if capture26 else float(handoff["state"]["sim_time_s"]))
             instance["environment"]["ephemeris_epoch_utc"] = epoch.strftime("%Y %B %d %H:%M:%S.%f")
             instance["rendezvous_handoff"] = handoff
-            instance["randomization"]["arm_joint_position_rad"] = [0.0] * 8
+            instance["randomization"]["arm_joint_position_rad"] = (
+                handoff['control']['operating_reference'] if capture26 else [0.0] * 8)
+            if capture26:
+                instance['capture26_output_directory'] = str(self.project_root/'run/capture26-operations'/instance['instance_id'])
+                instance['render_profile']['vision_capture'] = dict(enabled=True,
+                    config_file='config/vision/capture26_rendezvous_stereo.json')
             instance["arm_preparation_required"] = False
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")

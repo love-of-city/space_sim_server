@@ -7,7 +7,7 @@
 // The HUD must disclose auto-framing: screen separation alone is not a ruler.
 namespace BskRelativeView
 {
-    inline FTransform Overview(const FVector& Primary, const FVector& Secondary, double HorizontalFovDegrees, double FixedDistanceCentimeters = 0.0)
+    inline FTransform Overview(const FVector& Primary, const FVector& Secondary, double HorizontalFovDegrees, double FixedDistanceCentimeters = 0.0, double MinimumDistanceCentimeters = 1000.0)
     {
         FVector Right = (Secondary - Primary).GetSafeNormal();
         if (Right.IsNearlyZero()) Right = FVector::RightVector;
@@ -17,7 +17,7 @@ namespace BskRelativeView
         const FVector Forward = FVector::CrossProduct(Right, Up).GetSafeNormal();
         const double HalfFov = FMath::DegreesToRadians(FMath::Clamp(HorizontalFovDegrees, 10.0, 120.0) * 0.5);
         const double Distance = FixedDistanceCentimeters > 0.0 ? FixedDistanceCentimeters
-            : FMath::Max(1000.0, (Secondary - Primary).Length() * 0.65 / FMath::Tan(HalfFov));
+            : FMath::Max(MinimumDistanceCentimeters, (Secondary - Primary).Length() * 0.65 / FMath::Tan(HalfFov));
         return FTransform(FRotationMatrix::MakeFromXZ(Forward, Up).ToQuat(),
                           (Primary + Secondary) * 0.5 - Forward * Distance);
     }

@@ -2,6 +2,44 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {missionPresentation, createMissionPanel, missionArtifactLinks} from '../mission_panel.js';
 
+test('demo dwell, completion and safety persist independently of sensor diagnostics and live telemetry', () => {
+  const nodes = new Map();
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value:'', textContent:'', addEventListener() {},
+      querySelectorAll:() => [], getContext:() => ({clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}}),
+      width:620, height:200});
+    return nodes.get(id);
+  };
+  const panel = createMissionPanel({$, state:{}, message() {}, reconnect() {}});
+  const meta = {model:'capture26', acceptance_profile:'simulation_state_demo_v1', node:'Optical17p4m',
+    phase:'Optical17p4m', position_qualified:true, velocity_qualified:true, position_error_m:.02,
+    velocity_error_m_s:.001, at_node:true, dwell_s:3.2, dwell_remaining_s:1.8, optical_depth_m:17.42,
+    completed_nodes:['Vbar50m'], sensor_health:{gnss:false, gyros:[false,false]}, visual:{count:0,reason:'no image'}};
+  const mission = {stage:'flight', phase:'flight', active:true, can_manage:true,
+    options:{model_id:'sarm-dual-capture26'}, telemetry:{state:{metadata:meta}}};
+  panel.render(mission);
+  assert.match($('missionNavigation').textContent, /仿真状态反馈/);
+  assert.match($('parkingDwell').textContent, /3.2.*5.0.*1.8/);
+  assert.match($('parkingQualification').textContent, /位置合格.*速度合格/);
+  assert.equal($('parkingSummary').hidden, false);
+  assert.match($('parkingDistance').textContent, /光学深度 17.42 m/);
+  assert.match($('parkingProgress').textContent, /50 m.*已完成/);
+  assert.match($('nearCapture').textContent, /失效.*0\/10/);
+  assert.equal($('nearCameraDepth').textContent, '17.4200 m');
+  panel.render({...mission, telemetry:{state:{metadata:{...meta, at_node:false}}}});
+  assert.match($('parkingNode').textContent, /正在接近/);
+  assert.match($('parkingQualification').textContent, /距当前停泊参考/);
+  panel.render({...mission, telemetry:{state:{metadata:{...meta, phase:'SafeHold', reason:'operator emergency stop'}}}});
+  assert.match($('missionPhase').textContent, /安全保持.*operator emergency stop/);
+  panel.render({...mission, phase:'completed', active:false, telemetry:{}, report:{
+    acceptance_profile:meta.acceptance_profile, outcome:'NearParked', basic_nominal_passed:true,
+    final:{...meta,node:'PlatformStandoff',tcp_gap_m:.5,dwell_s:5,dwell_remaining_s:0,
+      completed_nodes:['Vbar50m','Optical17p4m','VisualReady5p5m','PlatformStandoff']}}});
+  assert.match($('missionPhase').textContent, /作业位置保持中.*0.50 m/);
+  assert.match($('parkingProgress').textContent, /作业位置.*已完成/);
+  assert.match($('missionResult').textContent, /仿真状态反馈下的运动演示通过/);
+});
+
 test('starting conditions and the full mission lifecycle keep the same workbench and gate inputs', async () => {
   const previousOption = globalThis.Option;
   globalThis.Option = class { constructor(label, value) { this.value = value; } };
@@ -145,6 +183,32 @@ test('handoff preserves the owned mission lifecycle', () => {
   assert.equal(missionPresentation(run).canStart, false);
   assert.equal(missionPresentation(run).canStop, true);
   assert.equal(missionPresentation(run, 'team-in-orbit').canHandoff, false);
+});
+
+test('capture26 sensor health belongs to the receiving scene and tolerates missing observations', () => {
+  const nodes = new Map();
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value: '', textContent: '',
+      addEventListener() {}, querySelectorAll: () => [],
+      getContext: () => ({clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}}), width: 620, height: 200});
+    return nodes.get(id);
+  };
+  const panel = createMissionPanel({$, state: {}, message() {}, reconnect() {}, configureScene() {}});
+  const mission = {mission_id: 'capture26', stage: 'teleop', phase: 'running', scene_instance_id: 'receiving'};
+  const observation = {scene_instance_id: 'receiving', capture26_navigation: {
+    phase: 'OperationsReady', gnss_healthy: true, gyro_health: [true, true],
+    service_angular_rate_rad_s: .001, service_angular_rate_stable: true,
+    visual: {ready: true, count: 10, exposure_age_s: .2, reason: 'ready'}}};
+  panel.render(mission);
+  assert.equal($('missionNavigation').textContent, '—');
+  panel.render(mission, observation);
+  assert.match($('missionNavigation').textContent, /GNSS 正常.*视觉就绪/);
+  assert.match($('nearCapture').textContent, /10\/10/);
+  assert.match($('nearCapture').textContent, /服务星角速度 0\.00100 rad\/s 稳定/);
+  panel.render(mission, {...observation, scene_instance_id: 'previous'});
+  assert.equal($('missionNavigation').textContent, '—');
+  panel.render({...mission, scene_instance_id: undefined}, {...observation, scene_instance_id: undefined});
+  assert.equal($('missionNavigation').textContent, '—');
 });
 
 for (const stateFirst of [false, true]) for (const savedMode of ['teleop', 'team-in-orbit', 'team-orbit-raise']) for (const savedDelay of [undefined, .17]) {

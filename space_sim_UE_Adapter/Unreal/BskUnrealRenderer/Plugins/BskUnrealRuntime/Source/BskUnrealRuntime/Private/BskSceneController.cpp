@@ -76,6 +76,7 @@
 #include "VideoProducerRenderTarget.h"
 #include "RHICommandList.h"
 #include "RHIGPUReadback.h"
+#include "BskVisionPng.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/MemoryWriter.h"
@@ -447,12 +448,21 @@ void AddBigEndianUint32(TArray<uint8>& Bytes, uint32 Value)
     Bytes.Add(static_cast<uint8>(Value & 0xff));
 }
 
+int32 VisionPngQuality()
+{
+    // Both modes preserve every rendered pixel. Level 1 bounds localhost
+    // bandwidth while avoiding the default encoder's extra compression work.
+    static const bool bFast = FParse::Param(FCommandLine::Get(), TEXT("BskVisionFastPng"));
+    return bFast ? -1 : -3;
+}
+
 bool CompressPng(const TArray<FColor>& Pixels, int32 Width, int32 Height, TArray<uint8>& OutBytes)
 {
+    if (VisionPngQuality() == -1) return BskEncodeVisionPng(Pixels, Width, Height, OutBytes);
     IImageWrapperModule& Module = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
     const TSharedPtr<IImageWrapper> Wrapper = Module.CreateImageWrapper(EImageFormat::PNG);
     if (!Wrapper.IsValid() || !Wrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), Width, Height, ERGBFormat::BGRA, 8)) return false;
-    const TArray64<uint8>& Compressed = Wrapper->GetCompressed(-3);
+    const TArray64<uint8>& Compressed = Wrapper->GetCompressed(VisionPngQuality());
     if (Compressed.Num() > MAX_int32) return false;
     OutBytes.Append(Compressed.GetData(), static_cast<int32>(Compressed.Num()));
     return true;
@@ -1071,6 +1081,23 @@ void ABskSceneController::Tick(float DeltaSeconds)
         auto& Module = IPixelStreaming2Module::Get();
         RegisterWorkLightInput(Module.FindStreamer(Module.GetDefaultStreamerID()));
         for (const auto& Pair : PixelStreamingCameraStreamers) RegisterWorkLightInput(Pair.Value);
+        FBskRelativeViewState View;
+        if (GetRelativeViewState(View))
+        {
+            if (auto* Light = Cast<USpotLightComponent>(ResolveCameraWorkLight(Module.GetDefaultStreamerID())))
+            {
+                // The overview moves from kilometres to metres. Keep the
+                // presentation work light useful throughout that camera range;
+                // its old 10 m radius left both spacecraft dark at hold points.
+                // This is display illumination, not a spacecraft actuator.
+                const double RangeCm = FMath::Max(300.0, FMath::Max(
+                    FVector::Distance(Light->GetComponentLocation(), View.PrimaryCentimeters),
+                    FVector::Distance(Light->GetComponentLocation(), View.SecondaryCentimeters)));
+                const double Scale = FMath::Min(RangeCm / 300.0, 10000.0);
+                Light->SetIntensity(static_cast<float>(150000.0 * Scale * Scale));
+                Light->SetAttenuationRadius(static_cast<float>(FMath::Max(1000.0, RangeCm * 3.0)));
+            }
+        }
     }
     // Drain after STOP too: accepted strict jobs retain their original episode.
     PollCaptureJobs();
@@ -2376,6 +2403,33 @@ void ABskSceneController::ApplyEvent(const FBskRenderEvent& Event)
             FString EventSimTimeString;
             if (Payload->TryGetStringField(TEXT("sim_time_ns"), EventSimTimeString)) LexTryParseString(EventSimTime, *EventSimTimeString);
             View.SimulationTimeNanoseconds = EventSimTime;
+            if (Event.EventKind == TEXT("near_field_status"))
+            {
+                bool bWorkingView = false;
+                if (Payload->TryGetBoolField(TEXT("capture26_working_view"), bWorkingView))
+                {
+                    APlayerController* Player = GetWorld()->GetFirstPlayerController();
+                    if (auto* Pawn = Player ? Cast<ABskCameraPawn>(Player->GetPawn()) : nullptr)
+                        Pawn->bCapture26WorkingView = bWorkingView;
+                }
+            }
+            if (Event.EventKind == TEXT("capture26_stage_snapshot"))
+            {
+                FString Directory, Filename;
+                if (FParse::Value(FCommandLine::Get(), TEXT("BskDemoEvidenceDir="), Directory)
+                    && Payload->TryGetStringField(TEXT("filename"), Filename)
+                    && Filename == FPaths::GetCleanFilename(Filename) && Filename.EndsWith(TEXT(".png")))
+                {
+                    Directory = FPaths::ConvertRelativePathToFull(Directory);
+                    IFileManager::Get().MakeDirectory(*Directory, true);
+                    const FString Path = FPaths::Combine(Directory, Filename);
+                    FTimerHandle Timer;
+                    GetWorld()->GetTimerManager().SetTimer(Timer, [Path]()
+                    {
+                        FScreenshotRequest::RequestScreenshot(Path, true, false);
+                    }, 0.15f, false);
+                }
+            }
             if (Event.EventKind == TEXT("command_result"))
             {
                 FString CommandId;
@@ -3555,15 +3609,20 @@ void ABskSceneController::PollCaptureJobs()
         // access in the worker. Bound parallel work by MaxAsyncCaptureJobs.
         Job->Encoded = Async(EAsyncExecution::ThreadPool,
             [Pixels = MoveTemp(Pixels), Wrapper = MoveTemp(Job->Wrapper), Size = Job->Resolution,
-             bVision = Job->Request.Purpose == EBskCapturePurpose::AuthoritativeVision]() mutable
+             bVision = Job->Request.Purpose == EBskCapturePurpose::AuthoritativeVision,
+             PngQuality = VisionPngQuality()]() mutable
             {
                 FCapturedDataProduct Product{TEXT("rgb"),
                     bVision ? TEXT("png/bgra8_srgb") : TEXT("jpeg/bgra8_srgb/quality95"),
                     bVision ? TEXT("png") : TEXT("jpg")};
-                if (Wrapper && Wrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor),
+                if (bVision && PngQuality == -1)
+                {
+                    BskEncodeVisionPng(Pixels, Size.X, Size.Y, Product.Bytes);
+                }
+                else if (Wrapper && Wrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor),
                                                Size.X, Size.Y, ERGBFormat::BGRA, 8))
                 {
-                    const TArray64<uint8>& Bytes = Wrapper->GetCompressed(bVision ? -3 : 95);
+                    const TArray64<uint8>& Bytes = Wrapper->GetCompressed(bVision ? PngQuality : 95);
                     if (Bytes.Num() <= MAX_int32) Product.Bytes.Append(Bytes.GetData(), static_cast<int32>(Bytes.Num()));
                 }
                 return Product;

@@ -1,4 +1,4 @@
-"""Three-wheel inertial attitude hold for the authoritative SARM MJScene.
+"""Three-wheel attitude hold or body-rate damping for authoritative MJScene.
 
 Only joint motors inject torque.  No independently integrated spacecraft or
 additional bus torque is created.  Hardware is read from MJCF; gains from JSON.
@@ -237,9 +237,12 @@ class InitialReference(sysModel.SysModel):
         if owner.reference_mrp is not None:
             return
         state = owner.state_reader()
-        owner.reference_mrp = np.asarray(state.sigma_BN, dtype=float)
+        owner.reference_mrp = (np.asarray(state.sigma_BN, dtype=float) if owner.initial_attitude_prior is None
+                               else np.asarray(owner.initial_attitude_prior, dtype=float))
         owner.reference.sigma_R0N = owner.reference_mrp.tolist()
-        c_bn = rbk.MRP2C(owner.reference_mrp)
+        # Mass properties are physical configuration, independent of the
+        # navigation prior and reference orientation.
+        c_bn = rbk.MRP2C(state.sigma_BN)
         origin = np.asarray(state.r_BN_N)
         parts = []
         for name, mass, com, inertia in owner.parts:
@@ -288,7 +291,9 @@ class TrajectoryAttitudeReference(sysModel.SysModel):
 class AttitudeControl:
     """Own the BSK guidance/control chain and the three native wheel drives."""
     def __init__(self, simulation, process, scene, model_path: Path, *, enabled=None,
-                 drive_task=None, physics_grid=None, reference_provider=None):
+                 drive_task=None, physics_grid=None, reference_provider=None,
+                 estimated_navigation=None, initial_attitude_prior=None, control_rate_hz=None,
+                 control_mode=None):
         """``drive_task=(task_name, priority)`` schedules the wheel drives on a
         fixed-rate task (local dynamics backend) instead of every MJScene stage.
 
@@ -300,10 +305,24 @@ class AttitudeControl:
         timestamps correspond to the state it actually used.
         """
         self.scene = scene
+        if estimated_navigation is not None and initial_attitude_prior is None:
+            raise ValueError('estimated attitude control requires an explicit startup prior')
+        self.initial_attitude_prior = initial_attitude_prior
         from simulation.sarm_model_profile import load_model_profile
         profile = load_model_profile(model_path)
         self.wheels, self.parts = load_hardware(model_path, inertia_reader=simulation.local_stepper.body_inertial if profile.linkage else None)
         self.settings = load_settings(model_path.with_name('attitude_control.json'))
+        if control_mode is not None:
+            if control_mode not in ('initial_inertial_hold', 'body_rate_damping'):
+                raise ValueError('unsupported attitude control mode')
+            self.settings = {**self.settings, 'mode': control_mode}
+        damping = self.settings['mode'] == 'body_rate_damping'
+        if damping and reference_provider is not None:
+            raise ValueError('body-rate damping cannot track an attitude reference')
+        if control_rate_hz is not None:
+            if control_rate_hz not in (20, 50, 100):
+                raise ValueError('unsupported attitude control rate')
+            self.settings = {**self.settings, 'control_rate_hz': control_rate_hz}
         self.enabled = self.settings['enabled'] if enabled is None else bool(enabled)
         self.cached_speed_reads = drive_task is not None
         self.bus = scene.getBody('cubesat_bus')
@@ -364,11 +383,15 @@ class AttitudeControl:
         self.reference = add(TrajectoryAttitudeReference(self, reference_provider) if reference_provider else inertial3D.inertial3D(),
                              'sarmTrajectoryReference' if reference_provider else 'sarmInertial3D', 800)
         add(InitialReference(self), 'sarmInitialAttitudeReference', 1000)
-        nav = add(simpleNav.SimpleNav(), 'sarmTruthNavigation', 900)
-        nav.scStateInMsg.subscribeTo(self.bus.getCenterOfMass().stateOutMsg)
+        if estimated_navigation is None:
+            nav = add(simpleNav.SimpleNav(), 'sarmTruthNavigation', 900)
+            nav.scStateInMsg.subscribeTo(self.bus.getCenterOfMass().stateOutMsg)
+            att_nav = nav.attOutMsg
+        else:
+            att_nav = estimated_navigation
         error = add(attTrackingError.attTrackingError(), 'sarmAttitudeError', 700)
         self.tracking_error = error  # Optional orbit-frame reference uses the same wheel controller.
-        error.attNavInMsg.subscribeTo(nav.attOutMsg)
+        error.attNavInMsg.subscribeTo(att_nav)
         error.attRefInMsg.subscribeTo(self.reference.attRefOutMsg)
         speeds = add(scalarJointStatesToRWSpeed.ScalarJointStatesToRWSpeed(), 'sarmWheelSpeeds', 600)
         speeds.setNumJoints(len(self.wheels))
@@ -376,7 +399,10 @@ class AttitudeControl:
             speeds.jointStateInMsgs[i].subscribeTo(joint.stateDotOutMsg)
         controller = add(mrpFeedback.mrpFeedback(), 'sarmMrpPD', 500)
         self.controller = controller
-        controller.K = self.settings['mrp_proportional_gain_nm']
+        # Zero reference rate/acceleration and no attitude proportional term:
+        # neither the target attitude nor a fixed startup heading is tracked.
+        # InitialReference still initializes the physical assembly inertia.
+        controller.K = 0. if damping else self.settings['mrp_proportional_gain_nm']
         controller.P = self.settings['rate_derivative_gain_nm_s']
         controller.Ki = -1.0  # Integral action disabled; no saturation windup.
         controller.integralLimit = 0.0
@@ -416,6 +442,7 @@ class AttitudeControl:
         speeds = [float(read().state) for read in self._speed_readers]
         angle = 4 * math.atan(float(np.linalg.norm(error)))
         angle = min(angle, 2 * math.pi - angle)
+        damping = self.settings['mode'] == 'body_rate_damping'
         return {
             'attitude_control': {
                 'enabled': self.enabled,
@@ -425,9 +452,9 @@ class AttitudeControl:
                 'state_time_ns': str(self.state_reader.timeWritten()),
                 'control_time_ns': str(self.control_time_ns),
                 'orientation_inertial_wxyz': quaternion.tolist(),
-                'reference_orientation_inertial_wxyz': reference.tolist(),
+                'reference_orientation_inertial_wxyz': None if damping else reference.tolist(),
                 'angular_velocity_body_rad_s': list(state.omega_BN_B),
-                'attitude_error_angle_rad': angle,
+                'attitude_error_angle_rad': None if damping else angle,
                 'control_rate_hz': self.settings['control_rate_hz'],
                 'saturated': any(d.torque_limited or d.speed_limited for d in self.drives)
                     or any(abs(v) >= w.max_speed for v, w in zip(speeds, self.wheels)),

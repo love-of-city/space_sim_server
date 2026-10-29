@@ -265,6 +265,10 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 /* Mission panels use the existing control rail and the single shared viewport. */
 [hidden] { display: none !important; }
 .mission-note { color: var(--muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.mission-parking { padding: 12px; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.mission-parking p { margin: 5px 0 0; }
+.mission-parking #parkingDwell { font-variant-numeric: tabular-nums; font-weight: 600; }
+#missionEmergencyStop { width: 100%; margin: 0 0 12px; }
 .mission-options { font-size: 11px; }
 .mission-options summary { cursor: pointer; margin-bottom: 10px; }
 .mission-options small { display: block; line-height: 1.6; color: var(--muted); }

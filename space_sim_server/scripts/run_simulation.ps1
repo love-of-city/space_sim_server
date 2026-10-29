@@ -3,6 +3,7 @@ param(
     [string]$AdapterRoot = '',
     [string]$ModelRoot = '',
     [int]$ControlPort = 8766,
+    [int]$CapturePort = 8767,
     [int]$RenderPort = 5558,
     [double]$Duration = 0.0,
     [double]$SimulationRate = 1.0,
@@ -64,7 +65,7 @@ $arguments = @(
     '--adapter-root', ([IO.Path]::GetFullPath($AdapterRoot)),
     '--model-root', ([IO.Path]::GetFullPath($ModelRoot)),
     '--catalog', ([IO.Path]::GetFullPath($catalog)),
-    '--control-port', $ControlPort, '--render-port', $RenderPort,
+    '--control-port', $ControlPort, '--render-port', $RenderPort, '--capture-port', $CapturePort,
     '--duration', $Duration, '--simulation-rate', $SimulationRate,
     '--capture-rate', $CaptureRate, '--ik-rate', $IkRate
 )

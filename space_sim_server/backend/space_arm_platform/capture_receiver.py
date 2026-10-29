@@ -267,10 +267,15 @@ class CaptureReceiver:
                 break
             with connection:
                 connection.settimeout(2.0)
+                # Full-resolution stereo packets are followed by a one-byte
+                # admission ACK. Do not let Nagle delay that control response.
+                connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 16 * 1024 * 1024)
                 reader = FramedSocketReader(MAX_CAPTURE_BYTES)
                 while not self._stop.is_set():
                     try:
                         metadata, products = self._receive(connection, reader)
+                        metadata['received_wall_time_ns'] = str(time.time_ns())
                         self.route_capture(metadata, products)
                         if metadata.get("ack_required"):
                             # One packet in flight at UE. ACK only after bounded

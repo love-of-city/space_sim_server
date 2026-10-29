@@ -73,6 +73,7 @@ def main():
     from space_arm_platform.stereo_capture_packet import capture_packet, publish_packet
     from simulation import teleop_grasp_unreal as teleop
     from simulation.near23_capture import configure_scene, CONFIG
+    from simulation.local_mujoco_stepper import LocalMujocoStepper
     # Load the existing benchmark harness; latest simulation modules above take
     # precedence, while source model/STL resources remain in the source tree.
     spec = importlib.util.spec_from_file_location('near23_benchmark',
@@ -226,6 +227,18 @@ def main():
         def add_mj_scene(self, scene, **kwargs):
             kwargs['mesh_asset_catalog'] = Path(static['catalog'])
             return super().add_mj_scene(scene, **kwargs)
+    native_telemetry = LocalMujocoStepper.telemetry
+    last_live_telemetry = {}
+    def trial_telemetry(stepper):
+        # The legacy benchmark requests a summary after teleop closes physics.
+        # Main's new diagnostics require a live handle. Cache only a successful
+        # live read (teleop emits one before closing), without changing physics
+        # or attempting to read a freed native object.
+        if stepper._handle:
+            last_live_telemetry[id(stepper)] = native_telemetry(stepper)
+        if id(stepper) not in last_live_telemetry:
+            raise RuntimeError('no live native telemetry snapshot was captured')
+        return copy.deepcopy(last_live_telemetry[id(stepper)])
     try:
         env = os.environ.copy(); env['UE-LocalDataCachePath'] = str(source/'run/ddc_capture26')
         process = subprocess.Popen(command, cwd=project, env=env, stdout=subprocess.DEVNULL,
@@ -250,6 +263,7 @@ def main():
         with patch.object(bsk_render_adapter,'BasiliskRenderBridge',LiveBridge), \
              patch.object(teleop,'SimulationControlClient',IsolatedClient), \
              patch.object(teleop,'RENDER_HZ',10), \
+             patch.object(LocalMujocoStepper,'telemetry',trial_telemetry), \
              patch.object(mjcf_assets,'_compiled_source_mesh_poses',lambda _:static['compiled_mesh_poses']):
             try:
                 runner.benchmark(trial_args)

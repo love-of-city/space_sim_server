@@ -1,0 +1,17 @@
+{
+  "schema": "visual-gyro-capture-regression/1",
+  "seed": 26016,
+  "scene": "scene.json",
+  "vision_runtime": "vision_runtime.json",
+  "initial_gap_m": 0.5,
+  "hold_s": 20,
+  "stop_after_hold_s": 22,
+  "max_sim_s": 300,
+  "max_wall_s": 1800,
+  "max_target_translation_mm": 10,
+  "max_target_rotation_deg": 2,
+  "reference_precontact_translation_mm": 0.05,
+  "reference_precontact_rotation_deg": 0.005,
+  "source_scene_sha256": "385f07058a65238fff020a352d3f7b252e7e5019e924e23a82f60176f14416c7",
+  "scope": "One retained nominal initial condition; not a reliability or hardware tolerance claim."
+}

@@ -1,0 +1,5 @@
+{
+  "python_executable": "$VISION_PYTHON",
+  "wrist_evaluation_directory": "$OUTPUT/vision",
+  "evidence_directory": "$OUTPUT/evidence"
+}

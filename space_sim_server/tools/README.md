@@ -9,3 +9,7 @@
 - `deployment/`：部署、认证与环境验证。
 
 实际采集内部实现位于 `collection/`；六种任务控制器位于 `simulation/scripted_tasks/`。
+
+视觉＋陀螺尾段抓取的独立原生回归使用
+`scripts/run_visual_gyro_capture.ps1`。配置、环境参数和验收边界见
+[完整复现说明](../docs/VISUAL_GYRO_CAPTURE_REPRODUCTION.md)；它不启动六任务采集。

@@ -20,6 +20,23 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class TrialFinished(Exception):
+    pass
+
+
+class TrialCompletion:
+    """Request inside a native callback, finish at the next Python loop gate."""
+    def __init__(self):
+        self.requested = False
+
+    def has_capacity(self):
+        # Throwing through a Basilisk/SWIG director erases the exception type.
+        # The outer loop calls this gate before ExecuteSimulation instead.
+        if self.requested:
+            raise TrialFinished()
+        return True
+
+
 def read(path):
     return json.loads(Path(path).read_text('utf-8-sig'))
 
@@ -42,7 +59,8 @@ def main():
     if not out.is_relative_to((ROOT/'run').resolve()):
         raise ValueError('private trial output must be inside this server run directory')
     out.mkdir(parents=True, exist_ok=False); (out/'images').mkdir()
-    adapter = source.parent/'space_sim_UE_Adapter'
+    adapter = ROOT.parent/'space_sim_UE_Adapter'
+    render_assets = source.parent/'space_sim_UE_Adapter'
     sys.path[:0] = [str(args.native_runtime.resolve()), str(ROOT), str(ROOT/'backend'),
                     str(adapter/'Adapters'), str(source/'run/end_stereo_20261023')]
     sys.modules['mujoco'] = None  # Native Basilisk ABI; never load standalone MuJoCo.
@@ -87,7 +105,7 @@ def main():
         time.sleep(.02)
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
-    project = adapter/'Unreal/BskUnrealRenderer'; streamer = 'Near23Gyro'+str(os.getpid())
+    project = render_assets/'Unreal/BskUnrealRenderer'; streamer = 'Near23Gyro'+str(os.getpid())
     command = ['C:/Program Files/Epic Games/UE_5.6/Engine/Binaries/Win64/UnrealEditor-Cmd.exe',
         str(project/'BskUnrealRenderer.uproject'), '-game', '-unattended', '-nop4', '-nosplash',
         '-RenderOffscreen', '-ForceRes', '-ResX=1280', '-ResY=800', '-BskListen=127.0.0.1',
@@ -108,14 +126,13 @@ def main():
     mailbox = ROOT/setup['capture_export']
     last_observation = {}
     holding_since = None
-
-    class TrialFinished(Exception):
-        pass
+    last_capture_ns = 0
+    completion = TrialCompletion()
 
     class IsolatedClient(teleop.SimulationControlClient):
         def start(self): pass
         def wait_until_ready(self, *a, **k): pass
-        def has_observation_capacity(self, *a, **k): return True
+        def has_observation_capacity(self, *a, **k): return completion.has_capacity()
         def send_observation(self, message):
             last_observation.clear(); last_observation.update(message)
             logs['observations'].write(json.dumps(message)+'\n')
@@ -135,7 +152,7 @@ def main():
                 lighting_overrides=False, original_native_work_light_parameters=True))
             wire.retain_manifest(msg)
         def publish_frame(self, frame):
-            nonlocal holding_since
+            nonlocal holding_since, last_capture_ns
             self.sink.publish_frame(frame)
             msg = copy.deepcopy(frame)
             msg.pop('vision_capture_requested', None); msg.pop('vision_capture_camera_ids', None)
@@ -152,6 +169,10 @@ def main():
                     time.sleep(.2)
                 self.lighting_confirmed = True
                 print('ORIGINAL_NATIVE_WORK_LIGHTS_VERIFIED', flush=True)
+                # The native lamp components persist after preview disconnect.
+                # RGB feedback uses authoritative captures, so release the
+                # browser/encoder once the original work lights are verified.
+                (out/'stop_browser').touch()
             if not capture: return
             pairs = {}; deadline = time.monotonic()+60
             while len(pairs)<len(self.expected):
@@ -181,6 +202,7 @@ def main():
                 for eye, blob in blobs.items(): (out/'images'/f'{frame["frame_id"]}_{eye}.jpg').write_bytes(blob)
             stats['scored_pairs'] += 1; stats['rejected_pairs'] += result['status']!='ok'
             stats['injected_lost_pairs'] += dropped
+            last_capture_ns = ns
             if stats['scored_pairs']%50 == 0:
                 print(json.dumps(dict(type='near23_gyro_images', t=ns/1e9, **stats,
                                       used_ids=result.get('used_ids'), status=result['status'])), flush=True)
@@ -191,7 +213,7 @@ def main():
                 raise RuntimeError('trial stopped by local stop_trial request')
             if status == 'predictive_hold_force':
                 if holding_since is None: holding_since = ns/1e9
-                if ns/1e9-holding_since >= args.hold_seconds: raise TrialFinished()
+                if ns/1e9-holding_since >= args.hold_seconds: completion.requested = True
             else:
                 holding_since = None
         def close(self): pass  # Outer scope owns and closes the private transport.
@@ -233,7 +255,8 @@ def main():
                 runner.benchmark(trial_args)
             except TrialFinished:
                 pass
-        write(out/'completed.json',dict(duration_sim_s=args.duration, **stats,
+        write(out/'completed.json',dict(duration_sim_s=last_capture_ns/1e9,
+            requested_duration_sim_s=args.duration, **stats,
             physics='actual LocalMujocoStepper + native Basilisk + contact + shared 50 Hz gyro',
             image_feedback_only=True, simulation_code_root=str(ROOT), model_resource_root=str(source),
             no_live_control_connection=True, lockstep=True, measured_latency_test=False,

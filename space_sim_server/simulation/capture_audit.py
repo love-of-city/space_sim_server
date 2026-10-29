@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 class CaptureAudit:
-    def __init__(self, model, stepper):
+    def __init__(self, model, stepper, *, output_path=None):
         self.stepper=stepper
         self.feedback={}
         self.filtered_pad_force=0.
@@ -17,7 +17,8 @@ class CaptureAudit:
                 if g.get('name'):self.geom_body[g.get('name')]=name
             for child in body.findall('body'):walk(child,root)
         for body in ET.parse(model).findall('./worldbody/body'):walk(body,body.get('name'))
-        self.path=Path(__file__).resolve().parents[1]/'run/capture_contact_audit.jsonl'
+        self.path=(Path(output_path) if output_path is not None else
+                   Path(__file__).resolve().parents[1]/'run/capture_contact_audit.jsonl')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.file=self.path.open('w',encoding='utf-8');self.count=0
         self.file.write(json.dumps(dict(type='schema', rate_hz=400, body_fields='position_local_m[3],quaternion_wxyz[4],omega_world[3],velocity_world[3],native_time_s',contact_force_frame='contact frame; normal first',native_pose_note='post-step kinematic cache; sampled before next step, no extra forward'))+'\n')

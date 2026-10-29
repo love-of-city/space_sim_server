@@ -1,5 +1,6 @@
 {
   "schema": "capture26-stereo-vision/1",
+  "preserve_original_lighting": true,
   "camera_ids": {
     "left": "teleop/camera/capture_stereo_left",
     "right": "teleop/camera/capture_stereo_right"

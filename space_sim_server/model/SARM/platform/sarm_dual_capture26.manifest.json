@@ -1,6 +1,6 @@
 {
   "base_commit": "7f01764",
-  "base_model": "model/SARM/platform/sarm_20261012.xml",
+  "base_model": "model/SARM/platform/sarm_20261012_capture_base.xml",
   "base_sha256": "0d6e28ea9c0e1255ce19f41292269500dffdfd5560050c2086d0a95ac8057cc0",
   "source_gripper_sha256": "ff37fbe67069d5038104fef01a97465c6b3af89f0282c7cb043424a032eac3f6",
   "model_sha256": "1485987b90df5eff177743fbe6d34985d262f56dfa94b676d6c62627d3867c9c",
@@ -25,9 +25,9 @@
   ],
   "sha256": "1485987b90df5eff177743fbe6d34985d262f56dfa94b676d6c62627d3867c9c",
   "sources": {
-    "model/SARM/platform/sarm_20261012.xml": "b8e77f3a20e7ddf5b27cc00b4df49214d529ac03607b4ef25da5513bc579d84f"
+    "model/SARM/platform/sarm_20261012_capture_base.xml": "b8e77f3a20e7ddf5b27cc00b4df49214d529ac03607b4ef25da5513bc579d84f"
   },
-  "source_compatibility": "The current base adds only the rendering-only wrist_lamp from 15a771e to the historical base_commit/base_sha256. Body inertia, geometry, joints, cameras and actuators are unchanged; the authored dual model is unchanged.",
+  "source_compatibility": "Capture26 remains bound to the frozen pre-collection base from main@94bdd75, including its rendering-only wrist lamp. The collection base now adds a bolt-storage female thread; the authored capture model, geometry, dynamics and materials remain unchanged.",
   "mount_clearance_changes": [
     {
       "geom": "base_link_geom",

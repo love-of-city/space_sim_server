@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 np = pytest.importorskip('numpy')
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('wing_builder', ROOT/'tools/build_satellite_wing_joint.py')
+spec = importlib.util.spec_from_file_location('wing_builder', ROOT/'tools/assets/build_satellite_wing_joint.py')
 wing = importlib.util.module_from_spec(spec); spec.loader.exec_module(wing)
 FOLDER = ROOT/'model/ground_validation_satellite'
 OUTPUT = FOLDER/wing.OUTPUT_XML
@@ -112,7 +112,7 @@ def test_colors_assets_and_original_model_unchanged():
 def test_preview_vertices_equal_mujoco_forward_kinematics(monkeypatch,angle):
     mujoco=pytest.importorskip('mujoco')
     monkeypatch.syspath_prepend(str(ROOT/'tools'))
-    from preview_satellite_wing_joint import geometry,pose
+    from tools.diagnostics.preview_satellite_wing_joint import geometry,pose
     model=mujoco.MjModel.from_xml_path(str(OUTPUT));data=mujoco.MjData(model)
     mujoco.mj_forward(model,data);template=geometry(model,data)
     vertices,_=pose(template,model,data,angle)

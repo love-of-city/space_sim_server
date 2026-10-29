@@ -15,7 +15,7 @@ try {
     } else { $null }
     Push-Location $root
     try {
-        & $Python (Join-Path $root 'tools/verify_remote_platform.py')
+        & $Python (Join-Path $root 'tools/deployment/verify_remote_platform.py')
         if ($LASTEXITCODE -ne 0) { throw 'Remote platform verification failed.' }
     } finally { Pop-Location }
 } finally {

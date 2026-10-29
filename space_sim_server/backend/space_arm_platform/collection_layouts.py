@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 STREAM = "task-box-layout-selection-v1"
+OPERATION_CLEARANCE_SCHEMA = "task-box-operation-clearance/1"
 
 
 def digest(path):
@@ -47,14 +48,26 @@ def validate_entry(entry):
                       (report, "native_report"), (manifest, "manifest")):
         if digest(path) != entry[key + "_sha256"]:
             raise ValueError(f"Layout {entry['id']} has a changed {key}")
+    saved = json.loads(manifest.read_text())
+    clearance = saved.get("operational_clearance")
+    if (not isinstance(clearance, dict)
+            or clearance.get("schema") != OPERATION_CLEARANCE_SCHEMA):
+        raise ValueError(
+            f"Layout {entry['id']} lacks current operational clearance; "
+            "regenerate layouts and prepare a new pool"
+        )
     record = validated_capture_layout(model, catalog)
     if record["schema"] not in ("task-box-layout/2", "task-box-layout/3"):
         raise ValueError("Collection requires independent installation-unit layouts")
     native = json.loads(report.read_text())
     if (native.get("passed") is not True or native.get("initial_states_preserved") is not True
             or native.get("model_sha256") != entry["model_sha256"]
-            or native.get("source_model_sha256") != record["source_sha256"]):
-        raise ValueError(f"Layout {entry['id']} lacks matching native geometry acceptance")
+            or native.get("source_model_sha256") != record["source_sha256"]
+            or native.get("operation_clearance_schema") != clearance["schema"]):
+        raise ValueError(
+            f"Layout {entry['id']} lacks matching native geometry acceptance with current "
+            "operational clearance; regenerate layouts and prepare a new pool"
+        )
     return record
 
 
@@ -91,12 +104,22 @@ class LayoutPool:
 
         entries = self.document["layouts"]
         index = int(generator(seed, STREAM).integers(len(entries)))
+        return self.select_index(index, seed)
+
+    def select_index(self, index, seed, *, stream=STREAM):
+        """Select an explicitly planned layout without replacement or resampling."""
+        entries = self.document["layouts"]
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(entries):
+            raise ValueError("Layout index is outside the pool")
         entry = deepcopy(entries[index])
         record = validate_entry(entry)  # Fail closed if assets changed since startup.
-        selection = dict(enabled=True, stream=STREAM, selection_seed=int(seed),
+        selection = dict(enabled=True, stream=stream, selection_seed=int(seed),
                          pool_sha256=self.sha256, pool_size=len(entries), pool_index=index,
                          layout_id=entry["id"], layout_seed=record["seed"],
                          model_sha256=entry["model_sha256"], catalog_sha256=entry["catalog_sha256"],
+                         operation_clearance_schema=record["operational_clearance"]["schema"],
+                         native_report_sha256=entry["native_report_sha256"],
+                         acceptance_scope="native_geometry",
                          offsets_body_xy_m=record["offsets_body_xy_m"],
                          installation_yaw_rad=record.get("installation_yaw_rad", {}),
                          initial_states_randomized=False)

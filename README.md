@@ -25,6 +25,8 @@ GNSS、双目、双星陀螺及导航滤波继续运行与记录，图像计数�
 
 平台碰撞、预览时钟与短录制编码的性能改进及验证方法见[性能优化记录](archive/2026_10_14_平台碰撞与预览采集性能优化.md)。更新后需重新构建 SARM 原生插件与 UE 运行时。
 
+当前采集功能、代码入口及合并后的验收状态统一记录在[采集功能基线](space_sim_server/docs/COLLECTION_BASELINE.md)。`archive/` 是历史实验，不应直接作为当前功能或性能结论。
+
 ## 首次获取与安装
 
 Windows 完整网页平台使用 PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。Linux 已提供原生一键启动、停止和网页场景管理，见 [Linux 一键部署](space_sim_server/docs/LINUX_DEPLOYMENT.md)；环境安装与真实采集见 [Linux 基础迁移](space_sim_server/docs/LINUX_BASIC_MIGRATION.md)。

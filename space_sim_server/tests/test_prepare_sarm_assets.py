@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools import prepare_sarm_assets as prep
+from tools.assets import prepare_sarm_assets as prep
 
 
 @pytest.fixture

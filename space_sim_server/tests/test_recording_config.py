@@ -4,7 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from space_arm_platform.app import PlatformConfig, create_app
-from space_arm_platform.recording_config import load_recording_config
+from space_arm_platform.recording_config import (
+    H264_ENCODER_PRESETS, NVENC_ENCODER_PRESETS, VideoEncodingConfig, load_recording_config,
+)
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -59,6 +61,12 @@ def test_missing_recording_file_defaults_to_no_image_copies(tmp_path):
     '{"video": {"streaming_encoding": true, "codec": "h264_nvenc", "keyframe_interval": 1}}',
     '{"video": {"quality": 25}}',
     '{"video": {"typo": true}}',
+    '{"video": {"streaming_encoding": true, "encoder_preset": "p1"}}',
+    '{"video": {"streaming_encoding": true, "encoder_preset": "unknown"}}',
+    '{"video": {"streaming_encoding": true, "codec": "h264_nvenc", "encoder_preset": "veryfast"}}',
+    '{"video": {"streaming_encoding": true, "codec": "h264_nvenc", "encoder_preset": "p8"}}',
+    '{"video": {"encoder_preset": "veryfast"}}',
+    '{"video": {"streaming_encoding": true, "encoder_preset": 1}}',
     '{broken',
 ])
 def test_bad_recording_configuration_fails_explicitly(tmp_path, document):
@@ -73,11 +81,20 @@ def test_streaming_performance_settings_roundtrip(tmp_path):
     path.write_text(json.dumps({
         "scripted_native_geometry": True, "capture_backpressure_poll_s": 0.002,
         "video": {"streaming_encoding": True, "codec": "h264_nvenc", "quality": 24,
-                  "keyframe_interval": 2, "encoder_queue_maxsize": 8},
+                  "keyframe_interval": 2, "encoder_queue_maxsize": 8, "encoder_preset": "p2"},
     }), encoding="utf-8")
     config = load_recording_config(path)
     assert config.scripted_native_geometry and config.capture_backpressure_poll_s == .002
     assert config.video.quality == 24 and config.video.keyframe_interval == 2
+    assert config.video.encoder_preset == "p2"
+
+
+@pytest.mark.parametrize("codec,presets", [("h264", H264_ENCODER_PRESETS), ("h264_nvenc", NVENC_ENCODER_PRESETS)])
+def test_codec_specific_presets_are_supported(codec, presets):
+    assert VideoEncodingConfig(codec=codec).encoder_preset is None
+    for preset in presets:
+        config = VideoEncodingConfig(codec=codec, streaming_encoding=True, encoder_preset=preset)
+        assert config.model_dump()["encoder_preset"] == preset
 
 
 def test_file_defaults_reach_scene_and_episode_requests(tmp_path, monkeypatch):

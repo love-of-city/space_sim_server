@@ -16,6 +16,7 @@ def queued_encoder():
     encoder._frame_queues = {"camera": queue.Queue(maxsize=1)}
     encoder._result_queues = {"camera": queue.Queue()}
     encoder._accepted = {"camera": 0}
+    encoder._metrics = {"camera": encoder._empty_metrics()}
     return encoder
 
 
@@ -37,6 +38,7 @@ def test_full_video_queue_backpressures_instead_of_dropping():
         assert done.wait(2)
         np.testing.assert_array_equal(encoder._frame_queues["camera"].get(), frame + 1)
         assert encoder._accepted["camera"] == 2
+        assert encoder._metrics["camera"]["queue_wait_wall_seconds"] >= .1
     finally:
         worker.join(timeout=2)
 
@@ -72,10 +74,11 @@ def test_incomplete_video_cannot_be_marked_complete(tmp_path):
     assert not encoder._episode_active
 
 
-def test_streaming_statistics_and_video_timestamps(tmp_path):
+@pytest.mark.parametrize("preset", [None, "veryfast"])
+def test_streaming_statistics_and_video_timestamps(tmp_path, preset):
     import av
 
-    encoder = StrictStreamingVideoEncoder(fps=50, vcodec="h264", encoder_threads=1)
+    encoder = StrictStreamingVideoEncoder(fps=50, vcodec="h264", encoder_threads=1, encoder_preset=preset)
     encoder.start_episode(["camera"], tmp_path)
     images = [np.full((32, 32, 3), value, dtype=np.uint8) for value in (0, 128, 255)]
     for frame in images:
@@ -88,3 +91,31 @@ def test_streaming_statistics_and_video_timestamps(tmp_path):
     with av.open(str(path)) as video:
         frames = list(video.decode(video=0))
     np.testing.assert_allclose([float(f.time) for f in frames], [0, .02, .04])
+    metrics = encoder.episode_metrics
+    assert metrics["encoder_preset"] == preset
+    camera = metrics["cameras"]["camera"]
+    assert camera["frames_accepted"] == camera["frames_encoded"] == 3
+    assert camera["encode_wall_seconds"] > 0
+    assert camera["statistics_wall_seconds"] > 0
+    assert camera["worker_wall_seconds"] >= camera["encode_wall_seconds"] + camera["statistics_wall_seconds"]
+    assert camera["queue_wait_wall_seconds"] >= camera["queue_wait_max_seconds"] >= 0
+
+
+@pytest.mark.parametrize("codec,preset", [("h264", "p1"), ("h264_nvenc", "veryfast")])
+def test_invalid_encoder_preset_fails_before_episode(codec, preset):
+    with pytest.raises(ValueError, match="encoder_preset"):
+        StrictStreamingVideoEncoder(fps=50, vcodec=codec, encoder_preset=preset)
+
+
+def test_video_metrics_reset_between_episodes(tmp_path):
+    encoder = StrictStreamingVideoEncoder(fps=50, vcodec="h264", encoder_preset="veryfast", encoder_threads=1)
+    snapshots = []
+    for count in (1, 2):
+        encoder.start_episode(["camera"], tmp_path)
+        assert encoder.episode_metrics is None
+        for _ in range(count):
+            encoder.feed_frame("camera", np.zeros((32, 32, 3), dtype=np.uint8))
+        encoder.finish_episode()
+        snapshots.append(encoder.episode_metrics)
+    assert [metrics["cameras"]["camera"]["frames_accepted"] for metrics in snapshots] == [1, 2]
+    assert [metrics["cameras"]["camera"]["frames_encoded"] for metrics in snapshots] == [1, 2]

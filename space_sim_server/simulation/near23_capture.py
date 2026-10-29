@@ -9,6 +9,12 @@ GEOMETRY = 'config/visual_attachments/capture26_near23/geometry_metres.json'
 
 
 def configure_scene(scene, root, output_directory):
+    # capture26 operations route to capture26_runtime before the legacy scene
+    # runner. That route does not yet consume this experimental capture profile.
+    # Reject instead of writing a scene that appears enabled but is ignored.
+    if scene.get('rendezvous_handoff') is not None:
+        raise ValueError('near23 automatic capture is not connected to capture26 NearParked operations yet; '
+                         'preserve the handoff and review the V-bar integration contract')
     root = Path(root).resolve()
     scene = copy.deepcopy(scene)
     config = json.loads((root / CONFIG).read_text('utf-8-sig'))

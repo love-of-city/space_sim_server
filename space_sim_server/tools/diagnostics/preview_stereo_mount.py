@@ -80,7 +80,7 @@ def main():
     if len(frames) != len(selected):
         raise ValueError('selected truth has no matching saved render state')
     adapter = source.parent/'space_sim_UE_Adapter'
-    sys.path[:0] = [str(Path(__file__).resolve().parents[1]/'backend'), str(adapter/'Adapters')]
+    sys.path[:0] = [str(Path(__file__).resolve().parents[2]/'backend'), str(adapter/'Adapters')]
     from bsk_render_adapter.protocol import RenderPublisher
     from space_arm_platform.capture_receiver import CaptureReceiver
     from space_arm_platform.multicamera_pose import MultiCameraPoseEstimator

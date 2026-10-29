@@ -103,7 +103,14 @@ def score(directory):
     hold2 = longest_hold(truth, 2); hold4 = longest_hold(truth, 4)
     completed = (directory/'completed.json').exists()
     audit_path = directory/'contacts_400hz.jsonl'
-    audit = contact_metrics(audit_path) if audit_path.exists() else None
+    audit = None; audit_error = None
+    if audit_path.exists():
+        try:
+            audit = contact_metrics(audit_path)
+        except (ValueError, KeyError) as error:
+            # A shared legacy log can contain interleaved trials. Preserve it,
+            # report why it is unusable, and never infer a 400 Hz pass from RGB.
+            audit_error = str(error)
     usable = bool(completed and images and image_pos and mismatched == 0
                   and audit and audit['samples'] and not audit['aborted'])
     result = dict(completed=completed, paired_images=len(images), unmatched_source_frames=mismatched,
@@ -126,6 +133,7 @@ def score(directory):
         final_interface_rotation_from_aligned_deg=float(np.rad2deg(np.linalg.norm(Rotation.from_matrix(
             np.array(truth[-1]['R_grip_from_interface'])).as_rotvec()))) if truth else None,
         physics_tick_contact_audit=audit,
+        physics_tick_contact_audit_error=audit_error,
         physical_grasp_hold_pass=bool(audit and not audit['aborted']
                                      and audit['supported_force_hold_2plus_jaws_s'] >= 10),
         grasp_pass=bool(usable and audit['supported_force_hold_2plus_jaws_s'] >= 10),

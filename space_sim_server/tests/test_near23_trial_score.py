@@ -39,3 +39,15 @@ def test_completed_without_image_and_contact_evidence_cannot_pass(tmp_path):
     assert result['completed']
     assert not result['grasp_pass']
     assert not result['all_four_jaws_supported_hold_pass']
+
+
+def test_mixed_legacy_contact_log_is_reported_without_claiming_a_physical_pass(tmp_path):
+    for name in ('truth.jsonl', 'measurements.jsonl'):
+        (tmp_path/name).write_text('', encoding='utf-8')
+    (tmp_path/'completed.json').write_text('{}', encoding='utf-8')
+    (tmp_path/'contacts_400hz.jsonl').write_text('{"type": {"type":\n', encoding='utf-8')
+    result = score(tmp_path)
+    assert result['physics_tick_contact_audit_error']
+    assert result['physics_tick_contact_audit'] is None
+    assert not result['physical_grasp_hold_pass']
+    assert not result['grasp_pass']

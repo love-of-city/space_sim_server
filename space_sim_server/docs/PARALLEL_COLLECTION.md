@@ -1,14 +1,16 @@
 # 多进程脚本采集
 
-`tools/collect_parallel.py` 在同一台机器启动多个独立的批量采集进程。每路拥有自己的动力学、录制器和 UE，使用独立端口、种子区间、输出目录和停止文件。单卡可运行多路；多卡时在配置中逐路指定 GPU。只有通过原有完整校验的轨迹才计入吞吐量。
+`collection/collect_parallel.py` 在同一台机器启动多个独立的批量采集进程。每路拥有自己的动力学、录制器和 UE，使用独立端口、种子区间、输出目录和停止文件。单卡可运行多路；多卡时在配置中逐路指定 GPU。只有通过原有完整校验的轨迹才计入吞吐量。
+
+当前单 worker 连续两条的优化入口、`veryfast` 配置与最新结果索引见[单机采集性能](COLLECTION_PERFORMANCE.md#当前单-worker-顺序采集入口)。该入口直接使用串行 collector；不需要开启本文默认的两路调度。
 
 ## 配置与运行
 
-调度与资源设置统一放在 `config/collection.json`；相机、存储和视频编码仍由其引用的 `config/recording.json` 管理。`recording_config` 相对于采集配置文件所在目录解析，也接受绝对路径。操作台位置与朝向随机化通过 `layout_pool` 配置，网页也可启用，见[布局随机化采集](COLLECTION_LAYOUT_RANDOMIZATION.md)。
+调度与资源设置统一放在 `config/collection-parallel.json`；相机、存储和视频编码仍由其引用的 `config/recording.json` 管理。`recording_config` 相对于采集配置文件所在目录解析，也接受绝对路径。操作台位置与朝向随机化通过 `layout_pool` 配置，网页也可启用，见[布局随机化采集](COLLECTION_LAYOUT_RANDOMIZATION.md)。
 
 ```bash
 cd ~/src/space_sim_server/space_sim_server
-~/envs/spacesim/bin/python tools/collect_parallel.py \
+~/envs/spacesim/bin/python collection/collect_parallel.py \
   --scene ~/migration/validation-scene.json \
   --unreal ~/engines/UE_5.6 \
   --output ~/data/collection/run-001
@@ -26,8 +28,11 @@ cd ~/src/space_sim_server/space_sim_server
 | `seed` | 第 i 路从 `seed + i*max_attempts_per_worker` 开始，任务种子不重叠 |
 | `offline` | 关闭 WebRTC 相机预览和无用的离屏主视口，保留权威图像采集 |
 | `reuse_renderer` | 每路保留 UE；每条仍重建动力学与录制器，隔离物理状态 |
+| `reuse_dynamics` | 每路保留 Python 导入和原生库；每条重新创建物理状态、任务和通信会话 |
+| `dynamics_max_episodes` / `dynamics_max_rss_mb` | 动力学 worker 在完成条数或 RSS 达到阈值后回收；仅在条目之间执行 |
+| `simulation_startup_timeout_seconds` | 等待本条首个权威动力学状态的预算，默认 600 秒 |
 | `warmup_seconds` / `reuse_warmup_seconds` | 首条/复用后预热时间，默认都为 5 秒；缩短后需验证首帧质量 |
-| `range_deg` | 初始关节随机偏移范围，0–10 度；性能对比可用 0 固定初始姿态 |
+| `range_deg` | 初始关节随机偏移半范围，0–50 度；`30` 表示每轴独立 ±30°，仍须通过限位/碰撞/路径预检 |
 | `randomize_orbit_phase` | 每次尝试沿输入轨道随机选择真近点角 `[0,360)`；仓库配置开启，旧配置缺省关闭 |
 | `sample_seconds` | 资源采样间隔 |
 | `worker_timeout_seconds` | 整批最长墙钟时间，包括启动和校验 |
@@ -40,7 +45,7 @@ GPU 显存不足或计算已满时，增加并发可能降低总吞吐量，应�
 
 Linux UE 5.6 离线采集关闭 `SLS_CapturedScene` 天光，使用原有太阳光照，保留体积云、阴影和相机画质。新增捕获式天光在动态轨道场景中会导致渲染耗时逐渐增加，最终触发原有 10 秒相机配对超时；停止实时更新、只捕获一次也会复现。该修正只作用于 Linux 的 `-BskOfflineCapture`，在线预览沿用原配置。因此离线数据不会包含该可选天光提供的环境补光。启动日志会记录生效情况；相机预览也真正停止渲染，而不只是停止回传。
 
-每路首次通过碰撞/路径预检查后启动 UE。后续轨迹重新启动权威动力学，建立新的渲染会话；现有 UE 会话切换机制取消旧采集请求、重置图像时钟并应用新的场景清单。录制器也为每条重建，并等待新动力学首帧再预热和开始采集。不会复用上一条物理积分状态。
+每路首次通过碰撞/路径预检查后启动 UE。后续轨迹重建权威动力学状态，建立新的渲染会话；`reuse_dynamics=true` 时由同一 Python worker 承载新的场景，关闭时逐条启动进程。现有 UE 会话切换机制取消旧采集请求、重置图像时钟并应用新的场景清单。录制器也为每条重建，并等待新动力学首帧再预热和开始采集。不会复用上一条物理积分状态。
 
 仍保留双相机 1024×1024、50 Hz、200 Hz 力传感数据、严格图像/状态配对和反压；编码队列满时等待或报错，不丢帧。`validate_recording` 检查状态/动作、任务成功、相机配对与校验和，并完整解码两段视频。各路独立输出 LeRobot 数据集；没有让多个进程同时写同一个 LeRobot 数据集。
 
@@ -71,4 +76,6 @@ run-001/
 
 吞吐量采用 `通过校验条数 / 整批墙钟时间 × 3600`，包括预检查、首条启动、文件收尾、全视频校验和最终进程退出。短批次不是长期稳态吞吐量。资源中的进程 CPU 100% 对应一个逻辑核；RSS 相加可能重复计入共享内存。GPU 查询是整张卡的系统占用，不能在有其他 GPU 作业时归因给录制任务。
 
-单条脚本新增 `--offline`、`--gpu-index`；串行批量脚本新增 `--reuse-renderer` 和两种预热参数。旧调用保持原来的预览与逐条启动行为。
+单条脚本支持 `--offline`、`--gpu-index`；串行批量脚本支持 `--reuse-renderer`、`--reuse-dynamics` 和两种预热参数。未传复用参数的直接 collector 调用保持逐条启动行为。
+
+日常150布局×多任务的顺序采集使用 `tools/collect.py` 与 `config/collection.json`，本页的隔离多进程模式仍保留，详见 [按布局顺序采集](LAYOUT_SEQUENCE_COLLECTION.md)。

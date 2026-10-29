@@ -390,8 +390,8 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
                 return false;
             }
             if ((Definition.CameraMode != TEXT("rgb") && Definition.CameraMode != TEXT("fisheye")
-                && Definition.CameraMode != TEXT("monochrome"))
-                || (Definition.CameraMode == TEXT("fisheye") && (!FMath::IsFinite(Definition.FieldOfViewRadians)
+                && Definition.CameraMode != TEXT("monochrome") && Definition.CameraMode != TEXT("monochrome_fisheye"))
+                || (Definition.IsFisheye() && (!FMath::IsFinite(Definition.FieldOfViewRadians)
                     || Definition.FieldOfViewRadians <= 0.0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI)))
             {
                 Error = TEXT("invalid camera_mode or fisheye field_of_view_rad (requires 0 < fov < pi)");
@@ -400,7 +400,7 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
             if (Definition.VerticalFieldOfViewRadians > 0
                 && ((Object->HasField(TEXT("field_of_view_rad"))
                         && !Object->HasTypedField<EJson::Number>(TEXT("field_of_view_rad")))
-                    || Definition.CameraMode == TEXT("fisheye") || !FMath::IsFinite(Definition.FieldOfViewRadians)
+                    || Definition.IsFisheye() || !FMath::IsFinite(Definition.FieldOfViewRadians)
                     || Definition.FieldOfViewRadians <= 0 || Definition.FieldOfViewRadians >= UE_DOUBLE_PI))
             {
                 Error = TEXT("independent pinhole vertical FOV requires valid horizontal FOV and non-fisheye mode");

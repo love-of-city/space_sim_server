@@ -165,14 +165,14 @@ Initialize-FixedConfig -ConfigPath (Join-Path $Root 'deploy/fixed.local.json') -
 @pytest.fixture
 def launcher_repo(tmp_path):
     root = tmp_path / "fixed launcher repo"
-    for directory in ("scripts", "deploy", "tools"):
+    for directory in ("scripts", "deploy", "tools/deployment"):
         (root / directory).mkdir(parents=True)
     for name in ("deployment_launcher.ps1", "deployment_bootstrap.ps1", "deployment_config.ps1",
                  "fixed_deployment_helpers.ps1", "python_runtime.ps1"):
         shutil.copyfile(ROOT / "scripts" / name, root / "scripts" / name)
     for name in ("deployment.example.json", "Caddyfile.template"):
         shutil.copyfile(ROOT / "deploy" / name, root / "deploy" / name)
-    (root / "tools/check_deployment_auth.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    (root / "tools/deployment/check_deployment_auth.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
     (root / "scripts/run_platform.ps1").write_text("exit 0\n", encoding="utf-8")
     (root / "scripts/public_deployment_helpers.ps1").write_text("# Fake public helpers.\n", encoding="utf-8")
     (root / "scripts/public_deployment.ps1").write_text("""

@@ -146,8 +146,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     if document.get("schema") != "space-arm-scene-instance/1":
         raise ValueError(f"unsupported scene instance schema: {document.get('schema')}")
     mode = document.setdefault("wrist_camera_mode", "rgb")
-    if mode not in ("rgb", "fisheye", "monochrome"):
-        raise ValueError("wrist_camera_mode must be rgb, fisheye or monochrome")
+    if mode not in ("rgb", "fisheye", "monochrome", "monochrome_fisheye"):
+        raise ValueError("wrist_camera_mode must be rgb, fisheye, monochrome or monochrome_fisheye")
     target = capture_target(document.get("template_id"))
     randomize_orbit_phase = document.get("randomize_orbit_phase", False)
     if not isinstance(randomize_orbit_phase, bool):
@@ -1079,7 +1079,7 @@ def run(args: argparse.Namespace) -> None:
     if selected_posture_backend == "native":
         from simulation.native_posture import available
         if not available():
-            raise RuntimeError("Native posture backend was requested but is not built; run tools/build_native_acceleration.py.")
+            raise RuntimeError("Native posture backend was requested but is not built; run tools/assets/build_native_acceleration.py.")
     args.dynamics_backend = dynamics_backend(getattr(args, "dynamics_backend", None))
     if native.model_profile.linkage and args.dynamics_backend != BACKEND_LOCAL:
         raise ValueError('SARM 2026-10-12 requires the local implicitfast backend for its tendon and constraints')

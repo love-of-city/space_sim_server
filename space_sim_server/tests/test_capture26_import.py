@@ -17,9 +17,9 @@ def test_trim_import_uses_the_current_portable_visual_mesh():
 
 
 def test_original_bodies_unchanged():
-    base=E.parse(ROOT/'model/SARM/platform/sarm_20261012.xml')
     new=E.parse(ROOT/'model/SARM/platform/sarm_dual_capture26.xml')
     manifest=json.loads((ROOT/'model/SARM/platform/sarm_dual_capture26.manifest.json').read_text())
+    base=E.parse(ROOT/manifest['base_model'])
     changed={x['geom'] for x in manifest.get('mount_clearance_changes',[])}
     assert all(n.startswith('base_link_geom') for n in changed)
     target=new.find(".//body[@name='capture_target']")
@@ -45,7 +45,7 @@ def test_original_bodies_unchanged():
             assert canon(b.findall(tag))==canon(match.findall(tag))
 
 def test_capture_joints_and_scene_registration():
-    from tools.select_sarm_scene import selected_scene
+    from tools.assets.select_sarm_scene import selected_scene
     from space_arm_platform.scene_targets import capture_target,SARM_TEMPLATES
     from space_arm_platform.scene_runtime import SCENE_TEMPLATES
     assert 'sarm-dual-capture26' in SARM_TEMPLATES

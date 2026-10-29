@@ -19,7 +19,7 @@
 
 ## 2. 调查边界与方法
 
-- 新增离线工具：`tools/diagnose_teleop_motion.py`。
+- 新增离线工具：`tools/diagnostics/diagnose_teleop_motion.py`。
 - 使用真实生产入口、原生 Basilisk/MJScene、相同模型、轨道引力、姿态控制和 IK；不是仅用运动学替代动力学。
 - 原生环境：`C:\tools\miniconda3\envs\mujoco-dev\python.exe`，安装包 `bsk 2.11.1`。
 - 使用场景 `run/scenes/scene-20260918-221448-110797d3.json` 的初始状态。**它不是用户发生每次抽动时的完整瞬时状态快照。**
@@ -282,9 +282,9 @@ src/simulation/dynamics/_GeneralModuleFiles/dynamicObject.cpp
 ```powershell
 $nativePython = 'C:\tools\miniconda3\envs\mujoco-dev\python.exe'
 $scene = 'run/scenes/scene-20260918-221448-110797d3.json'
-& $nativePython tools/diagnose_teleop_motion.py --instance $scene --output run/recheck-roll-2ms --motion roll --speed -0.5 --timestep 0.002 --reference-mode unprotected
-& $nativePython tools/diagnose_teleop_motion.py --instance $scene --output run/recheck-roll-1ms --motion roll --speed -0.5 --timestep 0.001 --reference-mode unprotected
-& $nativePython tools/diagnose_teleop_motion.py --instance $scene --output run/recheck-linear-1ms --motion linear_x --speed 0.16 --timestep 0.001 --reference-mode unprotected
+& $nativePython tools/diagnostics/diagnose_teleop_motion.py --instance $scene --output run/recheck-roll-2ms --motion roll --speed -0.5 --timestep 0.002 --reference-mode unprotected
+& $nativePython tools/diagnostics/diagnose_teleop_motion.py --instance $scene --output run/recheck-roll-1ms --motion roll --speed -0.5 --timestep 0.001 --reference-mode unprotected
+& $nativePython tools/diagnostics/diagnose_teleop_motion.py --instance $scene --output run/recheck-linear-1ms --motion linear_x --speed 0.16 --timestep 0.001 --reference-mode unprotected
 ```
 
 必须使用原生 Basilisk 环境。不要在同一个进程内同时导入 Python MuJoCo 和 Basilisk 的 MuJoCo 动态库；接触回放单独使用现有分析环境。
@@ -333,7 +333,7 @@ $scene = 'run/scenes/scene-20260918-221448-110797d3.json'
 | `model/SARM/platform/scenarios/scenario_sarm_grasp.py` | 接受调用者注入的参考消息源，构建原生控制链 | 不替调用者调度外部参考；默认脚本行为保持不变 |
 | `simulation/teleop_grasp_unreal.py` | 配置解析、状态/力矩输入绑定、IK 与保护模块串接、发布遥测 | 不内嵌第二套控制算法 |
 | `frontend/control_status.js` | 将保护遥测格式化为用户可读提示 | 不决定是否允许运动 |
-| `tools/diagnose_teleop_motion.py` | 独立原生离线对照实验 | 不向在线场景发命令、不作为生产启动器 |
+| `tools/diagnostics/diagnose_teleop_motion.py` | 独立原生离线对照实验 | 不向在线场景发命令、不作为生产启动器 |
 
 沿用既有 IK、PD、执行器限幅、惯量和碰撞模型。没有添加第二个物理状态权威源，没有复制一套机械臂控制器，没有关闭碰撞，也没有提高全局力矩或增益。
 

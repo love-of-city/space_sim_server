@@ -14,7 +14,7 @@ np = pytest.importorskip('numpy')
 DracoPy = pytest.importorskip('DracoPy')
 pytest.importorskip('mujoco')
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('glb_mjcf_converter', ROOT/'tools/convert_glb_to_mjcf.py')
+spec = importlib.util.spec_from_file_location('glb_mjcf_converter', ROOT/'tools/assets/convert_glb_to_mjcf.py')
 converter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(converter)
 

@@ -1,6 +1,6 @@
 """Source-triangle export and runtime-matched rigid-flex contact tests.
 
-Run separately from Basilisk, using tools/requirements-mesh-collision.txt.
+Run separately from Basilisk, using tools/assets/requirements-mesh-collision.txt.
 No production scene is edited, even by the integration tests.
 """
 import importlib.util
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("triangle_collision_builder", ROOT / "tools/build_satellite_mesh_collision.py")
+spec = importlib.util.spec_from_file_location("triangle_collision_builder", ROOT / "tools/assets/build_satellite_mesh_collision.py")
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
 

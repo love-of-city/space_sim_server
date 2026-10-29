@@ -36,14 +36,14 @@ LAYOUT_SOURCE=/home/lyh/space_sim_server/space_sim_server/model/SARM/platform/sa
 LAYOUT_MODEL=/absolute/path/outside-repository/new-seed/layout.xml
 
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 "$LAYOUT_PYTHON" \
-  tools/build_independent_task_box_layout.py \
+  tools/assets/build_independent_task_box_layout.py \
   --source "$LAYOUT_SOURCE" --output "$LAYOUT_MODEL" --seed 20261021
 
-"$SIMULATION_PYTHON" tools/check_independent_task_box_layout.py \
+"$SIMULATION_PYTHON" tools/diagnostics/check_independent_task_box_layout.py \
   --source "$LAYOUT_SOURCE" --layout "$LAYOUT_MODEL" \
   --report /absolute/path/outside-repository/geometry-check.json
 
-"$SIMULATION_PYTHON" tools/validate_plug_retention.py \
+"$SIMULATION_PYTHON" tools/diagnostics/validate_plug_retention.py \
   --model "$LAYOUT_MODEL" --case extraction \
   --case partial_insertion --case partial_extraction \
   --output /absolute/path/outside-repository/force-check.json
@@ -62,7 +62,7 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 "$LAYOUT_PYTHON" \
 
 ```bash
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 "$LAYOUT_PYTHON" \
-  tools/build_independent_task_box_layout.py \
+  tools/assets/build_independent_task_box_layout.py \
   --source "$LAYOUT_SOURCE" --output "$LAYOUT_MODEL" --seed 20261023 \
   --target-mounts inset --pickup-mounts inset --yaw-range-deg 180
 ```
@@ -114,11 +114,11 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 "$LAYOUT_PYTHON" \
 避免跨孔壁平均法线导致平板出现三角形明暗。UE 导入核对全部 12 项的 LOD0 三角面数。
 
 ```bash
-"$LAYOUT_PYTHON" tools/build_independent_task_box_layout.py \
+"$LAYOUT_PYTHON" tools/assets/build_independent_task_box_layout.py \
   --source "$LAYOUT_SOURCE" --output "$LAYOUT_MODEL" --seed 20261021 \
   --target-mounts inset
 
-"$LAYOUT_PYTHON" tools/check_inset_target_geometry.py \
+"$LAYOUT_PYTHON" tools/diagnostics/check_inset_target_geometry.py \
   --layout "$LAYOUT_MODEL" --report /absolute/path/outside-repository/inset-geometry.json
 ```
 
@@ -163,7 +163,7 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 "$LAYOUT_PYTHON" \
 每个布局生成 12 个新可视网格（11 个安装片和 1 个底板），导入独立 UE 目录：
 
 ```bash
-"$SIMULATION_PYTHON" tools/prepare_independent_layout_catalog.py \
+"$SIMULATION_PYTHON" tools/assets/prepare_independent_layout_catalog.py \
   --layout "$LAYOUT_MODEL" \
   --base-catalog /absolute/path/adapter/Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json \
   --adapter /absolute/path/adapter --unreal /absolute/path/UE_5.6 \
@@ -184,7 +184,7 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 "$LAYOUT_PYTHON" \
 
 录制与动力学进程都绑定模型哈希、全部 12 个新网格哈希、catalog 和场景 manifest。
 每个 episode 保存布局种子、各安装坐标和元数据。重新布置后的抽屉指令不再错误地标为“最右侧”。
-示例脚本仍是生产 `record_drawer_task.py`，需要像普通独立采集那样指定 scene、adapter、UE、
+示例脚本仍是生产 `record_scripted_task.py`，需要像普通独立采集那样指定 scene、adapter、UE、
 独立端口和输出目录；后台公开实例无需切换或停止。
 
 ## 验证范围和限制

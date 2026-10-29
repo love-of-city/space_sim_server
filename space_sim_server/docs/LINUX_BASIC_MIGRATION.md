@@ -48,8 +48,8 @@ cd space_sim_server
 export SPACE_SIM_PYTHON="$HOME/envs/spacesim/bin/python"
 export PYTHONPATH="$PWD:$PWD/backend"
 "$SPACE_SIM_PYTHON" scripts/check_basilisk.py
-"$SPACE_SIM_PYTHON" tools/build_native_acceleration.py --component all
-"$SPACE_SIM_PYTHON" tools/build_sarm_plugin.py
+"$SPACE_SIM_PYTHON" tools/assets/build_native_acceleration.py --component all
+"$SPACE_SIM_PYTHON" tools/assets/build_sarm_plugin.py
 "$SPACE_SIM_PYTHON" -m pytest -q \
   tests/test_local_mujoco_stepper.py tests/test_native_posture.py \
   tests/test_linux_mujoco_runtime.py
@@ -68,7 +68,7 @@ SARM 插件不绑定 Basilisk wheel 的私有 SONAME；加载前将唯一已加�
 真实完整动力学任务示例（不含相机，不是 VLA 训练 episode）：
 
 ```bash
-"$SPACE_SIM_PYTHON" tools/run_scripted_task.py \
+"$SPACE_SIM_PYTHON" collection/run_scripted_task.py \
   --task drawer_cycle --native-geometry --no-save-trace \
   --max-sim-seconds 360 --output "$HOME/migration/drawer-cycle-validation"
 ```
@@ -114,7 +114,7 @@ unzip -q "$HOME/migration/Linux_Unreal_Engine_5.6.1.zip" -d "$HOME/engines/UE_5.
 
 ```bash
 export UE56_ROOT="$HOME/engines/UE_5.6"
-"$SPACE_SIM_PYTHON" tools/build_unreal_linux.py
+"$SPACE_SIM_PYTHON" tools/assets/build_unreal_linux.py
 ```
 
 此入口只构建项目编辑器目标和插件，构建完成后还要执行下述资产、缓存和实际采集验收。录制脚本支持 `UE56_ROOT` 或 `--unreal`，Linux 查找 `Engine/Binaries/Linux/UnrealEditor-Cmd` 或 `UnrealEditor`；Windows 原有入口保持可用。
@@ -122,9 +122,9 @@ export UE56_ROOT="$HOME/engines/UE_5.6"
 Linux 资产准备不再需要 PowerShell。以下第一步不启动 UE，可提前生成本机绝对路径 catalog 和 STL 转换缓存；第二步必须在 UE 和项目插件编译完成后执行：
 
 ```bash
-"$SPACE_SIM_PYTHON" tools/prepare_sarm_assets.py \
+"$SPACE_SIM_PYTHON" tools/assets/prepare_sarm_assets.py \
   --template-id sarm-task-box-20261012 --catalog-only
-"$SPACE_SIM_PYTHON" tools/prepare_sarm_assets.py \
+"$SPACE_SIM_PYTHON" tools/assets/prepare_sarm_assets.py \
   --template-id sarm-task-box-20261012
 ```
 
@@ -160,7 +160,7 @@ SPACE_SIM_UE_CAPTURE_SMOKE=1 SPACE_SIM_UE_STARTUP_TIMEOUT=600 \
 已准备场景的后续单条采集示例（仍从服务端目录执行）：
 
 ```bash
-"$SPACE_SIM_PYTHON" tools/record_drawer_task.py \
+"$SPACE_SIM_PYTHON" collection/record_scripted_task.py \
   --task drawer_cycle --scene "$HOME/migration/validation-scene.json" \
   --output "$HOME/migration/drawer-recording-$(date +%Y%m%d-%H%M%S)" \
   --episodes-root "$HOME/data/spacesim/episodes"

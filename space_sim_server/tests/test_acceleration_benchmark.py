@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tools.benchmark_native_acceleration import compare_observations, assert_platform_idle
+from tools.benchmarks.benchmark_native_acceleration import compare_observations, assert_platform_idle
 
 
 def observation(time_ns, q):

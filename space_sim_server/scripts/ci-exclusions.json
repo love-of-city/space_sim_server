@@ -1,5 +1,7 @@
 {
   "files": {
+    "tests/test_capture26_gyro_native.py": "Capture component imports real Basilisk modules; run configuration and legacy-servo contact safety regressions in the native simulation environment.",
+    "tests/test_service_gyro_capture_native.py": "Real Basilisk COMMAND/PHYSICS/SENSOR scheduling; run separately in the native simulation environment. Pure capture observer and fault handling tests remain in basic CI.",
     "tests/test_orbit_attitude_reference.py": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
     "tests/test_linux_deployment.py": "Linux UID/start-time ownership and native deployment lifecycle; run on the Linux deployment host",
     "tests/test_linux_mujoco_runtime.py": "Linux-only ELF/runtime isolation checks require Basilisk and MuJoCo; run separately on the Linux simulation host",

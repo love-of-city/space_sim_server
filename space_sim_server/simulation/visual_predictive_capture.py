@@ -14,8 +14,9 @@ from simulation.serial_chain_kinematics import rotation_matrix_to_vector, axis_a
 
 
 class VisualPredictiveCapture(VisualCaptureProbe):
-    def __init__(self,path,session_id,*,wall_now_ns=time.time_ns):
+    def __init__(self,path,session_id,*,wall_now_ns=time.time_ns,held_pose=False):
         super().__init__(path,session_id,wall_now_ns=wall_now_ns)
+        self.held_pose=bool(held_pose)
         self.encoders=deque(maxlen=4000);self.observations=deque(maxlen=80)
         self.last_frame=None;self.source_t=None;self.fit_t=None
         self.p_base=None;self.r_base=None;self.v_base=np.zeros(3);self.w_base=np.zeros(3)
@@ -34,16 +35,39 @@ class VisualPredictiveCapture(VisualCaptureProbe):
         self.sequence.phase='abort';self.sequence.failure_reason=reason
         return self.neutral(),'predictive_abort_'+reason
 
+    @staticmethod
+    def _force_failure(feedback):
+        if any(not np.isfinite(float(v)) for k,v in feedback.items() if k.endswith(('_n','_m'))):
+            return 'invalid_force_feedback'
+        if feedback.get('peak_target_contact_force_n',0)>10 or feedback.get('jaw_force_n',0)>20 or feedback.get('pad_compression_m',0)>.002:
+            return 'contact_overload'
+        return None
+
+    def gyro_unavailable(self,reason,t,q,feedback):
+        """No approach without rate feedback; never release a held target."""
+        failure=self._force_failure(feedback or {})
+        if failure:return self.abort(failure)
+        if self.sequence.phase in ('tighten','hold_force'):
+            command,phase=self.sequence.command(t,q,np.zeros(3),np.eye(3),feedback)
+            return command,'predictive_'+phase+'_gyro_unavailable'
+        if self.sequence.phase=='wait' and reason=='missing_service_gyro':
+            return self.neutral(),'predictive_waiting_service_gyro'
+        return self.abort('service_gyro_'+reason)
+
     def _observe(self,t,position,rotation):
         self.encoders.append((float(t),position.copy(),rotation.copy()))
         try:
             p,r=self._pose(t)
         except (OSError,ValueError,TypeError,KeyError) as error:
             self.input_status=str(error)
-            if self.input_status=='session_mismatch':raise
+            if self.input_status=='session_mismatch' or (self.last_packet or {}).get('session_id') not in (None,'',self.session_id):
+                if self.source_t is not None:raise ValueError('scene_changed')
+                return False  # A new scene waits for its first own-session image.
             return False
         frame=str(self.last_packet['source_frame_id'])
         if frame==self.last_frame:return t-self.source_t<.4
+        if self.held_pose and self.last_packet.get('marker_count',4)<4:
+            self.input_status='incomplete_marker_set';return False
         source_t=int(self.last_packet['sim_time_ns'])/1e9
         if self.source_t is not None and source_t<=self.source_t:return False
         source=min(self.encoders,key=lambda h:abs(h[0]-source_t))
@@ -58,7 +82,13 @@ class VisualPredictiveCapture(VisualCaptureProbe):
         self.observations.append((source_t,p_base.copy(),r_base.copy()))
         samples=[x for x in self.observations if source_t-x[0]<=2.]
         self.fit_t=source_t;self.p_base=p_base;self.r_base=r_base
-        if len(samples)>=6 and source_t-samples[0][0]>=.5:
+        if self.held_pose:
+            stable=samples[-5:]
+            self.p_base=np.mean([x[1] for x in stable],axis=0)
+            u,_,vh=np.linalg.svd(np.mean([x[2] for x in stable],axis=0))
+            self.r_base=u@np.diag([1.,1.,np.linalg.det(u@vh)])@vh
+            self.v_base.fill(0);self.w_base.fill(0)
+        elif len(samples)>=6 and source_t-samples[0][0]>=.5:
             times=np.array([x[0]-source_t for x in samples]);design=np.c_[times,np.ones(len(times))]
             fit=np.linalg.lstsq(design,np.array([x[1] for x in samples]),rcond=None)[0]
             self.v_base=fit[0];self.p_base=fit[1]
@@ -68,7 +98,19 @@ class VisualPredictiveCapture(VisualCaptureProbe):
                 vector*=min(1.,limit/max(np.linalg.norm(vector),1e-12))
         return True
 
-    def command(self,t,q,base_from_grip,feedback):
+    def command(self,t,q,base_from_grip,feedback,*,reference_from_base=None):
+        if not self.held_pose:return self._command_in_frame(t,q,base_from_grip,feedback)
+        if reference_from_base is None:return self.abort('missing_own_motion')
+        pb,rb=(np.asarray(x,float) for x in reference_from_base)
+        pg,rg=(np.asarray(x,float) for x in base_from_grip)
+        if pb.shape!=(3,) or rb.shape!=(3,3) or not np.all(np.isfinite(np.r_[pb,rb.ravel()])):
+            return self.abort('invalid_own_motion')
+        a,status=self._command_in_frame(t,q,(pb+rb@pg,rb@rg),feedback)
+        for key in ('end_effector_linear_velocity_body_m_s','end_effector_angular_velocity_body_rad_s'):
+            a[key]=(rb.T@np.asarray(a[key])).tolist()
+        return a,status
+
+    def _command_in_frame(self,t,q,base_from_grip,feedback):
         dt=0. if self.last_time is None else float(np.clip(t-self.last_time,0.,.02));self.last_time=t
         position,rotation=(np.asarray(x,float) for x in base_from_grip)
         if position.shape!=(3,) or rotation.shape!=(3,3) or not np.all(np.isfinite(position)) or not np.all(np.isfinite(rotation)):
@@ -77,10 +119,8 @@ class VisualPredictiveCapture(VisualCaptureProbe):
         try:visible=self._observe(t,position,rotation)
         except ValueError:return self.abort('scene_changed')
         f=feedback or {}
-        if any(not np.isfinite(float(v)) for k,v in f.items() if k.endswith(('_n','_m'))):
-            return self.abort('invalid_force_feedback')
-        if f.get('peak_target_contact_force_n',0)>10 or f.get('jaw_force_n',0)>20 or f.get('pad_compression_m',0)>.002:
-            return self.abort('contact_overload')
+        failure=self._force_failure(f)
+        if failure:return self.abort(failure)
         phase=self.sequence.phase
         if phase in ('tighten','hold_force'):
             a,phase=self.sequence.command(t,q,np.zeros(3),np.eye(3),f)
@@ -119,6 +159,8 @@ class VisualPredictiveCapture(VisualCaptureProbe):
         self.predicted_position_grip=p;self.predicted_rotation_grip=r
         gap=-float(p[2]);angular=rotation_matrix_to_vector(r)
         error=p-np.array([0.,0.,-.006])
+        if self.held_pose and f.get('peak_target_contact_force_n',0)>.3 and gap>.008 and f.get('pad_force_n',0)<.1:
+            return self.abort('jaw_contact_before_seated')
         if f.get('peak_target_contact_force_n',0)>.5 and gap>.02:
             return self.abort('contact_before_insertion_zone')
         if f.get('pad_force_n',0)>.2 and gap<.015:
@@ -142,7 +184,8 @@ class VisualPredictiveCapture(VisualCaptureProbe):
             end_effector_angular_velocity_body_rad_s=omega.tolist()),'predictive_'+('approach_visual' if visible else 'approach_encoder')
 
     def diagnostics(self):
-        return dict(mode=self.prediction_mode,source_sim_time_s=self.source_t,
+        return dict(mode=self.prediction_mode,held_target_pose=self.held_pose,
+            reference_frame='initial_coorbit_own_odometry' if self.held_pose else 'service_base',source_sim_time_s=self.source_t,
             blind_path_mm=self.blind_path_m*1000,
             predicted_position_grip_m=self.predicted_position_grip.tolist() if self.predicted_position_grip is not None else None,
             predicted_rotation_grip=self.predicted_rotation_grip.tolist() if self.predicted_rotation_grip is not None else None,

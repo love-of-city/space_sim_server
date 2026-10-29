@@ -32,13 +32,21 @@ def register_stereo_cameras(bridge, config):
         bridge.add_camera(CameraVisual(**camera))
 
 
-def configure_wrist_capture(bridge, enabled):
+def configure_wrist_capture(bridge, enabled, *, calibration=None):
     """Sample identical optics separately, preserving preview/dataset routing."""
     if not enabled:return
     from dataclasses import replace
     from space_arm_platform.wrist_vision_config import CAMERA_ID,VISION_CAMERA_ID
     camera=next((c for c in bridge._cameras if c.camera_id==CAMERA_ID),None)
     if camera is None:raise ValueError('wrist alignment camera is missing')
+    if calibration is not None:
+        # Apply the same optics to the visible view and the native vision image.
+        # Body attachment and optical orientation stay exactly as registered.
+        camera.resolution=tuple(calibration['image_size'])
+        camera.field_of_view_rad=calibration['horizontal_fov_rad']
+        camera.vertical_field_of_view_rad=calibration['vertical_fov_rad']
+        camera.exposure_time_s=calibration['exposure_time_s']
     bridge.add_camera(replace(camera,camera_id=VISION_CAMERA_ID,
         display_name='Capture wrist image-only alignment',picture_in_picture=False,
-        capture_consumer='vision',capture_products=('rgb',),capture_rate_hz=10.))
+        capture_consumer='vision',capture_products=('rgb',),
+        capture_rate_hz=calibration['capture_rate_hz'] if calibration else 10.))

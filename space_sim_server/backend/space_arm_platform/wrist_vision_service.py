@@ -78,7 +78,7 @@ class WristVisionService:
                 folder=self.evaluation_dir/hashlib.sha256(session.encode()).hexdigest()[:16]
                 folder.mkdir(parents=True,exist_ok=True)
                 (folder/f'{frame:08d}.png').write_bytes(products['rgb'])
-                record={k:metadata.get(k) for k in ('session_id','source_frame_id','sim_time_ns','source_wall_time_ns')}
+                record={k:metadata.get(k) for k in ('session_id','source_frame_id','sim_time_ns','source_wall_time_ns','resolution','intrinsics')}
                 record.update(received_wall_time_ns=str(self.wall_now_ns()),image=str(folder/f'{frame:08d}.png'))
                 with (self.evaluation_dir/'capture_samples.jsonl').open('a',encoding='utf-8') as f:f.write(json.dumps(record)+'\n')
             # The current local UE and BSK share the host wall clock. Include

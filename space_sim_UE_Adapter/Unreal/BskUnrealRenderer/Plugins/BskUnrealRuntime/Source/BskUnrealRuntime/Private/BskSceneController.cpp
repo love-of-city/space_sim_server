@@ -1,5 +1,6 @@
 #include "BskSceneController.h"
 #include "BskCameraEffects.h"
+#include "BskCameraProjection.h"
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #endif
@@ -3003,6 +3004,9 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
     Capture->bAlwaysPersistRenderingState = true;
     Capture->Activate();
     Capture->FOVAngle = FieldOfViewDegrees;
+    Capture->bUseCustomProjectionMatrix = Definition.VerticalFieldOfViewRadians > 0;
+    if (Capture->bUseCustomProjectionMatrix)
+        Capture->CustomProjectionMatrix = BskIndependentCameraProjection(Definition, GNearClippingPlane);
 
     UTextureRenderTarget2D* RenderTarget = CameraRenderTargets.FindRef(Definition.CameraId);
     if (!RenderTarget || RenderTarget->SizeX != Definition.Resolution.X || RenderTarget->SizeY != Definition.Resolution.Y)
@@ -3240,6 +3244,9 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
         Capture->CaptureSource = Source;
         if (Source == ESceneCaptureSource::SCS_FinalColorLDR) ConfigureFixedRgbExposure(Capture, Definition);
         Capture->FOVAngle = FieldOfViewDegrees;
+        Capture->bUseCustomProjectionMatrix = Definition->VerticalFieldOfViewRadians > 0;
+        if (Capture->bUseCustomProjectionMatrix)
+            Capture->CustomProjectionMatrix = BskIndependentCameraProjection(*Definition, GNearClippingPlane);
         Capture->Activate();
         UTextureRenderTarget2D* Target = Targets.FindRef(Request.CameraId);
         if (!Target || Target->SizeX != Resolution.X || Target->SizeY != Resolution.Y || Target->RenderTargetFormat != Format)
@@ -3411,7 +3418,7 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
     const bool bFisheye = Definition->CameraMode == TEXT("fisheye");
     const double Fx = bFisheye ? FMath::Min(Resolution.X, Resolution.Y) / FovX
         : 0.5 * Resolution.X / FMath::Tan(0.5 * FovX);
-    const double Fy = Fx;
+    const double Fy = bFisheye ? Fx : BskCameraFocalY(*Definition, Resolution);
     const double FovY = bFisheye ? FovX : 2.0 * FMath::Atan(0.5 * Resolution.Y / Fy);
     TSharedPtr<FJsonObject> Intrinsics = MakeShared<FJsonObject>();
     Intrinsics->SetStringField(TEXT("model"), bFisheye ? TEXT("equidistant_fisheye") : TEXT("pinhole"));

@@ -66,7 +66,7 @@ class VisualPredictiveCapture(VisualCaptureProbe):
             return False
         frame=str(self.last_packet['source_frame_id'])
         if frame==self.last_frame:return t-self.source_t<.4
-        if self.held_pose and self.last_packet.get('marker_count',4)<4:
+        if not self._complete_observation():
             self.input_status='incomplete_marker_set';return False
         source_t=int(self.last_packet['sim_time_ns'])/1e9
         if self.source_t is not None and source_t<=self.source_t:return False
@@ -97,6 +97,10 @@ class VisualPredictiveCapture(VisualCaptureProbe):
             for vector,limit in ((self.v_base,.003),(self.w_base,.01)):
                 vector*=min(1.,limit/max(np.linalg.norm(vector),1e-12))
         return True
+
+    def _complete_observation(self):
+        """Legacy wrist frontend requires its original four-marker layout."""
+        return not self.held_pose or self.last_packet.get('marker_count',4)>=4
 
     def command(self,t,q,base_from_grip,feedback,*,reference_from_base=None):
         if not self.held_pose:return self._command_in_frame(t,q,base_from_grip,feedback)

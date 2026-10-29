@@ -410,10 +410,13 @@ class MissionRuntime:
         return folder / name
 
     def status(self, user=None):
-        record = copy.deepcopy(self._record) if self._record else {}
         flight = self.flight.status()
         scene = self.scenes.status()
         telemetry = self.telemetry.status()
+        # Executor reads can overlap a launch worker. Read coordinator state
+        # afterwards so its provenance matches the latest published stage.
+        record = copy.deepcopy(self._record) if self._record else {}
+        monitor_active = bool(self._monitor and not self._monitor.done())
         is_flight = record.get("stage") == "flight"
         same_flight = record.get("flight_output_dir") == flight.get("output_dir")
         report = flight.get("report") if record.get("flight_output_dir") and same_flight else None
@@ -424,12 +427,21 @@ class MissionRuntime:
         elif record.get("error"):
             phase = "failed"
         elif is_flight:
-            phase = "flight" if flight.get("running") else ("completed" if record.get("flight_phase") == "near" or record.get("mode", "").startswith("near-field") else "ready") if report and report.get("basic_nominal_passed") else "failed"
+            if flight.get("running"):
+                phase = "flight"
+            elif monitor_active and report is None:
+                # A new stage has no final report while its worker launches.
+                # The coordinator records an actual launch/exit failure itself.
+                phase = "transitioning"
+            elif report and report.get("basic_nominal_passed"):
+                phase = "completed" if record.get("flight_phase") == "near" or record.get("mode", "").startswith("near-field") else "ready"
+            else:
+                phase = "failed"
         else:
             phase = scene.get("phase", "idle") if record else "idle"
         if not is_flight or not same_flight or self._operation == "starting":
             telemetry = {"connected": False, "state": None}
-        active = bool(self._operation or scene.get("active") or flight.get("running") or (self._monitor and not self._monitor.done()))
+        active = bool(self._operation or scene.get("active") or flight.get("running") or monitor_active)
         can_handoff = bool(report and report.get("basic_nominal_passed") and not record.get('emergency_stop') and not record.get("mode", "").startswith("near-field") and not active
                            and (not record.get("scene_instance_id") or record.get("stopped")
                                 or scene.get("phase") in {"stopped", "failed", "completed"}))

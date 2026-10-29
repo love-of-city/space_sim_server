@@ -72,6 +72,46 @@ def setup(tmp_path):
     return manager, flight, scenes, busy, scene_state
 
 
+@pytest.mark.parametrize('report,error,expected', [
+    (None, None, 'transitioning'),
+    ({'basic_nominal_passed': False}, None, 'failed'),
+    (None, 'near launch failed', 'failed'),
+])
+def test_continuous_stage_without_a_final_report_waits_for_coordinator(tmp_path, report, error, expected):
+    manager, flight, _, _, _ = setup(tmp_path)
+    manager._new('team-in-orbit', OWNER)
+    flight.output_dir = tmp_path/'near'
+    flight.report = report
+    manager._record.update(flight_phase='near', flight_output_dir=str(flight.output_dir), error=error)
+    manager._monitor = SimpleNamespace(done=lambda: False)
+    state = manager.status(OWNER)
+    assert state['phase'] == expected
+    assert state['active']
+    assert not state['can_handoff']
+    manager._monitor = None
+    if report is None and error is None:
+        assert manager.status(OWNER)['phase'] == 'failed'
+
+
+def test_status_reads_stage_provenance_after_executor_snapshot(tmp_path):
+    manager, flight, _, _, _ = setup(tmp_path)
+    manager._new('team-in-orbit', OWNER)
+    manager._record.update(flight_phase='far', flight_output_dir=str(tmp_path/'far'))
+    original_status = flight.status
+
+    def finishing_launch():
+        # The executor snapshot overlaps the worker publishing the new stage.
+        flight.output_dir, flight.running = tmp_path/'near', True
+        manager._record.update(flight_phase='near', flight_output_dir=str(flight.output_dir))
+        return original_status()
+
+    flight.status = finishing_launch
+    state = manager.status(OWNER)
+    assert state['phase'] == 'flight'
+    assert state['flight_phase'] == 'near'
+    assert state['flight_output_dir'] == state['runtime']['output_dir'] == str(tmp_path/'near')
+
+
 @pytest.mark.parametrize('stage', ['flight', 'teleop'])
 def test_capture26_emergency_stop_is_owned_bound_to_active_run_and_blocks_handoff(tmp_path, stage):
     manager, flight, _, _, scene_state = setup(tmp_path)

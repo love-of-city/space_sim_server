@@ -117,3 +117,25 @@ def test_service_publishes_rejection_instead_of_reusing_last_pose(tmp_path):
         assert exported['result']['alignment'] == {'valid': False}
     finally:
         service.close()
+
+
+def test_mission_binding_keeps_its_calibration_when_operation_resolver_is_installed(tmp_path):
+    from space_arm_platform.vision_service import StereoVisionService
+    config = json.loads(CONFIG.read_text('utf-8')); mission_config = tmp_path/'mission.json'
+    mission_config.write_text(json.dumps(config), encoding='utf-8')
+    callbacks = []
+    service = StereoVisionService(tmp_path, config_path=mission_config,
+        config_resolver=lambda: 'config/vision/unrelated_operation.json',
+        estimator=lambda l, r: measurement())
+    service.bind_task('mission', 's', config_path=mission_config, on_result=callbacks.append)
+    service.start()
+    try:
+        for eye in ('left', 'right'):
+            service.on_capture(dict(camera_id=config['camera_ids'][eye], session_id='s',
+                source_frame_id='1', sim_time_ns=100000000), {'rgb': b'image'})
+        assert service.wait_idle()
+        assert service.config_path == mission_config
+        assert callbacks[0]['mission_id'] == 'mission'
+        assert callbacks[0]['status'] == 'ok'
+    finally:
+        service.close()

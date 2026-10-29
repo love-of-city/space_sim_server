@@ -86,7 +86,9 @@ class Capture26Component:
             from simulation.capture_sequence import CaptureSequence
             self.sequence = self.visual.sequence if self.visual else CaptureSequence(force_control=self.force_control)
             from simulation.capture_audit import CaptureAudit
-            self.audit = CaptureAudit(self.model_path, self.stepper)
+            audit_options = ({'output_path': Path(self.visual_config['output_directory'])/'contacts_400hz.jsonl'}
+                             if self.visual_config else {})
+            self.audit = CaptureAudit(self.model_path, self.stepper, **audit_options)
             self.body_readers = [ctx.ports.body_state(n).addSubscriber()
                                  for n in ('cubesat_bus', 'capture_target')]
         elif self.visual_config:

@@ -32,6 +32,36 @@ def longest_hold(truth, support):
     return longest
 
 
+def contact_metrics(path):
+    """Check every physics tick; a force excursion between images breaks hold."""
+    starts = {2: None, 4: None}; longest = {2: 0., 4: 0.}
+    previous = None; count = 0; peak = 0.; aborted = False
+    with path.open(encoding='utf-8') as stream:
+        for line in stream:
+            row = json.loads(line)
+            if row.get('type') != 'step':
+                continue
+            t = float(row['t']); f = row['clamp']; count += 1
+            if previous is not None and t <= previous:
+                raise ValueError('contact audit time must increase')
+            peak = max(peak, float(f['peak_target_contact_force_n']))
+            aborted |= row['phase'] == 'abort'
+            for support in starts:
+                good = (row['phase'] == 'hold_force'
+                        and 4.5 <= f['pad_force_n'] <= 5.5
+                        and f['jaw_support_count'] >= support)
+                if good:
+                    if starts[support] is None or (previous is not None and t-previous > .002501):
+                        starts[support] = t
+                    longest[support] = max(longest[support], t-starts[support])
+                else:
+                    starts[support] = None
+            previous = t
+    return dict(samples=count, peak_individual_target_contact_force_n=peak,
+                aborted=aborted, supported_force_hold_2plus_jaws_s=longest[2],
+                supported_force_hold_all4_jaws_s=longest[4])
+
+
 def score(directory):
     truth = rows(directory/'truth.jsonl'); images = rows(directory/'measurements.jsonl')
     indexed = {(r['session_id'], str(r['source_frame_id']), str(r['sim_time_ns'])):r for r in truth}
@@ -72,7 +102,12 @@ def score(directory):
             np.array(p['predicted_rotation_grip'])@np.array(row['R_grip_from_interface']).T).as_rotvec())))
     hold2 = longest_hold(truth, 2); hold4 = longest_hold(truth, 4)
     completed = (directory/'completed.json').exists()
+    audit_path = directory/'contacts_400hz.jsonl'
+    audit = contact_metrics(audit_path) if audit_path.exists() else None
+    usable = bool(completed and images and image_pos and mismatched == 0
+                  and audit and audit['samples'] and not audit['aborted'])
     result = dict(completed=completed, paired_images=len(images), unmatched_source_frames=mismatched,
+        last_truth_sim_time_s=int(truth[-1]['sim_time_ns'])/1e9 if truth else None,
         delivered_valid_images=sum(bool(r['packet'].get('valid')) for r in images),
         estimator_rejected=sum(r['packet']['measurement'].get('status') != 'ok' for r in images),
         deliberately_lost_images=sum(bool(r.get('injected_loss')) for r in images),
@@ -90,7 +125,11 @@ def score(directory):
         final_lateral_alignment_error_mm=float(np.linalg.norm(truth[-1]['interface_position_grip_m'][:2])*1000) if truth else None,
         final_interface_rotation_from_aligned_deg=float(np.rad2deg(np.linalg.norm(Rotation.from_matrix(
             np.array(truth[-1]['R_grip_from_interface'])).as_rotvec()))) if truth else None,
-        grasp_pass=bool(completed and mismatched==0 and hold4 >= 10),
+        physics_tick_contact_audit=audit,
+        physical_grasp_hold_pass=bool(audit and not audit['aborted']
+                                     and audit['supported_force_hold_2plus_jaws_s'] >= 10),
+        grasp_pass=bool(usable and audit['supported_force_hold_2plus_jaws_s'] >= 10),
+        all_four_jaws_supported_hold_pass=bool(usable and audit['supported_force_hold_all4_jaws_s'] >= 10),
         scope='single seeded local native dynamics trial; lockstep 10 Hz actual UE images; not real-time/hardware/multi-seed qualification')
     (directory/'score.json').write_text(json.dumps(result, indent=2)+'\n', encoding='utf-8')
     return result

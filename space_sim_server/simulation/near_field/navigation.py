@@ -161,10 +161,13 @@ class RelativeEKF:
 
     def update(self, packet, now):
         age = now - packet["stamp"]
-        if not 0 <= age <= 0.35:
+        # Nanosecond image epochs can round a few ulps ahead in float seconds.
+        # Allow at most 1 ns representation error, retaining the original gate.
+        if not np.isfinite(age) or not -1e-9 <= age <= 0.35+1e-9:
             self.rejected += 1
             self.rejection_reasons["age"] += 1
             return False
+        age = float(np.clip(age, 0., .35))
         full = packet["source"] == "gnss"
         H = np.eye(6) if full else np.eye(6)[:3]
         z = packet["z"].copy()

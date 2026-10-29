@@ -4,6 +4,36 @@ from pathlib import Path
 import numpy as np
 
 
+def gyro_evidence(gyros,controls,session,end_t):
+    stamps=[int(r['measurement']['sample_time_ns']) for r in gyros]
+    failures=[]
+    if len(stamps)<101 or not all(b-a==20_000_000 for a,b in zip(stamps,stamps[1:])) or any(t%20_000_000 for t in stamps):
+        failures.append('gyro cadence/unique-sample evidence incomplete')
+    if not stamps or stamps[0]>round(controls[0]['t']*1e9) or stamps[-1]<round(end_t*1e9)-40_000_000:
+        failures.append('gyro samples do not cover complete scored interval')
+    resets={r['reset_generation'] for r in gyros}
+    if len(resets)!=1 or any(r['render_session_id']!=session for r in gyros):failures.append('gyro session/epoch mismatch')
+    for row in gyros:
+        m=row['measurement'];age=int(row['control_time_ns'])-int(m['sample_time_ns'])
+        if (not m['valid'] or any(m['saturated_axes']) or m['sensor_name']!='service_gyro'
+                or m['sample_rate_hz']!=50 or not 0<=age<=40_000_000):
+            failures.append('invalid original gyro measurement');break
+    original={r['measurement']['sample_time_ns']:r['measurement'] for r in gyros}
+    matched=0
+    for control in controls:
+        if control['t']<=2:continue
+        feedback=(control.get('prediction') or {}).get('gyro_feedback') or {}
+        source=feedback.get('sample_time_ns');measurement=original.get(source)
+        if (not feedback.get('valid') or feedback.get('error') or measurement is None
+                or feedback.get('reading')!=measurement or feedback.get('epoch')!=[session,next(iter(resets),'')]
+                or not 0<=round(control['t']*1e9)-int(source or '-1')<=40_000_000):
+            failures.append('controller consumption does not match original session gyro packet');break
+        matched+=1
+    if not matched:failures.append('missing active controller gyro consumption')
+    return dict(valid=not failures,failures=failures,sample_count=len(stamps),matched_control_rows=matched,
+        first_sample_ns=stamps[0] if stamps else None,last_sample_ns=stamps[-1] if stamps else None)
+
+
 def records(path):
     with Path(path).open(encoding='utf-8-sig') as stream:
         for line in stream:
@@ -55,13 +85,15 @@ def rotation(q):
 def angle(matrix):return float(np.degrees(np.arccos(np.clip((np.trace(matrix)-1)/2,-1,1))))
 
 
-def target_motion(audit_path,reference_path,first_contact_t):
+def target_motion(audit_path,reference_path,first_contact_t,*,end_t=float('inf')):
     reference=list(records(reference_path))
     rt=np.array([r['t'] for r in reference]);ref=np.array([r['target'] for r in reference])
     differences=[]
     for index,row in enumerate(records(audit_path)):
         if row.get('type')!='step' or index%8:continue
-        t=row['t'];a=np.array(row['bodies']['capture_target'])
+        t=row['t']
+        if t>end_t:continue
+        a=np.array(row['bodies']['capture_target'])
         if not rt[0]<=t<=rt[-1]:raise ValueError('free reference does not cover actual grasp')
         b=np.array([np.interp(t,rt,ref[:,i]) for i in range(13)])
         differences.append(dict(t=t,translation_mm=float(np.linalg.norm(a[:3]-b[:3])*1000),

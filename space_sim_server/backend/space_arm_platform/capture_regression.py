@@ -73,18 +73,27 @@ def temporary_vision_runtime(root,supplied,*,cleanup=None):
     with os.fdopen(descriptor,'w') as file:file.write(str(os.getpid()))
     paths=[run/'vision_runtime.json',run/'wrist_alignment_observation.json']
     previous={p:p.read_bytes() if p.exists() else None for p in paths}
+    backup=run/('capture_regression_restore_'+uuid.uuid4().hex[:12]);backup.mkdir()
+    for path,data in previous.items():
+        if data is not None:(backup/path.name).write_bytes(data)
+    (backup/'restore.json').write_text(json.dumps({p.name:data is not None for p,data in previous.items()}))
     try:
         paths[0].write_bytes(Path(supplied).read_bytes())
         paths[1].unlink(missing_ok=True)
         yield
     finally:
-        try:
-            if cleanup is not None:cleanup()
-        finally:
-            for path,data in previous.items():
-                if data is None:path.unlink(missing_ok=True)
-                else:path.write_bytes(data)
-            lock.unlink(missing_ok=True)
+        if cleanup is not None:
+            try:cleanup()
+            except Exception as error:
+                (backup/'shutdown_error.txt').write_text(str(error),encoding='utf-8')
+                raise RuntimeError(f'writer shutdown failed; lease/config retained; original bytes in {backup}') from error
+        for path,data in previous.items():
+            if data is None:path.unlink(missing_ok=True)
+            else:path.write_bytes(data)
+        for name in ('vision_runtime.json','wrist_alignment_observation.json','restore.json'):
+            (backup/name).unlink(missing_ok=True)
+        backup.rmdir()
+        lock.unlink(missing_ok=True)
 
 
 def physical_fingerprint(root=ROOT):

@@ -31,8 +31,14 @@ def write(path,data):path.write_text(json.dumps(data,indent=2,ensure_ascii=False
 def monitor(process,prepared,managed):
     start=time.monotonic();hold=None;previous=None
     path=prepared.output/'capture/visual_control.jsonl'
+    def check_processes(t=None):
+        states=[dict(role=managed.names.get(p.pid,str(p.pid)),pid=p.pid,returncode=p.poll()) for p in managed.jobs]
+        write(prepared.output/'required-processes.json',dict(checked_sim_t=t,processes=states))
+        for state in states:
+            if state['returncode'] is not None:raise RuntimeError(f"required process {state['role']} exited: {state['returncode']}")
     while time.monotonic()-start<prepared.recipe['max_wall_s']:
         managed.observe()
+        check_processes()
         row=last_row(path)
         if row:
             t=row['t'];status=row['status']
@@ -44,7 +50,8 @@ def monitor(process,prepared,managed):
                 blind_path_mm=(row.get('prediction') or {}).get('blind_path_mm'),wall_s=time.monotonic()-start)
             write(prepared.output/'progress.json',progress)
             if status!=previous:print(json.dumps(progress),flush=True);previous=status
-            if hold is not None and t-hold>=prepared.recipe['stop_after_hold_s']:return
+            if hold is not None and t-hold>=prepared.recipe['stop_after_hold_s']:
+                check_processes(t);return
             if t>=prepared.recipe['max_sim_s']:raise RuntimeError('simulation time budget exhausted before stable hold')
         if process.poll() is not None:raise RuntimeError(f'simulation exited before hold; code={process.returncode}')
         time.sleep(1)
@@ -100,6 +107,7 @@ def main():
             renderer=managed.start('renderer',[unreal/'Engine/Binaries/Win64/UnrealEditor.exe',
                 project/'BskUnrealRenderer.uproject','-game','-RenderOffscreen','-unattended','-nosplash','-nosound',
                 '-ResX=1280','-ResY=720',f'-BskPort={ports[4]}','-BskCaptureHost=127.0.0.1',
+                '-ExecCmds=t.MaxFPS 30,r.VSync 0',
                 f'-BskCapturePort={ports[2]}','-BskCaptureProducts=rgb','-BskOfflineCapture',
                 '-DDC=InstalledDerivedDataBackendGraph',f'-LocalDataCachePath={os.environ.get("LOCALAPPDATA",str(output))}/BskDDC/capture-regression',
                 f'-abslog={output}/ue.log'],env=env,cwd=ROOT)
@@ -131,7 +139,8 @@ def main():
     except Exception as failure:
         error=str(failure)
     finally:
-        managed.close()
+        try:managed.close()
+        except Exception as cleanup_error:error=(error+'; ' if error else '')+str(cleanup_error)
         after=physical_fingerprint(ROOT);write(output/'physical-after.json',after)
         if after!=frozen:error=(error+'; ' if error else '')+'physical model changed'
     if error:

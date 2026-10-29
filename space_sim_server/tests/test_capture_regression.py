@@ -5,6 +5,7 @@ import pytest
 from space_arm_platform.capture_regression import prepare_trial, temporary_vision_runtime, physical_fingerprint
 from space_arm_platform.capture_regression import free_reference_scene
 from space_arm_platform.capture_regression_score import score_hold, phase_evidence
+from space_arm_platform.capture_regression_score import gyro_evidence
 from space_arm_platform.capture_regression_runtime import ensure_ports_free, ManagedProcesses
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -114,6 +115,58 @@ def test_writer_shutdown_precedes_configuration_restoration(tmp_path):
     def shutdown():old.write_text('worker shutdown output')
     with temporary_vision_runtime(tmp_path,supplied,cleanup=shutdown):pass
     assert old.read_text()=='previous'
+
+
+def test_failed_shutdown_retains_lease_and_original_bytes_for_recovery(tmp_path):
+    run=tmp_path/'run';run.mkdir()
+    config=run/'vision_runtime.json';config.write_text('original')
+    supplied=tmp_path/'supplied.json';supplied.write_text('{}')
+    def fail():raise RuntimeError('owned writer still alive')
+    with pytest.raises(RuntimeError):
+        with temporary_vision_runtime(tmp_path,supplied,cleanup=fail):pass
+    assert (run/'capture_regression.lock').exists()
+    assert config.read_text()=='{}'
+    backups=list(run.glob('capture_regression_restore*/vision_runtime.json'))
+    assert len(backups)==1 and backups[0].read_text()=='original'
+
+
+def test_monitor_rejects_renderer_exit_before_accepting_hold(tmp_path,monkeypatch):
+    import importlib.util
+    from types import SimpleNamespace
+    spec=importlib.util.spec_from_file_location('regression_monitor_test',ROOT/'tools/run_visual_gyro_capture.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    simulation=SimpleNamespace(pid=1,poll=lambda:None)
+    renderer=SimpleNamespace(pid=2,poll=lambda:1)
+    managed=SimpleNamespace(jobs=[simulation,renderer],names={1:'simulation',2:'renderer'},observe=lambda:None)
+    trial=SimpleNamespace(output=tmp_path,recipe={'max_wall_s':20,'stop_after_hold_s':22,'max_sim_s':300})
+    rows=iter([dict(t=0,status='predictive_hold_force'),dict(t=22,status='predictive_hold_force')])
+    monkeypatch.setattr(module,'last_row',lambda _:next(rows))
+    monkeypatch.setattr(module.time,'sleep',lambda _:None)
+    with pytest.raises(RuntimeError,match='renderer'):
+        module.monitor(simulation,trial,managed)
+
+
+def _gyro_fixture():
+    gyros=[]
+    for k in range(1201):
+        ns=k*20_000_000
+        measurement=dict(sample_time_ns=str(ns),sensor_name='service_gyro',valid=True,
+            saturated_axes=[False]*3,sample_rate_hz=50)
+        gyros.append(dict(render_session_id='s',reset_generation='',control_time_ns=str(ns+2_500_000),measurement=measurement))
+    controls=[dict(t=k*.2,prediction={'gyro_feedback':dict(valid=True,error=None,
+        sample_time_ns=gyros[k*10]['measurement']['sample_time_ns'],reading=gyros[k*10]['measurement'],
+        sample_age_ns=0,epoch=['s',''])}) for k in range(121)]
+    return gyros,controls
+
+
+def test_gyro_gate_binds_full_interval_session_and_control_consumption():
+    gyros,controls=_gyro_fixture()
+    assert gyro_evidence(gyros,controls,'s',24)['valid']
+    assert not gyro_evidence(gyros[:101],controls,'s',24)['valid']
+    wrong=[dict(row,render_session_id='other') for row in gyros]
+    assert not gyro_evidence(wrong,controls,'s',24)['valid']
+    controls[-1]['prediction']['gyro_feedback']['reading']={'sample_time_ns':'24000000000','valid':True}
+    assert not gyro_evidence(gyros,controls,'s',24)['valid']
 
 
 def test_phase_evidence_rejects_abort_and_absent_prediction():

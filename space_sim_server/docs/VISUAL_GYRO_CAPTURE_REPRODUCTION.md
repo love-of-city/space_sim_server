@@ -41,7 +41,11 @@ scene is running. The entry temporarily leases `run/vision_runtime.json`, clears
 the old observation and enables its export. It closes only its owned processes
 and restores previous config/observation bytes on success or ordinary failure.
 An interrupted/killed launcher may leave `run/capture_regression.lock`; inspect
-the recorded PID before removing a stale lock. No global platform stop is used.
+the recorded PID before removing a stale lock. Failed writer shutdown retains
+both the lease and original config/observation bytes in the reported
+`run/capture_regression_restore_*` directory. Stop the recorded owned writers
+before restoring those bytes according to `restore.json` and removing the lock.
+No global platform stop is used.
 
 ## Configuration and evidence
 
@@ -68,7 +72,12 @@ Success requires a fresh four-marker native PNG independently re-decoded through
 PnP, matching UE/PnP K, the complete visual→gyro prediction→force-hold phase
 sequence, contiguous valid gyro samples, no service self-contact, unchanged
 physical fingerprints and at least20s continuous four-jaw support at4.5..5.5N.
-Contact-record gaps reset the continuous-hold window. The independent free
+UE, backend and simulation must remain alive through the scored hold endpoint;
+their return codes are saved before intentional teardown. Contact-record gaps
+reset the continuous-hold window. Gyro records must match the run session/epoch,
+cover the full interval and match packets actually consumed by the controller.
+Scoring ends at the verified live endpoint, excluding teardown tail samples.
+The independent free
 reference must agree before contact within0.05mm/0.005deg; nominal disturbance
 gates are10mm/2deg. These are selected regression thresholds for this one
 retained initial state, not a hardware tolerance or reliability claim. Target

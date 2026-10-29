@@ -22,7 +22,7 @@ def ensure_ports_free(ports):
 
 class ManagedProcesses:
     def __init__(self,output):
-        self.output=Path(output);self.jobs=[];self.owned={};self.files=[]
+        self.output=Path(output);self.jobs=[];self.owned={};self.files=[];self.names={}
 
     def start(self,name,argv,*,env=None,cwd=None):
         stdout=(self.output/f'{name}.out.log').open('wb')
@@ -31,6 +31,7 @@ class ManagedProcesses:
         process=subprocess.Popen([str(x) for x in argv],cwd=cwd,env=env,stdout=stdout,stderr=stderr,
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         self.jobs.append(process)
+        self.names[process.pid]=name
         self.owned[process.pid]=psutil.Process(process.pid).create_time()
         self.observe()
         return process

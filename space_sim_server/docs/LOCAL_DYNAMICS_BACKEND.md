@@ -64,7 +64,7 @@ state does not depend on the stride (tested).
 
 ## Measurements
 
-Physics-only RTF (`tools/profile_simulation_runtime.py`: UE rendering, network and disk excluded),
+Physics-only RTF (`tools/benchmarks/profile_simulation_runtime.py`: UE rendering, network and disk excluded),
 contact scene `run/diagnostics/gripper-contact` unless noted, final code (2026-10-01). Frame time is
 per 30 Hz frame (budget 33.3 ms). The machine was shared (browser etc., 30-40 % CPU load), so the
 run-to-run spread is large. Results: `run/diagnostics/local_stepper/final3/`.

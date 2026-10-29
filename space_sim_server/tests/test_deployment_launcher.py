@@ -51,7 +51,7 @@ def run_ps(script, *args, env=None):
 @pytest.fixture
 def repo(tmp_path):
     root = tmp_path / "launcher repo with spaces"
-    for name in ("scripts", "deploy", "tools"):
+    for name in ("scripts", "deploy", "tools/deployment"):
         (root / name).mkdir(parents=True)
     for name in ("deployment_launcher.ps1", "deployment_bootstrap.ps1", "deployment_config.ps1"):
         shutil.copyfile(ROOT / "scripts" / name, root / "scripts" / name)
@@ -75,7 +75,7 @@ function Show-LauncherAccess { param($Settings, [switch]$NonInteractive)
     Write-Host ('ACCESS-ORIGIN: ' + $Settings.PublicUrl)
 }
 """)
-    (root / "tools/check_deployment_auth.py").write_text(
+    (root / "tools/deployment/check_deployment_auth.py").write_text(
         "import os, sys\nsys.exit(1 if os.getenv('TEST_AUTH_FAIL') else 0)\n", encoding="utf-8"
     )
     (root / "scripts/deploy_platform.ps1").write_text("""

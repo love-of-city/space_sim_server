@@ -23,7 +23,7 @@
 ### 选择与资产校验
 
 - `backend/space_arm_platform/scene_targets.py` 统一管理默认模板、XML 路径、碰撞类型与局部初态。
-- `tools/select_sarm_scene.py --check` 默认仅校验粗盒组合及其源文件指纹，不读取高精度碰撞清理副本；显式选择高精度模板时才校验该版本的全部原始网格和碰撞副本。所选版本缺失/过期时明确失败，不静默换成其他模板。
+- `tools/assets/select_sarm_scene.py --check` 默认仅校验粗盒组合及其源文件指纹，不读取高精度碰撞清理副本；显式选择高精度模板时才校验该版本的全部原始网格和碰撞副本。所选版本缺失/过期时明确失败，不静默换成其他模板。
 - `scripts/prepare_sarm_scene.ps1` 按模板准备实际运行 XML 对应的 UE 资源；直接启动平台时使用共享默认值，启动已保存实例时使用该实例的模板。
 - `ModelRoot` 仍是 `model/SARM/platform`，供适配器找到原生场景脚本；仅 `native.MODEL_PATH` 按模板解析到组合 XML。
 - 原生 `_load_scene` 为 BSK 的 VFS 同时收集 `asset/mesh` 和 `flexcomp` 的文件，避免只提供视觉网格、遗漏碰撞专用文件。
@@ -101,10 +101,10 @@
 
 ```powershell
 # 平台启动使用的快速选型/指纹检查（仅标准库）：
-python tools/select_sarm_scene.py --check
+python tools/assets/select_sarm_scene.py --check
 # 校验当前默认组合；仅在维护高精度实验时才运行后一个检查（依赖 NumPy）：
-python tools/build_sarm_ground_target.py --check
-python tools/build_satellite_mesh_collision.py --check
+python tools/assets/build_sarm_ground_target.py --check
+python tools/assets/build_satellite_mesh_collision.py --check
 # 需要强制重新导入 UE 可视资源时：
 .\scripts\run_platform.ps1 -ReimportAssets
 ```

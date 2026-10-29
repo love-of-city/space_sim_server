@@ -41,7 +41,9 @@ def test_independent_pickup_and_target_yaws_control_grasp_seating_and_acceptance
                         np.zeros(3), np.zeros(3), np.zeros(6), True)
     task.step(sample)
     np.testing.assert_allclose(task.plug_rotation, hole_r @ old_r, atol=1e-14)
-    assert abs(np.dot(task.grasp_rotation[:, 0], pickup_r[:, 0])) == pytest.approx(1.)
+    closing = (sample.plug_rotation_body @ np.asarray(profile.grasp_closing_axis)
+               if profile.grasp_closing_axis else pickup_r[:, 0])
+    assert abs(np.dot(task.grasp_rotation[:, 0], closing)) == pytest.approx(1.)
     seated = replace(sample, plug_position_body_m=task.hole+[0., 0., profile.flange_m],
                      plug_rotation_body=hole_r @ old_r)
     assert task.metrics(seated)['orientation_error_rad'] < 1e-12
@@ -66,3 +68,30 @@ def test_drawer_grip_frame_rotates_and_original_slide_coordinate_stays_vertical(
     np.testing.assert_allclose(task.grip_origin-task.drawer_origin,
                                yaw @ (original.grip_origin-original.drawer_origin), atol=1e-14)
     np.testing.assert_allclose(task.axis, [0., 0., 1.], atol=1e-14)
+
+
+@pytest.mark.parametrize('offset,yaw', [([.02, .015, 0.], -.3), ([-.025, .01, 0.], .4)])
+def test_aviation_straight_pregrasp_follows_relocated_pickup(tmp_path, offset, yaw):
+    root = ET.parse(MODEL).getroot()
+    rotation = axis_angle_to_matrix(np.array([0., 0., 1.]), yaw)
+    pickup = root.find('.//site[@name="aviation_pickup"]')
+    pickup.set('pos', ' '.join(map(str, np.fromstring(pickup.get('pos'), sep=' ') + offset)))
+    write_quat(pickup, rotation)
+    body = root.find('./worldbody/body[@name="aviation_plug"]')
+    position = np.fromstring(body.get('pos'), sep=' ') + offset
+    body.set('pos', ' '.join(map(str, position)))
+    plug_rotation = rotation @ quaternion_wxyz_to_matrix(np.fromstring(body.get('quat'), sep=' '))
+    write_quat(body, plug_rotation)
+    model = tmp_path / 'relocated.xml'
+    ET.ElementTree(root).write(model)
+    task = PlugInsertTask(model, PlugInsertConfig(plug_body='aviation_plug'))
+    sample = PlugSample(0., np.r_[np.deg2rad(DEFAULT_OPERATING_JOINT_DEG), 0., 0.],
+                        np.zeros(8), position, plug_rotation, np.zeros(3), np.zeros(3),
+                        np.zeros(6), True)
+    task.step(sample)
+    task._enter('approach', sample)
+    expected = position + plug_rotation @ np.asarray(task.config.grasp_offset_m)
+    np.testing.assert_allclose(task._goal, expected, atol=1e-12)
+    final_p, final_r = task.chain.forward(task.planned_path_reference(task._duration)[:6])
+    np.testing.assert_allclose(final_p, expected, atol=2e-6)
+    assert abs(final_r[:, 0] @ plug_rotation[:, 1]) > .999999

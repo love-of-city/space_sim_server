@@ -9,6 +9,21 @@ from .sampling import DEFAULT_CAPTURE_HZ
 
 
 DEFAULT_CAMERA_IDS = ("teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam")
+H264_ENCODER_PRESETS = (
+    "ultrafast", "superfast", "veryfast", "faster", "fast", "medium",
+    "slow", "slower", "veryslow", "placebo",
+)
+NVENC_ENCODER_PRESETS = tuple(f"p{index}" for index in range(1, 8))
+
+
+def validate_encoder_preset(codec: str, preset: str | None) -> None:
+    if preset is None:
+        return
+    supported = NVENC_ENCODER_PRESETS if codec == "h264_nvenc" else (
+        H264_ENCODER_PRESETS if codec in ("h264", "libx264") else ()
+    )
+    if preset not in supported:
+        raise ValueError(f"encoder_preset {preset!r} is not supported by codec {codec!r}")
 
 
 class VideoEncodingConfig(BaseModel):
@@ -20,11 +35,15 @@ class VideoEncodingConfig(BaseModel):
     encoder_threads: int = Field(default=2, ge=1, le=64)
     image_writer_threads: int = Field(default=0, ge=0, le=64)
     encoder_queue_maxsize: int = Field(default=30, ge=1, le=1024)
+    encoder_preset: str | None = None
     quality: int = Field(default=30, ge=0, le=51)
     keyframe_interval: int = Field(default=2, ge=1, le=250)
 
     @model_validator(mode="after")
     def validate_encoding(self):
+        validate_encoder_preset(self.codec, self.encoder_preset)
+        if self.encoder_preset is not None and not self.streaming_encoding:
+            raise ValueError("encoder_preset requires streaming_encoding")
         if self.codec == "h264_nvenc" and self.gpu_index is not None and not self.streaming_encoding:
             raise ValueError("Explicit NVENC GPU selection requires streaming_encoding")
         if self.codec == "h264_nvenc" and self.keyframe_interval < 2:

@@ -13,6 +13,10 @@ class PlugProfile:
     flange_m: float = 0.025
     keyed: bool = False
     feedback_extraction: bool = False
+    # Object-local closing axis through the two modeled head latch features.
+    # Explicit axes opt into coordinated approach/extract/carry/release motion.
+    grasp_closing_axis: tuple[float, float, float] | None = None
+    grasp_offset_m: tuple[float, float, float] = (0., 0., -.003)
 
     @property
     def target_site(self):
@@ -25,11 +29,7 @@ class PlugProfile:
             "guide": "guide plug",
             "cylindrical": "cylindrical plug",
         }[self.prefix]
-        return (
-            f"Track and grasp the {name}, then move it to the matching assembly hole "
-            "on the workbench. Align and insert it fully, release it, "
-            "and retract the gripper. Ensure the plug remains seated."
-        )
+        return f"Pick up the {name}, align it with the corresponding socket, and insert it fully."
 
 
 PLUG_PROFILES = {
@@ -40,6 +40,7 @@ PLUG_PROFILES = {
         "aviation",
         0.080,
         keyed=True,
+        grasp_closing_axis=(0.0, 1.0, 0.0),
     ),
     "guide_plug_insert": PlugProfile(
         "guide_plug_insert",
@@ -47,14 +48,15 @@ PLUG_PROFILES = {
         "guide_plug",
         "guide",
         keyed=True,
-        feedback_extraction=True,
+        grasp_closing_axis=(0.0, 1.0, 0.0),
     ),
     "cylindrical_plug_insert": PlugProfile(
         "cylindrical_plug_insert",
         "圆柱插头",
         "cylindrical_plug",
         "cylindrical",
-        feedback_extraction=True,
+        grasp_closing_axis=(0.0, 1.0, 0.0),
+        grasp_offset_m=(0., 0., -.006),
     ),
 }
 

@@ -1,7 +1,7 @@
 """Local fixed-step MuJoCo dynamics backend against Basilisk MJScene and analytics.
 
 Native: needs Basilisk (MJScene) and the built helper
-(tools/build_native_acceleration.py --component local_mujoco_stepper ...).
+(tools/assets/build_native_acceleration.py --component local_mujoco_stepper ...).
 Never imports Python MuJoCo into this process.
 """
 from pathlib import Path

@@ -8,7 +8,7 @@ import pytest
 from space_arm_platform.auth import AuthStore
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("public_auth", ROOT / "tools/prepare_public_auth.py")
+spec = importlib.util.spec_from_file_location("public_auth", ROOT / "tools/deployment/prepare_public_auth.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 PASSWORD = "Generated-Public-Test-Password!"

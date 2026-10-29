@@ -107,7 +107,7 @@ def preflight(config, prepare=False):
     env = environment(config)
     subprocess.run([config["python"], str(ROOT / "scripts/check_basilisk.py")], env=env, cwd=ROOT, check=True)
     if public.mode(config) != "local" or config["host"] not in ("127.0.0.1", "localhost", "::1"):
-        subprocess.run([config["python"], str(ROOT / "tools/check_deployment_auth.py"),
+        subprocess.run([config["python"], str(ROOT / "tools/deployment/check_deployment_auth.py"),
                         "--database", str(ROOT / "data/auth.sqlite3")], env=env, cwd=ROOT, check=True)
     if public.mode(config) != "local":
         caddy = public.resolve_tool(ROOT, "caddy", config["caddy_executable"], download=prepare)
@@ -130,7 +130,7 @@ def preflight(config, prepare=False):
         binaries = [project / "Binaries/Linux/libUnrealEditor-BskUnrealRenderer.so",
                     project / "Plugins/BskUnrealRuntime/Binaries/Linux/libUnrealEditor-BskUnrealRuntime.so"]
         if not all(path.is_file() for path in binaries):
-            subprocess.run([config["python"], str(ROOT / "tools/build_unreal_linux.py"),
+            subprocess.run([config["python"], str(ROOT / "tools/assets/build_unreal_linux.py"),
                             "--adapter", config["adapter"], "--unreal", config["unreal"]], cwd=ROOT, env=env, check=True)
     return env
 

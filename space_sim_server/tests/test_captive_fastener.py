@@ -5,7 +5,7 @@ import xml.etree.ElementTree as E
 import pytest
 import numpy as np
 
-from tools.build_sarm_20261012 import compose_platform_model
+from tools.assets.build_sarm_20261012 import compose_platform_model
 from space_arm_platform.task_box import initialize_free_plugs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +48,7 @@ def test_sdf_comparison_keeps_original_free_joint_and_pairs(tmp_path):
 
 
 def test_reparenting_preserves_all_world_poses_and_grasp_geometries(tmp_path):
-    from tools.captive_fastener import body_frames, rotation
+    from simulation.model_preparation.captive_fastener import body_frames, rotation
     roots = {}
     for mode in ('sdf', 'captive'):
         out = tmp_path / (mode+'.xml')

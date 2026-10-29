@@ -1,12 +1,14 @@
 # 腕部相机类型
 
-创建场景前，在网页「场景实例 → 腕部相机类型」选择彩色、鱼眼（160°）或黑白，然后启动。场景运行期间锁定该设置；需要更换时先结束场景，再选择并重新启动。默认仍为彩色，旧场景缺少配置时也使用彩色。切换场景后如果仍显示旧画面或等待视频，点击画面上方「重新连接」或刷新网页。
+创建场景前，在网页「场景实例 → 腕部相机类型」选择彩色、鱼眼（160°）、黑白或黑白鱼眼（160°），然后启动。场景运行期间锁定该设置；需要更换时先结束场景，再选择并重新启动。默认仍为彩色，旧场景缺少配置时也使用彩色。切换场景后如果仍显示旧画面或等待视频，点击画面上方「重新连接」或刷新网页。
 
-API `POST /api/scenes/start` 或 `/api/scenes/instances` 接受 `wrist_camera_mode`：`rgb`、`fisheye`、`monochrome`。选择保存在场景实例及每段录制的 `scene_instance.wrist_camera_mode` 中；一键复原保留本场景的相机类型。
+API `POST /api/scenes/start` 或 `/api/scenes/instances` 接受 `wrist_camera_mode`：`rgb`、`fisheye`、`monochrome`、`monochrome_fisheye`。选择保存在场景实例及每段录制的 `scene_instance.wrist_camera_mode` 中；一键复原保留本场景的相机类型。
 
 鱼眼采用圆形等距投影 `r = f θ`，有效视场直径 160°，画面圆外为黑色。UE 先渲染更广视野，再在 GPU 上转换投影；并非对原窄视野做网页拉伸。中间图为输出长边两倍的正方形、最多 4096 像素。它是理想镜头近似，未模拟真实镜头标定参数、噪声或超过 180° 的视场。
 
 黑白从渲染图像计算 Rec.709 亮度，再写入相同的 RGB 三个通道。输出仍为 1024×1024 三通道图，沿用 `teleop/camera/sarm_wrist_cam`、RGB 产品及原有视频格式。模型收到的 `left_wrist` 就是所选画面；切换镜头会改变模型输入分布，是否适合已有权重需要单独评估。
+
+黑白鱼眼组合相同的 160° 等距鱼眼投影与灰度转换，在同一次 GPU 处理内完成。它使用鱼眼内参，采集元数据为 `camera_mode: monochrome_fisheye`、`color_model: monochrome_rgb`；输出尺寸、三通道格式及圆外黑色区域与已有模式一致。
 
 预览、HUD、录制、模型观测共享处理后的图像目标。采集协议包含 `camera_mode`、`color_model` 和相机内参；模型 API 的每幅图像也返回 `camera_mode`、`intrinsics`。鱼眼的 `equidistant_fisheye` 内参不能按针孔相机公式使用。
 

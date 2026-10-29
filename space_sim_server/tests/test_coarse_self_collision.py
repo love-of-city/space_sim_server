@@ -20,7 +20,7 @@ from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, SELF_COLLISION_TE
 ROOT = Path(__file__).resolve().parents[1]
 OLD = ROOT / 'model/SARM/platform/sarm_ground_target.xml'
 NEW = OLD.with_name('sarm_ground_target_self_collision.xml')
-spec = importlib.util.spec_from_file_location('coarse_contact_builder', ROOT / 'tools/build_sarm_ground_target.py')
+spec = importlib.util.spec_from_file_location('coarse_contact_builder', ROOT / 'tools/assets/build_sarm_ground_target.py')
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
 PAIRS = {

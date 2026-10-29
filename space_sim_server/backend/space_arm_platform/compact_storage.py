@@ -11,6 +11,7 @@ from pathlib import Path
 
 COMPACT_SCHEMA = "space-arm-compact/1"
 CONTEXT_FIELDS = (
+    "model_sha256",
     "render_session_id", "reset_generation", "capture_episode_id",
     "gripper_drive_position_rad", "target_gripper_drive_position_rad",
     "gripper_position_m", "target_gripper_position_m",
@@ -131,6 +132,9 @@ def read_observations(episode):
                     yield json.loads(line)["observation"]
         return
     import pyarrow.parquet as pq
+    platform_path = episode / "lerobot/meta/platform.json"
+    platform_model = (json.loads(platform_path.read_text(encoding="utf-8")).get("model_sha256")
+                      if platform_path.is_file() else None)
     contexts = iter(read_chunks(episode / "lerobot/auxiliary/context"))
     for file in sorted((episode / "lerobot/data").rglob("*.parquet")):
         for row in pq.read_table(file).to_pylist():
@@ -139,6 +143,12 @@ def read_observations(episode):
                 raise ValueError("Compact context/frame mismatch")
             if context["sim_time_ns"] != row["observation.sim_time_ns"] or context["source_values_sha256"] != numeric_digest(row):
                 raise ValueError("Compact source values checksum/time mismatch")
+            if "model_sha256" not in context:
+                # Historical writers enforced a constant model on every append
+                # and saved that identity in platform.json, before sidecars did.
+                context["model_sha256"] = platform_model
+            elif platform_model is not None and context["model_sha256"] != platform_model:
+                raise ValueError("Compact context/platform model mismatch")
             pose = row["observation.end_effector_pose_body"]
             obs = {**context,
                 "render_frame_id": str(context["source_frame_id"]),

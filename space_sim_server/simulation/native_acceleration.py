@@ -16,7 +16,7 @@ def load_native_library(name: str):
         raise ValueError("unknown native acceleration helper")
     manifest = ROOT / "run/native_acceleration" / f"{name}.json"
     if not manifest.is_file():
-        raise FileNotFoundError(f"Native {name} helper is not built. Run tools/build_native_acceleration.py.")
+        raise FileNotFoundError(f"Native {name} helper is not built. Run tools/assets/build_native_acceleration.py.")
     document = json.loads(manifest.read_text(encoding="utf-8"))
     expected = hashlib.sha256((ROOT / "native" / f"{name}.cpp").read_bytes()).hexdigest()
     if document.get("abi") != 1 or document.get("source_sha256") != expected:

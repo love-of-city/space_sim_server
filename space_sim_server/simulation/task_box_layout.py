@@ -4,7 +4,7 @@ The delivered assembly has two separate boards. The pickup board owns the
 three plugs' starting seats; the assembly board owns the receiving bores and
 the bolt's storage seat. This stage translates them without adding a joint or
 changing a mechanism's initial joint state. The base apertures still need to
-be relocated by tools/adapt_task_box_layout_base.py before runtime validation.
+be relocated by tools/assets/adapt_task_box_layout_base.py before runtime validation.
 
 This prototype does not move the drawer/latch or split a shared board into
 individual socket modules. Geometric placement limits are not a robot motion

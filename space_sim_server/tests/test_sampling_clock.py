@@ -3,6 +3,7 @@ import pytest
 from space_arm_platform.sampling import (
     DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, SUPPORTED_FPS,
     tick_time_ns, sample_tick, ik_step_stride,
+    capture_preroll_ns, SCRIPTED_TASK_HZ,
 )
 from space_arm_platform.models import EpisodeStart, SceneInstanceCreate
 
@@ -17,6 +18,28 @@ def test_defaults_and_integer_dividers():
             ik_step_stride(rate)
         with pytest.raises(ValueError):
             SceneInstanceCreate(ik_rate_hz=rate)
+
+
+@pytest.mark.parametrize("seconds", [0, 0.01, 0.019, 0.02, 0.025, 6.466666667, 60])
+def test_capture_preroll_is_observable_before_dynamics_waits_for_capture(seconds):
+    boundary = capture_preroll_ns(seconds)
+    latest_observation = 0
+    # The 200 Hz task loop stops advancing at its pre-roll boundary, while
+    # observations are published only on the 50 Hz render grid.
+    for frame in range(60 * SCRIPTED_TASK_HZ + 1):
+        stamp = tick_time_ns(frame, SCRIPTED_TASK_HZ)
+        if sample_tick(stamp, DEFAULT_CAPTURE_HZ) is not None:
+            latest_observation = stamp
+        if stamp >= boundary:
+            break
+    assert latest_observation >= boundary
+    assert round(seconds * 1e9) <= boundary < round(seconds * 1e9) + 20_000_000
+
+
+@pytest.mark.parametrize("seconds", [-0.01, float("nan"), float("inf")])
+def test_capture_preroll_rejects_invalid_duration(seconds):
+    with pytest.raises(ValueError, match="finite and nonnegative"):
+        capture_preroll_ns(seconds)
 
 
 @pytest.mark.parametrize("seconds", [0, 1, 3600, 86400, 365 * 86400])

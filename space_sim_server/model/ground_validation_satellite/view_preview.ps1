@@ -15,8 +15,8 @@ $repoCandidates = @(
     [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')),
     [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\space_sim_server'))
 )
-$repo = $repoCandidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'tools\render_step_preview.py') } | Select-Object -First 1
-if (!$repo) { throw 'Cannot find tools\render_step_preview.py relative to this model.' }
+$repo = $repoCandidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'tools\diagnostics\render_step_preview.py') } | Select-Object -First 1
+if (!$repo) { throw 'Cannot find tools\diagnostics\render_step_preview.py relative to this model.' }
 $workspace = Split-Path -Parent $repo
 if (!$Python) {
     $pythonCandidates = @(
@@ -26,7 +26,7 @@ if (!$Python) {
     $Python = $pythonCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 }
 if (!$Python) { throw 'Pass -Python with the dedicated converter Python path; see README.md.' }
-$pythonArgs = @((Join-Path $repo 'tools\render_step_preview.py'), $PSScriptRoot, '--backend', 'cpu')
+$pythonArgs = @((Join-Path $repo 'tools\diagnostics\render_step_preview.py'), $PSScriptRoot, '--backend', 'cpu')
 if ($Interactive) { $pythonArgs += '--interactive' }
 if ($FreePreview) { $pythonArgs += '--free-preview' }
 & $Python @pythonArgs

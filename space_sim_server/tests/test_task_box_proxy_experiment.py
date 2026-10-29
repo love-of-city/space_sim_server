@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from tools.task_box_proxy_experiment import circle_groups, mesh_read, partition_surface, proxy, simplify_plugs
+from tools.assets.task_box_proxy_experiment import circle_groups, mesh_read, partition_surface, proxy, simplify_plugs
 
 
 class ProxyGeometryTests(unittest.TestCase):
@@ -106,7 +106,7 @@ class ProxyGeometryTests(unittest.TestCase):
         faces = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 4]])
         metadata = [dict(name="aviation_plug", bus_center_m=[0, 0, 0])]
         with tempfile.TemporaryDirectory() as folder:
-            with mock.patch('tools.task_box_proxy_experiment.mesh_read', return_value=(vertices, faces)):
+            with mock.patch('tools.assets.task_box_proxy_experiment.mesh_read', return_value=(vertices, faces)):
                 details = simplify_plugs(root, Path(folder), metadata, preserve_pins=True)
             saved_vertices, saved_faces = mesh_read(Path(folder)/'aviation_plug_head.obj')
         np.testing.assert_array_equal(saved_vertices[saved_faces], vertices[faces[:3]])

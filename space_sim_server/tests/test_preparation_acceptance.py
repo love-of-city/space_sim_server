@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.verify_arm_preparation import Tester as AcceptanceRunner
+from tools.diagnostics.verify_arm_preparation import Tester as AcceptanceRunner
 
 
 def verifier(state):

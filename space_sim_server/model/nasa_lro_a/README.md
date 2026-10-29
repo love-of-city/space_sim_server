@@ -38,7 +38,7 @@
 ```powershell
 uv venv .venv-glb --python 3.13
 $converterPython = (Resolve-Path .\.venv-glb\Scripts\python.exe).Path
-uv pip install --python $converterPython --only-binary=:all: -r tools/requirements-glb-to-mjcf.txt
+uv pip install --python $converterPython --only-binary=:all: -r tools/assets/requirements-glb-to-mjcf.txt
 ```
 
 Conda（使用同一目录作为环境前缀，无需激活）：
@@ -46,7 +46,7 @@ Conda（使用同一目录作为环境前缀，无需激活）：
 ```powershell
 conda create --prefix .\.venv-glb python=3.13 pip
 $converterPython = (Resolve-Path .\.venv-glb\python.exe).Path
-& $converterPython -m pip install --only-binary=:all: -r tools/requirements-glb-to-mjcf.txt
+& $converterPython -m pip install --only-binary=:all: -r tools/assets/requirements-glb-to-mjcf.txt
 ```
 
 传统 venv/pip：
@@ -54,14 +54,14 @@ $converterPython = (Resolve-Path .\.venv-glb\python.exe).Path
 ```powershell
 py -3.13 -m venv .venv-glb
 $converterPython = (Resolve-Path .\.venv-glb\Scripts\python.exe).Path
-& $converterPython -m pip install --only-binary=:all: -r tools/requirements-glb-to-mjcf.txt
+& $converterPython -m pip install --only-binary=:all: -r tools/assets/requirements-glb-to-mjcf.txt
 ```
 
 上面三种环境创建/安装方式只选一种；它们都将所选解释器保存为 `$converterPython`。已有环境只需设置该变量并执行对应安装命令，不重复创建。然后运行转换工具：
 
 ```powershell
-& $converterPython tools/convert_glb_to_mjcf.py "run/nasa-lro-a/Lunar Reconnaissance Orbiter (A).glb" --output run/nasa_lro_a_new --name nasa_lro_a
-& $converterPython tools/render_glb_preview.py run/nasa_lro_a_new
+& $converterPython tools/assets/convert_glb_to_mjcf.py "run/nasa-lro-a/Lunar Reconnaissance Orbiter (A).glb" --output run/nasa_lro_a_new --name nasa_lro_a
+& $converterPython tools/diagnostics/render_glb_preview.py run/nasa_lro_a_new
 ```
 
 转换器拒绝覆盖已有非空目录。本工具仅支持静态、无纹理、Draco 压缩的三角网格 GLB 子集，不是通用 glTF 场景/动画导入器。

@@ -1,0 +1,25 @@
+{
+  "dataset_capture": true,
+  "capture_rate_hz": 50,
+  "camera_ids": [
+    "teleop/camera/spacecraft_overview",
+    "teleop/camera/sarm_wrist_cam"
+  ],
+  "capture_products": ["rgb"],
+  "max_frames": 18000,
+  "save_raw_camera_images": false,
+  "storage_profile": "compact",
+  "save_dynamics_trace": false,
+  "scripted_native_geometry": true,
+  "capture_backpressure_poll_s": 0.002,
+  "video": {
+    "codec": "h264",
+    "streaming_encoding": true,
+    "encoder_threads": 2,
+    "image_writer_threads": 0,
+    "encoder_queue_maxsize": 30,
+    "quality": 30,
+    "keyframe_interval": 2,
+    "encoder_preset": "veryfast"
+  }
+}

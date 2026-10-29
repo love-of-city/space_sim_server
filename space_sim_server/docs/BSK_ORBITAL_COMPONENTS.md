@@ -111,7 +111,7 @@ ctx.install([OrbitalGravityComponent(ephemeris_sampler=my_sampler)])
 ```powershell
 . .\scripts\python_runtime.ps1
 $python = Resolve-SpaceSimPython -RepositoryRoot $PWD.Path
-& $python tools/build_native_acceleration.py --component local_mujoco_stepper
+& $python tools/assets/build_native_acceleration.py --component local_mujoco_stepper
 & $python -m pytest -q tests/test_orbital_frames.py tests/test_orbital_environment.py tests/test_local_mujoco_stepper.py
 ```
 

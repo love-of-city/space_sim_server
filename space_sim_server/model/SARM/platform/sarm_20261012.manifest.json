@@ -1,6 +1,6 @@
 {
   "source_sha256": "edd0426c24fec4ba1a4946f6a767310014dc077dd88cdd6b3064ff4916f34a19",
-  "model_sha256": "b8e77f3a20e7ddf5b27cc00b4df49214d529ac03607b4ef25da5513bc579d84f",
+  "model_sha256": "45766f3ea2ce267350328153e0b9e18dc038fc254916884333569e4302170f0f",
   "model_revision": "2026-10-12",
   "platform_additions": [
     "free base",
@@ -73,5 +73,24 @@
       "thread_start_y_m": 0.01
     },
     "calibration": "runout from source SDF extent; seating by actual contact; friction and compliance uncalibrated"
+  },
+  "bolt_storage_thread": {
+    "model": "sdf_contact",
+    "male_geom": "bolt_thread_sdf",
+    "female_geom": "bolt_storage_thread_sdf",
+    "site": "bolt_storage_hole",
+    "contact_pair": "physical_bolt_storage_thread",
+    "lead_m_per_turn": 0.016,
+    "pitch_m": 0.008,
+    "starts": 2,
+    "handedness": "right",
+    "female_installation_yaw_rad": -0.785398163397448,
+    "initial_male_origin_above_bore_m": 0.001999999999999999,
+    "initial_overlap_m": 0.02,
+    "axial_travel_to_disengage_m": 0.057999999999999996,
+    "turns_to_disengage": 3.6249999999999996,
+    "added_joints": 0,
+    "runtime_state_writes": false,
+    "calibration": "source thread geometry/contact parameters reused; not measured hardware friction"
   }
 }

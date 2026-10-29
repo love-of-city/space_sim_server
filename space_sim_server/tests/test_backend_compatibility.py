@@ -60,7 +60,7 @@ def test_no_ready_means_no_physics_or_queued_observations():
 
 def test_launcher_checks_backend_before_starting_renderer():
     source = (Path(__file__).resolve().parents[1] / "scripts/start_scene_instance.ps1").read_text(encoding="utf-8")
-    assert source.index("tools/check_runtime_backend.py") < source.index("Write-RuntimeState 'starting_renderer'")
+    assert source.index("tools/diagnostics/check_runtime_backend.py") < source.index("Write-RuntimeState 'starting_renderer'")
 
 
 def test_physics_start_waits_for_negotiated_protocol():

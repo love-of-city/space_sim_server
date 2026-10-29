@@ -21,14 +21,14 @@
 
 ## 已执行的实物形状测试及边界
 
-`tools/validate_task_box_free_plugs.py` 使用实际插头网格，不再以小球代替插头。先测正确位置、错角度、横向错位，再以 0.03 m/s 初速度做 4 s 自由接近测试；没有每步覆盖插头位姿。
+`tools/diagnostics/validate_task_box_free_plugs.py` 使用实际插头网格，不再以小球代替插头。先测正确位置、错角度、横向错位，再以 0.03 m/s 初速度做 4 s 自由接近测试；没有每步覆盖插头位姿。
 
 - 导向插头对准后有通路；转错角度时凸起受孔槽阻挡。动态对准测试能到达安装深度。
 - 航空插头针脚与针孔接近同径。部分插入阶段无接触，但针脚到达孔口后，对准的动态测试仍停在入口，**尚未完成航空插头插入验收**。没有缩小针脚或放大孔洞来隐藏问题。
 - 三角表面接触半径为 10 μm，两相邻表面会产生约 20 μm 数值接触厚度。零间隙配合必须明确区分 CAD 公差、网格离散误差与接触厚度；不能把增大接触柔软度当成正确机械配合。
 - 测试退出成功代表配置、阻挡、数值稳定性通过，不代表两个插头均成功插入。报告中的航空插头停止深度是验收问题。
 
-`tools/benchmark_task_box_grip.py` 将**上游原腕部固定在试验台上**，使用原手指和电机、两个插头各测一次。固定腕部改变了引擎默认的父子碰撞过滤，因此测试台显式恢复腕部与手指的原父子排除关系；没有排除手指与插头接触。
+`tools/benchmarks/benchmark_task_box_grip.py` 将**上游原腕部固定在试验台上**，使用原手指和电机、两个插头各测一次。固定腕部改变了引擎默认的父子碰撞过滤，因此测试台显式恢复腕部与手指的原父子排除关系；没有排除手指与插头接触。
 
 每侧手指施加 0.1 N 闭合指令（原电机上限 0.5 N），第三秒给插头施加 0.05 N 轴向外力。稳定测量阶段两侧持续接触，位移约 0.2 mm，无求解警告。没有抓取 weld。此结果证明这组测试条件下能靠接触夹持，**不证明整臂能到达孔口、连续拔插或所有工况下不滑脱**。
 
@@ -37,7 +37,7 @@
 在仓库根目录，先用带 numpy/scipy/trimesh/rtree 的几何环境执行：
 
 ```powershell
-python tools/build_task_box_free_plugs.py
+python tools/assets/build_task_box_free_plugs.py
 ```
 
 基础固定模块必须存在且来源校验通过。若 CAD 或上游变化，先按 `TASK_BOX.md` 重建基础模块，再核对自由插头的接口坐标、初始位置和配准。
@@ -45,16 +45,16 @@ python tools/build_task_box_free_plugs.py
 使用独立 MuJoCo 3.7.0 环境：
 
 ```powershell
-python tools/validate_task_box_free_plugs.py
-python tools/benchmark_task_box_grip.py
+python tools/diagnostics/validate_task_box_free_plugs.py
+python tools/benchmarks/benchmark_task_box_grip.py
 ```
 
 使用另一个 Basilisk 环境，避免同进程混合 DLL：
 
 ```powershell
-python tools/benchmark_task_box_native.py --model sarm_ground_target_self_collision.xml
-python tools/benchmark_task_box_native.py --model sarm_task_box_module.xml
-python tools/benchmark_task_box_native.py --model sarm_task_box_plugs.xml
+python tools/benchmarks/benchmark_task_box_native.py --model sarm_ground_target_self_collision.xml
+python tools/benchmarks/benchmark_task_box_native.py --model sarm_task_box_module.xml
+python tools/benchmarks/benchmark_task_box_native.py --model sarm_task_box_plugs.xml
 ```
 
 报告在 `reports/task-box-free-plugs.json`、`reports/task-box-grip-load.json`、`reports/native-benchmark-*.json`。运行性能测试时应等待 UE 资产导入和其他重任务结束，采用相同初态多次重复。不要比较不同求解步长、不同控制器或不同硬件负载下的单次时间。
@@ -96,7 +96,7 @@ UE 资源导入结束后，分别启动同一份初始姿态配置的三个模�
 复现时先在网页启动所需模板，等资源准备完成、预热后，对应日志执行：
 
 ```powershell
-python tools/record_task_box_runtime.py --log logs/<实例ID>.simulation.out.log --output reports/<模板>-performance.json --windows 6 --warmup-sim-seconds 60
+python tools/diagnostics/record_task_box_runtime.py --log logs/<实例ID>.simulation.out.log --output reports/<模板>-performance.json --windows 6 --warmup-sim-seconds 60
 ```
 
 工具只采命令启动后新产生的窗口，不混入旧日志。建议交替顺序、多轮重复；不要在资产导入或其他基准测试同时运行时取样。

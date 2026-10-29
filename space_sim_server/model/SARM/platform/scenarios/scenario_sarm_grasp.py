@@ -223,11 +223,16 @@ def _load_scene(kinematics_only: bool = False) -> mujoco.MJScene:
     copy and the collision-only rigid flexcomps are dropped (all of this runs
     in the stepper's own model). That removes collision detection and flex
     updates from every forward-kinematics publication. The qpos/qvel layout,
-    body masses/inertias, geoms and sites are unchanged.
+    body masses/inertias and sites are unchanged. Invisible, massless collision
+    meshes become cheap primitives, preserving geom count/order for rendering.
     """
     from simulation.mujoco_plugins import ensure_model_plugins
     ensure_model_plugins(MODEL_PATH)
     root = ET.parse(MODEL_PATH).getroot()
+    preparation = None
+    if kinematics_only:
+        from simulation.publication_scene import prepare_publication_scene
+        preparation = prepare_publication_scene(root)
     compiler = root.find("compiler")
     meshdir = compiler.get("meshdir", "") if compiler is not None else ""
     mesh_files = sorted({str((MODEL_PATH.parent / meshdir / mesh.get("file")).resolve())
@@ -241,19 +246,10 @@ def _load_scene(kinematics_only: bool = False) -> mujoco.MJScene:
                 raise ValueError(f"Mesh is still an LFS pointer: {path}. Run git lfs pull.")
     if not kinematics_only:
         return mujoco.MJScene.fromFile(str(MODEL_PATH), files=mesh_files)
-    option = root.find("option")
-    if option is None:
-        option = ET.SubElement(root, "option")
-    flag = option.find("flag")
-    if flag is None:
-        flag = ET.SubElement(option, "flag")
-    flag.set("contact", "disable")
-    flag.set("constraint", "disable")
-    for parent in root.iter():
-        for child in list(parent):
-            if child.tag == "flexcomp" and child.get("rigid", "false").lower() == "true":
-                parent.remove(child)
-    return mujoco.MJScene(ET.tostring(root, encoding="unicode"), mesh_files)
+    scene = mujoco.MJScene(ET.tostring(root, encoding="unicode"), mesh_files)
+    scene.publication_preparation = dict(schema="publication-scene/1", **preparation,
+                                       retained_mesh_assets=len(root.findall("./asset/mesh")))
+    return scene
 
 
 def _build_simulation(

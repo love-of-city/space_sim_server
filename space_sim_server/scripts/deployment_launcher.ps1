@@ -171,7 +171,7 @@ try {
     $previous['SPACE_SIM_PYTHON'] = $env:SPACE_SIM_PYTHON
     Enable-LauncherRuntime $Python
     # Keep the default-password gate read-only. Never silently reset an existing account.
-    & $env:SPACE_SIM_PYTHON (Join-Path $projectRoot 'tools/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
+    & $env:SPACE_SIM_PYTHON (Join-Path $projectRoot 'tools/deployment/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
     if ($LASTEXITCODE -ne 0) {
         throw 'Authentication preflight failed; no running services were stopped. If an existing admin still uses the default password, change it in the current local webpage, then double-click Start again.'
     }

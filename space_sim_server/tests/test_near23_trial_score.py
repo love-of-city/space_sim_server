@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tools.score_near23_gyro_trial import contact_metrics, score
+from tools.diagnostics.score_near23_gyro_trial import contact_metrics, score
 
 
 def audit(path, *, interrupt=None, gap=False):

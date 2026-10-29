@@ -1,0 +1,412 @@
+[
+  {
+    "schema": "space-arm-overview-camera/6",
+    "enabled": true,
+    "stream": "space-arm-overview-camera-presets-v6",
+    "selection_seed": 0,
+    "distribution": "uniform_discrete",
+    "camera_id": "teleop/camera/spacecraft_overview",
+    "preset_id": "P2",
+    "label": "前沿右侧近机位 · 42 cm",
+    "parent_id": "teleop/cubesat_bus",
+    "position_body_m": [
+      0.5,
+      0.040000000000000036,
+      0.42
+    ],
+    "orientation_body_from_camera_wxyz": [
+      0.4820810040884495,
+      -0.33936737510351406,
+      0.20974057248680655,
+      0.7800234499457883
+    ],
+    "camera_axes": "+X forward,+Y left,+Z up",
+    "deck_center_body_m": [
+      0.35,
+      0.34,
+      0.0
+    ],
+    "position_relative_to_deck_center_m": [
+      0.15,
+      -0.3,
+      0.42
+    ],
+    "look_at_body_m": [
+      0.35,
+      0.34,
+      0.06
+    ],
+    "field_of_view_rad": 1.8151424220741028,
+    "mount_position_body_m": [
+      0.5,
+      0.040000000000000036,
+      0.0
+    ],
+    "height_above_mount_m": 0.42,
+    "mounting_footprint_radius_m": 0.015,
+    "mounting_regions_body_xy_m": [
+      [
+        [
+          -0.2,
+          -0.11
+        ],
+        [
+          0.125,
+          0.64
+        ]
+      ],
+      [
+        [
+          0.125,
+          -0.11
+        ],
+        [
+          0.6,
+          0.065
+        ]
+      ]
+    ],
+    "minimum_arm_base_mount_axis_distance_m": 0.3,
+    "workspace_view_bounds_body_m": [
+      [
+        0.125,
+        0.065,
+        0.0
+      ],
+      [
+        0.575,
+        0.615,
+        0.18
+      ]
+    ],
+    "workspace_frame_margin_fraction": 0.15
+  },
+  {
+    "schema": "space-arm-overview-camera/6",
+    "enabled": true,
+    "stream": "space-arm-overview-camera-presets-v6",
+    "selection_seed": 1,
+    "distribution": "uniform_discrete",
+    "camera_id": "teleop/camera/spacecraft_overview",
+    "preset_id": "P0",
+    "label": "左侧中部近机位 · 38 cm",
+    "parent_id": "teleop/cubesat_bus",
+    "position_body_m": [
+      -0.06,
+      0.30000000000000004,
+      0.38
+    ],
+    "orientation_body_from_camera_wxyz": [
+      0.9448539126876528,
+      -0.015760867588720678,
+      0.32386478759142856,
+      0.045981279778218385
+    ],
+    "camera_axes": "+X forward,+Y left,+Z up",
+    "deck_center_body_m": [
+      0.35,
+      0.34,
+      0.0
+    ],
+    "position_relative_to_deck_center_m": [
+      -0.41,
+      -0.04,
+      0.38
+    ],
+    "look_at_body_m": [
+      0.35,
+      0.34,
+      0.06
+    ],
+    "field_of_view_rad": 1.7627825445142729,
+    "mount_position_body_m": [
+      -0.06,
+      0.30000000000000004,
+      0.0
+    ],
+    "height_above_mount_m": 0.38,
+    "mounting_footprint_radius_m": 0.015,
+    "mounting_regions_body_xy_m": [
+      [
+        [
+          -0.2,
+          -0.11
+        ],
+        [
+          0.125,
+          0.64
+        ]
+      ],
+      [
+        [
+          0.125,
+          -0.11
+        ],
+        [
+          0.6,
+          0.065
+        ]
+      ]
+    ],
+    "minimum_arm_base_mount_axis_distance_m": 0.3,
+    "workspace_view_bounds_body_m": [
+      [
+        0.125,
+        0.065,
+        0.0
+      ],
+      [
+        0.575,
+        0.615,
+        0.18
+      ]
+    ],
+    "workspace_frame_margin_fraction": 0.15
+  },
+  {
+    "schema": "space-arm-overview-camera/6",
+    "enabled": true,
+    "stream": "space-arm-overview-camera-presets-v6",
+    "selection_seed": 4,
+    "distribution": "uniform_discrete",
+    "camera_id": "teleop/camera/spacecraft_overview",
+    "preset_id": "P1",
+    "label": "前沿中央近机位 · 42 cm",
+    "parent_id": "teleop/cubesat_bus",
+    "position_body_m": [
+      0.35,
+      0.040000000000000036,
+      0.42
+    ],
+    "orientation_body_from_camera_wxyz": [
+      0.6324555320336759,
+      -0.3162277660168379,
+      0.31622776601683794,
+      0.6324555320336758
+    ],
+    "camera_axes": "+X forward,+Y left,+Z up",
+    "deck_center_body_m": [
+      0.35,
+      0.34,
+      0.0
+    ],
+    "position_relative_to_deck_center_m": [
+      0.0,
+      -0.3,
+      0.42
+    ],
+    "look_at_body_m": [
+      0.35,
+      0.34,
+      0.02
+    ],
+    "field_of_view_rad": 1.8325957145940461,
+    "mount_position_body_m": [
+      0.35,
+      0.040000000000000036,
+      0.0
+    ],
+    "height_above_mount_m": 0.42,
+    "mounting_footprint_radius_m": 0.015,
+    "mounting_regions_body_xy_m": [
+      [
+        [
+          -0.2,
+          -0.11
+        ],
+        [
+          0.125,
+          0.64
+        ]
+      ],
+      [
+        [
+          0.125,
+          -0.11
+        ],
+        [
+          0.6,
+          0.065
+        ]
+      ]
+    ],
+    "minimum_arm_base_mount_axis_distance_m": 0.3,
+    "workspace_view_bounds_body_m": [
+      [
+        0.125,
+        0.065,
+        0.0
+      ],
+      [
+        0.575,
+        0.615,
+        0.18
+      ]
+    ],
+    "workspace_frame_margin_fraction": 0.15
+  },
+  {
+    "schema": "space-arm-overview-camera/6",
+    "enabled": true,
+    "stream": "space-arm-overview-camera-presets-v6",
+    "selection_seed": 5,
+    "distribution": "uniform_discrete",
+    "camera_id": "teleop/camera/spacecraft_overview",
+    "preset_id": "P4",
+    "label": "左后角近机位 · 36 cm",
+    "parent_id": "teleop/cubesat_bus",
+    "position_body_m": [
+      0.06,
+      0.5800000000000001,
+      0.36
+    ],
+    "orientation_body_from_camera_wxyz": [
+      0.8731930071820498,
+      0.1261634859046224,
+      0.3503300340688956,
+      -0.3144608310458543
+    ],
+    "camera_axes": "+X forward,+Y left,+Z up",
+    "deck_center_body_m": [
+      0.35,
+      0.34,
+      0.0
+    ],
+    "position_relative_to_deck_center_m": [
+      -0.29,
+      0.24,
+      0.36
+    ],
+    "look_at_body_m": [
+      0.35,
+      0.34,
+      0.0
+    ],
+    "field_of_view_rad": 1.6580627893946132,
+    "mount_position_body_m": [
+      0.06,
+      0.5800000000000001,
+      0.0
+    ],
+    "height_above_mount_m": 0.36,
+    "mounting_footprint_radius_m": 0.015,
+    "mounting_regions_body_xy_m": [
+      [
+        [
+          -0.2,
+          -0.11
+        ],
+        [
+          0.125,
+          0.64
+        ]
+      ],
+      [
+        [
+          0.125,
+          -0.11
+        ],
+        [
+          0.6,
+          0.065
+        ]
+      ]
+    ],
+    "minimum_arm_base_mount_axis_distance_m": 0.3,
+    "workspace_view_bounds_body_m": [
+      [
+        0.125,
+        0.065,
+        0.0
+      ],
+      [
+        0.575,
+        0.615,
+        0.18
+      ]
+    ],
+    "workspace_frame_margin_fraction": 0.15
+  },
+  {
+    "schema": "space-arm-overview-camera/6",
+    "enabled": true,
+    "stream": "space-arm-overview-camera-presets-v6",
+    "selection_seed": 10,
+    "distribution": "uniform_discrete",
+    "camera_id": "teleop/camera/spacecraft_overview",
+    "preset_id": "P3",
+    "label": "左侧后段近机位 · 42 cm",
+    "parent_id": "teleop/cubesat_bus",
+    "position_body_m": [
+      0.06999999999999995,
+      0.54,
+      0.42
+    ],
+    "orientation_body_from_camera_wxyz": [
+      0.8705088794293394,
+      0.12373480092108434,
+      0.3861101221647047,
+      -0.27896767453891885
+    ],
+    "camera_axes": "+X forward,+Y left,+Z up",
+    "deck_center_body_m": [
+      0.35,
+      0.34,
+      0.0
+    ],
+    "position_relative_to_deck_center_m": [
+      -0.28,
+      0.2,
+      0.42
+    ],
+    "look_at_body_m": [
+      0.35,
+      0.34,
+      0.04
+    ],
+    "field_of_view_rad": 1.6580627893946132,
+    "mount_position_body_m": [
+      0.06999999999999995,
+      0.54,
+      0.0
+    ],
+    "height_above_mount_m": 0.42,
+    "mounting_footprint_radius_m": 0.015,
+    "mounting_regions_body_xy_m": [
+      [
+        [
+          -0.2,
+          -0.11
+        ],
+        [
+          0.125,
+          0.64
+        ]
+      ],
+      [
+        [
+          0.125,
+          -0.11
+        ],
+        [
+          0.6,
+          0.065
+        ]
+      ]
+    ],
+    "minimum_arm_base_mount_axis_distance_m": 0.3,
+    "workspace_view_bounds_body_m": [
+      [
+        0.125,
+        0.065,
+        0.0
+      ],
+      [
+        0.575,
+        0.615,
+        0.18
+      ]
+    ],
+    "workspace_frame_margin_fraction": 0.15
+  }
+]

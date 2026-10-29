@@ -23,7 +23,7 @@ def test_compact_live_training_viewer_and_native_force_roundtrip(tmp_path, raw):
     for i in range(1, 5):
         data = observation(i).model_dump()
         stamp = i * 20_000_000
-        data.update(sim_time_ns=str(stamp), gripper_type="four_bar_tendon",
+        data.update(sim_time_ns=str(stamp), gripper_type="four_bar_tendon", model_sha256="layout-model",
                     arm_joint_position_rad=data["joint_position_rad"][:6],
                     arm_joint_velocity_rad_s=data["joint_velocity_rad_s"][:6],
                     target_arm_joint_position_rad=data["target_joint_position_rad"][:6],
@@ -58,6 +58,9 @@ def test_compact_live_training_viewer_and_native_force_roundtrip(tmp_path, raw):
         np.testing.assert_allclose(frame["observation.state"][:6], original[i].joint_position_rad[:6])
         np.testing.assert_allclose(frame["action"][:6], original[i].target_joint_position_rad[:6])
     observations = list(read_observations(root))
+    assert all(obs["model_sha256"] == "layout-model" for obs in observations)
+    contexts = list(read_chunks(root / "lerobot/auxiliary/context"))
+    assert all(context["model_sha256"] == "layout-model" for context in contexts)
     assert observations[-1]["scripted_task"]["result"] == "success"
     cameras = list(read_chunks(root / "lerobot/auxiliary/cameras"))
     assert len(cameras) == 8
@@ -74,6 +77,15 @@ def test_compact_live_training_viewer_and_native_force_roundtrip(tmp_path, raw):
     assert view["sync_ok"] and view["count"] == 4
     force_view = next(g for g in view["groups"] if g["id"] == "force_200hz")
     assert len(force_view["times"]) == 13
+    # Model identities saved per frame must agree with the writer's episode identity.
+    platform_path = root / "lerobot/meta/platform.json"
+    platform = json.loads(platform_path.read_text(encoding="utf-8"))
+    platform["model_sha256"] = "other-layout"
+    platform_path.write_text(json.dumps(platform), encoding="utf-8")
+    with pytest.raises(ValueError, match="model mismatch"):
+        next(read_observations(root))
+    platform["model_sha256"] = "layout-model"
+    platform_path.write_text(json.dumps(platform), encoding="utf-8")
     # Persisted source digest must detect a changed training value, not merely
     # compare two reconstructions of the same corrupted row.
     file = next((root / "lerobot/data").rglob("*.parquet"))

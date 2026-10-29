@@ -70,6 +70,7 @@ def test_insertion_depth_without_alignment_is_not_success():
 
 def test_overload_and_missing_sensor_are_explicit_failures():
     task, sample = task_sample()
+    task.config = replace(task.config, overload_stop_enabled=True)
     for i in range(1, 7):
         task.step(
             replace(sample, time_s=i / 30, wrench=np.array([50.0, 0, 0, 0, 0, 0]))
@@ -78,6 +79,25 @@ def test_overload_and_missing_sensor_are_explicit_failures():
     task, sample = task_sample()
     task.step(replace(sample, time_s=0.3, wrench_valid=False))
     assert task.reason == "wrist_sensor_unavailable"
+
+
+def test_default_plug_task_records_load_without_stopping_on_threshold():
+    task, sample = task_sample()
+    assert not task.config.overload_stop_enabled
+    for i in range(1, 7):
+        task.step(replace(sample, time_s=i / 30,
+                          wrench=np.array([50., 0., 0., 5., 0., 0.])))
+    assert task.result is None
+    assert task.max_force_n == 50.
+    assert task.max_torque_nm == 5.
+    assert task.metrics(sample)["overload_stop_enabled"] is False
+
+
+def test_overload_switch_requires_boolean_without_weakening_numeric_validation():
+    with pytest.raises(ValueError, match="overload_stop_enabled"):
+        PlugInsertConfig(overload_stop_enabled="false")
+    with pytest.raises(ValueError, match="arm_speed_rad_s"):
+        PlugInsertConfig(arm_speed_rad_s=False)
 
 
 def test_native_boolean_metrics_remain_json_serializable():

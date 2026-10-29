@@ -48,12 +48,12 @@
 **SARM + 地面验证星（粗碰撞体·内部碰撞）** 创建新实例。观察 `collision_model=coarse_boxes_with_target_self_collision`。
 主平台未被自动重启；没有提交推送。
 
-`tools/build_sarm_ground_target.py` 同时生成/检查两种粗盒版本，不重写内容未改变的旧文件。
+`tools/assets/build_sarm_ground_target.py` 同时生成/检查两种粗盒版本，不重写内容未改变的旧文件。
 参数与几何变更记录在新 XML 同名 `.manifest.json` 中；不要只手工修改派生 XML。
 
 ```powershell
-python tools/build_sarm_ground_target.py --check
-python tools/select_sarm_scene.py --check
+python tools/assets/build_sarm_ground_target.py --check
+python tools/assets/select_sarm_scene.py --check
 ```
 
 ## 验证边界

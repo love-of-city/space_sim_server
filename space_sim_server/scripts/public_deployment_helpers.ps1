@@ -152,7 +152,7 @@ function Wait-PublicGateway([string]$Url, [string]$Nonce, $Proxy, $Tunnel, [int]
 }
 
 function Invoke-PublicAuth([string]$ProjectRoot, [string]$Username, [switch]$Apply) {
-    $arguments = @((Join-Path $ProjectRoot 'tools/prepare_public_auth.py'), '--database', (Join-Path $ProjectRoot 'data/auth.sqlite3'), '--username', $Username)
+    $arguments = @((Join-Path $ProjectRoot 'tools/deployment/prepare_public_auth.py'), '--database', (Join-Path $ProjectRoot 'data/auth.sqlite3'), '--username', $Username)
     if ($Apply) { $arguments += @('--apply', '--backup-directory', (Join-Path $ProjectRoot 'run/auth-backups')) }
     . (Join-Path $PSScriptRoot 'python_runtime.ps1')
     $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $ProjectRoot

@@ -1,6 +1,7 @@
 import template from './collection.html?raw';
 import {mountView} from '../ui.js';
 import {createRandomizationControls} from './collection_randomization.js';
+import {collectionLayoutError} from './collection_layout_status.js';
 export function createCollectionPage(root,{api}) {
 const $=mountView(root,template);
 const taskLabels = new Map();
@@ -27,6 +28,7 @@ function renderJob(job) {
   if(job.config.randomize_overview_camera)card.append(element('p','全局相机：每条任务从 5 个固定机位随机选择，整段保持固定。','muted'));
   const bar=element("progress");bar.max=job.config.count;bar.value=job.success_count;bar.setAttribute("aria-label","成功采集进度");card.append(bar);
   if(job.config.task==='drawer_cycle'&&job.config.linear_speed_m_s!=null)card.append(element("p",`移动速度：${job.config.linear_speed_m_s} m/s · 接近把手与归位自动减速`,"muted"));
+  if(['aviation_bolt_insert','locking_rod_cycle'].includes(job.config.task))card.append(element('p',`螺丝任务速度：${job.config.threaded_speed_profile==='fast_collection'?'快速采集':'原始速度'}`,'muted'));
   const configured=catalog?.randomization_options?.filter(option=>job.config.randomization?.[option.key]?.enabled)||[];
   const configDetails=element('details',undefined,'job-randomization');
   configDetails.append(element('summary',configured.length?'已启用 '+configured.length+' 项噪声 / 扰动':'额外噪声与扰动：全部关闭'));
@@ -95,7 +97,7 @@ async function refresh(){
       if(focused)[...root.querySelectorAll('[data-focus-key]')].find(node=>node.dataset.focusKey===focused)?.focus({preventScroll:true});
       $('history-count').textContent=history.length+' 个批次';previousJobs=snapshot;
     }
-    $('submit').disabled=submitting||!catalog||jobs.some(job=>!terminal.has(job.status));
+    $('submit').disabled=submitting||!catalog||Boolean(layoutError())||jobs.some(job=>!terminal.has(job.status));
     $('refresh-state').textContent='更新于 '+new Date().toLocaleTimeString();
   }catch(error){if(active&&version===epoch)notice(error.message);}finally{refreshing=false;}
 }
@@ -104,17 +106,25 @@ function specs(data){
   const rows=[['初始姿态 J1–J6',data.baseline_joint_deg.map(value=>value+'°').join('，')],['动力学 / IK',rates.dynamics+' Hz / '+rates.ik+' Hz'],['状态、动作、双相机',rates.main+' Hz · '+camera.width+' × '+camera.height],['六维力',rates.wrench+' Hz · 噪声按本批次配置'],['随机化配置','由上方各项开关决定，随记录保存'],['训练状态与动作','6 个关节 + 夹爪 0–1']];
   $('specifications').replaceChildren(...rows.flatMap(([key,value])=>[element('dt',key),element('dd',value)]));
 }
+function layoutError(){return collectionLayoutError(catalog,$('task').value,$('layout-randomization').checked);}
 function describeTask(){
-  $('task-description').textContent=catalog?.tasks.find(task=>task.id===$('task').value)?.description||'';
+  const description=catalog?.tasks.find(task=>task.id===$('task').value)?.description||'';
+  const fixed=!$('layout-randomization').checked&&catalog?.fixed_layout?.available?'本批次所有记录使用已校验的固定操作台。':'';
+  $('task-description').textContent=[description,layoutError()||fixed].filter(Boolean).join(' ');
   const drawer=$('task').value==='drawer_cycle';
   $('drawer-speed-field').hidden=!drawer;$('linear-speed').disabled=!drawer;
+  const threaded=['aviation_bolt_insert','locking_rod_cycle'].includes($('task').value);
+  $('threaded-speed-field').hidden=!threaded;$('threaded-speed-profile').disabled=!threaded;
+  if(layoutError())$('submit').disabled=true;else void refresh();
 }
 $('task').onchange=describeTask;
+$('layout-randomization').onchange=describeTask;
 $('new-collection').onclick=()=>{$('setup').hidden=false;$('task').focus();};
 $('close-setup').onclick=$('cancel-setup').onclick=()=>{$('setup').hidden=true;};
 $('collection-form').onsubmit=async event=>{
-  event.preventDefault();if(submitting)return;const version=epoch;notice();submitting=true;$('submit').disabled=true;
+  event.preventDefault();if(submitting)return;if(layoutError()){notice(layoutError());return;}const version=epoch;notice();submitting=true;$('submit').disabled=true;
   const values=Object.fromEntries(new FormData(event.currentTarget));for(const key of ['count','workers','max_attempts','seed','range_deg','linear_speed_m_s'].filter(key=>key in values))values[key]=Number(values[key]);
+  if(!['aviation_bolt_insert','locking_rod_cycle'].includes(values.task))delete values.threaded_speed_profile;
   values.initialization_enabled=$('initialization-enabled').checked;values.range_deg=Number($('range-deg').value);values.randomization=randomizationControls.value();values.layout_randomization=$('layout-randomization').checked;
   values.randomize_overview_camera=$('overview-camera-randomization').checked;
   try{await api('/api/collections',{method:'POST',body:JSON.stringify(values)});if(active&&version===epoch)$('setup').hidden=true;}

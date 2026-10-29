@@ -3,7 +3,7 @@ import pytest
 
 pytest.importorskip("Basilisk")
 
-from tools.verify_orbital_physics import check_fields, propagate
+from tools.diagnostics.verify_orbital_physics import check_fields, propagate
 
 
 def test_native_j2_matches_independent_cartesian_acceleration():

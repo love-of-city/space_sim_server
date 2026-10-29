@@ -11,13 +11,13 @@
 在服务端目录运行：
 
 ```powershell
-& $env:SPACE_SIM_PYTHON tools\run_plug_task.py --scene run\scenes\<你的场景ID>.json
+& $env:SPACE_SIM_PYTHON collection\run_scripted_task.py --task cylindrical_plug_insert --scene run\scenes\<你的场景ID>.json
 ```
 
 完整 UE 双相机录制：
 
 ```powershell
-& $env:SPACE_SIM_PYTHON tools\record_plug_task.py --scene run\scenes\<你的场景ID>.json
+& $env:SPACE_SIM_PYTHON collection\record_scripted_task.py --task cylindrical_plug_insert --scene run\scenes\<你的场景ID>.json
 ```
 
 默认独立端口为 18766/18767/15558/18888；如已被其他任务占用，可指定 `--control-port 19766 --capture-port 19767 --render-port 16558 --signalling-port 19888`。脚本不会关闭占用端口的其他进程。录制使用场景配置副本，沿用其操作者、轨道、光照和初态，不接管网页中的实例。
@@ -52,8 +52,8 @@
 
 - `simulation/scripted_tasks/plug_insert.py`：模型目标解析、策略、路径与状态验收。
 - `simulation/scripted_tasks/native_state.py`：独立的只读状态适配，将自由插头状态转换到卫星本体系。
-- `tools/run_scripted_task.py`：抽屉和插头共用的动力学运行入口；原 `run_drawer_task.py` 保持兼容。
-- `tools/record_plug_task.py`：复用现有 UE、CaptureLifecycle、EpisodeRecorder 及 LeRobot 写入流程。
+- `collection/run_scripted_task.py`：所有脚本任务共用的动力学诊断入口，通过 `--task` 指定任务。
+- `collection/record_scripted_task.py`：复用现有 UE、CaptureLifecycle、EpisodeRecorder 及 LeRobot 写入流程。
 - `tests/test_scripted_plug_task.py`：目标坐标、禁止原位目标、实际插入验收、过载/传感器失败、共同运动不变性及日志序列化测试。
 
 训练数据保持既有 22 个 LeRobot 特征。自动任务状态放入已有 `observation.platform_json.scripted_task`，包含目标孔、插头位姿、孔口偏差、插入深度与阶段；action 仍为采样时实际保持的八维执行器参考。相机与状态按源帧号、仿真时刻及会话配对，不从诊断轨迹生成替代图像。

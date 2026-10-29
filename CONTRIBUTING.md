@@ -6,6 +6,8 @@
 
 大型变更在根 archive/ 中添加 20XX_XX_XX_具体内容.md。子项目历史 archive/ 保留原记录。
 
+采集相关同步或本地内容合并还须核对 [采集功能基线](space_sim_server/docs/COLLECTION_BASELINE.md)。先保留未提交补丁、未跟踪源码和资产清单，再逐项合并本地功能与远端新增功能；不能批量用 `checkout --ours/--theirs` 代替冲突审查。未提交功能可能不在 HEAD 中，合并依据必须包含工作区与未跟踪文件。UE 的实现、头文件、测试和实际加载二进制需一起核验；验收时记录源码及构建指纹。原始实验保留，过时记录标明版本和替代结果。
+
 ## 验证与资产
 
 根 CI 的 required checks 应包含 server-python、server-web、adapter-python。基础 CI 不等于完整仿真兼容；涉及动力学、UE 或采集时，另提供相应运行验收证据。

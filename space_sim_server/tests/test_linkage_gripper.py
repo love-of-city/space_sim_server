@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_validation_rejects_disconnected_tendon():
     import pytest
-    from tools.validate_sarm_20261012_platform import validate_cycles
+    from tools.diagnostics.validate_sarm_20261012_platform import validate_cycles
     samples=[dict(time_s=i/10,target_rad=.2*min(i/10%10,10-i/10%10),positions=[0.]*8,coupling_error_rad=0.) for i in range(101,401)]
     with pytest.raises(AssertionError,match='tracking'):
         validate_cycles(samples)

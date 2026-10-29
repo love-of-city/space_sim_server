@@ -11,6 +11,7 @@ from .dataset_view import Store
 from .models import SceneInstanceCreate
 from .collection_randomization import randomization_catalog
 from .collection_layouts import LayoutPool
+from .collection_inputs import requires_color_layout
 from .overview_camera import overview_camera_catalog
 from .scene_runtime import SceneRuntimeManager
 from .sampling import DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, WRENCH_HZ
@@ -53,7 +54,8 @@ def install_collection_routes(app, config, scenes, current_user):
                 layout["description"] = f"布局池未通过校验：{error}"
         return dict(
             tasks=[
-                dict(id=key, label=task.label, description=task.description)
+                dict(id=key, label=task.label, description=task.description,
+                     requires_color_layout=requires_color_layout(key))
                 for key, task in TASKS.items()
             ],
             max_workers=4,
@@ -66,6 +68,7 @@ def install_collection_routes(app, config, scenes, current_user):
             cameras=dict(count=2, width=1024, height=1024),
             randomization_options=randomization_catalog(),
             layout_randomization=layout,
+            fixed_layout=manager.fixed_layout_capability(),
             overview_camera_randomization=overview_camera_catalog(),
             wrist_wrench_noise=False,
             disturbances_enabled=False,

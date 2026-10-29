@@ -23,6 +23,8 @@ from space_arm_platform.collection_jobs import (
 from space_arm_platform.dataset_view import Store
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.collection_processes import WindowsProcessGroup
+from test_collection_layouts import layout_pool
+from test_collection_fixed_layout import fixed_inputs
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = dict(user_id="owner", username="alice", role="operator")
@@ -37,12 +39,15 @@ ADMIN = dict(user_id="admin", username="admin", role="admin")
         dict(workers=2, count=1),
         dict(count=5, max_attempts=4),
         dict(task="shell"),
-        dict(range_deg=11),
+        dict(range_deg=51),
         dict(range_deg=float("nan")),
         dict(linear_speed_m_s=0),
         dict(linear_speed_m_s=0.2),
         dict(linear_speed_m_s=float("nan")),
         dict(task="aviation_plug_insert", linear_speed_m_s=0.1),
+        dict(threaded_speed_profile="fast_collection"),
+        dict(task="aviation_plug_insert", threaded_speed_profile="default"),
+        dict(task="aviation_bolt_insert", threaded_speed_profile="unknown"),
         dict(seed=-1),
         dict(owner=ADMIN),
     ],
@@ -56,11 +61,11 @@ FAKE_COLLECTOR = r"""
 import argparse,json,time
 from pathlib import Path
 p=argparse.ArgumentParser()
-for name in ('output','count','seed','cancel-file','linear-speed'):
+for name in ('output','count','seed','cancel-file','linear-speed','range-deg','overview-camera-sampling','threaded-speed-profile'):
     p.add_argument('--'+name)
 a,_=p.parse_known_args()
 folder=Path(a.output);folder.mkdir()
-(folder/'motion.json').write_text(json.dumps(dict(linear_speed_m_s=a.linear_speed)))
+(folder/'motion.json').write_text(json.dumps(dict(linear_speed_m_s=a.linear_speed, range_deg=a.range_deg, overview_camera_sampling=a.overview_camera_sampling, threaded_speed_profile=a.threaded_speed_profile)))
 seed=int(a.seed)
 if seed==99:
     while not Path(a.cancel_file).exists(): time.sleep(.05)
@@ -358,6 +363,49 @@ def test_drawer_speed_reaches_spawned_collector_and_is_persisted(manager):
     assert CollectionCreate(task="aviation_plug_insert").linear_speed_m_s is None
 
 
+@pytest.mark.parametrize("task", ["aviation_bolt_insert", "locking_rod_cycle"])
+@pytest.mark.parametrize("profile", [None, "default", "fast_collection"])
+def test_threaded_speed_reaches_spawned_collector_and_is_persisted(
+    manager, monkeypatch, task, profile, fixed_inputs
+):
+    manager.fixed_model, manager.fixed_catalog = fixed_inputs
+    monkeypatch.setitem(TASKS, task, CollectionTask("fake", "fake.py", "fake"))
+    request = CollectionCreate(
+        task=task, workers=1, count=1, max_attempts=1,
+        threaded_speed_profile=profile,
+    )
+    job = manager.start(request, OWNER, {})
+    result = wait_job(manager, job["id"])
+    expected = profile or "fast_collection"
+    assert result["status"] == "complete"
+    assert result["config"]["threaded_speed_profile"] == expected
+    received = json.loads(
+        (manager.root / job["id"] / "worker-0" / "motion.json").read_text()
+    )
+    assert received["threaded_speed_profile"] == expected
+    assert received["linear_speed_m_s"] is None
+
+
+@pytest.mark.parametrize("task", ["aviation_bolt_insert", "locking_rod_cycle"])
+def test_saved_threaded_job_without_profile_keeps_original_speed(manager, monkeypatch, task, fixed_inputs):
+    manager.fixed_model, manager.fixed_catalog = fixed_inputs
+    monkeypatch.setitem(TASKS, task, CollectionTask("fake", "fake.py", "fake"))
+    # Prepare an old job document before its worker is launched.
+    with monkeypatch.context() as context:
+        context.setattr("threading.Thread.start", lambda self: None)
+        started = manager.start(
+            CollectionCreate(task=task, workers=1, count=1, max_attempts=1), OWNER, {}
+        )
+    job = manager.jobs[started["id"]]
+    job["config"].pop("threaded_speed_profile")
+    manager._run(job)
+    assert job["status"] == "complete"
+    received = json.loads(
+        (manager.root / job["id"] / "worker-0" / "motion.json").read_text()
+    )
+    assert received["threaded_speed_profile"] == "default"
+
+
 def test_worker_configuration_preserves_independent_options_and_disabled_initialization(manager):
     options={"joint_bias":{"enabled":True,"max_abs_deg":.2},"wrist_wrench_noise":{"enabled":True,"force_std_n":.3}}
     source={"created_by":ADMIN,"seed":40,"template_id":"sarm-task-box-20261012"}
@@ -374,3 +422,16 @@ def test_worker_configuration_preserves_independent_options_and_disabled_initial
     assert result["config"]["randomize_overview_camera"] is True
     assert result["config"]["randomization"]==request.randomization.model_dump()
     assert "collection_randomization" not in source
+
+
+@pytest.mark.parametrize("half_range", [30, 50])
+def test_accepted_joint_range_and_fixed_camera_mode_reach_worker(manager, half_range):
+    job = manager.start(CollectionCreate(workers=1, count=1, max_attempts=1,
+                                        range_deg=half_range), OWNER, {})
+    result = wait_job(manager, job["id"])
+    assert result["status"] == "complete"
+    received = json.loads((manager.root / job["id"] / "worker-0" / "motion.json").read_text())
+    assert float(received["range_deg"]) == half_range
+    assert received["overview_camera_sampling"] == "presets"
+    saved = json.loads((manager.root / job["id"] / "scene.json").read_text())
+    assert saved["overview_camera_sampling"] == "presets"

@@ -52,6 +52,14 @@ struct Api {
     mjData* (*makeData)(const mjModel*);
     void (*deleteData)(mjData*);
     mjData* (*copyData)(mjData*, const mjModel*, const mjData*);
+    int (*stateSize)(const mjModel*, int);
+    void (*getState)(const mjModel*, const mjData*, mjtNum*, int);
+    void (*setState)(const mjModel*, mjData*, const mjtNum*, int);
+    const mjpPlugin* (*pluginAtSlot)(int);
+    mjfSensor* sensor_callback = nullptr;
+    mjfAct* act_dyn_callback = nullptr;
+    mjfAct* act_gain_callback = nullptr;
+    mjfAct* act_bias_callback = nullptr;
     void (*resetData)(const mjModel*, mjData*);
     void (*forward)(const mjModel*, mjData*);
     void (*step)(const mjModel*, mjData*);
@@ -84,11 +92,18 @@ struct Stepper {
     Api api{};
     mjModel* m = nullptr;
     mjData* d = nullptr;
-    mjData* friction_trial = nullptr;  // candidate for the same physical step
+    mjData* friction_trial = nullptr;  // scratch data for the generic full-copy path
     std::vector<AxialFriction> friction;
     std::vector<int> friction_ids;
     std::vector<double> friction_response;
     double friction_timestep = 0;
+    std::int64_t friction_predict_calls = 0;
+    std::int64_t friction_reused_steps = 0;
+    std::int64_t friction_unretained_steps = 0;
+    std::int64_t friction_solver_retries = 0;
+    std::int64_t friction_full_copies = 0;
+    std::int64_t friction_state_restores = 0;
+    std::vector<mjtNum> friction_start_state;
     std::vector<int> free_bodies;  // bodies whose root joint is free
     // Held external wrench per body: force in the inertial/local axes [N] at
     // the body COM, torque in the BODY frame [N*m] (Basilisk CmdForceInertial /
@@ -165,6 +180,10 @@ API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, 
               resolve(module, "mj_deleteModel", a.deleteModel) && resolve(module, "mj_makeData", a.makeData) &&
               resolve(module, "mj_deleteData", a.deleteData) && resolve(module, "mj_resetData", a.resetData) &&
               resolve(module, "mj_copyData", a.copyData) && resolve(module, "mju_quat2Mat", a.quat2Mat) &&
+              resolve(module, "mj_stateSize", a.stateSize) && resolve(module, "mj_getState", a.getState) &&
+              resolve(module, "mj_setState", a.setState) && resolve(module, "mjp_getPluginAtSlot", a.pluginAtSlot) &&
+              resolve(module, "mjcb_sensor", a.sensor_callback) && resolve(module, "mjcb_act_dyn", a.act_dyn_callback) &&
+              resolve(module, "mjcb_act_gain", a.act_gain_callback) && resolve(module, "mjcb_act_bias", a.act_bias_callback) &&
               resolve(module, "mj_forward", a.forward) && resolve(module, "mj_step", a.step) &&
               resolve(module, "mj_step1", a.step1) && resolve(module, "mj_step2", a.step2) &&
               resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
@@ -302,6 +321,16 @@ API int lms_body_inertial(void* handle, int body, double* out) {
     lms_body_mass(handle, body, out);
     for (int i=0; i<4; ++i) out[4+i] = s->m->body_iquat[4*body+i];
     for (int i=0; i<3; ++i) out[8+i] = s->m->body_inertia[3*body+i];
+    return OK;
+}
+
+// Body origin and body-to-local rotation at the same kinematics phase as
+// d->contact (the last substep start). Do not call forward on the live data.
+API int lms_body_geometry_pose(void* handle, int body, double* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !out || body < 0 || body >= s->m->nbody) return ERR_ARGUMENT;
+    for (int i=0; i<3; ++i) out[i] = s->d->xpos[3*body+i];
+    for (int i=0; i<9; ++i) out[3+i] = s->d->xmat[9*body+i];
     return OK;
 }
 
@@ -560,13 +589,31 @@ static void friction_wrench(Stepper* s, mjData* d, const AxialFriction& f,
 }
 
 // Bounded time-step friction solve. Predict the SAME implicitfast/contact step
-// in scratch mjData and solve for the force that stops relative slip. Commit
-// the converged candidate, including all integration/constraint state, rather
-// than running the identical step2 again. Failed candidates never advance s->d.
+// and solve for the force that stops relative slip. Eligible models can restore
+// a complete integration checkpoint between trials inside this synchronous call
+// and retain the accepted step2 result. Other models use the original scratch
+// copy/predict/apply path, including its callback and plugin behavior.
 // This avoids sign(v) chatter and viscous creep without an axial position spring.
 // Sliding uses a fixed kinetic limit; the last stopping impulse may be smaller.
-static int apply_axial_friction(Stepper* s, bool& integrated) {
-    integrated = false;
+static bool can_restore_friction_trial(const Stepper* s) {
+    const mjModel* m = s->m;
+    // This optimization is specific to the pinned MuJoCo 3.7 implicitfast /
+    // Newton path: step2 recomputes acceleration/constraints but leaves step1's
+    // geometry, velocity terms and mass factorization intact. Sleeping, history,
+    // stateful actuators/plugins and arbitrary callbacks require a full copy.
+    if (m->opt.integrator != mjINT_IMPLICITFAST || m->opt.solver != mjSOL_NEWTON ||
+        (m->opt.enableflags & (mjENBL_SLEEP | mjENBL_FWDINV)) || m->nhistory || m->na ||
+        m->npluginstate || *s->api.sensor_callback || *s->api.act_dyn_callback ||
+        *s->api.act_gain_callback || *s->api.act_bias_callback) return false;
+    for (int i=0; i<m->nplugin; ++i) {
+        const mjpPlugin* plugin = s->api.pluginAtSlot(m->plugin[i]);
+        if (!plugin || plugin->capabilityflags != mjPLUGIN_SDF || plugin->advance) return false;
+    }
+    return true;
+}
+
+static int apply_axial_friction(Stepper* s, mjData*& accepted_trial) {
+    accepted_trial = nullptr;
     std::vector<int> ids;
     std::vector<double> axes, start_speed, previous_forces;
     for (int i=0; i<static_cast<int>(s->friction.size()); ++i) {
@@ -586,15 +633,49 @@ static int apply_axial_friction(Stepper* s, bool& integrated) {
     }
     int n = static_cast<int>(ids.size());
     if (!n) return OK;
+    const bool restore_trial = can_restore_friction_trial(s);
+    mjWarningStat initial_warnings[mjNWARNING];
+    std::memcpy(initial_warnings, s->d->warning, sizeof(initial_warnings));
+    if (restore_trial) {
+        s->friction_start_state.resize(s->api.stateSize(s->m, mjSTATE_INTEGRATION));
+        s->api.getState(s->m, s->d, s->friction_start_state.data(), mjSTATE_INTEGRATION);
+    }
+    // The core is synchronous and the eligible model has no step2 callbacks.
+    // Intermediate candidates are private to this call. Roll back integration
+    // state on every failure before retrying at stricter precision or returning.
+    struct RestoreFailedTrial {
+        Stepper* s;
+        bool enabled;
+        mjData*& accepted;
+        const mjWarningStat* warnings;
+        ~RestoreFailedTrial() {
+            if (enabled && !accepted) {
+                s->api.setState(s->m, s->d, s->friction_start_state.data(), mjSTATE_INTEGRATION);
+                std::memcpy(s->d->warning, warnings, sizeof(s->d->warning));
+            }
+        }
+    } rollback{s, restore_trial, accepted_trial, initial_warnings};
     auto predict = [&](const std::vector<double>& forces, std::vector<double>& speeds) {
-        mjData* d = s->api.copyData(s->friction_trial, s->m, s->d);
+        ++s->friction_predict_calls;
+        mjData* d = restore_trial ? s->d : s->friction_trial;
+        if (restore_trial) {
+            // Same physical step, same immutable step1 inputs. Restore time,
+            // qpos/qvel, warmstart, controls and ALL external forces; never use
+            // the previous candidate's integrated state or friction wrench.
+            s->api.setState(s->m, d, s->friction_start_state.data(), mjSTATE_INTEGRATION);
+            std::memcpy(d->warning, initial_warnings, sizeof(d->warning));
+            ++s->friction_state_restores;
+        } else {
+            s->api.copyData(d, s->m, s->d);
+            ++s->friction_full_copies;
+        }
         for (int j=0; j<n; ++j) friction_wrench(s, d, s->friction[ids[j]], axes.data()+3*j, forces[j]);
         // All candidates start at the same qpos/qvel/control. Reuse the real
         // step1's collision detection, mass factorization and velocity terms;
         // only applied forces, constraint solve and integration differ.
         s->api.step2(s->m, d);
         if (!finite(d->qpos, s->m->nq) || !finite(d->qvel, s->m->nv) ||
-            d->warning[mjWARN_BADQACC].number != s->d->warning[mjWARN_BADQACC].number) return false;
+            d->warning[mjWARN_BADQACC].number != initial_warnings[mjWARN_BADQACC].number) return false;
         // MuJoCo 3.7 midpoint-integrates eligible free bodies but uses endpoint
         // velocities for articulated bases. Endpoint relative velocity == 0
         // therefore need not mean zero slip. Use the actual integrated relative
@@ -612,18 +693,14 @@ static int apply_axial_friction(Stepper* s, bool& integrated) {
     std::vector<double> free_speed(n), measured(n), probe(n), response(n*n), limits(n);
     std::vector<bool> sliding(n, false);
     auto apply = [&]() {
-        // Every successful exit immediately follows predict(forces, measured).
-        // The trial therefore contains precisely the final applied forces and
-        // a complete physical step, with the same initial solver warm start.
-        // Both buffers are owned here; no mjData pointer escapes the ABI.
-        // Swapping preserves contacts, effort, qacc, warnings and time without
-        // copying the large model workspace a second time.
-        std::swap(s->d, s->friction_trial);
-        integrated = true;
+        // Every successful branch reaches this only after predict evaluated
+        // these exact forces and validated ALL interfaces at the same precision.
+        accepted_trial = restore_trial ? s->d : s->friction_trial;
         for (int i=0; i<n; ++i) {
             auto& f = s->friction[ids[i]];
             f.axial_force = forces[i]; f.mode = sliding[i] ? 2 : 1;
             for (int k=0; k<3; ++k) f.force[k] = forces[i] * axes[3*i+k];
+            if (!restore_trial) friction_wrench(s, s->d, f, axes.data()+3*i, forces[i]);
         }
     };
     // Validate a previous solution against this substep's actual contact solve.
@@ -721,15 +798,29 @@ static int apply_axial_friction(Stepper* s, bool& integrated) {
         // useful; a bracketed solve is slower but cannot take a Newton leap.
         if (outer == 11) {
             bool valid = false;
+            // A coordinate candidate also changes the common base/contact
+            // solve. Accept a jointly valid evaluated point immediately: later
+            // coordinate updates can otherwise cross its numerical branch and
+            // discard a solution that already met every interface's tolerance.
+            auto stopped_candidate = [&]() {
+                for (int j=0; j<n; ++j) {
+                    if (std::abs(probe[j]) > tolerance || std::abs(forces[j]) > limits[j]) return false;
+                }
+                measured = probe;
+                std::fill(sliding.begin(), sliding.end(), false);
+                return true;
+            };
             for (int sweep=0; sweep<12; ++sweep) {
                 for (int i=0; i<n; ++i) {
                     const auto& f = s->friction[ids[i]];
                     double low = -limits[i], high = limits[i];
                     forces[i] = low;
                     if (!predict(forces, probe)) return ERR_DIVERGED;
+                    if (stopped_candidate()) { valid = true; break; }
                     double vlo = probe[i];
                     forces[i] = high;
                     if (!predict(forces, probe)) return ERR_DIVERGED;
+                    if (stopped_candidate()) { valid = true; break; }
                     double vhi = probe[i];
                     sliding[i] = false;
                     if (vlo > tolerance || vhi < -tolerance) {
@@ -737,14 +828,31 @@ static int apply_axial_friction(Stepper* s, bool& integrated) {
                         forces[i] = vlo > tolerance ? -f.kinetic_n : f.kinetic_n;
                         sliding[i] = true;
                     } else {
+                        // The inner contact solver has a finite stopping
+                        // accuracy: slip can jump across zero before reaching
+                        // the half-tolerance target. Keep the best *evaluated*
+                        // bracket point, rather than using an arbitrary last
+                        // midpoint which can lie on the invalid side of that
+                        // jump. The coupled validation below still requires
+                        // the original full tolerance for every interface.
+                        double best_force = std::abs(vlo) < std::abs(vhi) ? low : high;
+                        double best_speed = std::min(std::abs(vlo), std::abs(vhi));
                         for (int bisect=0; bisect<40; ++bisect) {
                             forces[i] = (low+high)*.5;
                             if (!predict(forces, probe)) return ERR_DIVERGED;
-                            if (std::abs(probe[i]) <= tolerance*.5) break;
+                            if (stopped_candidate()) { valid = true; break; }
+                            if (std::abs(probe[i]) < best_speed) {
+                                best_force = forces[i];
+                                best_speed = std::abs(probe[i]);
+                            }
+                            if (best_speed <= tolerance*.5) break;
                             if (probe[i] > 0) high = forces[i]; else low = forces[i];
                         }
+                        if (valid) break;
+                        forces[i] = best_force;
                     }
                 }
+                if (valid) break;
                 if (!predict(forces, measured)) return ERR_DIVERGED;
                 valid = true;
                 for (int i=0; i<n; ++i) {
@@ -756,8 +864,12 @@ static int apply_axial_friction(Stepper* s, bool& integrated) {
                 if (valid) break;
             }
             if (!valid) {
-                for (int i=0; i<n; ++i) std::fprintf(stderr, "friction failure: t=%.6g id=%d v0=%.9g f=%.9g v=%.9g lim=%.9g\n",
-                    s->d->time, ids[i], start_speed[i], forces[i], measured[i], limits[i]);
+                // The caller can retry the same step with a more accurate
+                // contact solve. Only diagnose a final, strict-precision failure.
+                if (s->m->opt.tolerance <= 1e-14) {
+                    for (int i=0; i<n; ++i) std::fprintf(stderr, "friction failure: t=%.6g id=%d v0=%.9g f=%.9g v=%.9g lim=%.9g\n",
+                        s->d->time, ids[i], start_speed[i], forces[i], measured[i], limits[i]);
+                }
                 return ERR_FRICTION;
             }
         }
@@ -794,26 +906,48 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
             // position/velocity stages run ONCE on the authoritative data.
             s->api.step1(m, d);
             apply_tidal(s, origin, mu);  // fresh body rotations for held torques
-            // The default contact objective tolerance can terminate before
-            // micron/s stiction is resolved, making the force-to-slip map jump
-            // during root finding. Solve trial AND authoritative constraints
-            // to the same tighter accuracy; keep the friction tolerance and
-            // authored physical parameters unchanged.
             const double contact_tolerance = m->opt.tolerance;
-            m->opt.tolerance = std::min(contact_tolerance, 1e-12);
-            bool integrated = false;
-            int friction_status = apply_axial_friction(s, integrated);
+            struct RestoreContactTolerance {
+                mjtNum& value;
+                double original;
+                ~RestoreContactTolerance() { value = original; }
+            } restore_contact_tolerance{m->opt.tolerance, contact_tolerance};
+            const auto previous_friction = s->friction;
+            mjData* accepted_trial = nullptr;
+            int friction_status = apply_axial_friction(s, accepted_trial);
+            if (friction_status == ERR_FRICTION && contact_tolerance > 1e-14) {
+                // Newton's global cost stopping criterion can leave a tiny
+                // force-to-slip discontinuity in a light connector coupled to
+                // a massive articulated base. A bracket may then contain no
+                // jointly acceptable point at that contact accuracy. Re-solve
+                // the SAME step1 state with a tighter inner contact solve;
+                // retain all original friction bounds and slip tolerances.
+                // Failed trials applied no wrench to d and advanced no state.
+                s->friction = previous_friction;
+                m->opt.tolerance = 1e-14;
+                ++s->friction_solver_retries;
+                friction_status = apply_axial_friction(s, accepted_trial);
+            }
             if (friction_status != OK) {
-                m->opt.tolerance = contact_tolerance;
+                s->friction = previous_friction;
                 return friction_status;
             }
-            d = s->d;
-            if (!integrated) s->api.step2(m, d);
-            m->opt.tolerance = contact_tolerance;
+            if (accepted_trial == d) {
+                // Only the accepted result escapes this synchronous call. Its
+                // sensors, contacts, solver state and warmstart are all intact.
+                ++s->friction_reused_steps;
+            } else {
+                // Generic models keep the original apply/integrate path. This
+                // also covers enabled channels already outside their travel,
+                // where no prediction was produced at all.
+                s->api.step2(m, d);
+                if (!accepted_trial) ++s->friction_unretained_steps;
+            }
         } else {
-            bool integrated = false;
-            apply_axial_friction(s, integrated);  // clear samples/start_z for free interfaces
+            mjData* accepted_trial = nullptr;
+            apply_axial_friction(s, accepted_trial);  // clear samples/start_z for free interfaces
             s->api.step(m, d);
+            ++s->friction_unretained_steps;
         }
         for (auto& f : s->friction) {
             double z;
@@ -847,6 +981,25 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
         stats[0] = max_ncon; stats[1] = max_nefc; stats[2] = max_iter; stats[3] = d->ncon;
         stats[4] = 0; stats[5] = executed;
     }
+    return OK;
+}
+
+// Per-handle lifetime counts; no global counters or cross-episode state.
+API int lms_friction_diagnostics(void* handle, std::int64_t* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !out) return ERR_ARGUMENT;
+    out[0] = s->friction_predict_calls;
+    out[1] = s->friction_reused_steps;
+    out[2] = s->friction_unretained_steps;
+    out[3] = s->friction_solver_retries;
+    return OK;
+}
+
+API int lms_friction_copy_diagnostics(void* handle, std::int64_t* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !out) return ERR_ARGUMENT;
+    out[0] = s->friction_full_copies;
+    out[1] = s->friction_state_restores;
     return OK;
 }
 
@@ -910,6 +1063,23 @@ API int lms_momentum(void* handle, double* out) {
     return OK;
 }
 
+// Only for an independently loaded planning model. Include nearby separated
+// surfaces in collision queries; never call this on a production stepper.
+// Gap keeps these additional positive-distance contacts inactive in forward.
+API int lms_probe_clearance(void* handle, double clearance) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !std::isfinite(clearance) || clearance < 0 || clearance > .02) return ERR_ARGUMENT;
+    for (int g = 0; g < s->m->ngeom; ++g) {
+        s->m->geom_margin[g] = std::max(s->m->geom_margin[g], clearance);
+        s->m->geom_gap[g] = std::max(s->m->geom_gap[g], clearance);
+    }
+    for (int p = 0; p < s->m->npair; ++p) {
+        s->m->pair_margin[p] = std::max(s->m->pair_margin[p], clearance);
+        s->m->pair_gap[p] = std::max(s->m->pair_gap[p], clearance);
+    }
+    return OK;
+}
+
 // Read-only contact snapshot from the authoritative native model. Returns ncon.
 // Each row: geom1, geom2, body1, body2, signed separation [m]. No forward/step.
 API int lms_contacts(void* handle, double* out, int capacity) {
@@ -948,4 +1118,54 @@ API int lms_body_detail(void* handle, int body, double* out) {
     mjtNum vel[6]={}; s->api.objectVelocity(s->m,s->d,mjOBJ_BODY,body,vel,0);
     for(int k=0;k<6;++k) out[7+k]=vel[k];
     out[13]=s->d->time; return OK;
+}
+
+// Read the completed authoritative solver result without advancing physics.
+// Rows: geom1, geom2, body1, body2, separation [m], contact-frame wrench [N,N*m].
+API int lms_contact_materials(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    const int count = std::min(capacity, s->d->ncon);
+    for (int i = 0; i < count; ++i) {
+        const mjContact& c = s->d->contact[i];
+        double* row = out + 8*i;
+        row[0] = c.geom[0]; row[1] = c.geom[1]; row[2] = c.dim;
+        for (int j = 0; j < 5; ++j) row[3+j] = c.friction[j];
+    }
+    return s->d->ncon;
+}
+
+API int lms_contact_forces(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    for (int i = 0; i < s->d->ncon && i < capacity; ++i) {
+        const auto& c = s->d->contact[i];
+        out[11*i] = c.geom[0]; out[11*i+1] = c.geom[1];
+        out[11*i+2] = c.geom[0] >= 0 ? s->m->geom_bodyid[c.geom[0]] : -1;
+        out[11*i+3] = c.geom[1] >= 0 ? s->m->geom_bodyid[c.geom[1]] : -1;
+        out[11*i+4] = c.dist;
+        mjtNum wrench[6] = {0,0,0,0,0,0};
+        s->api.contactForce(s->m, s->d, i, wrench);
+        for (int j = 0; j < 6; ++j) out[11*i+5+j] = wrench[j];
+    }
+    return s->d->ncon;
+}
+
+// Geometric engagement evidence: ids, separation, world position and normal.
+// This reads existing contacts only; it never runs forward or changes state.
+API int lms_contact_geometry(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    for (int i = 0; i < s->d->ncon && i < capacity; ++i) {
+        const auto& c = s->d->contact[i];
+        out[11*i] = c.geom[0]; out[11*i+1] = c.geom[1];
+        out[11*i+2] = c.geom[0] >= 0 ? s->m->geom_bodyid[c.geom[0]] : -1;
+        out[11*i+3] = c.geom[1] >= 0 ? s->m->geom_bodyid[c.geom[1]] : -1;
+        out[11*i+4] = c.dist;
+        for (int j = 0; j < 3; ++j) {
+            out[11*i+5+j] = c.pos[j];
+            out[11*i+8+j] = c.frame[j];
+        }
+    }
+    return s->d->ncon;
 }

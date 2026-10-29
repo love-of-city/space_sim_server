@@ -51,11 +51,13 @@ class PlugRetentionModel(sysModel.SysModel):
                         messaging.CmdForceInertialMsg(), messaging.CmdTorqueBodyMsg()]
         self.last_force_n = np.zeros(3)
         self.last_sample_ns = None
+        self._configured_socket = None
 
     def Reset(self, nanos):
         self.sample.stamp = None
         self.detent.reset()
         self.friction.configure()
+        self._configured_socket = None
         self.last_force_n = np.zeros(3)
         self.last_sample_ns = None
         self._write([np.zeros(3)] * 4, nanos)
@@ -79,9 +81,14 @@ class PlugRetentionModel(sysModel.SysModel):
             br.T @ offset, br.T @ pr, br.T @ (pv-bv-cross3(bw, offset)), br.T @ (pw-bw))
         force, torque = br @ force, br @ torque
         socket = self.detent.active
-        self.friction.configure(enabled=socket is not None,
-                                axis=(0., 0., 1.) if socket is None else socket.rotation_body[:, 2],
-                                seat=(0., 0., 0.) if socket is None else socket.position_body_m)
+        # Socket frames are fixed in the base body. The native core transforms
+        # them each substep, so an unchanged enabled socket needs no rewrite.
+        # Keep every disabled call: it also clears free-state force telemetry.
+        if socket is None or socket is not self._configured_socket:
+            self.friction.configure(enabled=socket is not None,
+                                    axis=(0., 0., 1.) if socket is None else socket.rotation_body[:, 2],
+                                    seat=(0., 0., 0.) if socket is None else socket.position_body_m)
+            self._configured_socket = socket
         self.last_force_n, self.last_sample_ns = force, int(nanos)
         self._write(paired_com_wrenches(force, torque, pp, pc, bc, pr, br), nanos)
 

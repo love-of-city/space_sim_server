@@ -9,9 +9,10 @@ import numpy as np
 import pytest
 
 from simulation.independent_task_box_layout import (
-    MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, TARGETS, normalize_geometry_order,
+    MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, TARGETS, make_operational_clearance,
+    normalize_geometry_order, operation_footprints, separated,
     planar_transform, rotated_footprints, sample_placements, sample_pose_placements,
-    validate_pose_placements, validate_placements,
+    validate_pose_placements, validate_placements, validate_operational_placements,
 )
 from simulation.task_box_layout import validated_capture_layout
 
@@ -145,9 +146,11 @@ def test_appended_parent_geoms_cannot_shift_renderer_mesh_binding():
     assert ET.tostring(root) == once
 
 
-def test_recording_requires_every_independent_visual_and_original_state_contract(tmp_path, deck):
-    footprints, obstacles = deck
-    offsets, _ = sample_placements(footprints, 1, obstacles)
+def test_recording_requires_every_independent_visual_and_original_state_contract(tmp_path):
+    footprints = {name: [[.01, .01], [.02, .02]] for name in MODULES}
+    anchors = {name: [.015, .015, .005] for name in MODULES}
+    obstacles = []
+    offsets, _ = sample_placements(footprints, 1, obstacles, operation_anchors=anchors)
     model = tmp_path/"layout.xml"
     model.write_text("<mujoco/>")
     visuals, entries = [], {}
@@ -160,6 +163,8 @@ def test_recording_requires_every_independent_visual_and_original_state_contract
     record = dict(schema=SCHEMA, model_sha256=hashlib.sha256(model.read_bytes()).hexdigest(),
                   initial_states_randomized=False, orientations_randomized=False,
                   adapted_base=dict(visual=visuals[-1]["file"]), generated_visuals=visuals,
+                  modules={name: dict(original_anchor_body_m=anchor) for name, anchor in anchors.items()},
+                  operational_clearance=make_operational_clearance(footprints, anchors),
                   offsets_body_xy_m=offsets, original_footprints_body_xy_m=footprints,
                   fixed_obstacles_body_xy_m=obstacles, deck_edge_margin_m=.005, minimum_module_gap_m=.008)
     manifest, catalog = model.with_suffix(".layout.json"), tmp_path/"catalog.json"
@@ -174,8 +179,7 @@ def test_recording_requires_every_independent_visual_and_original_state_contract
         validated_capture_layout(model, catalog)
     rotated = copy.deepcopy(record)
     rotated.update(schema=POSE_SCHEMA, orientations_randomized=True,
-                   rotation_axis='task_box_base/+Z', installation_yaw_rad=dict.fromkeys(MODULES, 0.),
-                   modules={name: dict(original_anchor_body_m=[0., 0., .005]) for name in MODULES})
+                   rotation_axis='task_box_base/+Z', installation_yaw_rad=dict.fromkeys(MODULES, 0.))
     manifest.write_text(json.dumps(rotated))
     assert validated_capture_layout(model, catalog) == rotated
     rotated['installation_yaw_rad'].pop(MODULES[0])
@@ -187,3 +191,62 @@ def test_recording_requires_every_independent_visual_and_original_state_contract
     catalog.write_text(json.dumps(catalog_data))
     with pytest.raises(ValueError, match="independent visual"):
         validated_capture_layout(model, catalog)
+
+
+@pytest.fixture
+def operation_case():
+    # Widely separated small bodies isolate operation-space conflicts from
+    # physical-body overlap. Deck packing is covered independently above.
+    footprints = {name: [[-.005, -.005], [.005, .005]] for name in MODULES}
+    anchors = {name: [0., 0., .005] for name in MODULES}
+    offsets = {name: [float(i), 0.] for i, name in enumerate(MODULES)}
+    return footprints, anchors, offsets
+
+
+@pytest.mark.parametrize("operation,nearby", [
+    ("aviation_pickup", [0., .07]),
+    ("aviation_insert_40p5", [.12, 0.]),
+])
+def test_disjoint_bodies_cannot_intrude_into_open_fingers_or_withdrawal(operation_case, operation, nearby):
+    footprints, anchors, offsets = operation_case
+    offsets[operation] = [0., 0.]
+    offsets["bolt_assembly_hole"] = nearby
+    if operation != "aviation_pickup":
+        offsets["aviation_pickup"] = [-1., 0.]
+    assert separated(footprints[operation], np.asarray(footprints["bolt_assembly_hole"])+nearby, .008)
+    with pytest.raises(ValueError, match="Tool operation clearance conflict"):
+        validate_operational_placements(footprints, offsets, anchors)
+
+
+def test_sequential_operation_reservations_may_overlap_without_physical_interference(operation_case):
+    footprints, anchors, offsets = operation_case
+    offsets["guide_pickup"] = [0., .12]
+    zones = validate_operational_placements(footprints, offsets, anchors)
+    assert not separated(zones["aviation_pickup"], zones["guide_pickup"], 0.)
+    with pytest.raises(ValueError, match="fixed deck feature"):
+        validate_operational_placements(footprints, offsets, anchors, obstacles=[[[-.01, .06], [.01, .08]]])
+
+
+def test_rotated_tool_space_follows_yaw_and_keeps_positive_deck_x_withdrawal(operation_case):
+    _, anchors, _ = operation_case
+    yaws = dict.fromkeys(MODULES, 0.)
+    original = operation_footprints(anchors)
+    yaws["aviation_insert_40p5"] = np.pi
+    rotated = operation_footprints(anchors, yaws)
+    np.testing.assert_allclose(rotated["aviation_insert_40p5"], original["aviation_insert_40p5"], atol=1e-15)
+    yaws["guide_pickup"] = np.pi/2
+    rotated = operation_footprints(anchors, yaws)
+    np.testing.assert_allclose(rotated["guide_pickup"], [[-.095, -.04], [.095, .04]], atol=1e-15)
+
+
+def test_operational_sampler_is_reproducible_diverse_and_preserves_global_rng():
+    footprints = {name: [[.01, .01], [.02, .02]] for name in MODULES}
+    anchors = {name: [.015, .015, .005] for name in MODULES}
+    before = random.getstate()
+    first = sample_placements(footprints, 1, operation_anchors=anchors)
+    assert first == sample_placements(footprints, 1, operation_anchors=anchors)
+    assert first != sample_placements(footprints, 2, operation_anchors=anchors)
+    positions, yaws, _ = sample_pose_placements(footprints, anchors, 1, operational_clearance=True)
+    validate_pose_placements(footprints, positions, anchors, yaws)
+    validate_operational_placements(footprints, positions, anchors, yaws)
+    assert random.getstate() == before

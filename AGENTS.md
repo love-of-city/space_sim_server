@@ -8,3 +8,4 @@
 - GitHub 配置和协作流程位于根目录。修改部署入口时同步检查根 CI 的部署路径过滤器。
 - 模型和 UE 资产使用 Git LFS；不提交环境、运行数据、密钥、日志或生成的 UE 目录。
 - 阅读根 CONTRIBUTING.md 和对应子项目 README 后执行验证。
+- 采集功能合并与性能修改先核对 `space_sim_server/docs/COLLECTION_BASELINE.md`；保留已经验收的功能连接，区分当前源码、构建产物与历史实验，不以 HEAD 或旧报告代替工作区验收。

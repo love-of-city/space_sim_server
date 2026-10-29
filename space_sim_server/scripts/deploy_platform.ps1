@@ -27,7 +27,7 @@ $env:SPACE_SIM_PYTHON = $pythonExe
 # All deterministic checks precede run_platform.ps1, which stops the old platform.
 $caddy = (Get-Command $settings.CaddyExecutable -ErrorAction Stop).Source
 foreach ($command in @('npm.cmd', 'node.exe')) { $null = Get-Command $command -ErrorAction Stop }
-& $pythonExe (Join-Path $projectRoot 'tools/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
+& $pythonExe (Join-Path $projectRoot 'tools/deployment/check_deployment_auth.py') --database (Join-Path $projectRoot 'data/auth.sqlite3')
 if ($LASTEXITCODE -ne 0) { throw 'Authentication preflight failed; existing platform was not stopped.' }
 
 $runDirectory = Join-Path $projectRoot 'run/deployment'

@@ -29,7 +29,7 @@ if (Test-Path -LiteralPath $localStatePath) {
     & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'local_visualization.ps1') -Action Stop
     if ($LASTEXITCODE -ne 0) { throw 'Local platform did not stop cleanly; remote setup was not started.' }
 }
-& $pythonExe (Join-Path $root 'tools\migrate_local_auth.py') --source (Join-Path $root 'data\visualization-test-auth.sqlite3') --destination (Join-Path $root 'data\auth.sqlite3')
+& $pythonExe (Join-Path $root 'tools\deployment\migrate_local_auth.py') --source (Join-Path $root 'data\visualization-test-auth.sqlite3') --destination (Join-Path $root 'data\auth.sqlite3')
 if ($LASTEXITCODE -ne 0) { throw 'Account database migration failed.' }
 $settings = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 $mode = switch ($settings.tls_mode) {

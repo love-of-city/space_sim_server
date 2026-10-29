@@ -224,6 +224,8 @@ bool FBskIndependentCameraInputTypesTest::RunTest(const FString& Parameters)
         FString(TEXT("\"vertical_field_of_view_rad\":true")),
         FString(TEXT("\"vertical_field_of_view_rad\":\"1.7\"")),
         FString(TEXT("\"vertical_field_of_view_rad\":null")),
+        FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"camera_mode\":\"fisheye\"")),
+        FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"camera_mode\":\"monochrome_fisheye\"")),
         FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"field_of_view_rad\":null")),
         FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"field_of_view_rad\":\"bad\"")),
         FString(TEXT("\"vertical_field_of_view_rad\":1.7,\"field_of_view_rad\":\"1.7\"")),

@@ -85,7 +85,7 @@ Remove-Item Env:SPACE_SIM_RUN_PREPARATION_NATIVE
 
 ```powershell
 $origin = (Get-Content deploy/ip.local.json -Raw | ConvertFrom-Json).public_url
-& ./.venv/Scripts/python.exe tools/verify_arm_preparation.py `
+& ./.venv/Scripts/python.exe tools/diagnostics/verify_arm_preparation.py `
     --origin $origin --auth-database data/auth.sqlite3 `
     --output "run/arm-acceptance-$(Get-Date -Format yyyyMMdd-HHmmss)" `
     --cycles 3 --hold-seconds 600 --record-seconds 5 --allow-replace-scene

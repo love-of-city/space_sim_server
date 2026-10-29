@@ -1,6 +1,6 @@
 # 23块靶标双目与陀螺预测抓取整合
 
-更新：2026-10-29。基于统一仓库 main `94bdd75`，保留刘丹旭 PR #35、相机投影 PR #36 及 V-bar PR #34 的现有实现，工作分支 `feature/near23-gyro-capture-main-20261029`。本次新增功能范围为末端抓取。
+更新：2026-10-29。初版基于统一仓库 main `94bdd75`，随后合入 `6c53480` 的采集更新；保留刘丹旭 PR #35、相机投影 PR #36、V-bar PR #34 和采集 PR #37 的现有实现，工作分支 `feature/near23-gyro-capture-main-20261029`。本次新增功能范围为末端抓取。
 
 ## 合并后如何工作
 
@@ -21,7 +21,7 @@
 - 每眼1920×1920，水平/垂直视场100°，基线0.12 m，10 Hz，零畸变；未新增长焦相机。
 - 左右眼各至少一块完整有效靶标，可以是不同编号。最短黑框边≥12 px；每眼重投影RMS≤2.5 px，最大单角点误差≤5 px，正深度，歧义候选拒收。
 - 数据包含会话、原图帧号、曝光仿真时间、配置指纹和双眼质量。过期曝光、场景不符、配置不符和单眼不合格不会作为新的视觉修正。抓取输入不读取渲染外参或目标真值。
-- 仿真保留原环境、太阳/地球、材质及原生工作灯参数。测试工具使用私有渲染端口和独立 streamer，不连接现有网页控制端口。
+- 仿真保留原环境、太阳/地球、材质及原生工作灯参数。本模式标定配置的 `preserve_original_lighting=true` 使其不添加采集 PR #37 的全局补光；其他采集场景保留该补光。测试工具使用私有渲染端口和独立 streamer，不连接现有网页控制端口。
 
 ## 代码入口
 
@@ -41,10 +41,10 @@
 从已有保存场景生成一个新场景（不覆盖原文件）：
 
 ```powershell
-python tools/enable_near23_gyro_capture.py --scene <原场景.json> --output <新场景.json> --evidence run/near23_trial
+python tools/diagnostics/enable_near23_gyro_capture.py --scene <原场景.json> --output <新场景.json> --evidence run/near23_trial
 ```
 
-用团队兼容的 Basilisk/MuJoCo 原生环境运行；普通 Python MuJoCo 不能替代。`tools/run_near23_gyro_trial.py --help` 给出本机独立图像闭环试验参数，`tools/score_near23_gyro_trial.py <运行目录>` 从独立真值记录计算结果。运行目录和原图不提交 Git。
+用团队兼容的 Basilisk/MuJoCo 原生环境运行；普通 Python MuJoCo 不能替代。`tools/diagnostics/run_near23_gyro_trial.py --help` 给出本机独立图像闭环试验参数，`tools/diagnostics/score_near23_gyro_trial.py <运行目录>` 从独立真值记录计算结果。运行目录和原图不提交 Git。诊断入口随最新main的工具目录整理放入 `tools/diagnostics/`。
 
 独立试验工具的 `--source-server` 显式指向此前近距试验的已准备工作区，复用其中的基准场景、原模型/UE资源、网格目录和浏览器工作灯检查工具；`--native-runtime` 指向兼容的原生运行库。它不是全新机器上的一键启动入口。正常平台使用上面的新场景和本仓库常规启动流程。
 

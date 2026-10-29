@@ -99,7 +99,7 @@ O 仅用于引力参考传播，不能把气动力挂到 O。若给多个刚性�
 
 ```powershell
 ..\.venv\Scripts\python.exe -m pytest -q tests/test_orbital_physics_config.py tests/test_orbital_physics_acceptance.py tests/test_orbital_environment.py tests/test_atmospheric_drag.py
-..\.venv\Scripts\python.exe tools/verify_orbital_physics.py --output ..\reports\orbit-acceptance.json
+..\.venv\Scripts\python.exe tools/diagnostics/verify_orbital_physics.py --output ..\reports\orbit-acceptance.json
 ```
 
 验收工具使用原生 BSK 做两圈 500 km、51.6° 轨道传播，验证点质量的能量/角动量、J2 总势能对应的能量与极轴角动量，以及 J2 升交点进动。为了对照解析结果，它使用固定地球转轴并关闭太阳；这与生产使用 SPICE/太阳的场景不同。
@@ -109,7 +109,7 @@ J2 中两体能量及角动量模长本来就不恒定；不能用它们判断 J
 完整 SARM 动力学可用已有离线 profiler 验证，包含真实 SPICE、MuJoCo 模型、控制、场景消息装配，但不连接 UE、后台或采集器：
 
 ```powershell
-..\.venv\Scripts\python.exe tools/profile_simulation_runtime.py --adapter-root ..\space_sim_UE_Adapter --scene-instance <已有场景JSON> --orbital-config config/orbital/j2.json --duration 10 --motion hold --output <新的结果JSON>
+..\.venv\Scripts\python.exe tools/benchmarks/profile_simulation_runtime.py --adapter-root ..\space_sim_UE_Adapter --scene-instance <已有场景JSON> --orbital-config config/orbital/j2.json --duration 10 --motion hold --output <新的结果JSON>
 ```
 
 输出名必须全新。换成 `drag_synthetic_example.json` 可检验两物体气动力。它不修改已有场景文件或运行进程。测试用独立两自由体也验证了气动力随面积变化、实际减速度随质量变化，以及外力来源可以累加。

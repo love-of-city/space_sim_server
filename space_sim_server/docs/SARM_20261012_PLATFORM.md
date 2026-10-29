@@ -5,9 +5,10 @@
 ## 权威模型与运行库
 
 - 原始交付：`model/SARM_mjcf_20261012/SARM_convex.xml`，保持原始字节；同目录包含原始网格及螺纹插件源码。
-- 平台派生：`model/SARM/platform/sarm_20261012.xml`；由 `tools/build_sarm_20261012.py` 生成，旁边的 manifest 记录来源、哈希和适配项。
+- 平台派生：`model/SARM/platform/sarm_20261012.xml`；由 `tools/assets/build_sarm_20261012.py` 生成，旁边的 manifest 记录来源、哈希和适配项。
+- Capture26 的上游基座快照为 `model/SARM/platform/sarm_20261012_capture_base.xml`，与合并前 main `94bdd75` 的平台基座逐字节一致，并由 Capture26 manifest 校验。采集基座新增螺栓座母螺纹后，Capture26 继续使用原模型和动力学；资产准备按 manifest 的 `base_model` 选择来源。
 - 真实执行：Basilisk/MJScene + 本地 MuJoCo 3.7.0 implicitfast，240 Hz 主时钟、默认每步 1 子步；与旧版共用 `--local-substeps` / `SPACE_SIM_LOCAL_SUBSTEPS` 配置，不再对新版强制至少 5 子步。MJScene 发布状态，UE 读取同一状态进行渲染。
-- `tools/build_sarm_plugin.py` 使用当前 Basilisk 的 MuJoCo DLL，由平台源码 `native/sarm_thread_sdf.cpp` 构建 `sarm.sdf.two_start_thread`（见文末“螺纹 SDF 插件提速”）。加载前校验运行库版本、平台源码、交付源码和 DLL 哈希。构建结果在忽略目录 `run/native_acceleration/`，不提交 DLL。
+- `tools/assets/build_sarm_plugin.py` 使用当前 Basilisk 的 MuJoCo DLL，由平台源码 `native/sarm_thread_sdf.cpp` 构建 `sarm.sdf.two_start_thread`（见文末“螺纹 SDF 插件提速”）。加载前校验运行库版本、平台源码、交付源码和 DLL 哈希。构建结果在忽略目录 `run/native_acceleration/`，不提交 DLL。
 - UE 资产目录生成只解析 XML 中的网格、材质和可见性，不编译动力学模型；该进程无需加载螺纹插件，也不会为了导入网格再加载另一份 MuJoCo。实际仿真仍通过上述插件与 ABI 校验。运行时的网格姿态补偿保持原行为。
 - 当前模型含 68 个 qpos、61 个 qvel、2346 个编译后 geom。透明碰撞几何参加物理计算，不作为重复可见物体导入 UE。
 
@@ -29,7 +30,7 @@
 
 2026-10-12 验证了真实网页运行、控制、重置及双相机短采集，详细记录见根目录 `archive/2026_10_12_SARM_MJCF接入验收.md`。
 
-原生复现实验：用平台 Python 运行 `python tools/validate_sarm_20261012_platform.py`。测试共同漂移下 10 秒静置、三次 0→1→0 rad 全行程，累计 40 秒；不仅检查有限值，还要求跟踪误差、对称约束和实际行程通过。不会把 MuJoCo 自动恢复当成成功。
+原生复现实验：用平台 Python 运行 `python tools/diagnostics/validate_sarm_20261012_platform.py`。测试共同漂移下 10 秒静置、三次 0→1→0 rad 全行程，累计 40 秒；不仅检查有限值，还要求跟踪误差、对称约束和实际行程通过。不会把 MuJoCo 自动恢复当成成功。
 
 当前是实验模板。完整抓取、三个插头的外力插拔、抽屉卡扣操作、螺栓及紧固件旋拧仍不属于已通过的端到端任务验收。SDF 能加载和空载稳定并不证明螺纹操作可靠。此前采用 5 子步时，本机全链路约 0.2 倍实时；该历史结果不代表当前默认 1 子步的速度。
 
@@ -68,7 +69,7 @@ Runtime 的可视外覆现在继承几何位置和旋转，但使用独立的厘
 
 使用平台原生 DLL 的离线验证，在共同平移、机械臂零位下完成 10 秒静置及三轮夹爪开合，共 40 秒仿真；默认 1 子步通过有限状态、夹爪行程、跟踪和对称约束检查。相同短时离线测速工况，5 子步约 0.31 倍实时，1 子步约 1.30 倍实时。测试未连接 UE、网络、录制或完整在轨环境，不是网页端到端速度保证，也不代表带载抓取、插拔或螺纹接触精度已验收。
 
-验证工具现在默认读取公共子步配置；可使用 `python tools/validate_sarm_20261012_platform.py --local-substeps 5` 显式复测旧设置。输出中的 `substeps` 来自实际步进器，另记录实测耗时和倍率。
+验证工具现在默认读取公共子步配置；可使用 `python tools/diagnostics/validate_sarm_20261012_platform.py --local-substeps 5` 显式复测旧设置。输出中的 `substeps` 来自实际步进器，另记录实测耗时和倍率。
 
 实际运行入口的原生回归也已通过：默认 1 子步及环境变量指定 3 子步各执行启动和两次重置，核验实际步进器子步值、240 Hz 主时钟、在轨初态恢复与状态同步（2 项通过）；夹爪及遥操作相关测试 36 项通过。
 
@@ -77,14 +78,14 @@ Runtime 的可视外覆现在继承几何位置和旋转，但使用独立的厘
 
 交付的 `model/SARM_mjcf_20261012/thread_sdf.cpp` 保持原始字节。平台改由 `native/sarm_thread_sdf.cpp` 构建同名插件，二者只有 `tooth_radius()` 不同：双头螺纹导程恰为螺距两倍，牙型余弦的相位等于 `w(z+phase) − 2θ`，`cos 2θ`、`sin 2θ` 可由 x、y 直接算出，从而去掉 `atan2` 和一次 `cos`。距离梯度仍使用交付源码的中心差分，未改为解析梯度。MuJoCo 的 SDF 接触搜索每个物理步调用距离函数约 2 万次，这是本模型碰撞检测的主要开销。
 
-`tools/build_sarm_plugin.py` 先把两份源码编入 `native/sarm_thread_sdf_check.cpp`，对 5 种螺纹形状共 100 万个点（含轴线上的点）比较距离和梯度，不一致即拒绝安装。实测最大距离差 2e-17 m，最大梯度差 1e-11；把锁紧螺纹相位改动 1 µm 的负例被拒绝。结果写入 `run/native_acceleration/sarm_thread.json` 的 `equivalence`。`tests/test_mujoco_plugins.py` 另外检查平台源码除 `tooth_radius()` 外与交付源码逐字相同。交付源码或平台源码任一变化后，加载时要求重新构建。
+`tools/assets/build_sarm_plugin.py` 先把两份源码编入 `native/sarm_thread_sdf_check.cpp`，对 5 种螺纹形状共 100 万个点（含轴线上的点）比较距离和梯度，不一致即拒绝安装。实测最大距离差 2e-17 m，最大梯度差 1e-11；把锁紧螺纹相位改动 1 µm 的负例被拒绝。结果写入 `run/native_acceleration/sarm_thread.json` 的 `equivalence`。`tests/test_mujoco_plugins.py` 另外检查平台源码除 `tooth_radius()` 外与交付源码逐字相同。交付源码或平台源码任一变化后，加载时要求重新构建。
 
 接触几何、摩擦、`solref`/`solimp`、接触对和步长均未改变。
 
 
 ## 相机重新布置（2026-10-14）
 
-两台相机都是平台附加件（`tools/build_sarm_20261012.py` 生成），不改动交付文件；本节取代上文"腕部相机重新瞄准"和"总览相机暂保持原位置"的描述。
+两台相机都是平台附加件（`tools/assets/build_sarm_20261012.py` 生成），不改动交付文件；本节取代上文"腕部相机重新瞄准"和"总览相机暂保持原位置"的描述。
 
 - 腕部相机 `sarm_wrist_cam`：仍挂在 `ee_base`，随 joint6 转动。手指沿 `ee_base` x 方向张合，原安装点 [0.22,0,0.12] m 正好沿张合方向看去，一根手指挡住另一根。现改到 +y 侧 [0,0.10,0.12] m，看向 [0,0,0.22] m（TCP 前方 3 cm），垂直视场 70°。两根手指在画面左右分开，从闭合到全开（指尖 x=±0.085 m）整根手指都在画面下半部，被夹物体位于两指之间，前方工作区在画面上部。
 - 总览相机 `spacecraft_overview`：对应实物上卫星顶面后边缘 B 点（本体系 x=−0.18、y=0.27 m，机械臂基座左后方）一根 0.5 m 支杆顶端的相机。仿真中只建虚拟相机，不建支杆几何（UE 画面中不出现支杆，也不参与碰撞），相机位于 [−0.18,0.27,0.5] m，看向任务盒中心 [0.35,0.34,0.03] m，无横滚，垂直视场 51°。从机械臂后方观察，画面"向上"大致是机械臂伸向任务盒的方向；整个任务盒（台面以上部分）留约 10% 边距，机械臂在台面上操作时位于画面边缘，不遮挡台面。地面验证星基本不在画面内，可在预览自由视角中查看。支杆位于机械臂可达范围内，实物需另行规定工作空间限制。
@@ -97,7 +98,7 @@ UE 端代码未改，无需重新编译；资产 catalog 不受相机影响。�
 
 ## 腕部照明灯（2026-10-17）
 
-卫星在轨没有大气散射，背光面（太阳光和补光都照不到的面）在腕部相机里是一片漆黑，夹爪也看不到。现在在 `ee_base` 上、与 `sarm_wrist_cam` 同一位置 [0,0.10,0.12] m，加了一盏常开的聚光灯 `wrist_lamp`，沿相机光轴照向 [0,0,0.22] m。它与相机一样由 `tools/build_sarm_20261012.py` 生成，不改动交付文件。
+卫星在轨没有大气散射，背光面（太阳光和补光都照不到的面）在腕部相机里是一片漆黑，夹爪也看不到。现在在 `ee_base` 上、与 `sarm_wrist_cam` 同一位置 [0,0.10,0.12] m，加了一盏常开的聚光灯 `wrist_lamp`，沿相机光轴照向 [0,0,0.22] m。它与相机一样由 `tools/assets/build_sarm_20261012.py` 生成，不改动交付文件。
 
 - 灯只影响画面：MuJoCo 不处理灯，UE 适配器为它生成一盏跟随 `ee_base` 的聚光灯。自由度、总质量和 2000 步轨迹逐位不变（用平台同一份 MuJoCo 3.7.0 加 SDF 插件对比新旧模型，从非零初速度出发）；相机位姿、分辨率和采集频率都不变。
 - 半锥角 89°（适配器上限）：UE 内锥取 0.65×`cutoff`≈58°，光束在 58° 内亮度均匀，方形图像四角（离光轴约 60°）仍有约 88%。不投影：灯和相机在同一点，相机看不到灯造成的阴影，关掉更省渲染。

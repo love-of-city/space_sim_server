@@ -3004,7 +3004,7 @@
           <geom name="asm_board1_geom_collision_253" class="object_geom" mesh="asm_board1_mesh_collision_253" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
           <geom name="asm_board1_geom_collision_254" class="object_geom" mesh="asm_board1_mesh_collision_254" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
           <geom name="asm_board1_geom_collision_255" class="object_geom" mesh="asm_board1_mesh_collision_255" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" density="0" />
-        </body>
+        <geom name="bolt_storage_thread_sdf" type="sdf" mesh="board_thread_sdf_mesh" pos="0.310 0.370 0.005" contype="0" conaffinity="0" condim="4" density="0" group="3" rgba="0 0 0 0" quat="0.92387953251128685 0 0 -0.38268343236508962"><plugin instance="board_female_sdf" /></geom></body>
         <body name="asm_board2" pos="0 0 0" quat="1 0 0 0">
           
           <site name="aviation_pickup" pos="0.2445 0.15503 0.005" size="0.001" rgba="0 0 0 0" />
@@ -3977,7 +3977,7 @@
     <exclude name="base_link_cylindrical_plug_exclude" body1="cubesat_bus" body2="cylindrical_plug" />
   <pair name="physical_two_start_thread" geom1="bolt_thread_sdf" geom2="board_thread_sdf" condim="4" friction="0.8 0.8 0.01 0.0001 0.0001" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="ee_finger1_bolt_neck_pair" geom1="ee_finger1_bolt_neck_nose" geom2="bolt_neck_guide" condim="6" friction="3 3 0.02 0.02 0.02" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="ee_finger2_bolt_neck_pair" geom1="ee_finger2_bolt_neck_nose" geom2="bolt_neck_guide" condim="6" friction="3 3 0.02 0.02 0.02" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="physical_locking_thread" geom1="locking_rod_thread_sdf" geom2="fastener_thread_sdf" condim="4" friction="0.8 0.8 0.01 0.0001 0.0001" solref="0.002 1" solimp="0.95 0.99 0.001" /><pair name="locking_rod_fastener_radial_guide" geom1="locking_rod_thread_sdf" geom2="fastener_radial_guide_sdf" condim="4" margin="0.00015" friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.0015 1" solimp="0.95 0.99 0.001" /><pair name="target_internal_contact_0" geom1="capture_target_collision" geom2="satellite_outer_panel_internal_collision" condim="6" friction="1 1 0.005 0.0005 0.0005" solref="0.01 1" solimp="0.9 0.95 0.001" margin="0" gap="0" />
   <pair name="target_internal_contact_1" geom1="satellite_inner_panel_internal_collision" geom2="satellite_outer_panel_internal_collision" condim="6" friction="1 1 0.005 0.0005 0.0005" solref="0.01 1" solimp="0.9 0.95 0.001" margin="0" gap="0" />
- </contact>
+ <pair name="physical_bolt_storage_thread" geom1="bolt_thread_sdf" geom2="bolt_storage_thread_sdf" condim="4" friction="0.8 0.8 0.01 0.0001 0.0001" solref="0.002 1" solimp="0.95 0.99 0.001" /></contact>
   
   <tendon>
     <fixed name="ee_active_links_tendon">

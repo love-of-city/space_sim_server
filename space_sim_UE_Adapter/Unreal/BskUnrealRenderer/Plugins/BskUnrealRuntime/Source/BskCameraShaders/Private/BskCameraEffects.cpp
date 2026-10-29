@@ -19,6 +19,7 @@ class FBskCameraEffectPS : public FGlobalShader
         SHADER_PARAMETER(FVector2f, OutputSize)
         SHADER_PARAMETER(float, HalfFov)
         SHADER_PARAMETER(uint32, Fisheye)
+        SHADER_PARAMETER(uint32, Monochrome)
         RENDER_TARGET_BINDING_SLOTS()
     END_SHADER_PARAMETER_STRUCT()
 };
@@ -37,7 +38,7 @@ public:
 IMPLEMENT_MODULE(FBskCameraShadersModule, BskCameraShaders);
 
 void BskApplyCameraEffect(UTextureRenderTarget2D* Source, UTextureRenderTarget2D* Output,
-    bool bFisheye, float FieldOfViewRadians)
+    bool bFisheye, bool bMonochrome, float FieldOfViewRadians)
 {
     check(IsInGameThread());
     // Resource initialization and release are ordered on the render thread.
@@ -46,7 +47,7 @@ void BskApplyCameraEffect(UTextureRenderTarget2D* Source, UTextureRenderTarget2D
     FTextureRenderTargetResource* OutputResource = Output->GameThread_GetRenderTargetResource();
     const FVector2f Size(Output->SizeX, Output->SizeY);
     ENQUEUE_RENDER_COMMAND(BskCameraEffect)(
-        [InputResource, OutputResource, Size, bFisheye, FieldOfViewRadians](FRHICommandListImmediate& RHICmdList)
+        [InputResource, OutputResource, Size, bFisheye, bMonochrome, FieldOfViewRadians](FRHICommandListImmediate& RHICmdList)
         {
             FRDGBuilder Graph(RHICmdList);
             FRDGTextureRef Input = Graph.RegisterExternalTexture(CreateRenderTarget(InputResource->GetRenderTargetTexture(), TEXT("BskCameraSource")));
@@ -57,6 +58,7 @@ void BskApplyCameraEffect(UTextureRenderTarget2D* Source, UTextureRenderTarget2D
             Params->OutputSize = Size;
             Params->HalfFov = FieldOfViewRadians * 0.5f;
             Params->Fisheye = bFisheye ? 1u : 0u;
+            Params->Monochrome = bMonochrome ? 1u : 0u;
             Params->RenderTargets[0] = FRenderTargetBinding(Dest, ERenderTargetLoadAction::ENoAction);
             TShaderMapRef<FBskCameraEffectPS> PixelShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
             AddDrawScreenPass(Graph, RDG_EVENT_NAME("BskCameraEffect"), FScreenPassViewInfo(),

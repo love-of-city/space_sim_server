@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 np = pytest.importorskip('numpy')
-MODULE = Path(__file__).resolve().parents[1] / 'tools' / 'convert_step_to_mjcf.py'
+MODULE = Path(__file__).resolve().parents[1] / 'tools/assets' / 'convert_step_to_mjcf.py'
 spec = importlib.util.spec_from_file_location('step_mjcf_converter', MODULE)
 converter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(converter)
@@ -170,7 +170,7 @@ def test_cpu_preview_z_buffer_order_independent(monkeypatch):
     pytest.importorskip('mujoco')
     pytest.importorskip('numba')
     monkeypatch.syspath_prepend(str(MODULE.parent))
-    from cpu_mjcf_preview import rasterize
+    from tools.diagnostics.cpu_mjcf_preview import rasterize
     projected=np.array([[2.,2,0.5],[14,2,0.5],[2,14,0.5],
                         [2,2,1.0],[14,2,1.0],[2,14,1.0]])
     normals=np.tile(np.array([[0.,0,1.]],dtype=np.float32),(6,1))

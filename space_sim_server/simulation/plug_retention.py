@@ -30,6 +30,7 @@ class RetentionParameters:
     lateral_force_limit_n: float = 10.0
     rotational_stiffness_nm_rad: float = 0.2
     rotational_damping_nms_rad: float = 0.002
+    torsional_damping_nms_rad: float = 0.02
     torque_limit_nm: float = 0.1
     backstop_stiffness_n_m: float = 2000.0
     backstop_force_limit_n: float = 15.0
@@ -155,6 +156,8 @@ class PlugFriction:
         if not sockets or len({s.name for s in sockets}) != len(sockets):
             raise ValueError("retention requires distinct compatible sockets")
         self.sockets, self.parameters = sockets, parameters
+        self._capture_angle_rad = math.radians(parameters.capture_angle_deg)
+        self._angular_release_rad = math.radians(parameters.angular_release_deg)
         self.reset()
 
     def reset(self):
@@ -204,7 +207,7 @@ class PlugFriction:
             delta, speed, error = coordinates(self.active)
             local = delta, speed, error
             if (delta[2] >= p.friction_travel_m or np.linalg.norm(delta[:2]) > p.lateral_release_m
-                    or np.linalg.norm(error) > math.radians(p.angular_release_deg)):
+                    or np.linalg.norm(error) > self._angular_release_rad):
                 self.active = None
                 local = None
         if self.active is None:
@@ -214,7 +217,7 @@ class PlugFriction:
                 delta, speed, error = coordinates(socket)
                 initial_capture = self.first_sample and (socket.initial or abs(speed[2]) <= 1e-6)
                 if (np.linalg.norm(delta[:2]) <= p.capture_radius_m
-                        and np.linalg.norm(error) <= math.radians(p.capture_angle_deg)
+                        and np.linalg.norm(error) <= self._capture_angle_rad
                         and -.001 <= delta[2] < p.friction_travel_m
                         and (speed[2] < -1e-6 or initial_capture)):
                     self.active = socket
@@ -224,6 +227,8 @@ class PlugFriction:
         if self.active is None:
             self.status, self.displacement_m = "free", None
             return np.zeros(3), np.zeros(3)
+        # The active/capture checks already computed this socket's coordinates
+        # from the same immutable input sample; reuse them for the wrench.
         delta, speed, error = local
         force = np.zeros(3)
         force[:2] = _limited(-p.lateral_stiffness_n_m * delta[:2] - p.lateral_damping_ns_m * speed[:2],
@@ -232,15 +237,24 @@ class PlugFriction:
         # substep's external loads. A sign(velocity) held force would chatter.
         force[2] = axial_backstop_force(delta[2], p)
         damping_omega = omega
+        torsional_torque = np.zeros(3)
         if not self.active.keyed:
+            # A round connector has no keyed roll error, but its seated
+            # contact still has finite torsional resistance.  Keep the
+            # existing tilt damping and add a small axial-roll damping term;
+            # this prevents release-induced spin without imposing a virtual
+            # orientation lock.
             axis = rotation[:, 2]
-            damping_omega = omega - np.dot(omega, axis) * axis
-        torque = _limited(-p.rotational_stiffness_nm_rad * error - p.rotational_damping_nms_rad * damping_omega,
-                          p.torque_limit_nm)
+            roll_speed = float(np.dot(omega, axis))
+            damping_omega = omega - roll_speed * axis
+            torsional_torque = -p.torsional_damping_nms_rad * roll_speed * axis
+        torque = _limited(-p.rotational_stiffness_nm_rad * error
+                          - p.rotational_damping_nms_rad * damping_omega
+                          + torsional_torque, p.torque_limit_nm)
         self.displacement_m = float(delta[2])
         near_seat = (abs(delta[2]) < p.seated_tolerance_m
                      and np.linalg.norm(delta[:2]) <= p.capture_radius_m
-                     and np.linalg.norm(error) <= math.radians(p.capture_angle_deg))
+                     and np.linalg.norm(error) <= self._capture_angle_rad)
         self.status = ("retained" if near_seat else "held" if abs(speed[2]) <= 1e-6
                        else "extracting" if speed[2] > 0 else "inserting")
         return self.active.rotation_body @ force, torque

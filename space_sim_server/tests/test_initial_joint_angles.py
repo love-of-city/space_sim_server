@@ -11,12 +11,15 @@ from pydantic import ValidationError
 from space_arm_platform.app import PlatformConfig, create_app
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager, SCENE_TEMPLATES
+from space_arm_platform.control_defaults import ZERO_START_TELEOP_PROFILE
+from space_arm_platform.scene_targets import SARM_20261012_TEMPLATE, SARM_DEMO_TEMPLATE, SARM_SDF_TEMPLATE
 
+DIRECT_START_TEMPLATES = (SARM_20261012_TEMPLATE, SARM_DEMO_TEMPLATE, SARM_SDF_TEMPLATE)
 ANGLES = [-45.0, -20.0, 25.0, -90.0, -50.0, 275.0]
 
 
 @pytest.mark.parametrize("profile", ["none", "training-v1", "teleop-balanced-v1"])
-@pytest.mark.parametrize("template", [item["id"] for item in SCENE_TEMPLATES])
+@pytest.mark.parametrize("template", [item["id"] for item in SCENE_TEMPLATES if item["id"] not in DIRECT_START_TEMPLATES])
 def test_only_six_arm_axes_overridden_and_persisted(tmp_path, profile, template):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     common = dict(seed=123, randomization_profile=profile, template_id=template, randomize_orbit_phase=True)
@@ -31,6 +34,44 @@ def test_only_six_arm_axes_overridden_and_persisted(tmp_path, profile, template)
     assert stored["randomization"] == expected
     assert stored["initial_arm_joint_position_deg"] == ANGLES
     # The existing loader/reset path consumes the saved eight-DOF SI vector.
+    pytest.importorskip("Basilisk")
+    from simulation.teleop_grasp_unreal import _load_scene_instance
+    loaded = _load_scene_instance(Path(instance["config_path"]))
+    assert loaded["randomization"]["arm_joint_position_rad"] == expected["arm_joint_position_rad"]
+
+
+@pytest.mark.parametrize("profile", ["none", "training-v1", "teleop-balanced-v1"])
+@pytest.mark.parametrize("template", DIRECT_START_TEMPLATES)
+def test_task_box_rejects_unsupported_legacy_profiles_before_writing(tmp_path, profile, template):
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    before = set(manager.scene_root.iterdir())
+    for angles in (None, ANGLES):
+        with pytest.raises(ValueError, match="teleop-zero-prepare-v1"):
+            manager.create_instance(SceneInstanceCreate(
+                randomization_profile=profile, template_id=template,
+                initial_arm_joint_position_deg=angles,
+            ))
+        assert set(manager.scene_root.iterdir()) == before
+
+
+@pytest.mark.parametrize("template", DIRECT_START_TEMPLATES)
+def test_task_box_operating_pose_overrides_only_six_axes_and_is_persisted(tmp_path, template):
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    common = dict(seed=123, randomization_profile=ZERO_START_TELEOP_PROFILE,
+                  template_id=template, randomize_orbit_phase=True)
+    baseline = manager.create_instance(SceneInstanceCreate(**common))
+    instance = manager.create_instance(SceneInstanceCreate(
+        **common, operating_arm_joint_position_deg=ANGLES,
+    ))
+    expected = baseline["randomization"].copy()
+    expected["arm_joint_position_rad"] = [*map(math.radians, ANGLES), *expected["arm_joint_position_rad"][6:]]
+    assert instance["randomization"] == expected
+    assert instance["environment"] == baseline["environment"]
+    assert instance["initial_arm_joint_position_deg"] is None
+    assert instance["operating_arm_joint_position_deg"] == ANGLES
+    stored = json.loads(Path(instance["config_path"]).read_text(encoding="utf-8"))
+    assert stored["randomization"] == expected
+    assert stored["operating_arm_joint_position_deg"] == ANGLES
     pytest.importorskip("Basilisk")
     from simulation.teleop_grasp_unreal import _load_scene_instance
     loaded = _load_scene_instance(Path(instance["config_path"]))
@@ -56,6 +97,9 @@ def test_default_and_explicit_null_keep_original_randomization(tmp_path):
 def test_catalog_bounds_are_enforced_before_writing(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     for template in manager.catalog()["templates"]:
+        direct_start = template["id"] in DIRECT_START_TEMPLATES
+        profile = ZERO_START_TELEOP_PROFILE if direct_start else "teleop-balanced-v1"
+        angle_field = "operating_arm_joint_position_deg" if direct_start else "initial_arm_joint_position_deg"
         limits = template["arm_joint_limits_deg"]
         assert len(limits) == 6
         for i, bounds in enumerate(limits):
@@ -64,14 +108,18 @@ def test_catalog_bounds_are_enforced_before_writing(tmp_path):
             for bound, sign in zip(bounds, [-1, 1]):
                 angles = ANGLES.copy()
                 angles[i] = bound
-                instance = manager.create_instance(SceneInstanceCreate(randomization_profile="teleop-balanced-v1", template_id=template["id"], initial_arm_joint_position_deg=angles))
-                assert instance["initial_arm_joint_position_deg"][i] == bound
+                instance = manager.create_instance(SceneInstanceCreate(
+                    randomization_profile=profile, template_id=template["id"], **{angle_field: angles},
+                ))
+                assert instance[angle_field][i] == bound
                 from simulation.teleop_grasp_unreal import _load_scene_instance
                 _load_scene_instance(Path(instance["config_path"]))
                 before = set(manager.scene_root.iterdir())
                 angles[i] += sign * 0.001
                 with pytest.raises(ValueError, match=f"J{i+1}"):
-                    manager.create_instance(SceneInstanceCreate(randomization_profile="teleop-balanced-v1", template_id=template["id"], initial_arm_joint_position_deg=angles))
+                    manager.create_instance(SceneInstanceCreate(
+                        randomization_profile=profile, template_id=template["id"], **{angle_field: angles},
+                    ))
                 assert set(manager.scene_root.iterdir()) == before
 
 

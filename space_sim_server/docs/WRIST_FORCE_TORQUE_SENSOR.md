@@ -17,7 +17,7 @@
       └─ 原整个夹爪的子刚体和连杆
 ```
 
-传感器相当于在第六关节输出端与整个夹爪之间设置一个测量截面。`wrist_ft_tool` 相对 `ee_base` 的位置为零、姿态为单位旋转；原夹爪质量和惯量整体移到截面下游，运动自由度保持不变。按刚体名称指定的碰撞排除规则也随原夹爪几何迁移到 `wrist_ft_tool`，关节和相机引用保持在 `ee_base`。原交付模型不修改，平台模型由 `tools/build_sarm_20261012.py` 生成。
+传感器相当于在第六关节输出端与整个夹爪之间设置一个测量截面。`wrist_ft_tool` 相对 `ee_base` 的位置为零、姿态为单位旋转；原夹爪质量和惯量整体移到截面下游，运动自由度保持不变。按刚体名称指定的碰撞排除规则也随原夹爪几何迁移到 `wrist_ft_tool`，关节和相机引用保持在 `ee_base`。原交付模型不修改，平台模型由 `tools/assets/build_sarm_20261012.py` 生成。
 
 这是理想刚性、零新增质量的传感器，没有模拟真实测力器的厚度、弹性、噪声、温漂或量程饱和。以后有实体型号参数时，可以再扩展这些特性。
 
@@ -69,12 +69,12 @@ LeRobot 新增字段：
 ```powershell
 $env:PYTHONPATH="$PWD\backend;$PWD;$PWD\..\space_sim_UE_Adapter\Adapters"
 $env:SPACE_SIM_RESET_ADAPTER=(Resolve-Path ..\space_sim_UE_Adapter).Path
-python tools/build_native_acceleration.py --component all
-python tools/build_sarm_plugin.py
+python tools/assets/build_native_acceleration.py --component all
+python tools/assets/build_sarm_plugin.py
 python -m pytest tests/test_wrist_wrench_native.py tests/test_wrist_wrench_recording.py tests/test_sarm_20261012_model.py -q
 python -m pytest tests/test_simulation_reset_native.py -k sarm_20261012 -q
-python tools/validate_sarm_20261012_platform.py --output run/wrist-ft-development/cycles.json
-python tools/benchmark_wrist_sensor.py
+python tools/diagnostics/validate_sarm_20261012_platform.py --output run/wrist-ft-development/cycles.json
+python tools/benchmarks/benchmark_wrist_sensor.py
 npm --prefix frontend ci --no-audit --no-fund
 npm --prefix frontend test
 npm --prefix frontend run build
@@ -97,7 +97,7 @@ npm --prefix frontend run build
 
 中位耗时变化约 -4.53%，没有观察到明显减速；本机短测受运行负载和模型组织影响，不能据此宣称传感器能够加速仿真。对照运行最终 qpos/qvel 的最大绝对差均为 0。这个短期、固定动作对照不代表所有接触工况；它未启用完整 BSK 轨道环境，也不包含 UE、网页、网络或录制成本，不能直接当成平台实时倍率。
 
-可通过 `tools/benchmark_wrist_sensor.py` 重现方法。本机原始记录在忽略目录 `run/wrist-ft-development/benchmark.json`；测试日志和构建日志也在该目录，不提交到仓库。
+可通过 `tools/benchmarks/benchmark_wrist_sensor.py` 重现方法。本机原始记录在忽略目录 `run/wrist-ft-development/benchmark.json`；测试日志和构建日志也在该目录，不提交到仓库。
 
 合并前功能 worktree 的自动测试结果：服务端基础测试 727 项通过；前端 172 项通过且生产构建成功；适配器基础测试 72 项通过（另 3 个子测试通过）；原生测力与真实场景重置 9 项通过；碰撞规则迁移后的模型/协议补充测试 27 项通过。完整 UE 图形启动与手柄操作尚未人工验收。
 

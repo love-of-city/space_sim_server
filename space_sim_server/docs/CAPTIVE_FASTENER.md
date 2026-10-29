@@ -33,11 +33,11 @@
 在 `space_sim_server` 下使用项目 Python；离线测试单独使用 MuJoCo 3.7.0 进程，避免与 Basilisk 的原生运行库混装到同一进程。
 
 ```powershell
-python tools/build_sarm_20261012.py --fastener-model captive
-python tools/build_sarm_20261012.py --fastener-model sdf
-python tools/build_sarm_plugin.py
-python tools/validate_captive_fastener.py --output run/captive_fastener_validation
-python tools/render_captive_fastener.py --output run/captive-cycle.gif
+python tools/assets/build_sarm_20261012.py --fastener-model captive
+python tools/assets/build_sarm_20261012.py --fastener-model sdf
+python tools/assets/build_sarm_plugin.py
+python tools/diagnostics/validate_captive_fastener.py --output run/captive_fastener_validation
+python tools/diagnostics/render_captive_fastener.py --output run/captive-cycle.gif
 ```
 
 2026-10-16 同步主分支的相机、腕部测力和动力学优化后，两种模型均包含这些公共更新。SDF 对照保留原始自由关节和螺纹接触，XML 与主分支 4f1a321 一致，SHA256 为 `34ab9eb8ad5b6d8274fd578239e127d1077440a4d560e2da8f52460f1f0e0441`；防脱版为 `e7896209fe9b0c63d1971f064918bd39d9eb9150b71daadbac880338c4c2ee69`。下文 10 月 15 日的性能和行程属于当时版本，不代表同步后版本的重新测量。

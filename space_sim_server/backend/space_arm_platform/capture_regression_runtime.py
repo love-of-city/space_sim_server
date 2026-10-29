@@ -83,8 +83,8 @@ def prepare_native_assets(root,adapter,python,powershell,unreal,vision_python,ou
         with (output/f'{name}.log').open('wb') as log:
             subprocess.run([str(x) for x in argv],cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT,
                 check=True,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-    run('native-build',[python,root/'tools/build_native_acceleration.py','--component','all'])
-    run('thread-build',[python,root/'tools/build_sarm_plugin.py'])
+    run('native-build',[python,root/'tools/assets/build_native_acceleration.py','--component','all'])
+    run('thread-build',[python,root/'tools/assets/build_sarm_plugin.py'])
     run('ue-build',[powershell,'-NoProfile','-File',adapter/'Unreal/BskUnrealRenderer/scripts/build.ps1',
         '-UnrealRoot',unreal])
     project=adapter/'Unreal/BskUnrealRenderer'

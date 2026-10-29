@@ -195,6 +195,22 @@ def test_occupied_port_is_rejected_without_touching_listener():
         assert listener.fileno()>=0
 
 
+def test_native_preparation_invokes_existing_current_checkout_build_tools(tmp_path,monkeypatch):
+    from space_arm_platform import capture_regression_runtime as runtime
+    calls=[]
+    class BeforeUEBuild(Exception):pass
+    def check_command(argv,**kwargs):
+        calls.append(argv)
+        if len(calls)==3:raise BeforeUEBuild
+        tool=Path(argv[1])
+        assert tool.is_relative_to(ROOT) and tool.is_file(),tool
+    monkeypatch.setattr(runtime.subprocess,'run',check_command)
+    with pytest.raises(BeforeUEBuild):
+        runtime.prepare_native_assets(ROOT,ROOT.parent/'space_sim_UE_Adapter',Path('python'),
+            Path('pwsh'),Path('UE'),Path('worker'),tmp_path,{})
+    assert len(calls)==3
+
+
 def test_process_cleanup_stops_owned_child_and_preserves_unrelated_process(tmp_path):
     import subprocess,sys
     outsider=subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)'])

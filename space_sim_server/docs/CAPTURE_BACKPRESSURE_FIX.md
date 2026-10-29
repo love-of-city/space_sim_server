@@ -71,15 +71,15 @@ STOP 会唤醒等待状态 ACK 的配对等待者，已接受的截止点内样�
 
 验证不使用生产端口，不改历史 episode，也不将诊断录制放入正式数据目录。
 
-`tools/validate_capture_pipeline.py`：回放离线原生状态和真实场景资源，测 GPU/网络/写盘。
+`tools/diagnostics/validate_capture_pipeline.py`：回放离线原生状态和真实场景资源，测 GPU/网络/写盘。
 需显式提供保存的 `hello/manifest/frame/observation` JSON bundle；不是动力学性能测试。
 
 ```powershell
-python tools/validate_capture_pipeline.py --bundle <bundle.json> `
+python tools/diagnostics/validate_capture_pipeline.py --bundle <bundle.json> `
   --output run/<新的诊断目录> --seconds 600 --flow-control --write-dataset
 ```
 
-`tools/verify_realtime_capture.py`：真实 Basilisk + UE + 控制连接 + writer，支持连续两次录制、
+`tools/diagnostics/verify_realtime_capture.py`：真实 Basilisk + UE + 控制连接 + writer，支持连续两次录制、
 主动重连和诊断场景的 `--operating-pose`。已更新为按需 START/OFF 和完成确认协议。
 Windows 如禁止默认端口，请显式指定四个可用的隔离端口。该测试不含浏览器 WebRTC 接收端。
 

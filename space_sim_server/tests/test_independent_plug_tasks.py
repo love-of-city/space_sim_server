@@ -110,14 +110,16 @@ def test_tracking_moves_reference_without_editing_sample():
         sample, plug_position_body_m=sample.plug_position_body_m + [0.004, 0, 0]
     )
     original = moved.plug_position_body_m.copy()
-    task._follow_pickup(moved, 0.005, before)
+    # The shared drift filter rejects single-tick disturbances but must follow
+    # a sustained offset, without exceeding the reference tracking speed.
+    for _ in range(60):
+        previous = task.reference.copy()
+        task._follow_pickup(moved, 0.005, previous)
+        assert np.max(np.abs(task.reference[:6] - previous[:6])) <= (
+            task.config.tracking_speed_rad_s * .005 + 1e-12)
     p0, _ = task.chain.forward(before[:6])
     p1, _ = task.chain.forward(task.reference[:6])
     assert p1[0] > p0[0]
-    assert (
-        np.max(np.abs(task.reference[:6] - before[:6]))
-        <= task.config.tracking_speed_rad_s * 0.005 + 1e-12
-    )
     np.testing.assert_array_equal(moved.plug_position_body_m, original)
 
 
@@ -149,7 +151,7 @@ def test_final_acceptance_rejects_a_seated_but_spinning_part(name):
 
 
 def test_headless_default_target_matches_current_scene_model():
-    from tools.run_scripted_task import default_target_state
+    from collection.run_scripted_task import default_target_state
 
     state = default_target_state(MODEL)
     np.testing.assert_allclose(state["target_position_m"], [0.94, 0.039086, 0.4])

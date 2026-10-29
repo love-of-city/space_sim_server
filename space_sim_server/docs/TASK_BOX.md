@@ -35,16 +35,16 @@
 ```powershell
 # 离线生成环境：numpy、scipy、trimesh、rtree；不需要 SolidWorks 在协作者机器上运行。
 python -m pip install numpy scipy trimesh rtree
-python tools/build_task_box_module.py
+python tools/assets/build_task_box_module.py
 
 # CAD 更新后：重新导出 geometry.json，先重新导入，再生成。
-python tools/build_task_box_module.py --geometry <工作台导出的geometry.json>
+python tools/assets/build_task_box_module.py --geometry <工作台导出的geometry.json>
 
 # 独立 MuJoCo 3.7.0 环境
-python tools/validate_task_box_module.py
+python tools/diagnostics/validate_task_box_module.py
 
 # 另一个带 Basilisk 的解释器；仅加载 Basilisk 的 DLL
-python tools/validate_task_box_native.py
+python tools/diagnostics/validate_task_box_native.py
 
 # 平台依赖环境：配置、来源、旧场景兼容性
 python -m pytest tests/test_task_box_module.py tests/test_selected_sarm_scene.py tests/test_scene_runtime.py tests/test_scene_process_helpers.py -q

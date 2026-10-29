@@ -17,7 +17,7 @@ def test_blend_is_continuous_and_finishes_before_contact_without_time_stop():
     assert blend.state(1) == (1.0, 0.0, 0.0, 0.0)
 
 
-def test_curved_approach_rotates_and_opens_before_final_axial_entry():
+def test_straight_approach_rotates_and_opens_without_an_axial_waypoint():
     task, sample = setup_cycle()
     task._enter("approach", sample)
     profile = task._approach_profile
@@ -26,17 +26,17 @@ def test_curved_approach_rotates_and_opens_before_final_axial_entry():
         reference = task.approach_reference(u)
         p, r = task.chain.forward(reference[:6])
         expected_p, expected_r = profile.pose(u)
+        np.testing.assert_allclose(p, p0+(task.grasp-p0)*u, atol=5e-6)
         np.testing.assert_allclose(p, expected_p, atol=5e-6)
         assert np.linalg.norm(rotation_matrix_to_vector(expected_r @ r.T)) < 5e-6
         assert 0 <= reference[6] <= 1 and reference[7] == -reference[6]
         if u >= profile.blend.finish:
-            np.testing.assert_allclose((p-task.grasp)[:2], 0, atol=5e-6)
             assert reference[6] == 1
             assert np.linalg.norm(rotation_matrix_to_vector(task.grasp_rotation @ r.T)) < 5e-6
     midpoint = task.approach_reference(profile.blend.finish/2)
     p, r = task.chain.forward(midpoint[:6])
     assert 0 < midpoint[6] < 1
-    assert p[2] < p0[2]-0.03  # Direct downward curve, not horizontal-then-vertical.
+    assert p[2] < p0[2]-0.03
     assert np.linalg.norm(p[:2]-p0[:2]) > 0.01
     assert np.linalg.norm(rotation_matrix_to_vector(r @ profile.start_rotation.T)) > 0.1
     assert all(stage not in task.stages for stage in ("raise", "above_drawer", "align", "open", "descend", "hold", "seat"))
@@ -49,8 +49,8 @@ def test_all_combined_reference_derivatives_and_terminal_speed_are_bounded():
     for t in np.linspace(0, timing.duration, 1201):
         u, v, a, j = timing.state(t)
         _, b1, b2, b3 = profile.blend.state(u)
-        p1 = -profile.axis*profile.height-profile.lateral*b1
-        p2, p3 = -profile.lateral*b2, -profile.lateral*b3
+        p1 = profile.displacement
+        p2, p3 = np.zeros(3), np.zeros(3)
         measured = (
             (np.linalg.norm(p1*v), np.linalg.norm(p2*v*v+p1*a), np.linalg.norm(p3*v**3+3*p2*v*a+p1*j)),
             tuple(abs(profile.angle*x) for x in (b1*v, b2*v*v+b1*a, b3*v**3+3*b2*v*a+b1*j)),
@@ -68,7 +68,7 @@ def test_all_combined_reference_derivatives_and_terminal_speed_are_bounded():
         assert np.max(abs(qj)) <= cfg.joint_jerk_rad_s3+1e-8
         if 0 < t < timing.duration:
             assert v > 0  # No interior stop at the orientation/entry handoff.
-        if u >= 1-cfg.slow_distance_m/profile.height:
+        if u >= 1-cfg.slow_distance_m/profile.distance:
             assert measured[0][0] <= cfg.approach_speed_m_s+1e-8
 
 

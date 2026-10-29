@@ -12,17 +12,17 @@
 
 ## 工具
 
-- tools/benchmark_parallel_capture.py：启动两个隔离实例，分配独立端口、输出和录制会话，记录总时间和进程树资源占用。--workers 1 为串行，2 为并行；--mode physics/capture。
-- tools/benchmark_mujoco_warp.py：GPU/CPU 同版本接触内核对比。需要独立 mujoco-warp 环境和本机 MSVC。编译实验专用 SDF DLL，不覆盖 Basilisk 或生产 DLL。
-- tools/benchmark_warp_sdf.py：五种螺纹 SDF 的实验 Warp 实现；使用原 2 微米差分梯度，运行前对 C++ 原公式进行 10,000 点对照。它使用版本相关的 Warp 扩展接口，不是生产后端。
-- tools/audit_parallel_capture.py：验证主流与六维力的真实时间间隔、七维数据、相机帧与状态对应、完整视频解码、跨实例会话隔离。
+- tools/benchmarks/benchmark_parallel_capture.py：启动两个隔离实例，分配独立端口、输出和录制会话，记录总时间和进程树资源占用。--workers 1 为串行，2 为并行；--mode physics/capture。
+- tools/benchmarks/benchmark_mujoco_warp.py：GPU/CPU 同版本接触内核对比。需要独立 mujoco-warp 环境和本机 MSVC。编译实验专用 SDF DLL，不覆盖 Basilisk 或生产 DLL。
+- tools/benchmarks/benchmark_warp_sdf.py：五种螺纹 SDF 的实验 Warp 实现；使用原 2 微米差分梯度，运行前对 C++ 原公式进行 10,000 点对照。它使用版本相关的 Warp 扩展接口，不是生产后端。
+- tools/diagnostics/audit_parallel_capture.py：验证主流与六维力的真实时间间隔、七维数据、相机帧与状态对应、完整视频解码、跨实例会话隔离。
 
 ## 运行方式
 
 从 space_sim_server 目录使用原平台 Python 运行生产测试，例如：
 
 ```powershell
-python tools/benchmark_parallel_capture.py --mode physics --workers 2 --jobs 2 --seconds 180 --scene run/scenes/scene-20261014-170501-01b5c238.json --output run/two-world-benchmark/cpu-parallel
+python tools/benchmarks/benchmark_parallel_capture.py --mode physics --workers 2 --jobs 2 --seconds 180 --scene run/scenes/scene-20261014-170501-01b5c238.json --output run/two-world-benchmark/cpu-parallel
 ```
 
 输出目录必须是新目录，工具不会覆盖已有实验。采集模式额外用 --port-base 指定未占用的端口段。

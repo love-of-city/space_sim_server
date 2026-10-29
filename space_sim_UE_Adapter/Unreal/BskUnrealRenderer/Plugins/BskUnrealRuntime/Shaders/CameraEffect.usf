@@ -4,6 +4,7 @@ SamplerState SourceSampler;
 float2 OutputSize;
 float HalfFov;
 uint Fisheye;
+uint Monochrome;
 
 void MainPS(float4 Position : SV_POSITION, float2 UV : TEXCOORD0, out float4 Color : SV_Target0)
 {
@@ -19,6 +20,6 @@ void MainPS(float4 Position : SV_POSITION, float2 UV : TEXCOORD0, out float4 Col
         SampleUV = 0.5 + 0.5 * Q * Scale;
     }
     float3 RGB = Texture2DSample(SourceTexture, SourceSampler, SampleUV).rgb;
-    if (Fisheye == 0) RGB = dot(RGB, float3(0.2126, 0.7152, 0.0722)).xxx;
+    if (Monochrome != 0) RGB = dot(RGB, float3(0.2126, 0.7152, 0.0722)).xxx;
     Color = float4(RGB, 1);
 }

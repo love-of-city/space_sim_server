@@ -32,10 +32,35 @@ def test_seeded_reset_preserves_scene_and_disables_all_noise():
     assert first["environment"] == source["environment"]
     assert not any(first["collection_config"]["disturbances"].values())
     offsets = first["collection_config"]["initialization"]["offset_deg"]
-    assert all(-10 <= x <= 10 for x in offsets) and max(map(abs, offsets)) > 2
+    assert all(-30 <= x <= 30 for x in offsets) and max(map(abs, offsets)) > 2
     assert first["randomization"]["arm_joint_position_rad"][-2:] == [0.0, 0.0]
     with pytest.raises(ValueError):
         randomized_scene(source, 1, float("nan"))
+
+
+@pytest.mark.parametrize("half_range", [30.0, 50.0])
+def test_wide_initialization_preserves_independent_offsets_without_clamping(half_range):
+    baseline = np.deg2rad([179., -179., 179., -179., 179., -179.])
+    source = {"randomization": {"arm_joint_position_rad": [*baseline, 0., 0.]}}
+    scene = randomized_scene(source, 17, half_range)
+    initialization = scene["collection_config"]["initialization"]
+    offsets = np.asarray(initialization["offset_deg"])
+    assert initialization["half_range_deg"] == half_range
+    assert initialization["distribution"] == "independent_uniform"
+    assert np.max(np.abs(offsets)) > 10
+    assert np.all(np.abs(offsets) <= half_range)
+    assert len(set(offsets)) == 6
+    np.testing.assert_allclose(
+        scene["randomization"]["arm_joint_position_rad"][:6], baseline + np.deg2rad(offsets))
+    # Samples outside joint limits remain intact for the native preflight to reject.
+    assert any(abs(value) > np.pi for value in scene["randomization"]["arm_joint_position_rad"][:6])
+    assert list(source["randomization"]["arm_joint_position_rad"][:6]) == list(baseline)
+
+
+@pytest.mark.parametrize("half_range", [-1.0, 50.1, float("nan"), float("inf")])
+def test_initialization_rejects_invalid_half_ranges(half_range):
+    with pytest.raises(ValueError, match=r"finite and in \[0,50\]"):
+        randomized_scene({"randomization": {"arm_joint_position_rad": [0.] * 8}}, 17, half_range)
 
 
 def test_opening_is_not_cycle_success_and_return_allows_pressed_latch():

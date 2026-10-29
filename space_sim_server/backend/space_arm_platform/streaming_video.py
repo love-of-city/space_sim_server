@@ -18,15 +18,31 @@ import numpy as np
 from lerobot.datasets.compute_stats import RunningQuantileStats, auto_downsample_height_width
 from lerobot.datasets.video_utils import StreamingVideoEncoder
 
+from .recording_config import validate_encoder_preset
+
 
 class StrictStreamingVideoEncoder(StreamingVideoEncoder):
     stall_timeout_s = 60.0
+
+    def __init__(self, *args, encoder_preset=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        validate_encoder_preset(self.vcodec, encoder_preset)
+        self.encoder_preset = encoder_preset
+        self._metrics = {}
+        self.episode_metrics = None
+
+    @staticmethod
+    def _empty_metrics():
+        return dict(frames_encoded=0, encode_wall_seconds=0.0, statistics_wall_seconds=0.0,
+                    queue_wait_wall_seconds=0.0, queue_wait_max_seconds=0.0, worker_wall_seconds=0.0)
 
     def start_episode(self, video_keys, temp_dir):
         if self._episode_active:
             self.cancel_episode()
         self._dropped_frames.clear()
         self._accepted = dict.fromkeys(video_keys, 0)
+        self._metrics = {key: self._empty_metrics() for key in video_keys}
+        self.episode_metrics = None
         for key in video_keys:
             self._frame_queues[key] = queue.Queue(maxsize=self.queue_maxsize)
             self._result_queues[key] = queue.Queue(maxsize=1)
@@ -42,6 +58,8 @@ class StrictStreamingVideoEncoder(StreamingVideoEncoder):
         container = stream = None
         stats = RunningQuantileStats()
         count = 0
+        metrics = self._metrics[key]
+        worker_started = time.perf_counter()
         try:
             while not self._stop_events[key].is_set():
                 try:
@@ -52,8 +70,11 @@ class StrictStreamingVideoEncoder(StreamingVideoEncoder):
                     break
                 if frame.dtype != np.uint8 or frame.ndim != 3 or frame.shape[-1] != 3:
                     raise ValueError("Authoritative RGB must be HWC uint8")
+                encode_started = time.perf_counter()
                 if container is None:
                     options = {"g": str(self.g), "threads": str(self.encoder_threads or 1)}
+                    if self.encoder_preset is not None:
+                        options["preset"] = self.encoder_preset
                     if self.vcodec == "h264_nvenc":
                         # NVENC's default B-frame count is incompatible with
                         # the short GOP used for random training frame reads.
@@ -72,27 +93,37 @@ class StrictStreamingVideoEncoder(StreamingVideoEncoder):
                 video_frame.time_base = Fraction(1, self.fps)
                 for packet in stream.encode(video_frame):
                     container.mux(packet)
+                metrics["encode_wall_seconds"] += time.perf_counter() - encode_started
+                statistics_started = time.perf_counter()
                 pixels = auto_downsample_height_width(frame.transpose(2, 0, 1))
                 stats.update(pixels.transpose(1, 2, 0).reshape(-1, 3).astype(np.float64))
+                metrics["statistics_wall_seconds"] += time.perf_counter() - statistics_started
                 count += 1
+            encode_started = time.perf_counter()
             if stream is not None:
                 for packet in stream.encode():
                     container.mux(packet)
             if container is not None:
                 container.close()
                 container = None
+            metrics["encode_wall_seconds"] += time.perf_counter() - encode_started
+            statistics_started = time.perf_counter()
             result = stats.get_statistics() if count else None
             if result is not None:
                 # Official image statistics count images, not sampled pixels.
                 result["count"] = np.array([count])
+            metrics["statistics_wall_seconds"] += time.perf_counter() - statistics_started
             self._result_queues[key].put(("ok", result))
         except Exception as error:
             self._result_queues[key].put(("error", f"{type(error).__name__}: {error}"))
         finally:
             if container is not None:
                 container.close()
+            metrics["frames_encoded"] = count
+            metrics["worker_wall_seconds"] = time.perf_counter() - worker_started
 
     def _put(self, video_key, item):
+        started = time.perf_counter()
         deadline = time.monotonic() + self.stall_timeout_s
         while True:
             if not self._threads[video_key].is_alive():
@@ -103,7 +134,7 @@ class StrictStreamingVideoEncoder(StreamingVideoEncoder):
                 raise RuntimeError(f"Video encoder {video_key} failed: {detail}")
             try:
                 self._frame_queues[video_key].put(item, timeout=0.1)
-                return
+                return time.perf_counter() - started
             except queue.Full:
                 if time.monotonic() >= deadline:
                     raise TimeoutError(f"Video encoder {video_key} stalled; no frames were dropped")
@@ -111,7 +142,10 @@ class StrictStreamingVideoEncoder(StreamingVideoEncoder):
     def feed_frame(self, video_key, image):
         if not self._episode_active:
             raise RuntimeError("No active video episode")
-        self._put(video_key, image.copy())
+        wait_seconds = self._put(video_key, image.copy())
+        metrics = self._metrics[video_key]
+        metrics["queue_wait_wall_seconds"] += wait_seconds
+        metrics["queue_wait_max_seconds"] = max(metrics["queue_wait_max_seconds"], wait_seconds)
         self._accepted[video_key] += 1
 
     def finish_episode(self):
@@ -145,6 +179,15 @@ class StrictStreamingVideoEncoder(StreamingVideoEncoder):
         except BaseException:
             self.cancel_episode()
             raise
+        self.episode_metrics = dict(
+            schema="space-arm-video-encoding-metrics/1", codec=self.vcodec,
+            encoder_preset=self.encoder_preset,
+            timing_semantics=("Per-camera wall times overlap across camera workers. Encoding includes RGB conversion, "
+                              "codec calls, muxing and flush; statistics are separate. Queue wait measures frame "
+                              "queue put calls, including unblocked queue overhead; it excludes frame copies and final sentinels."),
+            cameras={key: dict(frames_accepted=self._accepted[key], **self._metrics[key])
+                     for key in self._accepted},
+        )
         self._cleanup()
         self._episode_active = False
         return results

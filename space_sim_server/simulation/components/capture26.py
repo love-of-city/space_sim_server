@@ -13,6 +13,9 @@ class Capture26Component:
     name = 'capture26_hold'
 
     def __init__(self, model, client, initial=None, experiment=False, visual_test=None, render_session_id=''):
+        if (visual_test and visual_test.get('enabled') and visual_test.get('held_target_pose')
+                and visual_test.get('mode')!='predictive_grasp'):
+            raise ValueError('held_target_pose requires predictive_grasp')
         self.target = CaptureArmTarget(model)
         if initial is not None:
             initial = np.asarray(initial, dtype=float)
@@ -34,17 +37,34 @@ class Capture26Component:
         self.visual=None;self.visual_status='';self.visual_log_time=-10.;self.visual_log_key=None
         self.render_session_id=render_session_id
         self.truth_file=None;self.control_file=None
+        self.gyro_file=None;self.last_logged_gyro=None
         if self.visual_config:
             folder=Path(self.visual_config['output_directory']);folder.mkdir(parents=True,exist_ok=True)
             self.truth_file=(folder/'truth.jsonl').open('a',encoding='utf-8',buffering=1)
-            if self.visual_config.get('mode')=='servo':
+            if self.visual_config.get('mode') in ('servo','predictive_grasp'):
                 from simulation.capture_sequence import VisualCaptureProbe
                 source=Path(__file__).resolve().parents[2]/'run/wrist_alignment_observation.json'
-                self.visual=VisualCaptureProbe(source,render_session_id,goal_gap_m=self.visual_config.get('goal_gap_m',.48))
+                if self.visual_config.get('mode')=='predictive_grasp':
+                    from simulation.visual_predictive_capture import VisualPredictiveCapture
+                    self.visual=VisualPredictiveCapture(source,render_session_id,held_pose=self.visual_config.get('held_target_pose',False))
+                else:
+                    self.visual=VisualCaptureProbe(source,render_session_id,goal_gap_m=self.visual_config.get('goal_gap_m',.48))
                 self.control_file=(folder/'visual_control.jsonl').open('a',encoding='utf-8',buffering=1)
+                if self.visual_config.get('held_target_pose'):
+                    self.gyro_file=(folder/'consumed_service_gyro.jsonl').open('a',encoding='utf-8',buffering=1)
 
     def install(self, ctx):
         self.stepper = getattr(ctx.simulation, 'local_stepper', None)
+        self.own_motion=None
+        if self.visual_config and self.visual_config.get('held_target_pose'):
+            from simulation.own_motion import EncoderMassModel,OwnMotionFeedback
+            self.mass_model=EncoderMassModel(self.model_path,self.stepper.body_inertial)
+            self.own_encoder_readers={joint:ctx.scene.getBody(body).getScalarJoint(joint).stateOutMsg.addSubscriber()
+                for body,joint in self.mass_model.joints}
+            self.own_motion=OwnMotionFeedback()
+            # Resolve lazily: installation order must not create a private sensor.
+            self.gyro_provider=lambda:ctx.extra.get('service_gyro')
+            self.own_com=None;self.own_com_time=-1.
         if self.experiment:
             from simulation.capture_sequence import CaptureSequence
             self.sequence = self.visual.sequence if self.visual else CaptureSequence(force_control=self.force_control)
@@ -75,9 +95,13 @@ class Capture26Component:
             if self.sequence is not None:
                 from simulation.capture_sequence import CaptureSequence
                 if self.visual:
-                    from simulation.capture_sequence import VisualCaptureProbe
-                    self.visual=VisualCaptureProbe(self.visual.path,self.render_session_id,
-                        goal_gap_m=self.visual.goal_gap_m)
+                    if self.visual_config.get('mode')=='predictive_grasp':
+                        self.visual=type(self.visual)(self.visual.path,self.render_session_id,held_pose=self.visual_config.get('held_target_pose',False))
+                        if self.own_motion is not None:
+                            from simulation.own_motion import OwnMotionFeedback
+                            self.own_motion=OwnMotionFeedback();self.own_com_time=-1.;self.last_logged_gyro=None
+                    else:
+                        self.visual=type(self.visual)(self.visual.path,self.render_session_id,goal_gap_m=self.visual.goal_gap_m)
                 self.sequence = self.visual.sequence if self.visual else CaptureSequence(force_control=self.force_control)
                 self.baseline = None
                 self.relative_baseline = None
@@ -111,7 +135,7 @@ class Capture26Component:
             relative_position = Rs.T @ (np.asarray(target.r_BN_N)-bus.r_BN_N)
             if t >= 2.0 and self.relative_baseline is None:
                 self.relative_baseline = relative_position.copy()
-            if self.sequence.phase != 'abort':
+            if self.sequence.phase != 'abort' and not (self.visual and self.visual_config.get('mode')=='predictive_grasp'):
                 reason = self.contact_guard.observe(t, relative_position,
                     self.audit.feedback['peak_target_contact_force_n'])
                 if reason is not None:
@@ -122,7 +146,38 @@ class Capture26Component:
             if self.visual:
                 # R comes from joint encoders/FK. Ri, pif and offset above are
                 # independent truth diagnostics and MUST NOT enter this call.
-                command, phase=self.visual.command(t,measured,R,self.audit.feedback)
+                predictive=self.visual_config.get('mode')=='predictive_grasp'
+                own_feedback=None
+                gyro_error=None
+                if self.own_motion is not None:
+                    if self.own_com is None or t-self.own_com_time>=.019999:
+                        self.own_com=self.mass_model.com({name:float(reader().state) for name,reader in self.own_encoder_readers.items()})
+                        if self.own_com_time<0:
+                            print(json.dumps(dict(type='capture_own_motion_configuration',service_mass_kg=self.mass_model.mass,
+                                initial_encoder_com_body_m=self.own_com.tolist(),gyro_source='service_gyro',
+                                gyro_sample_rate_hz=50,target_motion_extrapolation=False,
+                                feedback='own encoders + shared timestamped gyro; COM model assumes free flight before contact')),flush=True)
+                        self.own_com_time=t
+                    # Only the shared sensor may synthesize a measurement from
+                    # physical rates. Capture consumes its immutable cached packet.
+                    sensor=self.gyro_provider()
+                    reading=sensor.latest if sensor is not None else None
+                    epoch=(self.render_session_id,str(self.client.reset_generation))
+                    try:
+                        own_feedback=self.own_motion.update(int(round(t*1e9)),reading,self.own_com,epoch=epoch)
+                        stamp=(epoch,reading['sample_time_ns'])
+                        if self.gyro_file is not None and stamp!=self.last_logged_gyro:
+                            self.gyro_file.write(json.dumps(dict(render_session_id=epoch[0],reset_generation=epoch[1],
+                                control_time_ns=str(round(t*1e9)),measurement=reading))+'\n')
+                            self.last_logged_gyro=stamp
+                    except ValueError as error:
+                        gyro_error=str(error)
+                if gyro_error is not None:
+                    command,phase=self.visual.gyro_unavailable(gyro_error,t,measured,self.audit.feedback)
+                elif own_feedback is not None:
+                    command,phase=self.visual.command(t,measured,(p,R),self.audit.feedback,reference_from_base=own_feedback)
+                else:
+                    command, phase=self.visual.command(t,measured,(p,R) if predictive else R,self.audit.feedback)
                 self.visual_status=phase
                 packet=self.visual.last_packet or {}
                 key=(packet.get('source_frame_id'),phase)
@@ -131,6 +186,9 @@ class Capture26Component:
                     self.control_file.write(json.dumps(dict(t=t,status=phase,session_id=self.render_session_id,
                         source_frame_id=packet.get('source_frame_id'),input_status=self.visual.input_status,
                         commanded_path_m=self.visual.commanded_path_m,motion_samples=self.visual.motion_samples,
+                        prediction=dict(self.visual.diagnostics(),own_reference_from_base=[x.tolist() for x in own_feedback] if own_feedback is not None else None,
+                            gyro_feedback=dict(valid=own_feedback is not None,error=gyro_error,
+                                **self.own_motion.diagnostics()) if self.own_motion is not None else None) if predictive else None,
                         command=command))+'\n')
             else:
                 command, phase = self.sequence.command(t, measured, offset, R.T @ Ri, feedback=self.audit.feedback)
@@ -162,7 +220,9 @@ class Capture26Component:
     def telemetry(self):
         return dict(self.target.telemetry([float(r().state) for r in self.positions],
                                      [float(r().state) for r in self.rates]),
-                    visual_probe_enabled=self.visual is not None)
+                    visual_probe_enabled=self.visual is not None,
+                    visual_predictive_enabled=bool(self.visual and self.visual_config.get('mode')=='predictive_grasp'),
+                    visual_prediction=self.visual.diagnostics() if self.visual and self.visual_config.get('mode')=='predictive_grasp' else None)
 
     def scoring_snapshot(self,frame,time_ns):
         """Independent same-frame truth for scoring; never read by visual control."""

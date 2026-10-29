@@ -77,6 +77,9 @@ def test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idl
         assert bridge.last_vision_exposure == (5_120_300_000_000, '5120300000000')
     assert traces[0] == traces[1] == traces[2]
     assert [int(t[2])-int(t[1]) for t in traces[0]] == [200_000_000]*3
+    with patch('bsk_render_adapter.bridge.RenderPublisher') as publisher:
+        BasiliskRenderBridge(reliable_vision_frames=False)
+    assert publisher.call_args.kwargs['reliable_vision_frames'] is False
 
 
 @pytest.mark.parametrize("rate", [0, -1, 7, 9.5, float("nan"), True])
@@ -110,6 +113,32 @@ def test_vision_and_legacy_reliable_frames_share_ordered_fifo():
         for i in range(4):
             publisher.publish_frame(dict(frame_id=str(i), vision_capture_requested=i == 1))
     assert [json.loads(publisher._strict_frames.get_nowait()[4:])["frame_id"] for _ in range(4)] == ["0", "1", "2", "3"]
+
+
+def test_diagnostic_vision_replaces_without_blocking_physics_but_preserves_dataset():
+    publisher = RenderPublisher(reliable_vision_frames=False)
+    with patch.object(publisher, 'start'):
+        for i in range(1000):
+            publisher.publish_frame(dict(frame_id=str(i), vision_capture_requested=True))
+        assert publisher._strict_frames.empty()
+        assert publisher._preview_frames.qsize() == 1
+        assert json.loads(publisher._preview_frames.get_nowait()[4:])['frame_id'] == '999'
+        assert publisher.stats.frames_dropped == 999
+        for i in range(256):
+            publisher.publish_frame(dict(frame_id=str(i), capture_episode_id='dataset', vision_capture_requested=True))
+        with pytest.raises(RuntimeError, match='authoritative render queue full'):
+            publisher.publish_frame(dict(capture_episode_id='dataset', vision_capture_requested=True))
+    assert [json.loads(publisher._strict_frames.get_nowait()[4:])['frame_id'] for _ in range(256)] == [str(i) for i in range(256)]
+
+
+def test_default_vision_remains_strict_on_overflow():
+    publisher = RenderPublisher()
+    with patch.object(publisher, 'start'):
+        for i in range(256):
+            publisher.publish_frame(dict(frame_id=str(i), vision_capture_requested=True))
+        with pytest.raises(RuntimeError, match='authoritative render queue full'):
+            publisher.publish_frame(dict(vision_capture_requested=True))
+    assert publisher._strict_frames.qsize() == 256
 
 
 @pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome"])

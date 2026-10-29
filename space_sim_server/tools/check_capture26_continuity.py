@@ -29,7 +29,20 @@ def check(source, receiving):
         checks[key] = before['control'][key] == after['control'][key]
     for key in ('gyro_pending', 'last_cooperative_ns', 'platform_stability', 'preparation'):
         if key in before['control'] or key in after['control']:
-            checks['control/'+key] = before['control'].get(key) == after['control'].get(key)
+            source_value, receiving_value = before['control'].get(key), after['control'].get(key)
+            if key == 'platform_stability' and source_value is None and before.get('phase') == 'FarReady':
+                # The far hold has no near-node stability accumulator. A new
+                # near stage starts an empty clock; it cannot inherit dwell
+                # credit from a different reference.
+                checks['control/new_stage_stability_unstarted'] = receiving_value is None or (
+                    isinstance(receiving_value, dict) and receiving_value.get('schema') == 'space-sim-platform-stability/1'
+                    and receiving_value.get('start_ns') is None and receiving_value.get('last_ns') is None
+                    and receiving_value.get('reference') is None and receiving_value.get('failures') == [])
+            else:
+                checks['control/'+key] = source_value == receiving_value
+    if before.get('phase') == 'NearParked' and before.get('acceptance_profile') == 'simulation_state_demo_v1':
+        checks['control/parking_completion'] = (before['control'].get('parking_completion') is not None
+            and before['control']['parking_completion'] == after['control'].get('parking_completion'))
     for key in ('mission_configuration', 'sensor_delivery'):
         if key in before or key in after:
             a, b = before.get(key), after.get(key)

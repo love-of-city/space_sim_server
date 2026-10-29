@@ -31,6 +31,7 @@ def main():
     p.add_argument('--simulation-rate', type=float, default=1.,
                    help='wall-clock pacing multiplier; not a mission acceptance requirement')
     p.add_argument('--duration', type=float, help='diagnostic early stop; cannot pass an unfinished stage')
+    p.add_argument('--profile', action='store_true', help='record controller/physics CPU profile')
     p.add_argument('--fault', choices=('', 'image_loss', 'worker_exit', 'gnss_loss', 'communication_loss',
         'service_gyro_loss', 'target_gyro_loss', 'gyro_saturation'), default='')
     p.add_argument('--fault-after', type=float, default=2.)
@@ -72,7 +73,7 @@ def main():
         depth=110., duration=duration, seed=flight.seed,
         gnss_delay=(flight.differential_gnss or {}).get('delay_s', 0.),
         ue=cli.live, catalog=cli.catalog, render_port=cli.render_port, render_rate=10,
-        capture_port=cli.capture_port, realtime=True, profile=False, save_all_images=False,
+        capture_port=cli.capture_port, realtime=True, profile=cli.profile, save_all_images=False,
         simulation_rate=cli.simulation_rate,
         pointing_error_deg=[0., 0., 0.], approach=False, fault=cli.fault, fault_after=cli.fault_after, fault_after_ready=False,
         fault_after_release=cli.fault_after_release, fault_duration=cli.fault_duration,

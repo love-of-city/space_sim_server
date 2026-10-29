@@ -652,7 +652,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     @app.get("/api/rendezvous/artifact/{name}")
     async def rendezvous_artifact(name: str, mission_id: str | None = None, phase: str | None = None) -> FileResponse:
         if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz", "gnss_measurements.npz",
-                        "score.jsonl", "measurements.jsonl", "performance.json", "source.json"}:
+                        "score.jsonl", "measurements.jsonl", "performance.json", "source.json",
+                        "parking-audit.json", "continuity-audit.json", "platform-estimates.jsonl"}:
             raise HTTPException(status_code=404, detail="Unknown rendezvous artifact")
         if mission_id:
             try:
@@ -747,6 +748,16 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except (ValueError, OSError, RuntimeError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
+    @app.post('/api/mission/retry-near', status_code=202)
+    async def retry_near_mission(request: Request):
+        policy.require_free()
+        try:
+            return await missions.retry_near(current_user(request), background=True)
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except (ValueError, OSError, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @app.post("/api/mission/stop")
     async def stop_mission(request: Request):
         try:
@@ -754,6 +765,15 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except PermissionError as error:
             raise HTTPException(status_code=403, detail=str(error)) from error
         except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post('/api/mission/emergency-stop')
+    async def emergency_stop_mission(request: Request):
+        try:
+            return missions.emergency_stop(current_user(request))
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except (OSError, RuntimeError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.get("/api/scenes/catalog")

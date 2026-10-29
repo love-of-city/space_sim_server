@@ -7,6 +7,7 @@ param(
     [string]$ReplayPath = '',
     [double]$ReplayRate = 1.0,
     [string]$ScreenshotPath = '',
+    [string]$DemoEvidenceDirectory = $env:SPACE_SIM_DEMO_EVIDENCE_DIR,
     [string]$CaptureDirectory = '',
     [string[]]$CaptureProducts = @(),
     [ValidateRange(0.0, 60.0)]
@@ -87,6 +88,9 @@ if ($ReplayPath) {
 }
 if ($ScreenshotPath) {
     $arguments += "-BskScreenshot=$([IO.Path]::GetFullPath($ScreenshotPath))"
+}
+if ($DemoEvidenceDirectory) {
+    $arguments += "-BskDemoEvidenceDir=$([IO.Path]::GetFullPath($DemoEvidenceDirectory))"
 }
 if ($CaptureDirectory) {
     $arguments += "-BskCaptureDir=$([IO.Path]::GetFullPath($CaptureDirectory))"

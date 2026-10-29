@@ -114,12 +114,14 @@ class RenderPublisher:
         event_queue_size: int = 64,
         command_queue_size: int = 64,
         reliable_frames: bool = False,
+        reliable_vision_frames: bool = True,
     ) -> None:
         self.host = host
         self.port = int(port)
         self.reconnect_period_s = float(reconnect_period_s)
         self.stats = PublisherStats()
         self.reliable_frames = reliable_frames
+        self.reliable_vision_frames = reliable_vision_frames
         self._latest_frame: queue.Queue[bytes] = queue.Queue(maxsize=256 if reliable_frames else 1)
         # On-demand frames use an independent bounded FIFO. Preview replacement
         # must never evict a strict frame accepted before a STOP transition.
@@ -169,7 +171,8 @@ class RenderPublisher:
         on_demand = "capture_episode_id" in message
         vision_requested = message.get("vision_capture_requested") is True
         tagged = on_demand or "vision_capture_requested" in message
-        strict = vision_requested or (bool(message.get("capture_episode_id")) if on_demand else self.reliable_frames)
+        strict = ((vision_requested and self.reliable_vision_frames)
+                  or (bool(message.get("capture_episode_id")) if on_demand else self.reliable_frames))
         if strict:
             self.start()
             target = self._strict_frames if tagged else self._latest_frame
@@ -204,6 +207,8 @@ class RenderPublisher:
                 self.stats.frames_dropped += 1
             target.put_nowait(packet)
         self.stats.frames_queued += 1
+        if vision_requested:
+            self.stats.vision_frames_queued += 1
         self._wake.set()
         self.start()
 

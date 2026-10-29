@@ -59,6 +59,7 @@ class RenderComponent:
             frame_rate_hz=self.render_rate_hz,
             vision_capture_camera_ids=tuple(vision_ids),
             vision_capture_rate_hz=float(stereo.get('trigger_rate_hz', 10)) if stereo else 10,
+            reliable_vision_frames=not bool(self.vision_capture and self.vision_capture.get('diagnostic_only')),
         )
         bridge.add_mj_scene(
             ctx.scene,

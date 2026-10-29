@@ -10,6 +10,7 @@ from simulation.capture26_mission import MODEL_ID, MODEL_PATH
 from space_arm_platform.visual_navigation import covariance
 
 SCHEMA = 'space-sim-capture26-handoff/2'
+DEMO_SCHEMA = 'space-sim-capture26-handoff/3'
 LEGACY_SCHEMA = 'space-sim-capture26-handoff/1'
 COMMON_CHECKS = {'completed_stage', 'native_state_not_overwritten', 'no_spacecraft_contact',
                  'gyros_healthy', 'gnss_healthy', 'common_sensor_epoch'}
@@ -20,7 +21,8 @@ LEGACY_PERFORMANCE_CHECKS = {'processing_capacity_1x', 'time_backlog_not_growing
 
 def validate(document, root, *, accepted=True):
     d = deepcopy(document)
-    if (d.get('schema') not in (SCHEMA, LEGACY_SCHEMA) or d.get('model_id') != MODEL_ID
+    demo = d.get('schema') == DEMO_SCHEMA
+    if (d.get('schema') not in (SCHEMA, LEGACY_SCHEMA, DEMO_SCHEMA) or d.get('model_id') != MODEL_ID
             or d.get('source_sha256') != hashlib.sha256((Path(root)/MODEL_PATH).read_bytes()).hexdigest()
             or accepted and d.get('accepted') is not True):
         raise ValueError('capture26 handoff model, schema or acceptance mismatch')
@@ -55,7 +57,7 @@ def validate(document, root, *, accepted=True):
         Gyroscope(GyroConfig.from_mapping(state['config']), seed=state['seed'],
                   body_name=body, sensor_name=name).restore(state)
     last = d['gnss_receiver'].get('last_time')
-    if last is None or abs(last-epoch*1e-9) > 1e-7:
+    if not demo and (last is None or abs(last-epoch*1e-9) > 1e-7):
         raise ValueError('capture26 GNSS sampling history mismatch')
     for packet in d['gnss_pending']:
         if not packet['stamp'] <= epoch*1e-9 < packet['due']:
@@ -76,11 +78,16 @@ def validate(document, root, *, accepted=True):
                                         'five_second_dwell', 'prepared_arm_geometry_certified'})
     if d['schema'] == SCHEMA and d['phase'] == 'FarReady':
         required.add('actual_service_rate_0p001rad_s')
+    if demo:
+        required = {'completed_stage', 'native_state_not_overwritten', 'no_spacecraft_contact',
+                    'common_sensor_epoch', 'authoritative_simulation_feedback'}
+        required |= ({'actual_5s_hold', 'actual_tracking_2m', 'actual_velocity_1cm_s', 'continuous_physical_evidence'}
+                     if d['phase'] == 'FarReady' else {'all_four_actual_five_second_dwells', 'working_reference_bound'})
     if d.get('accepted') and (not required <= set(d.get('checks', {}))
                              or not all(v is True for k, v in d['checks'].items()
                                         if k not in LEGACY_PERFORMANCE_CHECKS)):
         raise ValueError('capture26 accepted handoff has failed independent checks')
-    if d['schema'] == SCHEMA:
+    if d['schema'] in (SCHEMA, DEMO_SCHEMA):
         from simulation.capture26_mission import load_mission
         from simulation.sensor_delivery import FixedStereoDelivery
         configuration = load_mission(root)
@@ -88,7 +95,7 @@ def validate(document, root, *, accepted=True):
             raise ValueError('capture26 v2 handoff lacks frozen configuration or scheduled sensors')
         scheduler = FixedStereoDelivery(round(configuration.stereo_delay_s*1e9), configuration.vision_task_timeout_wall_s)
         scheduler.restore(d['sensor_delivery'])
-        if configuration.geometry_certificate_sha256:
+        if configuration.geometry_certificate_sha256 and not demo:
             from simulation.capture26_mission import load_certified_preparation
             preparation = load_certified_preparation(root, configuration)
             preparation.restore(d['control'].get('preparation', {}))
@@ -109,10 +116,40 @@ def validate(document, root, *, accepted=True):
                     or not sample_time <= epoch < packet['due_ns']
                     or packet['due_ns'] != sample_time+round(delay*1e9)):
                 raise ValueError('capture26 gyro in-flight epoch mismatch')
-        if any(type(control[key]) is not int or not 0 <= control[key] <= epoch
+        if any((control[key] is not None or not demo) and (type(control[key]) is not int or not 0 <= control[key] <= epoch)
                for key in ('last_cooperative_ns', 'last_gnss_ns')):
             raise ValueError('capture26 received sensor history mismatch')
-    if d['phase'] == 'NearParked':
+    if demo:
+        from simulation.capture26_mission import load_mission
+        configuration = load_mission(root)
+        if (not configuration.is_demo or d.get('acceptance_profile') != configuration.acceptance_profile
+                or d.get('feedback_source') != configuration.feedback_source):
+            raise ValueError('handoff does not carry current simulation-state demonstration rules')
+        parked = d['control'].get('parking_completion', {})
+        expected = ['FarHandoff110m'] if d['phase'] == 'FarReady' else [
+            'Vbar50m', 'Optical17p4m', 'VisualReady5p5m', 'PlatformStandoff']
+        records = parked.get('records', [])
+        if (parked.get('acceptance_profile') != configuration.acceptance_profile
+                or parked.get('working_reference_sha256') != configuration.operating_geometry_sha256
+                or [record.get('node') for record in records] != expected):
+            raise ValueError('demonstration parking history or operating reference changed')
+        previous = -1
+        for record in records:
+            start, end = record.get('dwell_start_ns'), record.get('release_time_ns')
+            if (type(start) is not int or type(end) is not int or not previous < start <= end <= epoch
+                    or end-start < 5_000_000_000 or record.get('dwell_s', 0.) < 5.):
+                raise ValueError('demonstration requires actual sequential five-second parking intervals')
+            previous = end
+        if d['phase'] == 'NearParked':
+            from simulation.capture26_approach import Capture26DemoApproach
+            from simulation.capture26_demo_geometry import load_geometry
+            approach = Capture26DemoApproach(np.zeros(3), np.zeros(3), load_vision(root),
+                config=configuration, geometry=load_geometry(root, configuration))
+            approach.restore(d['control'].get('approach', {}))
+            if (not approach.released or approach.safe_hold or approach.audit != records
+                    or approach.stability.snapshot() != d['control']['platform_stability']):
+                raise ValueError('demonstration final parking record was not inherited intact')
+    elif d['phase'] == 'NearParked':
         from simulation.capture26_mission import load_mission
         from simulation.platform_stability import PlatformStability
         configuration = load_mission(root)
@@ -130,4 +167,9 @@ def validate(document, root, *, accepted=True):
 
 
 def load(path, root):
-    return validate(json.loads(Path(path).read_text('utf-8')), root)
+    document = validate(json.loads(Path(path).read_text('utf-8')), root)
+    from simulation.capture26_mission import load_mission
+    configuration = load_mission(root)
+    if configuration.is_demo and document['schema'] != DEMO_SCHEMA:
+        raise ValueError('old image-navigation results cannot acquire demonstration acceptance')
+    return document

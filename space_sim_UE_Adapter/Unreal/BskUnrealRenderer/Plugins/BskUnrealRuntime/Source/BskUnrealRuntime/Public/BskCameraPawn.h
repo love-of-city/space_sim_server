@@ -45,6 +45,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="BSK Renderer|Camera")
     void SetOrbitDistanceMeters(double DistanceMeters);
     void ConfigureRelativeView(bool bEnabled);
+    bool bCapture26WorkingView = false;
     bool SetRelativeViewMode(const FString& Mode);
     FString GetRelativeViewMode() const { return bFreeCameraActive ? TEXT("free") : RelativeViewMode; }
 

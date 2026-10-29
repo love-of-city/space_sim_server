@@ -136,6 +136,14 @@
           <span id="scenePhase" class="section-status">平台空闲</span>
         </div>
         <p id="missionStatus" class="mission-note" role="status" aria-live="polite">选择任务后启动</p>
+        <div id="parkingSummary" class="mission-parking" hidden aria-label="当前停泊进度">
+          <strong id="parkingNode">—</strong>
+          <p id="parkingDistance">—</p>
+          <p id="parkingQualification">—</p>
+          <p id="parkingDwell">—</p>
+          <p id="parkingProgress">—</p>
+        </div>
+        <button id="missionEmergencyStop" class="estop" type="button" hidden disabled>停止接近并制动</button>
         <div class="scene-form">
           <label>任务起始条件<select id="missionMode"><option value="teleop">从机械臂操作场景开始</option></select></label>
           <label>场景模板

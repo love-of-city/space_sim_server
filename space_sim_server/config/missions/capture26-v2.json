@@ -18,14 +18,23 @@
     "gnss_hold_depth_m": 17.4,
     "acquisition_depth_m": 4.0,
     "readiness_depth_m": 2.0,
-    "terminal_depth_m": null,
+    "terminal_depth_m": 0.5434731996552936,
     "dwell_s": 5.0,
     "vision_timeout_s": 60.0,
     "force_limit_n": 25.0,
     "thrust_reserve": 0.4,
     "vision_nodes_validated": false,
-    "geometry_certificate_sha256": null
+    "geometry_certificate_sha256": null,
+    "acceptance_profile": "simulation_state_demo_v1",
+    "feedback_source": "authoritative_simulation",
+    "visual_hold_depth_m": 5.5,
+    "position_tolerance_m": 0.05,
+    "velocity_tolerance_m_s": 0.01,
+    "far_position_tolerance_m": 2.0,
+    "terminal_gap_m": 0.5,
+    "operating_geometry_file": "config/missions/capture26-demo-geometry.json",
+    "operating_geometry_sha256": "fbdd711db5d398633d234bc46273221cfe03d6349a4faed156b67de66ef5d10d"
   },
   "certificate": null,
-  "status": "pending_geometry_and_image_certification"
+  "status": "simulation_state_feedback_motion_demo"
 }

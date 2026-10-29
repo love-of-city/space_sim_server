@@ -1,7 +1,7 @@
 """Versioned capture26 flight geometry and acceptance configuration.
 
-The two vision nodes are candidates until an actual UE sweep has certified
-camera error and braking margins. This file never changes MJCF assets.
+The motion demo freezes four physical parking nodes and a folded TCP reference.
+Image-navigation candidates retain their separate certification rules.
 """
 from dataclasses import dataclass, asdict
 import hashlib
@@ -48,6 +48,19 @@ class Capture26Mission:
     thrust_reserve: float = .4
     vision_nodes_validated: bool = False
     geometry_certificate_sha256: str | None = None
+    acceptance_profile: str = 'image_navigation_v2'
+    feedback_source: str = 'navigation_estimate'
+    visual_hold_depth_m: float = 5.50
+    position_tolerance_m: float = .05
+    velocity_tolerance_m_s: float = .01
+    far_position_tolerance_m: float = 2.
+    terminal_gap_m: float = .5
+    operating_geometry_file: str | None = None
+    operating_geometry_sha256: str | None = None
+
+    @property
+    def is_demo(self):
+        return self.acceptance_profile == 'simulation_state_demo_v1'
 
     def __post_init__(self):
         numeric = [value for value in asdict(self).values() if type(value) in (int, float)]
@@ -68,6 +81,13 @@ class Capture26Mission:
                 or self.com_hold_m != 50. or self.gnss_hold_depth_m != 17.4
                 or self.vision_timeout_s <= 0):
             raise ValueError('invalid capture26 physical or health configuration')
+        if (self.acceptance_profile not in ('image_navigation_v2', 'simulation_state_demo_v1')
+                or self.feedback_source != ('authoritative_simulation' if self.is_demo else 'navigation_estimate')):
+            raise ValueError('capture26 feedback and acceptance rules must agree')
+        if self.is_demo and (self.visual_hold_depth_m != 5.5 or self.position_tolerance_m != .05
+                or self.velocity_tolerance_m_s != .01 or self.far_position_tolerance_m != 2.
+                or self.terminal_gap_m != .5 or not self.operating_geometry_file or not self.operating_geometry_sha256):
+            raise ValueError('capture26 demo requires frozen geometry and explicit parking rules')
 
     def to_dict(self):
         return asdict(self)
@@ -86,6 +106,9 @@ def load_mission(root):
     if not {'attitude_control_mode', 'service_angular_rate_limit_rad_s'} <= document['mission'].keys():
         raise ValueError('capture26 frozen task lacks explicit attitude rules')
     config = Capture26Mission(**document['mission'])
+    if config.is_demo:
+        from simulation.capture26_demo_geometry import load_geometry
+        load_geometry(root, config)
     if config.vision_nodes_validated or config.geometry_certificate_sha256:
         validate_certificate(root, config, document.get('certificate'))
     return config

@@ -9,7 +9,7 @@ import numpy as np
 
 
 class OperationsArmClient:
-    """Inhibit arm motion until the receiving scene has reacquired its sensors."""
+    """Enable arm motion after the receiving scene satisfies its readiness rules."""
     def __init__(self, client):
         self.client = client
         self.enabled = False
@@ -70,6 +70,7 @@ class OperationsControlBridge:
             return  # No pause of physics or unbounded enqueue on this path.
         q, v = (np.array([r().state for r in readers]) for readers in (self.positions, self.rates))
         p, r = self.kinematics.forward(q[:6])
+        from simulation.capture26_runtime import demo_telemetry
         data = dict(protocol=CONTROL_PROTOCOL, type='observation', simulation_id='sarm-teleop',
             reset_generation=self.client.reset_generation,
             render_session_id=bridge.session_id, render_frame_id=str(bridge.last_published_frame_id),
@@ -90,7 +91,8 @@ class OperationsControlBridge:
             end_effector_twist_body=(self.kinematics.jacobian(q[:6])@v[:6]).tolist(),
             capture_arm=capture.telemetry(), service_gyro=gyros[0].observation(),
             target_gyro=gyros[1].observation(),
-            capture26_navigation=dict(phase=guidance['phase'], reason=guidance['reason'],
+            capture26_navigation=dict(phase=guidance['phase'],
+                **demo_telemetry(guidance), optical_depth_m=guidance.get('optical_depth_m'),
                 gyro_health=nav.gyro_health(now), visual=gate.status(now, time.time_ns()),
                 gnss_healthy=guidance.get('gnss_healthy', False),
                 platform_stable_duration_s=guidance.get('platform_stable_duration_s', 0.),
@@ -117,7 +119,7 @@ def run_scene(cli, instance):
         raise ValueError('capture26 operations require a matching accepted NearParked handoff')
     if (cli.disable_attitude_control or cli.dynamics_backend not in (None, 'local')
             or cli.local_substeps not in (None, 1)):
-        raise ValueError('capture26 continuation requires 400 Hz and estimated attitude control')
+        raise ValueError('capture26 continuation requires fixed 400 Hz dynamics and attitude control')
     if getattr(cli, 'model_path', None):
         raise ValueError('capture26 handoff cannot change its physical model')
     output = root/'run/capture26-operations'/instance['instance_id']

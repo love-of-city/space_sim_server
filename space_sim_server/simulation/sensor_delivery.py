@@ -90,6 +90,26 @@ class FixedStereoDelivery:
             packets.append(packet)
         return packets
 
+    def prepare_diagnostic(self, next_ns, poll, *, alive=lambda: True):
+        """Fixed-deadline diagnostics that never delay ideal-state control.
+
+        Results absent at their 0.20 s delivery deadline are recorded missing;
+        later arrivals remain diagnostic rejections with their original payload.
+        The image-navigation runner retains prepare() and its strict scheduler.
+        """
+        self._receive(poll(), next_ns)
+        if not alive():
+            self.fail('vision process exited', next_ns)
+        while self.pending and self.pending[0]['due_ns'] <= next_ns:
+            expected = self.pending.popleft()
+            key = (expected['exposure_ns'], expected['frame_id'])
+            packet = self.completed.pop(key, None)
+            if packet is not None:
+                self.staged.append((expected['due_ns'], packet))
+            self.events.append(dict(kind='diagnostic_delivery', exposure_ns=expected['exposure_ns'],
+                due_ns=expected['due_ns'], waiting_wall_s=0., result_available=packet is not None,
+                backlog=len(self.pending), process_healthy=self.healthy))
+
     def status(self):
         return dict(healthy=self.healthy, failure=self.failure, pending=len(self.pending),
                     waiting_wall_s=self.wait_s, fixed_delay_s=self.delay_ns*1e-9,

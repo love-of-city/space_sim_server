@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from simulation.capture26_handoff import SCHEMA, validate
+from simulation.capture26_handoff import SCHEMA, DEMO_SCHEMA, validate
 from simulation.capture26_mission import MODEL_ID
 from simulation.orbital_rendezvous.reference import FlightProfile
 
@@ -30,6 +30,11 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
                   no_spacecraft_contact=not contacts,
                   gyros_healthy=all(final['gyro_health']), gnss_healthy=final['gnss_healthy'],
                   common_sensor_epoch=now_ns % 100_000_000 == 0)
+    demo = summary['mission_configuration'].get('acceptance_profile') == 'simulation_state_demo_v1'
+    if demo:
+        checks.pop('gyros_healthy')
+        checks.pop('gnss_healthy')
+        checks['authoritative_simulation_feedback'] = guidance.get('feedback_source') == 'authoritative_simulation'
     performance = dict(required_for_acceptance=False,
         requested_simulation_rate=getattr(args, 'simulation_rate', 1.),
         wall_clock_pacing=bool(args.realtime),
@@ -39,9 +44,17 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
     preparation = getattr(control, 'joint_preparation', None)
     if (summary.get('mission_configuration') or {}).get('geometry_certificate_sha256'):
         checks['certified_joint_preparation_complete'] = bool(preparation and preparation.complete and not preparation.failed)
-    if stage == 'far':
+    if demo and stage == 'near':
+        from tools.score_capture26_demo import score_near
+        from simulation.capture26_mission import load_vision
+        audit = score_near(output, summary['mission_configuration'], summary['operating_geometry'],
+                           load_vision(Path(__file__).resolve().parents[1]))
+        checks['all_four_actual_five_second_dwells'] = audit['audit_passed']
+        checks['working_reference_bound'] = guidance.get('working_reference_sha256') == summary['mission_configuration']['operating_geometry_sha256']
+    elif stage == 'far':
         profile = FlightProfile(scenario=args.scenario, handoff_distance_m=args.flight_options.handoff_distance_m)
-        hold_start_ns = max(round((profile.start_approach_s+profile.approach_duration_s)*1e9), now_ns-120_000_000_000)
+        dwell_ns = 5_000_000_000 if demo else 120_000_000_000
+        hold_start_ns = max(round((profile.start_approach_s+profile.approach_duration_s)*1e9), now_ns-dwell_ns)
         hold = [r for r in rows if round(r['time_s']*1e9) >= hold_start_ns]
         errors, speeds, angular_rates = [], [], []
         for row in hold:
@@ -53,11 +66,17 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
             errors.append(float(np.linalg.norm(actual[0]-actual[1]-(service_p-target_p))))
             speeds.append(float(np.linalg.norm(velocity[0]-velocity[1]-(service_v-target_v))))
             angular_rates.append(float(np.linalg.norm(row['truth_angular_velocity_body_rad_s'][0])))
-        checks.update(actual_120s_hold=bool(hold) and round(hold[-1]['time_s']*1e9)-round(hold[0]['time_s']*1e9) >= 120_000_000_000,
-                      actual_tracking_2m=bool(errors) and max(errors) < 2.,
+        checks.update(actual_120s_hold=bool(hold) and round(hold[-1]['time_s']*1e9)-round(hold[0]['time_s']*1e9) >= dwell_ns,
+                      actual_tracking_2m=bool(errors) and max(errors) <= 2.,
                       actual_velocity_2cm_s=bool(speeds) and max(speeds) < .02,
                       actual_service_rate_0p001rad_s=bool(angular_rates) and bool(np.isfinite(angular_rates).all())
                       and max(angular_rates) <= summary['mission_configuration']['service_angular_rate_limit_rad_s'])
+        if demo:
+            checks['actual_5s_hold'] = checks.pop('actual_120s_hold')
+            checks['actual_velocity_1cm_s'] = bool(speeds) and max(speeds) <= .01
+            checks.pop('actual_velocity_2cm_s')
+            checks.pop('actual_service_rate_0p001rad_s')
+            checks['continuous_physical_evidence'] = all(0 < b['time_s']-a['time_s'] <= .050001 for a, b in zip(hold, hold[1:]))
     else:
         checks.update(current_visual_ready=bool(final['visual']['ready']),
                       vision_process_healthy=summary['sensor_delivery']['healthy'],
@@ -74,8 +93,10 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
             and approach.config == certified)
     accepted = all(checks.values())
     outcome = guidance.get('phase', 'NavigationAcquire')
-    document = dict(schema=SCHEMA, model_id=MODEL_ID, source_sha256=summary['source_sha256'],
+    document = dict(schema=DEMO_SCHEMA if demo else SCHEMA, model_id=MODEL_ID, source_sha256=summary['source_sha256'],
         accepted=accepted, checks=checks, performance=performance,
+        acceptance_profile=summary['mission_configuration']['acceptance_profile'],
+        feedback_source=summary['mission_configuration']['feedback_source'],
         phase=outcome, time_ns=now_ns, mission_id=mission_id,
         calibration_id=summary['calibration_id'], ephemeris_epoch_utc=(
             '2026 SEPTEMBER 02 00:00:00.000' if epoch_ns else ephemeris_epoch),
@@ -93,17 +114,28 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
                      platform_stability=approach.stability.snapshot() if approach else None,
                      preparation=preparation.snapshot() if preparation else None),
         environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else [])
+    if demo:
+        document['control']['parking_completion'] = dict(acceptance_profile=summary['acceptance_profile'],
+            working_reference_sha256=summary['mission_configuration']['operating_geometry_sha256'],
+            records=list(approach.audit) if approach else [dict(node='FarHandoff110m',
+                dwell_start_ns=guidance.get('dwell_start_ns'), release_time_ns=now_ns, dwell_s=guidance.get('dwell_s', 0.))])
     if accepted:
         validate(document, Path(__file__).resolve().parents[1])
     encode = lambda v: v.tolist() if isinstance(v, np.ndarray) else str(v)
     (output/'handoff.json').write_text(json.dumps(document, default=encode, indent=2)+'\n', encoding='utf-8')
     report = dict(schema='space-sim-capture26-stage/1', scenario='near-field' if stage == 'near' else args.scenario,
         model_id=MODEL_ID, mission_options=args.flight_options.to_dict(), outcome=outcome,
+        acceptance_profile=summary['mission_configuration']['acceptance_profile'],
+        feedback_source=summary['mission_configuration']['feedback_source'],
+        working_reference_sha256=summary['mission_configuration']['operating_geometry_sha256'],
         final_time_s=now_ns*1e-9, final_center_distance_m=float(np.linalg.norm(final['truth_relative_position_m'])),
         basic_nominal_passed=accepted, mission_success=accepted, checks=checks, performance=performance,
         processing_real_time_factor_after_warmup=capacity,
         lag_growth_after_warmup_s=lag_growth,
         final=dict(visual_ready=final['visual']['ready'], visual=final['visual'],
+                   **{key: guidance[key] for key in ('node', 'reason', 'completed_nodes', 'parking_records', 'optical_depth_m',
+                      'tcp_gap_m', 'position_error_m', 'velocity_error_m_s', 'position_qualified', 'velocity_qualified',
+                      'gap_qualified', 'at_node', 'dwell_s', 'dwell_remaining_s') if key in guidance},
                    gyro_health=final['gyro_health'], gnss_healthy=final['gnss_healthy']),
         unplanned_contacts=contacts, integration_complete=False)
     (output/'mission_report.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')

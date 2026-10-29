@@ -252,8 +252,10 @@ def test_uncertified_terminal_and_legacy_missing_extension_cannot_be_silently_ce
     from simulation.capture26_mission import load_mission, validate_certificate
     root = Path(__file__).resolve().parents[1]
     config = load_mission(root)
-    assert config.terminal_depth_m is None
+    assert config.is_demo and config.terminal_depth_m != .5
+    assert config.operating_geometry_sha256
     assert not config.vision_nodes_validated
+    assert config.geometry_certificate_sha256 is None
     with pytest.raises(ValueError, match='certificate missing'):
         validate_certificate(root, config, None)
 

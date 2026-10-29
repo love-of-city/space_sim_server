@@ -10,6 +10,11 @@ def vector(element, name, default):
     return np.fromstring(element.get(name, default), sep=' ')
 
 
+def cross3(a, b):
+    """Fixed 3-vectors on this hot FK path; avoid general axis broadcasting."""
+    return np.array([a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]])
+
+
 def rotation_vector(axis, angle):
     axis = axis/np.linalg.norm(axis)
     x, y, z = axis
@@ -23,11 +28,21 @@ class AssemblyGeometry:
         self.roots = [self.tree.find(f"./worldbody/body[@name='{name}']") for name in roots]
         self.inertials = {}
         self.joints = []
+        self.transforms = {}
+        self.inertial_rotations = {}
+        self.joint_definitions = {}
+        self.site_definitions = {}
         for root in self.roots:
             if root is None:
                 raise ValueError('assembly root missing')
             for body in self._attached(root):
                 self.inertials[body.get('name')] = np.array(inertial_provider(body.get('name')), float)
+                self.transforms[body] = (vector(body, 'pos', '0 0 0'), quaternion_wxyz_to_matrix(vector(body, 'quat', '1 0 0 0')))
+                self.inertial_rotations[body] = quaternion_wxyz_to_matrix(self.inertials[body.get('name')][4:8])
+                self.joint_definitions[body] = [(j.get('name'), float(j.get('ref', 0.)),
+                    vector(j, 'axis', '0 0 1'), vector(j, 'pos', '0 0 0'), j.get('type', 'hinge')) for j in body.findall('joint')]
+                self.site_definitions[body] = [(s.get('name'), vector(s, 'pos', '0 0 0'),
+                    quaternion_wxyz_to_matrix(vector(s, 'quat', '1 0 0 0'))) for s in body.findall('site')]
                 self.joints += [j.get('name') for j in body.findall('joint') if j.get('type') != 'free']
 
     @staticmethod
@@ -45,32 +60,30 @@ class AssemblyGeometry:
             pieces, sites = [], {}
             def walk(body, p, r, velocity, omega, is_root=False):
                 if not is_root:
-                    delta = r@vector(body, 'pos', '0 0 0')
-                    p, velocity = p+delta, velocity+np.cross(omega, delta)
-                    r = r@quaternion_wxyz_to_matrix(vector(body, 'quat', '1 0 0 0'))
-                    for joint in body.findall('joint'):
-                        q, dq = encoders[joint.get('name')]
-                        q -= float(joint.get('ref', 0.))
-                        axis = vector(joint, 'axis', '0 0 1')
-                        axis /= np.linalg.norm(axis)
+                    translation, rotation = self.transforms[body]
+                    delta = r@translation
+                    p, velocity = p+delta, velocity+cross3(omega, delta)
+                    r = r@rotation
+                    for name, ref, axis0, jpos, kind in self.joint_definitions[body]:
+                        q, dq = encoders[name]
+                        q -= ref
+                        axis = axis0/np.linalg.norm(axis0)
                         axis_world = r@axis
-                        if joint.get('type', 'hinge') == 'slide':
+                        if kind == 'slide':
                             delta = axis_world*q
-                            p, velocity = p+delta, velocity+np.cross(omega, delta)+axis_world*dq
+                            p, velocity = p+delta, velocity+cross3(omega, delta)+axis_world*dq
                         else:
-                            jpos = vector(joint, 'pos', '0 0 0')
                             rot = rotation_vector(axis, q)
                             delta = r@(jpos-rot@jpos)
-                            velocity = velocity+np.cross(omega, delta)+np.cross(axis_world*dq, -r@rot@jpos)
+                            velocity = velocity+cross3(omega, delta)+cross3(axis_world*dq, -r@rot@jpos)
                             p, r, omega = p+delta, r@rot, omega+axis_world*dq
                 props = self.inertials[body.get('name')]
                 if props[0] > 0:
                     delta = r@props[1:4]
-                    ir = r@quaternion_wxyz_to_matrix(props[4:8])
-                    pieces.append((props[0], p+delta, velocity+np.cross(omega, delta), ir@np.diag(props[8:11])@ir.T))
-                for site in body.findall('site'):
-                    sites[site.get('name')] = dict(position_body_m=(p+r@vector(site, 'pos', '0 0 0')).tolist(),
-                        rotation_body_from_site=(r@quaternion_wxyz_to_matrix(vector(site, 'quat', '1 0 0 0'))).tolist())
+                    ir = r@self.inertial_rotations[body]
+                    pieces.append((props[0], p+delta, velocity+cross3(omega, delta), ir@np.diag(props[8:11])@ir.T))
+                for name, site_p, site_r in self.site_definitions[body]:
+                    sites[name] = dict(position_body_m=(p+r@site_p).tolist(), rotation_body_from_site=(r@site_r).tolist())
                 for child in body.findall('body'):
                     if child.find('freejoint') is None and child.find('joint[@type="free"]') is None:
                         walk(child, p.copy(), r.copy(), velocity.copy(), omega.copy())

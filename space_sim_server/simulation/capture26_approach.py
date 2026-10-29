@@ -1,13 +1,191 @@
-"""Estimated-state optical-depth approach and platform release state machine.
+"""Reference-only V-bar demo and the retained image-navigation approach.
 
-This module owns references, never physical state. Nodes must first be frozen
-by real-image prevalidation; a candidate configuration cannot release a flight.
+The explicit demo profile requires physical parking; the image-navigation
+profile also retains its image prevalidation and navigation health gates.
 """
 import math
 import numpy as np
 
 from simulation.capture26_mission import Capture26Mission, desired_geometry, translation_reference, stopping_distance
 from simulation.platform_stability import PlatformStability
+
+
+class Capture26DemoApproach:
+    """COM V-bar guidance with four physical, simulation-time parking records.
+
+    References alone are changed here. All feedback comes from the authoritative
+    integrator, and every node must actually settle before its 5 s clock starts.
+    """
+    NODE_IDS = ('Vbar50m', 'Optical17p4m', 'VisualReady5p5m', 'PlatformStandoff')
+
+    def __init__(self, service_com, target_com, vision, *, config, geometry):
+        self.config, self.geometry, self.vision = config, geometry, vision
+        self.service_com, self.target_com = np.array(service_com), np.array(target_com)
+        self.node = 0
+        self.phase, self.reason = 'NearAcquire', 'braking and acquiring COM V-bar at actual handoff'
+        self.initial_local = None
+        self.acquired = False
+        self.leg_start_ns = self.leg_duration_s = self.last_time_ns = None
+        self.safe_hold = self.released = False
+        self.hold_local = None
+        self.depth = 110.
+        self.stability = PlatformStability(config.dwell_s)
+        self.audit = []
+
+    def _hold(self, reason):
+        self.safe_hold, self.released = True, False
+        self.phase, self.reason = 'SafeHold', reason
+
+    def snapshot(self):
+        from copy import deepcopy
+        names = ('node', 'phase', 'reason', 'initial_local', 'acquired', 'leg_start_ns',
+                 'leg_duration_s', 'last_time_ns', 'safe_hold', 'released', 'hold_local', 'depth', 'audit')
+        return dict(schema='space-sim-capture26-demo-approach/1', configuration=self.config.to_dict(),
+            geometry_sha256=self.config.operating_geometry_sha256, stability=self.stability.snapshot(),
+            state=deepcopy({k: getattr(self, k) for k in names}))
+
+    def restore(self, document):
+        from copy import deepcopy
+        if (document.get('schema') != 'space-sim-capture26-demo-approach/1'
+                or document.get('configuration') != self.config.to_dict()
+                or document.get('geometry_sha256') != self.config.operating_geometry_sha256):
+            raise ValueError('capture26 demonstration rules or operating reference changed')
+        self.stability.restore(document['stability'])
+        for name, value in deepcopy(document['state']).items():
+            if name not in self.snapshot()['state']:
+                raise ValueError('unknown demo checkpoint field')
+            setattr(self, name, value)
+        if (type(self.node) is not int or not 0 <= self.node < 4 or len(self.audit) > 4
+                or [r['node'] for r in self.audit] != list(self.NODE_IDS[:len(self.audit)])):
+            raise ValueError('invalid four-node parking history')
+
+    def _endpoint(self, state, index, frame, omega):
+        from simulation.capture26_demo_geometry import working_reference
+        from simulation.capture26_mission import MARKER_REFERENCE_TARGET
+        if index == 3:
+            return working_reference(state, self.service_com, self.target_com, self.geometry)
+        s, ds = 50., 0.
+        if index >= 1:
+            rs, rt = state['r']
+            ws, wt = (r@w for r, w in zip(state['r'], state['rates']-state['b']))
+            camera = np.array(self.vision['mount_center_body_m'])
+            axis = rs@np.array(self.vision['body_from_optical']['left']['R_body_from_optical'])[:, 2]
+            a, b = rt@(MARKER_REFERENCE_TARGET-self.target_com), rs@(camera-self.service_com)
+            dc = state.get('com_velocity_body', np.zeros((2, 3)))
+            delta_v = np.cross(wt, a)-np.cross(ws, b)+rs@dc[0]-rt@dc[1]
+            projection = float(axis@frame[:, 0])
+            if projection < .15:
+                raise ValueError('COM V-bar has no forward optical-depth intersection')
+            depth = self.config.gnss_hold_depth_m if index == 1 else self.config.visual_hold_depth_m
+            s = (depth-float(axis@(a-b)))/projection
+            derivative = float(np.cross(ws, axis)@frame[:, 0]+axis@np.cross(omega, frame[:, 0]))
+            ds = (-float(np.cross(ws, axis)@(a-b)+axis@delta_v)-s*derivative)/projection
+            if s <= 0:
+                raise ValueError('optical node lies beyond the safe COM V-bar corridor')
+        p = -s*frame[:, 0]
+        v = -ds*frame[:, 0]+np.cross(omega, p)
+        a = np.cross(omega, np.cross(omega, p))-2*ds*np.cross(omega, frame[:, 0])
+        return p, v, a
+
+    def step(self, now_ns, state, *, mass_kg, safety_reason='', **diagnostics):
+        from simulation.near_field.orbital_guidance import vbar_frame
+        from simulation.orbital_rendezvous.reference import blend
+        from simulation.capture26_demo_geometry import camera_depth, axial_gap
+        now_ns = int(now_ns)
+        if self.last_time_ns is not None and now_ns <= self.last_time_ns:
+            raise ValueError('guidance requires distinct increasing simulation epochs')
+        if self.last_time_ns is not None and now_ns-self.last_time_ns > 150_000_000:
+            self._hold('guidance updates interrupted')
+        self.last_time_ns = now_ns
+        if safety_reason:
+            self._hold(safety_reason)
+        frame, omega = vbar_frame(np.r_[state['p'][1], state['v'][1]])
+        actual = state['p'][0]-state['p'][1]
+        if self.initial_local is None:
+            self.initial_local = (frame.T@actual).tolist()
+            if self.initial_local[0] >= -50.:
+                raise ValueError('near entry must be behind the target outside 50 m')
+        try:
+            endpoint = self._endpoint(state, self.node, frame, omega)
+        except ValueError as exc:
+            self._hold(str(exc))
+            endpoint = (actual, np.zeros(3), np.zeros(3))
+        if not self.acquired:
+            start = frame@np.array(self.initial_local)
+            end = frame@np.array([self.initial_local[0], 0., 0.])
+            first = (start, np.cross(omega, start), np.cross(omega, np.cross(omega, start)))
+            last = (end, np.cross(omega, end), np.cross(omega, np.cross(omega, end)))
+            vmax = .15
+        else:
+            if self.node == 0:
+                start = frame@np.array([self.initial_local[0], 0., 0.])
+                first = (start, np.cross(omega, start), np.cross(omega, np.cross(omega, start)))
+            else:
+                first = self._endpoint(state, self.node-1, frame, omega)
+            last, vmax = endpoint, (.5, .35, .15, .05)[self.node]
+        if self.leg_start_ns is None:
+            self.leg_start_ns = now_ns
+            distance = float(np.linalg.norm(last[0]-first[0]))
+            amax = min(.01, self.config.force_limit_n/mass_kg*self.config.thrust_reserve)
+            self.leg_duration_s = max(10., 1.875*distance/vmax, math.sqrt(5.78*distance/amax), (60*distance/.002)**(1/3))
+        elapsed = (now_ns-self.leg_start_ns)*1e-9
+        u, du, ddu = blend(elapsed, self.leg_duration_s)
+        offset = (1-u)*first[0]+u*last[0]
+        velocity = (1-u)*first[1]+u*last[1]+du*(last[0]-first[0])
+        acceleration = ((1-u)*first[2]+u*last[2]+2*du*(last[1]-first[1])+ddu*(last[0]-first[0]))
+        if self.safe_hold:
+            if self.hold_local is None:
+                # Latch a bounded stopping point once. Keep PD braking active.
+                local_v = frame.T@(state['v'][0]-state['v'][1]-np.cross(omega, actual))
+                speed = float(np.linalg.norm(local_v))
+                stop_time = min(15., speed/max(.001, self.config.force_limit_n/mass_kg*.4))
+                self.hold_local = (frame.T@actual+.5*stop_time*local_v).tolist()
+            offset = frame@np.array(self.hold_local)
+            velocity = np.cross(omega, offset)
+            acceleration = np.cross(omega, velocity)
+        holding = elapsed >= self.leg_duration_s and not self.safe_hold
+        error = float(np.linalg.norm(actual-last[0]))
+        speed_error = float(np.linalg.norm(state['v'][0]-state['v'][1]-last[1]))
+        gap = axial_gap(state, self.service_com, self.target_com, self.geometry,
+                        tcp_body_m=state.get('tcp_body_m'))
+        conditions = dict(position=error <= .05, velocity=speed_error <= .01,
+            tcp_gap=self.node != 3 or abs(gap-.5) <= .05,
+            reference_at_node=holding, safety=not self.safe_hold)
+        name = self.NODE_IDS[self.node] if self.acquired else 'NearAcquire'
+        if not self.acquired:
+            if holding and conditions['position'] and conditions['velocity']:
+                self.acquired, self.leg_start_ns = True, None
+            platform = dict(platform_stable=False, platform_stable_duration_s=0., platform_failures=[])
+        elif len(self.audit) < 4:
+            platform = self.stability.update(now_ns, [self.config.acceptance_profile, name,
+                self.config.operating_geometry_sha256], conditions)
+            if platform['platform_stable']:
+                self.audit.append(dict(node=name, arrival_time_ns=self.stability.start_ns,
+                    dwell_start_ns=self.stability.start_ns, release_time_ns=now_ns,
+                    dwell_s=(now_ns-self.stability.start_ns)*1e-9))
+                if self.node < 3:
+                    self.node += 1
+                    self.leg_start_ns = None
+                else:
+                    self.released = True
+        else:
+            # The final five-second dwell is completed once; keep its evidence.
+            platform = self.stability.status(now_ns)
+        self.depth = camera_depth(state, self.service_com, self.target_com, self.vision)
+        if not self.safe_hold:
+            self.phase = 'NearParked' if self.released else name
+            self.reason = 'working position hold' if self.released else 'continuous parking dwell' if holding else 'smooth COM V-bar approach'
+        return dict(position_goal=state['p'][1]+offset, velocity_goal=state['v'][1]+velocity,
+            differential_acceleration=acceleration, phase=self.phase, reason=self.reason, node=name,
+            acceptance_profile=self.config.acceptance_profile, feedback_source=self.config.feedback_source,
+            optical_depth_m=self.depth, center_distance_m=float(np.linalg.norm(actual)), tcp_gap_m=gap,
+            position_error_m=error, velocity_error_m_s=speed_error, position_qualified=conditions['position'],
+            velocity_qualified=conditions['velocity'], gap_qualified=conditions['tcp_gap'],
+            at_node=holding, dwell_s=min(5., platform['platform_stable_duration_s']),
+            dwell_remaining_s=max(0., 5.-platform['platform_stable_duration_s']),
+            completed_nodes=[r['node'] for r in self.audit], parking_records=list(self.audit),
+            working_reference_sha256=self.config.operating_geometry_sha256,
+            released=self.released and not self.safe_hold, healthy=not self.safe_hold, **platform)
 
 
 class Capture26Approach:

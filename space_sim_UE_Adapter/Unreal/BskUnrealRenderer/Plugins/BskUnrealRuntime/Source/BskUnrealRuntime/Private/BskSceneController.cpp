@@ -1080,6 +1080,23 @@ void ABskSceneController::Tick(float DeltaSeconds)
         auto& Module = IPixelStreaming2Module::Get();
         RegisterWorkLightInput(Module.FindStreamer(Module.GetDefaultStreamerID()));
         for (const auto& Pair : PixelStreamingCameraStreamers) RegisterWorkLightInput(Pair.Value);
+        FBskRelativeViewState View;
+        if (GetRelativeViewState(View))
+        {
+            if (auto* Light = Cast<USpotLightComponent>(ResolveCameraWorkLight(Module.GetDefaultStreamerID())))
+            {
+                // The overview moves from kilometres to metres. Keep the
+                // presentation work light useful throughout that camera range;
+                // its old 10 m radius left both spacecraft dark at hold points.
+                // This is display illumination, not a spacecraft actuator.
+                const double RangeCm = FMath::Max(300.0, FMath::Max(
+                    FVector::Distance(Light->GetComponentLocation(), View.PrimaryCentimeters),
+                    FVector::Distance(Light->GetComponentLocation(), View.SecondaryCentimeters)));
+                const double Scale = FMath::Min(RangeCm / 300.0, 10000.0);
+                Light->SetIntensity(static_cast<float>(150000.0 * Scale * Scale));
+                Light->SetAttenuationRadius(static_cast<float>(FMath::Max(1000.0, RangeCm * 3.0)));
+            }
+        }
     }
     // Drain after STOP too: accepted strict jobs retain their original episode.
     PollCaptureJobs();
@@ -2385,6 +2402,33 @@ void ABskSceneController::ApplyEvent(const FBskRenderEvent& Event)
             FString EventSimTimeString;
             if (Payload->TryGetStringField(TEXT("sim_time_ns"), EventSimTimeString)) LexTryParseString(EventSimTime, *EventSimTimeString);
             View.SimulationTimeNanoseconds = EventSimTime;
+            if (Event.EventKind == TEXT("near_field_status"))
+            {
+                bool bWorkingView = false;
+                if (Payload->TryGetBoolField(TEXT("capture26_working_view"), bWorkingView))
+                {
+                    APlayerController* Player = GetWorld()->GetFirstPlayerController();
+                    if (auto* Pawn = Player ? Cast<ABskCameraPawn>(Player->GetPawn()) : nullptr)
+                        Pawn->bCapture26WorkingView = bWorkingView;
+                }
+            }
+            if (Event.EventKind == TEXT("capture26_stage_snapshot"))
+            {
+                FString Directory, Filename;
+                if (FParse::Value(FCommandLine::Get(), TEXT("BskDemoEvidenceDir="), Directory)
+                    && Payload->TryGetStringField(TEXT("filename"), Filename)
+                    && Filename == FPaths::GetCleanFilename(Filename) && Filename.EndsWith(TEXT(".png")))
+                {
+                    Directory = FPaths::ConvertRelativePathToFull(Directory);
+                    IFileManager::Get().MakeDirectory(*Directory, true);
+                    const FString Path = FPaths::Combine(Directory, Filename);
+                    FTimerHandle Timer;
+                    GetWorld()->GetTimerManager().SetTimer(Timer, [Path]()
+                    {
+                        FScreenshotRequest::RequestScreenshot(Path, true, false);
+                    }, 0.15f, false);
+                }
+            }
             if (Event.EventKind == TEXT("command_result"))
             {
                 FString CommandId;

@@ -167,6 +167,7 @@ class BasiliskRenderBridge(_BridgeBase):
         frame_rate_hz: int | None = None,
         vision_capture_camera_ids: Sequence[str] = (),
         vision_capture_rate_hz: int = 10,
+        reliable_vision_frames: bool = True,
         epoch_offset_ns: int = 0,
     ) -> None:
         super().__init__()
@@ -203,7 +204,8 @@ class BasiliskRenderBridge(_BridgeBase):
         self.session_id = str(uuid.uuid4())
         self.origin_object = origin_object
         self.converter = FrameConverter(c_l_n)
-        self.publisher = publisher or RenderPublisher(host, port, reliable_frames=reliable_frames)
+        self.publisher = publisher or RenderPublisher(host, port, reliable_frames=reliable_frames,
+                                                      reliable_vision_frames=reliable_vision_frames)
         self.capture_state_provider = capture_state_provider
         self.last_capture_state: dict[str, str] = {}
         self.recorder = BskRecordingWriter(recording_path) if recording_path else None

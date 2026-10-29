@@ -72,6 +72,75 @@ def setup(tmp_path):
     return manager, flight, scenes, busy, scene_state
 
 
+@pytest.mark.parametrize('stage', ['flight', 'teleop'])
+def test_capture26_emergency_stop_is_owned_bound_to_active_run_and_blocks_handoff(tmp_path, stage):
+    manager, flight, _, _, scene_state = setup(tmp_path)
+    manager._new('team-in-orbit', OWNER)
+    folder = tmp_path/'run'/('team_rendezvous' if stage == 'flight' else 'capture26-operations')/'current'
+    folder.mkdir(parents=True)
+    flight.running, flight.output_dir = True, folder
+    manager._record.update(stage=stage, options={'model_id':'sarm-dual-capture26'},
+        flight_output_dir=str(folder), scene_instance_id='receiving')
+    scene_state.update(active=stage == 'teleop', instance={'instance_id':'receiving',
+        'capture26_output_directory':str(folder)})
+    with pytest.raises(PermissionError):
+        manager.emergency_stop(OTHER)
+    assert not (folder/'emergency-stop.request').exists()
+    result = manager.emergency_stop(OWNER)
+    assert (folder/'emergency-stop.request').is_file()
+    assert result['emergency_stop']['reason'] == 'operator emergency stop'
+    assert not result['can_handoff']
+    with pytest.raises(RuntimeError, match='急停'):
+        asyncio.run(manager.handoff(OWNER))
+    flight.output_dir = tmp_path/'unrelated'
+    scene_state['instance']['capture26_output_directory'] = str(tmp_path/'unrelated')
+    with pytest.raises(RuntimeError):
+        manager.emergency_stop(ADMIN)
+    assert not (tmp_path/'unrelated/emergency-stop.request').exists()
+
+
+@pytest.mark.parametrize('changed', [None, 'mission_id', 'mission_options'])
+def test_retry_near_uses_accepted_same_mission_checkpoint_and_retains_failed_run(tmp_path, monkeypatch, changed):
+    async def run():
+        manager, flight, scenes, _, _ = setup(tmp_path)
+        manager._new('team-in-orbit', OWNER)
+        identity = manager._record['mission_id']
+        source = tmp_path/'run/team_rendezvous/far'
+        failed = tmp_path/'run/team_rendezvous/failed-near'
+        options = {'seed':7, 'model_id':'sarm-dual-capture26'}
+        manager._record.update(continuous=True, stage='flight', flight_phase='near', live=True,
+            options=options, stages=[dict(phase='far',output_dir=str(source))],
+            flight_output_dir=str(failed), error='transport failed')
+        flight.output_dir = failed
+        incoming = dict(phase='FarReady',mission_id=identity,mission_options=options)
+        if changed:
+            incoming[changed] = 'changed'
+        monkeypatch.setattr('simulation.capture26_handoff.load', lambda *a: incoming)
+        calls = []
+        def resume(folder, **kwargs):
+            calls.append((folder, kwargs))
+            flight.output_dir, flight.running = tmp_path/'run/team_rendezvous/retry', True
+            return flight.status()
+        flight.resume_from_far = resume
+        with pytest.raises(PermissionError):
+            await manager.retry_near(OTHER)
+        if changed:
+            with pytest.raises(ValueError, match='任务或配置'):
+                await manager.retry_near(OWNER)
+            assert not calls
+            assert manager._record['flight_output_dir'] == str(failed)
+            return
+        await manager.retry_near(OWNER)
+        assert calls[0][0] == source
+        assert calls[0][1]['options']['seed'] == 7
+        assert manager._record['mission_id'] == identity == flight.mission_id
+        assert manager._record['retries'][0]['previous_output_dir'] == str(failed)
+        assert manager._record['stages'] == [dict(phase='far',output_dir=str(source))]
+        assert manager._record['error'] is None
+        await manager.close()
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize('near_outcome', ['CaptureHold', 'SafeHold'])
 def test_continuous_mission_preserves_identity_and_orders_accepted_phases(tmp_path, monkeypatch, near_outcome):
     async def run():

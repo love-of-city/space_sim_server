@@ -99,7 +99,13 @@ class MissionVisionRouter:
                     mission_id=identity[0], session_id=identity[1], calibration_id=identity[2])), encoding='utf-8')
         temporary = folder/'vision-status.tmp'
         temporary.write_text(json.dumps(self.vision.status()), encoding='utf-8')
-        temporary.replace(folder/'vision-status.json')
+        try:
+            temporary.replace(folder/'vision-status.json')
+        except PermissionError:
+            # Windows readers may briefly hold the destination without
+            # FILE_SHARE_DELETE. Keep the last complete status and retry on the
+            # next routing iteration; image delivery itself remains active.
+            temporary.unlink(missing_ok=True)
 
     def _work(self):
         while not self._stop.wait(.1):

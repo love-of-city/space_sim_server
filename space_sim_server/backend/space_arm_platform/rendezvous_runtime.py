@@ -146,7 +146,14 @@ class RendezvousRuntime:
                 }
                 if result.get('model_id') == 'sarm-dual-capture26':
                     report.update({key: result.get(key) for key in ('model_id', 'checks', 'performance',
+                        'acceptance_profile', 'feedback_source', 'working_reference_sha256',
                         'processing_real_time_factor_after_warmup', 'integration_complete', 'final')})
+                    from simulation.capture26_mission import load_mission
+                    current = load_mission(self.team_repository)
+                    if current.is_demo and (result.get('acceptance_profile') != current.acceptance_profile
+                            or result.get('feedback_source') != current.feedback_source
+                            or result.get('working_reference_sha256') != current.operating_geometry_sha256):
+                        report.update(basic_nominal_passed=False, outcome='PreviousAcceptanceRules')
             except (OSError, ValueError):
                 pass
         return {
@@ -175,7 +182,21 @@ class RendezvousRuntime:
         with self._lock:
             return self._start(live, mode, scenario, options)
 
-    def _start(self, live: bool, mode: str, scenario: str, options=None) -> dict:
+    def resume_from_far(self, folder: Path, *, live: bool, options) -> dict:
+        """Retry a failed near process from its accepted physical far checkpoint."""
+        from simulation.capture26_handoff import load
+        with self._lock:
+            if self.team_repository is None:
+                raise RuntimeError('没有配置交会运行目录')
+            folder = Path(folder).resolve()
+            if folder.parent != (self.team_repository/'run/team_rendezvous').resolve():
+                raise ValueError('交接结果必须来自当前交会运行目录')
+            incoming = load(folder/'handoff.json', self.team_repository)
+            if incoming['phase'] != 'FarReady' or incoming['mission_id'] != getattr(self, 'mission_id', None):
+                raise ValueError('重试检查点与当前任务不一致')
+            return self._start(live, 'simulation', 'near-field-resume', options, handoff_source=folder)
+
+    def _start(self, live: bool, mode: str, scenario: str, options=None, *, handoff_source=None) -> dict:
         near = scenario in ("near-field", "near-field-resume")
         if near and mode != "simulation":
             raise ValueError("近距任务需使用实际仿真入口；轨迹回放请使用独立回放工具")
@@ -191,9 +212,10 @@ class RendezvousRuntime:
         if scenario == "near-field-resume":
             from simulation.orbital_rendezvous.handoff import load_handoff
             from simulation.orbital_rendezvous.model import DEFAULT_MODEL
-            if self._output_dir is None or self.team_repository is None:
+            source = handoff_source if handoff_source is not None else self._output_dir
+            if source is None or self.team_repository is None:
                 raise RuntimeError("没有可接续的 110 m 交会结果")
-            handoff_path = self._output_dir / "handoff.json"
+            handoff_path = source / "handoff.json"
             if capture26:
                 from simulation.capture26_handoff import load
                 incoming = load(handoff_path, self.team_repository)
@@ -342,6 +364,8 @@ class RendezvousRuntime:
                     command.extend(['--mission-id', self.mission_id])
                 if live:
                     command.append('--external-vision')
+                if self.launch_config is not None:
+                    command.extend(['--simulation-rate', str(self.launch_config.runtime_simulation_rate)])
         if scenario != "legacy":
             self._output_dir.mkdir(parents=True, exist_ok=True)
             options_path = self._output_dir / "mission_options.json"

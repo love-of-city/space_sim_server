@@ -33,6 +33,32 @@ def publish_near_field_status(bridge, row):
 
 def publish_capture26_status(bridge, status):
     """Image-navigation probe/flight HUD; values originate in control telemetry."""
+    if status.get('acceptance_profile') == 'simulation_state_demo_v1':
+        node = status.get('node', status['phase'])
+        labels = dict(FarHandoff110m='110 m handoff', NearAcquire='Brake and align COM V-bar',
+            Vbar50m='50 m COM V-bar', Optical17p4m='17.4 m optical parking',
+            VisualReady5p5m='5.50 m optical parking', PlatformStandoff='TCP 0.5 m working position')
+        working = node == 'PlatformStandoff'
+        centre = status.get('center_distance_m')
+        centre_text = '---' if centre is None else f'{centre:.3f}m'
+        gap = status.get('tcp_gap_m')
+        gap_text = '---' if gap is None else f'{gap:.3f}m'
+        position = status.get('position_error_m')
+        speed = status.get('velocity_error_m_s')
+        p_text = '---' if position is None else f'{position:.4f}m'
+        v_text = '---' if speed is None else f'{speed:.4f}m/s'
+        messages = [
+            f"CAPTURE26 {labels.get(node, node)} | {'PARKING' if status.get('at_node') else 'APPROACH'} | STATE FEEDBACK DEMO",
+            f"COM distance {centre_text} | Optical depth {status['optical_depth_m']:.3f}m | TCP axial gap {gap_text}",
+            f"POSITION {'OK' if status.get('position_qualified') else 'TRACKING'} {p_text} | VELOCITY {'OK' if status.get('velocity_qualified') else 'BRAKING'} {v_text}",
+            f"CONTINUOUS DWELL {min(5., status.get('dwell_s', 0.)):.1f} / 5.0s | REMAINING {status.get('dwell_remaining_s', 5.):.1f}s",
+            'SAFE HOLD: '+status.get('reason', 'approach stopped') if status.get('phase') == 'SafeHold'
+            else ('WORKING POSITION HOLD' if working else 'FAR HANDOFF HOLD COMPLETE') if status.get('released')
+            else 'COMPLETED: '+(', '.join(status.get('completed_nodes', [])) or 'none'),
+        ]
+        for message in messages:
+            bridge.publish_event('near_field_status', dict(message=message, severity='info', capture26_working_view=working))
+        return
     visual = status['visual']
     age = visual.get('exposure_age_s')
     age_text = 'none' if age is None else f'{age:.3f}s'

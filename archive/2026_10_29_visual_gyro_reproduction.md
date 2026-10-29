@@ -14,3 +14,17 @@ in `space_sim_server/docs/VISUAL_GYRO_CAPTURE_REPRODUCTION.md`. Raw outputs,
 machine paths, authentication databases and compiled artifacts remain outside
 version control. Runtime configuration is restored and only owned processes
 are closed, including on ordinary failure.
+
+Integration preserves both the rendezvous updates in main@94bdd75 and collection
+updates in main@6c53480. Native build calls follow their relocated assets tools;
+capture catalogs use the manifest's frozen base. The authored capture XML and all
+its body inertials remain identical. The final review's process-liveness, complete
+gyro-session coverage and failed-shutdown recovery findings have regression tests.
+The existing contact_seek branch is accepted as closure only when actual inward
+jaw commands are recorded, followed by the required physical support.
+
+The first completed nominal baseline passed all11 physical/image/gyro gates;
+its full numbers and latest integration checks are documented in the reproduction
+guide. Prior setup failure, deliberate interruption and scorer-branch rejection
+are retained outside Git rather than overwritten. The final integration's native
+result and protected-main publication status are tracked in PR38.

@@ -88,3 +88,26 @@ motion is measured against free flight, not against the recoiling service body.
 The100°×100° non-square raster is virtual anisotropic pinhole optics, as described
 in CAPTURE_WRIST_OPTICS.md. No new hardware, gyro-bias diagnosis or fault
 tolerance is validated by this nominal trial.
+
+## Main integration and retained acceptance
+
+The entry follows main's `tools/assets/` build tools and the manifest's frozen
+Capture26 base; it does not replace the collection model, layout, camera/light
+updates or rendezvous demo. Relative to main@6c53480, this change adds no model,
+physics, gyro or grasp-controller source edits. Initial mass/inertia records for
+every body in the capture model match the preceding nominal baseline exactly.
+
+The main@94bdd75-based retained native trial passed all11 gates:22.060s continuous
+four-jaw support at4.90191..4.99999N, no service self-contact, and target motion
+peaks4.11144mm/1.01248deg against its independent free reference. It consumed11805
+unique valid gyro measurements and actual1920×1200 four-marker UE images.
+This earlier result is kept as a versioned baseline, not substituted for the
+final main integration trial.
+
+The main@6c53480 integration's local checks passed:2441 server basic tests,108
+adapter basic tests,257 frontend tests,10 signalling tests,114 native tests and45
+UE automation tests. Three UE fixture tests succeeded with expected warnings
+about absent ephemeris lighting in their deliberately minimal manifests; none
+failed, remained in progress or was unrun. Final native acceptance and publication
+are recorded in [PR38](https://github.com/love-of-city/space_sim_server/pull/38),
+which stays draft until the integrated run's `result.json.success` is true.

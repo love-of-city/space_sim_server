@@ -42,6 +42,10 @@ def prepare_trial(output,vision_python,*,root=ROOT):
             or random['coorbital_initialization']['grip_frame_standoff_m']!=recipe['initial_gap_m']):
         raise ValueError('capture recipe must use free coorbital visual/gyro capture')
     scene['instance_id']='visual-gyro-capture-'+uuid.uuid4().hex[:12]
+    for attachment in scene['render_profile']['visual_attachments']:
+        source=(Path(root)/attachment['geometry_file']).resolve()
+        if not source.is_relative_to(Path(root).resolve()) or hashlib.sha256(source.read_bytes()).hexdigest()!=attachment['sha256']:
+            raise ValueError('visual attachment integrity mismatch; use current checkout recipe and assets')
     scene_path=output/'scene.json';runtime_path=output/'vision_runtime.json'
     for path,value in ((scene_path,scene),(runtime_path,runtime),(output/'recipe.json',recipe)):
         path.write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')

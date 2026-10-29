@@ -25,6 +25,23 @@ def test_recipe_is_portable_and_keeps_real_capture_configuration(tmp_path):
         prepare_trial(prepared.output,Path('/chosen/vision/python'),root=ROOT)
 
 
+def test_retained_scene_uses_current_main_attachment_fingerprints():
+    scene=json.loads((ROOT/'config/experiments/visual_gyro_capture/scene.json').read_text())
+    profile=json.loads((ROOT/'config/scene_render_profiles.json').read_text())['sarm-dual-capture26']
+    assert scene['render_profile']['visual_attachments']==profile['visual_attachments']
+
+
+def test_corrupt_visual_attachment_is_rejected_before_any_process_starts(tmp_path):
+    import shutil
+    root=tmp_path/'checkout'
+    shutil.copytree(ROOT/'config/experiments/visual_gyro_capture',root/'config/experiments/visual_gyro_capture')
+    scene=json.loads((root/'config/experiments/visual_gyro_capture/scene.json').read_text())
+    geometry=root/scene['render_profile']['visual_attachments'][0]['geometry_file']
+    geometry.parent.mkdir(parents=True);geometry.write_text('[]')
+    with pytest.raises(ValueError,match='attachment'):
+        prepare_trial(tmp_path/'trial',Path('/vision/python'),root=root)
+
+
 @pytest.mark.parametrize('failure',[False,True])
 def test_temporary_config_and_previous_observation_are_restored(tmp_path,failure):
     run=tmp_path/'run';run.mkdir()

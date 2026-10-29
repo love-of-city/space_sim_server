@@ -12,7 +12,7 @@ from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 
 
-@pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome"])
+@pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome", "monochrome_fisheye"])
 def test_mode_roundtrip_and_recording_provenance(tmp_path, mode):
     from simulation.teleop_grasp_unreal import _load_scene_instance
 
@@ -53,10 +53,11 @@ def test_invalid_mode_rejected_in_api_and_saved_scene(tmp_path, mode):
         _load_scene_instance(path)
 
 
-def test_adapter_validates_fisheye_aperture_and_preserves_rgb_compatibility():
+@pytest.mark.parametrize("mode", ["fisheye", "monochrome_fisheye"])
+def test_adapter_validates_fisheye_aperture_and_preserves_rgb_compatibility(mode):
     assert CameraVisual("wrist").to_payload()["camera_mode"] == "rgb"
-    camera = CameraVisual("wrist", camera_mode="fisheye", field_of_view_rad=math.radians(160))
-    assert camera.to_payload()["camera_mode"] == "fisheye"
+    camera = CameraVisual("wrist", camera_mode=mode, field_of_view_rad=math.radians(160))
+    assert camera.to_payload()["camera_mode"] == mode
     for fov in (0, -1, math.pi, math.inf, math.nan):
         camera.field_of_view_rad = fov
         with pytest.raises(ValueError, match="field_of_view_rad"):

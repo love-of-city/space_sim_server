@@ -198,14 +198,15 @@ to one on every manifest, including after a zero-light scene. The receiver
 rejects strings, booleans, nulls and out-of-range values. Update/rebuild the UE
 runtime to use this additive version-2 setting; older receivers ignore it.
 
-`camera_mode` selects `rgb` (default), `monochrome`, or `fisheye` per camera.
+`camera_mode` selects `rgb` (default), `monochrome`, `fisheye`, or
+`monochrome_fisheye` per camera.
 RGB and monochrome may additionally specify `vertical_field_of_view_rad` in
 `(0, pi)`. This opts into independent horizontal/vertical pinhole projection;
 omission or zero keeps the existing square-pixel projection derived from raster
 aspect. Native RGB and preview captures use the same projection, with
 `fy_px = height / (2*tan(vertical_fov/2))` in native metadata. The existing
 `field_of_view_rad` remains the horizontal span. Nonzero vertical FOV requires
-a valid horizontal FOV and is rejected for fisheye, whose equidistant semantics
+a valid horizontal FOV and is rejected for both fisheye modes, whose equidistant semantics
 remain unchanged. Update/rebuild both adapter and UE runtime together; old
 receivers ignore the added field and cannot reproduce independent-axis optics.
 
@@ -218,6 +219,11 @@ uses 160 degrees. A square perspective render at twice the output's longer side
 sensor noise, lens calibration, or coverage beyond 180 degrees. All modes retain
 the same RGB product name, camera ID and output dimensions. HUD, WebRTC, disk,
 network readback and policy observations consume the canonical processed target.
+
+`monochrome_fisheye` combines the same fisheye projection and Rec.709 grayscale
+conversion in one GPU pass. It uses fisheye intrinsics and
+`color_model = monochrome_rgb`, with identical grayscale values in all three
+output channels. Both fisheye modes enforce the same field-of-view bounds.
 
 Capture metadata includes `camera_mode` and `color_model`. For fisheye,
 `intrinsics.model = equidistant_fisheye`, `distortion_model = equidistant`,

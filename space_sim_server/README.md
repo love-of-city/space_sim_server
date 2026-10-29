@@ -33,17 +33,25 @@ GNSS、双目、双星陀螺及导航滤波继续运行与记录，图像计数�
 
 原操作场景提供 50 Hz 服务星模拟陀螺角速度观测，包含白噪声、偏置与饱和标志，随原观测通道录制。配置、时间与坐标定义及接入边界见[服务星陀螺反馈](docs/SERVICE_GYROSCOPE.md)。
 
+三类插头自动采集共用连续接近、拔取搬运、反馈插入和边松爪边撤离；各自按夹持轴和尺寸处理，见 [插头采集](docs/AVIATION_PLUG_COLLECTION.md)。
+
+航空螺丝旋出后装配，以及杆状机构旋松、放倒入卡扣、扶起复位和重新锁紧，使用独立的螺纹任务控制器；自动采集入口、任务初态及物理验收见 [螺纹操作采集](docs/THREADED_TASK_COLLECTION.md)。
+
 ## 环境要求
 
 完整运行入口支持 Windows x64 + PowerShell 7。需要 Git/Git LFS、Node.js 22 LTS（含 npm）、Unreal Engine 5.6、Visual Studio 2022 C++ 游戏开发工作负载及 Windows SDK，以及支持 UE 渲染和 H.264 编码的 GPU/驱动。
 
-腕部相机支持彩色、160° 鱼眼和黑白，创建场景前选择；使用与模型输入说明见 [腕部相机类型](docs/WRIST_CAMERA_MODES.md)。
+腕部相机支持彩色、160° 鱼眼、黑白和 160° 黑白鱼眼，创建场景前选择；使用与模型输入说明见 [腕部相机类型](docs/WRIST_CAMERA_MODES.md)。
 
 Linux 原生一键启动/停止及网页场景管理见 [Linux 一键部署](docs/LINUX_DEPLOYMENT.md)。已有环境可在本目录执行 `./start_deployment.sh`，停止执行 `./stop_deployment.sh`。Linux 环境、原生库和真实采集验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。
 
-脚本批量采集可通过 [多进程采集](docs/PARALLEL_COLLECTION.md) 配置两路隔离并发、每路 UE 复用、离线渲染与资源统计；调度配置位于 `config/collection.json`。
+脚本批量采集可通过 [多进程采集](docs/PARALLEL_COLLECTION.md) 配置两路隔离并发、每路 UE 复用、离线渲染与资源统计；该模式的配置位于 `config/collection-parallel.json`。
 
 自动采集可从已校验布局池逐条随机选择操作台各安装单元的位置和朝向，命令行及网页配置见[布局随机化采集](docs/COLLECTION_LAYOUT_RANDOMIZATION.md)。
+
+六任务的原生几何避障、受约束操作通道检查、孔壁横向接触验收和录像墙钟计时见[自动采集避障](docs/ALL_TASK_COLLISION_PLANNING.md)。
+
+随机布局所需的通用 UE 资产随 Git LFS 提供；布局准备工具默认从仓库相对路径清单加载，无需复制其他机器的 `Saved/AssetImport`。七孔着色表面和底板开孔随每套随机布局生成，颜色与布局可独立随机。
 
 全局相机可逐条从 5 个固定机位随机初始化，整段保持固定，并保存可复现的相机位姿；网页、API 和采集脚本使用方式见[全局相机随机初始化](docs/OVERVIEW_CAMERA_RANDOMIZATION.md)。
 
@@ -289,7 +297,7 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 
 ## 自动任务试验
 
-[自动抽屉提拉脚本](docs/SCRIPTED_DRAWER_TASK.md)可以在独立的 BSK/MuJoCo 动力学实例中，完成到位、转向、张开、下降、夹持和提拉，并输出实际抽拉位移与腕部载荷。`run_drawer_task.py` 提供无界面动力学验收；`record_drawer_task.py` 可启动当前场景配置的独立 UE 实例，通过现有数据链路录制双相机、关节及腕部载荷，输出与手动录制一致的 LeRobot v3 数据集。
+[自动抽屉提拉脚本](docs/SCRIPTED_DRAWER_TASK.md)可以在独立的 BSK/MuJoCo 动力学实例中，完成到位、转向、张开、下降、夹持和提拉，并输出实际抽拉位移与腕部载荷。`run_scripted_task.py` 提供无界面动力学验收；`record_scripted_task.py` 可启动当前场景配置的独立 UE 实例，通过现有数据链路录制双相机、关节及腕部载荷，输出与手动录制一致的 LeRobot v3 数据集。
 
 [圆柱插头自动搬运与插入](docs/SCRIPTED_PLUG_TASK.md)使用同一套动力学和录制入口，从初始取件位夹取圆柱插头，搬到前方装配孔完成插入、松爪与撤离；目标孔与任务参数可独立配置。
 
@@ -305,3 +313,17 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 详细用法、权限、任务扩展接口及限制见 [平台自动采集与数据集回放](docs/PLATFORM_AUTOMATED_COLLECTION.md)。前端源码更新后先执行 `npm --prefix frontend run build`（在本目录），再重启后端并刷新页面。四个页面共用 Vite 构建，不再单独服务 public 下的旧查看器。
 
 模型策略接入：参见 [Enactive / SARM 在线接入](docs/ENACTIVE_SARM_INTEGRATION.md)，包含同步关节目标控制、双相机观测和正式录制流程。
+
+## 脚本采集统一入口
+
+日常采集使用 `tools/collect.py`，统一配置为 `config/collection.json`。默认从150个几何合格布局中不重复洗牌，每个布局依序尝试抽屉、航空/导向/圆柱插头和锁杆五种任务；航空螺栓保留为可启用的第六种任务。本布局颜色与机位固定，每条机械臂重新随机±30°并恢复物体状态。失败直接跳过，不补齐成功数。
+
+```bash
+python tools/collect.py --output /absolute/new-batch
+# 两布局的短批次验收
+python tools/collect.py --output /absolute/new-smoke-batch --layouts 2
+```
+
+详细流程、目录职责、输出分组及断点续采见[按布局顺序采集](docs/LAYOUT_SEQUENCE_COLLECTION.md)。实际采集实现统一放在 `collection/`；模型生成、检查、测速和部署辅助分别放在 `tools/` 的子目录。网页/API继续使用内部单任务批采入口。
+
+六种任务各20条英文指令模板见[采集英文指令模板](docs/TASK_INSTRUCTIONS.md)。

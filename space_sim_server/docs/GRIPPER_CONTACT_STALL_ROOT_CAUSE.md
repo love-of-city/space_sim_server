@@ -29,7 +29,7 @@ MuJoCo 官方例子里接触很多也不卡，是因为它们直接调 `mj_step`
 
 ## 实测数据
 
-全部为原生 Basilisk/MJScene 离线基准（`tools/profile_simulation_runtime.py`，
+全部为原生 Basilisk/MJScene 离线基准（`tools/benchmarks/profile_simulation_runtime.py`，
 `--initial-state operating --motion hold`，动力学 240 Hz，1 仿真秒，排除 UE/网络/写盘）。
 RTF = 仿真秒 / `ExecuteSimulation` 墙钟秒。接触模型由
 `run/diagnostics/gripper-contact/generate.py` 生成：把导向插头放到该场景操作姿态的夹爪中心。
@@ -84,7 +84,7 @@ RTF = 仿真秒 / `ExecuteSimulation` 墙钟秒。接触模型由
     run\diagnostics\gripper-contact\generate.py --gap 0.0
 
 # 2) 原生基准：接触 vs 无接触，加 --eom-cost-probe 得到“每步评估次数”的分母
-& <server-python> tools\profile_simulation_runtime.py `
+& <server-python> tools\benchmarks\profile_simulation_runtime.py `
     --adapter-root <path-to-space_sim_UE_Adapter> `
     --scene-instance run\diagnostics\gripper-contact\contact_scene.json `
     --model-path run\diagnostics\gripper-contact\contact_guide.xml `
@@ -106,7 +106,7 @@ RTF = 仿真秒 / `ExecuteSimulation` 墙钟秒。接触模型由
   约 0.3 m，导致此前所有原生基准 `max_contacts = 0`、测不到接触。
 - `run/diagnostics/gripper-contact/native_contact_cost.py`：原生逐步成本探针，
   变体 `deep`/`light`/`noflex`/`clear`，支持 `--step-hz 240/480/960`。
-- `tools/profile_simulation_runtime.py`：新增只读的 `--eom-cost-probe`
+- `tools/benchmarks/profile_simulation_runtime.py`：新增只读的 `--eom-cost-probe`
   与 `--rkf-state-abs-tol`（仅诊断；生产开关仍是环境变量
   `SPACE_SIM_RKF45_RELATIVE_TOLERANCE` / `SPACE_SIM_RKF45_ABSOLUTE_TOLERANCE`）。
 

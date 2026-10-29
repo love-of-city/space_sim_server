@@ -21,7 +21,7 @@ class RenderComponent:
                  vision_capture: dict | None = None,
                  wrist_camera_mode: str = "rgb",
                  overview_camera: dict | None = None) -> None:
-        if wrist_camera_mode not in ("rgb", "fisheye", "monochrome"):
+        if wrist_camera_mode not in ("rgb", "fisheye", "monochrome", "monochrome_fisheye"):
             raise ValueError("unsupported wrist_camera_mode")
         self.wrist_camera_mode = wrist_camera_mode
         self.overview_camera = overview_camera
@@ -94,11 +94,12 @@ class RenderComponent:
         for camera in bridge._cameras:
             if camera.camera_id == "teleop/camera/sarm_wrist_cam":
                 camera.camera_mode = self.wrist_camera_mode
-                if self.wrist_camera_mode == "fisheye":
+                if self.wrist_camera_mode in ("fisheye", "monochrome_fisheye"):
                     import math
                     camera.field_of_view_rad = math.radians(160.0)
                 camera.display_name += {"rgb": "", "fisheye": " (Fisheye 160°)",
-                                        "monochrome": " (Monochrome)"}[self.wrist_camera_mode]
+                                        "monochrome": " (Monochrome)",
+                                        "monochrome_fisheye": " (Monochrome Fisheye 160°)"}[self.wrist_camera_mode]
         if self.overview_camera is not None:
             from space_arm_platform.overview_camera import CAMERA_ID
             matches = [camera for camera in bridge._cameras if camera.camera_id == CAMERA_ID]
@@ -107,7 +108,8 @@ class RenderComponent:
             camera = matches[0]
             for key in ("parent_id", "position_body_m", "orientation_body_from_camera_wxyz", "field_of_view_rad"):
                 setattr(camera, key, self.overview_camera[key])
-            camera.display_name += f" ({self.overview_camera['preset_id']})"
+            # Historical v5 recordings used continuous poses without a preset ID.
+            camera.display_name += f" ({self.overview_camera.get('preset_id', 'Continuous')})"
         if ctx.extra.get('template_id') == 'sarm-task-box-20261012-demo':
             # Reuse the existing overview stream slot for a body-fixed close-up.
             # Pose derived from the validated MuJoCo side-view camera, in rod axes.
@@ -124,6 +126,14 @@ class RenderComponent:
                 if body.object_id in {'teleop/rw_x', 'teleop/rw_y', 'teleop/rw_z'}:
                     body.geometries = []
             # Preview work lights are attached to optical components in UE.
+
+        from simulation.camera_lighting import overview_camera_lamp
+
+        for camera in bridge._cameras:
+            if camera.camera_id == "teleop/camera/spacecraft_overview":
+                # Mount to the final camera, including sampled and demo poses.
+                # UE uses this same world light for preview and strict captures.
+                bridge.add_lights(overview_camera_lamp(camera.camera_id))
         celestial = ctx.extra.get("celestial")
         if celestial is not None:
             _register_celestial_bodies(bridge, *celestial)

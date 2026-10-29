@@ -168,3 +168,26 @@ def test_joint_only_terminal_zone_limits_contact_approach_speed():
     ):
         with pytest.raises(ValueError):
             timing(**invalid)
+
+
+@pytest.mark.parametrize("curved", [False, True])
+def test_boundary_velocities_survive_timing_limits_without_a_stop(curved):
+    u = np.linspace(0, 1, 81)
+    path = np.column_stack((.3*u, .1*np.sin(3*u))) if curved else None
+    profile = timing(path, linear_speed=.05, start_speed_m_s=.025,
+                     end_speed_m_s=.025, slow_distance=.025, slow_speed=.025)
+    assert profile.state(0)[1]*.2 == pytest.approx(.025)
+    assert profile.state(profile.duration)[1]*.2 == pytest.approx(.025)
+    states = [profile.joint_state(t) for t in np.linspace(0, profile.duration, 2001)]
+    for order, limit in ((1, .35), (2, .7), (3, 8.)):
+        assert np.max(np.abs([s[order] for s in states])) <= limit*1.00001
+    assert np.all(np.diff([profile.at(t) for t in np.linspace(0, profile.duration, 2001)]) > 0)
+
+
+@pytest.mark.parametrize("overrides", [dict(start_speed_m_s=-1), dict(end_speed_m_s=float("nan")),
+                                       dict(distance=0, start_speed_m_s=.025),
+                                       dict(start_speed_m_s=1.),
+                                       dict(distance=.001, start_speed_m_s=.1)])
+def test_impossible_boundary_motion_is_rejected(overrides):
+    with pytest.raises(ValueError):
+        timing(**overrides)

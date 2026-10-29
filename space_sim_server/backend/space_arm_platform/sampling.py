@@ -5,6 +5,8 @@ The renderer's BskLeRobotSampling.h must use the same dataset grid.
 """
 from __future__ import annotations
 
+import math
+
 NANOSECONDS_PER_SECOND = 1_000_000_000
 DYNAMICS_HZ = 400
 DEFAULT_IK_HZ = 100
@@ -22,6 +24,15 @@ def tick_time_ns(index: int, rate_hz: int) -> int:
     if index < 0 or rate_hz <= 0:
         raise ValueError("tick index must be nonnegative and rate positive")
     return (index * NANOSECONDS_PER_SECOND + rate_hz // 2) // rate_hz
+
+
+def capture_preroll_ns(seconds: float) -> int:
+    """End pre-roll on an observable frame, at or after the requested time."""
+    if not math.isfinite(seconds) or seconds < 0:
+        raise ValueError("capture pre-roll must be finite and nonnegative")
+    minimum_ns = round(seconds * NANOSECONDS_PER_SECOND)
+    tick = (minimum_ns * RENDER_HZ + NANOSECONDS_PER_SECOND - 1) // NANOSECONDS_PER_SECOND
+    return tick_time_ns(tick, RENDER_HZ)
 
 
 def sample_tick(sim_time_ns: int, fps: int) -> int | None:

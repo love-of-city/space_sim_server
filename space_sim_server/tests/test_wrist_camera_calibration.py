@@ -90,11 +90,12 @@ def test_invalid_vertical_fov_is_rejected(value):
         CameraVisual('wrist', vertical_field_of_view_rad=value).to_payload()
 
 
-def test_fisheye_keeps_legacy_model_and_rejects_independent_pinhole_axes():
+@pytest.mark.parametrize('mode', ['fisheye', 'monochrome_fisheye'])
+def test_fisheye_keeps_legacy_model_and_rejects_independent_pinhole_axes(mode):
     from bsk_render_adapter.descriptors import CameraVisual
-    assert CameraVisual('eye', camera_mode='fisheye').to_payload()['camera_mode'] == 'fisheye'
+    assert CameraVisual('eye', camera_mode=mode).to_payload()['camera_mode'] == mode
     with pytest.raises(ValueError, match='fisheye'):
-        CameraVisual('eye', camera_mode='fisheye', vertical_field_of_view_rad=1).to_payload()
+        CameraVisual('eye', camera_mode=mode, vertical_field_of_view_rad=1).to_payload()
 
 
 @pytest.mark.parametrize('field,value', [
@@ -119,7 +120,7 @@ def test_startup_applies_capture_calibration_and_preserves_operation_arm_modes(m
     import copy
     import importlib.util
     import sys
-    from bsk_render_adapter import CameraVisual
+    from bsk_render_adapter import CameraVisual, VisualElement
     monkeypatch.setitem(sys.modules, 'simulation.assembly', SimpleNamespace(
         AssemblyContext=object, Slot=SimpleNamespace(OUTPUT=0)))
     spec = importlib.util.spec_from_file_location('capture_optics_render_probe',
@@ -132,10 +133,12 @@ def test_startup_applies_capture_calibration_and_preserves_operation_arm_modes(m
     overview = CameraVisual('teleop/camera/spacecraft_overview')
     before_overview = copy.deepcopy(overview)
     bridge = SimpleNamespace(_cameras=[capture,operation,overview], _objects=[],
-        add_mj_scene=lambda *a, **kw: None, set_scene_settings=lambda *a: None)
+        add_mj_scene=lambda *a, **kw: None, set_scene_settings=lambda *a: None,
+        add_lights=lambda *a: None)
     bridge.add_camera=bridge._cameras.append
     monkeypatch.setitem(sys.modules, 'bsk_render_adapter', SimpleNamespace(
-        BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace))
+        BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace,
+        VisualElement=VisualElement))
     monkeypatch.setitem(sys.modules, 'simulation.teleop_grasp_unreal', SimpleNamespace(
         _register_celestial_bodies=lambda *a: None))
     ctx=SimpleNamespace(scene=object(),extra={'template_id':'sarm-dual-capture26'},

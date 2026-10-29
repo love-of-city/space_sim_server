@@ -75,6 +75,7 @@ class DrawerSample:
     wrench: np.ndarray
     wrench_valid: bool
     finger_drawer_contacts: tuple[int, int] | None = None
+    native_qpos: np.ndarray | None = None
 
 
 # Re-export retained for existing drawer-policy users.
@@ -97,6 +98,9 @@ class DrawerLiftTask:
     )
 
     def __init__(self, model_path: Path, config: DrawerLiftConfig | None = None):
+        self.model_path=Path(model_path)
+        self.environment_planning=False
+        self.motion_plans=[]
         self.config = config or DrawerLiftConfig()
         self.chain = SerialChainKinematics.from_mjcf(
             model_path,
@@ -330,7 +334,7 @@ class DrawerLiftTask:
                 else (10 * a**3 - 15 * a**4 + 6 * a**5)
             )
             if self._timing is not None:
-                self.reference[:6] = self._timing.path.at(progress)
+                self.reference[:6] = self._timing.path.at(progress)[:6]
             else:
                 u = progress * (len(self._path) - 1)
                 i = min(int(u), len(self._path) - 2)

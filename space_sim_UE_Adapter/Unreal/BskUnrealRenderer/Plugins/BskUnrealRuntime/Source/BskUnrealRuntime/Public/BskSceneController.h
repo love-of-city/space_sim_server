@@ -124,6 +124,9 @@ private:
     friend class FBskBuiltinCaptureProvider;
     friend class FBskEmptyManifestBodyTest;
     friend class FBskFlushPlaneGeometryTest;
+    friend class FBskManifestGeometryRefreshTest;
+    friend class FBskCameraMountedLightTest;
+    friend class FBskOfflineCameraWarmupTest;
     friend class FBskLocalFrameExtrapolationTest;
     friend class FBskSceneResetTest;
     friend class FBskSceneSunlightIntensityTest;
@@ -166,6 +169,7 @@ private:
     void CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture);
     void ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const;
     void UpdatePictureInPictureCaptures();
+    int32 UpdateOfflineCameraWarmup(double NowSeconds);
     void ConfigurePixelStreamingOutput();
     void ConfigurePixelStreamingCamera(AActor* Actor, const FBskCameraDefinition& Definition);
     void UpdatePixelStreamingCameraCaptures();
@@ -184,6 +188,7 @@ private:
     void ReportCaptureFailure(const FBskCaptureRequest& Request, const FString& Error);
     void ConfigureCaptureOutput();
     void ApplyVisualMountTransform(AActor* Actor, const FBskVisualDefinition& Definition) const;
+    AActor* ResolveVisualParent(const FString& ParentId) const;
     void RefreshVisualVisibility(const FString& VisualId);
     void AttachManifestChildren();
     void UpdateCelestialBodies(const FBskRenderFrame& Frame);
@@ -206,6 +211,9 @@ private:
     FBskRelativeView RelativeView;
     FOnBskFrameApplied FrameAppliedEvent;
     TMap<FString, TObjectPtr<AActor>> BoundActors;
+    // Only runtime-created objects may be retired on a manifest change.
+    // Tagged actors supplied by the level remain externally owned.
+    TSet<FString> OwnedObjectIds;
     TMap<FString, TObjectPtr<AActor>> CelestialActors;
     TMap<FString, TObjectPtr<AActor>> VisualActors;
     TMap<FString, FQuat> VisualBaseRotations;

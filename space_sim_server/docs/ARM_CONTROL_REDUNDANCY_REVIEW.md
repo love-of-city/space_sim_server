@@ -372,7 +372,7 @@ rank = int(np.count_nonzero(singular_values > 1.0e-5))
 
 - `simulation/serial_chain_kinematics.py:137` 定义旧实现。
 - 生产入口在 `simulation/teleop_grasp_unreal.py:563` 使用 `inverse_velocity_bounded()`。
-- 旧实现只在 `tests/test_serial_chain_kinematics.py:47` 和 `tools/benchmark_runtime_layers.py:112,282` 中使用。
+- 旧实现只在 `tests/test_serial_chain_kinematics.py:47` 和 `tools/benchmarks/benchmark_runtime_layers.py:112,282` 中使用。
 
 **问题**
 

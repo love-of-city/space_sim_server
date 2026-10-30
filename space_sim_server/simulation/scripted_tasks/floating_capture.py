@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from space_arm_platform.sampling import SCRIPTED_TASK_HZ
 from simulation.serial_chain_kinematics import (
     SerialChainKinematics, rotation_matrix_to_vector,
 )
@@ -168,8 +169,15 @@ class FloatingCaptureTask:
         if not math.isfinite(sample.time_s) or (self._last_time is not None and sample.time_s < self._last_time):
             raise ValueError("Task time must be finite and monotonic")
         dt = 0. if self._last_time is None else sample.time_s-self._last_time
+        invalid_timing = (self._last_time is not None
+                          and (dt <= 0. or dt > 1./SCRIPTED_TASK_HZ + 1e-9))
         self._last_time = sample.time_s
         if self.result is not None:
+            return self.reference.copy(), np.zeros(8)
+        if invalid_timing:
+            # Wall-clock backpressure pauses simulation time. Missing physics
+            # observations must never count toward an uninterrupted grasp.
+            self.fail("invalid_observation_timing", sample)
             return self.reference.copy(), np.zeros(8)
         contacts = np.asarray(sample.finger_plug_contacts)
         forces = np.asarray(sample.finger_normal_force_n)

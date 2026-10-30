@@ -138,8 +138,8 @@ def test_position_agreement_alone_cannot_succeed(tmp_path):
     scene, path = realized(tmp_path)
     task = create_floating_task("floating_bolt_capture", path)
     sample = sample_at_grasp(task, scene)
-    for i in range(2200):
-        task.step(replace(sample, time_s=i*.01))
+    for i in range(4400):
+        task.step(replace(sample, time_s=i*.005))
     assert task.result == "failed"
     assert task.reason == "bilateral_contact_not_established"
 
@@ -149,19 +149,53 @@ def test_contact_hold_is_continuous_and_does_not_modify_measurements(tmp_path):
     task = create_floating_task("floating_bolt_capture", path)
     sample = sample_at_grasp(task, scene, contacts=(1, 1))
     measured = sample.joints.copy()
-    for i in range(180):
-        task.step(replace(sample, time_s=i*.01))
+    for i in range(360):
+        task.step(replace(sample, time_s=i*.005))
     assert task.stage == "hold" and task.result is None
     task.step(replace(sample, time_s=1.8, finger_plug_contacts=(1, 0)))
     assert task.metrics(sample)["held_seconds"] == 0.
-    for i in range(181, 400):
-        task.step(replace(sample, time_s=i*.01))
+    for i in range(361, 800):
+        task.step(replace(sample, time_s=i*.005))
     assert task.result is None
-    for i in range(400, 510):
-        task.step(replace(sample, time_s=i*.01))
+    for i in range(800, 1020):
+        task.step(replace(sample, time_s=i*.005))
     assert task.result == "success"
     np.testing.assert_array_equal(sample.joints, measured)
     assert all(event["stage"] != "success" or event["sim_time_s"] >= 4.8 for event in task.events)
+
+
+@pytest.mark.parametrize("gap", [0., .01, 3.])
+def test_hold_cannot_count_missing_or_repeated_observations(tmp_path, gap):
+    scene, path = realized(tmp_path)
+    task = create_floating_task("floating_bolt_capture", path)
+    sample = sample_at_grasp(task, scene, contacts=(1, 1))
+    for i in range(201):
+        task.step(replace(sample, time_s=i*.005))
+    assert task.stage == "hold" and task.result is None
+    reference, velocity = task.step(replace(sample, time_s=1. + gap))
+    assert task.result == "failed" and task.reason == "invalid_observation_timing"
+    np.testing.assert_array_equal(reference, sample.joints)
+    np.testing.assert_array_equal(velocity, np.zeros(8))
+    assert not any(event["stage"] == "success" for event in task.events)
+
+
+def test_half_turn_slip_cannot_satisfy_a_stable_hold(tmp_path):
+    scene, path = realized(tmp_path)
+    task = create_floating_task("floating_bolt_capture", path)
+    sample = sample_at_grasp(task, scene, contacts=(1, 1))
+    for i in range(201):
+        task.step(replace(sample, time_s=i*.005))
+    assert task.stage == "hold" and task.result is None
+    point, _ = task.grasp_pose(sample)
+    # Rotate around the grasp point, preserving position, contact and speed.
+    hand_rotation = task.chain.forward(sample.joints[:6])[1]
+    flipped = hand_rotation @ np.diag([1., -1., -1.]) @ task._held_rotation
+    sample = replace(sample, plug_rotation_body=flipped,
+                     plug_position_body_m=point-flipped@task.asset.grip_point)
+    assert task.metrics(sample)["angular_slip_rad"] == pytest.approx(np.pi, abs=1e-9)
+    for i in range(201, 901):
+        task.step(replace(sample, time_s=i*.005))
+    assert task.result is None and task.metrics(sample)["held_seconds"] == 0.
 
 
 def test_unexpected_contact_and_target_loss_fail(tmp_path):
@@ -171,9 +205,9 @@ def test_unexpected_contact_and_target_loss_fail(tmp_path):
     task.step(replace(sample, unexpected_contacts=[{"body1": "link3", "body2": "bolt"}]))
     assert task.result == "failed" and task.reason == "unexpected_collision"
     task = create_floating_task("floating_bolt_capture", path)
-    for i in range(200):
-        contacts = (1, 1) if i < 100 else (0, 0)
-        task.step(replace(sample, time_s=i*.01, finger_plug_contacts=contacts))
+    for i in range(400):
+        contacts = (1, 1) if i < 200 else (0, 0)
+        task.step(replace(sample, time_s=i*.005, finger_plug_contacts=contacts))
     assert task.result == "failed" and task.reason == "target_lost"
 
 

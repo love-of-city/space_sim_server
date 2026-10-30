@@ -15,6 +15,36 @@ def test_stereo_off_does_not_read_or_register_anything(tmp_path):
     assert load_stereo_setup(tmp_path,{'enabled':True,'stereo_enabled':False,'config_file':'not-used.json'}) is None
 
 
+def test_near23_render_keeps_original_lights_after_collection_merge(monkeypatch):
+    import importlib.util
+    import sys
+    from bsk_render_adapter import CameraVisual, VisualElement
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.setitem(sys.modules, 'simulation.assembly', SimpleNamespace(
+        AssemblyContext=object, Slot=SimpleNamespace(OUTPUT=0)))
+    spec = importlib.util.spec_from_file_location('near23_lighting_probe',
+        root/'simulation/components/render.py')
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    lights = []
+    bridge = SimpleNamespace(_cameras=[CameraVisual('teleop/camera/spacecraft_overview')],
+        _objects=[], add_mj_scene=lambda *a, **kw: None, set_scene_settings=lambda *a: None,
+        add_lights=lights.append)
+    bridge.add_camera = bridge._cameras.append
+    monkeypatch.setitem(sys.modules, 'bsk_render_adapter', SimpleNamespace(
+        BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace,
+        CameraVisual=CameraVisual, VisualElement=VisualElement))
+    monkeypatch.setitem(sys.modules, 'simulation.teleop_grasp_unreal', SimpleNamespace(
+        _register_celestial_bodies=lambda *a: None))
+    ctx = SimpleNamespace(scene=object(), extra={'template_id': 'sarm-dual-capture26'},
+        add=lambda *a, **kw: None, keep_alive=lambda *a: None)
+    module.RenderComponent(model_path='unused', catalog={}, host='localhost', port=5558,
+        render_rate_hz=50, capture_rate_hz=30, capture_state_provider=None,
+        vision_capture={'enabled': True,
+            'config_file': 'config/vision/capture26_near23_front_mount_20261029.json'}).install(ctx)
+    assert len(bridge._cameras) == 3
+    assert lights == []  # Native scene work lights remain; no extra world light.
+
+
 def test_wrist_vision_changes_only_capture_routing_not_camera_geometry():
     import copy
     from dataclasses import dataclass

@@ -10,6 +10,37 @@ import numpy as np
 POSE_ERROR_ORDER = ['position_x_m', 'position_y_m', 'position_z_m',
                     'rotation_x_rad', 'rotation_y_rad', 'rotation_z_rad']
 
+FIXED_STEREO_PROFILE = 'fixed_stereo_v1'
+NEAR23_BODY_PROFILE = 'near23_eye_in_hand_v1'
+
+
+def stereo_quality(result, profile):
+    """Validate the explicitly selected measurement contract, without truth."""
+    if profile not in (FIXED_STEREO_PROFILE, NEAR23_BODY_PROFILE):
+        raise ValueError('unknown visual measurement profile')
+    counts = result['counts']
+    names = ('used_markers_left', 'used_markers_right', 'common_markers')
+    if any(type(counts[k]) is not int or counts[k] < 0 for k in names):
+        raise ValueError('invalid stereo marker counts')
+    if counts['common_markers'] > min(counts['used_markers_left'], counts['used_markers_right']):
+        raise ValueError('invalid common marker count')
+    if profile == FIXED_STEREO_PROFILE:
+        if min(counts[k] for k in names) < 2:
+            raise ValueError('insufficient complete stereo inlier markers')
+    else:
+        if result.get('quality_profile') != profile or result.get('route') != 'joint_multicamera':
+            raise ValueError('near23 measurement profile mismatch')
+        if min(counts['used_markers_left'], counts['used_markers_right']) < 1:
+            raise ValueError('each eye requires a complete near23 marker')
+        if result.get('positive_depth') is not True:
+            raise ValueError('near23 points must have positive depth')
+        if any(not np.isfinite(float(result['minimum_marker_side_px'][eye]))
+               or float(result['minimum_marker_side_px'][eye]) < 12 for eye in ('left', 'right')):
+            raise ValueError('near23 marker smaller than 12 px')
+    if any(not 0 <= float(result['reprojection_error_px'][eye]) <= 2.5
+           or not 0 <= float(result['max_corner_error_px'][eye]) <= 5 for eye in ('left', 'right')):
+        raise ValueError('visual reprojection limits exceeded')
+
 
 def calibration_id(config):
     """Include extrinsics and layout, not only camera intrinsics."""
@@ -51,7 +82,11 @@ def image_clock(result, now_ns, received_wall_time_ns=None):
 
 class VisualReadiness:
     """Revocable streak in physical time, independent of platform stability."""
-    def __init__(self, mission_id, session_id, calibration, *, minimum=10):
+    def __init__(self, mission_id, session_id, calibration, *, minimum=10,
+                 visual_profile=FIXED_STEREO_PROFILE):
+        if visual_profile not in (FIXED_STEREO_PROFILE, NEAR23_BODY_PROFILE):
+            raise ValueError('unknown visual measurement profile')
+        self.visual_profile = visual_profile
         self.identity = (mission_id, session_id, calibration)
         self.minimum = minimum
         self.count = 0
@@ -131,18 +166,21 @@ class VisualReadiness:
                     interval_failures.append('effective visual receive interval exceeded')
             # Invalid solver events may intentionally omit a pose and quality.
             if result.get('status') == 'ok':
-                counts = result['counts']
-                if min(counts['used_markers_left'], counts['used_markers_right'], counts['common_markers']) < 2:
-                    failures.append('insufficient complete known inlier markers')
-                if any(not 0 <= float(result['reprojection_error_px'][eye]) <= 2.5
-                       or not 0 <= float(result['max_corner_error_px'][eye]) <= 5 for eye in ('left', 'right')):
-                    failures.append('image reprojection quality decreased')
+                try:
+                    stereo_quality(result, self.visual_profile)
+                except ValueError as exc:
+                    failures.append(str(exc))
                 c = result['pose_covariance']
-                if (c['frame'] != 'left_optical' or c['rotation_error'] != 'left_multiplicative'
+                covariance_frame = 'service_body' if self.visual_profile == NEAR23_BODY_PROFILE else 'left_optical'
+                if (c['frame'] != covariance_frame or c['rotation_error'] != 'left_multiplicative'
                         or c.get('order') != POSE_ERROR_ORDER):
                     failures.append('unsupported pose covariance convention')
                 measured = covariance(c['matrix'], 6)
-                if math.sqrt(measured[2, 2]) >= .03:
+                # After rotating an eye-in-hand observation, service-body Z is
+                # not camera depth. Retain the exported optical depth sigma.
+                depth_sigma = (float(result['optical_depth_sigma_m'])
+                               if self.visual_profile == NEAR23_BODY_PROFILE else math.sqrt(measured[2, 2]))
+                if not np.isfinite(depth_sigma) or depth_sigma < 0 or depth_sigma >= .03:
                     failures.append('visual measurement uncertainty exceeded')
             p = covariance(relative_position_covariance, 3)
             covariance(relative_attitude_covariance, 3)

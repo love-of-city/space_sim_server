@@ -37,6 +37,8 @@ GNSS、双目、双星陀螺及导航滤波继续运行与记录，图像计数�
 
 目标星调姿、17.4 m后顺序诊断、靶标/PnP、导航转换及本周误差记录汇总于[本周调姿视觉工作](docs/WEEKLY_TARGET_POINTING_VISION_20261030.md)。[V-bar交接核对](docs/VBAR_VISION_CAPTURE_HANDOFF_20261030.md)说明已有状态继承与仍需接通的自动调姿/抓取；独立near23场景不能直接作为正式NearParked续接。
 
+新增独立原生入口已连续验证110 m初始化、V-bar全段接近、17.4 m调姿、当前夹爪双目导航、0.5 m驻留及四爪约5 N保持20 s。运行方法、停泊误差和实时进度页见[V-bar与原双目抓取集成](docs/VBAR_NEAR23_INTEGRATION_20261030.md)，GNSS/双目/V-bar的数据关系见[流程说明](docs/GNSS_VBAR_STEREO_WORKFLOW_20261030.md)。该入口尚未继承远距检查点，也未替换正式网页的真值演示或收拢臂展开流程。
+
 三类插头自动采集共用连续接近、拔取搬运、反馈插入和边松爪边撤离；各自按夹持轴和尺寸处理，见 [插头采集](docs/AVIATION_PLUG_COLLECTION.md)。
 
 航空螺丝旋出后装配，以及杆状机构旋松、放倒入卡扣、扶起复位和重新锁紧，使用独立的螺纹任务控制器；自动采集入口、任务初态及物理验收见 [螺纹操作采集](docs/THREADED_TASK_COLLECTION.md)。

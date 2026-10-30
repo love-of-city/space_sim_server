@@ -23,6 +23,7 @@ class VisualPredictiveCapture(VisualCaptureProbe):
         self.predicted_position_grip=None;self.predicted_rotation_grip=None
         self.blind_since=None;self.blind_path_m=0.;self.prediction_mode='waiting'
         self.last_contact=None;self.hold_since=None
+        self.activation_time_s=None
 
     @staticmethod
     def neutral():
@@ -115,6 +116,7 @@ class VisualPredictiveCapture(VisualCaptureProbe):
         return a,status
 
     def _command_in_frame(self,t,q,base_from_grip,feedback):
+        if self.activation_time_s is None:self.activation_time_s=float(t)
         dt=0. if self.last_time is None else float(np.clip(t-self.last_time,0.,.02));self.last_time=t
         position,rotation=(np.asarray(x,float) for x in base_from_grip)
         if position.shape!=(3,) or rotation.shape!=(3,3) or not np.all(np.isfinite(position)) or not np.all(np.isfinite(rotation)):
@@ -145,7 +147,7 @@ class VisualPredictiveCapture(VisualCaptureProbe):
             return a,'predictive_'+phase
         if self.p_base is None:return self.neutral(),'predictive_waiting_vision'
         if phase=='wait':
-            if t<2 or len(self.observations)<6:return self.neutral(),'predictive_waiting_stable_vision'
+            if t-self.activation_time_s<2 or len(self.observations)<6:return self.neutral(),'predictive_waiting_stable_vision'
             self.sequence.phase,self.sequence.start='open',t
             return self.neutral(),'predictive_open'
         if visible:

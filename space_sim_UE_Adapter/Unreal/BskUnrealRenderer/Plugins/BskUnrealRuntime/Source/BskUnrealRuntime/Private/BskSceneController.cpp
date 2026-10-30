@@ -3126,9 +3126,15 @@ int32 ABskSceneController::UpdateOfflineCameraWarmup(double NowSeconds)
         if (PendingFrame.SimulationTimeNanoseconds >= PresentationFrame.SimulationTimeNanoseconds
             && (!PendingFrame.bCaptureOnDemand || !PendingFrame.CaptureEpisodeId.IsEmpty())) return 0;
     }
+    static const bool bOfflineCapture = FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"));
     int32 RenderedCameras = 0;
     for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
     {
+        // Stream-enabled background collectors can also have no subscribers.
+        // Visible previews keep their normal rate and own the shared deadline.
+        const bool bVisiblePreview = !bOfflineCapture && Pair.Value.bPictureInPicture
+            && CameraPictureInPictureVisibility.FindRef(Pair.Key) && HasPixelStreamingViewportViewers();
+        if (bVisiblePreview || (!bOfflineCapture && HasPixelStreamingCameraViewers(Pair.Key))) continue;
         USceneCaptureComponent2D* Capture = CameraCaptureComponents.FindRef(Pair.Key);
         if (!Capture || !Capture->TextureTarget) continue;
         double& NextSeconds = CameraNextCaptureSeconds.FindOrAdd(Pair.Key);
@@ -3144,15 +3150,13 @@ int32 ABskSceneController::UpdateOfflineCameraWarmup(double NowSeconds)
 
 void ABskSceneController::UpdatePictureInPictureCaptures()
 {
-    // Offline capture renders extra views only while held idle before an episode.
-    static const bool bOfflineCapture = FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"));
-    if (bOfflineCapture)
-    {
-        UpdateOfflineCameraWarmup(FPlatformTime::Seconds());
-        return;
-    }
     if (!GetWorld()) return;
     const double NowSeconds = FPlatformTime::Seconds();
+    // Both offline and stream-enabled unattended collectors need actual idle
+    // views before capture; a wall-clock sleep alone cannot warm their assets.
+    UpdateOfflineCameraWarmup(NowSeconds);
+    static const bool bOfflineCapture = FParse::Param(FCommandLine::Get(), TEXT("BskOfflineCapture"));
+    if (bOfflineCapture) return;
     for (const TPair<FString, FBskCameraDefinition>& Pair : ManifestCameras)
     {
         const FBskCameraDefinition& Definition = Pair.Value;

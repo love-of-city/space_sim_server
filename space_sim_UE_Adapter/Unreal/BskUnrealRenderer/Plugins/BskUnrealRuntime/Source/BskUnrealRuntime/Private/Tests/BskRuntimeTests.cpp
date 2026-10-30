@@ -1208,6 +1208,14 @@ bool FBskOfflineCameraWarmupTest::RunTest(const FString& Parameters)
     Controller->PresentationFrames = {Idle};
     Controller->CaptureSequence = 31;
     Controller->CameraNextDataCaptureSimulationNanoseconds.Add(Overview.CameraId, 123456789);
+    // Standard automation runs without -BskOfflineCapture. Background web
+    // collection still needs real views even when nobody subscribes to WebRTC.
+    Controller->UpdatePictureInPictureCaptures();
+    TestTrue(TEXT("unattended streamed collector warms the overview"),
+        Controller->CameraNextCaptureSeconds.FindRef(Overview.CameraId) > 0.0);
+    TestTrue(TEXT("unattended streamed collector warms the wrist"),
+        Controller->CameraNextCaptureSeconds.FindRef(Wrist.CameraId) > 0.0);
+    for (auto& Deadline : Controller->CameraNextCaptureSeconds) Deadline.Value = 0.0;
     TestEqual(TEXT("held idle pose renders both cameras without a HUD or viewers"), Controller->UpdateOfflineCameraWarmup(100.0), 2);
     TestEqual(TEXT("same tick adds no duplicate renders"), Controller->UpdateOfflineCameraWarmup(100.0), 0);
     TestEqual(TEXT("warmup is limited to ten hertz"), Controller->UpdateOfflineCameraWarmup(100.05), 0);

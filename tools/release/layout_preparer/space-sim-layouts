@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+BUNDLE_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+unset PYTHONHOME PYTHONPATH VIRTUAL_ENV CONDA_PREFIX
+export PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+export LD_LIBRARY_PATH="$BUNDLE_ROOT/runtime/system-libs"
+export PYTHONPATH="$BUNDLE_ROOT/repo/server:$BUNDLE_ROOT/repo/server/backend:$BUNDLE_ROOT/repo/ue-adapter/Adapters"
+export SPACE_SIM_PYTHON="$BUNDLE_ROOT/runtime/simenv/bin/python"
+export UE56_ROOT="$BUNDLE_ROOT/runtime/UE_5.6"
+"$BUNDLE_ROOT/runtime/python/bin/python3.13" "$BUNDLE_ROOT/app/bootstrap.py"
+exec "$SPACE_SIM_PYTHON" "$BUNDLE_ROOT/app/main.py" "$@"

@@ -1,0 +1,13 @@
+absl-py==2.5.1
+coacd==1.0.14
+etils==1.14.0
+fsspec==2026.9.0
+glfw==2.11.0
+manifold3d==3.5.4
+mujoco==3.7.0
+numpy==2.3.5
+pyopengl==3.1.10
+scipy==1.18.1
+trimesh==5.2.0
+typing-extensions==4.16.0
+zipp==4.1.2

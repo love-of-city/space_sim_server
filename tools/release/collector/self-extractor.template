@@ -1,0 +1,65 @@
+#!/bin/bash
+set -euo pipefail
+PAYLOAD_LINE=@LINE@
+PAYLOAD_SHA256='@SHA@'
+RELEASE_ID='@ID@'
+DESTINATION="${XDG_CACHE_HOME:-$HOME/.cache}/spacesim-collector/$RELEASE_ID"
+EXTRACT_ONLY=0
+case "${1:-}" in
+  --extract|--install-dir)
+    [ "$#" -ge 2 ] || { echo 'Specify an extraction directory.' >&2; exit 2; }
+    if [ "$1" = '--extract' ]; then EXTRACT_ONLY=1; fi
+    DESTINATION=$2
+    shift 2
+    ;;
+  --help|-h)
+    cat <<'HELP'
+Self-contained SpaceSim scripted data collector for Linux x86_64 / glibc >= 2.35.
+Usage:
+  ./space-sim-collector-linux-x86_64.run --extract DIRECTORY
+  ./space-sim-collector-linux-x86_64.run [--install-dir DIRECTORY] check
+  ./space-sim-collector-linux-x86_64.run [--install-dir DIRECTORY] run --task drawer_cycle --count 2 --layout-pool POOL --output DIRECTORY
+  ./space-sim-collector-linux-x86_64.run [--install-dir DIRECTORY] status --output DIRECTORY
+The first run extracts the included runtimes (~40 GiB). No Python or UE installation is needed.
+HELP
+    exit 0
+    ;;
+esac
+for command in tail tar gzip sha256sum flock mktemp; do
+  command -v "$command" >/dev/null || { echo "Missing base system utility: $command" >&2; exit 1; }
+done
+mkdir -p -- "$(dirname -- "$DESTINATION")"
+DESTINATION="$(cd -- "$(dirname -- "$DESTINATION")" && pwd)/$(basename -- "$DESTINATION")"
+exec 9>"$DESTINATION.extract.lock"
+flock 9
+WORK=''
+cleanup() { if [ -n "$WORK" ]; then rm -rf -- "$WORK"; fi; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+if [ -f "$DESTINATION/.release-id" ] && [ "$(cat "$DESTINATION/.release-id")" = "$RELEASE_ID" ]; then
+  echo "Using $DESTINATION"
+elif [ -e "$DESTINATION" ]; then
+  echo "Destination already exists; choose a new directory: $DESTINATION" >&2
+  exit 1
+else
+  echo 'Verifying bundled payload...'
+  ACTUAL=$(tail -n +"$PAYLOAD_LINE" -- "$0" | sha256sum)
+  [ "${ACTUAL%% *}" = "$PAYLOAD_SHA256" ] || { echo 'Payload checksum mismatch; download/copy again.' >&2; exit 1; }
+  WORK=$(mktemp -d -- "$DESTINATION.partial.XXXXXX")
+  echo "Extracting runtimes to $DESTINATION (about 40 GiB)..."
+  tail -n +"$PAYLOAD_LINE" -- "$0" | tar -xzf - --ignore-zeros --no-same-owner -C "$WORK"
+  printf '%s\n' "$RELEASE_ID" > "$WORK/space-sim-layout-preparer/.release-id"
+  mv -- "$WORK/space-sim-layout-preparer" "$DESTINATION"
+  rmdir -- "$WORK"
+  WORK=''
+fi
+flock -u 9
+exec 9>&-
+if [ "$EXTRACT_ONLY" = 1 ]; then
+  echo "Ready: $DESTINATION/space-sim-collect"
+  exit 0
+fi
+if [ "$#" -eq 0 ]; then set -- --help; fi
+exec "$DESTINATION/space-sim-collect" "$@"
+exit 1
+__SPACESIM_PAYLOAD_BELOW__

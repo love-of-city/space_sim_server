@@ -12,3 +12,7 @@ venv/
 
 # Local verification outputs and helper environments.
 **/.local/
+
+# Reproducible release/build output belongs outside this checkout.
+/artifacts/
+/release-output/

@@ -1,56 +1,42 @@
-# 太空机械臂遥操作与数据采集平台
+# SpaceSim
 
-浏览器操作台、权威动力学、UE 渲染和训练数据采集在一个仓库中维护。一个 Git 提交固定整个平台的代码版本。
+太空机械臂遥操作、权威动力学、UE 渲染与训练数据采集的统一项目。服务端与渲染适配器在同一个 Git 仓库维护。
 
-| 目录 | 功能与文档 |
+| 目录 | 职责 |
 | --- | --- |
-| [space_sim_server/](space_sim_server/README.md) | FastAPI 后端、网页、Pixel Streaming 信令、仿真、模型与数据采集 |
-| [space_sim_UE_Adapter/](space_sim_UE_Adapter/README.md) | Basilisk/MJScene 发送端、UE 5.6 渲染与相机采集 |
+| [server/](server/README.md) | 网页/API、仿真、原生加速、任务规划与采集 |
+| [ue-adapter/](ue-adapter/README.md) | Python 协议适配、UE 工程、Runtime 插件和渲染资产 |
+| [docs/](docs/README.md) | 项目架构、目录约定、操作与维护指南 |
+| [tools/release/](tools/release/README.md) | 版本管理下的打包工具和应用启动器 |
+| [manifests/](manifests/README.md) | 环境和资产的索引规范 |
 
-团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](space_sim_server/README.md)。
+## 开发入口
 
-当前采集功能、代码入口及合并后的验收状态统一记录在[采集功能基线](space_sim_server/docs/COLLECTION_BASELINE.md)。`archive/` 是历史实验，不应直接作为当前功能或性能结论。
-
-## 首次获取与安装
-
-Windows 完整网页平台使用 PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。Linux 已提供原生一键启动、停止和网页场景管理，见 [Linux 一键部署](space_sim_server/docs/LINUX_DEPLOYMENT.md)；环境安装与真实采集见 [Linux 基础迁移](space_sim_server/docs/LINUX_BASIC_MIGRATION.md)。
-
-默认 local 动力学还要求 Basilisk 所带 MuJoCo 与项目内置的 3.7.0 头文件匹配。本次完整验收使用 Python 3.13 + bsk 2.11.1；安装该已验证环境时可选择 bsk[all]==2.11.1。使用其他发行版或自编译版本时也需满足这一原生 ABI 要求，单独通过 API 导入检查不足以证明兼容。
-
-只获取一个仓库；不要在两个子目录中再次 clone：
-
-```powershell
-git clone https://github.com/love-of-city/space_sim_server.git
-Set-Location .\space_sim_server
+```bash
+git clone https://github.com/love-of-city/space_sim_server.git space-sim
+cd space-sim
 git lfs install --local
 git lfs pull
-Set-Location .\space_sim_server
 ```
 
-最后一步进入**服务端子目录**。下面使用已经选定的仿真解释器；配置方法及 uv、Conda、venv 安装方式见服务端指南：
+服务端命令从 server/ 执行。目录名称与 Python 包名独立，space_arm_platform 和 bsk_render_adapter 导入名称保持不变。
 
-```powershell
-& $env:SPACE_SIM_PYTHON -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation]"
-npm.cmd --prefix frontend ci --no-audit --no-fund
-npm.cmd --prefix signalling ci --no-audit --no-fund
-& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py
-$env:UE56_ROOT = 'D:\UE\UE_5.6' # 替换为本机路径
-pwsh -NoProfile -File ..\space_sim_UE_Adapter\scripts\build.ps1 -UnrealRoot $env:UE56_ROOT
-pwsh -NoProfile -File .\scripts\run_platform.ps1 -ApiPort 18000
+- [贡献与验证规范](CONTRIBUTING.md)
+- [Linux 部署](server/docs/LINUX_DEPLOYMENT.md)
+- [Python/Basilisk 环境](server/docs/PYTHON_RUNTIME.md)
+- [采集入口与布局顺序](server/docs/LAYOUT_SEQUENCE_COLLECTION.md)
+- [当前采集功能基线](server/docs/COLLECTION_BASELINE.md)
+- [UE 构建与验证](ue-adapter/README.md)
+
+Python 环境必须包含匹配的 Basilisk/MuJoCo API 和原生 ABI；安装项目本身不会安装 UE。使用已有有效解释器安装两个包：
+
+```bash
+uv pip install --python "$SPACE_SIM_PYTHON" -e './ue-adapter[test]' -e './server[test,simulation]'
+cd server
+npm --prefix frontend ci
+npm --prefix signalling ci
 ```
 
-uv 环境可使用指南中的 `uv pip install --python ...`，无需安装 pip。安装项目包不会安装 UE、编译器或 Basilisk。
+本机源码位于 /home/spacesim-zmh/src/space-sim。当前唯一保留的采集批次为 layout1000-20261029，已按用户要求停止；未执行批末完整审核，也未因整理自动恢复。详见[本机维护指南](docs/guides/linux-workspace.md)。
 
-打开 `http://127.0.0.1:18000`，登录后生成并启动场景。停止命令仍从服务端子目录执行：
-
-```powershell
-pwsh -NoProfile -File .\scripts\stop_platform.ps1
-```
-
-## 验证与旧工作区迁移
-
-根 CI 运行 `server-python`、`server-web`、`adapter-python`，均使用本次 checkout 中的代码。基础 CI 不替代 Basilisk、UE/GPU、WebRTC 与数据采集验收。
-
-旧工作区迁移时建议全新 clone，重新安装两个 editable 包、重新构建 UE，并按新路径生成资产 catalog。已有 episode、认证数据库与机器配置另行保留，不将旧 `run/`、`Saved/` 或构建输出复制到新 checkout。
-
-合并基线、历史和 LFS 验证、切换步骤见[仓库合并记录](archive/2026_10_09_repository_merge.md)。旧适配器标签 `adapter/v0.2.0` 表示其历史版本，不表示整个平台的发布版本。
+源码、测试、当前文档和配置模板进入 Git，交付模型与 UE 资产使用 LFS；数据、环境、运行状态与构建输出位于工作区或 Git 忽略目录。见[目录规范](docs/project-layout.md)。基础 CI 不等于完整 UE/GPU、真实动力学或采集验收。

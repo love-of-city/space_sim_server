@@ -1,21 +1,26 @@
-# CONTRIBUTING.md
+# 开发与维护
 
-## 日常流程
+服务端位于 server/，渲染适配器位于 ue-adapter/。配套协议、运行时、资产和采集变更放在同一分支/PR，遵循根 PR 模板，使用 feat/fix/docs/test/chore 等提交前缀。
 
-从最新 main 创建 feature/、fix/ 或 chore/ 短期分支，通过根[PR 模板](.github/pull_request_template.md)记录问题、变更、验证、兼容性与风险。服务端和 UE 适配器的配套变更放在同一个 PR 中。提交采用 feat:、fix:、docs:、test:、chore: 等前缀。
+## 最新工作区与版本
 
-大型变更在根 archive/ 中添加 20XX_XX_XX_具体内容.md。子项目历史 archive/ 保留原记录。
+同步或重构前保全未提交源码、未跟踪功能/测试、资产清单和原生库指纹。HEAD 不一定代表实际加载代码。不要批量用 ours/theirs 处理功能冲突，不通过 reset/clean 删除未提交优化。先核对[采集基线](server/docs/COLLECTION_BASELINE.md)。
 
-采集相关同步或本地内容合并还须核对 [采集功能基线](space_sim_server/docs/COLLECTION_BASELINE.md)。先保留未提交补丁、未跟踪源码和资产清单，再逐项合并本地功能与远端新增功能；不能批量用 `checkout --ours/--theirs` 代替冲突审查。未提交功能可能不在 HEAD 中，合并依据必须包含工作区与未跟踪文件。UE 的实现、头文件、测试和实际加载二进制需一起核验；验收时记录源码及构建指纹。原始实验保留，过时记录标明版本和替代结果。
+大型变更更新 CHANGELOG 和相关当前文档。运行证据保存在仓库外对应批次，当前文档说明验证范围和已知问题。不要再次把逐次实验日志堆入源码 archive。历史数据是否删除遵循用户明确的保留范围，清理时记录必要依赖和原件归属。
 
-## 验证与资产
+## 验证
 
-根 CI 的 required checks 应包含 server-python、server-web、adapter-python。基础 CI 不等于完整仿真兼容；涉及动力学、UE 或采集时，另提供相应运行验收证据。
+- 服务端：从 server/ 执行已有 Python 测试；路径变更核对平台解析、布局池、采集恢复、部署与原生库加载。
+- 网页：npm --prefix frontend test，以及 npm --prefix frontend run build。
+- 信令：npm --prefix signalling test，以及 npm --prefix signalling run check。
+- 适配器：遵循 ue-adapter/README.md，基础 Python 测试与 UE/GPU 验证分别报告。
+- 部署入口变更同步检查 .github/workflows/ci.yml 的路径过滤器；移动测试同步更新 ci-exclusions.json。
+- 原生变更须核验源码、编译指纹及实际加载二进制；短测、完整任务和完整批次结果分别记录。
 
-部署路径过滤器位于根 .github/workflows/ci.yml。未涉及部署的 PR 可跳过服务端 deploy 组；main push 和手动运行始终执行完整基础测试。修改启动脚本或部署依赖时更新过滤器。
+条件不具备的验证报告为未执行/跳过，不能算通过。不要在用户要求停止的正式批次上运行验收或自动恢复任务。
 
-模型和 UE 二进制资产使用 Git LFS。保留两边资产许可，不提交密钥、认证数据库、录制、日志、虚拟环境、机器配置、Saved、Intermediate 或构建产物。
+## 文件管理
 
-## 本次历史导入
+保留第三方许可。模型/CAD/UE交付资产使用LFS。环境、录制、日志、认证数据库、机器配置、Saved、Intermediate与构建产物不提交。Generated目录同时含通用资产与本机布局，按清单精确分类。
 
-仓库合并 PR 必须使用 **Create a merge commit**。Squash 或 rebase 会破坏导入历史与 main 的祖先关系；合入后需再次验证两个原主线 SHA 均为 main 的祖先。其他日常 PR 继续使用仓库允许的合并方式。
+发布源码在 tools/release/，输入 staging 和输出包在仓库外。发布包不能原地覆盖为新版本，其验收不能代表后续源码。见[目录规则](docs/project-layout.md)。

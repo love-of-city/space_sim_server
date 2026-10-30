@@ -127,7 +127,11 @@ def apply_floating_model(root, source, scene):
     quat = vectors["orientation_wxyz"]
     if abs(np.linalg.norm(quat)-1.) > 1e-9:
         raise ValueError("Saved floating release contains a non-unit quaternion")
-    point = vectors["position_body_m"]+quaternion_wxyz_to_matrix(quat)@asset.grip_point
+    rotation = quaternion_wxyz_to_matrix(quat)
+    point = vectors["position_body_m"]+rotation@asset.grip_point
+    grasp_rotation = rotation@basis
+    relative_quat = matrix_to_quaternion_wxyz(grasp_rotation@r.T)
+    tilt = 2.*math.atan2(float(np.linalg.norm(relative_quat[1:])), abs(float(relative_quat[0])))
     delta = point-camera_position
     distance = float(saved.get("camera_to_grasp_distance_m", float("nan")))
     goal = vectors["ik_joint_position_rad"]
@@ -135,13 +139,14 @@ def apply_floating_model(root, source, scene):
     if (not math.isfinite(distance) or not options.min_distance_m-1e-10 <= distance <= options.max_distance_m+1e-10
             or np.linalg.norm(vectors["velocity_body_m_s"]) > options.max_speed_m_s+1e-12
             or np.linalg.norm(vectors["angular_velocity_body_rad_s"]) > options.max_spin_rad_s+1e-12
+            or tilt > math.radians(options.max_tilt_deg)+1e-9
             or np.any(goal < lower) or np.any(goal > upper)
             or not np.allclose(camera_position, vectors["camera_position_body_m"], atol=1e-10, rtol=0)
             or not np.allclose(point, vectors["grasp_position_body_m"], atol=1e-10, rtol=0)
             or abs(np.linalg.norm(delta)-distance) > 1e-10
             or np.dot(delta/distance, -camera_rotation[:, 2]) < .99
             or np.linalg.norm(gp-point) > 3e-6
-            or np.linalg.norm(gr-quaternion_wxyz_to_matrix(quat)@basis) > 2e-5):
+            or np.linalg.norm(gr-grasp_rotation) > 2e-5):
         raise ValueError("Saved floating release violates its physical configuration")
     parents = {child: parent for parent in root.iter() for child in parent}
     if parents[body] is not root.find("worldbody"):

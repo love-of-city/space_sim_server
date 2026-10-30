@@ -19,6 +19,7 @@ import time
 from typing import Literal
 import uuid
 import xml.etree.ElementTree as ET
+from simulation.scripted_tasks.floating_capture import FLOATING_TASKS
 
 import psutil
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -74,6 +75,13 @@ for _task, _label, _description in (
 
 TERMINAL = {"complete", "failed", "cancelled", "interrupted", "attempt_limit"}
 
+for _task, _asset in FLOATING_TASKS.items():
+    TASKS[_task] = CollectionTask(
+        _asset.label + "抓取", "collection/collect_scripted_tasks.py", "sarm-task-box-20261012",
+        arguments=("--task", _task),
+        description="随机释放物体 → 跟踪拦截 → 双指抓取 → 稳定保持；相机到抓取点初始距离 0.12–0.75 m。",
+    )
+
 
 from .collection_randomization import CollectionRandomization
 from pydantic import StrictBool
@@ -100,6 +108,12 @@ class CollectionCreate(BaseModel):
     def valid_plan(self):
         if self.task not in TASKS:
             raise ValueError("未注册的采集任务")
+        if self.task in FLOATING_TASKS:
+            if self.randomize_overview_camera:
+                raise ValueError("漂浮物任务使用固定相机配置")
+            if self.layout_randomization:
+                raise ValueError("漂浮物任务随机释放目标，操作台布局保持固定")
+            self.range_deg = 0.
         if self.task == "drawer_cycle":
             if self.linear_speed_m_s is None:
                 self.linear_speed_m_s = 0.1

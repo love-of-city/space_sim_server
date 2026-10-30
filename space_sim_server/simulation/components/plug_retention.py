@@ -174,11 +174,14 @@ class PlugRetentionComponent:
                              for body, model in self.models.items()})
 
 
-def install_configured_plug_retention(ctx):
+def install_configured_plug_retention(ctx, *, released_bodies=()):
+    """Install seated connectors; explicitly released parts have no socket forces."""
     parameters = load_retention_parameters()
     if parameters is None:
         return None
     sockets = model_retention_sockets(ctx.config.model_path)
+    for body in released_bodies:
+        sockets.pop(body, None)
     if not sockets:
         return None
     component = PlugRetentionComponent(model_path=ctx.config.model_path, parameters=parameters, sockets=sockets)

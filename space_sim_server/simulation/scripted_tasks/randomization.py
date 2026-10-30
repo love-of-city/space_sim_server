@@ -266,6 +266,8 @@ def write_model_variant(source, output, scene):
     source = Path(source).resolve()
     dynamics_enabled = options_for_scene(scene).dynamics.enabled
     task = scene.get('scripted_task_name', scene.get('collection_config', {}).get('task'))
+    from .floating_capture import FLOATING_TASKS
+    floating_task = task in FLOATING_TASKS
     threaded_task = task in {'aviation_bolt_insert', 'locking_rod_cycle'}
     config = scene.setdefault("collection_config", {})
     # Keep the canonical episode assignment separate from the prompt/palette
@@ -310,11 +312,14 @@ def write_model_variant(source, output, scene):
             schema='collection-model-physics/1', source_model=str(source),
             source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
             bolt_storage_thread=storage_thread)
-    if not dynamics_enabled and not threaded_task and not visual_color and not physics_upgraded:
+    if not dynamics_enabled and not threaded_task and not visual_color and not physics_upgraded and not floating_task:
         return source
     realized = scene.get("collection_config", {}).get("realized_randomization", {})
     mass, friction = (realized["mass_scale"], realized["friction_scale"]) if dynamics_enabled else (1., 1.)
     initialization = {}
+    if floating_task:
+        from .floating_initialization import apply_floating_model
+        initialization['floating_release'] = apply_floating_model(root, source, scene)
     if storage_thread is not None:
         initialization['bolt_storage_thread'] = storage_thread
     appearance = None

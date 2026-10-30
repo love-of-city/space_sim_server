@@ -46,7 +46,7 @@
 
 抓取算法应检查 `valid`、样本年龄及外层 `render_session_id/reset_generation`，再按自己的相机／本体变换使用测量。陀螺本身不输出绝对姿态，不观测目标星运动，也不能单独消除平移误差。包中不包含真实姿态、实际隐藏偏置或真值角速度；原 `attitude_control` 仍是独立的真值诊断。
 
-本提交交付被动陀螺反馈接口。尚未将测量闭环接入张怿心的姿态估计或刘丹旭的盲区抓取预测；不能据此声称已解决盲抓误差或完成图像导航与实体锁定。
+传感器层交付被动陀螺反馈，不修改原姿控。当前 main 的 `visual_predictive_capture.py` 已将共享测量和两臂编码器用于末端自身运动补偿；双目输入、逐步接触验收及其目标保持假设见[末端抓取整合](NEAR23_GYRO_CAPTURE_INTEGRATION_20261029.md)。该消费端的独立试验不等于整星带误差姿态导航或正式交会至物理抓取全程通过；正式连续任务的差别见[V-bar 交接约定](VBAR_VISION_CAPTURE_HANDOFF_20261030.md)。
 
 基础 CI 检查三轴与时间语义、白噪声统计、偏置随机游走、种子复现、饱和、无真值泄露的包结构，以及真实 Hub／JSON 录制回读。云端环境另运行：
 
@@ -54,4 +54,4 @@
 & $env:SPACE_SIM_PYTHON -m pytest tests/test_gyroscope.py tests/test_gyro_observation.py tests/test_gyroscope_native.py tests/test_sarm_observation.py
 ```
 
-`test_gyroscope_native.py` 使用真实 Basilisk 消息与调度器验证发布顺序、时戳和过期拒绝；不替代整个平台动力学验收。云端已在原模型与双臂模型中施加机械臂运动，检查带噪观测及启用／禁用传感器时物理终态一致，并在实际网页场景核验重置和录制回读；证据见 [PR29](https://github.com/love-of-city/space_sim_server/pull/29) 与 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。实际抓取消费端仍需联调，以上检查不证明姿态估计或盲抓闭环完成。
+`test_gyroscope_native.py` 使用真实 Basilisk 消息与调度器验证发布顺序、时戳和过期拒绝；不替代整个平台动力学验收。云端已在原模型与双臂模型中施加机械臂运动，检查带噪观测及启用／禁用传感器时物理终态一致，并在实际网页场景核验重置和录制回读；证据见已合入的 [PR29](https://github.com/love-of-city/space_sim_server/pull/29) 与 [PR20](https://github.com/love-of-city/space_sim_server/pull/20)。传感器检查与上面的抓取消费端验收分别记录，不能相互替代。

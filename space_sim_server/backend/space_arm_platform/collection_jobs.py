@@ -420,6 +420,7 @@ class CollectionManager:
 
     def _run(self, job):
         active = []
+        failure = None
         folder = self.root / job["id"]
         try:
             for worker in job["workers"]:
@@ -519,6 +520,9 @@ class CollectionManager:
                             worker["forced_stop"] = True
                         if process.poll() is None:
                             continue
+                        # The child may have finalized after the refresh above.
+                        # Read its durable final summary before counting results.
+                        self._refresh(job, worker)
                         worker["returncode"] = process.returncode
                         worker["status"] = (
                             "cancelled"
@@ -526,6 +530,10 @@ class CollectionManager:
                             else "complete"
                             if process.returncode == 0
                             and len(worker["accepted_episodes"]) == worker["count"]
+                            else "attempt_limit"
+                            if process.returncode == 1
+                            and worker["collector_status"] == "attempt_limit"
+                            and not worker.get("error")
                             else "failed"
                         )
                         log.close()
@@ -541,17 +549,8 @@ class CollectionManager:
                     self._save(job)
                 if active:
                     time.sleep(0.5)
-            with self.lock:
-                job["status"] = (
-                    "cancelled"
-                    if job["status"] == "stopping"
-                    else "complete"
-                    if all(w["status"] == "complete" for w in job["workers"])
-                    else "failed"
-                )
         except Exception as error:
-            with self.lock:
-                job.update(status="failed", error=f"{type(error).__name__}: {error}")
+            failure = f"{type(error).__name__}: {error}"
         finally:
             for worker, process, log, group in active:
                 group.close()
@@ -559,6 +558,18 @@ class CollectionManager:
                 process.wait(timeout=5)
                 log.close()
             with self.lock:
+                # Publish a terminal state only after cleanup, and persist it
+                # under the same lock before readers can observe completion.
+                job["status"] = (
+                    "failed" if failure is not None
+                    else "cancelled" if job["status"] == "stopping"
+                    else "complete" if all(w["status"] == "complete" for w in job["workers"])
+                    else "attempt_limit"
+                    if all(w["status"] in {"complete", "attempt_limit"} for w in job["workers"])
+                    else "failed"
+                )
+                if failure is not None:
+                    job["error"] = failure
                 for worker in job["workers"]:
                     if worker["status"] in {"queued", "running"}:
                         worker["status"] = (

@@ -96,6 +96,7 @@ class DrawerCycleTask(DrawerLiftTask):
     v4_stages = tuple(stage for stage in legacy_stages if stage != "align")
     stages = ("settle", "approach", "grip", "lift", "return", "release", "retract", "verify")
     approach_stages = ("approach",)
+    required_operation_stages = ("lift", "return", "retract")
 
     @classmethod
     def recorded_stages(cls, version):
@@ -138,15 +139,18 @@ class DrawerCycleTask(DrawerLiftTask):
             return self.hover.copy(), self.grasp_rotation
         return super()._stage_goal(name, p, r)
 
-    def _enter(self, name, sample):
-        continuing_open = self.stage == "release" and name == "retract"
-        previous_gripper = self._gripper_timing, self._gripper_motion_s
+    def _record_verified_transition(self, name, sample):
         if name == "settle":
             self.initial_buckle_rad = sample.buckle_rad
         if name == "return":
             self.open_verified = True
         if name == "release":
             self.closed_verified = True
+
+    def _enter(self, name, sample):
+        continuing_open = self.stage == "release" and name == "retract"
+        previous_gripper = self._gripper_timing, self._gripper_motion_s
+        self._record_verified_transition(name, sample)
         error=None
         try:
             super()._enter(name, sample)

@@ -127,7 +127,13 @@ class DrawerLiftTask:
         self.axis = self.drawer_rotation @ np.fromstring(slide.get("axis"), sep=" ")
         if not np.allclose(self.axis, [0.0, 0.0, 1.0]):
             raise ValueError("Task requires the delivered upward slide axis")
-        self.drawer_origin = np.fromstring(drawer.get("pos"), sep=" ")
+        self.drawer_initial_reference_m = float(slide.get("ref", "0"))
+        # Episode models can start opened through a matching MJCF rest transform
+        # and joint ref. Geometry below is expressed at physical slide q == 0.
+        self.drawer_origin = (
+            np.fromstring(drawer.get("pos"), sep=" ")
+            - self.axis * self.drawer_initial_reference_m
+        )
         self.grip_origin = self.drawer_origin + self.drawer_rotation @ np.asarray(
             self.config.grip_offset_m
         )
@@ -254,6 +260,9 @@ class DrawerLiftTask:
             }
         )
 
+    def _initial_state_error(self, sample):
+        return "drawer_not_initially_closed" if abs(sample.drawer_m) > 0.005 else None
+
     def step(self, sample: DrawerSample):
         if self.result is not None:
             return self.reference.copy(), np.zeros(8)
@@ -279,8 +288,9 @@ class DrawerLiftTask:
             self._last_time = sample.time_s
             self.reference[:] = sample.joints
             self._initial_drawer = sample.drawer_m
-            if abs(sample.drawer_m) > 0.005:
-                self.fail("drawer_not_initially_closed", sample)
+            initial_error = self._initial_state_error(sample)
+            if initial_error:
+                self.fail(initial_error, sample)
                 return self.reference.copy(), self.velocity.copy()
             self.grasp = self.grip_origin + self.axis * sample.drawer_m
             self.hover = self.grasp + self.axis * self.config.clearance_m

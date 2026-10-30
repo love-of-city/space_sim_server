@@ -5,11 +5,11 @@ import ctypes
 import math
 import os
 import numpy as np
-from .drawer_cycle import DrawerCycleTask
+from .drawer_tasks import DRAWER_TASKS, create_drawer_task, drawer_task_class
 from .drawer_lift import DrawerSample
 from .plug_insert import PlugInsertTask
 from .plug_profiles import is_plug_task, plug_profile
-from .threaded_tasks import THREADED_TASKS, create_threaded_task, threaded_task_class
+from .threaded_tasks import THREADED_TASKS, LOCKING_ROD_TASKS, create_threaded_task, threaded_task_class
 
 NOISE_DISABLED = {
     name: False
@@ -62,8 +62,8 @@ def randomized_scene(source, seed, half_range_deg=30.0, task_name="drawer_cycle"
         task=task_name,
         task_version=threaded_task_class(task_name).version
         if task_name in THREADED_TASKS
-        else DrawerCycleTask.version
-        if task_name == "drawer_cycle"
+        else drawer_task_class(task_name).version
+        if task_name in DRAWER_TASKS
         else (PlugInsertTask.task_version(task_name)
               if is_plug_task(task_name)
               else PlugInsertTask.version),
@@ -257,11 +257,11 @@ class NativePoseProbe:
                        joint_values=None, baseline=None, arm_penetration_m=.0005,
                        clearance_m=0., mechanism_clearance_m=None, axial_socket=None):
         """The same private contact gate for reset preflight and carry branches."""
-        moving_mechanism = ({"locking_rod", "fastener"} if task_name == "locking_rod_cycle"
+        moving_mechanism = ({"locking_rod", "fastener"} if task_name in LOCKING_ROD_TASKS
                             else {"bolt"} if task_name == "aviation_bolt_insert"
                             else {task_name.removesuffix("_insert")} if task_name in ("aviation_plug_insert","guide_plug_insert","cylindrical_plug_insert")
                             else {"cylindrical_plug"} if task_name == "plug_insert"
-                            else {"drawer_base", "drawer_buckle"} if task_name == "drawer_cycle" else set())
+                            else {"drawer_base", "drawer_buckle"} if task_name in DRAWER_TASKS else set())
         if task_name not in THREADED_TASKS and not allowed_contact_bodies and axial_socket is None:
             # A released plug or drawer is static scene geometry. Its own seat
             # contact must not reject an unrelated empty-gripper withdrawal.
@@ -304,7 +304,7 @@ class NativePoseProbe:
             mechanism_threshold = (mechanism_clearance_m if mechanism_clearance_m is not None
                                    else clearance_m if clearance_m else -0.0002)
             if moving_mechanism.intersection((a, b)) and distance < mechanism_threshold:
-                if task_name == "drawer_cycle" and {a,b} <= {"drawer_base", "drawer_buckle"}:
+                if task_name in DRAWER_TASKS and {a,b} <= {"drawer_base", "drawer_buckle"}:
                     continue
                 if axial_socket is not None:
                     # Only the active connector's own mating wall is intentional
@@ -315,7 +315,7 @@ class NativePoseProbe:
                     if ((pickup and other == "asm_board2") or
                             (not pickup and geom.startswith(prefix + "_bore_"))):
                         continue
-                if task_name == "locking_rod_cycle" and frozenset((a, b)) in own_rod_contacts:
+                if task_name in LOCKING_ROD_TASKS and frozenset((a, b)) in own_rod_contacts:
                     continue
                 if task_name == "aviation_bolt_insert":
                     geoms = (self.geom_name(geom1), self.geom_name(geom2))
@@ -377,7 +377,7 @@ class NativePoseProbe:
             profile = plug_profile(task_name)
             task = type(task)(model,task.config) if task is not None else PlugInsertTask(model, PlugInsertConfig(plug_body=profile.body))
         else:
-            task = type(task)(model,task.config) if task is not None else DrawerCycleTask(model)
+            task = type(task)(model,task.config) if task is not None else create_drawer_task(task_name, model)
         if hasattr(self,"handle") and task_name not in THREADED_TASKS:
             from .environment_motion import enable
             enable(task)
@@ -464,8 +464,16 @@ class NativePoseProbe:
                 False,
             )
         else:
+            # Standalone return starts with the mechanism physically open in
+            # qpos0. The probe must plan against that same initial state.
+            import xml.etree.ElementTree as ET
+            root = ET.parse(model).getroot()
+            def initial_scalar(name):
+                joint = root.find(f'.//joint[@name="{name}"]')
+                return float(joint.get("ref", "0"))
             sample = DrawerSample(
-                0.0, q, np.zeros(8), 0.0, 0.0, 0.0, np.zeros(6), False
+                0.0, q, np.zeros(8), initial_scalar("drawer_base_slide"),
+                0.0, initial_scalar("drawer_buckle_joint"), np.zeros(6), False
             )
         task.step(sample)
         try:
@@ -512,10 +520,22 @@ class NativePoseProbe:
                     task.reference[:] = task.approach_reference(1.0)
             # Descend/lift/return IK must exist too. Contact intentionally starts here.
             for stage in (
-                (() if task.coordinated_grasp else ("descend",)) if is_plug else ("lift", "return", "retract")
+                (() if task.coordinated_grasp else ("descend",)) if is_plug
+                else getattr(task, "required_operation_stages", ("lift", "return", "retract"))
             ):
+                if not is_plug and task_name in ("drawer_open", "drawer_close"):
+                    from dataclasses import replace
+                    # Only the private planning sample follows the preceding
+                    # operation. Return/retract must not see the old open body
+                    # overlapping a gripper already at the closed endpoint.
+                    sample = replace(sample, joints=task.reference.copy())
                 task._enter(stage, sample)
                 task.reference[:6] = task._path[-1][:6]
+                if not is_plug and task_name in ("drawer_open", "drawer_close"):
+                    if stage in ("lift", "return"):
+                        position, _ = task.chain.forward(task.reference[:6])
+                        drawer_m = float((position-task.grip_origin) @ task.axis)
+                        sample = replace(sample, drawer_m=drawer_m, joints=task.reference.copy())
         except ValueError as exc:
             return dict(
                 accepted=False,

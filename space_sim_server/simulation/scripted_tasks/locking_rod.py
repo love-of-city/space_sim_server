@@ -66,6 +66,8 @@ class LockingRodConfig(ThreadedMotionConfig):
 class LockingRodTask(ThreadedTaskBase):
     name = "locking_rod_cycle"
     version = "locking-rod-cycle/3-straight-approach"
+    operation = "cycle"
+    _legacy_versions = ("locking-rod-cycle/2-coaxial-latch",)
     stages = (
         "settle", "approach", "grip", "loosen", "fold_release", "fold_clear",
         "fold_approach", "fold_grip", "lower", "release_down", "clear_down",
@@ -80,7 +82,7 @@ class LockingRodTask(ThreadedTaskBase):
 
     @classmethod
     def recorded_stages(cls, version=None):
-        if version not in (None, cls.version, "locking-rod-cycle/2-coaxial-latch"):
+        if version not in (None, cls.version, *cls._legacy_versions):
             raise ValueError(f"Unsupported locking rod task version: {version}")
         return cls.stages
 
@@ -113,6 +115,9 @@ class LockingRodTask(ThreadedTaskBase):
         self.hinge_ref = float(hinge.get("ref", "0"))
         self.spin_ref = float(spin.get("ref", "0"))
         self.slide_ref = float(slide.get("ref", "0"))
+        from simulation.model_preparation.threaded_task_initialization import LOCKED_TRAVEL_M
+        self.locked_slide = LOCKED_TRAVEL_M if self.operation == "restore" else self.slide_ref
+        self.locked_spin = self.helix_offset_rad+self.locked_slide*2*math.pi/self.lead_m
         self.hinge_range = np.fromstring(hinge.get("range", ""), sep=" ")
         if (self.hinge_range.shape != (2,) or not self.hinge_range[0] <= self.config.folded_hinge_rad <= self.hinge_range[1]):
             raise ValueError("Locking rod hinge cannot reach its physical limit clip")
@@ -137,6 +142,7 @@ class LockingRodTask(ThreadedTaskBase):
         self._grip_hold = self._grip_filter = None
         self.loosen_verified = self.folded_verified = False
         self.returned_verified = self.tightened_verified = False
+        self.initial_folded_verified = False
 
     def mechanism_pose(self, hinge, slide, spin):
         """Exact reference kinematics, including task-specific nonzero joint refs."""
@@ -216,6 +222,31 @@ class LockingRodTask(ThreadedTaskBase):
                     and np.linalg.norm(sample.part_position_body_m-expected) <= .001
                     and self._stationary(sample, .10))
 
+    def _initially_folded(self, sample):
+        """Require the real loose snap-clip start, including settled contacts."""
+        from simulation.model_preparation.threaded_task_initialization import FOLDED_MARKER
+        marker = self.root.find(f'./custom/numeric[@name="{FOLDED_MARKER}"]')
+        hinge, slide, spin = self._coordinates(sample)
+        expected, _ = self.mechanism_pose(hinge, slide, spin)
+        return bool(marker is not None and self._at_clip(sample)
+                    and abs(slide) <= self.config.loose_slide_tolerance_m
+                    and abs(spin-self.helix_offset_rad) <= .06
+                    and self._helix_error(sample) <= self.config.helix_tolerance_m
+                    and np.linalg.norm(sample.part_position_body_m-expected) <= .001
+                    and self._stationary(sample, .10))
+
+    def _terminal_evidence(self, sample):
+        if self.operation == "fold":
+            _, slide, spin = self._coordinates(sample)
+            return bool(self.loosen_verified and self.folded_verified and self._at_clip(sample)
+                        and abs(slide) <= self.config.loose_slide_tolerance_m
+                        and abs(spin-self.helix_offset_rad) <= .06
+                        and self._helix_error(sample) <= self.config.helix_tolerance_m)
+        initial_operations = (self.initial_folded_verified if self.operation == "restore"
+                              else self.loosen_verified and self.folded_verified)
+        return bool(initial_operations and self.returned_verified and self.tightened_verified
+                    and self._released_locked(sample))
+
     def _stationary(self, sample, angular=.05):
         return bool(np.linalg.norm(sample.part_velocity_body_m_s) < .008
                     and np.linalg.norm(sample.part_angular_velocity_body_rad_s) < angular
@@ -236,6 +267,8 @@ class LockingRodTask(ThreadedTaskBase):
             folded_target_hinge_rad=self.config.folded_hinge_rad,
             loosen_verified=self.loosen_verified, folded_verified=self.folded_verified,
             returned_verified=self.returned_verified, tightened_verified=self.tightened_verified,
+            initial_folded_verified=self.initial_folded_verified,
+            task_operation=self.operation,
             released_stable_seconds=self._released_stable,
             fastener_hook_contacts=sample.scalar_joints.get("fastener_hook_contacts"),
             fastener_hook_normal_force_n=sample.scalar_joints.get("fastener_hook_normal_force_n"),
@@ -379,7 +412,13 @@ class LockingRodTask(ThreadedTaskBase):
         hinge, slide, spin = self._coordinates(sample)
         if self.stage == "settle":
             if sample.time_s-self._entered >= self.config.initial_settle_s:
-                if not self._initially_locked(sample):
+                if self.operation == "restore":
+                    if not self._initially_folded(sample):
+                        self.fail("initial_rod_not_physically_retained_in_clip", sample)
+                    else:
+                        self.initial_folded_verified = True
+                        self._enter("reapproach", sample)
+                elif not self._initially_locked(sample):
                     self.fail("initial_fastener_not_physically_tightened", sample)
                 else:
                     self._enter("approach", sample)
@@ -450,7 +489,7 @@ class LockingRodTask(ThreadedTaskBase):
             if self.stage == "clear_down" and not self._at_clip(sample):
                 self.fail("released_rod_not_retained_by_clip", sample)
             elif done:
-                self._enter({"clear_down": "reapproach", "retract": "verify",
+                self._enter({"clear_down": "verify" if self.operation == "fold" else "reapproach", "retract": "verify",
                              "fold_clear": "fold_approach", "turn_clear": "turn_approach"}[self.stage], sample)
         elif self.stage == "raise":
             done = self._path_step(sample, dt)
@@ -464,7 +503,8 @@ class LockingRodTask(ThreadedTaskBase):
             self._tighten_peak_hook_force_n = max(self._tighten_peak_hook_force_n,
                                                 sample.scalar_joints.get("fastener_hook_normal_force_n", 0.))
             if self._seating_reference is None:
-                self._rotate_fastener(sample, dt, self._initial_spin+.12)
+                self._rotate_fastener(sample, dt,
+                                      (self.locked_spin if self.operation == "restore" else self._initial_spin)+.12)
                 self._stable = self._stable+dt if self._at_hook(sample) and self._stationary(sample) else 0.
                 if self._stable >= self.config.terminal_confirm_s:
                     # A first touch can be a transient collision. Confirm a
@@ -482,9 +522,7 @@ class LockingRodTask(ThreadedTaskBase):
         elif self.stage == "verify":
             self._advance_opening(dt)
             clear = sample.finger_part_contacts is not None and sum(sample.finger_part_contacts) == 0
-            completed = all((self.loosen_verified, self.folded_verified,
-                             self.returned_verified, self.tightened_verified))
-            valid = completed and clear and self._released_locked(sample) and self._stationary(sample)
+            valid = self._terminal_evidence(sample) and clear and self._stationary(sample)
             self._released_stable = self._released_stable+dt if valid else 0.
             if self._released_stable >= self.config.verify_hold_s:
                 self._succeed(sample)
@@ -504,7 +542,7 @@ class LockingRodTask(ThreadedTaskBase):
         if preview.reference.shape != (8,):
             raise ValueError("Preflight requires eight initial joint coordinates")
         values = []
-        mechanism_state = (0., self.slide_ref, self.spin_ref)
+        mechanism_state = (self.hinge_ref, self.slide_ref, self.spin_ref)
         def record(stage, p, r, *, opening=None, path_fn=None, distance=None, angle=None,
                    approach=False, mechanism_fn=None):
             nonlocal mechanism_state
@@ -529,24 +567,11 @@ class LockingRodTask(ThreadedTaskBase):
             return ThreadedSample(0., preview.reference.copy(), np.zeros(8), p, r,
                                   np.zeros(3), np.zeros(3), np.zeros(6), True,
                                   scalar_joints=dict(zip(self._required_scalars, (hinge, slide, spin))))
-        start = sample(0., self.slide_ref, self.spin_ref)
-        grasp, orientation = preview._grasp_pose(start, offset_local=self.config.grasp_offset_m)
-        record("approach", grasp, orientation, approach=True)
-        held_opening = self._contact_opening(preview.reference, mechanism_state)
-        position, rotation = preview.chain.forward(preview.reference[:6])
-        record("grip", position, rotation, opening=held_opening)
-        grasp_sample = sample(0., self.slide_ref, self.spin_ref)
-        preview._capture_grasp(grasp_sample)
-        offset, relative = preview._grasp_transform
         def tool_pose(h, z, theta):
             p, r = self.mechanism_pose(h, z, theta)
             tool_r = r @ relative.T
             return p-tool_r @ offset, tool_r
         zero_spin = self.helix_offset_rad
-        p, r = tool_pose(0., 0., zero_spin)
-        record("loosen", p, r, path_fn=lambda u: tool_pose(0., self.slide_ref*(1-u), self.spin_ref*(1-u)+zero_spin*u),
-               distance=self.slide_ref, angle=abs(self.spin_ref-zero_spin),
-               mechanism_fn=lambda u: (0., self.slide_ref*(1-u), self.spin_ref*(1-u)+zero_spin*u))
         def regrasp(prefix, mode, grasp_stage):
             """An open, clear, approach and close sequence with no held pose cheat."""
             position, rotation = preview.chain.forward(preview.reference[:6])
@@ -559,14 +584,31 @@ class LockingRodTask(ThreadedTaskBase):
             record(grasp_stage, gp, gr, opening=opening)
             preview._capture_grasp(sample(*mechanism_state))
             return preview._grasp_transform
-        offset, relative = regrasp("fold", "fold_support", "fold_grip")
-        p, r = tool_pose(self.config.folded_hinge_rad, 0., zero_spin)
         radius = np.linalg.norm(self.part_reference_position-self.pivot)
-        record("lower", p, r, path_fn=lambda u: tool_pose(u*self.config.folded_hinge_rad, 0., zero_spin),
-               distance=radius*abs(self.config.folded_hinge_rad), angle=abs(self.config.folded_hinge_rad),
-               mechanism_fn=lambda u: (u*self.config.folded_hinge_rad, 0., zero_spin))
-        record("release_down", p, r, opening=self.config.release_open_rad)
-        record("clear_down", *preview._clear_pose("clear_down", sample(*mechanism_state)))
+        if self.operation != "restore":
+            start = sample(0., self.slide_ref, self.spin_ref)
+            grasp, orientation = preview._grasp_pose(start, offset_local=self.config.grasp_offset_m)
+            record("approach", grasp, orientation, approach=True)
+            held_opening = self._contact_opening(preview.reference, mechanism_state)
+            position, rotation = preview.chain.forward(preview.reference[:6])
+            record("grip", position, rotation, opening=held_opening)
+            grasp_sample = sample(0., self.slide_ref, self.spin_ref)
+            preview._capture_grasp(grasp_sample)
+            offset, relative = preview._grasp_transform
+            p, r = tool_pose(0., 0., zero_spin)
+            record("loosen", p, r, path_fn=lambda u: tool_pose(0., self.slide_ref*(1-u), self.spin_ref*(1-u)+zero_spin*u),
+                   distance=self.slide_ref, angle=abs(self.spin_ref-zero_spin),
+                   mechanism_fn=lambda u: (0., self.slide_ref*(1-u), self.spin_ref*(1-u)+zero_spin*u))
+            offset, relative = regrasp("fold", "fold_support", "fold_grip")
+            p, r = tool_pose(self.config.folded_hinge_rad, 0., zero_spin)
+            record("lower", p, r, path_fn=lambda u: tool_pose(u*self.config.folded_hinge_rad, 0., zero_spin),
+                   distance=radius*abs(self.config.folded_hinge_rad), angle=abs(self.config.folded_hinge_rad),
+                   mechanism_fn=lambda u: (u*self.config.folded_hinge_rad, 0., zero_spin))
+            record("release_down", p, r, opening=self.config.release_open_rad)
+            record("clear_down", *preview._clear_pose("clear_down", sample(*mechanism_state)))
+            if self.operation == "fold":
+                return values
+        preview._grasp_mode = "fold_support"
         down = sample(self.config.folded_hinge_rad, 0., zero_spin)
         preview._grasp_sign = None
         gp, gr = preview._grasp_pose(down)
@@ -581,10 +623,10 @@ class LockingRodTask(ThreadedTaskBase):
                distance=radius*abs(self.config.folded_hinge_rad), angle=abs(self.config.folded_hinge_rad),
                mechanism_fn=lambda u: ((1-u)*self.config.folded_hinge_rad, 0., zero_spin))
         offset, relative = regrasp("turn", "turn_latch", "turn_grip")
-        p, r = tool_pose(0., self.slide_ref, self.spin_ref)
-        record("tighten", p, r, path_fn=lambda u: tool_pose(0., self.slide_ref*u, zero_spin*(1-u)+self.spin_ref*u),
-               distance=self.slide_ref, angle=abs(self.spin_ref-zero_spin),
-               mechanism_fn=lambda u: (0., self.slide_ref*u, zero_spin*(1-u)+self.spin_ref*u))
+        p, r = tool_pose(0., self.locked_slide, self.locked_spin)
+        record("tighten", p, r, path_fn=lambda u: tool_pose(0., self.locked_slide*u, zero_spin*(1-u)+self.locked_spin*u),
+               distance=self.locked_slide, angle=abs(self.locked_spin-zero_spin),
+               mechanism_fn=lambda u: (0., self.locked_slide*u, zero_spin*(1-u)+self.locked_spin*u))
         record("release", p, r, opening=self.config.release_open_rad)
         record("retract", p-self.config.retreat_distance_m*r[:, 2], r)
         return values
@@ -600,3 +642,21 @@ class LockingRodTask(ThreadedTaskBase):
             return probe.grasp_opening(reference, self.config.part_body)
         finally:
             probe.close()
+
+
+class LockingRodFoldTask(LockingRodTask):
+    """Loosen and fold, ending released with the physical clip retaining the rod."""
+    name = "locking_rod_fold"
+    version = "locking-rod-fold/1-straight-approach"
+    operation = "fold"
+    _legacy_versions = ()
+    stages = LockingRodTask.stages[:11]+("verify",)
+
+
+class LockingRodRestoreTask(LockingRodTask):
+    """Start in the clip, raise, then actually tighten the original fastener."""
+    name = "locking_rod_restore"
+    version = "locking-rod-restore/1-straight-approach"
+    operation = "restore"
+    _legacy_versions = ()
+    stages = ("settle",)+LockingRodTask.stages[11:]

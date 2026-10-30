@@ -25,6 +25,7 @@ from space_arm_platform.collection_runtime import check_port_available
 from space_arm_platform.recording_config import load_recording_config
 from space_arm_platform.unreal_runtime import default_unreal_root
 from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
+from simulation.scripted_tasks.drawer_tasks import DRAWER_TASKS
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
 
 
@@ -323,7 +324,7 @@ def main():
     parser.add_argument("--episodes-root", type=Path)
     parser.add_argument("--adapter", type=Path, default=ROOT.parent / "space_sim_UE_Adapter")
     parser.add_argument("--unreal", type=Path, default=default_unreal_root())
-    parser.add_argument("--task", default="drawer_cycle", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS])
+    parser.add_argument("--task", default="drawer_cycle", choices=[*DRAWER_TASKS, *PLUG_PROFILES, *THREADED_TASKS])
     parser.add_argument("--workers", type=int)
     parser.add_argument("--episodes-per-worker", type=int)
     args = parser.parse_args()

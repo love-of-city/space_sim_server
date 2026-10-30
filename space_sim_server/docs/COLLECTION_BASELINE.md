@@ -16,7 +16,7 @@
 
 | 功能 | 当前实现与约束 | 主要入口/验证 |
 |---|---|---|
-| 任务注册 | 抽屉完整循环、航空/导向/圆柱插头插入、航空螺丝装配、锁杆循环共六种网页采集任务；旧 drawer_lift 为诊断入口 | collection_jobs.TASKS、threaded_tasks；threaded_collection_integration 与各控制器测试。代码/单测通过不等于各任务在任意随机场景必成功 |
+| 任务注册 | 原六种任务及抽屉拉起/放回、锁杆放倒/复位四项独立任务，共十种网页采集任务；旧 drawer_lift 为诊断入口 | collection_jobs.TASKS、drawer_tasks、threaded_tasks；独立任务说明见 SINGLE_DIRECTION_COLLECTION.md。代码/单测通过不等于各任务在任意随机场景必成功 |
 | 初始关节 | 六轴相对基准独立均匀偏移，支持0–50°，本批±30°；保留限位、初始碰撞、接近路径检查 | collection_jobs、drawer_initialization、collect_scripted_tasks；网页/API/CLI范围一致 |
 | 安装单元随机布局 | 移动安装单元与对应底板开口，保留实体间距、操作包络、撤离通道及原生几何验收；布局入池不再要求逐套运行完整任务轨迹，每条采集仍保留初态及必要路径预检 | independent_task_box_layout、build/check工具、LayoutPool、drawer_initialization |
 | 布局切换 | 常驻UE按新manifest更新同ID几何/材质/灯光，避免保留旧孔位；A→B→A复用 | BskSceneController.cpp/.h、BskRuntimeTests、test_capture_on_demand_renderer |
@@ -60,3 +60,13 @@
 ## 2026-10-28 直线优先避障合并
 
 在 `76b64f0` 的采集整理基础上合并 `77f1367`：六任务空手接近先生成直线并同步转腕/开爪，完整机械臂几何或可达性检查失败后才搜索平滑绕行，受约束接触阶段保留机械通道。远端较慢松爪、圆柱孔内轴向旋转阻尼、颜色和布局序列、终态屏障及进程复用均保留；插头组合版本为 `plug-insert/14-straight-approach-gentle-release`。相关测试、物理回合与已知失败的版本边界见 [直线优先接近归档](../../archive/2026_10_28_六任务直线优先接近.md)。合并前的六任务默认布局成功记录不能替代合并后的双相机实采验收。
+
+## 2026-10-30 独立单向操作
+
+新增 `drawer_open`、`drawer_close`、`locking_rod_fold`、`locking_rod_restore`。
+每条由任务专用 MJCF 关节参考值和匹配的静态变换设置初态，运行中只发送机械臂/夹爪执行器参考。
+原完整循环、直线优先接近、接触避障、速度配置、颜色与机位随机化、相机/动作采样频率均保留。
+网页/API、单条/批量/并行及布局顺序入口接入；布局配置新增四项默认禁用，避免改变既有批次任务数量。
+每项新增20条独立英文指令。放回/复位不伪造本条拉起/放倒历史；录后按方向检查实际初终态及释放稳定性。
+
+默认布局四项原生动力学和真实 UE 双相机实采均成功。位置/朝向随机布局的抽屉拉起和两项锁杆任务成功；抽屉放回复现旧完整循环已有的卡扣复位超时，仍判失败，未放宽卡扣容差。证据范围和录制计时见 [单向操作归档](../../archive/2026_10_30_抽屉锁杆单向采集.md)。

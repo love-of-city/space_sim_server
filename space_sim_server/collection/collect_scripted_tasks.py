@@ -35,6 +35,7 @@ from simulation.scripted_tasks.plug_profiles import (
     is_plug_task,
     plug_profile,
 )
+from simulation.scripted_tasks.drawer_tasks import DRAWER_TASKS
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
 
 
@@ -76,7 +77,12 @@ def validate_threaded_recording(steps, stages, task_name):
     assert quality["rotation_samples"] > 0
     assert quality["rotation_latch_samples"] >= .95*quality["rotation_samples"]
     assert quality["rotation_max_wrist_axis_error_rad"] < .05
-    phases = ("unscrew", "screw_in") if task_name == "aviation_bolt_insert" else ("loosen", "tighten")
+    phases = {
+        "aviation_bolt_insert": ("unscrew", "screw_in"),
+        "locking_rod_cycle": ("loosen", "tighten"),
+        "locking_rod_fold": ("loosen",),
+        "locking_rod_restore": ("tighten",),
+    }[task_name]
     for phase in phases:
         assert any(row["stage"] == phase and row["finger_part_contacts"] is not None
                    and all(row["finger_part_contacts"]) and row["latch_engaged"]
@@ -96,7 +102,12 @@ def validate_threaded_recording(steps, stages, task_name):
     end = int(steps[-1]["sim_time_ns"])
     stable_observations = [obs for obs in steps
                            if 0 <= (end - int(obs["sim_time_ns"])) * 1e-9 < max(0., hold_s - .04)]
-    assert all(obs["gripper_opening_normalized"] >= release_opening-.01
+    # Independent rod tasks finish the opening profile during withdrawal and
+    # verify. Require the already established head-clear opening throughout
+    # the hold and the full target at the last frame, without adding a dwell.
+    stable_opening = (.40 if task_name in ("locking_rod_fold", "locking_rod_restore")
+                      else release_opening-.01)
+    assert all(obs["gripper_opening_normalized"] >= stable_opening
                for obs in stable_observations)
     stable = [obs["scripted_task"] for obs in stable_observations]
     assert len(stable) >= max(1, int((hold_s - .06) * 50))
@@ -120,8 +131,37 @@ def validate_threaded_recording(steps, stages, task_name):
         assert removed[0]["source_rotation_rad"] >= removed[0]["source_required_rotation_rad"] - .05
     else:
         assert final["part_body"] == "fastener"
-        assert all(final[key] for key in ("loosen_verified", "folded_verified", "returned_verified", "tightened_verified"))
         assert final["released_stable_seconds"] >= hold_s
+        if task_name == "locking_rod_fold":
+            assert final["task_operation"] == "fold"
+            assert final["loosen_verified"] and final["folded_verified"]
+            assert not final["returned_verified"] and not final["tightened_verified"]
+            assert abs(rows[0]["hinge_rad"]) <= parameters["returned_hinge_tolerance_rad"]
+            assert any(row["stage"] == "lower" and abs(row["fastener_slide_m"]) <= parameters["loose_slide_tolerance_m"]
+                       and row["fastener_hook_contacts"] == 0 for row in rows)
+            for row in stable:
+                assert abs(row["hinge_rad"]-parameters["folded_hinge_rad"]) <= parameters["hinge_tolerance_rad"]
+                assert row["locking_rod_clip_contacts"] + row["fastener_clip_contacts"] > 0
+                assert abs(row["fastener_slide_m"]) <= parameters["loose_slide_tolerance_m"]
+                assert row["fastener_helix_error_m"] <= parameters["helix_tolerance_m"]
+                assert row["fastener_hook_contacts"] == 0
+                assert np.linalg.norm(row["part_velocity_body_m_s"]) < .008
+                assert np.linalg.norm(row["part_angular_velocity_body_rad_s"]) < .05
+                assert abs(row["scalar_joints"]["locking_rod_hinge_velocity"]) < .05
+                assert abs(row["scalar_joints"]["fastener_spin_velocity"]) < .05
+            return
+        if task_name == "locking_rod_restore":
+            assert final["task_operation"] == "restore"
+            assert final["initial_folded_verified"]
+            assert final["returned_verified"] and final["tightened_verified"]
+            assert not final["loosen_verified"] and not final["folded_verified"]
+            initial = rows[0]
+            assert abs(initial["hinge_rad"]-parameters["folded_hinge_rad"]) <= parameters["hinge_tolerance_rad"]
+            assert abs(initial["fastener_slide_m"]) <= parameters["loose_slide_tolerance_m"]
+            assert any(row["stage"] in ("settle", "reapproach", "regrip")
+                       and row["locking_rod_clip_contacts"] + row["fastener_clip_contacts"] > 0 for row in rows)
+        else:
+            assert all(final[key] for key in ("loosen_verified", "folded_verified", "returned_verified", "tightened_verified"))
         seated_slide = final["tighten_seated_slide_m"]
         seated_spin = final["tighten_seated_spin_rad"]
         assert np.isfinite([seated_slide, seated_spin]).all()
@@ -135,12 +175,13 @@ def validate_threaded_recording(steps, stages, task_name):
                    and parameters["tight_slide_min_m"] <= row["fastener_slide_m"] <= parameters["tight_slide_max_m"]
                    and row["fastener_helix_error_m"] <= parameters["helix_tolerance_m"]
                    for row in rows if row["stage"] == "tighten")
-        assert any(row["fastener_slide_m"] <= parameters["loose_slide_tolerance_m"]
-                   and row["scalar_joints"]["fastener_hook_contacts"] == 0
-                   for row in rows if row["stage"] in ("lower", "release_down"))
-        assert any(abs(row["hinge_rad"] - parameters["folded_hinge_rad"]) <= parameters["hinge_tolerance_rad"]
-                   and row["locking_rod_clip_contacts"] + row["fastener_clip_contacts"] > 0
-                   for row in rows if row["stage"] in ("release_down", "clear_down", "reapproach"))
+        if task_name == "locking_rod_cycle":
+            assert any(row["fastener_slide_m"] <= parameters["loose_slide_tolerance_m"]
+                       and row["scalar_joints"]["fastener_hook_contacts"] == 0
+                       for row in rows if row["stage"] in ("lower", "release_down"))
+            assert any(abs(row["hinge_rad"] - parameters["folded_hinge_rad"]) <= parameters["hinge_tolerance_rad"]
+                       and row["locking_rod_clip_contacts"] + row["fastener_clip_contacts"] > 0
+                       for row in rows if row["stage"] in ("release_down", "clear_down", "reapproach"))
         for row in stable:
             assert abs(row["hinge_rad"]) <= parameters["returned_hinge_tolerance_rad"]
             assert parameters["tight_slide_min_m"] <= row["fastener_slide_m"] <= parameters["tight_slide_max_m"]
@@ -156,6 +197,62 @@ def validate_threaded_recording(steps, stages, task_name):
             assert np.linalg.norm(row["part_angular_velocity_body_rad_s"]) < .05
             assert abs(row["scalar_joints"]["locking_rod_hinge_velocity"]) < .05
             assert abs(row["scalar_joints"]["fastener_spin_velocity"]) < .05
+
+
+def validate_drawer_recording(steps, stages, task_name):
+    """Check the actual initial/final direction instead of requiring a round trip."""
+    import numpy as np
+    from simulation.scripted_tasks.drawer_tasks import drawer_task_class
+
+    controller = drawer_task_class(task_name)
+    final = steps[-1]["scripted_task"]
+    assert stages == list(controller.recorded_stages(final.get("task_version"))), stages
+    assert final["result"] == "success"
+    assert steps[-1]["gripper_opening_normalized"] >= .95
+    if task_name == "drawer_cycle":
+        if final.get("task_version") in ("drawer-cycle/4", controller.version):
+            assert final["released_closed_seconds"] >= final["task_parameters"]["verify_hold_s"]
+        assert final["drawer_closed"] and final["open_verified"]
+        assert final["seated_before_release_verified"]
+        assert final["peak_drawer_displacement_m"] >= .075
+        assert abs(final["drawer_displacement_m"]) <= .002
+        return
+    assert final["task_version"] == controller.version
+    parameters = final["task_parameters"]
+    rows = [obs["scripted_task"] for obs in steps]
+    assert all(row["name"] == task_name for row in rows)
+    initial, target = final["drawer_initial_m"], final["drawer_target_m"]
+    assert np.isfinite([initial, target]).all()
+    assert abs(rows[0]["drawer_position_m"]-initial) <= .005
+    phase = "lift" if task_name == "drawer_open" else "return"
+    assert any(row["stage"] == phase and row["finger_drawer_contacts"] is not None
+               and all(row["finger_drawer_contacts"]) for row in rows)
+    if task_name == "drawer_open":
+        assert abs(initial) <= .005 and abs(target-parameters["lift_m"]) <= .005
+        assert final["drawer_open"] and final["open_verified"]
+        assert final["released_open_seconds"] >= parameters["verify_hold_s"]
+        assert final["drawer_position_m"]-initial >= parameters["lift_m"]-.005
+        tolerance = .005
+    else:
+        assert abs(initial-parameters["lift_m"]) <= .005 and abs(target) <= .002
+        assert final["drawer_closed"] and final["open_verified"]
+        assert final["seated_before_release_verified"]
+        assert final["released_closed_seconds"] >= parameters["verify_hold_s"]
+        assert initial-final["drawer_position_m"] >= parameters["lift_m"]-.005
+        tolerance = parameters["close_tolerance_m"]
+    end = int(steps[-1]["sim_time_ns"])
+    hold_s = parameters["verify_hold_s"]
+    stable = [obs for obs in steps if 0 <= (end-int(obs["sim_time_ns"]))*1e-9 < hold_s-.04]
+    assert len(stable) >= max(1, int((hold_s-.06)*50))
+    for obs in stable:
+        row = obs["scripted_task"]
+        assert row["stage"] in ("release", "retract", "verify")
+        assert abs(row["drawer_position_m"]-target) <= tolerance
+        assert abs(row["drawer_velocity_m_s"]) < .003
+        assert row["finger_drawer_contacts"] in ((0, 0), [0, 0])
+        assert obs["gripper_opening_normalized"] >= parameters["release_clearance_opening"]
+        if task_name == "drawer_close":
+            assert row["drawer_closed"]
 
 
 def validate_capture_manifest(episode, meta, steps):
@@ -315,16 +412,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
         assert np.linalg.norm(final["plug_angular_velocity_body_rad_s"]) < 0.03
         assert steps[-1]["gripper_opening_normalized"] >= 0.62
     else:
-        from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask
-
-        assert stages == list(DrawerCycleTask.recorded_stages(final.get("task_version"))), stages
-        if final.get("task_version") in ("drawer-cycle/4", DrawerCycleTask.version):
-            assert final["released_closed_seconds"] >= final["task_parameters"]["verify_hold_s"]
-        assert final["result"] == "success" and final["drawer_closed"]
-        assert final["open_verified"] and final["seated_before_release_verified"]
-        assert final["peak_drawer_displacement_m"] >= 0.075
-        assert abs(final["drawer_displacement_m"]) <= 0.002
-        assert steps[-1]["gripper_opening_normalized"] >= 0.95
+        validate_drawer_recording(steps, stages, task_name)
     high = platform.get("high_frequency_wrist_wrench")
     if meta["dataset_fps"] == 50:
         assert high and high["rate_hz"] == 200
@@ -412,7 +500,7 @@ class CollectionSession:
 def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--task", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS], default=default_task
+        "--task", choices=[*DRAWER_TASKS, *PLUG_PROFILES, *THREADED_TASKS], default=default_task
     )
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument("--layout-pool", type=Path,
@@ -516,7 +604,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
         schema="scripted-batch/2",
         task=args.task,
         linear_speed_m_s=(args.linear_speed if args.linear_speed is not None else 0.1)
-        if args.task == "drawer_cycle"
+        if args.task in DRAWER_TASKS
         else None,
         threaded_speed_profile=(args.threaded_speed_profile
                                 if args.task in THREADED_TASKS else None),

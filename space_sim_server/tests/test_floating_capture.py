@@ -14,7 +14,9 @@ from simulation.scripted_tasks.floating_capture import (
 from simulation.scripted_tasks.floating_initialization import FloatingInitialConfig
 from simulation.scripted_tasks.native_state import FloatingSample
 from simulation.scripted_tasks.randomization import write_model_variant
-from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+from simulation.serial_chain_kinematics import (
+    quaternion_wxyz_to_matrix, matrix_to_quaternion_wxyz, axis_angle_to_matrix,
+)
 
 MODEL = Path(__file__).resolve().parents[1]/"model/SARM/platform/sarm_20261012.xml"
 
@@ -90,6 +92,30 @@ def test_replay_rejects_corrupt_physical_state(tmp_path, key, value):
         write_model_variant(MODEL, tmp_path/"corrupt.xml", scene)
 
 
+@pytest.mark.parametrize("limit,tilt", [(0., 10.), (8., 12.), (20., 25.)])
+def test_replay_rejects_out_of_bounds_tilt_even_with_consistent_pose_and_ik(tmp_path, limit, tilt):
+    from simulation.scripted_tasks.motion import solve_pose
+    source = source_scene()
+    source["floating_capture"] = {"max_tilt_deg": limit}
+    scene = randomized_scene(source, 73, 0., "floating_bolt_capture")
+    model = write_model_variant(MODEL, tmp_path/"valid.xml", scene)
+    assert write_model_variant(MODEL, tmp_path/"replay.xml", scene).read_bytes() == model.read_bytes()
+    task = create_floating_task("floating_bolt_capture", model)
+    initial = scene["randomization"]["arm_joint_position_rad"][:6]
+    _, initial_rotation = task.chain.forward(initial)
+    desired = axis_angle_to_matrix(np.array([0., 0., 1.]), np.deg2rad(tilt))@initial_rotation
+    asset = task.asset
+    basis = np.column_stack((asset.closing_axis, np.cross(asset.approach_axis, asset.closing_axis), asset.approach_axis))
+    rotation = desired@basis.T
+    release = scene["collection_config"]["floating_initial_state"]
+    point = np.asarray(release["grasp_position_body_m"])
+    goal = solve_pose(task.chain, point, desired, initial, task.lower, task.upper)
+    release.update(position_body_m=(point-rotation@asset.grip_point).tolist(),
+        orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(), ik_joint_position_rad=goal.tolist())
+    with pytest.raises(ValueError, match="physical configuration"):
+        write_model_variant(MODEL, tmp_path/"outside_bounds.xml", scene)
+
+
 @pytest.mark.parametrize("distance", [.12, .75])
 def test_declared_distance_endpoints_are_reachable(tmp_path, distance):
     source = source_scene()
@@ -151,6 +177,18 @@ def test_unexpected_contact_and_target_loss_fail(tmp_path):
     assert task.result == "failed" and task.reason == "target_lost"
 
 
+@pytest.mark.parametrize("contacts,forces", [((1,), (1., 1.)), ((1, 1), (1.,)),
+    ((1, -1), (1., 1.)), ((1, .5), (1., 1.)), ((1, float("nan")), (1., 1.)),
+    ((1, 1), (1., -1.))])
+def test_malformed_contact_channels_cannot_establish_a_grasp(tmp_path, contacts, forces):
+    scene, path = realized(tmp_path)
+    task = create_floating_task("floating_bolt_capture", path)
+    sample = replace(sample_at_grasp(task, scene), finger_plug_contacts=contacts,
+                     finger_normal_force_n=forces)
+    task.step(sample)
+    assert task.result == "failed" and task.reason == "invalid_contact_observation"
+
+
 def test_existing_collection_registry_exposes_floating_tasks():
     from space_arm_platform.collection_jobs import CollectionCreate, TASKS
     for name in FLOATING_TASKS:
@@ -185,5 +223,19 @@ def test_recording_rejects_a_success_flag_with_an_interrupted_hold():
     steps = [dict(sim_time_ns=str(i*20_000_000), scripted_task=deepcopy(state)) for i in range(160)]
     validate_floating_recording(steps, list(FloatingCaptureTask.stages), "floating_bolt_capture")
     steps[50]["scripted_task"]["finger_normal_force_n"] = [1., 0.]
+    with pytest.raises(AssertionError):
+        validate_floating_recording(steps, list(FloatingCaptureTask.stages), "floating_bolt_capture")
+
+
+@pytest.mark.parametrize("contacts,forces", [([1], [1.]), ([1, 1], [1.]),
+    ([1, -1], [1., 1.]), ([1, .5], [1., 1.]), ([1, float("nan")], [1., 1.])])
+def test_recording_requires_two_valid_finger_channels(contacts, forces):
+    from collection.collect_scripted_tasks import validate_floating_recording
+    from simulation.scripted_tasks.floating_capture import FloatingCaptureTask
+    state = dict(task_version=FloatingCaptureTask.version, target_body="bolt", result="success",
+        task_parameters={"hold_s": 3.}, held_seconds=3., stage="hold",
+        feedback_source="authoritative_simulation_state", finger_target_contacts=contacts,
+        finger_normal_force_n=forces, slip_m=0., angular_slip_rad=0., relative_speed_m_s=0.)
+    steps = [dict(sim_time_ns=str(i*20_000_000), scripted_task=deepcopy(state)) for i in range(160)]
     with pytest.raises(AssertionError):
         validate_floating_recording(steps, list(FloatingCaptureTask.stages), "floating_bolt_capture")

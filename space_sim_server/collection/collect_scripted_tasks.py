@@ -244,11 +244,17 @@ def validate_floating_recording(steps, stages, task_name):
         task = obs["scripted_task"]
         assert not task.get("unexpected_contacts")
         assert task["feedback_source"] == "authoritative_simulation_state"
+        contacts = np.asarray(task["finger_target_contacts"])
+        forces = np.asarray(task["finger_normal_force_n"])
+        assert contacts.shape == forces.shape == (2,)
+        assert np.isfinite(contacts).all() and np.isfinite(forces).all()
+        assert np.all(contacts >= 0) and np.all(contacts == np.floor(contacts))
+        assert np.all(forces >= 0)
         assert np.isfinite([task["slip_m"], task["angular_slip_rad"], task["relative_speed_m_s"],
                             *task["finger_normal_force_n"]]).all()
     for obs in window:
         task = obs["scripted_task"]
-        assert task["stage"] == "hold" and all(task["finger_target_contacts"])
+        assert task["stage"] == "hold" and all(count > 0 for count in task["finger_target_contacts"])
         assert min(task["finger_normal_force_n"]) >= .02
         assert task["slip_m"] < .003 and task["angular_slip_rad"] < .05
         assert task["relative_speed_m_s"] < .005

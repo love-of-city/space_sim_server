@@ -171,6 +171,14 @@ class FloatingCaptureTask:
         self._last_time = sample.time_s
         if self.result is not None:
             return self.reference.copy(), np.zeros(8)
+        contacts = np.asarray(sample.finger_plug_contacts)
+        forces = np.asarray(sample.finger_normal_force_n)
+        if (contacts.shape != (2,) or forces.shape != (2,)
+                or not np.isfinite(contacts).all() or not np.isfinite(forces).all()
+                or np.any(contacts < 0) or np.any(contacts != np.floor(contacts))
+                or np.any(forces < 0)):
+            self.fail("invalid_contact_observation", sample)
+            return self.reference.copy(), np.zeros(8)
         old = self.reference.copy()
         force, torque = np.linalg.norm(sample.wrench[:3]), np.linalg.norm(sample.wrench[3:])
         self.max_force_n, self.max_torque_nm = max(self.max_force_n, float(force)), max(self.max_torque_nm, float(torque))
@@ -204,7 +212,7 @@ class FloatingCaptureTask:
         self.reference[6] += np.clip(opening-self.reference[6], -dt*jaw_speed, dt*jaw_speed)
         self.reference[7] = -self.reference[6]
         m = self.metrics(sample)
-        bilateral = all(m["finger_target_contacts"]) and min(m["finger_normal_force_n"]) >= .02
+        bilateral = all(count > 0 for count in m["finger_target_contacts"]) and min(m["finger_normal_force_n"]) >= .02
         if self.stage == "open" and sample.joints[6] >= .95:
             self._enter("intercept", sample)
         elif self.stage == "intercept":

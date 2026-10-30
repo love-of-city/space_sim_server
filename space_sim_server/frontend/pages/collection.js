@@ -6,10 +6,13 @@ export function createCollectionPage(root,{api}) {
 const $=mountView(root,template);
 const taskLabels = new Map();
 let randomizationControls=null;
-const syncInitialization=()=>{$("range-deg").disabled=!$("initialization-enabled").checked;};
+let floatingMode=false, savedRange='30', savedInitialization=true;
+const floatingTask=()=>Boolean(catalog?.tasks.find(task=>task.id===$('task').value)?.floating_capture);
+const syncInitialization=()=>{$("range-deg").disabled=floatingTask()||!$("initialization-enabled").checked;};
 $("initialization-enabled").onchange=syncInitialization;
 const terminal = new Set(["complete", "failed", "cancelled", "interrupted", "attempt_limit"]);
 const names = {finalizing:"封装视频与数据", validating:"检查任务与数据完整性", seat:"确认就位",running:"运行中", starting:"启动中", queued:"等待启动", stopping:"正在收尾", complete:"已完成", failed:"失败", cancelled:"已停止", interrupted:"已中断", attempt_limit:"达到尝试上限", preflight:"初始状态检查", recording:"录制中", accepted:"校验通过", initialization_rejected:"初始状态未通过", validation_failed:"数据校验失败", recording_or_task_failed:"任务或录制失败", writer_ready:"录制器就绪", process_started:"启动场景", warming_renderer:"相机预热", completed:"录制完成", task_progress:"执行任务", settle:"初始停稳", raise:"抬高夹爪", above_pickup:"跟踪取件位置", above_drawer:"移动到抽屉上方", approach:"连续接近 / 转向 / 张爪", align:"调整抓取姿态", open:"张开夹爪", descend:"下降", grip:"夹持", lift:"提起 / 抽出", transfer:"搬运到目标孔", above_hole:"移动到孔口上方", align_hole:"对准插孔", insert:"插入", return:"放回", release:"松爪", retract:"撤离", verify:"最终检查"};
+Object.assign(names,{intercept:'跟踪漂浮物',hold:'保持抓持'});
 const label = (value) => names[value] || value || "等待进度";
 const element = (tag, text, cls) => { const el=document.createElement(tag); if(text!==undefined) el.textContent=text; if(cls) el.className=cls; return el; };
 function notice(message=""){ $("notice").textContent=message; $("notice").hidden=!message; }
@@ -103,11 +106,27 @@ async function refresh(){
 }
 function specs(data){
   const rates=data.rates,camera=data.cameras;
-  const rows=[['初始姿态 J1–J6',data.baseline_joint_deg.map(value=>value+'°').join('，')],['动力学 / IK',rates.dynamics+' Hz / '+rates.ik+' Hz'],['状态、动作、双相机',rates.main+' Hz · '+camera.width+' × '+camera.height],['六维力',rates.wrench+' Hz · 噪声按本批次配置'],['随机化配置','由上方各项开关决定，随记录保存'],['训练状态与动作','6 个关节 + 夹爪 0–1']];
+  const baseline=data.tasks.find(task=>task.id===$('task').value)?.baseline_joint_deg||data.baseline_joint_deg;
+  const rows=[['初始姿态 J1–J6',baseline.map(value=>value+'°').join('，')],['动力学 / IK',rates.dynamics+' Hz / '+rates.ik+' Hz'],['状态、动作、双相机',rates.main+' Hz · '+camera.width+' × '+camera.height],['六维力',rates.wrench+' Hz · 噪声按本批次配置'],['随机化配置',floatingTask()?'随机释放位置、速度与转动；相机配置固定':'由上方各项开关决定，随记录保存'],['训练状态与动作','6 个关节 + 夹爪 0–1']];
   $('specifications').replaceChildren(...rows.flatMap(([key,value])=>[element('dt',key),element('dd',value)]));
 }
 function layoutError(){return collectionLayoutError(catalog,$('task').value,$('layout-randomization').checked);}
 function describeTask(){
+  const floating=floatingTask();
+  if(floating&&!floatingMode){savedRange=$('range-deg').value;savedInitialization=$('initialization-enabled').checked;}
+  if(!floating&&floatingMode){$('range-deg').value=savedRange;$('initialization-enabled').checked=savedInitialization;}
+  floatingMode=floating;
+  $('initialization-enabled').disabled=floating;
+  $('layout-randomization').disabled=floating||!catalog?.layout_randomization?.available;
+  $('overview-camera-randomization').disabled=floating||!catalog?.overview_camera_randomization;
+  if(floating){
+    $('initialization-enabled').checked=false;
+    $('layout-randomization').checked=false;
+    $('overview-camera-randomization').checked=false;
+    $('range-deg').value=0;
+  }
+  syncInitialization();
+  if(catalog)specs(catalog);
   const description=catalog?.tasks.find(task=>task.id===$('task').value)?.description||'';
   const fixed=!$('layout-randomization').checked&&catalog?.fixed_layout?.available?'本批次所有记录使用已校验的固定操作台。':'';
   $('task-description').textContent=[description,layoutError()||fixed].filter(Boolean).join(' ');

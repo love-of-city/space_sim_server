@@ -15,6 +15,7 @@ from .collection_inputs import requires_color_layout
 from .overview_camera import overview_camera_catalog
 from .scene_runtime import SceneRuntimeManager
 from .sampling import DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, WRENCH_HZ
+from simulation.scripted_tasks.floating_capture import FLOATING_TASKS, FLOATING_BASELINE_DEG
 
 
 def install_collection_routes(app, config, scenes, current_user):
@@ -55,7 +56,9 @@ def install_collection_routes(app, config, scenes, current_user):
         return dict(
             tasks=[
                 dict(id=key, label=task.label, description=task.description,
-                     requires_color_layout=requires_color_layout(key))
+                     requires_color_layout=requires_color_layout(key),
+                     floating_capture=key in FLOATING_TASKS,
+                     baseline_joint_deg=list(FLOATING_BASELINE_DEG if key in FLOATING_TASKS else DEFAULT_OPERATING_JOINT_DEG))
                 for key, task in TASKS.items()
             ],
             max_workers=4,

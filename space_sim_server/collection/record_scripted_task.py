@@ -60,8 +60,9 @@ from simulation.scripted_tasks.threaded_tasks import (
     task_default_duration_s,
 )
 
-CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
+from simulation.scripted_tasks.floating_capture import FLOATING_TASKS
 
+CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
 
 class ScriptedObservationRecorder:
     """Confirm task completion only after the terminal sample reaches the writer."""
@@ -174,6 +175,10 @@ def scene_copy(source, task="drawer_lift"):
 
 def task_target_site(task, requested=None):
     """Resolve the physical target used by both the controller and metadata."""
+    if task in FLOATING_TASKS:
+        if requested is not None:
+            raise ValueError("Floating capture uses the part's moving grasp point; target_site must be omitted")
+        return None
     if is_plug_task(task):
         profile = plug_profile(task)
         target = requested or profile.target_site
@@ -191,6 +196,8 @@ def task_target_site(task, requested=None):
 def task_instruction(scene, task, target_site):
     """Return the instruction realized by this episode's appearance config."""
     cfg = scene.get("collection_config") or {}
+    if task in FLOATING_TASKS:
+        return f"Intercept the {FLOATING_TASKS[task].instruction_name} and hold it securely."
     from simulation.scripted_tasks.instructions import canonical_task
     selected = cfg.get("instruction_randomization")
     if selected is not None:
@@ -259,6 +266,9 @@ def task_metadata(scene, task, target_site, instruction):
         "target_site": target_site,
         "instruction": instruction,
     }
+    if task in FLOATING_TASKS:
+        result["floating_initial_state"] = dict(cfg["floating_initial_state"])
+        result["feedback_source"] = "authoritative_simulation_state"
     if cfg.get("instruction_randomization") is not None:
         result["instruction_randomization"] = dict(cfg["instruction_randomization"])
     colour = cfg.get("color_randomization")
@@ -686,7 +696,7 @@ def main(default_task="drawer_cycle"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS],
         default=default_task,
     )
     parser.add_argument("--target-site", default=None)
@@ -715,7 +725,7 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--capture-port", type=int, default=18767)
     parser.add_argument("--render-port", type=int, default=15558)
     parser.add_argument("--signalling-port", type=int, default=18888)
-    parser.add_argument("--warmup-seconds", type=float, default=5.0)
+    parser.add_argument("--warmup-seconds", type=float, default=None)
     parser.add_argument("--warmup-sim-seconds", type=float, default=None)
     parser.add_argument("--simulation-startup-timeout-seconds", "--startup-timeout-seconds",
                         dest="simulation_startup_timeout_seconds", type=float, default=600.0)
@@ -725,6 +735,8 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--cancel-file", type=Path)
     add_motion_options(parser)
     args = parser.parse_args()
+    if args.warmup_seconds is None:
+        args.warmup_seconds = 30. if args.task in FLOATING_TASKS else 5.
     if (not math.isfinite(args.simulation_startup_timeout_seconds)
             or not 0 < args.simulation_startup_timeout_seconds <= 7200):
         parser.error("simulation-startup-timeout-seconds must be finite and in (0,7200]")

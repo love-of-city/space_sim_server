@@ -149,7 +149,7 @@ class RendezvousRuntime:
                         'acceptance_profile', 'feedback_source', 'working_reference_sha256',
                         'processing_real_time_factor_after_warmup', 'integration_complete', 'final')})
                     from simulation.capture26_mission import load_mission
-                    current = load_mission(self.team_repository)
+                    current = load_mission(self.team_repository, result.get('mission_options', {}).get('capture26_profile'))
                     if current.is_demo and (result.get('acceptance_profile') != current.acceptance_profile
                             or result.get('feedback_source') != current.feedback_source
                             or result.get('working_reference_sha256') != current.operating_geometry_sha256):
@@ -305,7 +305,7 @@ class RendezvousRuntime:
             self._log.close()
             self._log = None
         if live and self.launch_config is not None:
-            self._ensure_renderer()
+            self._ensure_renderer(capture26=capture26)
         self._check_start_cancelled()
         self._mode = "simulation"
         self._options = resolved_options
@@ -390,7 +390,7 @@ class RendezvousRuntime:
             raise
         return self.status()
 
-    def _ensure_renderer(self):
+    def _ensure_renderer(self, *, capture26=False):
         """Use the team's launcher in this checkout, so a fresh platform is usable."""
         def ready():
             try:
@@ -416,10 +416,13 @@ class RendezvousRuntime:
         if capture_port:
             command.extend(['-CaptureNetworkPort', str(capture_port)])
         cameras = getattr(cfg, "runtime_pixel_streaming_camera_ids", ())
+        if capture26:
+            cameras = tuple(dict.fromkeys((*cameras,
+                'teleop/camera/capture_stereo_left','teleop/camera/capture_stereo_right')))
         if cameras:
             # The orbital manifest keeps the team's model under its flight
             # namespace; the console resolves these streams as the same cameras.
-            cameras = tuple("team/" + camera.removeprefix("teleop/") if camera.startswith("teleop/") else camera
+            cameras = tuple("team/" + camera.removeprefix("teleop/") if not capture26 and camera.startswith("teleop/") else camera
                             for camera in cameras)
             command.extend([
                 # UE's FParse::Value stops at commas. The team launcher uses

@@ -12,6 +12,9 @@ const flightPhases = {'Orbit raising': '升轨飞行', 'Team approach': '双星�
   OperationsHold: '操作场景停泊保持', OperationsReady: '操作场景已就绪',
   FarHandoff: '远距状态交接', GNSSApproach: '相对 GNSS 接近', VisualFusion: '视觉融合', VisualApproach: '视觉融合接近',
   PlatformHold: '平台驻留', ArmDeploy: '机械臂展开', ArmAlign: '机械臂视觉对准', FinalApproach: '末段接近',
+  TargetPointing: '17.4 m 调姿并持续稳姿', GNSSBridge5p5Approach: 'GNSS 接近 5.5 m',
+  GNSSBridge5p5Hold: '5.5 m 停泊（尚无视觉）', GNSSBridgeNearApproach: 'GNSS 接近视觉获取点',
+  OriginalStereoAcquire: '原双目真实图像质量检查', GraspHold: '四爪实际抓持保持通过',
   ContactProxy: '进入虚拟接触窗口', Grasp: '夹取代理', CaptureConfirm: '捕获确认代理', CaptureHold: '捕获保持（逻辑代理）', SafeHold: '安全保持 · 闭合已禁止'};
 const fields = {missionSeed: 'seed', missionHold: 'handoff_distance_m', missionGnssPosition: 'gnss_position_sigma_m',
   missionGnssVelocity: 'gnss_velocity_sigma_m_s', missionInitialPosition: 'initial_position_sigma_m', missionOrbitNoise: 'orbit_acceleration_sigma_m_s2'};
@@ -57,7 +60,9 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     $('missionSettingsNote').textContent = !flight
       ? '从末端操作开始；交会参数不参与本次启动。远距交会、近距接近和末端操作始终使用同一工作台。'
       : capture26
-      ? 'capture26 按仿真状态反馈演示交会、四节点各连续停留 5 秒和作业位置保持。GNSS、UE 双目与双星陀螺继续记录诊断。'
+      ? $('capture26Route')?.value === 'near23_vbar_v1'
+        ? '远距 GNSS 交会 → V-bar 停泊 → 17.4 m 调姿并稳姿 → GNSS 继续接近 → 约 3 m 获取原双目视觉 → 平台驻留 → 四爪实际抓持。当前处于整段联调。'
+        : 'capture26 按仿真状态反馈演示交会、四节点各连续停留 5 秒和作业位置保持。GNSS、UE 双目与双星陀螺继续记录诊断。'
       : near
       ? '自动接近、机械臂对准及逻辑捕获保持。主视窗使用演示补光；暗处视觉能力尚未验证。'
       : '使用团队双星模型，按同一任务推进远距交会、近距接近与操作。当前近距视觉仍为参数化观测，捕获结果需区分逻辑代理与真实接触。';
@@ -77,6 +82,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       ? '交会后继承实际轨道与机械臂状态；以下初始配置仅用于从末端操作开始的任务。'
       : '以下初始配置用于从末端操作开始；运行后按场景状态锁定。';
     $('flightSettings').disabled = locked || !flight;
+    if ($('capture26Route')) $('capture26Route').disabled = locked || !flight || near || !capture26;
     $('sceneTemplate').disabled = locked || (flight && (!templateIds || templateIds.length < 2));
     for (const input of $('flightSettings').querySelectorAll('input')) {
       input.disabled = locked || !flight || (near && input.id !== 'missionSeed')
@@ -125,6 +131,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       observedId = mission.mission_id;
       points = [];
       if (mission.options?.model_id === 'sarm-dual-capture26') $('sceneTemplate').value = 'sarm-dual-capture26';
+      if ($('capture26Route')) $('capture26Route').value = mission.options?.capture26_profile || '';
       $('nearFieldFailure').value = mission.options?.vision_loss_phase || '';
       for (const [id, key] of Object.entries(fields)) {
         if (mission.options?.[key] != null) $(id).value = String(mission.options[key]);
@@ -161,7 +168,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
       service_angular_rate_stable: operations.service_angular_rate_stable,
       sensor_health: {gnss: operations.gnss_healthy, gyros: operations.gyro_health},
       processing_real_time_factor: operations.processing_real_time_factor} : telemetry.state?.metadata
-      || (report?.acceptance_profile === 'simulation_state_demo_v1' ? {
+      || (['simulation_state_demo_v1', 'near23_vbar_v1'].includes(report?.acceptance_profile) ? {
         ...report.final, model: 'capture26', acceptance_profile: report.acceptance_profile,
         phase: report.outcome, released: report.basic_nominal_passed,
       } : {});
@@ -170,9 +177,13 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     $('missionConnection').textContent = telemetry.connected && mission.stage === 'flight' ? '遥测在线'
       : mission.phase === 'flight' ? '等待遥测' : report ? '保存结果' : '等待交会';
     const guidance = meta.near_guidance || report?.final?.near_guidance;
-    const nodeLabels = {Vbar50m: '50 m 质心停泊', Optical17p4m: '17.4 m 光学检查',
+    const nodeLabels = {Vbar50m: '50 m 质心停泊', Optical17p4m: '17.4 m 停泊调姿',
+      GNSS5p5m: '5.50 m GNSS 停泊', OriginalStereoAcquire: '原双目连续就绪检查',
       VisualReady5p5m: '5.50 m 视觉就绪停泊', PlatformStandoff: '0.5 m TCP 平台驻留'};
-    const phaseLabel = flightPhases[operations?.phase || telemetry.phase || report?.outcome] || (report?.basic_nominal_passed ? '100 m 外保持' : view.label);
+    const near23 = meta.acceptance_profile === 'near23_vbar_v1' || report?.acceptance_profile === 'near23_vbar_v1';
+    const currentPhase = operations?.phase || telemetry.phase || meta.phase || report?.outcome;
+    const phaseLabel = near23 && currentPhase === 'Grasp' ? '机械臂接近与实际抓持'
+      : flightPhases[currentPhase] || (report?.basic_nominal_passed ? '100 m 外保持' : view.label);
     const node = guidance?.nodes?.[guidance.node_id];
     const segment = guidance?.subsegment || '';
     const segmentLabel = segment === 'OpticalBoundaryHold' ? '光学边界等待'
@@ -221,6 +232,9 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
         ? `作业位置保持中，TCP 间隙 ${number(meta.tcp_gap_m, 2, 'm')}`
         : `${parkingLabels[meta.node] || phaseLabel} · ${meta.at_node ? '停留中' : '接近中'}`;
     }
+    if (near23 && meta.capture_feedback) {
+      $('nearCapture').textContent = `实际四爪抓持 · ${number(meta.capture_feedback.jaw_force_n, 2, 'N')} · 连续保持 ${number(meta.capture_force_hold_s, 1, 's')} / 20 s`;
+    }
     if (mission.emergency_stop && meta.phase !== 'SafeHold') $('missionPhase').textContent = '急停已请求，等待动力学制动确认';
     const bodies = telemetry.state?.bodies || [];
     const chaser = bodies.find(b => b.body_id === 'rendezvous/chaser'), target = bodies.find(b => b.body_id === 'rendezvous/target');
@@ -263,6 +277,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
   }
 
   $('missionMode').addEventListener('change', configure);
+  $('capture26Route')?.addEventListener('change', configure);
   $('continueMission').addEventListener('click', () => act('/api/mission/handoff'));
   $('missionEmergencyStop').addEventListener('click', () => act('/api/mission/emergency-stop'));
   return {
@@ -294,6 +309,9 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
         : Object.fromEntries(Object.entries(fields).map(([id, key]) => [key, Number($(id).value)]));
       if (!near) { options.drag_enabled = $('missionDrag').checked; options.srp_enabled = $('missionSrp').checked; }
       const continuous = !near && catalog.continuous_default === true;
+      if (!near && $('sceneTemplate').value === 'sarm-dual-capture26' && $('capture26Route')?.value === 'near23_vbar_v1') {
+        options.capture26_profile = 'near23_vbar_v1';
+      }
       if (continuous) options.differential_gnss = {...catalog.flight_defaults.differential_gnss,
         absolute_position_sigma_m: options.gnss_position_sigma_m, absolute_velocity_sigma_m_s: options.gnss_velocity_sigma_m_s,
         delay_s: Number($('missionGnssDelay').value)};

@@ -27,7 +27,7 @@ def check(source, receiving):
         checks[key] = before[key] == after[key]
     for key in ('operating_reference', 'capture_reference'):
         checks[key] = before['control'][key] == after['control'][key]
-    for key in ('gyro_pending', 'last_cooperative_ns', 'platform_stability', 'preparation'):
+    for key in ('gyro_pending', 'last_cooperative_ns', 'platform_stability', 'preparation', 'own_motion'):
         if key in before['control'] or key in after['control']:
             source_value, receiving_value = before['control'].get(key), after['control'].get(key)
             if key == 'platform_stability' and source_value is None and before.get('phase') == 'FarReady':

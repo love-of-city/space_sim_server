@@ -249,6 +249,34 @@ def test_continuous_failure_or_user_stop_never_launches_the_next_phase(tmp_path,
     asyncio.run(run())
 
 
+@pytest.mark.parametrize('outcome',['GraspHold','NearParked','SafeHold'])
+def test_near23_formal_mission_finishes_only_after_physical_capture_report(tmp_path,outcome):
+    async def run():
+        manager,flight,scenes,_,_=setup(tmp_path)
+        calls=[]
+        def start(live,mode,scenario,options):
+            calls.append((scenario,options))
+            flight.output_dir=tmp_path/f'run-{len(calls)}'
+            flight.running,flight.report=True,None
+            return flight.status()
+        flight.start=start
+        scenes.start=lambda *a,**k:pytest.fail('capture must not restart the folded-arm operation scene')
+        await manager.start_flight(OWNER,scenario='team-in-orbit',continuous=True,
+            options=dict(model_id='sarm-dual-capture26',capture26_profile='near23_vbar_v1'))
+        identity=manager.status(OWNER)['mission_id']
+        flight.running,flight.report=False,dict(basic_nominal_passed=True,outcome='FarReady')
+        await wait_for_condition(lambda:len(calls)==2 and manager._operation is None)
+        assert calls[1][0]=='near-field-resume' and calls[1][1]['model_id']=='sarm-dual-capture26'
+        flight.running,flight.report=False,dict(basic_nominal_passed=True,outcome=outcome)
+        await wait_for_condition(lambda:manager._monitor is None)
+        s=manager.status(OWNER)
+        assert s['mission_id']==identity and not s['can_handoff']
+        assert s.get('capture_completed',False)==(outcome=='GraspHold')
+        assert s['phase']==('completed' if outcome=='GraspHold' else 'failed')
+        await manager.close()
+    asyncio.run(run())
+
+
 def test_background_admission_blocks_both_executors_and_retains_creator(tmp_path):
     async def run():
         manager, flight, scenes, _, _ = setup(tmp_path)

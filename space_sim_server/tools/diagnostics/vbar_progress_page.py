@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 from html import escape
 import json
+import math
 from pathlib import Path
 import time
 
@@ -67,6 +68,14 @@ def duration(seconds):
 
 def render(directory):
     row = last_row(directory/'trajectory.jsonl')
+    formal = (directory/'score.jsonl').exists()
+    stage_report = read_json(directory/'mission_report.json') if formal else {}
+    if formal:
+        row = last_row(directory/'score.jsonl')
+        guidance = row.get('guidance') or {}
+        policy = dict(guidance.get('vbar') or {}, phase=guidance.get('phase', 'NavigationAcquire'),
+                      failure_reason=guidance.get('reason') if guidance.get('phase') == 'SafeHold' else '')
+        row.update(policy=policy, true_optical_depth_m=guidance.get('optical_depth_m'))
     live = read_json(directory/'live_diagnostics.json')
     acceptance = read_json(directory/'acceptance.json')
     failure = read_json(directory/'failure.json')
@@ -74,7 +83,7 @@ def render(directory):
     phase = policy.get('phase', live.get('phase', 'Initializing'))
     stamp = row.get('time_s', live.get('simulation_time_s', 0))
     depth = row.get('true_optical_depth_m', live.get('optical_depth_m'))
-    reason = policy.get('failure_reason') or failure.get('reason') or ''
+    reason = policy.get('failure_reason') or failure.get('reason') or failure.get('error') or ''
     status, tone = '正在运行', 'blue'
     if acceptance:
         status, tone = ('本轮验收通过', 'green') if acceptance.get('passed') else ('本轮验收未通过', 'red')
@@ -82,6 +91,11 @@ def render(directory):
         status, tone = '本轮已停止，尚未通过验收', 'red'
     elif live.get('status') == 'finished':
         status, tone = '运行结束，正在核对验收结果', 'blue'
+    if formal and stage_report:
+        passed = stage_report.get('basic_nominal_passed')
+        is_far = stage_report.get('scenario') != 'near-field'
+        status = '远距检查通过，等待接续近距' if passed and is_far else '整段抓持检查通过' if passed else '本阶段未通过'
+        tone = 'blue' if passed and is_far else 'green' if passed else 'red'
     gates = policy.get('vbar_nodes', {})
     capture = row.get('capture') or {}
     checks = [
@@ -95,6 +109,13 @@ def render(directory):
         ('0.5 m平台驻留 · 连续5 s', (policy.get('platform_hold') or {}).get('completed', False)),
         ('四爪承载、抓持力合格 · 连续20 s', capture.get('completed', False)),
     ]
+    if formal:
+        checks.insert(0, ('真实远距飞行至约110 m，连续停稳5 s',
+            bool(stage_report.get('basic_nominal_passed')) if stage_report.get('scenario') != 'near-field' else True))
+        if guidance.get('phase') in ('Team approach', 'NavigationAcquire', 'FarReady', '100 m handoff hold'):
+            checks = checks[:1]
+            phase = 'Team approach'
+            PHASES['Team approach'] = '7 km起始的远距GNSS交会'
     steps = []
     active_seen = False
     for label, done in checks:
@@ -120,7 +141,7 @@ def render(directory):
     freshness = f'图像采样时间 {duration(image_stamp)}，距当前仿真时刻 {max(0., stamp-image_stamp):.2f} s'
     updated = datetime.now(CHINA).strftime('%Y-%m-%d %H:%M:%S')
     try:
-        age = max(0., time.time()-(directory/'trajectory.jsonl').stat().st_mtime)
+        age = max(0., time.time()-(directory/('score.jsonl' if formal else 'trajectory.jsonl')).stat().st_mtime)
     except OSError:
         age = 0
     waiting = '<p class="notice">暂未收到下一条仿真记录，正在等待更新。</p>' if age > 20 and not acceptance else ''
@@ -131,6 +152,11 @@ def render(directory):
                         for name, value in acceptance.get('checks', {}).items())
         final_checks = f'<section class="panel"><h2>独立物理验收结果</h2><ul>{items}</ul></section>'
     depth_text = '—' if depth is None else f'{depth:.3f} m'
+    distance_label = '相机到目标参考点的光学深度'
+    if formal and depth is None and row.get('truth_com_position_n_m'):
+        distance_label = '当前两星质心距离'
+        depth_text = f"{math.dist(*row['truth_com_position_n_m']):.1f} m"
+    scope = '本轮：7 km起始，核对正式入口、远近连续交接与实际抓持。' if formal else '本轮：从110 m初始化，验证V-bar、原双目和机械臂抓取。'
     return f'''<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="2"><title>交会对接验收进度</title>
@@ -151,10 +177,10 @@ figcaption{{text-align:center;color:#bdcce1;margin-top:8px}}.error,.notice{{padd
 .foot{{font-size:13px;margin-top:20px;color:#9caec7}}.panel+ .panel{{margin-top:18px}}
 @media(max-width:1000px){{.columns{{grid-template-columns:1fr}}.cards{{grid-template-columns:1fr}}main{{padding:18px}}.top{{align-items:flex-start}}}}
 </style></head><body><main>
-<header class="top"><div><h1>交会对接验收进度</h1><div class="muted">本轮：从110 m初始化，验证V-bar、原双目和机械臂抓取。</div></div>
+<header class="top"><div><h1>交会对接验收进度</h1><div class="muted">{scope}</div></div>
 <span class="badge {tone}">{status}</span></header>{warning}{waiting}
 <div class="cards"><div class="card"><span class="muted">当前阶段</span><strong>{escape(phase_label(phase))}</strong></div>
-<div class="card"><span class="muted">相机到目标参考点的光学深度</span><strong>{depth_text}</strong></div>
+<div class="card"><span class="muted">{distance_label}</span><strong>{depth_text}</strong></div>
 <div class="card"><span class="muted">已运行仿真时间（分:秒）</span><strong>{duration(stamp)}</strong></div></div>
 <div class="columns"><section class="panel"><h2>任务阶段</h2><ul class="steps">{''.join(steps)}</ul>
 <p class="foot">这里显示程序的阶段检查；整段是否通过，以运行结束后的独立物理验收为准。</p></section>
@@ -181,7 +207,7 @@ def main():
             temporary.replace(directory/'progress.html')
         except PermissionError:
             pass  # A browser can briefly hold the previous local file open.
-        if args.once or (directory/'acceptance.json').exists() or (directory/'failure.json').exists():
+        if args.once or (directory/'acceptance.json').exists() or (directory/'failure.json').exists() or (directory/'mission_report.json').exists():
             break
         time.sleep(2)
 

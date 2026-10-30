@@ -137,3 +137,35 @@ class OwnMotionFeedback:
                     reference_spin_estimate_rad_s=self.reference_spin.tolist() if self.reference_spin is not None else None,
                     epoch=list(self.epoch) if self.epoch is not None else None,
                     reading=deepcopy(self.last_reading))
+
+    def snapshot(self):
+        return dict(schema='space-sim-own-motion/1', max_age_ns=self.max_age_ns,
+            epoch=list(self.epoch) if self.epoch else None, last_control_ns=self.last_control_ns,
+            last_sample_ns=self.last_sample_ns, initial_com=self.initial_com.tolist() if self.initial_com is not None else None,
+            rotation=self.rotation.tolist(), reference_spin=self.reference_spin.tolist() if self.reference_spin is not None else None,
+            spin_samples=[s.tolist() for s in self.spin_samples], unique_samples=self.unique_samples,
+            last_reading=deepcopy(self.last_reading), last_rate=self.last_rate.tolist() if self.last_rate is not None else None)
+
+    def restore(self, document):
+        from space_arm_platform.stereo_capture_packet import rotation
+        d=deepcopy(document)
+        if d.get('schema')!='space-sim-own-motion/1' or d.get('max_age_ns')!=self.max_age_ns:
+            raise ValueError('own-motion configuration mismatch')
+        r=rotation(d['rotation'])
+        samples=np.asarray(d['spin_samples'],float)
+        stamp=d['last_sample_ns']; now=d['last_control_ns']; count=d['unique_samples']
+        vectors=[np.asarray(d[k],float) for k in ('initial_com','reference_spin','last_rate')]
+        if (type(stamp) is not int or stamp<self.CALIBRATION_NS or stamp%self.PERIOD_NS
+                or type(now) is not int or not stamp<=now<=stamp+self.max_age_ns
+                or type(count) is not int or count!=stamp//self.PERIOD_NS+1
+                or samples.shape!=(self.CALIBRATION_NS//self.PERIOD_NS+1,3)
+                or any(v.shape!=(3,) for v in vectors) or not np.isfinite(np.r_[samples.ravel(),*vectors]).all()
+                or not np.allclose(vectors[1],samples.mean(axis=0),atol=1e-14,rtol=0)
+                or not isinstance(d['epoch'],list) or len(d['epoch'])!=2 or not d['epoch'][0]
+                or int(d['last_reading']['sample_time_ns'])!=stamp
+                or not np.array_equal(d['last_reading']['angular_velocity_body_rad_s'],vectors[2])):
+            raise ValueError('invalid own-motion history')
+        self.epoch=tuple(d['epoch']); self.last_control_ns=now; self.last_sample_ns=stamp
+        self.initial_com,self.reference_spin,self.last_rate=vectors
+        self.rotation=r.copy(); self.spin_samples=list(samples); self.unique_samples=count
+        self.last_reading=d['last_reading']

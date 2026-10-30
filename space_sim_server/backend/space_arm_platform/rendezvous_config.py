@@ -9,6 +9,7 @@ from .orbital_physics import OrbitalPhysics
 class FlightOptions:
     seed: int = 7
     model_id: str = "sarm-ground-target-self-collision"
+    capture26_profile: str | None = None
     # None reproduces historical independent-receiver flights. The unified
     # mission supplies one explicit receiver contract for every phase.
     differential_gnss: dict | None = None
@@ -34,6 +35,9 @@ class FlightOptions:
     def __post_init__(self):
         if self.model_id not in ("sarm-ground-target-self-collision", "sarm-dual-capture26"):
             raise ValueError("unsupported flight model_id")
+        if self.capture26_profile not in (None, 'near23_vbar_v1') or (
+                self.capture26_profile and self.model_id != 'sarm-dual-capture26'):
+            raise ValueError('capture26_profile requires the capture26 model and a supported route')
         if self.orbital_physics is not None:
             physics = OrbitalPhysics.model_validate(self.orbital_physics)
             if physics.drag is not None:

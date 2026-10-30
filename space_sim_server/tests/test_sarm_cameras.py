@@ -108,7 +108,8 @@ def test_wrist_view_contains_horizontal_fingers_entering_from_below():
 @pytest.mark.parametrize("template", ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf", "sarm-task-box-20261012-demo"])
 @pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome", "monochrome_fisheye"])
 @pytest.mark.parametrize("sunlight_scale", [0., 1.])
-def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, template, mode, sunlight_scale):
+@pytest.mark.parametrize('preserve_lighting',[False,True])
+def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, template, mode, sunlight_scale,preserve_lighting):
     import sys
     from types import SimpleNamespace
     import importlib.util
@@ -139,14 +140,16 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
                           add=lambda *a, **kw: None, keep_alive=lambda *a: None)
     RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,
                     render_rate_hz=60, capture_rate_hz=30, capture_state_provider=None,
-                    wrist_camera_mode=mode, sunlight_intensity_scale=sunlight_scale).install(ctx)
+                    wrist_camera_mode=mode, sunlight_intensity_scale=sunlight_scale,
+                    vision_capture=dict(enabled=False,preserve_original_lighting=preserve_lighting)).install(ctx)
     assert bridge.settings.sunlight_intensity_scale == sunlight_scale
-    assert len(lights) == 1
-    assert lights[0].visual_id == "teleop/light/overview_lamp"
-    assert lights[0].parent_id == overview.camera_id
-    assert lights[0].position_body_m == (0., 0., 0.)
-    assert lights[0].normal_body == (1., 0., 0.)
-    assert lights[0].properties["intensity"] == 8000.
+    assert len(lights) == (0 if preserve_lighting else 1)
+    if not preserve_lighting:
+        assert lights[0].visual_id == "teleop/light/overview_lamp"
+        assert lights[0].parent_id == overview.camera_id
+        assert lights[0].position_body_m == (0., 0., 0.)
+        assert lights[0].normal_body == (1., 0., 0.)
+        assert lights[0].properties["intensity"] == 8000.
     assert wrist.parent_id == "teleop/ee_base"
     assert wrist.position_body_m == (4, 5, 6)
     assert wrist.camera_mode == mode

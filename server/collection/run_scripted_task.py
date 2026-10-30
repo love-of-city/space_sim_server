@@ -10,6 +10,7 @@ from contextlib import nullcontext
 from dataclasses import asdict
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -49,7 +50,7 @@ def default_target_state(model):
     )
 
 
-def run(args):
+def run(args, *, graph_cache=None):
     initialization_started = time.perf_counter()
     initialization_seconds = {}
     # Establish the production DLL load order. Never import Python mujoco here.
@@ -218,12 +219,17 @@ def run(args):
     report["initialization_seconds"] = initialization_seconds
     report["runtime_provenance"] = {
         "schema": "scripted-runtime-provenance/1",
+        "collection_runtime_version": "optimized-collection/20261031",
+        "physics_graph_reuse_enabled": graph_cache is not None,
+        "collision_filter_modes": {name: os.environ.get(name, '0') for name in
+                                   ('CYLINDER_FILTER_MODE', 'MESH_FILTER_MODE', 'THREAD_FILTER_MODE')},
         "python": sys.executable,
         "sources_sha256": {
             str(path.resolve().relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in (Path(__file__), Path(native.__file__),
                          ROOT / "simulation/publication_scene.py",
-                         ROOT / "simulation/local_mujoco_stepper.py")
+                         ROOT / "simulation/local_mujoco_stepper.py",
+                         ROOT / "simulation/scripted_tasks/physics_graph.py")
         },
     }
     sample = None
@@ -246,97 +252,106 @@ def run(args):
                 initialization_seconds["native_preflight"] = time.perf_counter() - phase_started
             if not report["preflight"]["accepted"]:
                 raise ValueError("initialization_rejected: "+json.dumps(report["preflight"]))
-        print(json.dumps({"type": "loading_task", "output": str(output)}), flush=True)
         phase_started = time.perf_counter()
-        sim, scene, models, recorders = native._build_simulation(
-            external_reference=publisher,
-            dynamics_backend="local",
-            local_substeps=args.substeps,
-            record_history=False,
-            defer_attitude_control=True,
-        )
-        initialization_seconds["build_physics"] = time.perf_counter() - phase_started
-        report["publication_scene"] = getattr(scene, "publication_preparation", None)
-        report["model_compilation"] = sim.local_stepper.model_compilation
-        phase_started = time.perf_counter()
-        stepper = sim.local_stepper
-        disturbances.install_external_force(stepper)
-        ctx = AssemblyContext(
-            sim,
-            scene,
-            config=SessionConfig(
-                model_path=model,
+        reuse_graph = graph_cache is not None and graph_cache.compatible(locals())
+        initialization_seconds["graph_compatibility"] = time.perf_counter() - phase_started
+        if reuse_graph:
+            sim, scene, models, recorders, ctx, orbit, plug_retention, capture, stepper, state_reader = graph_cache.restore(locals())
+        else:
+            print(json.dumps({"type": "loading_task", "output": str(output)}), flush=True)
+            phase_started = time.perf_counter()
+            sim, scene, models, recorders = native._build_simulation(
+                external_reference=publisher,
                 dynamics_backend="local",
-                publish_stride=stepper.publish_every,
-            ),
-        )
-        orbit = OrbitComponent(
-            epoch_utc=scene_instance.get("environment", {}).get(
-                "ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC
-            ),
-            physics=orbital_physics,
-        )
-        ctx.install(
-            [
-                ClockComponent(),
-                orbit,
-                DynamicsCoreComponent(model),
-                OrbitalGravityComponent(mode="bsk"),
-                JointReferenceComponent(
-                    publisher,
-                    joints=profile.joint_names[:6],
-                    actuators=profile.arm_actuators,
-                    kp=native.KP,
-                    kd=native.KD,
-                    limits=native.TORQUE_LIMITS,
-                    ik_rate_hz=SCRIPTED_TASK_HZ,
-                    wire_servos=False,
+                local_substeps=args.substeps,
+                record_history=False,
+                defer_attitude_control=True,
+            )
+            initialization_seconds["build_physics"] = time.perf_counter() - phase_started
+            report["publication_scene"] = getattr(scene, "publication_preparation", None)
+            report["model_compilation"] = sim.local_stepper.model_compilation
+            phase_started = time.perf_counter()
+            stepper = sim.local_stepper
+            disturbances.install_external_force(stepper)
+            ctx = AssemblyContext(
+                sim,
+                scene,
+                config=SessionConfig(
+                    model_path=model,
+                    dynamics_backend="local",
+                    publish_stride=stepper.publish_every,
                 ),
-                AttitudeComponent(model),
-            ]
-        )
-        from simulation.components.plug_retention import install_configured_plug_retention
-        plug_retention = install_configured_plug_retention(ctx)
-        report["plug_retention"] = (plug_retention.configuration() if plug_retention else {"enabled": False})
-        if orbital_physics.drag is not None:
-            from simulation.components.drag import configured_drag_components
-            ctx.install(configured_drag_components(
-                orbital_physics.drag, planet_radius_m=float(orbit.earth.radEquator)))
-        report["orbital_physics"] = environment_metadata(
-            orbital_physics, orbit.earth, epoch_utc=orbit.epoch_utc)
-        state_reader = STATE_READERS[args.task](task, scene, stepper)
-        initialization_seconds["assemble_components"] = time.perf_counter() - phase_started
-        phase_started = time.perf_counter()
-        if args.capture_control_port:
-            from simulation.scripted_tasks.capture_transport import (
-                ScriptedCaptureTransport,
             )
+            orbit = OrbitComponent(
+                epoch_utc=scene_instance.get("environment", {}).get(
+                    "ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC
+                ),
+                physics=orbital_physics,
+            )
+            ctx.install(
+                [
+                    ClockComponent(),
+                    orbit,
+                    DynamicsCoreComponent(model),
+                    OrbitalGravityComponent(mode="bsk"),
+                    JointReferenceComponent(
+                        publisher,
+                        joints=profile.joint_names[:6],
+                        actuators=profile.arm_actuators,
+                        kp=native.KP,
+                        kd=native.KD,
+                        limits=native.TORQUE_LIMITS,
+                        ik_rate_hz=SCRIPTED_TASK_HZ,
+                        wire_servos=False,
+                    ),
+                    AttitudeComponent(model),
+                ]
+            )
+            from simulation.components.plug_retention import install_configured_plug_retention
+            plug_retention = install_configured_plug_retention(ctx)
+            report["plug_retention"] = (plug_retention.configuration() if plug_retention else {"enabled": False})
+            if orbital_physics.drag is not None:
+                from simulation.components.drag import configured_drag_components
+                ctx.install(configured_drag_components(
+                    orbital_physics.drag, planet_radius_m=float(orbit.earth.radEquator)))
+            report["orbital_physics"] = environment_metadata(
+                orbital_physics, orbit.earth, epoch_utc=orbit.epoch_utc)
+            state_reader = STATE_READERS[args.task](task, scene, stepper)
+            initialization_seconds["assemble_components"] = time.perf_counter() - phase_started
+            phase_started = time.perf_counter()
+            if args.capture_control_port:
+                from simulation.scripted_tasks.capture_transport import (
+                    ScriptedCaptureTransport,
+                )
 
-            # The bridge reads material metadata from this MJCF. Using the
-            # source layout here would silently restore its old colours even
-            # though physics and episode metadata use the appearance variant.
-            # Variants retain geom order and resolve the same mesh asset paths,
-            # so the layout catalog remains valid for this realized model.
-            report["render_model_path"] = str(model)
-            report["render_model_sha256"] = hashlib.sha256(model.read_bytes()).hexdigest()
-            capture = ScriptedCaptureTransport(
-                ctx,
-                task,
-                profile,
-                command,
-                report["model_sha256"],
-                scene_instance,
-                control_port=args.capture_control_port,
-                render_port=args.capture_render_port,
-                catalog=args.catalog,
-                state_reader=state_reader,
-                disturbances=disturbances,
-                render_model_path=model,
-            )
-        initialization_seconds["capture_transport"] = time.perf_counter() - phase_started
-        phase_started = time.perf_counter()
-        sim.InitializeSimulation()
-        initialization_seconds["initialize_simulation"] = time.perf_counter() - phase_started
+                # The bridge reads material metadata from this MJCF. Using the
+                # source layout here would silently restore its old colours even
+                # though physics and episode metadata use the appearance variant.
+                # Variants retain geom order and resolve the same mesh asset paths,
+                # so the layout catalog remains valid for this realized model.
+                report["render_model_path"] = str(model)
+                report["render_model_sha256"] = hashlib.sha256(model.read_bytes()).hexdigest()
+                capture = ScriptedCaptureTransport(
+                    ctx,
+                    task,
+                    profile,
+                    command,
+                    report["model_sha256"],
+                    scene_instance,
+                    control_port=args.capture_control_port,
+                    render_port=args.capture_render_port,
+                    catalog=args.catalog,
+                    state_reader=state_reader,
+                    disturbances=disturbances,
+                    render_model_path=model,
+                )
+            initialization_seconds["capture_transport"] = time.perf_counter() - phase_started
+            phase_started = time.perf_counter()
+            sim.InitializeSimulation()
+            initialization_seconds["initialize_simulation"] = time.perf_counter() - phase_started
+            report["physics_graph_reused"] = False
+            if graph_cache is not None:
+                graph_cache.remember(locals())
         report["asset_compilation_cache"] = configure_asset_cache()
         phase_started = time.perf_counter()
         report["orbit"] = _apply_orbital_initial_state(
@@ -542,6 +557,12 @@ def run(args):
         report.update(
             result="failed", reason=f"{type(exc).__name__}: {exc}", events=task.events
         )
+        if graph_cache is not None:
+            graph_cache.close()
+            if sim is not None and getattr(sim, "local_stepper", None) is stepper:
+                # The cache may have owned and just closed these resources.
+                if getattr(stepper, "_handle", None) is None:
+                    stepper = orbit = capture = None
         raise
     finally:
         finished = time.perf_counter()
@@ -558,10 +579,11 @@ def run(args):
         )
         if capture is not None:
             capture.close()
-        if stepper is not None:
-            stepper.close()
-        if orbit is not None and orbit.gravity_factory is not None:
-            orbit.gravity_factory.unloadSpiceKernels()
+        if graph_cache is None or not graph_cache.holds(sim):
+            if stepper is not None:
+                stepper.close()
+            if orbit is not None and orbit.gravity_factory is not None:
+                orbit.gravity_factory.unloadSpiceKernels()
         print(
             json.dumps(
                 {
@@ -576,7 +598,7 @@ def run(args):
     return 0 if task.result == "success" else 1
 
 
-def main(default_task="drawer_lift", argv=None):
+def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
@@ -658,7 +680,7 @@ def main(default_task="drawer_lift", argv=None):
         parser.error("--max-sim-seconds must be finite and positive")
     if not 0.001 <= args.capture_backpressure_poll_s <= 0.1:
         parser.error("--capture-backpressure-poll-s must be in [0.001, 0.1]")
-    return run(args)
+    return run(args, graph_cache=graph_cache)
 
 
 if __name__ == "__main__":

@@ -325,6 +325,7 @@ def test_private_measured_baseline_preserves_actual_passive_linkage_offsets():
         lms_set_state=lambda handle,q,v:forwarded.append(q.copy()) or 0,
         lms_contacts=lambda *args:0,
     )
+    probe._geometry_state = probe.lib.lms_set_state
     probe.gripper_kinematics=SimpleNamespace(passive_positions=lambda jaws:{"passive":2.*jaws[0]})
     joints=np.r_[np.zeros(6),.30,-.30]
     measured=np.r_[joints,.62]

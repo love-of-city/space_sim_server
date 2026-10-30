@@ -1,6 +1,7 @@
 """Read task-specific state from the shared native simulation without changing it."""
 
 import numpy as np
+from simulation.plug_retention import _cross3
 from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 from simulation.scripted_tasks.drawer_lift import DrawerSample
 from simulation.scripted_tasks.plug_insert import PlugSample
@@ -24,18 +25,7 @@ class DrawerState:
     def sample(self, time_s, q, v, wrench):
         contacts = None
         if self.body_names:
-            contacts = [0, 0]
-            for _, _, first, second, distance in self.stepper.contact_snapshot():
-                names = {
-                    self.body_names.get(int(first)),
-                    self.body_names.get(int(second)),
-                }
-                if distance <= 0.0001 and names.intersection(
-                    {"drawer_base", "drawer_buckle"}
-                ):
-                    for index in (0, 1):
-                        if f"ee_finger{index + 1}" in names:
-                            contacts[index] += 1
+            contacts = self.stepper.finger_contact_counts(('drawer_base','drawer_buckle'))
         return DrawerSample(
             time_s,
             q,
@@ -77,22 +67,13 @@ class PlugState:
         rp = quaternion_wxyz_to_matrix(state[pa + 3 : pa + 7])
         position = rb.T @ (state[pa : pa + 3] - state[qa : qa + 3])
         rotation = rb.T @ rp
-        speed = rb.T @ (rate[pv : pv + 3] - rate[va : va + 3]) - np.cross(
+        speed = rb.T @ (rate[pv : pv + 3] - rate[va : va + 3]) - _cross3(
             rate[va + 3 : va + 6], position
         )
         omega = rotation @ rate[pv + 3 : pv + 6] - rate[va + 3 : va + 6]
         contacts = None
         if getattr(self, "body_names", None):
-            contacts = [0, 0]
-            for _, _, first, second, distance in self.stepper.contact_snapshot():
-                names = {
-                    self.body_names.get(int(first)),
-                    self.body_names.get(int(second)),
-                }
-                if distance <= 0.0001 and self.task.config.plug_body in names:
-                    for index in (0, 1):
-                        if f"ee_finger{index + 1}" in names:
-                            contacts[index] += 1
+            contacts = self.stepper.finger_contact_counts((self.task.config.plug_body,))
         return PlugSample(
             time_s,
             q,
@@ -163,7 +144,7 @@ class ThreadedState:
         rotation = rb.T @ rp
         base_omega = np.asarray(base.omega_BN_B)
         speed = rb.T @ (np.asarray(part.v_BN_N) - np.asarray(base.v_BN_N))
-        speed -= np.cross(base_omega, position)
+        speed -= _cross3(base_omega, position)
         omega = rotation @ np.asarray(part.omega_BN_B) - base_omega
         scalars = {}
         for name, joint in self.scalar_joints.items():

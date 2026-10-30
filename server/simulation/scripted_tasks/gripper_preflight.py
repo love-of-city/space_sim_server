@@ -30,10 +30,19 @@ class ParallelogramGripper:
     def passive_positions(self, drives):
         if np.shape(drives) != (2,) or not np.isfinite(drives).all():
             raise ValueError("Expected two finite gripper drive angles")
+        key = tuple(float(x) for x in drives)
+        cache = getattr(self, '_passive_cache', None)
+        if cache is None:
+            self._passive_cache = cache = {}
+        if key in cache:
+            return cache[key].copy()
         result = {}
         for drive, (names, active, passive) in zip(drives, self.chains):
             values = [float(drive), -float(drive)]
             if np.linalg.norm(active.forward([drive])[0]-passive.forward(values)[0]) > 1e-6:
                 raise ValueError("Gripper loop does not close at this candidate pose")
             result.update(zip(names, values))
+        if len(cache) >= 64:
+            cache.pop(next(iter(cache)))
+        cache[key] = result.copy()
         return result

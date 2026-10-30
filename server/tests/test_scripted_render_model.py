@@ -56,11 +56,14 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
     args.catalog.write_text(json.dumps({'assets': {str(tmp_path/'meshes/surface.obj'): catalog_asset}}))
     task = SimpleNamespace(lower=np.full(6, -10.), upper=np.full(6, 10.),
                            config=DrawerLiftConfig(), events=[])
+    task.chain = SimpleNamespace(enable_native_geometry=lambda: None)
+    task._planning_context = SimpleNamespace(stats={}, acquire=lambda: SimpleNamespace(
+        validate_initial=lambda *_: {'accepted': True}, close=lambda: None))
     monkeypatch.setattr('simulation.scripted_tasks.drawer_cycle.DrawerCycleTask', lambda *_: task)
     monkeypatch.setattr('simulation.scripted_tasks.plug_insert.PlugInsertTask', lambda *_: task)
     monkeypatch.setattr('simulation.sarm_model_profile.load_model_profile', lambda _: SimpleNamespace(
         joints=[], joint_names=['joint']*6, arm_actuators=[]))
-    stepper = SimpleNamespace(publish_every=1, close=lambda: None)
+    stepper = SimpleNamespace(publish_every=1, close=lambda: None, model_compilation={})
     sim = SimpleNamespace(local_stepper=stepper)
     native = SimpleNamespace(__file__=runner.__file__)
     physical_models = []

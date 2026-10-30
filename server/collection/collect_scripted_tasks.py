@@ -441,7 +441,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
 
 @dataclass
 class CollectionSession:
-    """Own resources across task boundaries; physics state never survives a task."""
+    """Own workers/renderers across tasks; compatible graphs reset episode state."""
     output: Path
     renderer: object = None
     dynamics: object = None

@@ -1,5 +1,6 @@
 """Private persistent dynamics entry point; controlled by collect_scripted_tasks."""
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -23,11 +24,21 @@ def main():
     # actual session/transport thread instead of whitelisting daemon threads.
     from tqdm import tqdm
     tqdm.monitor_interval = 0
-    # Imported once, but run() creates a new native scenario module and graph.
+    # Optimized private collision queries and live separation proofs. Explicit
+    # overrides support controlled baseline/shadow verification runs.
+    for name in ('CYLINDER_FILTER_MODE', 'MESH_FILTER_MODE', 'THREAD_FILTER_MODE'):
+        os.environ.setdefault(name, '2')
     from collection.run_scripted_task import main as run_episode
-    serve(args.mailbox, dict(pid=args.parent_pid, created=args.parent_created),
-          lambda argv: run_episode(argv=argv),
-          max_episodes=args.max_episodes, max_rss_mb=args.max_rss_mb)
+    from simulation.scripted_tasks.physics_graph import PhysicsGraphCache
+    cache = PhysicsGraphCache() if os.environ.get('SPACE_SIM_REUSE_GRAPH', '1') == '1' else None
+    try:
+        serve(args.mailbox, dict(pid=args.parent_pid, created=args.parent_created),
+              lambda argv: run_episode(argv=argv, graph_cache=cache),
+              max_episodes=args.max_episodes, max_rss_mb=args.max_rss_mb)
+    finally:
+        if cache is not None:
+            cache.close()
+
 
 
 if __name__ == '__main__':

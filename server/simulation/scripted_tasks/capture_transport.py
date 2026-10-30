@@ -118,6 +118,8 @@ class ScriptedCaptureTransport:
         qa, va = self._addresses
         q, v = stepper.qpos[qa], stepper.qvel[va]
         p, r = self.task.chain.forward(q[:6])
+        jacobian = self.task.chain.jacobian(q[:6])
+        wrist = WRIST_SENSOR.observation(stepper, stamp)
         bridge = self.render.bridge
         payload = dict(
             protocol=CONTROL_PROTOCOL,
@@ -135,7 +137,7 @@ class ScriptedCaptureTransport:
             scene_seed=self.scene_instance.get("seed"),
             scene_template_id=self.scene_instance.get("template_id"),
             observation_source="authoritative_render_snapshot",
-            orbital_dynamics=stepper.telemetry()["orbital_environment"],
+            orbital_dynamics=stepper._orbital_telemetry(),
             plug_retention={**self.retention_configuration,
                             "bodies": self.plug_retention.telemetry() if self.plug_retention else {}},
             joint_position_rad=q.tolist(),
@@ -153,13 +155,13 @@ class ScriptedCaptureTransport:
             target_gripper_drive_position_rad=float(self.command[6]),
             end_effector_position_body_m=p.tolist(),
             end_effector_orientation_body_wxyz=matrix_to_quaternion_wxyz(r).tolist(),
-            end_effector_twist_body=(self.task.chain.jacobian(q[:6]) @ v[:6]).tolist(),
-            jacobian_rank=int(np.linalg.matrix_rank(self.task.chain.jacobian(q[:6]))),
+            end_effector_twist_body=(jacobian @ v[:6]).tolist(),
+            jacobian_rank=int(np.linalg.matrix_rank(jacobian)),
             ik_mode="scripted_pose_path",
             dynamics_rate_hz=DYNAMICS_HZ,
             scripted_task_rate_hz=SCRIPTED_TASK_HZ,
             command_stale=False,
-            wrist_wrench=WRIST_SENSOR.observation(stepper, stamp),
+            wrist_wrench=wrist,
             wrist_wrench_rate_hz=WRENCH_HZ,
             wrist_wrench_samples=self.wrench_sampler.drain(stamp),
             **self.ctx.simulation.attitude_control.telemetry(),
@@ -172,7 +174,7 @@ class ScriptedCaptureTransport:
                 start_sim_time_ns=None
                 if self.task_start_ns is None
                 else str(self.task_start_ns),
-                **self._task_metrics(q, v, stamp),
+                **self._task_metrics(q, v, stamp, wrist),
                 command_source="scripted_joint_reference",
                 task_parameters=vars(self.task.config),
             ),
@@ -183,6 +185,7 @@ class ScriptedCaptureTransport:
             measured_q, measured_v, source_stamp = d.observe(q, v, stamp)
             if any((d.options.joint_observation_noise.enabled, d.options.joint_bias.enabled, d.options.observation_delay.enabled)):
                 measured_p, measured_r = self.task.chain.forward(measured_q[:6])
+                measured_jacobian = self.task.chain.jacobian(measured_q[:6])
                 payload.update(
                     observation_source="authoritative_render_with_measured_proprioception",
                     ground_truth=dict(joint_position_rad=q.tolist(), joint_velocity_rad_s=v.tolist(),
@@ -194,8 +197,8 @@ class ScriptedCaptureTransport:
                     gripper_drive_position_rad=float(measured_q[6]), gripper_drive_velocity_rad_s=float(measured_v[6]),
                     end_effector_position_body_m=measured_p.tolist(),
                     end_effector_orientation_body_wxyz=matrix_to_quaternion_wxyz(measured_r).tolist(),
-                    end_effector_twist_body=(self.task.chain.jacobian(measured_q[:6]) @ measured_v[:6]).tolist(),
-                    jacobian_rank=int(np.linalg.matrix_rank(self.task.chain.jacobian(measured_q[:6]))),
+                    end_effector_twist_body=(measured_jacobian @ measured_v[:6]).tolist(),
+                    jacobian_rank=int(np.linalg.matrix_rank(measured_jacobian)),
                 )
             payload["wrist_wrench"] = d.wrench(payload["wrist_wrench"])
         return payload
@@ -209,14 +212,14 @@ class ScriptedCaptureTransport:
         self.disturbances.ingest(stepper.qpos[qa], stepper.qvel[va], int(reading["interval_end_time_ns"]))
         return self.disturbances.wrench(reading)
 
-    def _task_metrics(self, q, v, stamp):
+    def _task_metrics(self, q, v, stamp, wrist):
         reader = getattr(self, "state_reader", None)
         if reader is not None:
             sample = reader.sample(
                 self.task_elapsed_s,
                 q,
                 v,
-                WRIST_SENSOR.observation(self.ctx.simulation.local_stepper, stamp),
+                wrist,
             )
             return reader.metrics(sample)
         stepper = self.ctx.simulation.local_stepper

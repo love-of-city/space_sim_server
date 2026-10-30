@@ -146,6 +146,7 @@ def test_scripted_snapshot_uses_actual_held_commands_and_production_sensor_schem
         qpos=q,
         qvel=velocity,
         telemetry=lambda: {"orbital_environment": {"mode": "bsk"}},
+        _orbital_telemetry=lambda: {"mode": "bsk"},
         read_wrench=lambda *_: (
             np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
             17_500_000,

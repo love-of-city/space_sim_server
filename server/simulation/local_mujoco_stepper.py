@@ -188,6 +188,12 @@ def _library():
     lib.lms_axial_friction_state.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
     lib.lms_friction_diagnostics.argtypes = [ctypes.c_void_p, _INT64_P]
     lib.lms_friction_copy_diagnostics.argtypes = [ctypes.c_void_p, _INT64_P]
+    lib.lms_reset_episode.argtypes = [ctypes.c_void_p]
+    lib.lms_reset_episode.restype = ctypes.c_int
+    lib.lms_finger_contact_counts.argtypes = [ctypes.c_void_p, *([ctypes.c_int] * 4), ctypes.c_double, ctypes.POINTER(ctypes.c_int)]
+    lib.lms_finger_contact_counts.restype = ctypes.c_int
+    lib.lms_sum_body_wrenches.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), *([ctypes.POINTER(_DOUBLE_P)] * 4)]
+    lib.lms_sum_body_wrenches.restype = ctypes.c_int
     if lib.lms_abi() != 1 or lib.lms_header_version() != 3007000:
         raise RuntimeError("local MuJoCo stepper ABI/header mismatch; rebuild it")
     lib._lms_bound = True
@@ -359,6 +365,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._check(min(count, 0), "free joints")
         self.free_qpos = free[0:2 * count:2].astype(int)
         self.free_dof = free[1:2 * count:2].astype(int)
+        self._translation_qpos = self.free_qpos[:, None] + np.arange(3)
+        self._translation_dof = self.free_dof[:, None] + np.arange(3)
         # MJScene registers its bulk states in its own Reset, which runs after
         # this higher-priority model's Reset; bind them on the first update.
         self._qpos_state = self._qvel_state = None
@@ -419,6 +427,21 @@ class LocalMujocoStepper(sysModel.SysModel):
         for spec in servos:
             self.connect_servo(spec)
         self._refresh_actuators()
+
+    def finger_contact_counts(self, targets):
+        key=tuple(targets)
+        if not hasattr(self, '_finger_contact_bindings'):
+            self._finger_contact_bindings={}
+        if key not in self._finger_contact_bindings:
+            ids=[self._lib.lms_name2id(self._handle, _OBJ_BODY, name.encode())
+                 for name in (*key, 'ee_finger1', 'ee_finger2')]
+            if any(i<0 for i in ids) or len(key) not in (1,2):
+                raise ValueError('Missing contact-count body')
+            target1=ids[0];target2=ids[1] if len(key)==2 else -1
+            self._finger_contact_bindings[key]=(target1,target2,ids[-2],ids[-1],(ctypes.c_int*2)())
+        a,b,f1,f2,out=self._finger_contact_bindings[key]
+        self._check(self._lib.lms_finger_contact_counts(self._handle,a,b,f1,f2,.0001,out), 'finger contacts')
+        return (out[0],out[1])
 
     def contact_snapshot(self) -> np.ndarray:
         """geom ids, body ids, separation in metres; never modifies physics."""
@@ -630,22 +653,34 @@ class LocalMujocoStepper(sysModel.SysModel):
         return channel
 
     def _apply_wrench_inputs(self) -> None:
-        """Sum every registered source per body and hand the result to MuJoCo."""
+        """Read every source each tick; batch unchanged ordered sums natively."""
         if not self._wrench_channels:
             return
+        if getattr(self, '_batch_wrench_groups', None) is not self._wrench_groups:
+            # Wiring changes rebuild pointer tables; holding groups retains all
+            # numpy buffers until a subsequent rebuild or stepper destruction.
+            pointer_array = ctypes.POINTER(ctypes.c_double)
+            groups = self._wrench_groups
+            channels = [channel for group in groups for channel in group[1]]
+            offsets = [0]
+            for group in groups:
+                offsets.append(offsets[-1] + len(group[1]))
+            self._batch_wrench_args = (
+                len(groups), (ctypes.c_int * len(groups))(*(g[0] for g in groups)),
+                (ctypes.c_int * len(offsets))(*offsets),
+                (pointer_array * len(channels))(*(_pointer(c.force) for c in channels)),
+                (pointer_array * len(channels))(*(_pointer(c.torque) for c in channels)),
+                (pointer_array * len(groups))(*(g[4] for g in groups)),
+                (pointer_array * len(groups))(*(g[5] for g in groups)),
+            )
+            self._batch_wrench_groups = groups
         for channel in self._wrench_channels:
             channel.force[:] = (channel.force_reader().forceRequestInertial
                                 if channel.force_reader is not None else 0.0)
             channel.torque[:] = (channel.torque_reader().torqueRequestBody
                                  if channel.torque_reader is not None else 0.0)
-        for body_id, channels, force, torque, fp, tp in self._wrench_groups:
-            force[:] = 0.0
-            torque[:] = 0.0
-            for channel in channels:
-                force += channel.force
-                torque += channel.torque
-            self._check(self._lib.lms_set_body_wrench(self._handle, body_id, fp, tp),
-                        "body wrench")
+        self._check(self._lib.lms_sum_body_wrenches(self._handle, *self._batch_wrench_args),
+                    "body wrench")
 
     # --- construction helpers -------------------------------------------------------
     def _check(self, status: int, what: str) -> None:
@@ -762,16 +797,14 @@ class LocalMujocoStepper(sysModel.SysModel):
     # --- frame conversion -------------------------------------------------------------
     def _to_local(self, q: np.ndarray, v: np.ndarray, r_o: np.ndarray, v_o: np.ndarray):
         q, v = q.copy(), v.copy()
-        for qa, da in zip(self.free_qpos, self.free_dof):
-            q[qa:qa + 3] -= r_o
-            v[da:da + 3] -= v_o
+        q[self._translation_qpos] -= r_o
+        v[self._translation_dof] -= v_o
         return q, v
 
     def _to_inertial(self, q: np.ndarray, v: np.ndarray, r_o: np.ndarray, v_o: np.ndarray):
         q, v = q.copy(), v.copy()
-        for qa, da in zip(self.free_qpos, self.free_dof):
-            q[qa:qa + 3] += r_o
-            v[da:da + 3] += v_o
+        q[self._translation_qpos] += r_o
+        v[self._translation_dof] += v_o
         return q, v
 
     def _scene_state(self) -> tuple[np.ndarray, np.ndarray]:

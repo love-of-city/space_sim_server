@@ -1,8 +1,9 @@
 """Sequential local episode worker with reusable imports and immutable model caches.
 
-Each request creates a fresh BSK graph, MuJoCo state and noise generators. A
-content-keyed compiled model and the bounded MuJoCo asset cache can survive. The
-reply is published only after cleanup; a failure retires the entire worker.
+The collection runner may retain a compatible BSK graph and native model. Each
+request resets physical state, random streams and communication sessions; changed
+inputs rebuild the graph. The reply follows episode cleanup; runtime errors or
+resource limits retire the worker and its retained resources.
 The private mailbox uses unique request IDs and PID creation times so old replies
 and recycled PIDs cannot be mistaken for the current episode/process.
 """

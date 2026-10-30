@@ -1,12 +1,30 @@
 # 采集功能基线与合并验收
 
-## 当前维护状态（2026-10-30）
+## 当前维护状态（2026-10-31）
 
-项目已迁移到 space-sim/server 和 space-sim/ue-adapter，最新工作区优化保留；源码SHA、dirty补丁和本机原生二进制在整理前快照登记。本次结构调整不修改任务判据、物理频率或控制频率。
+源码位于 `space-sim/server` 和 `space-sim/ue-adapter`。运行版本标识为
+`optimized-collection/20261031`。本次将原独立实验中的物理图重置复用、碰撞分离证明、
+私有规划查询和状态/外力汇总优化接入正式常驻 worker，并重建原生库。
+没有修改物理/控制/相机频率、任务完成判据或新批次时间种子的规则。
 
-当前唯一保留的layout1000-20261029已按用户要求取消：1076次完成尝试，946条待完整审核成功记录、130次跳过，另有取消中的任务。保留该批次、random150布局池和原始配置/计划；旧源码绝对路径用兼容链接维持，未自动恢复采集。
+纠正 2026-10-30 整理说明：当时保存了正式工作区，但删除的 `migration` 中还包含
+未合入的实验源码，因此“最新优化全部保留并启用”不成立。本次从原开发会话恢复
+源码变更并重新集成、验证；不能把历史实验输出当作已恢复的原始数据。
 
-下文历史功能/实验说明保留版本边界。引用的旧migration输出已清理，不能再作为可访问的本机证据；历史结论不等于本轮重新验收。目录及保留范围见[项目规范](../../docs/project-layout.md)和[本机维护指南](../../docs/guides/linux-workspace.md)。
+两个正式批次均已停止，取消标记和原始数据保留：
+
+- `layout1000-20261029`：1076 次完成尝试，946 条待完整审核、130 次跳过。
+- `layout1000-20261030-1928`：130 次完成尝试，111 条待完整审核、19 次跳过。
+
+验证在独立 `artifacts/verification/optimized-runtime-20261031` 中进行，不恢复正式批次。
+两项完整无画面任务的 44,518 个物理状态样本与更新前逐样本哈希一致；第二项复用图，
+重建与 `InitializeSimulation` 均为零。双相机第二项录制启动实测约 4.71 秒。
+独立固定布局五任务双相机验收全部通过：5 accepted，38,732 帧图像完整解码，数值来源与相机配对校验通过。
+最终验收范围及证据见本机 `reports/optimized-version-update-20261031/REPORT.md`。
+该固定布局验收不能代替全布局池、所有任务或训练数据审核。
+
+下文带日期的实验记录保留历史边界；旧 `migration` 输出已清理，不是当前可访问证据。
+目录规则见[项目规范](../../docs/project-layout.md)。
 
 
 2026-10-29 后续新建布局批次默认使用时间种子：`config/collection.json` 的
@@ -50,8 +68,8 @@
 | 网页固定布局输入 | 可配置固定model/catalog并绑定SHA；固定模式各条布局不变，显式随机模式使用布局池；缺可分色模型时启动前拒绝 | collection_inputs、collection_jobs/API、网页能力提示；真实受控子进程argv验证 |
 | 五固定全局机位 | v7：卫星左侧实体安装面，7 cm等间距、45 cm高度、85°视野；覆盖任务板及上方工作区；新场景只用presets；历史v1–v6保留回放标定；三任务运动快照视觉验证不等于六任务全场景验收 | overview_camera、scene_runtime、采集CLI、网页说明；实体STL支撑与视锥测试 |
 | 全局补光与腕相机 | 既有overview_camera_lamp挂在最终全局相机上，宽锥、2m范围；保留腕部灯及四种腕部相机模式 | camera_lighting、RenderComponent、UE相机挂灯；不能仅测helper，须验证装配和实图 |
-| 初始化精简及编译缓存 | 发布副本精简碰撞mesh和透明无质量的已知螺纹SDF；完整动力学模型按内容缓存最近一套编译结果，每条独立模型/状态；MuJoCo资产缓存容量1GiB | publication_scene、compiled_model_cache、local_mujoco_stepper；summary保存分段、缓存命中及大小；连续两条8秒诊断，第二条准备26.69s，非完整任务验收 |
-| UE/动力学复用 | 常驻进程中每条新建场景、任务、通信会话和随机流；失败/线程遗留/条数或RSS阈值时退休 | dynamics_worker、collect_parallel→collect_scripted_tasks→record_scripted_task→run_scripted_task |
+| 初始化精简及编译缓存 | 发布副本精简碰撞mesh和透明无质量的已知螺纹SDF；完整动力学模型按内容缓存最近一套编译结果；兼容任务进一步复用物理图，每条重置状态；MuJoCo资产缓存容量1GiB | publication_scene、compiled_model_cache、local_mujoco_stepper；summary保存分段、缓存命中及大小；连续两条8秒诊断，第二条准备26.69s，非完整任务验收 |
+| UE/动力学复用 | 兼容输入复用物理图并完整重置；每条新建任务、通信会话和随机流；输入变化重建，运行异常/线程遗留/条数或RSS阈值时退休 | dynamics_worker、collect_parallel→collect_scripted_tasks→record_scripted_task→run_scripted_task |
 | 严格采集时序 | 400 Hz物理、200 Hz任务/腕力、双1024² RGB/50 Hz；预录对齐50Hz；终态两路RGB匹配并入writer后立即冻结采集区间，再执行OFF/封装，避免轮询间隙追加成功后的帧 | sampling、ScriptedObservationRecorder、compact/LeRobot、终态屏障测试 |
 | 启动与流式编码 | Linux禁用失败的Zen自动启动重试；H.264流式编码，显式veryfast配置；有界队列、完整解码，无丢帧提速 | collection_runtime、recording-veryfast.json、streaming_video、每相机encoding_metrics |
 | 保持力计算优化 | 原生引导力/姿态/COM反力运算、每tick共享场景消息，以及候选 integration 状态恢复/成功 step2 复用；保留Python参照实现和不支持模型的原复制路径，频率和物理参数不变 | native_plug_retention、plug_retention及component；数值和native状态等价验收；2026-10-28为8秒录制短测，不等于完整任务验收 |

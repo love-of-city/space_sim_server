@@ -117,6 +117,9 @@ class NativePoseProbe:
 
         ensure_model_plugins(model_path)
         self.lib, self.ptr, self.i64 = _library(), _pointer, _INT64_P
+        self._geometry_state = self.lib.lms_probe_set_state
+        self._geometry_state.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)]
+        self._geometry_state.restype = ctypes.c_int
         error = ctypes.create_string_buffer(1024)
         runtime = str(_basilisk_mujoco_runtime())
         runtime_arg = runtime if os.name == "nt" else os.fsencode(runtime)
@@ -186,7 +189,7 @@ class NativePoseProbe:
         for name, value in self.gripper_kinematics.passive_positions(q[6:8]).items():
             self.q[self.passive_addresses[name]] = value + self.passive_position_offsets.get(name, 0.)
         self.check(
-            self.lib.lms_set_state(self.handle, self.ptr(self.q), self.ptr(self.v))
+            self._geometry_state(self.handle, self.ptr(self.q), self.ptr(self.v))
         )
         count = self.lib.lms_contacts(self.handle, None, 0)
         self.check(count)
@@ -253,6 +256,20 @@ class NativePoseProbe:
             previous = float(opening)
         raise ValueError("No bilateral finger/part contact along the closing sweep")
 
+    def _relevant_contacts(self, candidate, roles):
+        # Constructor-free fixtures and older libraries keep the original path.
+        lib = getattr(self, 'lib', None)
+        if lib is None or not hasattr(lib, 'lms_probe_relevance_begin'):
+            return self.contacts(candidate)
+        mask=np.ascontiguousarray(roles[:-1],dtype=np.uint8)
+        lib.lms_probe_relevance_begin.argtypes=[ctypes.c_void_p,ctypes.POINTER(ctypes.c_ubyte),ctypes.c_int]
+        lib.lms_probe_relevance_end.argtypes=[ctypes.c_void_p]
+        self.check(lib.lms_probe_relevance_begin(self.handle,mask.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)),len(mask)))
+        try:
+            return self.contacts(candidate)
+        finally:
+            self.check(lib.lms_probe_relevance_end(self.handle))
+
     def pose_collision(self, candidate, task_name, allowed_contact_bodies=(),
                        joint_values=None, baseline=None, arm_penetration_m=.0005,
                        clearance_m=0., mechanism_clearance_m=None, axial_socket=None,
@@ -286,11 +303,28 @@ class NativePoseProbe:
                 raise ValueError(f"Invalid private preflight state for {name}")
             address = self.address(name)
             self.q[address:address + len(values)] = values
-        for geom1, geom2, first, second, distance in self.contacts(candidate):
+        # Classification is model metadata; compute once per query, not per contact.
+        if not hasattr(self, '_contact_roles'):
+            self._arm_names = {name for name in self.names.values()
+                               if name.startswith(("ee", "wrist_ft")) or name in {"link1", "link2", "link3", "link4", "link5"}}
+            self._contact_roles = {}
+        arm_names = self._arm_names
+        key = frozenset(moving_mechanism)
+        roles = self._contact_roles.get(key)
+        if roles is None:
+            # Extra sentinel covers flex/unknown body IDs without aliasing body 0.
+            roles = np.zeros(max(self.names, default=-1)+2, dtype=bool)
+            for body, name in self.names.items():
+                roles[body] = name in arm_names or name in moving_mechanism
+            self._contact_roles[key] = roles
+        rows = np.asarray(self._relevant_contacts(candidate, roles), dtype=float)
+        if len(rows):
+            body_ids = rows[:,2:4].astype(np.int64)
+            valid = (body_ids >= 0) & (body_ids < len(roles)-1)
+            safe = np.where(valid, body_ids, len(roles)-1)
+            rows = rows[(~valid.all(axis=1)) | roles[safe[:,0]] | roles[safe[:,1]]]
+        for geom1, geom2, first, second, distance in rows:
             a, b = self.names[int(first)], self.names[int(second)]
-            is_arm = lambda name: (
-                name.startswith(("ee", "wrist_ft")) or name in {f"link{i}" for i in range(1, 6)}
-            )
             # Internal closed four-bar contacts belong to the gripper itself.
             if a.startswith("ee") and b.startswith("ee"):
                 continue
@@ -302,7 +336,7 @@ class NativePoseProbe:
             arm_threshold = clearance_m if clearance_m else -arm_penetration_m
             if finger_clearance_m is not None and {a, b}.intersection({'ee_finger1', 'ee_finger2'}):
                 arm_threshold = finger_clearance_m
-            if (is_arm(a) or is_arm(b)) and distance < arm_threshold:
+            if (a in arm_names or b in arm_names) and distance < arm_threshold:
                 return dict(body1=a, body2=b, penetration_m=float(-distance), separation_m=float(distance))
             mechanism_threshold = (mechanism_clearance_m if mechanism_clearance_m is not None
                                    else clearance_m if clearance_m else -0.0002)

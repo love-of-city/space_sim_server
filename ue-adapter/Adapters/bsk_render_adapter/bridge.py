@@ -792,15 +792,16 @@ class BasiliskRenderBridge(_BridgeBase):
             return
 
         states = [binding.reader() for binding in self._objects]
+        position_values = [state.r_BN_N for state in states]
         origin_n = self._origin(
-            [{"object_id": binding.object_id, "position_N_m": list(state.r_BN_N)}
-             for binding, state in zip(self._objects, states)]
+            [{"object_id": binding.object_id, "position_N_m": position}
+             for binding, position in zip(self._objects, position_values)]
         )
         objects = []
         if states:
             # One batched conversion for all bodies (same checks as the per-body path).
             positions, orientations, velocities, rates = self.converter.bodies(
-                [state.r_BN_N for state in states], [state.v_BN_N for state in states],
+                position_values, [state.v_BN_N for state in states],
                 [state.sigma_BN for state in states], [state.omega_BN_B for state in states], origin_n)
             objects = [
                 {

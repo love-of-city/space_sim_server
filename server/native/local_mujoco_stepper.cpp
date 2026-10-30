@@ -90,7 +90,13 @@ struct AxialFriction {
     int mode = 0;  // 0 free, 1 sticking/stopping, 2 sliding
 };
 
+struct FrictionScratch {
+    std::vector<int> ids;
+    std::vector<double> axes,start_speed,previous_forces,forces,free_speed,measured,probe,response,limits,minus,candidate;
+    std::vector<bool> sliding;
+};
 struct Stepper {
+
     Api api{};
     mjModel* m = nullptr;
     mjData* d = nullptr;
@@ -116,6 +122,7 @@ struct Stepper {
     // Preserve the completed-step sample across rebase/set_state forward passes.
     std::vector<double> sensor_sample;
     bool orbital_forces_enabled = false;
+    FrictionScratch scratch;
 };
 
 // A single immutable compiled MJB, before servos/options are modified. Keeping
@@ -154,6 +161,381 @@ bool finite(const mjtNum* values, int count) {
 
 }  // namespace
 
+// Query-local scope for the private planning model only. It discards pair
+// classes ignored by pose_collision. No model collision masks are mutated.
+static thread_local const mjModel* planning_model=nullptr;
+static thread_local std::vector<unsigned char> planning_relevant;
+static thread_local unsigned long long planning_skipped=0;
+static bool irrelevant_planning_pair(const mjModel* m,int a,int b) {
+    if(m!=planning_model) return false;
+    const int ba=m->geom_bodyid[a],bb=m->geom_bodyid[b];
+    const bool skip=!planning_relevant[ba] && !planning_relevant[bb];
+    planning_skipped+=skip;
+    return skip;
+}
+API int lms_probe_relevance_begin(void* handle,const unsigned char* mask,int count) {
+    auto* s=static_cast<Stepper*>(handle);
+    if(!s || !mask || count!=s->m->nbody || planning_model) return ERR_ARGUMENT;
+    planning_relevant.assign(mask,mask+count);
+    planning_model=s->m;
+    return OK;
+}
+API int lms_probe_relevance_end(void* handle) {
+    auto* s=static_cast<Stepper*>(handle);
+    if(!s || planning_model!=s->m) return ERR_ARGUMENT;
+    planning_model=nullptr;
+    return OK;
+}
+API unsigned long long lms_probe_relevance_skipped() {return planning_skipped;}
+
+#ifdef _WIN32
+using RuntimeModule = HMODULE;
+static void* runtime_symbol(RuntimeModule module, const char* name) {
+    return reinterpret_cast<void*>(GetProcAddress(module, name));
+}
+#else
+using RuntimeModule = void*;
+static void* runtime_symbol(RuntimeModule module, const char* name) { return dlsym(module, name); }
+#endif
+#include <unordered_set>
+// Global MuJoCo callbacks also see Basilisk publication models. Only apply
+// these filters to locally owned models whose lifetime we explicitly track.
+static thread_local std::unordered_set<const mjModel*> filter_models;
+
+// Experimental conservative separation test for cylinder/convex-mesh dispatch.
+// A cylinder projection on each mesh-box axis is bounded analytically.
+// The original callback handles every pair we cannot prove separated.
+#include <cstdlib>
+static mjfCollision original_cylinder_mesh = nullptr;
+static int filter_mode = 0;  // 0 off, 1 shadow validation, 2 skip proven separated
+static unsigned long long filter_calls=0, filter_separated=0, filter_missed=0;
+
+static bool cylinder_mesh_separated(const mjModel* m, const mjData* d,
+                                    int cylinder, int mesh, mjtNum margin) {
+    const auto* c = d->geom_xpos + 3*cylinder;
+    const auto* p = d->geom_xpos + 3*mesh;
+    const auto* cr = d->geom_xmat + 9*cylinder;
+    const auto* mr = d->geom_xmat + 9*mesh;
+    const auto* box = m->geom_aabb + 6*mesh;
+    const double radius=m->geom_size[3*cylinder], half=m->geom_size[3*cylinder+1];
+    const double padding=std::max(0.,margin)+1e-9;
+    for (int axis=0; axis<3; ++axis) {
+        double center=0., dot=0.;
+        for(int i=0;i<3;++i) {
+            center += mr[3*i+axis]*(c[i]-p[i]);
+            dot += mr[3*i+axis]*cr[3*i+2];
+        }
+        // Geom transforms are orthonormal. Roundoff is covered by padding.
+        dot=std::clamp(dot,-1.,1.);
+        const double extent=half*std::abs(dot)+radius*std::sqrt(std::max(0.,1.-dot*dot));
+        if (std::abs(center-box[axis]) > box[axis+3]+extent+padding) return true;
+    }
+    return false;
+}
+static int filtered_cylinder_mesh(const mjModel* m, mjData* d, mjContact* contacts,
+                                 int g1,int g2,mjtNum margin) {
+    if(irrelevant_planning_pair(m,g1,g2)) return 0;
+    if(!filter_models.count(m)) return original_cylinder_mesh(m,d,contacts,g1,g2,margin);
+    ++filter_calls;
+    const bool separated=cylinder_mesh_separated(m,d,g1,g2,margin);
+    filter_separated += separated;
+    if (separated && filter_mode==2) return 0;
+    const int n=original_cylinder_mesh(m,d,contacts,g1,g2,margin);
+    if (separated && n) ++filter_missed;
+    return n;
+}
+static void install_cylinder_filter(RuntimeModule module) {
+    if(original_cylinder_mesh) return;
+    const char* value=std::getenv("CYLINDER_FILTER_MODE");
+    filter_mode=value ? std::atoi(value) : 0;
+    if (!filter_mode) return;
+    auto* table=reinterpret_cast<mjfCollision*>(runtime_symbol(module,"mjCOLLISIONFUNC"));
+    if(!table) return;
+    auto& callback=table[mjGEOM_CYLINDER*mjNGEOMTYPES+mjGEOM_MESH];
+    original_cylinder_mesh=callback;
+    if(callback) callback=filtered_cylinder_mesh;
+}
+API void experiment_filter_reset() { filter_calls=filter_separated=filter_missed=0; }
+API void experiment_filter_stats(unsigned long long* out) {
+    out[0]=filter_calls;out[1]=filter_separated;out[2]=filter_missed;out[3]=filter_mode;
+}
+
+// Experimental proof of convex mesh separation. A cached direction is only a
+// search hint: every invocation reprojects ALL current vertices. No prior
+// contact result, force, distance, or pose is reused.
+#include <unordered_map>
+#include <array>
+#include <limits>
+struct MeshPairKey {
+  const mjModel* model;
+  int a,b;
+  bool operator==(const MeshPairKey& x) const {return model==x.model && a==x.a && b==x.b;}
+};
+struct MeshPairHash {
+  size_t operator()(const MeshPairKey& x) const {
+    return (reinterpret_cast<uintptr_t>(x.model)>>4) ^
+           (static_cast<size_t>(x.a)*2654435761u) ^ (static_cast<size_t>(x.b)*2246822519u);
+  }
+};
+struct MeshHint {std::array<double,3> local_axis{}; int support[4]={}; int separation_side=0; bool valid=false; unsigned cooldown=0;};
+static thread_local std::unordered_map<MeshPairKey,MeshHint,MeshPairHash> mesh_hints;
+static mjfCollision original_mesh_mesh=nullptr;
+static int mesh_mode=0;
+static unsigned long long mesh_calls=0,mesh_separated=0,mesh_missed=0,mesh_searches=0,mesh_hits=0;
+
+// Warm-start a linear support query on MuJoCo's compiled convex hull graph.
+// A graph is only an acceleration structure for the same original vertices.
+// Negative and positive directions are searched independently. Each update
+// rechecks the current direction against adjacent hull vertices.
+static double mesh_support(const mjModel* m,int mesh,const double direction[3],
+                           int sign,int& cached_index) {
+  const auto* vertices=m->mesh_vert+3*m->mesh_vertadr[mesh];
+  const int adr=m->mesh_graphadr[mesh];
+  if(adr<0) {
+    double best=-INFINITY;
+    for(int i=0;i<m->mesh_vertnum[mesh];++i) {
+      double value=sign*(direction[0]*vertices[3*i]+direction[1]*vertices[3*i+1]+direction[2]*vertices[3*i+2]);
+      best=std::max(best,value);
+    }
+    return best;
+  }
+  const auto* graph=m->mesh_graph+adr;
+  const int n=graph[0];const auto* edgeadr=graph+2;const auto* ids=graph+2+n;
+  const auto* neighbors=graph+2+2*n;
+  int vertex=(cached_index>=0 && cached_index<n)?cached_index:0;
+  const auto dot=[&](int k) {
+    const auto* v=vertices+3*ids[k];
+    return sign*(direction[0]*v[0]+direction[1]*v[1]+direction[2]*v[2]);
+  };
+  double best=dot(vertex);
+  for(int steps=0;steps<n;++steps) {
+    int next=vertex;
+    for(int i=edgeadr[vertex];neighbors[i]>=0;++i) {
+      int neighbor=neighbors[i];double value=dot(neighbor);
+      if(value>best){best=value;next=neighbor;}
+    }
+    if(next==vertex)break;
+    vertex=next;
+  }
+  cached_index=vertex;
+  return best;
+}
+
+// Independent numerical audit: compare warm support to a full vertex scan.
+API int experiment_support_audit(void* handle,unsigned long long* result) {
+  auto* s=static_cast<Stepper*>(handle);if(!s)return -1;
+  const auto* m=s->m;
+  unsigned long long checked=0,failed=0;
+  std::uint64_t seed=20261030;
+  for(int mesh=0;mesh<m->nmesh;++mesh) {
+    if(m->mesh_vertnum[mesh]>256)continue;
+    int cached[2]={};
+    for(int sample=0;sample<64;++sample) {
+      double direction[3];
+      for(auto& x:direction) {seed=seed*6364136223846793005ULL+1442695040888963407ULL;x=double(seed>>11)/9007199254740992.*2.-1.;}
+      const auto* v=m->mesh_vert+3*m->mesh_vertadr[mesh];
+      for(int k=0;k<2;++k) {
+        int sign=k?1:-1;double exact=-INFINITY;
+        for(int j=0;j<m->mesh_vertnum[mesh];++j)
+          exact=std::max(exact,sign*(direction[0]*v[3*j]+direction[1]*v[3*j+1]+direction[2]*v[3*j+2]));
+        const double fast=mesh_support(m,mesh,direction,sign,cached[k]);
+        ++checked;failed+=std::abs(fast-exact)>1e-12;
+      }
+    }
+  }
+  result[0]=checked;result[1]=failed;return failed?1:0;
+}
+
+// Both sets are the exact float vertex arrays consumed by MuJoCo's convex
+// support function. Separation of their projections proves separation of the
+// entire convex hulls. Positive contact margin and numerical guard are added.
+static bool mesh_axis_separates(const mjModel* m,const mjData* d,int a,int b,
+                                const double axis[3],double margin,MeshHint& hint) {
+  const double norm=std::sqrt(axis[0]*axis[0]+axis[1]*axis[1]+axis[2]*axis[2]);
+  if (!(norm>1e-12)) return false;
+  const auto* ra=d->geom_xmat+9*a;const auto* rb=d->geom_xmat+9*b;
+  const auto* pa=d->geom_xpos+3*a;const auto* pb=d->geom_xpos+3*b;
+  double world[3]={},other[3]={},offset=0;
+  for(int i=0;i<3;++i) {
+    for(int j=0;j<3;++j)world[i]+=ra[3*i+j]*axis[j];
+    offset+=world[i]*(pb[i]-pa[i]);
+  }
+  for(int j=0;j<3;++j)for(int i=0;i<3;++i)other[j]+=rb[3*i+j]*world[i];
+  const int ma=m->geom_dataid[a],mb=m->geom_dataid[b];
+  const double pad=(std::max(0.,margin)+1e-8)*norm;
+  // A single strict interval inequality already proves separation. Recheck
+  // its two current support values first; only compute the other two when
+  // necessary. The remembered side is merely an evaluation-order hint.
+  // The support arrays, arithmetic, margins and fallback remain unchanged.
+  for(int attempt=0;attempt<2;++attempt) {
+    const int side=attempt ? 1-hint.separation_side : hint.separation_side;
+    bool separated;
+    if(side==0) {
+      const double hi_a=mesh_support(m,ma,axis,1,hint.support[1]);
+      const double lo_b=-mesh_support(m,mb,other,-1,hint.support[2]);
+      separated=hi_a+pad < lo_b+offset;
+    } else {
+      const double lo_a=-mesh_support(m,ma,axis,-1,hint.support[0]);
+      const double hi_b=mesh_support(m,mb,other,1,hint.support[3]);
+      separated=hi_b+offset+pad < lo_a;
+    }
+    if(separated) {hint.separation_side=side;return true;}
+  }
+  return false;
+}
+
+static bool prove_mesh_separation(const mjModel* m,const mjData* d,int a,int b,double margin) {
+  const int ma=m->geom_dataid[a],mb=m->geom_dataid[b];
+  // Bound probe overhead on dense meshes; original solver always handles them.
+  if(ma<0 || mb<0 || m->mesh_vertnum[ma]>256 || m->mesh_vertnum[mb]>256) return false;
+  if(mesh_hints.size()>200000)mesh_hints.clear();
+  auto& hint=mesh_hints[{m,a,b}];
+  if(hint.valid && mesh_axis_separates(m,d,a,b,hint.local_axis.data(),margin,hint)) {
+    ++mesh_hits;return true;
+  }
+  if(hint.cooldown) {--hint.cooldown;return false;}
+  ++mesh_searches;
+  const auto* ra=d->geom_xmat+9*a;const auto* rb=d->geom_xmat+9*b;
+  const auto* pa=d->geom_xpos+3*a;const auto* pb=d->geom_xpos+3*b;
+  // Seven cheap directions: geom-A axes, geom-B axes, center displacement.
+  for(int k=0;k<7;++k) {
+    double axis[3]={};
+    if(k<3)axis[k]=1;
+    else for(int j=0;j<3;++j)for(int i=0;i<3;++i)
+      axis[j]+=ra[3*i+j]*(k<6?rb[3*i+k-3]:pb[i]-pa[i]);
+    if(mesh_axis_separates(m,d,a,b,axis,margin,hint)) {
+      std::copy(axis,axis+3,hint.local_axis.begin());hint.valid=true;hint.cooldown=0;return true;
+    }
+  }
+  // Only delay a future optimization attempt, never delay the original query.
+  hint.valid=false;hint.cooldown=31;return false;
+}
+static int filtered_mesh_mesh(const mjModel* m,mjData* d,mjContact* con,int a,int b,mjtNum margin) {
+  if(irrelevant_planning_pair(m,a,b)) return 0;
+  if(!filter_models.count(m)) return original_mesh_mesh(m,d,con,a,b,margin);
+  ++mesh_calls;
+  bool separated=prove_mesh_separation(m,d,a,b,margin);mesh_separated+=separated;
+  if(separated && mesh_mode==2)return 0;
+  int n=original_mesh_mesh(m,d,con,a,b,margin);
+  if(separated && n)++mesh_missed;
+  return n;
+}
+static void install_mesh_filter(RuntimeModule module) {
+  if(original_mesh_mesh)return;
+  const char* mode=std::getenv("MESH_FILTER_MODE");mesh_mode=mode?std::atoi(mode):0;
+  if(!mesh_mode)return;
+  auto* table=reinterpret_cast<mjfCollision*>(runtime_symbol(module,"mjCOLLISIONFUNC"));
+  if(!table)return;
+  auto& callback=table[mjGEOM_MESH*mjNGEOMTYPES+mjGEOM_MESH];
+  original_mesh_mesh=callback;if(callback)callback=filtered_mesh_mesh;
+}
+API void experiment_mesh_reset() {mesh_calls=mesh_separated=mesh_missed=mesh_searches=mesh_hits=0;}
+API void experiment_mesh_stats(unsigned long long* out) {
+  out[0]=mesh_calls;out[1]=mesh_separated;out[2]=mesh_missed;out[3]=mesh_searches;out[4]=mesh_hits;out[5]=mesh_mode;
+}
+
+// Geometric containment certificate for the CURRENT SARM two-start male (mode
+// 0) / female (mode 1) plugin. R,t map male plugin coordinates to female ones.
+// This only proves nonintersection; it never computes approximate contacts.
+#include <cmath>
+#include <algorithm>
+static double certified_thread_gap(const double R[9], const double t[3]) {
+  constexpr double root=.0135,height=.0015,clearance=.00015,length=.060;
+  constexpr double radius=root+height,w=2*3.14159265358979323846/.008;
+  const double yaw=std::atan2(R[3],R[0]),c=std::cos(yaw),s=std::sin(yaw);
+  const double Q[9]={c,-s,0,s,c,0,0,0,1};
+  if(!(R[8]>.99))return -1.;
+  // Only male points within the female's axial solid [-.020,0] can collide.
+  // Enlarge that necessary interval to cover the maximum XY-induced z shift.
+  const double zerror=radius*std::hypot(R[6],R[7])+1e-9;
+  const double zmin=std::max(-length,(-.020-t[2]-zerror)/R[8]);
+  const double zmax=std::min(0.,(-t[2]+zerror)/R[8]);
+  if(zmin>zmax+1e-7)return 1.;
+  if(zmin>zmax)return -1.;
+  const double zcenter=.5*(zmin+zmax),zhalf=.5*(zmax-zmin);
+  double exy[2];
+  for(int i=0;i<2;++i) {
+    const double a=R[3*i]-Q[3*i],b=R[3*i+1]-Q[3*i+1],z=R[3*i+2];
+    // All points in the male solid are inside this finite cylinder.
+    exy[i]=std::abs(t[i]+zcenter*z)+radius*std::hypot(a,b)+zhalf*std::abs(z);
+  }
+  const double xy=std::hypot(exy[0],exy[1]);
+  if (!(xy<clearance))return -1.;
+  const double dz=radius*std::hypot(R[6],R[7])+std::max(std::abs(zmin),std::abs(zmax))*std::abs(R[8]-1.);
+  // For r>=root, angle error <=asin(xy/root). For r<root, xy<clearance
+  // already guarantees containment within the female's minimum bore radius.
+  const double phase=w*t[2]-2*yaw;  // male/female phases both exactly .004 m
+  const double nominal=height*std::abs(std::sin(.5*phase));
+  const double perturbation=.5*height*(w*dz+2*std::asin(xy/root));
+  return clearance-nominal-perturbation-xy;
+}
+
+static mjfCollision original_thread_sdf=nullptr;
+static const mjpPlugin* (*thread_plugin_at_slot)(int)=nullptr;
+static const char* (*thread_plugin_config)(const mjModel*,int,const char*)=nullptr;
+static int thread_mode=0;
+static unsigned long long thread_calls=0,thread_eligible=0,thread_separated=0,thread_missed=0;
+
+static int uncached_sarm_mode(const mjModel* m,int g) {
+  int instance=m->geom_plugin[g];
+  if(instance<0 || !thread_plugin_at_slot || !thread_plugin_config)return -1;
+  const auto* p=thread_plugin_at_slot(m->plugin[instance]);
+  if(!p || std::strcmp(p->name,"sarm.sdf.two_start_thread"))return -1;
+  const char* value=thread_plugin_config(m,instance,"mode");
+  if(!value)return -1;
+  return !std::strcmp(value,"0")?0:!std::strcmp(value,"1")?1:-1;
+}
+static thread_local std::unordered_map<const mjModel*,std::vector<int>> thread_modes;
+static int current_sarm_mode(const mjModel* m,int g) {
+  auto& modes=thread_modes[m];
+  if(modes.empty()) modes.assign(m->ngeom,-2);
+  if(modes[g]==-2) modes[g]=uncached_sarm_mode(m,g);
+  return modes[g];
+}
+static bool thread_pair_separated(const mjModel* m,const mjData* d,int a,int b,double margin) {
+  // Positive collision margins require a Euclidean distance bound, not merely
+  // a proof of containment. They always use the original callback.
+  if(margin!=0.)return false;
+  int ma=current_sarm_mode(m,a),mb=current_sarm_mode(m,b);
+  if(!((ma==0 && mb==1)||(ma==1 && mb==0)))return false;
+  ++thread_eligible;
+  const int male=ma==0?a:b,female=ma==1?a:b;
+  const auto* ra=d->geom_xmat+9*male;const auto* rb=d->geom_xmat+9*female;
+  const auto* pa=d->geom_xpos+3*male;const auto* pb=d->geom_xpos+3*female;
+  double R[9]={},t[3]={};
+  for(int i=0;i<3;++i)for(int k=0;k<3;++k) {
+    t[i]+=rb[3*k+i]*(pa[k]-pb[k]);
+    for(int j=0;j<3;++j)R[3*i+j]+=rb[3*k+i]*ra[3*k+j];
+  }
+  return certified_thread_gap(R,t)>1e-7;  // 0.1 micrometre numerical guard
+}
+static int filtered_thread_sdf(const mjModel* m,mjData* d,mjContact* con,int a,int b,mjtNum margin) {
+  if(irrelevant_planning_pair(m,a,b)) return 0;
+  if(!filter_models.count(m)) return original_thread_sdf(m,d,con,a,b,margin);
+  ++thread_calls;
+  const bool separated=thread_pair_separated(m,d,a,b,margin);thread_separated+=separated;
+  if(separated && thread_mode==2)return 0;
+  const int n=original_thread_sdf(m,d,con,a,b,margin);
+  if(separated && n)++thread_missed;
+  return n;
+}
+static void install_thread_filter(RuntimeModule module) {
+  if(original_thread_sdf)return;
+  const char* value=std::getenv("THREAD_FILTER_MODE");thread_mode=value?std::atoi(value):0;
+  if(!thread_mode)return;
+  thread_plugin_at_slot=reinterpret_cast<decltype(thread_plugin_at_slot)>(runtime_symbol(module,"mjp_getPluginAtSlot"));
+  thread_plugin_config=reinterpret_cast<decltype(thread_plugin_config)>(runtime_symbol(module,"mj_getPluginConfig"));
+  auto* table=reinterpret_cast<mjfCollision*>(runtime_symbol(module,"mjCOLLISIONFUNC"));
+  if(!table || !thread_plugin_at_slot || !thread_plugin_config)return;
+  auto& callback=table[mjGEOM_SDF*mjNGEOMTYPES+mjGEOM_SDF];
+  original_thread_sdf=callback;if(callback)callback=filtered_thread_sdf;
+}
+API void experiment_thread_reset() {thread_calls=thread_eligible=thread_separated=thread_missed=0;}
+API void experiment_thread_stats(unsigned long long* out) {
+  out[0]=thread_calls;out[1]=thread_eligible;out[2]=thread_separated;out[3]=thread_missed;out[4]=thread_mode;
+}
+
+static void (*probe_fwd_position)(const mjModel*, mjData*) = nullptr;
 API int lms_abi() { return ABI; }
 API int lms_header_version() { return mjVERSION_HEADER; }
 
@@ -186,6 +568,10 @@ API void* lms_create_cached(const RuntimePathChar* runtime_path, const char* xml
         delete s;
         return nullptr;
     }
+    install_cylinder_filter(module);
+    install_mesh_filter(module);
+    install_thread_filter(module);
+    probe_fwd_position = reinterpret_cast<decltype(probe_fwd_position)>(runtime_symbol(module, "mj_fwdPosition"));
     Api& a = s->api;
     bool ok = resolve(module, "mj_version", a.version) && resolve(module, "mj_loadXML", a.loadXML) &&
               resolve(module, "mj_loadModel", a.loadModel) && resolve(module, "mj_sizeModel", a.sizeModel) &&
@@ -274,6 +660,7 @@ API void* lms_create_cached(const RuntimePathChar* runtime_path, const char* xml
     s->orbital_force.assign(3 * s->m->nbody, 0.0);
     s->sensor_sample.assign(s->m->nsensordata, 0.0);
     s->api.resetData(s->m, s->d);
+    filter_models.insert(s->m);
     s->api.forward(s->m, s->d);
     return s;
 }
@@ -287,7 +674,15 @@ API void lms_destroy(void* handle) {
     if (!s) return;
     if (s->d) s->api.deleteData(s->d);
     if (s->friction_trial) s->api.deleteData(s->friction_trial);
-    if (s->m) s->api.deleteModel(s->m);
+    if (s->m) {
+        if(planning_model==s->m) planning_model=nullptr;
+        filter_models.erase(s->m);
+        thread_modes.erase(s->m);
+        for(auto it=mesh_hints.begin();it!=mesh_hints.end();) {
+            if(it->first.model==s->m) it=mesh_hints.erase(it); else ++it;
+        }
+        s->api.deleteModel(s->m);
+    }
     delete s;
 }
 
@@ -422,6 +817,19 @@ API int lms_set_state(void* handle, const double* qpos, const double* qvel) {
     std::memcpy(s->d->qvel, qvel, sizeof(mjtNum) * s->m->nv);
     std::memset(s->d->qacc_warmstart, 0, sizeof(mjtNum) * s->m->nv);
     s->api.forward(s->m, s->d);
+    return OK;
+}
+
+// Private planning model only: geometry queries never consume force/acceleration.
+API int lms_probe_set_state(void* handle, const double* qpos, const double* qvel) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !qpos || !qvel) return ERR_ARGUMENT;
+    if (!finite(qpos, s->m->nq) || !finite(qvel, s->m->nv)) return ERR_ARGUMENT;
+    std::memcpy(s->d->qpos, qpos, sizeof(mjtNum) * s->m->nq);
+    std::memcpy(s->d->qvel, qvel, sizeof(mjtNum) * s->m->nv);
+    std::memset(s->d->qacc_warmstart, 0, sizeof(mjtNum) * s->m->nv);
+    if (!probe_fwd_position) return ERR_RUNTIME;
+    probe_fwd_position(s->m, s->d);
     return OK;
 }
 
@@ -622,8 +1030,9 @@ static bool can_restore_friction_trial(const Stepper* s) {
 
 static int apply_axial_friction(Stepper* s, mjData*& accepted_trial) {
     accepted_trial = nullptr;
-    std::vector<int> ids;
-    std::vector<double> axes, start_speed, previous_forces;
+    auto& w=s->scratch;
+    auto& ids=w.ids; auto& axes=w.axes; auto& start_speed=w.start_speed; auto& previous_forces=w.previous_forces;
+    ids.clear(); axes.clear(); start_speed.clear(); previous_forces.clear();
     for (int i=0; i<static_cast<int>(s->friction.size()); ++i) {
         auto& f = s->friction[i];
         double previous = f.axial_force;
@@ -697,9 +1106,13 @@ static int apply_axial_friction(Stepper* s, mjData*& accepted_trial) {
         return true;
     };
     constexpr double tolerance = 1e-6;  // m/s, contact-solver stiction tolerance
-    std::vector<double> forces = previous_forces;
-    std::vector<double> free_speed(n), measured(n), probe(n), response(n*n), limits(n);
-    std::vector<bool> sliding(n, false);
+    auto& forces=w.forces; forces=previous_forces;
+    auto& free_speed=w.free_speed; free_speed.assign(n,0.);
+    auto& measured=w.measured; measured.assign(n,0.);
+    auto& probe=w.probe; probe.assign(n,0.);
+    auto& response=w.response; response.assign(n*n,0.);
+    auto& limits=w.limits; limits.assign(n,0.);
+    auto& sliding=w.sliding; sliding.assign(n,false);
     auto apply = [&]() {
         // Every successful branch reaches this only after predict evaluated
         // these exact forces and validated ALL interfaces at the same precision.
@@ -786,7 +1199,8 @@ static int apply_axial_friction(Stepper* s, mjData*& accepted_trial) {
         // the local stopping response. Refresh the Jacobian near the candidate
         // instead of repeatedly applying that incorrect slope.
         if (outer >= 1 && outer < 11) {
-            std::vector<double> minus(n), candidate = forces;
+            auto& minus=w.minus; minus.assign(n,0.);
+            auto& candidate=w.candidate; candidate=forces;
             for (int j=0; j<n; ++j) {
                 double delta = .001 * std::max(1.0, s->friction[ids[j]].kinetic_n);
                 candidate[j] = forces[j] + delta;
@@ -896,6 +1310,7 @@ API int lms_step(void* handle, const double* ctrl, double dt, int substeps, cons
                  double* qpos_out, double* qvel_out, double* qacc_out, double* actuator_force_out,
                  double* stats) {
     auto* s = static_cast<Stepper*>(handle);
+    if(s && planning_model==s->m) return ERR_ARGUMENT;
     if (!s || !ctrl || !origin || substeps < 1 || !(dt > 0) || !std::isfinite(dt)) return ERR_ARGUMENT;
     if (s->orbital_forces_enabled && mu != 0.0) return ERR_ARGUMENT;  // never double gravity
     mjModel* m = s->m;
@@ -1318,4 +1733,72 @@ API int lms_contact_geometry(void* handle, double* out, int capacity) {
         }
     }
     return s->d->ncon;
+}
+
+// Read-only task counts. Match existing <= threshold and pair membership exactly.
+API int lms_finger_contact_counts(void* handle, int target1, int target2,
+                                 int finger1, int finger2, double threshold, int* out) {
+    auto* s=static_cast<Stepper*>(handle);
+    if(!s || !out || !std::isfinite(threshold)) return ERR_ARGUMENT;
+    out[0]=out[1]=0;
+    for(int i=0;i<s->d->ncon;++i) {
+        const auto& c=s->d->contact[i];
+        if(!(c.dist<=threshold) || c.geom[0]<0 || c.geom[1]<0) continue;
+        const int a=s->m->geom_bodyid[c.geom[0]], b=s->m->geom_bodyid[c.geom[1]];
+        if(a==target1 || b==target1 || (target2>=0 && (a==target2 || b==target2))) {
+            out[0]+=(a==finger1 || b==finger1);
+            out[1]+=(a==finger2 || b==finger2);
+        }
+    }
+    return 0;
+}
+
+// Batch the existing per-body sums in their original source order. Caller owns
+// stable channel and output arrays. No physics cadence or force law changes.
+API int lms_sum_body_wrenches(void* handle, int groups, const int* bodies,
+                            const int* offsets, const double* const* forces,
+                            const double* const* torques, double* const* sum_force,
+                            double* const* sum_torque) {
+    auto* s=static_cast<Stepper*>(handle);
+    if(!s || groups<0 || !bodies || !offsets || !forces || !torques || !sum_force || !sum_torque)
+        return ERR_ARGUMENT;
+    if(offsets[0]!=0) return ERR_ARGUMENT;
+    for(int g=0;g<groups;++g) {
+        if(offsets[g+1]<offsets[g] || !sum_force[g] || !sum_torque[g]) return ERR_ARGUMENT;
+        for(int k=0;k<3;++k) {sum_force[g][k]=0.;sum_torque[g][k]=0.;}
+        for(int c=offsets[g];c<offsets[g+1];++c) {
+            if(!forces[c] || !torques[c]) return ERR_ARGUMENT;
+            for(int k=0;k<3;++k) {
+                sum_force[g][k]+=forces[c][k];
+                sum_torque[g][k]+=torques[c][k];
+            }
+        }
+        const int status=lms_set_body_wrench(handle,bodies[g],sum_force[g],sum_torque[g]);
+        if(status<0) return status;
+    }
+    return OK;
+}
+
+// Reset episode state in the same translation unit as Stepper: no external ABI casts.
+API int lms_reset_episode(void* handle) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s) return ERR_ARGUMENT;
+    s->api.resetData(s->m, s->d);
+    if (s->friction_trial) s->api.resetData(s->m, s->friction_trial);
+    for (auto& f : s->friction) {
+        f.enabled = false;
+        std::fill(f.force, f.force + 3, 0.);
+        f.axial_force = f.velocity = f.start_z = 0.;
+        f.mode = 0;
+    }
+    s->friction_ids.clear();
+    s->friction_response.clear();
+    s->friction_start_state.clear();
+    s->friction_timestep = 0.;
+    s->friction_predict_calls = s->friction_reused_steps = 0;
+    s->friction_unretained_steps = s->friction_solver_retries = 0;
+    s->friction_full_copies = s->friction_state_restores = 0;
+    for (auto* values : {&s->force_world, &s->torque_body, &s->orbital_force, &s->sensor_sample})
+        std::fill(values->begin(), values->end(), 0.);
+    return OK;
 }

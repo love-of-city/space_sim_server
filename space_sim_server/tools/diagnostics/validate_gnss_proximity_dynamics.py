@@ -25,7 +25,7 @@ parser.add_argument('--scene-model',type=Path,required=True)
 parser.add_argument('--camera-config',type=Path,required=True)
 parser.add_argument('--source-scene',type=Path,required=True)
 parser.add_argument('--output',type=Path,required=True)
-parser.add_argument('--mode',choices=['guarded_approach','hold','gnss_leg','pointing_handoff','continuous_original'],required=True)
+parser.add_argument('--mode',choices=['guarded_approach','hold','gnss_leg','pointing_handoff','continuous_original','vbar_original'],required=True)
 parser.add_argument('--depth-m',type=float,default=17.4)
 parser.add_argument('--end-depth-m',type=float,default=3.36)
 parser.add_argument('--duration-s',type=float,default=180.)
@@ -60,7 +60,8 @@ parser.add_argument('--near-checkpoint-depth-m',type=float,default=1.5)
 parser.add_argument('--platform-gap-m',type=float,default=.5)
 parser.add_argument('--with-grasp',action='store_true',help='Continue the SAME dynamics into image/contact-driven grasp')
 args = parser.parse_args()
-if args.mode=='continuous_original':
+continuous_mode = args.mode in {'continuous_original', 'vbar_original'}
+if continuous_mode:
     if args.pointing_gnss_continuation or args.cooperative_attitude_images:
         parser.error('continuous original-camera trial uses full image PnP; legacy bypass/aided image routes are not used')
     if not 0<args.platform_gap_m<args.near_checkpoint_depth_m<5.5<args.pointing_depth_m<args.depth_m:
@@ -86,7 +87,7 @@ sys.path[:0] = [str(args.basilisk_root.resolve()),str(SERVER),str(SERVER/'backen
 
 import numpy as np
 import Basilisk
-from Basilisk.architecture import messaging
+from Basilisk.architecture import messaging,sysModel
 from Basilisk.simulation import mujoco
 from Basilisk.utilities import SimulationBaseClass,RigidBodyKinematics as rbk
 from simulation.assembly import AssemblyContext,SessionConfig,Slot
@@ -190,9 +191,12 @@ def main():
     for source in (Path(__file__),SERVER/'simulation/pointing_handoff.py',
                    SERVER/'simulation/end_stereo_pointing.py',SERVER/'simulation/cooperative_pointing.py',
                    SERVER/'simulation/near_field/navigation.py',SERVER/'simulation/image_relative_navigation.py',
-                   SERVER/'simulation/dual_range_vision.py',SERVER/'tools/native_image_dynamics_fixture.py',
+                   SERVER/'simulation/dual_range_vision.py',SERVER/'tools/diagnostics/native_image_dynamics_fixture.py',
                    SERVER/'simulation/origin_lever_arm.py',
                    SERVER/'simulation/original_stereo_sequence.py',
+                   SERVER/'simulation/vbar_stereo_sequence.py',SERVER/'simulation/near_field/vbar_approach.py',
+                   SERVER/'simulation/near23_navigation.py',SERVER/'simulation/stereo_predictive_capture.py',
+                   SERVER/'simulation/visual_predictive_capture.py',SERVER/'simulation/own_motion.py',
                    SERVER/'simulation/body_stereo_capture.py',SERVER/'simulation/capture_arm_target.py',
                    SERVER/'simulation/capture_sequence.py',SERVER/'simulation/capture_audit.py',
                    SERVER/'backend/space_arm_platform/cooperative_stereo_translation.py',
@@ -219,7 +223,7 @@ def main():
     service_mount=camera_orbital@cr.T
     target_mount=np.array([[0.,-1.,0.],[1.,0.,0.],[0.,0.,1.]])
     initial_target_mount=target_mount.copy()
-    if args.mode in {'pointing_handoff','continuous_original'}:
+    if args.mode in {'pointing_handoff','continuous_original','vbar_original'}:
         axis=np.asarray(args.initial_target_axis,float)
         if not np.isfinite(axis).all() or np.linalg.norm(axis)<1e-12:
             raise ValueError('finite nonzero target tilt axis required')
@@ -266,7 +270,7 @@ def main():
     refs=np.array([references.get(c[1],0.) for c in controlled])
     capture_state=dict(enabled=False,start_s=None,phase=None,failure=None,completed=False,
                        force_since=None,longest_force_s=0.,last_contact_log=None)
-    capture_target=capture_servo=capture_audit=capture_log=None
+    capture_target=capture_servo=capture_audit=capture_log=gyro_log=None
     def held_or_capture_reference(t):
         if not capture_state['enabled']:
             return refs.copy(),np.zeros(len(refs))
@@ -282,23 +286,35 @@ def main():
         elif feedback['jaw_force_n']>20.:
             capture_state['failure']='contact_force_limit'
         pg,rg=capture_target.kinematics.forward(measured[:6])
-        command,phase=capture_servo.command(t,measured,rg,capture_audit.feedback,grip_position_body_m=pg)
+        if args.mode=='vbar_original':
+            try:
+                own_feedback=own_motion.update(round(t*1e9),ctx.extra['service_gyro'].latest,
+                    own_mass.com({name:float(reader().state) for name,reader in own_readers.items()}),
+                    epoch=(image_fixture.session,'continuous_vbar'))
+                command,phase=capture_servo.command(t,measured,(pg,rg),capture_audit.feedback,
+                                                   reference_from_base=own_feedback)
+            except ValueError as error:
+                command,phase=capture_servo.gyro_unavailable(str(error),t,measured,capture_audit.feedback)
+        else:
+            command,phase=capture_servo.command(t,measured,rg,capture_audit.feedback,grip_position_body_m=pg)
         capture_state['phase']=phase
-        if phase=='abort':capture_state['failure']=capture_servo.sequence.failure_reason or 'controller_abort'
+        if capture_servo.sequence.phase=='abort':capture_state['failure']=capture_servo.sequence.failure_reason or 'controller_abort'
         if capture_state['failure']:command['deadman']=False
         positions,velocities=capture_target.step(.0025,command,False,measured)
         feedback=capture_audit.feedback
-        supported=bool(capture_state['failure'] is None and phase=='hold_force' and feedback.get('jaw_support_count',0)>=4
+        supported=bool(capture_state['failure'] is None and capture_servo.sequence.phase=='hold_force' and feedback.get('jaw_support_count',0)>=4
                        and 4.5<=feedback.get('pad_force_n',0)<=5.5)
         if not supported:capture_state['force_since']=None
         elif capture_state['force_since'] is None:capture_state['force_since']=t
         duration=0. if capture_state['force_since'] is None else t-capture_state['force_since']
         capture_state['longest_force_s']=max(capture_state['longest_force_s'],duration)
-        capture_state['completed']=capture_state['longest_force_s']>=10.
+        capture_state['completed']=capture_state['longest_force_s']>=(20. if args.mode=='vbar_original' else 10.)
         if capture_state['last_contact_log'] is None or t-capture_state['last_contact_log']>=.009999:
             capture_log.write(json.dumps(dict(time_s=t,phase=phase,feedback=feedback,
                 source_frame_id=(capture_servo.last_packet or {}).get('source_frame_id'),
-                failure=capture_state['failure'],four_jaw_force_streak_s=duration))+'\n')
+                failure=capture_state['failure'],four_jaw_force_streak_s=duration,
+                prediction=(capture_servo.diagnostics() if args.mode=='vbar_original' else None),
+                own_motion=(own_motion.diagnostics() if args.mode=='vbar_original' else None)))+'\n')
             capture_state['last_contact_log']=t
         return np.r_[refs[:6],positions],np.r_[np.zeros(6),velocities]
     publisher=HeldJointReferencePublisher(held_or_capture_reference,len(refs))
@@ -318,6 +334,30 @@ def main():
     joint_readers={name:(scene.getBody(body).getScalarJoint(name).stateOutMsg.addSubscriber(),
                          scene.getBody(body).getScalarJoint(name).stateDotOutMsg.addSubscriber())
                    for name,(body,j) in joints.items() if not name.startswith('rw_')}
+    if args.mode=='vbar_original':
+        from simulation.components.gyroscope import GyroscopeComponent
+        from simulation.own_motion import EncoderMassModel,OwnMotionFeedback
+        ctx.install([GyroscopeComponent(seed=args.seed)])
+        own_mass=EncoderMassModel(model_path,stepper.body_inertial)
+        own_motion=OwnMotionFeedback()
+        gyro_log=(output/'service_gyro.jsonl').open('w',encoding='utf-8',buffering=1)
+        own_readers={name:scene.getBody(body).getScalarJoint(name).stateOutMsg.addSubscriber()
+                     for body,name in own_mass.joints}
+
+        class ContinuousOwnMotion(sysModel.SysModel):
+            def __init__(self):
+                super().__init__()
+                self.ModelTag='continuousCaptureOwnMotion'
+
+            def UpdateState(self,nanos):
+                # Start at mission zero and consume every real 50 Hz sample.
+                # Late grasp activation never resets/relabels the gyro stream.
+                own_motion.update(int(nanos),ctx.extra['service_gyro'].latest,
+                    own_mass.com({name:float(reader().state) for name,reader in own_readers.items()}),
+                    epoch=(image_fixture.session if image_fixture else output.name,'continuous_vbar'))
+                gyro_log.write(json.dumps(ctx.extra['service_gyro'].latest)+'\n')
+
+        ctx.add(ContinuousOwnMotion(),Slot.RECORD,every=8,phase=0,component='continuous_own_motion')
     ct=centers[0].evaluate(references)[0];cb=centers[1].evaluate(references)[0]
     optical_offset=float((-target_mount@ct+service_mount@cb+target_mount@geometry.center-service_mount@cp)[0])
     optical_s=lambda depth:depth-optical_offset
@@ -355,6 +395,11 @@ def main():
             image_estimator=CooperativeStereoTranslation(image_fixture.config['calibration'],image_fixture.config['layout'])
         else:
             image_estimator=MultiCameraPoseEstimator(image_fixture.config['calibration'],image_fixture.config['layout'])
+        if args.mode=='vbar_original':
+            from simulation.near23_navigation import Near23NavigationBridge
+            body_image_bridge=Near23NavigationBridge(args.scene_model,image_fixture.config,
+                joint_covariance_rad2=np.zeros((6,6)),mount_covariance=np.zeros((6,6)),
+                uncertainty_source='declared ideal simulation encoders and mount; additional translation floor explicit')
         image_channels['far']=dict(geometry=image_geometry,converter=image_converter,estimator=image_estimator,
             gate=image_gate,sigma=args.image_position_sigma_m,aided=args.cooperative_attitude_images,last_stamp=None)
         if args.image_channel=='dual':
@@ -407,11 +452,15 @@ def main():
     orbit.origin.set_state(rtarget,vtarget)
     scene.postIntegration(0);scene.UpdateState(0)
     sensor=DifferentialGNSS(GNSSConfig(),seed=args.seed)
-    vbar=VbarApproach()
-    vbar.initial=np.r_[initial_com,np.zeros(3)];vbar.acquire.completed_at_s=0.
-    vbar.gates['Vbar50m'].completed_at_s=0.;vbar.index=1
-    vbar.targets=[np.array([d,0.,0.]) for d in (50.,optical_s(17.4),optical_s(5.5),optical_s(.5))]
-    vbar.next_start=initial_com[0];vbar.offset_end_s=optical_s(2.)
+    vbar=None
+    if args.mode=='guarded_approach':
+        # Historical boundary-only diagnostic starts after the far nodes.
+        # The vbar_original route creates its own completely uncompleted gates.
+        vbar=VbarApproach()
+        vbar.initial=np.r_[initial_com,np.zeros(3)];vbar.acquire.completed_at_s=0.
+        vbar.gates['Vbar50m'].completed_at_s=0.;vbar.index=1
+        vbar.targets=[np.array([d,0.,0.]) for d in (50.,optical_s(17.4),optical_s(5.5),optical_s(.5))]
+        vbar.next_start=initial_com[0];vbar.offset_end_s=optical_s(2.)
     diagnostic_leg=RestLeg(initial_com[0],optical_s(args.end_depth_m),P.close_speed_m_s)
     diagnostic_stop=None;diagnostic_stop_start=None;diagnostic_failure=None
     handoff=(PointingHandoff(initial_com,[optical_s(args.pointing_depth_m),0.,0.],
@@ -419,8 +468,11 @@ def main():
         end_com=[optical_s(args.end_depth_m),0.,0.],
         gnss_diagnostic_continuation=args.pointing_gnss_continuation)
         if args.mode=='pointing_handoff' else None)
-    if args.mode=='continuous_original':
-        handoff=OriginalStereoSequence(initial_com,[optical_s(args.pointing_depth_m),0.,0.],
+    if continuous_mode:
+        if args.mode=='vbar_original':
+            from simulation.vbar_stereo_sequence import VbarStereoSequence
+        sequence_type=VbarStereoSequence if args.mode=='vbar_original' else OriginalStereoSequence
+        handoff=sequence_type(initial_com,[optical_s(args.pointing_depth_m),0.,0.],
             [optical_s(5.5),0.,0.],[optical_s(args.near_checkpoint_depth_m),0.,0.],platform_com,
             gnss_bridge_diagnostic=args.gnss_bridge_diagnostic,tool_gap_m=args.platform_gap_m,
             with_grasp=args.with_grasp)
@@ -480,7 +532,7 @@ def main():
             image_update=None
             sample_images=(not args.images_after_prealignment or handoff is None
                            or handoff.phase in {'VisualWait','VisualContinue','TerminalHold'})
-            if args.mode=='continuous_original':
+            if continuous_mode:
                 # Far snapshots document the actual lack of readable pixels.
                 # Only the near stream can establish a 10 Hz readiness streak.
                 if capture_state['enabled'] or (handoff.image_release_s is not None):
@@ -508,8 +560,17 @@ def main():
                         image_result=channel['estimator'].estimate(blobs['left'],blobs['right'])
                         chosen=image_result['methods']['joint_multicamera']
                     packet['measurement']=chosen
-                    if args.mode=='continuous_original':
+                    if continuous_mode:
                         (output/'measurement.json').write_text(json.dumps(packet),encoding='utf-8')
+                    body_packet=None
+                    if args.mode=='vbar_original':
+                        from space_arm_platform.stereo_capture_packet import capture_packet,publish_packet
+                        capture_observation=capture_packet(chosen,near_config,session_id=image_fixture.session,
+                            source_frame_id=packet['source_frame_id'],sim_time_ns=nanos)
+                        publish_packet(output/'capture_measurement.json',capture_observation)
+                        body_packet=body_image_bridge.packet(chosen,mission_id=output.name,
+                            session_id=image_fixture.session,source_frame_id=packet['source_frame_id'],
+                            sim_time_ns=nanos,encoder_time_ns=nanos,joint_position_rad=measured_q)
                     used_edges={}
                     for eye in ('left','right'):
                         ids=chosen.get('used_ids',{}).get(eye,[])
@@ -520,9 +581,19 @@ def main():
                     accepted=False;update=None;conversion_error=None
                     if chosen['status']=='ok':
                         try:
-                            update=channel['converter'].convert(packet,now_ns=nanos,joint_position_rad=measured_q,
-                                kinematics_stamp_ns=nanos,service_rotation_n_from_body=rb,service_attitude_stamp_ns=nanos,
-                                position_covariance_n_m2=np.eye(3)*channel['sigma']**2)
+                            if args.mode=='vbar_original':
+                                if body_packet['status']!='ok':raise ValueError(body_packet['reason'])
+                                # The legacy six-state diagnostic explicitly uses
+                                # ideal cooperative attitude telemetry. The body
+                                # packet itself is independent of this attitude.
+                                body_cov=np.array(body_packet['pose_covariance']['matrix'])[:3,:3]
+                                update=dict(source='stereo',stamp=now,
+                                    z=rb@np.array(body_packet['pose_target_to_service']['t_m']),
+                                    R=rb@body_cov@rb.T+np.eye(3)*channel['sigma']**2)
+                            else:
+                                update=channel['converter'].convert(packet,now_ns=nanos,joint_position_rad=measured_q,
+                                    kinematics_stamp_ns=nanos,service_rotation_n_from_body=rb,service_attitude_stamp_ns=nanos,
+                                    position_covariance_n_m2=np.eye(3)*channel['sigma']**2)
                             # Both pairs update during qualification. Once switched,
                             # the long-focus pair is monitored but never fused again.
                             if range_router is None or range_router.active=='far' or name=='near':
@@ -530,14 +601,18 @@ def main():
                         except ValueError as error:
                             conversion_error=str(error)
                     image_count+=1;updates[name]=update
+                    depth_sigma=channel['sigma']
+                    if args.mode=='vbar_original' and body_packet.get('status')=='ok':
+                        depth_sigma=float(np.hypot(depth_sigma,body_packet['optical_depth_sigma_m']))
                     channel['gate'].observe(now_s=now,stamp_s=now,frame_id=packet['source_frame_id'],
                         image_accepted=chosen['status']=='ok',ekf_accepted=accepted,used_marker_edges_px=used_edges,
-                        depth_sigma_m=channel['sigma'],navigation_sigma_m=nav.sigma_m)
+                        depth_sigma_m=depth_sigma,navigation_sigma_m=nav.sigma_m)
                     if accepted:channel['last_stamp']=now
                     channel_last[name]=dict(frame_id=packet['source_frame_id'],time_s=now,status=chosen['status'],route=chosen['route'],
                         reason=chosen['reason'],ekf_accepted=accepted,conversion_error=conversion_error,
                         used_marker_edges_px=used_edges,used_ids=chosen.get('used_ids'),
                         reprojection_error_px=chosen.get('reprojection_error_px'),ready_count=channel['gate'].count,
+                        body_navigation=body_packet,
                         position_error_mm=(None if update is None else float(np.linalg.norm(update['z']-(truth[0,:3]-truth[1,:3]))*1000)))
                 if range_router is not None:
                     previous=range_router.active
@@ -579,32 +654,42 @@ def main():
                 service_error=float(np.arccos(np.clip((np.trace(rb.T@Q@service_mount)-1)/2,-1,1)))
                 previous_phase=handoff.phase
                 extra={}
-                if args.mode=='continuous_original':
+                if continuous_mode:
                     pg,rg=geometry.chain.forward(measured_q)
                     extra=dict(estimated_tool_center_gripper_m=rg.T@(rb.T@mechanism_n-pg),
                                grasp_complete=capture_state['completed'],grasp_failure=capture_state['failure'])
+                if args.mode=='vbar_original':
+                    extra.update(covariance=com_cov,optical_depth_m=depth,
+                        available_acceleration_m_s2=min(.005,25./mass),observation_age_s=now-last_gnss)
                 ref,refv,refa=handoff.update(now,com_state,position_sigma_m=nav.sigma_m,
                     inputs_valid=now-last_gnss<=.35,service_ready=service_error<np.deg2rad(1.),
                     corridor_ready=corridor_margin>0,prealigned=alignment_result.aligned,
                     visual_ready=visual_ready,visual_stamp_s=last_image_stamp,**extra)
-                if args.mode=='continuous_original' and handoff.image_release_s is not None and visual_hold_mount is None:
+                if continuous_mode and handoff.image_release_s is not None and visual_hold_mount is None:
                     # The far pre-alignment solver deliberately supports >=1m
                     # origin-to-camera separation. After stationary real-image
                     # admission, torque-hold its established orbital attitude.
                     # Keep checking actual view and images during translation.
                     visual_hold_mount=Q.T@target_reference
-                if args.mode=='continuous_original' and handoff.phase=='Grasp' and not capture_state['enabled']:
+                if continuous_mode and handoff.phase=='Grasp' and not capture_state['enabled']:
                     from simulation.body_stereo_capture import BodyStereoCaptureServo
                     from simulation.capture_arm_target import CaptureArmTarget
                     from simulation.capture_audit import CaptureAudit
                     capture_target=CaptureArmTarget(model_path)
                     capture_target.position=np.array([pos[j] for _,j,_,_,_ in controlled[6:]])
-                    capture_servo=BodyStereoCaptureServo(output/'measurement.json',image_fixture.session,near_config)
+                    if args.mode=='vbar_original':
+                        from simulation.stereo_predictive_capture import StereoPredictiveCapture
+                        capture_servo=StereoPredictiveCapture(output/'capture_measurement.json',image_fixture.session,
+                                                              config_file=args.camera_config)
+                    else:
+                        capture_servo=BodyStereoCaptureServo(output/'measurement.json',image_fixture.session,near_config)
                     capture_audit=CaptureAudit(model_path,stepper,output_path=output/'contact_audit.jsonl')
                     capture_log=(output/'grasp_feedback.jsonl').open('w',encoding='utf-8',buffering=1)
                     capture_target_mount=visual_hold_mount.copy()
                     capture_state.update(enabled=True,start_s=now)
                 policy=dict(handoff.telemetry,corridor_margin_m=float(corridor_margin))
+                if capture_state['enabled'] and handoff.failure and capture_state['failure'] is None:
+                    capture_state['failure']='platform:'+handoff.failure
                 if previous_phase!=handoff.phase:
                     print(json.dumps(dict(time_s=now,handoff_event=handoff.phase)),flush=True)
                 small_motion=(alignment_result.attitude_error_deg is not None
@@ -677,6 +762,10 @@ def main():
             # Separate truth-only scoring below. It never changes nav or control.
             delta=truth[0,:3]-truth[1,:3]
             true_com=Q.T@(delta+rt@ctr[0]-rb@cbr[0])
+            true_com_v=Q.T@(truth[0,3:]-truth[1,3:]
+                +rt@(np.cross(states[0].omega_BN_B,ctr[0])+ctr[1])
+                -rb@(np.cross(states[1].omega_BN_B,cbr[0])+cbr[1])
+                -np.cross(w,Q@true_com))
             true_depth=float((cam_r.T@rb.T@(delta+rt@geometry.center-rb@cam_p))[2])
             contacts=[c.tolist() for c in stepper.contact_snapshot()
                       if {families.get(int(c[2])),families.get(int(c[3]))}=={'cubesat_bus','capture_target'}]
@@ -726,6 +815,7 @@ def main():
                 estimated_rotating_speed_m_s=float(np.linalg.norm(com_state[3:])),
                 reference_com_m=ref.tolist(),applied_force_n=applied_force.tolist(),
                 estimated_com_state=com_state.tolist(),true_com_position_m=true_com.tolist(),
+                true_com_velocity_m_s=true_com_v.tolist(),
                 target_torque_body_nm=torque.tolist(),nav_acceleration_sigma_m_s2=navigation_process_sigma,
                 kinematic_origin_acceleration_n_m_s2=origin_acceleration.tolist(),
                 prealignment=(None if alignment_result is None else dict(aligned=alignment_result.aligned,
@@ -740,11 +830,13 @@ def main():
                 target_attitude_error_deg=float(np.rad2deg(np.arccos(np.clip((np.trace(rt.T@Q@target_mount)-1)/2,-1,1)))),
                 service_attitude_error_deg=float(np.rad2deg(np.arccos(np.clip((np.trace(rb.T@Q@service_mount)-1)/2,-1,1)))))
             trace.write(json.dumps(row)+'\n');rows.append(row)
+            if (output/'stop_requested').exists():
+                break
             if k%200==0:
                 print(json.dumps({key:row[key] for key in ('time_s','true_optical_depth_m','filtered_position_error_mm','service_attitude_error_deg')}),flush=True)
             if contacts and not capture_state['enabled']:
                 break
-            if args.mode=='continuous_original' and handoff.phase=='Complete':
+            if continuous_mode and handoff.phase=='Complete':
                 break
             if capture_state['enabled'] and now-capture_state['start_s']>300.:
                 capture_state['failure']='grasp_trial_timeout'
@@ -766,6 +858,7 @@ def main():
         trace.close();sim.TotalSim.deleteThreads()
         if image_fixture is not None:image_fixture.close()
         if capture_log is not None:capture_log.close()
+        if gyro_log is not None:gyro_log.close()
         if capture_audit is not None:capture_audit.file.close()
         if capture_audit is not None and capture_audit.force_file is not None:capture_audit.force_file.close()
     warm=[r for r in rows if r['time_s']>=20.]
@@ -813,7 +906,7 @@ def main():
             all_samples_below_tolerance=all(r['filtered_position_error_mm']<args.tolerance_mm for r in rows),
             after20s_below_tolerance=bool(warm) and all(r['filtered_position_error_mm']<args.tolerance_mm for r in warm)),
         closest_safe_distance_established=False,complete_mission_validated=False)
-    if args.mode=='continuous_original':
+    if continuous_mode:
         summary['continuous_original_stereo']=dict(
             diagnostic_gnss_bridge=args.gnss_bridge_diagnostic,
             changed_trial_requirements=['GNSS may cross original 12m visual boundary',
@@ -825,6 +918,14 @@ def main():
             platform_com_reference_m=platform_com.tolist(),
             image_release_s=handoff.image_release_s,platform_entered_s=handoff.platform_entered_s,
             platform_completed_s=handoff.platform_completed_s,capture=capture_state)
+    if args.mode=='vbar_original':
+        summary['vbar_integration']=dict(reference_owner=handoff.owner,
+            route='vbar_owns_all_platform_references_v2',
+            station17_completed_s=handoff.handoff_s,station17_evidence=handoff.handoff_evidence,
+            vbar_state=handoff.vbar.telemetry,
+            own_motion=own_motion.diagnostics(),
+            capture_controller='near23 stereo + shared gyro/encoders' if args.with_grasp else None,
+            scope='actual V-bar from initialized near entry; not an inherited far-flight handoff')
     if handoff is not None:
         pointing_rows=[r for r in rows if r['policy']['phase']=='TargetPointing']
         aligned_rows=[r for r in rows if r['prealignment']['aligned']]
@@ -840,7 +941,7 @@ def main():
             maximum_target_torque_nm=max(np.linalg.norm(r['target_torque_body_nm']) for r in rows),
             alignment_achieved=bool(aligned_rows),
             sequence_awaited_vision=any(e['phase']=='VisualWait' for e in handoff.events))
-        if args.mode=='continuous_original':
+        if continuous_mode:
             summary['requested_stage_completed']=bool(physical_valid and handoff.failure is None
                 and handoff.platform_completed_s is not None
                 and (handoff.phase=='Complete' if args.with_grasp else handoff.phase=='TerminalHold'))

@@ -190,7 +190,8 @@ class MissionRuntime:
                     raise RuntimeError("连续任务的运行来源发生变化")
                 phase = self._record["flight_phase"]
                 capture26 = self._record['options'].get('model_id') == 'sarm-dual-capture26'
-                terminal = 'NearParked' if capture26 else 'CaptureHold'
+                near23 = self._record['options'].get('capture26_profile') == 'near23_vbar_v1'
+                terminal = 'GraspHold' if near23 else 'NearParked' if capture26 else 'CaptureHold'
                 if (not report.get("basic_nominal_passed") or runtime.get("exit_code") not in (None, 0)
                         or (phase == "near" and report.get("outcome") != terminal)):
                     raise RuntimeError(f"{self._record['flight_phase']} 阶段未通过验收，连续流程已停止")
@@ -211,6 +212,13 @@ class MissionRuntime:
                         return result
                     await self._begin("transitioning", near_work, False)
                 else:
+                    if near23:
+                        # The new route already includes actual force-controlled
+                        # capture. Do not relaunch the old folded-arm operation
+                        # scene or reinterpret GraspHold as NearParked.
+                        self._record.update(capture_completed=True)
+                        self._save()
+                        return
                     await self.handoff(user, background=False)
                     return
         except asyncio.CancelledError:
@@ -445,6 +453,8 @@ class MissionRuntime:
         can_handoff = bool(report and report.get("basic_nominal_passed") and not record.get('emergency_stop') and not record.get("mode", "").startswith("near-field") and not active
                            and (not record.get("scene_instance_id") or record.get("stopped")
                                 or scene.get("phase") in {"stopped", "failed", "completed"}))
+        if record.get('options', {}).get('capture26_profile') == 'near23_vbar_v1':
+            can_handoff = False
         return {**record, "phase": phase, "active": active,
                 "can_manage": self.can_manage(user), "can_handoff": can_handoff,
                 "report": report, "telemetry": telemetry,

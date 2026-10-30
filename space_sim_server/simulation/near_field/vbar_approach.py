@@ -18,6 +18,7 @@ class OriginalCameraVbarPolicy:
     speed_limit_m_s: float = .01
     navigation_sigma_m: float = .04
     pointing_timeout_s: float = 180.
+    mission_profile: str | None = None
 
     def __post_init__(self):
         point = np.asarray(self.acquisition_com_m, float)
@@ -25,8 +26,13 @@ class OriginalCameraVbarPolicy:
                              self.speed_limit_m_s, self.navigation_sigma_m, self.pointing_timeout_s])
         if (point.shape != (3,) or not np.isfinite(point).all() or not np.isfinite(values).all()
                 or np.any(values <= 0) or not .5 < self.acquisition_depth_m < P.visual_depth_m
-                or not isinstance(self.gnss_bridge_diagnostic, bool)):
+                or not isinstance(self.gnss_bridge_diagnostic, bool)
+                or self.mission_profile not in (None, 'near23_vbar_v1')):
             raise ValueError('invalid original-camera V-bar policy')
+
+    @property
+    def gnss_bridge_enabled(self):
+        return self.gnss_bridge_diagnostic or self.mission_profile == 'near23_vbar_v1'
 
 
 class VbarApproach:
@@ -138,7 +144,7 @@ class VbarApproach:
             conditions = dict(position=np.linalg.norm(state[:3]-reference) < policy.position_tolerance_m,
                               speed=speed < speed_limit, sigma=sigma < sigma_limit, common=common,
                               cooperative_geometry=geometry_ready, target_aligned=prealigned,
-                              bridge_authorized=policy.gnss_bridge_diagnostic or visual_ready)
+                              bridge_authorized=policy.gnss_bridge_enabled or visual_ready)
             self.pointing_gate.update(now, holding=True, qualified=all(conditions.values()))
             if now-self.pointing_started_s >= policy.pointing_timeout_s and self.pointing_gate.completed_at_s is None:
                 self.fail('target_pointing_or_bridge_authorization_timeout', state)
@@ -199,7 +205,7 @@ class VbarApproach:
         stop_distance = (vplus*tau+vplus*vplus/(2*braking_accel)+3*np.sqrt(max(0., covariance[0, 0]))
                          + P.boundary_margin_m) if braking_accel > 0 else None
         boundary = P.vision_boundary_m if not visual_valid else P.ready_boundary_m if not visual_ready else None
-        if policy and policy.gnss_bridge_diagnostic:
+        if policy and policy.gnss_bridge_enabled:
             # The reference already stops at the real-image acquisition node.
             # Keep a separate inner braking boundary while it has no vision.
             boundary = None if visual_ready or capture_active else policy.acquisition_depth_m-.5
@@ -261,7 +267,8 @@ class VbarApproach:
                                     for i, (name, g) in enumerate(self.gates.items())}}
         if policy:
             self.telemetry.update(reference_owner='vbar',
-                original_camera_gnss_bridge=policy.gnss_bridge_diagnostic,
+                original_camera_gnss_bridge=policy.gnss_bridge_enabled,
+                mission_profile=policy.mission_profile,
                 target_pointing=self.pointing_gate.telemetry(now),
                 platform_hold=self.platform_hold_gate.telemetry(now))
         return reference, velocity, acceleration

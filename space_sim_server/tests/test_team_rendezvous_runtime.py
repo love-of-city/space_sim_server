@@ -188,7 +188,8 @@ def test_api_defaults_to_team_models_and_rejects_unknown_scenario():
         RendezvousStart(scenario="arbitrary-command")
 
 
-def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tmp_path, monkeypatch):
+@pytest.mark.parametrize('capture26',[False,True])
+def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tmp_path, monkeypatch,capture26):
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "start_renderer.ps1").write_text("")
@@ -212,9 +213,11 @@ def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tm
     monkeypatch.setattr("space_arm_platform.rendezvous_runtime.socket.create_connection", connect)
     monkeypatch.setattr("space_arm_platform.rendezvous_runtime.subprocess.run", launch)
     monkeypatch.setattr(runtime, "_remember_renderer", lambda *args, **kwargs: None)
-    runtime._ensure_renderer()
+    runtime._ensure_renderer(capture26=capture26)
     command = commands[0]
-    assert command[command.index("-PixelStreamingCameraIds") + 1] == "team/camera/spacecraft_overview+team/camera/sarm_wrist_cam"
+    expected=('teleop/camera/spacecraft_overview+teleop/camera/sarm_wrist_cam+teleop/camera/capture_stereo_left+teleop/camera/capture_stereo_right'
+              if capture26 else 'team/camera/spacecraft_overview+team/camera/sarm_wrist_cam')
+    assert command[command.index("-PixelStreamingCameraIds") + 1] == expected
     assert command[command.index("-PixelStreamingCameraFps") + 1] == "60"
     assert command[command.index("-PixelStreamingCameraWidth") + 1] == "640"
     assert command[command.index("-PixelStreamingCameraHeight") + 1] == "360"

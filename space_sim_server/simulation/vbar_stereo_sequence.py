@@ -16,7 +16,7 @@ from simulation.original_stereo_sequence import OriginalStereoLimits
 class VbarStereoSequence:
     def __init__(self, initial_com, station17_com, station5_com, near_com, platform_com,
                  *, gnss_bridge_diagnostic=False, tool_gap_m=.5, with_grasp=False,
-                 epoch_s=0.):
+                 epoch_s=0., mission_profile=None):
         self.points = [np.asarray(p, float).copy() for p in
                        (initial_com, station17_com, station5_com, near_com, platform_com)]
         if (not np.isfinite(epoch_s) or epoch_s < 0 or not np.isfinite(tool_gap_m) or tool_gap_m <= 0
@@ -30,7 +30,7 @@ class VbarStereoSequence:
         near_depth = P.visual_depth_m+self.points[3][0]-self.points[2][0]
         self.vbar = VbarApproach(original_camera_policy=OriginalCameraVbarPolicy(
             acquisition_com_m=tuple(self.points[3]), acquisition_depth_m=float(near_depth),
-            gnss_bridge_diagnostic=gnss_bridge_diagnostic))
+            gnss_bridge_diagnostic=gnss_bridge_diagnostic, mission_profile=mission_profile))
         self.owner = 'vbar'
         # Kept as a compatibility field for the initial trial's report schema.
         # This is a node-completion epoch, NOT a reference-owner handoff.
@@ -147,7 +147,10 @@ class VbarStereoSequence:
             reference_velocity_m_s=np.asarray(ref[1]).tolist(),
             vbar_station17_completed_s=self.handoff_s,
             vbar_nodes=deepcopy(self.vbar.telemetry.get('nodes', {})),
-            formal_visual_release=False, production_visual_policy_unchanged=True,
+            formal_visual_release=(self.image_release_s is not None
+                                   and self.vbar.original_camera_policy.mission_profile is not None),
+            production_visual_policy_unchanged=self.vbar.original_camera_policy.mission_profile is None,
+            mission_profile=self.vbar.original_camera_policy.mission_profile,
             gnss_bridge_diagnostic=self.vbar.original_camera_policy.gnss_bridge_diagnostic,
             target_pointing_enabled=bool(self.target_pointing_enabled), prealigned=bool(prealigned),
             visual_ready=fresh, trial_original_image_release=self.image_release_s is not None,

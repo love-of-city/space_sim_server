@@ -110,8 +110,13 @@ def render(directory):
         ('四爪承载、抓持力合格 · 连续20 s', capture.get('completed', False)),
     ]
     if formal:
+        source = read_json(directory/'input_handoff.json')
+        continuity = read_json(directory/'continuity-audit.json')
+        far_passed = (bool(source.get('accepted') and source.get('phase') == 'FarReady'
+                           and continuity.get('continuity_passed')) if source else
+                      bool(stage_report.get('basic_nominal_passed') and stage_report.get('scenario') != 'near-field'))
         checks.insert(0, ('真实远距飞行至约110 m，连续停稳5 s',
-            bool(stage_report.get('basic_nominal_passed')) if stage_report.get('scenario') != 'near-field' else True))
+            far_passed))
         if guidance.get('phase') in ('Team approach', 'NavigationAcquire', 'FarReady', '100 m handoff hold'):
             checks = checks[:1]
             phase = 'Team approach'

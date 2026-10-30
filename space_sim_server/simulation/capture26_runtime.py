@@ -87,6 +87,7 @@ def run(args):
         if mission == 'operations' and incoming['phase'] != 'NearParked':
             raise ValueError('operations require an accepted NearParked handoff')
         epoch_ns = incoming['time_ns']
+        (output/'input_handoff.json').write_text(json.dumps(incoming,indent=2)+'\n',encoding='utf-8')
     elif getattr(args, 'restart', None):
         saved = json.loads(args.restart.read_text('utf-8-sig'))
         if saved.get('schema') != 'space-sim-capture26-probe-checkpoint/2':

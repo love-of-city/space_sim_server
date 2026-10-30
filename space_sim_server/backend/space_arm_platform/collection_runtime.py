@@ -1,8 +1,10 @@
 """Isolated offline renderer ownership for CLI recording workers."""
 from pathlib import Path
+import hashlib
 import os
 import subprocess
 import socket
+import tempfile
 
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .recording_config import DEFAULT_CAMERA_IDS
@@ -57,7 +59,25 @@ def renderer_command(args, output: Path):
 
 def renderer_environment(args):
     env = os.environ.copy()
-    env["UE-LocalDataCachePath"] = str(args.adapter / "Unreal/BskUnrealRenderer/Saved/DerivedDataCache")
+    key = (next((name for name in env if name.casefold() == "ue-localdatacachepath"), None)
+           if os.name == "nt" else "UE-LocalDataCachePath")
+    inherited = env.pop(key, None)
+    if inherited:
+        env["UE-LocalDataCachePath"] = inherited
+    else:
+        project = args.adapter / "Unreal/BskUnrealRenderer"
+        cache = project / "Saved/DerivedDataCache"
+        if os.name == "nt":
+            # UE's filesystem DDC appends long keys and rejects deeply nested
+            # worktree paths before rendering. Keep a distinct persistent cache
+            # per checkout under the current user's short local cache root.
+            # Match the adapter's scripts/common.ps1 cache identity, so its
+            # imports and live renderer also warm this collector's cache.
+            identity = hashlib.sha256(str(project.resolve()).lower().encode("utf-8")).hexdigest()[:12].upper()
+            cache = Path(env.get("LOCALAPPDATA") or tempfile.gettempdir()) / "BskDDC" / identity
+        env["UE-LocalDataCachePath"] = str(cache)
+    if os.name == "nt" and len(str(Path(env["UE-LocalDataCachePath"]).resolve())) > 119:
+        raise ValueError("UE DDC path exceeds 119 characters; configure a shorter UE-LocalDataCachePath")
     env["PYTHONIOENCODING"] = "utf-8"
     return env
 

@@ -33,7 +33,7 @@ def demo_telemetry(guidance):
 
 def run(args):
     import numpy as np
-    from simulation.capture26_mission import MODEL_PATH, VISION_PATH, desired_geometry, translation_reference, load_vision, source_identity
+    from simulation.capture26_mission import MODEL_PATH, vision_path, desired_geometry, translation_reference, load_vision, source_identity
     from simulation.pose_navigation import PoseNavigation, exp, log
     from space_arm_platform.gnss_config import GNSSConfig
     from space_arm_platform.visual_navigation import calibration_id, VisualReadiness
@@ -55,8 +55,16 @@ def run(args):
     from simulation.platform_stability import PlatformStability
     from simulation.sensor_delivery import FixedStereoDelivery
     mission_config = getattr(args, 'mission_config', None) or load_mission(ROOT)
+    near23 = mission_config.is_near23
+    camera_config_path = vision_path(mission_config)
+    vision_config = load_vision(ROOT, mission_config)
+    near23_route = None
+    own_motion = None
+    auto_capture = None
+    body_image_bridge = None
+    handoff_continuity = None
     demo = mission_config.is_demo and bool(mission or getattr(args, 'approach', False))
-    if demo:
+    if demo or near23:
         # Basilisk invokes Python models on its simulation thread while the UE
         # publisher runs on another thread. The default 5 ms GIL interval can
         # stall each native callback; this changes host scheduling only.
@@ -72,13 +80,14 @@ def run(args):
     incoming = None
     epoch_ns = 0
     if getattr(args, 'handoff', None):
-        from simulation.capture26_handoff import load, SCHEMA, DEMO_SCHEMA
+        from simulation.capture26_handoff import load, SCHEMA, DEMO_SCHEMA, NEAR23_SCHEMA
         incoming = load(args.handoff, ROOT)
-        if incoming['schema'] != (DEMO_SCHEMA if demo else SCHEMA) or incoming.get('mission_configuration') != mission_config.to_dict():
+        if incoming['schema'] != (NEAR23_SCHEMA if near23 else DEMO_SCHEMA if demo else SCHEMA) or incoming.get('mission_configuration') != mission_config.to_dict():
             raise ValueError('capture26 frozen mission configuration missing or changed across handoff')
         if mission == 'operations' and incoming['phase'] != 'NearParked':
             raise ValueError('operations require an accepted NearParked handoff')
         epoch_ns = incoming['time_ns']
+        (output/'input_handoff.json').write_text(json.dumps(incoming,indent=2)+'\n',encoding='utf-8')
     elif getattr(args, 'restart', None):
         saved = json.loads(args.restart.read_text('utf-8-sig'))
         if saved.get('schema') != 'space-sim-capture26-probe-checkpoint/2':
@@ -101,7 +110,16 @@ def run(args):
         args.depth = args.reference_depth
     if incoming and incoming.get('sensor_delivery'):
         delivery.restore(incoming['sensor_delivery'])
-    if mission and not demo:
+    if near23:
+        from simulation.capture26_near23 import Near23Route
+        from simulation.own_motion import OwnMotionFeedback
+        near23_route = Near23Route(ROOT, vision_config, epoch_ns=epoch_ns)
+        preparation = near23_route.preparation
+        own_motion = OwnMotionFeedback()
+        if incoming:
+            preparation.restore(incoming['control']['preparation'])
+            own_motion.restore(incoming['control']['own_motion'])
+    elif mission and not demo:
         from simulation.capture26_mission import load_certified_preparation
         preparation = load_certified_preparation(ROOT, mission_config)
         if preparation and incoming:
@@ -110,7 +128,7 @@ def run(args):
                 raise ValueError('formal handoff requires the certified joint preparation to be complete')
     provenance = source_identity(ROOT, args.adapter)
     provenance['python_switch_interval_s'] = sys.getswitchinterval()
-    provenance['basilisk_scheduler'] = 'single_step_processes' if demo else 'execute_simulation'
+    provenance['basilisk_scheduler'] = 'single_step_processes' if demo or near23 else 'execute_simulation'
     provenance['numeric_thread_environment'] = {key: os.environ.get(key) for key in
         ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS')}
     native_manifest = ROOT/'run/native_acceleration/local_mujoco_stepper.json'
@@ -181,9 +199,15 @@ def run(args):
         # Install IK above the reference publisher in the COMMAND segment.
         operations.install(ctx, profile)
     ctx.add(arm_hold, Slot.COMMAND, component='operating_arm_hold')
-    capture = Capture26Component(native.MODEL_PATH, operations.arm_client if operations else IdleClient(),
-                                 passive_hold=operations is None)
+    if near23 and mission == 'near':
+        from simulation.capture26_near23 import Near23CaptureClient
+        auto_capture = Near23CaptureClient(output,ROOT/camera_config_path,session_id='pending',epoch_ns=epoch_ns,
+            own_motion=own_motion,gyro_provider=lambda: gyros[0].observation(),com_provider=lambda: com[0])
+    capture = Capture26Component(native.MODEL_PATH, auto_capture or (operations.arm_client if operations else IdleClient()),
+                                 passive_hold=operations is None and auto_capture is None)
     ctx.install([capture])
+    if auto_capture:
+        auto_capture.component = capture
     retention = install_configured_plug_retention(ctx)
     environment = None
     if flight_options is not None:
@@ -198,9 +222,9 @@ def run(args):
     # Set authored scalar initial coordinates before measuring assembled COM.
     # Native scene initialization itself occurs below; the closure keeps the
     # filter explicit prior separate from the physical perturbations.
-    vision_config = load_vision(ROOT)
     pointing_error = exp(np.deg2rad(getattr(args, 'pointing_error_deg', [0., 0., 0.])))
-    cam = vision_config['body_from_optical']['left']
+    reference_vision = near23_route.reference_vision() if near23 else vision_config
+    cam = reference_vision['body_from_optical']['left']
     gnss_config = (GNSSConfig.from_dict(flight_options.differential_gnss)
                    if flight_options is not None and flight_options.differential_gnss else GNSSConfig(delay_s=args.gnss_delay))
     receiver = DifferentialGNSS(gnss_config, args.seed)
@@ -218,6 +242,13 @@ def run(args):
     force = messaging.CmdForceInertialMsg()
     torque = messaging.CmdTorqueBodyMsg()
     ctx.ports.add_body_wrench('cubesat_bus', source='capture26_translation', force_inertial=force, torque_body=torque)
+    target_torque = messaging.CmdTorqueBodyMsg()
+    if near23:
+        ctx.ports.add_body_wrench('capture_target',source='near23_target_pointing',torque_body=target_torque)
+        from simulation.near23_navigation import Near23NavigationBridge
+        body_image_bridge = Near23NavigationBridge(native.MODEL_PATH,vision_config,
+            joint_covariance_rad2=np.zeros((6,6)),mount_covariance=np.zeros((6,6)),
+            uncertainty_source='ideal simulation encoders and fixed nominal mount; image covariance retained')
     field = BskNavigationGravity(ctx.ports.orbital_environment(), epoch_s=epoch_ns*1e-9)
     nav = None
     approach = None
@@ -268,7 +299,11 @@ def run(args):
     session_id = uuid.uuid4().hex if mission or incoming else mission_id
     if incoming and (incoming['mission_id'] != mission_id or incoming['calibration_id'] != calibration_id(vision_config)):
         raise ValueError('capture26 task or calibration changed across handoff')
-    gate = VisualReadiness(mission_id, session_id, calibration_id(vision_config))
+    from space_arm_platform.visual_navigation import NEAR23_BODY_PROFILE, FIXED_STEREO_PROFILE
+    visual_profile = NEAR23_BODY_PROFILE if near23 else FIXED_STEREO_PROFILE
+    gate = VisualReadiness(mission_id, session_id, calibration_id(vision_config),visual_profile=visual_profile)
+    if auto_capture:
+        auto_capture.servo.session_id = session_id
     gate_audit_cursor = 0
     if operations and incoming and incoming['control'].get('platform_stability'):
         operation_stability.restore(incoming['control']['platform_stability'])
@@ -337,7 +372,9 @@ def run(args):
             if nav is None:
                 return
             now = int(nanos)+epoch_ns
-            if demo and now % 50_000_000 == 0 and emergency_request.exists():
+            if (demo or near23) and now % 50_000_000 == 0 and emergency_request.exists():
+                if auto_capture:
+                    auto_capture.failure = 'operator_emergency_stop'
                 if approach:
                     approach._hold('operator emergency stop')
                 if flight:
@@ -345,11 +382,17 @@ def run(args):
                 if operations:
                     operations.fail('operator emergency stop')
             refresh_geometry(now)
-            if preparation is not None and mission != 'operations':
+            if preparation is not None and mission != 'operations' and not (auto_capture and auto_capture.active):
                 samples = [geometry_readers[name] for name in preparation.names]
                 reference = preparation.update(now, [p().state for p, _ in samples], [v().state for _, v in samples])
                 operating_reference[:6], capture.target.position[:6] = reference[:6], reference[6:]
             nav.advance(now)
+            if near23:
+                qcap = np.array([geometry_readers[f'bottom_joint{i}'][0]().state for i in range(1,7)])
+                body_image_bridge.remember_encoders(now,qcap)
+                reading = gyros[0].observation()
+                if reading:
+                    own_motion.update(now,reading,com[0],epoch=(mission_id,'continuous'))
             if not (incoming and now == epoch_ns):
                 nav.encoder_geometry(now, np.array(cam['position_body_m'])-com[0], com[1], com_rates)
             if getattr(sim, 'attitude_control', None) is not None:
@@ -396,6 +439,13 @@ def run(args):
                 (output/'vision-worker-stop').touch()
             for result in results:
                 received_wall_ns = time.time_ns()
+                if near23:
+                    from space_arm_platform.stereo_capture_packet import capture_packet, publish_packet
+                    # Publish the actual current image, including invalid frames.
+                    if all(key in result for key in ('mission_id','session_id','calibration_id','source_frame_id','sim_time_ns')):
+                        publish_packet(output/'capture_measurement.json',capture_packet(result,vision_config,
+                            session_id=session_id,source_frame_id=result['source_frame_id'],sim_time_ns=int(result['sim_time_ns'])))
+                        result = body_image_bridge.image_result(result)
                 accepted = nav.visual(result, received_wall_time_ns=received_wall_ns)
                 self.accepted_visual += int(accepted)
                 self.invalid_visual += int(not accepted)
@@ -421,7 +471,7 @@ def run(args):
                     omega_BN_B=(s['rates'][i]-s['b'][i]).tolist()), now, self.moduleID)
             # Start with the configured optical reference; a mission stage
             # below replaces it using the selected feedback source.
-            offset, reference_velocity, _ = translation_reference(args.depth, s, com[0], com[1], vision_config)
+            offset, reference_velocity, _ = translation_reference(args.depth, s, com[0], com[1], reference_vision)
             p_goal = s['p'][1]+offset
             v_goal = s['v'][1]+reference_velocity
             service_rate = float(np.linalg.norm(s['rates'][0]-s['b'][0]))
@@ -487,14 +537,46 @@ def run(args):
                     healthy = healthy and not (preparation and preparation.failed)
                     # Initial GNSS transport acquisition is not a sensor failure.
                     if demo or self.last_gnss_ns is not None or acquisition_expired:
-                        self.guidance = flight.step(now, s, healthy=not cross_contacts if demo else healthy)
+                        self.guidance = flight.step(now, s, healthy=not cross_contacts if demo else healthy,
+                            preparation_ready=preparation is None or preparation.complete)
                 if hasattr(self, 'guidance'):
                     if demo:
                         self.guidance['optical_depth_m'] = camera_depth(s, com[0], com[1], vision_config)
                         self.guidance['center_distance_m'] = float(np.linalg.norm(s['p'][0]-s['p'][1]))
                     p_goal, v_goal = self.guidance['position_goal'], self.guidance['velocity_goal']
                     feedforward = self.guidance['differential_acceleration']
-            if approach is not None:
+            if near23 and mission == 'near' and now % 50_000_000 == 0:
+                from space_arm_platform.visual_navigation import principal_sigma
+                from simulation.near23_navigation import relative_navigation_output
+                relative_cov = np.array(relative_navigation_output(nav)['position_velocity_covariance'])
+                qdot = np.array([geometry_readers[f'bottom_joint{i}'][1]().state for i in range(1,7)])
+                healthy = (all(nav.gyro_health(now)) and self.last_gnss_ns is not None and now-self.last_gnss_ns<=350_000_000
+                    and self.last_cooperative_ns is not None and now-self.last_cooperative_ns<=60_000_000
+                    and preparation.complete and not preparation.failed and not cross_contacts)
+                self.guidance = near23_route.step(now,s,service_com=com[0],target_com=com[1],q=qcap,qdot=qdot,
+                    covariance=relative_cov,sigma=principal_sigma(pc),last_gnss_ns=self.last_gnss_ns,
+                    last_cooperative_ns=self.last_cooperative_ns,healthy=healthy,visual_ready=gate.ready,
+                    visual_stamp_ns=gate.last_exposure_ns,mass=masses[0],grasp_complete=auto_capture.complete,grasp_failure=auto_capture.failure)
+                if near23_route.safe_hold and auto_capture.active and auto_capture.failure is None:
+                    auto_capture.failure = near23_route.sequence.failure or 'platform_safe_hold'
+                if near23_route.sequence.phase=='Grasp' and not auto_capture.active:
+                    from simulation.capture_audit import CaptureAudit
+                    auto_capture.audit = CaptureAudit(native.MODEL_PATH,stepper,output_path=output/'contacts_400hz.jsonl')
+                    auto_capture.active = True
+            if near23:
+                if mission=='far':
+                    from simulation.cooperative_pointing import bounded_pointing_torque
+                    from simulation.near_field.orbital_guidance import vbar_frame
+                    frame,omega = vbar_frame(np.r_[s['p'][1],s['v'][1]])
+                    near23_route.target_torque = bounded_pointing_torque(target_rotation_n_from_body=s['r'][1],
+                        reference_rotation_n_from_body=frame@near23_route.target_mount,
+                        target_angular_rate_body_rad_s=s['rates'][1]-s['b'][1],reference_angular_rate_n_rad_s=omega)
+                target_torque.write(messaging.CmdTorqueBodyMsgPayload(torqueRequestBody=near23_route.target_torque.tolist()),int(nanos),self.moduleID)
+                if hasattr(self,'guidance'):
+                    p_goal,v_goal = self.guidance['position_goal'],self.guidance['velocity_goal']
+                    feedforward = self.guidance.get('differential_acceleration',feedforward)
+                    self.guidance.update(acceptance_profile=mission_config.acceptance_profile,feedback_source=mission_config.feedback_source)
+            if approach is not None and not near23:
                 approach.service_com, approach.target_com = com
                 if demo or self.last_gnss_ns is not None or acquisition_expired:
                     pc, ac = nav.relative_covariances()
@@ -576,13 +658,20 @@ def run(args):
         z = np.cross(end_r, end_v)
         z /= np.linalg.norm(z)
         target_rotation = np.column_stack((np.cross(y, z), y, z))
-    _, reference_rotation = desired_geometry(args.depth, target_rotation, np.zeros(3), np.zeros(3), vision_config)
+    _, reference_rotation = desired_geometry(args.depth, target_rotation, np.zeros(3), np.zeros(3), reference_vision)
+    if near23:
+        from simulation.near_field.orbital_guidance import vbar_frame
+        frame,_ = vbar_frame(np.r_[r0,v0])
+        reference_rotation = frame@near23_route.service_mount
+        target_rotation = frame@near23_route.target_mount
     reference_rotation = reference_rotation@pointing_error
     if incoming:
         reference_rotation = np.array(incoming['navigation']['state']['r'][0])
     attitude = AttitudeComponent(native.MODEL_PATH, estimated_navigation=sensor_messages[0],
         initial_attitude_prior=rbk.C2MRP(reference_rotation.T), control_rate_hz=mission_config.attitude_hz,
-        control_mode=mission_config.attitude_control_mode)
+        control_mode=mission_config.attitude_control_mode,
+        reference_provider=(lambda t: near23_route.attitude_reference(nav.state) if nav is not None else
+            (reference_rotation,np.zeros(3),np.zeros(3))) if near23 else None)
     ctx.install([attitude])
     bridge = None
     vision = None
@@ -595,8 +684,12 @@ def run(args):
         render = RenderComponent(model_path=native.MODEL_PATH, catalog=args.catalog.resolve(),
             host='127.0.0.1', port=args.render_port, render_rate_hz=args.render_rate, capture_rate_hz=10,
             capture_state_provider=operations.client.capture_state if operations else lambda: {},
-            visual_attachments=render_profile['visual_attachments'],
-            vision_capture=dict(enabled=mission != 'far', config_file=VISION_PATH.as_posix(), diagnostic_only=demo))
+            visual_attachments=([dict(parent_id='teleop/capture_target',
+                geometry_file='config/visual_attachments/capture26_near23/geometry_metres.json',
+                sha256=hashlib.sha256((ROOT/'config/visual_attachments/capture26_near23/geometry_metres.json').read_bytes()).hexdigest())]
+                if near23 else render_profile['visual_attachments']),
+            vision_capture=dict(enabled=mission != 'far', config_file=camera_config_path.as_posix(),
+                diagnostic_only=demo,preserve_original_lighting=near23))
         ctx.extra['template_id'] = 'sarm-dual-capture26'
         ctx.install([render])
         bridge = render.bridge
@@ -621,7 +714,7 @@ def run(args):
         external_vision = getattr(args, 'external_vision', False)
         log_file = None if external_vision else (output/'vision-host.log').open('wb')
         command = [sys.executable, str(ROOT/'tools/run_capture26_vision.py'),
-            '--config', str(ROOT/VISION_PATH), '--mission', mission_id, '--session', session_id,
+            '--config', str(ROOT/camera_config_path), '--mission', mission_id, '--session', session_id,
             '--result-port', str(result_receiver.port), '--capture-port', str(args.capture_port),
             '--output', str(output)]
         if getattr(args, 'save_all_images', False):
@@ -630,7 +723,8 @@ def run(args):
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         if external_vision:
             route = dict(schema='space-sim-vision-route/1', mission_id=mission_id, session_id=session_id,
-                         calibration_id=calibration_id(vision_config), result_port=result_receiver.port)
+                         calibration_id=calibration_id(vision_config), result_port=result_receiver.port,
+                         config_file=camera_config_path.as_posix())
             temporary = output/'vision-route.tmp'
             temporary.write_text(json.dumps(route), encoding='utf-8')
             temporary.replace(output/'vision-route.json')
@@ -673,10 +767,15 @@ def run(args):
 
     cross_contacts = []
     geom_roots = {}
+    geom_bodies = {}
     for body in ET.parse(native.MODEL_PATH).findall('./worldbody/body'):
         for geom in body.iter('geom'):
             if geom.get('name'):
                 geom_roots[geom.get('name')] = body.get('name')
+        for child in body.iter('body'):
+            for geom in child.findall('geom'):
+                if geom.get('name'):
+                    geom_bodies[geom.get('name')] = child.get('name')
 
     class ContactMonitor(sysModel.SysModel):
         def __init__(self):
@@ -688,6 +787,11 @@ def run(args):
                 return
             for row in stepper.contact_detail():
                 roots = {geom_roots.get(stepper._name(5, int(i))) for i in row[:2]}
+                names = [stepper._name(5,int(i)) for i in row[:2]]
+                planned = (auto_capture is not None and auto_capture.active and roots=={'cubesat_bus','capture_target'}
+                    and any(geom_bodies.get(name,'').startswith(('jaw_','axial_carriage','cam','gripper')) for name in names))
+                if planned:
+                    continue
                 if row[2] < -1e-5 and (roots == {'cubesat_bus', 'capture_target'} or roots == {'cubesat_bus'}):
                     if len(cross_contacts) < 100:
                         cross_contacts.append(dict(time_ns=epoch_ns+int(nanos), distance_m=float(row[2]),
@@ -717,7 +821,7 @@ def run(args):
     geometry_readers = {name: (ctx.ports.joint_state(name).addSubscriber(), ctx.ports.joint_rate(name).addSubscriber())
                         for name in geometry_model.joints}
 
-    offset, _ = desired_geometry(args.depth, target_rotation, com[0], com[1], vision_config,
+    offset, _ = desired_geometry(args.depth, target_rotation, com[0], com[1], reference_vision,
                                  service_rotation=reference_rotation)
     nominal_positions = np.array([r0+offset, r0])
     nominal_velocities = np.array([v0, v0])
@@ -778,7 +882,7 @@ def run(args):
         service_com=com[0], target_com=com[1],
         time_ns=epoch_ns,
         vision_identity=(tuple(incoming['navigation']['configuration']['vision_identity']) if incoming else
-                         (mission_id, session_id, calibration_id(vision_config))))
+                         (mission_id, session_id, calibration_id(vision_config))),visual_profile=visual_profile)
     if incoming:
         nav.restore(incoming['navigation'])
         inherited_images = [packet for _, packet in delivery.staged]+list(delivery.completed.values())
@@ -786,7 +890,9 @@ def run(args):
                                pending_visual_results=inherited_images)
         control.last_gnss_ns = incoming['control']['last_gnss_ns']
         control.force_n = np.array(incoming['control']['force_n'])
-    if getattr(args, 'approach', False) or mission == 'near':
+    if near23 and mission == 'near':
+        approach = near23_route
+    elif getattr(args, 'approach', False) or mission == 'near':
         from simulation.capture26_approach import Capture26Approach, Capture26DemoApproach
         entry_depth = args.depth
         if incoming:
@@ -846,7 +952,7 @@ def run(args):
                     alive=lambda: vision_process is None or vision_process.poll() is None)
             before = time.perf_counter()
             sim.ConfigureStopTime(macros.sec2nano(elapsed))
-            if demo:
+            if demo or near23:
                 # This runner schedules every sensor/control event as a BSK
                 # model. The public single-step API executes the same process
                 # priorities on this thread, avoiding Python GIL handoffs on
@@ -873,13 +979,17 @@ def run(args):
                                      capture_reference=capture.target.position.tolist(),
                                      gyro_pending=control.gyro_pending,
                                      last_cooperative_ns=control.last_cooperative_ns,
-                                     platform_stability=operation_stability.snapshot() if operations else approach.stability.snapshot() if approach else None,
+                                     platform_stability=operation_stability.snapshot() if operations else approach.stability.snapshot() if approach and not near23 else None,
                                      parking_completion=incoming['control'].get('parking_completion') if operations else None,
-                                     preparation=preparation.snapshot() if preparation else None),
+                                     preparation=preparation.snapshot() if preparation else None,
+                                     own_motion=own_motion.snapshot() if own_motion else None),
                         mission_configuration=mission_config.to_dict(), sensor_delivery=delivery.snapshot(),
                         environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else [])
                     (output/'restored-state.json').write_text(json.dumps(restored,
                         default=lambda a: a.tolist())+'\n', encoding='utf-8')
+                    if near23:
+                        from simulation.capture26_near23 import verify_handoff
+                        handoff_continuity = verify_handoff(args.handoff,output,near23_route,auto_capture)
                 # Independent native-field check of the bounded EKF local
                 # linearization; the truth dynamics use the full native field.
                 native_gradient = field.gradient(nav.state['p'][0], epoch_ns*1e-9)
@@ -939,6 +1049,9 @@ def run(args):
                 encoder_native_com_velocity_error_m_s=geometry_rate_error,
                 encoder_native_inertia_error_kg_m2=inertia_error,
                 preparation=preparation.status() if preparation else None,
+                capture=(dict(phase=auto_capture.servo.sequence.phase,completed=auto_capture.complete,
+                    force_hold_s=auto_capture.hold_s,feedback=auto_capture.audit.feedback if auto_capture.audit else {})
+                    if auto_capture else None),
                 truth_rotation_n_from_body=[r.tolist() for r in rotations_truth],
                 estimated_rotation_n_from_body=nav.state['r'].tolist(),
                 gyro_health=nav.gyro_health(now), visual=gate.status(now, time.time_ns() if args.ue else None), force_n=control.force_n.tolist(),
@@ -998,6 +1111,12 @@ def run(args):
                     metadata.update(demo_telemetry(guidance),
                         navigation_source='authoritative simulation state feedback; sensors diagnostic',
                         navigation_valid=True)
+                if near23:
+                    metadata.update(demo_telemetry(guidance),near_guidance=guidance.get('vbar'),
+                        acceptance_profile=mission_config.acceptance_profile,
+                        capture_state=auto_capture.servo.sequence.phase if auto_capture and auto_capture.active else 'waiting_platform',
+                        capture_force_hold_s=auto_capture.hold_s if auto_capture else 0.,
+                        capture_feedback=auto_capture.audit.feedback if auto_capture and auto_capture.audit else None)
                 data = json.dumps(dict(protocol='space-sim-state/1', type='state', sim_time_s=now*1e-9,
                                        bodies=bodies, metadata=metadata)).encode()
                 try:
@@ -1030,7 +1149,7 @@ def run(args):
                 continuation = getattr(args, 'post_release_duration', 0.)
                 finished = first_release_elapsed is not None and elapsed-first_release_elapsed >= continuation
                 safe_stop = guidance.get('phase') == 'SafeHold' and elapsed > 5. and not continuation
-                if safe_stop and demo:
+                if safe_stop and (demo or near23):
                     # Keep integrating the commanded brake. Stopping the native
                     # process at the first SafeHold publication would only
                     # freeze the view while the spacecraft was still closing.
@@ -1074,6 +1193,13 @@ def run(args):
             summary.update(acceptance_profile=mission_config.acceptance_profile, feedback_source=mission_config.feedback_source,
                 operating_geometry=operating_geometry,
                 validation_claim='simulation state feedback motion demonstration only')
+        if near23:
+            control.own_motion = own_motion
+            near23_route.capture_feedback = auto_capture.audit.feedback if auto_capture and auto_capture.audit else None
+            summary.update(acceptance_profile=mission_config.acceptance_profile,feedback_source=mission_config.feedback_source,
+                handoff_continuity=handoff_continuity,
+                near23_capture=dict(complete=auto_capture.complete,failure=auto_capture.failure,hold_s=auto_capture.hold_s)
+                    if auto_capture else None)
         if mission:
             summary['scope'] = 'capture26 mission stage; integration acceptance remains separate'
         (output/'summary.json').write_text(json.dumps(summary, indent=2, default=str)+'\n', encoding='utf-8')
@@ -1091,15 +1217,20 @@ def run(args):
                          operating_reference=(operations.target.position if operations else operating_reference).tolist(),
                          force_n=control.force_n.tolist(), last_gnss_ns=control.last_gnss_ns,
                          gyro_pending=control.gyro_pending, last_cooperative_ns=control.last_cooperative_ns,
-                         platform_stability=operation_stability.snapshot() if operations else approach.stability.snapshot() if approach else None,
-                         preparation=preparation.snapshot() if preparation else None),
+                         platform_stability=operation_stability.snapshot() if operations else approach.stability.snapshot() if approach and not near23 else None,
+                         preparation=preparation.snapshot() if preparation else None,
+                         own_motion=own_motion.snapshot() if own_motion else None),
             environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else []),
             default=lambda a: a.tolist())+'\n', encoding='utf-8')
         (output/'delivery.json').write_text(json.dumps(delivery.events)+'\n', encoding='utf-8')
         (output/'performance.json').write_text(json.dumps(windows)+'\n', encoding='utf-8')
         if mission in ('near', 'far'):
+            score.file.flush()
             if platform_log is not None:
                 platform_log.file.flush()
+            if auto_capture and auto_capture.audit:
+                auto_capture.audit.file.flush()
+                auto_capture.audit.force_file.flush()
             from simulation.capture26_results import write_stage_result
             write_stage_result(output, args, summary, score, windows, nav, gyros, receiver, pending,
                 retention, capture, stepper, control, approach, cross_contacts,
@@ -1127,6 +1258,10 @@ def run(args):
         if profiler:
             profiler.disable()
             profiler.dump_stats(output/'compute.pstats')
+        if auto_capture and auto_capture.audit:
+            auto_capture.audit.file.close()
+            if auto_capture.audit.force_file:
+                auto_capture.audit.force_file.close()
         if vision:
             vision.close()
         if result_receiver:

@@ -13,6 +13,7 @@ from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
 from .stereo_pose import StereoPoseEstimator
+from .visual_navigation import POSE_ERROR_ORDER
 
 
 class MultiCameraPoseEstimator:
@@ -157,12 +158,27 @@ class MultiCameraPoseEstimator:
             corners = uv.reshape(-1, 4, 2)
             sides['left' if eye == 0 else 'right'] = float(np.min(
                 np.linalg.norm(corners-np.roll(corners, 1, axis=1), axis=2)))
-        return dict(status='ok', route=route, reason='image quality and geometry accepted',
+        result = dict(status='ok', route=route, reason='image quality and geometry accepted',
             pose_target_to_left=dict(R=r.tolist(), t_m=t.tolist()), used_ids=used,
             reprojection_error_px=errors,
             maximum_corner_error_px=maximum, minimum_marker_side_px=sides,
             positive_depth=True,
             reduced_redundancy=any(len(ids) < 2 for ids in used.values()))
+        if route == 'joint_multicamera':
+            # Use only the final retained corners, including different IDs in
+            # the two eyes. This is a local pixel-noise prior, not a measured
+            # accuracy certificate or a replacement for mount/encoder errors.
+            pairs = [point_pairs[eye] for eye in (0, 1)]
+            residual = np.concatenate([(self.geometry._project(xyz,
+                r if eye == 0 else self.geometry.rig_r @ r,
+                t if eye == 0 else self.geometry.rig_r @ t + self.geometry.rig_t, eye)-uv).ravel()
+                for eye, (xyz, uv) in enumerate(pairs)])
+            matrix, variance = self.geometry._pose_covariance(r, t, pairs, residual)
+            result['pose_covariance'] = dict(matrix=matrix.tolist(), order=POSE_ERROR_ORDER.copy(),
+                frame='left_optical', rotation_error='left_multiplicative',
+                corner_variance_px2=variance, variance_inflation=self.geometry.covariance_inflation,
+                calibration_status='engineering_pixel_prior_requires_sequence_validation')
+        return result
 
     def estimate(self, left_bytes, right_bytes):
         return self.estimate_from_detections(self.detect(left_bytes), self.detect(right_bytes))

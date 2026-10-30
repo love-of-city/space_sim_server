@@ -16,6 +16,7 @@ MODEL_ID = 'sarm-dual-capture26'
 MODEL_PATH = Path('model/SARM/platform/sarm_dual_capture26.xml')
 VISION_PATH = Path('config/vision/capture26_rendezvous_stereo.json')
 MISSION_PATH = Path('config/missions/capture26-v2.json')
+NEAR23_VISION_PATH = Path('config/vision/capture26_near23_front_mount_20261029.json')
 # Labels are mounted on the positive-Y face. Looking towards -Y keeps their
 # decoded right/down directions (-X/-Z) in front of the camera.
 OPTICAL_IN_TARGET = np.array([[-1., 0, 0], [0, 0, -1], [0, -1, 0]])
@@ -59,6 +60,10 @@ class Capture26Mission:
     operating_geometry_sha256: str | None = None
 
     @property
+    def is_near23(self):
+        return self.acceptance_profile == 'near23_vbar_v1'
+
+    @property
     def is_demo(self):
         return self.acceptance_profile == 'simulation_state_demo_v1'
 
@@ -68,7 +73,7 @@ class Capture26Mission:
             raise ValueError('capture26 mission numbers must be finite')
         if self.schema != 'space-sim-capture26-mission/2' or self.stereo_delay_s != .20:
             raise ValueError('capture26 requires version 2 fixed stereo delay')
-        if self.attitude_control_mode != 'body_rate_damping' or self.service_angular_rate_limit_rad_s != .001:
+        if self.attitude_control_mode != ('initial_inertial_hold' if self.is_near23 else 'body_rate_damping') or self.service_angular_rate_limit_rad_s != .001:
             raise ValueError('capture26 requires body-rate damping and the 0.001 rad/s service rate limit')
         if (self.physics_hz, self.attitude_hz, self.gyro_hz, self.guidance_hz, self.gnss_hz, self.stereo_hz) != (400, 100, 50, 20, 10, 10):
             raise ValueError('capture26 mission rates are fixed by the physical model')
@@ -81,7 +86,7 @@ class Capture26Mission:
                 or self.com_hold_m != 50. or self.gnss_hold_depth_m != 17.4
                 or self.vision_timeout_s <= 0):
             raise ValueError('invalid capture26 physical or health configuration')
-        if (self.acceptance_profile not in ('image_navigation_v2', 'simulation_state_demo_v1')
+        if (self.acceptance_profile not in ('image_navigation_v2', 'simulation_state_demo_v1', 'near23_vbar_v1')
                 or self.feedback_source != ('authoritative_simulation' if self.is_demo else 'navigation_estimate')):
             raise ValueError('capture26 feedback and acceptance rules must agree')
         if self.is_demo and (self.visual_hold_depth_m != 5.5 or self.position_tolerance_m != .05
@@ -93,14 +98,21 @@ class Capture26Mission:
         return asdict(self)
 
 
-def load_vision(root):
-    config = json.loads((Path(root)/VISION_PATH).read_text('utf-8-sig'))
+def vision_path(config):
+    return NEAR23_VISION_PATH if config.is_near23 else VISION_PATH
+
+
+def load_vision(root, mission=None):
+    config = json.loads((Path(root)/(vision_path(mission) if mission else VISION_PATH)).read_text('utf-8-sig'))
     return config
 
 
-def load_mission(root):
+def load_mission(root, profile=None):
     """The formal runner and operation scenes resolve the same frozen document."""
-    document = json.loads((Path(root)/MISSION_PATH).read_text('utf-8-sig'))
+    if profile not in (None, 'near23_vbar_v1'):
+        raise ValueError('unsupported frozen capture26 mission profile')
+    path = Path('config/missions/capture26-near23-vbar-v1.json') if profile else MISSION_PATH
+    document = json.loads((Path(root)/path).read_text('utf-8-sig'))
     if document.get('schema') != 'space-sim-capture26-task/2':
         raise ValueError('capture26 frozen task schema mismatch')
     if not {'attitude_control_mode', 'service_angular_rate_limit_rad_s'} <= document['mission'].keys():

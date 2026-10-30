@@ -57,8 +57,9 @@ if ($Cache) { $options.DerivedDataCachePath=$Cache }
 $global:launched['parent_unchanged']=($old -eq [Environment]::GetEnvironmentVariable('UE-LocalDataCachePath','Process'))
 'RESULT '+($global:launched|ConvertTo-Json -Compress -Depth 5)
 ''',encoding='utf-8')
-    environment=os.environ.copy()
-    environment.pop('UE-LocalDataCachePath', None)
+    # Windows normalizes os.environ keys to uppercase; a plain copied dict
+    # otherwise retains an inherited mixed-case setting during the default case.
+    environment={k:v for k,v in os.environ.items() if k.casefold()!='ue-localdatacachepath'}
     arguments=[PWSH,'-NoProfile','-File',str(wrapper),str(scripts/'start_renderer.ps1'),str(ue)]
     expected=project/'Saved/DerivedDataCache'
     if cache_mode != 'default':

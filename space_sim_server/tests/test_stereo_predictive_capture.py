@@ -40,6 +40,22 @@ def controller(tmp_path):
                                    wall_now_ns=lambda: NOW)
 
 
+def test_late_mission_activation_keeps_image_epochs_and_waits_for_new_history(tmp_path):
+    c = controller(tmp_path)
+    q = np.zeros(12)
+    own = (np.zeros(3), np.eye(3))
+    for tick in range(21):
+        t = 1500.+tick*.1
+        publish_packet(c.path, packet(t))
+        _, status = c.command(t, q, own, {}, reference_from_base=own)
+        if tick < 20:
+            assert status == 'predictive_waiting_stable_vision'
+            assert c.sequence.phase == 'wait'
+    assert c.sequence.phase == 'open'
+    assert c.activation_time_s == 1500.
+    assert c.source_t == 1502.  # Exposure timestamps stay on the mission clock.
+
+
 def test_hand_eye_converts_model_origin_to_interface_not_tvec(tmp_path):
     p = packet(1)
     assert np.allclose(p['result']['alignment']['interface_position_grip_m'], [0, 0, -.1])

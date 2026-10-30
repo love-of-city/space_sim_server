@@ -15,7 +15,10 @@ import math
 
 import numpy as np
 
-from space_arm_platform.visual_navigation import covariance, image_clock, POSE_ERROR_ORDER
+from space_arm_platform.visual_navigation import (
+    covariance, image_clock, POSE_ERROR_ORDER, stereo_quality,
+    FIXED_STEREO_PROFILE, NEAR23_BODY_PROFILE,
+)
 from simulation.navigation_gravity import ReplayGravity
 
 _I3 = np.eye(3)
@@ -83,10 +86,17 @@ class PoseNavigation:
     def __init__(self, position, velocity, rotations, initial_covariance, *, time_ns=0,
                  gravity=None, camera_rotation=None, camera_position=None,
                  service_com=None, target_com=None, gyro_white_sigma=1e-4,
-                 gyro_bias_walk=1e-6, acceleration_sigma=.003, vision_identity=None):
+                 gyro_bias_walk=1e-6, acceleration_sigma=.003, vision_identity=None,
+                 visual_profile=FIXED_STEREO_PROFILE):
+        if visual_profile not in (FIXED_STEREO_PROFILE, NEAR23_BODY_PROFILE):
+            raise ValueError('unknown visual measurement profile')
+        self.visual_profile = visual_profile
         self.gravity = None if gravity is None else ReplayGravity(gravity)
         self.camera_rotation = rotation(np.eye(3) if camera_rotation is None else camera_rotation)
-        self.camera_com_offset = np.asarray(np.zeros(3) if camera_position is None else camera_position, float) - np.asarray(np.zeros(3) if service_com is None else service_com, float)
+        self.camera_position = np.asarray(np.zeros(3) if camera_position is None else camera_position, float).copy()
+        if self.camera_position.shape != (3,) or not np.isfinite(self.camera_position).all():
+            raise ValueError('invalid camera position')
+        self.camera_com_offset = self.camera_position - np.asarray(np.zeros(3) if service_com is None else service_com, float)
         self.target_com = np.asarray(np.zeros(3) if target_com is None else target_com, float)
         self.gyro_white_sigma, self.gyro_bias_walk = float(gyro_white_sigma), float(gyro_bias_walk)
         self.acceleration_sigma = float(acceleration_sigma)
@@ -207,13 +217,24 @@ class PoseNavigation:
         state['covariance'] = .5*(p+p.T)
         return True, nis
 
-    def predict_pose(self, state=None):
+    def predict_pose(self, state=None, *, frame='left_optical'):
         state = self.state if state is None else state
         service, target = state['r']
-        to_camera = self.camera_rotation.T@service.T
+        if frame == 'service_body':
+            # The image bridge already used the exposure-time arm FK. This
+            # measurement is between BODY ORIGINS; the state remains COM.
+            # Encoder geometry in replay supplies the current assembly levers.
+            camera_rotation = np.eye(3)
+            camera_com_offset = state['camera_com_offset']-self.camera_position
+        elif frame == 'left_optical':
+            camera_rotation = self.camera_rotation
+            camera_com_offset = state['camera_com_offset']
+        else:
+            raise ValueError('unsupported visual measurement frame')
+        to_camera = camera_rotation.T@service.T
         offset = target@state['target_com']
         dp = state['p'][1]-state['p'][0]
-        t = to_camera@(dp-offset)-self.camera_rotation.T@state['camera_com_offset']
+        t = to_camera@(dp-offset)-camera_rotation.T@camera_com_offset
         r = to_camera@target
         h = np.zeros((6, 24))
         h[:3, :3], h[:3, 12:15] = -to_camera, to_camera
@@ -244,7 +265,7 @@ class PoseNavigation:
             prediction = np.concatenate([np.r_[p, v] for p, v in zip(state['p'], state['v'])])
             return self._correct(state, np.array(data['measurement']).reshape(12)-prediction,
                                  h, np.array(data['covariance']), 50.)[0]
-        t, r, h = self.predict_pose(state)
+        t, r, h = self.predict_pose(state, frame=data.get('frame', 'left_optical'))
         innovation = np.r_[np.array(data['translation'])-t, log(np.array(data['rotation'])@r.T)]
         return self._correct(state, innovation, h, np.array(data['covariance']), 30.)[0]
 
@@ -349,16 +370,17 @@ class PoseNavigation:
                 raise ValueError('visual exposure outside freshness interval')
             if self.last_visual_epoch is not None and epoch <= self.last_visual_epoch:
                 raise ValueError('duplicate or out-of-order visual exposure')
-            counts = result['counts']
-            if min(counts['used_markers_left'], counts['used_markers_right'], counts['common_markers']) < 2:
-                raise ValueError('insufficient complete stereo inlier markers')
-            if any(not 0 <= float(result['reprojection_error_px'][eye]) <= 2.5
-                   or not 0 <= float(result['max_corner_error_px'][eye]) <= 5 for eye in ('left', 'right')):
-                raise ValueError('visual reprojection limits exceeded')
-            pose = result['pose_target_to_left']
+            stereo_quality(result, self.visual_profile)
+            body_pose = self.visual_profile == NEAR23_BODY_PROFILE
+            frame = 'service_body' if body_pose else 'left_optical'
+            if body_pose:
+                geometry = result['exposure_geometry']
+                if int(geometry['sample_time_ns']) != epoch or geometry['calibration_id'] != identity[2]:
+                    raise ValueError('image/encoder epoch or calibration mismatch')
+            pose = result['pose_target_to_service' if body_pose else 'pose_target_to_left']
             t, r = np.asarray(pose['t_m'], float), rotation(pose['R'])
             c = result['pose_covariance']
-            if (c['frame'] != 'left_optical' or c['rotation_error'] != 'left_multiplicative'
+            if (c['frame'] != frame or c['rotation_error'] != 'left_multiplicative'
                     or c.get('order') != POSE_ERROR_ORDER):
                 raise ValueError('unsupported pose covariance convention')
             noise = covariance(c['matrix'], 6)
@@ -366,7 +388,7 @@ class PoseNavigation:
                 raise ValueError('invalid image position')
             self.last_visual_epoch = epoch
             return self._insert(dict(id=self.visual_event_id(result), kind='visual', priority=3,
-                time_ns=epoch, data=dict(translation=t.tolist(), rotation=r.tolist(), covariance=noise.tolist())))
+                time_ns=epoch, data=dict(translation=t.tolist(), rotation=r.tolist(), covariance=noise.tolist(), frame=frame)))
         except (ValueError, KeyError, TypeError, OverflowError, np.linalg.LinAlgError) as exc:
             self.last_reason = str(exc)
             return False
@@ -396,10 +418,13 @@ class PoseNavigation:
                     handoff_visual_packets=sorted(self.handoff_visual_packets))
 
     def configuration(self):
-        return dict(camera_rotation=self.camera_rotation.tolist(), camera_com_offset=self.camera_com_offset.tolist(),
+        result = dict(camera_rotation=self.camera_rotation.tolist(), camera_com_offset=self.camera_com_offset.tolist(),
                     target_com=self.target_com.tolist(), gyro_white_sigma=self.gyro_white_sigma,
                     gyro_bias_walk=self.gyro_bias_walk, acceleration_sigma=self.acceleration_sigma,
                     vision_identity=None if self.vision_identity is None else list(self.vision_identity))
+        if self.visual_profile != FIXED_STEREO_PROFILE:
+            result.update(visual_profile=self.visual_profile, camera_position=self.camera_position.tolist())
+        return result
 
     def restore(self, document):
         if document.get('schema') != 'space-sim-pose-navigation/1' or document.get('configuration') != self.configuration():

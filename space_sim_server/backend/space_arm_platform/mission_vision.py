@@ -74,7 +74,13 @@ class MissionVisionRouter:
         if not route_file.is_file():
             return
         route = json.loads(route_file.read_text('utf-8'))
-        config_path = self.root/'config/vision/capture26_rendezvous_stereo.json'
+        # Only versioned camera profiles are accepted, never a path supplied by
+        # the browser or an arbitrary file named by the subprocess.
+        from simulation.capture26_mission import VISION_PATH, NEAR23_VISION_PATH
+        name = route.get('config_file', VISION_PATH.as_posix())
+        if name not in (VISION_PATH.as_posix(), NEAR23_VISION_PATH.as_posix()):
+            raise ValueError('unknown capture26 flight camera profile')
+        config_path = self.root/name
         config = json.loads(config_path.read_text('utf-8-sig'))
         identity = tuple(route.get(k) for k in ('mission_id', 'session_id', 'calibration_id'))
         port = route.get('result_port')

@@ -5,6 +5,7 @@ import pytest
 
 from simulation.serial_chain_kinematics import (
     SerialChainKinematics,
+    axis_angle_to_matrix,
     rotation_matrix_to_vector,
 )
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
@@ -12,6 +13,20 @@ from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 
 MODEL = Path(__file__).resolve().parents[1] / "model" / "SARM" / "platform" / "sarm_platform.xml"
 JOINTS = tuple(f"joint{i}" for i in range(1, 7))
+
+
+@pytest.mark.parametrize("axis", [(1., 0., 0.), (0., 1., 0.), (0., 0., 1.), (1., -2., 3.)])
+@pytest.mark.parametrize("offset", [0., -1e-7, 1e-7, -1e-4, 1e-4])
+def test_rotation_vector_preserves_exact_and_near_half_turns(axis, offset):
+    unit = np.asarray(axis) / np.linalg.norm(axis)
+    # Build an exact symmetric half-turn independently of sin(pi) rounding.
+    matrix = (2. * np.outer(unit, unit) - np.eye(3) if offset == 0.
+              else axis_angle_to_matrix(unit, np.pi + offset))
+    vector = rotation_matrix_to_vector(matrix)
+    angle = np.linalg.norm(vector)
+    assert np.isfinite(vector).all()
+    assert angle == pytest.approx(np.pi - abs(offset), abs=1e-9)
+    np.testing.assert_allclose(axis_angle_to_matrix(vector / angle, angle), matrix, atol=1e-9)
 
 
 def chain() -> SerialChainKinematics:

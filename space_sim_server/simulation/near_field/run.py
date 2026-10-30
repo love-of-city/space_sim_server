@@ -112,7 +112,10 @@ def run(args):
     config = SensorConfig(seed=args.seed, loss_after_phase=args.vision_loss_phase or "", communication_loss_s=args.communication_loss,
                           receiver_config=GNSSConfig.from_dict(shared_gnss) if shared_gnss is not None else None)
     (output / "input_handoff.json").write_text(json.dumps(incoming, indent=2))
-    (output / "mission_options.json").write_text(json.dumps(NearFieldOptions(args.seed, args.vision_loss_phase or "", args.communication_loss).to_dict(), indent=2))
+    mission_options = NearFieldOptions(
+        seed=args.seed, vision_loss_phase=args.vision_loss_phase or "",
+        communication_loss_s=args.communication_loss).to_dict()
+    (output / "mission_options.json").write_text(json.dumps(mission_options, indent=2))
     sim = SimulationBaseClass.SimBaseClass()
     process = sim.CreateNewProcess("nearField")
     process.addTask(sim.CreateNewTask("nearDynamics", macros.sec2nano(0.05)), 30)
@@ -300,7 +303,7 @@ def run(args):
               "orbital_physics": environment_metadata(env_options.physics, orbit.earth, epoch_utc=epoch_text),
               "final_time_s": final["t"], "wall_time_s": time.monotonic() - started,
               "final_center_distance_m": final["center_distance_m"], "final": final,
-              "model_manifest": manifest, "mission_options": NearFieldOptions(args.seed, args.vision_loss_phase or "", args.communication_loss).to_dict(), "sensor_config": asdict(config), "local_dynamics": stepper.telemetry(),
+              "model_manifest": manifest, "mission_options": mission_options, "sensor_config": asdict(config), "local_dynamics": stepper.telemetry(),
               "capture": {"latch_time_s": control.phase_start + control.handoff_time if control.latch else None,
                           "mode": "logical proxy; no physical connection, load transfer or three-finger validation"},
               "vision": "parameterized noisy delayed stereo; no images, detection or PnP executed",

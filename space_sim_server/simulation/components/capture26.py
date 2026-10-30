@@ -50,7 +50,20 @@ class Capture26Component:
                 source=Path(__file__).resolve().parents[2]/'run/wrist_alignment_observation.json'
                 if self.visual_config.get('mode')=='predictive_grasp':
                     from simulation.visual_predictive_capture import VisualPredictiveCapture
-                    self.visual=VisualPredictiveCapture(source,render_session_id,held_pose=self.visual_config.get('held_target_pose',False))
+                    self.predictor_type=VisualPredictiveCapture
+                    self.predictor_kwargs=dict(held_pose=self.visual_config.get('held_target_pose',False))
+                    if self.visual_config.get('input_source')=='near23_stereo':
+                        from simulation.stereo_predictive_capture import StereoPredictiveCapture
+                        root=Path(__file__).resolve().parents[2]
+                        config=(root/self.visual_config['config_file']).resolve()
+                        source=(root/self.visual_config.get('observation_file','run/near23_stereo_observation.json')).resolve()
+                        if not config.is_relative_to(root) or not source.is_relative_to(root/'run'):
+                            raise ValueError('stereo configuration/mailbox must remain inside server config/run')
+                        self.predictor_type=StereoPredictiveCapture
+                        self.predictor_kwargs['config_file']=config
+                    elif self.visual_config.get('input_source','wrist')!='wrist':
+                        raise ValueError('unknown capture input_source')
+                    self.visual=self.predictor_type(source,render_session_id,**self.predictor_kwargs)
                 else:
                     self.visual=VisualCaptureProbe(source,render_session_id,goal_gap_m=self.visual_config.get('goal_gap_m',.48))
                 self.control_file=(folder/'visual_control.jsonl').open('a',encoding='utf-8',buffering=1)
@@ -73,7 +86,9 @@ class Capture26Component:
             from simulation.capture_sequence import CaptureSequence
             self.sequence = self.visual.sequence if self.visual else CaptureSequence(force_control=self.force_control)
             from simulation.capture_audit import CaptureAudit
-            self.audit = CaptureAudit(self.model_path, self.stepper)
+            audit_options = ({'output_path': Path(self.visual_config['output_directory'])/'contacts_400hz.jsonl'}
+                             if self.visual_config else {})
+            self.audit = CaptureAudit(self.model_path, self.stepper, **audit_options)
             self.body_readers = [ctx.ports.body_state(n).addSubscriber()
                                  for n in ('cubesat_bus', 'capture_target')]
         elif self.visual_config:
@@ -107,7 +122,7 @@ class Capture26Component:
                 from simulation.capture_sequence import CaptureSequence
                 if self.visual:
                     if self.visual_config.get('mode')=='predictive_grasp':
-                        self.visual=type(self.visual)(self.visual.path,self.render_session_id,held_pose=self.visual_config.get('held_target_pose',False))
+                        self.visual=self.predictor_type(self.visual.path,self.render_session_id,**self.predictor_kwargs)
                         if self.own_motion is not None:
                             from simulation.own_motion import OwnMotionFeedback
                             self.own_motion=OwnMotionFeedback();self.own_com_time=-1.;self.last_logged_gyro=None
@@ -246,4 +261,7 @@ class Capture26Component:
         interface=rs.T@(np.asarray(target.r_BN_N)-bus.r_BN_N+rt@np.array([.1755,.05475,.0420787001299893]))
         self.truth_file.write(json.dumps(dict(session_id=self.render_session_id,source_frame_id=str(frame),
             sim_time_ns=str(time_ns),interface_position_grip_m=(rg.T@(interface-p)).tolist(),
-            R_grip_from_interface=(rg.T@rs.T@rt@np.array([[1.,0,0],[0,0,1],[0,-1,0]])).tolist()))+'\n')
+            R_grip_from_interface=(rg.T@rs.T@rt@np.array([[1.,0,0],[0,0,1],[0,-1,0]])).tolist(),
+            phase=self.visual_status,feedback=self.audit.feedback if self.experiment else None,
+            prediction_control_time_s=self.visual.last_time if self.visual else None,
+            prediction=self.visual.diagnostics() if self.visual and self.visual_config.get('mode')=='predictive_grasp' else None))+'\n')

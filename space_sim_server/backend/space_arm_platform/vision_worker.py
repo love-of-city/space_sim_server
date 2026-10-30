@@ -57,10 +57,18 @@ def main():
     parser.add_argument('--binary-input', action='store_true')
     args = parser.parse_args()
     config = json.loads(args.config.read_text('utf-8-sig'))
-    cv2.setNumThreads(1)
-    estimator = StereoPoseEstimator(config['calibration'], config['layout'], **config.get('estimator', {}))
+    threads = config.get('opencv_threads', 1)
+    if type(threads) is not int or not 1 <= threads <= 8:
+        raise ValueError('opencv_threads must be an integer from 1 to 8')
+    cv2.setNumThreads(threads)
+    joint = config.get('estimator_route') == 'joint_multicamera'
+    if joint:
+        from .multicamera_pose import MultiCameraPoseEstimator
+        estimator = MultiCameraPoseEstimator(config['calibration'], config['layout'])
+    else:
+        estimator = StereoPoseEstimator(config['calibration'], config['layout'], **config.get('estimator', {}))
     mono = None
-    if args.monocular_diagnostics:
+    if args.monocular_diagnostics and not joint:
         from .provided_mono import ProvidedMonoEstimator
         mono = ProvidedMonoEstimator(config['calibration'], config['layout'],
             args.config.parent / 'vendor' / 'aruco_pnp_basler_mono_v1')
@@ -68,6 +76,9 @@ def main():
         try:
             if not left and not right:
                 result = {'status': 'ready', 'reason': 'image solver and calibration loaded'}
+            elif joint:
+                result = estimator.estimate(left, right)['methods']['joint_multicamera']
+                result['algorithm'] = 'complete marker corners in each eye + joint reprojection'
             elif mono is None:
                 result = estimator.estimate(left, right)
                 result['algorithm'] = 'one ArUco detection per eye + joint calibrated stereo pose'

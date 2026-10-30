@@ -279,6 +279,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     mission_vision = MissionVisionRouter(config.project_root, rendezvous_runtime, vision, scenes=scenes)
+    vision.config_resolver = lambda: (scenes.status().get('instance') or {}).get(
+        'render_profile', {}).get('vision_capture', {}).get('config_file')
     missions = MissionRuntime(config.data_root / ".missions", scenes, rendezvous_runtime, rendezvous,
                               lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active),
                               scene_defaults=capture_defaults)

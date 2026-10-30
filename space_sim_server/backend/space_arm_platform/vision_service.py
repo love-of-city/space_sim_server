@@ -126,10 +126,11 @@ class _Worker:
 
 
 class StereoVisionService:
-    def __init__(self, root: Path, *, config=None, estimator=None, on_result=None, config_path=None):
+    def __init__(self, root: Path, *, config=None, estimator=None, on_result=None, config_path=None, config_resolver=None):
         self.root = Path(root)
         self.config_path = Path(config_path) if config_path else self.root / 'config' / 'vision' / 'capture26_stereo.json'
         self.config = config
+        self.config_resolver = config_resolver
         self._static_test_config = config is not None
         self._estimator = estimator
         self._lock = threading.RLock()
@@ -228,6 +229,12 @@ class StereoVisionService:
 
     def _load(self, force=False):
         if self.config is None or (force and not self._static_test_config):
+            if self.config_resolver is not None and self._bound_session is None:
+                relative = self.config_resolver() or 'config/vision/capture26_stereo.json'
+                path = (self.root / relative).resolve()
+                if not path.is_relative_to(self.root.resolve()):
+                    raise ValueError('vision configuration must stay inside server')
+                self.config_path = path
             new_config = json.loads(self.config_path.read_text('utf-8-sig'))
             if self.config is not None and new_config != self.config and isinstance(self._estimator, _Worker):
                 self._estimator.close()
@@ -313,7 +320,7 @@ class StereoVisionService:
             self._counts['matched_pairs'] += 1
             item = (session, frame, pair['left'][0], skew, pair['left'][1], pair['right'][1],
                     {'left': pair['left'][2], 'right': pair['right'][2]},
-                    self._mission_id, calibration_id(self.config), time.perf_counter())
+                    self._mission_id, calibration_id(self.config), time.perf_counter(), self._estimator, self.config)
             try:
                 self._queue.put_nowait(item)
             except queue.Full:
@@ -332,12 +339,12 @@ class StereoVisionService:
     def _work(self):
         while not self._stop.is_set():
             try:
-                session, frame, timestamp, skew, left, right, diagnostic_metadata, mission, calibration, queued = self._queue.get(timeout=.1)
+                session, frame, timestamp, skew, left, right, diagnostic_metadata, mission, calibration, queued, estimator, config = self._queue.get(timeout=.1)
             except queue.Empty:
                 continue
             started = time.perf_counter()
             try:
-                result = self._estimator(left, right)
+                result = estimator(left, right)
                 result.update(session_id=session, source_frame_id=frame, sim_time_ns=str(timestamp),
                               stereo_skew_ns=skew, processing_ms=(time.perf_counter()-started)*1000,
                               queue_ms=(started-queued)*1000, mission_id=mission, calibration_id=calibration,
@@ -362,6 +369,13 @@ class StereoVisionService:
                         self._counts['processed_pairs'] += 1
                         if self._on_result is not None:
                             self._on_result(dict(result))
+                        if config.get('capture_export'):
+                            from .stereo_capture_packet import capture_packet, publish_packet
+                            path = (self.root / config['capture_export']).resolve()
+                            if not path.is_relative_to((self.root / 'run').resolve()):
+                                raise ValueError('stereo mailbox must stay inside server run')
+                            publish_packet(path, capture_packet(result, config, session_id=session,
+                                source_frame_id=frame, sim_time_ns=timestamp))
                 self._save_evidence(result, left, right, diagnostic_metadata)
             except Exception as error:
                 with self._lock:

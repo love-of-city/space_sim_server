@@ -79,6 +79,7 @@
 #include "SocketSubsystem.h"
 #include "Sockets.h"
 #include "TimerManager.h"
+#include "Containers/Queue.h"
 #include "UnrealClient.h"
 #include "UObject/UnrealType.h"
 
@@ -175,7 +176,7 @@ public:
                 // Retain authoritative packets across connection startup/retry.
                 // Preview remains intentionally lossy and latest-wins.
                 if (!bReliablePacket) Packet.Reset();
-                FPlatformProcess::Sleep(0.1f);
+                WakeEvent->Wait(100);
                 continue;
             }
             if (bReliablePacket)
@@ -197,26 +198,65 @@ public:
     }
 
 private:
+    struct FResolveState
+    {
+        TSharedPtr<FInternetAddr> Address;
+        TAtomic<bool> bFinished{false};
+    };
+
     bool EnsureConnected()
     {
         if (Socket) return true;
         ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-        if (!SocketSubsystem) return false;
-        FAddressInfoResult AddressResult = SocketSubsystem->GetAddressInfo(
-            *Address, nullptr, EAddressInfoFlags::Default, NAME_None, ESocketType::SOCKTYPE_Streaming);
-        if (AddressResult.Results.IsEmpty())
+        if (!SocketSubsystem || bStopRequested) return false;
+        TSharedPtr<FInternetAddr> InternetAddress = SocketSubsystem->GetAddressFromString(Address);
+        if (!InternetAddress)
         {
-            UE_LOG(LogBskUnreal, Warning, TEXT("BSK capture output could not resolve %s:%u"), *Address, Port);
-            return false;
+            // The callback owns only this shared result, never the sender. A DNS
+            // request can finish after cancellation without touching freed state.
+            // Keep a pending lookup across retries, so slow DNS cannot grow tasks.
+            if (!ResolveState)
+            {
+                ResolveState = MakeShared<FResolveState, ESPMode::ThreadSafe>();
+                SocketSubsystem->GetAddressInfoAsync([State = ResolveState](FAddressInfoResult Result)
+                {
+                    if (!Result.Results.IsEmpty()) State->Address = Result.Results[0].Address;
+                    State->bFinished.Store(true);
+                }, *Address, nullptr, EAddressInfoFlags::Default, NAME_None, ESocketType::SOCKTYPE_Streaming);
+            }
+            const double Deadline = FPlatformTime::Seconds() + 5.0;
+            while (!bStopRequested && !ResolveState->bFinished.Load() && FPlatformTime::Seconds() < Deadline)
+                WakeEvent->Wait(50);
+            if (bStopRequested || !ResolveState->bFinished.Load()) return false;
+            InternetAddress = ResolveState->Address;
+            ResolveState.Reset();
+            if (!InternetAddress) return false;
         }
-        TSharedPtr<FInternetAddr> InternetAddress = AddressResult.Results[0].Address;
         InternetAddress->SetPort(Port);
         Socket = SocketSubsystem->CreateSocket(NAME_Stream, TEXT("BSK capture output"), InternetAddress->GetProtocolType());
-        if (!Socket || !Socket->Connect(*InternetAddress))
+        if (!Socket) return false;
+        Socket->SetNonBlocking(true);
+        Socket->SetNoDelay(true);
+        Socket->SetSendBufferSize(16 * 1024 * 1024, SendBufferBytes);
+        bool bConnected = Socket->Connect(*InternetAddress);
+        if (!bConnected)
         {
-            static double LastConnectWarningSeconds = 0.0;
+            const ESocketErrors Error = SocketSubsystem->GetLastErrorCode();
+            if (Error == SE_EWOULDBLOCK || Error == SE_EINPROGRESS || Error == SE_EALREADY)
+            {
+                const double Deadline = FPlatformTime::Seconds() + 5.0;
+                while (!bStopRequested && FPlatformTime::Seconds() < Deadline)
+                {
+                    if (!Socket->Wait(ESocketWaitConditions::WaitForWrite, FTimespan::FromMilliseconds(50))) continue;
+                    bConnected = Socket->GetConnectionState() == SCS_Connected;
+                    break;
+                }
+            }
+        }
+        if (!bConnected || bStopRequested)
+        {
             const double Now = FPlatformTime::Seconds();
-            if (Now - LastConnectWarningSeconds >= 5.0)
+            if (!bStopRequested && Now - LastConnectWarningSeconds >= 5.0)
             {
                 UE_LOG(LogBskUnreal, Warning, TEXT("BSK capture output cannot connect to %s:%u"), *Address, Port);
                 LastConnectWarningSeconds = Now;
@@ -225,27 +265,31 @@ private:
             return false;
         }
         UE_LOG(LogBskUnreal, Display, TEXT("BSK capture output connected to %s:%u"), *Address, Port);
-        Socket->SetNoDelay(true);
-        Socket->SetSendBufferSize(16 * 1024 * 1024, SendBufferBytes);
-        Socket->SetNonBlocking(true);
         return true;
     }
 
     bool WaitForAcknowledgement()
     {
-        if (!Socket || !Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromSeconds(5.0))) return false;
-        uint8 Ack = 0;
-        int32 Received = 0;
-        return Socket->Recv(&Ack, 1, Received) && Received == 1 && Ack == 1;
+        const double Deadline = FPlatformTime::Seconds() + 5.0;
+        while (!bStopRequested && Socket && FPlatformTime::Seconds() < Deadline)
+        {
+            if (!Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromMilliseconds(50))) continue;
+            uint8 Ack = 0;
+            int32 Received = 0;
+            if (Socket->Recv(&Ack, 1, Received)) return Received == 1 && Ack == 1;
+            if (ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->GetLastErrorCode() != SE_EWOULDBLOCK) return false;
+        }
+        return false;
     }
 
     bool SendAll(const TArray<uint8>& Packet)
     {
         int32 Offset = 0;
         double Progress = FPlatformTime::Seconds();
+        const double Deadline = Progress + 30.0;
         while (!bStopRequested && Socket && Offset < Packet.Num())
         {
-            if (FPlatformTime::Seconds() - Progress > 5.0) return false;
+            if (FPlatformTime::Seconds() - Progress > 5.0 || FPlatformTime::Seconds() > Deadline) return false;
             if (!Socket->Wait(ESocketWaitConditions::WaitForWrite, FTimespan::FromSeconds(0.05))) continue;
             int32 Sent = 0;
             if (!Socket->Send(Packet.GetData() + Offset, Packet.Num() - Offset, Sent))
@@ -282,6 +326,8 @@ private:
     FRunnableThread* Thread = nullptr;
     FSocket* Socket = nullptr;
     int32 SendBufferBytes = 0;
+    double LastConnectWarningSeconds = 0.0;
+    TSharedPtr<FResolveState, ESPMode::ThreadSafe> ResolveState;
 };
 
 class FBskBuiltinCaptureProvider final : public IBskCaptureProvider
@@ -328,46 +374,81 @@ struct FBskAsyncCaptureJob
 
 struct FBskCaptureDiskWork
 {
+    FBskCaptureRequest Request;
+    FString SessionId;
+    int64 Sequence = 0;
     FString Directory;
     FString Stem;
     FString MetadataJson;
     TArray<FCapturedDataProduct> Products;
 };
 
+struct FBskCaptureDiskResult
+{
+    FBskCaptureRequest Request;
+    FString SessionId;
+    int64 Sequence = 0;
+    bool bSucceeded = false;
+    FString CompletionPath;
+    FString Error;
+};
+
 class FBskCaptureDiskWriter final : public FRunnable
 {
 public:
-    FBskCaptureDiskWriter()
+    // Storage injection is confined to this private type, for deterministic
+    // disk-full/partial-write tests without filling or modifying a real volume.
+    using FWriteFile = TFunction<bool(const FString&, const TArray<uint8>&)>;
+    explicit FBskCaptureDiskWriter(FWriteFile InWriteFile = {}) : WriteFile(MoveTemp(InWriteFile))
     {
+        if (!WriteFile) WriteFile = [](const FString& Path, const TArray<uint8>& Bytes)
+        {
+            return FFileHelper::SaveArrayToFile(Bytes, *Path);
+        };
         WakeEvent = FPlatformProcess::GetSynchEventFromPool(false);
         Thread = FRunnableThread::Create(this, TEXT("BskCaptureDiskOutput"));
     }
 
     virtual ~FBskCaptureDiskWriter() override
     {
+        StopAndWait();
+        if (WakeEvent) FPlatformProcess::ReturnSynchEventToPool(WakeEvent);
+    }
+
+    void StopAndWait()
+    {
         Stop();
         if (Thread)
         {
             Thread->WaitForCompletion();
             delete Thread;
+            Thread = nullptr;
         }
-        if (WakeEvent) FPlatformProcess::ReturnSynchEventToPool(WakeEvent);
     }
 
     bool HasCapacity(int32 Count)
     {
         FScopeLock Lock(&WorkMutex);
-        return !bStopRequested && PendingWork.Num() + Count <= MaxPendingWork;
+        return Thread && !bStopRequested && OutstandingWork + Count <= MaxPendingWork;
     }
 
     bool EnqueueReliable(FBskCaptureDiskWork&& Work)
     {
         {
             FScopeLock Lock(&WorkMutex);
-            if (PendingWork.Num() >= MaxPendingWork) return false;
+            if (!Thread || bStopRequested || OutstandingWork >= MaxPendingWork) return false;
+            ++OutstandingWork;
             PendingWork.Add(MoveTemp(Work));
         }
         WakeEvent->Trigger();
+        return true;
+    }
+
+    bool ConsumeResult(FBskCaptureDiskResult& Result)
+    {
+        if (!Results.Dequeue(Result)) return false;
+        FScopeLock Lock(&WorkMutex);
+        --OutstandingWork;
         return true;
     }
 
@@ -392,15 +473,11 @@ public:
                 WakeEvent->Wait(100);
                 continue;
             }
-            IFileManager::Get().MakeDirectory(*Work.Directory, true);
-            FFileHelper::SaveStringToFile(Work.MetadataJson,
-                *FPaths::Combine(Work.Directory, Work.Stem + TEXT(".json")),
-                FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
-            for (FCapturedDataProduct& Product : Work.Products)
-            {
-                FFileHelper::SaveArrayToFile(Product.Bytes, *FPaths::Combine(Work.Directory,
-                    FString::Printf(TEXT("%s_%s.%s"), *Work.Stem, *Product.Name, *Product.Extension)));
-            }
+            FBskCaptureDiskResult Result = WriteCapture(Work);
+            if (!Result.bSucceeded)
+                UE_LOG(LogBskUnreal, Error, TEXT("BSK disk capture session=%s frame=%lld failed: %s"),
+                    *Result.SessionId, Result.Request.FrameId, *Result.Error);
+            Results.Enqueue(MoveTemp(Result));
         }
         return 0;
     }
@@ -412,13 +489,193 @@ public:
     }
 
 private:
+    FBskCaptureDiskResult WriteCapture(const FBskCaptureDiskWork& Work)
+    {
+        FBskCaptureDiskResult Result;
+        Result.Request = Work.Request;
+        Result.SessionId = Work.SessionId;
+        Result.Sequence = Work.Sequence;
+        Result.CompletionPath = FPaths::Combine(Work.Directory, Work.Stem + TEXT(".complete.json"));
+        if (!IFileManager::Get().MakeDirectory(*Work.Directory, true))
+        {
+            Result.Error = TEXT("cannot create capture directory: ") + Work.Directory;
+            return Result;
+        }
+        if (IFileManager::Get().FileExists(*Result.CompletionPath))
+        {
+            Result.Error = TEXT("refusing to overwrite completed capture: ") + Result.CompletionPath;
+            return Result;
+        }
+        auto CommitFile = [this, &Result](const FString& Path, const TArray<uint8>& Bytes)
+        {
+            const FString Temporary = Path + TEXT(".partial");
+            if (!WriteFile(Temporary, Bytes))
+            {
+                Result.Error = TEXT("capture write failed: ") + Path;
+                IFileManager::Get().Delete(*Temporary, false, true);
+                return false;
+            }
+            if (!IFileManager::Get().Move(*Path, *Temporary, true, true))
+            {
+                Result.Error = TEXT("capture commit failed: ") + Path;
+                IFileManager::Get().Delete(*Temporary, false, true);
+                return false;
+            }
+            return true;
+        };
+        for (const FCapturedDataProduct& Product : Work.Products)
+        {
+            const FString Path = FPaths::Combine(Work.Directory,
+                FString::Printf(TEXT("%s_%s.%s"), *Work.Stem, *Product.Name, *Product.Extension));
+            if (!CommitFile(Path, Product.Bytes)) return Result;
+        }
+        FTCHARToUTF8 Utf8(*Work.MetadataJson);
+        TArray<uint8> MetadataBytes;
+        MetadataBytes.Append(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
+        if (!CommitFile(FPaths::Combine(Work.Directory, Work.Stem + TEXT(".json")), MetadataBytes)) return Result;
+        // The final marker is the only publication of a complete disk frame.
+        // Partial outputs retain no marker and cannot be mistaken for success.
+        if (!CommitFile(Result.CompletionPath, MetadataBytes)) return Result;
+        Result.bSucceeded = true;
+        return Result;
+    }
+
+    FWriteFile WriteFile;
     FThreadSafeBool bStopRequested = false;
     static constexpr int32 MaxPendingWork = 16;
     FCriticalSection WorkMutex;
+    int32 OutstandingWork = 0;
     TArray<FBskCaptureDiskWork> PendingWork;
+    TQueue<FBskCaptureDiskResult, EQueueMode::Spsc> Results;
     FEvent* WakeEvent = nullptr;
     FRunnableThread* Thread = nullptr;
 };
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskCaptureDiskWriterTest,
+    "BskUnreal.Capture.DiskCompletionAndFailures",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FBskCaptureDiskWriterTest::RunTest(const FString& Parameters)
+{
+    const FString Root = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation/CaptureDisk"), FGuid::NewGuid().ToString());
+    auto WorkFor = [&Root](const FString& Name)
+    {
+        FBskCaptureDiskWork Work;
+        Work.Directory = FPaths::Combine(Root, Name);
+        Work.Stem = TEXT("000000000001_wrist");
+        Work.MetadataJson = TEXT("{\"session_id\":\"disk-test\",\"source_frame_id\":\"7\"}");
+        Work.SessionId = TEXT("disk-test");
+        Work.Sequence = 1;
+        Work.Request.FrameId = 7;
+        Work.Request.CaptureEpisodeId = TEXT("episode-test");
+        Work.Products.Add({TEXT("rgb"), TEXT("test"), TEXT("jpg"), {1, 2, 3}});
+        return Work;
+    };
+    auto RunWork = [this](FBskCaptureDiskWork Work, FBskCaptureDiskWriter::FWriteFile Write = {})
+    {
+        FBskCaptureDiskWriter Writer(MoveTemp(Write));
+        TestTrue(TEXT("work admitted"), Writer.EnqueueReliable(MoveTemp(Work)));
+        Writer.StopAndWait();
+        FBskCaptureDiskResult Result;
+        TestTrue(TEXT("every admitted work returns a result"), Writer.ConsumeResult(Result));
+        TestEqual(TEXT("result retains original session"), Result.SessionId, FString(TEXT("disk-test")));
+        TestEqual(TEXT("result retains original frame"), Result.Request.FrameId, int64(7));
+        FBskCaptureDiskResult Extra;
+        TestFalse(TEXT("exactly one completion result"), Writer.ConsumeResult(Extra));
+        TestFalse(TEXT("stopped writer rejects new work"), Writer.EnqueueReliable(FBskCaptureDiskWork{}));
+        return Result;
+    };
+    AddExpectedError(TEXT("BSK disk capture"), EAutomationExpectedErrorFlags::Contains, 5);
+    const auto Success = RunWork(WorkFor(TEXT("success")));
+    TestTrue(TEXT("normal frame succeeds"), Success.bSucceeded);
+    TestTrue(TEXT("complete marker published after all files"), IFileManager::Get().FileExists(*Success.CompletionPath));
+    const auto Duplicate = RunWork(WorkFor(TEXT("success")));
+    TestFalse(TEXT("completed frame cannot be overwritten"), Duplicate.bSucceeded);
+    for (const FString& Suffix : {FString(TEXT(".jpg.partial")), FString(TEXT(".json.partial")), FString(TEXT(".complete.json.partial"))})
+    {
+        const auto Failure = RunWork(WorkFor(Suffix.Replace(TEXT("."), TEXT("_"))),
+            [Suffix](const FString& Path, const TArray<uint8>& Bytes)
+            {
+                if (Path.EndsWith(Suffix))
+                {
+                    // Simulate a short write / ENOSPC with a partially created file.
+                    FFileHelper::SaveArrayToFile(TArray<uint8>{0}, *Path);
+                    return false;
+                }
+                return FFileHelper::SaveArrayToFile(Bytes, *Path);
+            });
+        TestFalse(TEXT("write failure reported"), Failure.bSucceeded);
+        TestFalse(TEXT("failed frame has no completion marker"), IFileManager::Get().FileExists(*Failure.CompletionPath));
+        TestFalse(TEXT("failed temporary marker removed"), IFileManager::Get().FileExists(*(Failure.CompletionPath + TEXT(".partial"))));
+        TestFalse(TEXT("error explains failed path"), Failure.Error.IsEmpty());
+    }
+    const FString Blocked = FPaths::Combine(Root, TEXT("blocked"));
+    FFileHelper::SaveStringToFile(TEXT("not a directory"), *Blocked);
+    const auto Failure = RunWork(WorkFor(TEXT("blocked/child")));
+    TestFalse(TEXT("unwritable directory reported"), Failure.bSucceeded);
+    IFileManager::Get().DeleteDirectory(*Root, false, true);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskCaptureNetworkCancellationTest,
+    "BskUnreal.Capture.NetworkCancellation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FBskCaptureNetworkCancellationTest::RunTest(const FString& Parameters)
+{
+    ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    FSocket* Listener = Sockets->CreateSocket(NAME_Stream, TEXT("Capture cancellation listener"), false);
+    TSharedRef<FInternetAddr> Address = Sockets->CreateInternetAddr();
+    bool bValid = false;
+    Address->SetIp(TEXT("127.0.0.1"), bValid);
+    Address->SetPort(0);
+    if (!Listener || !Listener->Bind(*Address) || !Listener->Listen(1))
+    {
+        AddError(TEXT("cannot create loopback cancellation fixture"));
+        if (Listener) Sockets->DestroySocket(Listener);
+        return false;
+    }
+    Listener->GetAddress(*Address);
+    Listener->SetNonBlocking(true);
+    auto Sender = MakeUnique<FBskCaptureNetworkSender>(TEXT("127.0.0.1"), Address->GetPort());
+    TestTrue(TEXT("packet admitted"), Sender->EnqueueReliable(TArray<uint8>{42}));
+    FSocket* Peer = nullptr;
+    const double ConnectDeadline = FPlatformTime::Seconds() + 2.0;
+    while (!Peer && FPlatformTime::Seconds() < ConnectDeadline)
+    {
+        bool bPending = false;
+        if (Listener->HasPendingConnection(bPending) && bPending) Peer = Listener->Accept(TEXT("No ACK peer"));
+        if (!Peer) FPlatformProcess::Sleep(0.005f);
+    }
+    TestNotNull(TEXT("sender connected to loopback peer"), Peer);
+    if (Peer)
+    {
+        TestTrue(TEXT("packet sent before waiting for ACK"), Peer->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromSeconds(2)));
+        uint8 Byte = 0;
+        int32 Read = 0;
+        Peer->Recv(&Byte, 1, Read);
+        TestEqual(TEXT("peer received original packet"), Byte, uint8(42));
+    }
+    const double Start = FPlatformTime::Seconds();
+    Sender.Reset(); // Peer deliberately never sends its acknowledgement.
+    const double Elapsed = FPlatformTime::Seconds() - Start;
+    AddInfo(FString::Printf(TEXT("Stop while awaiting ACK: %.6f seconds"), Elapsed));
+    TestTrue(TEXT("ACK cancellation finishes below two seconds"), Elapsed < 2.0);
+    if (Peer) { Peer->Close(); Sockets->DestroySocket(Peer); }
+    Listener->Close();
+    Sockets->DestroySocket(Listener);
+    // The now-closed loopback port exercises retry cancellation without any
+    // external network dependency or assumption about a reachable remote host.
+    Sender = MakeUnique<FBskCaptureNetworkSender>(TEXT("127.0.0.1"), Address->GetPort());
+    Sender->EnqueueReliable(TArray<uint8>{42});
+    FPlatformProcess::Sleep(0.02f);
+    const double RetryStart = FPlatformTime::Seconds();
+    Sender.Reset();
+    TestTrue(TEXT("connection retry is cancellable"), FPlatformTime::Seconds() - RetryStart < 2.0);
+    return true;
+}
+#endif
 
 namespace
 {
@@ -932,8 +1189,10 @@ void ABskSceneController::EndPlay(const EEndPlayReason::Type EndPlayReason)
         }
         BuiltinCaptureProvider.Reset();
     }
-    CaptureNetworkSender.Reset();
+    if (CaptureDiskWriter) CaptureDiskWriter->StopAndWait();
+    PollCaptureDiskResults();
     CaptureDiskWriter.Reset();
+    CaptureNetworkSender.Reset();
     if (Receiver)
     {
         Receiver->StopSource();
@@ -949,6 +1208,7 @@ void ABskSceneController::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
     // Drain after STOP too: accepted strict jobs retain their original episode.
     PollCaptureJobs();
+    PollCaptureDiskResults();
     const double TickStart = bVideoDiagnostics ? FPlatformTime::Seconds() : 0.0;
     check(IsInGameThread());
     if (MaximumStreamingFrameRate > 0)
@@ -3325,6 +3585,9 @@ bool ABskSceneController::WriteCaptureProducts(const FBskCaptureRequest& Request
             return false;
         }
         FBskCaptureDiskWork Work;
+        Work.Request = Request;
+        Work.SessionId = Metadata->GetStringField(TEXT("session_id"));
+        Work.Sequence = Sequence;
         Work.Directory = MoveTemp(Directory);
         Work.Stem = Stem;
         Work.MetadataJson = MetadataJson;
@@ -3427,14 +3690,36 @@ void ABskSceneController::CancelCaptureJobs()
     PendingCaptureBytes = 0;
 }
 
-void ABskSceneController::ReportCaptureFailure(const FBskCaptureRequest& Request, const FString& Error)
+void ABskSceneController::PollCaptureDiskResults()
+{
+    check(IsInGameThread());
+    if (!CaptureDiskWriter) return;
+    FBskCaptureDiskResult Result;
+    while (CaptureDiskWriter->ConsumeResult(Result))
+    {
+        if (Result.bSucceeded)
+        {
+            ++CaptureDiskCompletedCount;
+            UE_LOG(LogBskUnreal, Verbose, TEXT("BSK disk capture completed session=%s sequence=%lld marker=%s"),
+                *Result.SessionId, Result.Sequence, *Result.CompletionPath);
+        }
+        else
+        {
+            ++CaptureDiskFailureCount;
+            ReportCaptureFailure(Result.Request, Result.Error, Result.SessionId);
+        }
+    }
+}
+
+void ABskSceneController::ReportCaptureFailure(const FBskCaptureRequest& Request, const FString& Error,
+    const FString& SessionId)
 {
     if (!Request.bSendToNetwork || !CaptureNetworkSender) return;
     auto Metadata = MakeShared<FJsonObject>();
     const int64 Sequence = ++CaptureSequence;
     Metadata->SetStringField(TEXT("protocol"), TEXT("bsk-capture/1"));
     Metadata->SetStringField(TEXT("type"), TEXT("capture_error"));
-    Metadata->SetStringField(TEXT("session_id"), ActiveSessionId);
+    Metadata->SetStringField(TEXT("session_id"), SessionId.IsEmpty() ? ActiveSessionId : SessionId);
     Metadata->SetStringField(TEXT("capture_episode_id"), Request.CaptureEpisodeId);
     Metadata->SetStringField(TEXT("camera_id"), Request.CameraId);
     Metadata->SetStringField(TEXT("capture_sequence"), LexToString(Sequence));

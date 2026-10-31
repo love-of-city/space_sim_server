@@ -34,6 +34,7 @@ public:
 
 private:
     friend class FBskReceiverResetTest;
+    friend class FBskConnectionLifecycleTest;
     friend class FBskReliableFramesTest;
     friend class FBskOnDemandCaptureTest;
     bool CreateListener();
@@ -63,6 +64,9 @@ private:
     FString IncomingSessionId;
     mutable FCriticalSection OutboundMutex;
     TArray<TArray<uint8>> OutboundPackets;
+    // Owned by the receiver thread and retired with its current connection.
+    TArray<uint8> ActiveOutboundPacket;
+    int32 ActiveOutboundOffset = 0;
     mutable FCriticalSection StatusMutex;
     FString Status = TEXT("stopped");
 };

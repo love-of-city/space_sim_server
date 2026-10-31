@@ -87,6 +87,8 @@ public:
     int32 GetObjectCount() const { return BoundActors.Num(); }
     int32 GetVisualCount() const { return VisualActors.Num(); }
     int32 GetCameraCount() const { return CameraActors.Num(); }
+    int64 GetCaptureDiskCompletedCount() const { return CaptureDiskCompletedCount; }
+    int64 GetCaptureDiskFailureCount() const { return CaptureDiskFailureCount; }
     int32 GetPendingCommandCount() const { return PendingCommandIds.Num(); }
     FString GetLastCommandStatus() const { return LastCommandStatus; }
 
@@ -179,7 +181,8 @@ private:
                               const TArray<FCapturedDataProduct>& Products, int64 Sequence, FString& OutError);
     void PollCaptureJobs();
     void CancelCaptureJobs();
-    void ReportCaptureFailure(const FBskCaptureRequest& Request, const FString& Error);
+    void PollCaptureDiskResults();
+    void ReportCaptureFailure(const FBskCaptureRequest& Request, const FString& Error, const FString& SessionId = FString());
     void ConfigureCaptureOutput();
     void ApplyVisualMountTransform(AActor* Actor, const FBskVisualDefinition& Definition) const;
     AActor* ResolveVisualParent(const FString& ParentId) const;
@@ -347,6 +350,8 @@ private:
     TMap<FString, int32> VideoDiagnosticsCaptures;
     TArray<FString> CaptureProductOverride;
     int64 CaptureSequence = 0;
+    int64 CaptureDiskCompletedCount = 0;
+    int64 CaptureDiskFailureCount = 0;
     bool bAsyncCaptureEnabled = true;
     static constexpr int32 MaxAsyncCaptureJobs = 16;
     static constexpr uint64 MaxAsyncCaptureBytes = 256ull * 1024 * 1024;

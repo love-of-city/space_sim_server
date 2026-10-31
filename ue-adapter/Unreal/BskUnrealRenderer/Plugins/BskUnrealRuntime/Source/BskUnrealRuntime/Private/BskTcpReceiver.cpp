@@ -244,6 +244,8 @@ void FBskTcpReceiver::CloseClient()
         ClientSocket = nullptr;
     }
     Parser.Reset();
+    ActiveOutboundPacket.Reset();
+    ActiveOutboundOffset = 0;
     {
         FScopeLock Lock(&OutboundMutex);
         OutboundPackets.Reset();
@@ -270,8 +272,6 @@ uint32 FBskTcpReceiver::Run()
 
     TArray<uint8> ReadBuffer;
     ReadBuffer.SetNumUninitialized(64 * 1024);
-    TArray<uint8> ActiveOutboundPacket;
-    int32 ActiveOutboundOffset = 0;
     while (!bStopRequested.Load())
     {
         if (ClientSocket == nullptr)
@@ -279,6 +279,8 @@ uint32 FBskTcpReceiver::Run()
             bool bPending = false;
             if (ListenSocket->HasPendingConnection(bPending) && bPending)
             {
+                // No partially sent command may outlive its connection.
+                CloseClient();
                 ClientSocket = ListenSocket->Accept(TEXT("BskTcpClient"));
                 if (ClientSocket != nullptr)
                 {

@@ -549,5 +549,16 @@
     "/CelestialVault/Materials/MI_CelestialVault.MI_CelestialVault",
     "/CelestialVault/Materials/MI_Moon.MI_Moon",
     "/CelestialVault/Materials/MI_Stars.MI_Stars"
-  ]
+  ],
+  "runtime_objects": {
+    "Content/SpaceFX/Blueprints/BP_AsteroidBelt.uasset": "/Game/SpaceFX/Blueprints/BP_AsteroidBelt.BP_AsteroidBelt_C",
+    "Content/SpaceFX/Blueprints/BP_Comet.uasset": "/Game/SpaceFX/Blueprints/BP_Comet.BP_Comet_C",
+    "Content/SpaceFX/Blueprints/BP_Hyperdrive.uasset": "/Game/SpaceFX/Blueprints/BP_Hyperdrive.BP_Hyperdrive_C",
+    "Content/SpaceFX/Blueprints/BP_Planet.uasset": "/Game/SpaceFX/Blueprints/BP_Planet.BP_Planet_C",
+    "Content/SpaceFX/Blueprints/BP_Planet_GasGiant.uasset": "/Game/SpaceFX/Blueprints/BP_Planet_GasGiant.BP_Planet_GasGiant_C",
+    "Content/SpaceFX/Blueprints/BP_Planet_Rocky.uasset": "/Game/SpaceFX/Blueprints/BP_Planet_Rocky.BP_Planet_Rocky_C",
+    "Content/SpaceFX/Blueprints/BP_Satellite.uasset": "/Game/SpaceFX/Blueprints/BP_Satellite.BP_Satellite_C",
+    "Content/SpaceFX/Blueprints/BP_Star.uasset": "/Game/SpaceFX/Blueprints/BP_Star.BP_Star_C",
+    "Content/SpaceFX/Blueprints/BP_Starsphere.uasset": "/Game/SpaceFX/Blueprints/BP_Starsphere.BP_Starsphere_C"
+  }
 }

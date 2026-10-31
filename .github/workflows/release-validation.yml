@@ -31,4 +31,5 @@ jobs:
           path: |
             ${{ runner.temp }}/spacesim-${{ github.run_id }}-${{ github.run_attempt }}-package/*.json
             ${{ runner.temp }}/spacesim-${{ github.run_id }}-${{ github.run_attempt }}-package/*.log
+            ${{ runner.temp }}/spacesim-${{ github.run_id }}-${{ github.run_attempt }}-package/runtime-validation/*
             ${{ runner.temp }}/spacesim-${{ github.run_id }}-${{ github.run_attempt }}-project/cook-*.json

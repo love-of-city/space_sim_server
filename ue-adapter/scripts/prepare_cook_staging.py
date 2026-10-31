@@ -33,6 +33,7 @@ def contained(root: Path, value: str) -> Path:
 def load_assets(manifests: list[Path], project: Path) -> tuple[dict[str, str], list[str], list[str]]:
     assets: dict[str, str] = {}
     cook_roots, runtime_assets = set(), set()
+    runtime_objects: dict[str, str] = {}
     for path in manifests:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         if manifest.get("schema") != "ue-cook-inputs/1":
@@ -56,10 +57,19 @@ def load_assets(manifests: list[Path], project: Path) -> tuple[dict[str, str], l
                 raise ValueError(f"Invalid UE package root: {root}")
             cook_roots.add(root)
         runtime_assets.update(manifest.get("runtime_assets", []))
+        for rel, object_path in manifest.get("runtime_objects", {}).items():
+            if rel not in manifest["files"] or not rel.endswith(".uasset"):
+                raise ValueError(f"Runtime object override must name a declared asset: {rel}")
+            package = "/Game/" + str(PurePosixPath(rel).relative_to("Content").with_suffix(""))
+            if not isinstance(object_path, str) or not object_path.startswith(package + "."):
+                raise ValueError(f"Runtime object override must stay in its asset package: {rel}")
+            if rel in runtime_objects and runtime_objects[rel] != object_path:
+                raise ValueError(f"Conflicting runtime object override: {rel}")
+            runtime_objects[rel] = object_path
     for rel in assets:
         if rel.endswith(".uasset"):
             package = "/Game/" + str(PurePosixPath(rel).relative_to("Content").with_suffix(""))
-            runtime_assets.add(package + "." + PurePosixPath(package).name)
+            runtime_assets.add(runtime_objects.get(rel, package + "." + PurePosixPath(package).name))
     return dict(sorted(assets.items())), sorted(cook_roots), sorted(runtime_assets)
 
 

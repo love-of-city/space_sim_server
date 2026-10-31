@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "ue-adapter/scripts"))
 import build_ue_project as build
 import check_test_report as junit
+import package_ue_project as package
 import prepare_cook_staging as cook
 import run_ue_automation as automation
 
@@ -60,6 +61,19 @@ def test_cook_staging_is_content_identical_after_input_relocation(tmp_path):
     shutil.copytree(project, relocated)
     second = cook.prepare(relocated, tmp_path / "two", [manifest])
     assert first == second
+
+
+def test_cook_runtime_objects_can_select_compiled_blueprint_class(tmp_path):
+    project, manifest, asset = fixture_project(tmp_path)
+    value = json.loads(manifest.read_text())
+    value["runtime_objects"] = {str(asset.relative_to(project)): "/Game/BSK/Generated/Base/mesh.mesh_C"}
+    manifest.write_text(json.dumps(value))
+    _, _, runtime = cook.load_assets([manifest], project)
+    assert runtime == ["/Game/BSK/Generated/Base/mesh.mesh_C"]
+    value["runtime_objects"][str(asset.relative_to(project))] = "/Game/Other.Other_C"
+    manifest.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="stay in its asset package"):
+        cook.load_assets([manifest], project)
 
 
 def test_cook_rejects_mutated_asset_before_writing_staging(tmp_path):
@@ -119,3 +133,14 @@ def test_noop_build_reuses_only_unchanged_compiler_identity(tmp_path):
     assert build.toolchain_identity("Target is up to date\nTotal time: 2 seconds", tmp_path, full) == full
     compiler.write_bytes(b"compiler v2")
     assert build.toolchain_identity("Target is up to date", tmp_path, full)["status"] == "not_recorded"
+
+
+@pytest.mark.parametrize("actual", [[], ["/Game/A.A"], ["/Game/A.A", "/Game/A.A"], ["/Game/A.A", "/Game/C.C"]])
+def test_package_report_refuses_missing_duplicate_or_unexpected_assets(tmp_path, actual):
+    manifest = tmp_path / "assets.json"
+    manifest.write_text(json.dumps({"assets": [{"object_path": item} for item in ["/Game/A.A", "/Game/B.B"]]}))
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({"schema": "ue-cook-runtime-validation/1", "passed": True, "errors": [],
+                                 "assets": [{"object_path": item, "loaded": True} for item in actual]}))
+    with pytest.raises(RuntimeError, match="incomplete"):
+        package.assert_runtime_report(report, manifest)

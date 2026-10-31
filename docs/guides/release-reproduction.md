@@ -17,7 +17,7 @@ Windows 可使用 `ue-adapter/scripts/package.ps1 -UnrealRoot ... -StagingDirect
 
 工具按哈希校验输入及 Git LFS 内容，复制当前候选源码/配置；Git 忽略的生成目录不复制。所有未忽略的新源码以及工作区删除均反映进 staging 的源码指纹。目录越界、软链接逃逸、非空输出或损坏资产会失败。相同输入重复 staging 的资产集合与文件指纹应一致；并不保证 UE Cook 包逐字节完全相同。
 
-BuildCookRun 完成后生成 Game 构建身份，启动 packaged Development 程序，使用 `-BskValidateCookAssets` 对全部声明 `.uasset` 及 CelestialVault 动态资源逐项 LoadObject。结果在 `runtime-asset-validation.json`，必须 `passed=true`；完整 package 证据另记录构建清单、实际 Game 二进制、Pak 和运行报告哈希。此步使用 NullRHI，仅证明包内资源可加载。GPU 图像、完整任务、跨机启动和长稳结果仍须分别验收。
+BuildCookRun 在隔离 staging 使用 `-cookall`，完成后生成 Game 构建身份，启动 packaged Development 程序，使用 `-BskValidateCookAssets` 对全部声明 `.uasset` 的运行时对象及 CelestialVault 动态资源逐项 LoadObject；Blueprint 显式映射到打包后保留的生成类。结果在 `runtime-validation/runtime-asset-validation.json`，必须 `passed=true` 且完整覆盖预期对象；完整 package 证据另记录构建清单、实际 Game 二进制、Pak/IoStore 容器和运行报告哈希。此步使用 `-NullRHI -nosound`，仅证明包内资源可加载。GPU 图像、完整任务、跨机启动和长稳结果仍须分别验收。
 
 ## Python 与引擎来源
 

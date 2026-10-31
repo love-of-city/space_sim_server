@@ -52,10 +52,13 @@ void BskWriteRuntimeIdentity()
     {
         FModuleManager& Manager = FModuleManager::Get();
         if (Name != FName(TEXT("BskUnrealRuntime"))) Manager.LoadModule(Name);
-        FString Path = Manager.GetModuleFilename(Name);
+        FString Path;
 #if IS_MONOLITHIC
-        // A monolithic packaged executable contains both linked modules.
-        if (Path.IsEmpty()) Path = FPaths::Combine(FPlatformProcess::BaseDir(), FPlatformProcess::ExecutableName(false));
+        // Game modules are linked into the executable. GetModuleFilename only
+        // exists in modular builds; the executable is the actual mapped image.
+        Path = FPaths::Combine(FPlatformProcess::BaseDir(), FPlatformProcess::ExecutableName(false));
+#else
+        Path = Manager.GetModuleFilename(Name);
 #endif
         if (Path.IsEmpty()) UE_LOG(LogBskUnreal, Error, TEXT("No loaded module path for %s"), *Name.ToString());
         Modules->SetStringField(Name.ToString(), Path.IsEmpty() ? FString() : FPaths::ConvertRelativePathToFull(Path));

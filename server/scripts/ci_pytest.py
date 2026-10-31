@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUSIONS = json.loads((Path(__file__).with_name("ci-exclusions.json")).read_text(encoding="utf-8"))
+NATIVE = json.loads((Path(__file__).with_name("native-test-profile.json")).read_text(encoding="utf-8"))
 _skipped = []
 
 
@@ -30,6 +31,7 @@ def _node_exists(node_id: str) -> bool:
 
 
 def pytest_addoption(parser):
+    parser.addoption("--ci-native", action="store_true", help="Run the explicit native profile; missing dependencies and skips fail")
     parser.addoption("--ci-basic", action="store_true", help="Exclude documented specialized tests; fail on skips")
     parser.addoption("--ci-skip-group", action="append", default=[], metavar="NAME",
                      help="With --ci-basic, also exclude a documented group from ci-exclusions.json")
@@ -42,12 +44,20 @@ def _skipped_group_files(config):
 
 def pytest_configure(config):
     _skipped.clear()
+    if config.getoption("--ci-native") and config.getoption("--ci-basic"):
+        raise pytest.UsageError("Choose exactly one CI profile: basic or native")
+    if config.getoption("--ci-native"):
+        missing = [name for name in NATIVE["files"] if not (ROOT / name).is_file()]
+        if missing:
+            raise pytest.UsageError(f"Stale native profile: {missing}")
     unknown = sorted(set(config.getoption("--ci-skip-group")) - set(EXCLUSIONS.get("groups", {})))
     if unknown:
         raise pytest.UsageError(f"Unknown CI groups: {unknown}")
 
 
 def pytest_ignore_collect(collection_path, config):
+    if config.getoption("--ci-native") and collection_path.is_file():
+        return collection_path.relative_to(ROOT).as_posix() not in NATIVE["files"]
     if not config.getoption("--ci-basic"):
         return None
     try:
@@ -60,6 +70,13 @@ def pytest_ignore_collect(collection_path, config):
 
 
 def pytest_collection_modifyitems(config, items):
+    if config.getoption("--ci-native"):
+        selected = [item for item in items if item.path.relative_to(ROOT).as_posix() in NATIVE["files"]]
+        excluded = [item for item in items if item not in selected]
+        items[:] = selected
+        if excluded:
+            config.hook.pytest_deselected(items=excluded)
+        return
     if not config.getoption("--ci-basic"):
         return
     # Refuse stale file exclusions; renames must update the reviewed manifest.
@@ -75,7 +92,8 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         relative = item.path.relative_to(ROOT).as_posix()
         key = relative + "::" + getattr(item, "originalname", item.name)
-        (excluded if key in EXCLUSIONS["nodes"] else kept).append(item)
+        (excluded if key in EXCLUSIONS["nodes"] or relative in EXCLUSIONS["files"]
+         or relative in _skipped_group_files(config) else kept).append(item)
     items[:] = kept
     if excluded:
         config.hook.pytest_deselected(items=excluded)
@@ -104,11 +122,15 @@ def pytest_runtest_logreport(report):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    if session.config.getoption("--ci-basic") and _skipped:
+    if (session.config.getoption("--ci-basic") or session.config.getoption("--ci-native")) and _skipped:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 def pytest_terminal_summary(terminalreporter):
+    if terminalreporter.config.getoption("--ci-native"):
+        terminalreporter.write_sep("=", "Native CI scope: scripts/native-test-profile.json (not UE/GPU acceptance)")
+        if _skipped:
+            terminalreporter.write_line("Missing native dependencies / unexpected skips fail: " + ", ".join(_skipped), red=True)
     if terminalreporter.config.getoption("--ci-basic"):
         terminalreporter.write_sep("=", "Basic CI scope: reports/coverage-scope.json (not full system acceptance)")
         if _skipped:

@@ -22,7 +22,7 @@ class PhysicsGraphCache:
     def compatible(self, values):
         from simulation.compiled_model_cache import model_cache_key
         from simulation.mujoco_runtime import basilisk_mujoco_runtime
-        from simulation.local_mujoco_stepper import local_substeps, publish_stride
+        from simulation.local_dynamics_config import local_substeps, publish_stride
 
         args, scene = values['args'], values['scene_instance']
         model = values['model']

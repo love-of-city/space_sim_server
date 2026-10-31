@@ -1,0 +1,15 @@
+{
+  "schema": "native-test-profile/1",
+  "description": "Core native state, reset, contact, sampling and physics integration acceptance; requires Basilisk and validated native libraries. Missing dependencies/skips fail this profile.",
+  "files": [
+    "tests/test_native_episode_reset.py",
+    "tests/test_native_planning_clearance.py",
+    "tests/test_native_contact_snapshot.py",
+    "tests/test_native_contact_force_snapshot.py",
+    "tests/test_local_mujoco_stepper.py",
+    "tests/test_simulation_reset_native.py",
+    "tests/test_physics_clock_native.py",
+    "tests/test_wrist_wrench_native.py",
+    "tests/test_collection_physics_graph.py"
+  ]
+}

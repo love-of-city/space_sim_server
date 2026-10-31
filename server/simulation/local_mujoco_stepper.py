@@ -66,8 +66,10 @@ DEFAULT_BACKEND = BACKEND_LOCAL
 # more substeps trade speed for accuracy (errors are first order: the wrist
 # roll joint J6, the stiffest, is ~2.5e-3 rad max off the RKF45 reference at 1,
 # ~1.4e-3 at 2 and ~7e-4 at 4; see docs/LOCAL_DYNAMICS_BACKEND.md).
-DEFAULT_SUBSTEPS = 1
-MAX_SUBSTEPS = 16
+from simulation.local_dynamics_config import (
+    DEFAULT_SUBSTEPS, MAX_SUBSTEPS, DEFAULT_PUBLISH_STRIDE,
+    ALLOWED_PUBLISH_STRIDES, local_substeps, publish_stride,
+)
 # Publication after every physics step k:
 # * always: MJScene bulk qpos/qvel, joint state/rate messages, the scene state
 #   message and servo efforts. Joint messages read the bulk states directly
@@ -84,8 +86,6 @@ MAX_SUBSTEPS = 16
 # Default 8: publish only on the 50 Hz render grid (IK reads joint states only).
 from space_arm_platform.sampling import DYNAMICS_HZ, RENDER_HZ
 
-DEFAULT_PUBLISH_STRIDE = DYNAMICS_HZ // RENDER_HZ
-ALLOWED_PUBLISH_STRIDES = (1, 2, 4, 8)
 SYNC_STEPS = DYNAMICS_HZ // RENDER_HZ
 # Move O onto the system COM before local coordinates grow large enough for
 # the linearized tidal term or float resolution to matter.
@@ -113,24 +113,6 @@ def dynamics_backend(value: str | None = None) -> str:
     if selected not in DYNAMICS_BACKENDS:
         raise ValueError(f"dynamics backend must be one of {DYNAMICS_BACKENDS}, got {selected!r}")
     return selected
-
-
-def local_substeps(value: int | None = None) -> int:
-    """Fixed MuJoCo substeps per physics step (SPACE_SIM_LOCAL_SUBSTEPS)."""
-    raw = value if value is not None else os.environ.get("SPACE_SIM_LOCAL_SUBSTEPS", DEFAULT_SUBSTEPS)
-    count = int(raw)
-    if not 1 <= count <= MAX_SUBSTEPS:
-        raise ValueError(f"local substeps must be in [1, {MAX_SUBSTEPS}]")
-    return count
-
-
-def publish_stride(value: int | None = None) -> int:
-    """Body/site kinematics messages every Nth physics step (SPACE_SIM_LOCAL_PUBLISH_STRIDE)."""
-    raw = value if value is not None else os.environ.get("SPACE_SIM_LOCAL_PUBLISH_STRIDE", DEFAULT_PUBLISH_STRIDE)
-    count = int(raw)
-    if count not in ALLOWED_PUBLISH_STRIDES:
-        raise ValueError(f"publish stride must be one of {ALLOWED_PUBLISH_STRIDES}")
-    return count
 
 
 def orbital_force_stride(value: int | None = None) -> int:

@@ -56,7 +56,7 @@ for rel in sorted(set(paths)):
  p=Path(rel)
  if p.parts[0]=='server' and p.parts[1] not in ['backend','collection','config','simulation','tools','model','native','third_party','docs']:continue
  if p.parts[0]=='ue-adapter' and p.parts[1] not in ['Adapters','Unreal']:continue
- if p.parts[0] not in ['server','ue-adapter'] and p.name not in ['LICENSE','README.md','AGENTS.md','CONTRIBUTING.md']:continue
+ if p.parts[0] not in ['server','ue-adapter','manifests'] and p.name not in ['LICENSE','README.md','AGENTS.md','CONTRIBUTING.md']:continue
  src=repo/p
  if not src.is_file():continue
  dest=base/'repo'/p;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dest)

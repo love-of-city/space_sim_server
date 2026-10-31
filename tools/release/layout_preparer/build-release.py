@@ -21,7 +21,7 @@ if (root/'space-sim-layout-preparer-linux-x86_64.run').exists():
     parser.error('Refusing to overwrite an existing release')
 payload=root/'payload.tar.gz'
 excludes=['*/__pycache__','*/.pytest_cache','*/Intermediate','*/Saved/Logs','*/Saved/Autosaves','*/Saved/Config',
-          '*/Saved/Collections','*/Saved/SourceControl','*/Saved/UnrealBuildTool','*.lock','*/.relocation.lock',
+          '*/Saved/Collections','*/Saved/SourceControl','*/Saved/UnrealBuildTool','*/.relocation.lock',
           '*/Content/BSK/Generated/Portable_*']
 start=time.monotonic()
 cmd=['tar',*[f'--exclude={p}' for p in excludes],'-C',str(bundle.parent),'-cf','-','space-sim-layout-preparer']

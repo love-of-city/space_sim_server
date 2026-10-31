@@ -16,6 +16,9 @@ def test_base_and_collector_archives_are_relocatable(tmp_path):
     bundle = tmp_path / 'staging with spaces' / 'space-sim-layout-preparer'
     bundle.mkdir(parents=True)
     (bundle / 'base-marker').write_text('shared runtime')
+    dependency_lock = bundle / 'repo/manifests/environments/requirements.lock'
+    dependency_lock.parent.mkdir(parents=True)
+    dependency_lock.write_text('locked dependency identity')
     base = tmp_path / 'base release'
     result = execute(sys.executable, RELEASE / 'layout_preparer/build-release.py',
                      '--bundle', bundle, '--output', base)
@@ -40,6 +43,7 @@ def test_base_and_collector_archives_are_relocatable(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (destination / 'base-marker').read_text() == 'overridden by collector'
     assert (destination / 'collector-marker').read_text() == 'collector'
+    assert (destination / 'repo/manifests/environments/requirements.lock').read_text() == 'locked dependency identity'
 
     before = artifact.read_bytes()
     result = execute(sys.executable, RELEASE / 'collector/build-collector.py',

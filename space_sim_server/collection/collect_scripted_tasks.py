@@ -45,6 +45,7 @@ from space_arm_platform.collection_runtime import PersistentRenderer, check_port
 from space_arm_platform.dynamics_worker import PersistentDynamics
 from space_arm_platform.collection_layouts import LayoutPool, attach_layout, validate_episode_layout
 from space_arm_platform.overview_camera import validate_episode_overview_camera
+from space_arm_platform.atomic_json import write_json
 
 
 def validate_threaded_recording(steps, stages, task_name):
@@ -581,12 +582,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
 
     def save():
         report["wall_seconds"] = time.monotonic() - started
-        temporary = args.output / "summary.tmp"
-        temporary.write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
-        temporary.replace(args.output / "summary.json")
+        write_json(args.output / "summary.json", report)
 
     owned_session = session is None
     session = session or CollectionSession(args.output)

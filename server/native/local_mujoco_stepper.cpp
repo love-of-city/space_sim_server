@@ -100,6 +100,7 @@ struct Stepper {
     Api api{};
     mjModel* m = nullptr;
     mjData* d = nullptr;
+    mjtNum initial_timestep = 0;
     mjData* friction_trial = nullptr;  // scratch data for the generic full-copy path
     std::vector<AxialFriction> friction;
     std::vector<int> friction_ids;
@@ -639,6 +640,7 @@ API void* lms_create_cached(const RuntimePathChar* runtime_path, const char* xml
         delete s;
         return nullptr;
     }
+    s->initial_timestep = s->m->opt.timestep;
     s->d = s->api.makeData(s->m);
     if (!s->d) {
         copy_error(error, error_size, "mj_makeData failed");
@@ -1783,6 +1785,9 @@ API int lms_sum_body_wrenches(void* handle, int groups, const int* bodies,
 API int lms_reset_episode(void* handle) {
     auto* s = static_cast<Stepper*>(handle);
     if (!s) return ERR_ARGUMENT;
+    // lms_step changes this model option. mj_resetData only resets mjData,
+    // so restore the XML value before initial-state forward/contact queries.
+    s->m->opt.timestep = s->initial_timestep;
     s->api.resetData(s->m, s->d);
     if (s->friction_trial) s->api.resetData(s->m, s->friction_trial);
     for (auto& f : s->friction) {

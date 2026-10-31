@@ -35,3 +35,47 @@ def test_native_reset_restores_xml_state_and_clears_episode_velocity(tmp_path):
         assert lib.lms_reset_episode(None) < 0
     finally:
         lib.lms_destroy(handle)
+
+
+def test_reset_restores_xml_timestep_for_initial_contact_force(tmp_path):
+    """Reset must give the same initial contact sample as a fresh native model."""
+    pytest.importorskip('Basilisk')
+    from simulation.local_mujoco_stepper import _library, _basilisk_mujoco_runtime, _pointer
+
+    model = tmp_path / 'reset_contact.xml'
+    model.write_text('''<mujoco><option timestep=".001" gravity="0 0 0"/><worldbody>
+      <geom type="plane" size="1 1 .1" solref=".002 1"/>
+      <body pos="0 0 .009"><freejoint/>
+        <geom type="sphere" size=".01" mass="1" solref=".002 1"/>
+      </body></worldbody></mujoco>''')
+    lib = _library()
+    error = ctypes.create_string_buffer(1024)
+    runtime = str(_basilisk_mujoco_runtime())
+    raw = lib.lms_create(runtime if os.name == 'nt' else os.fsencode(runtime),
+                         os.fsencode(model), error, len(error))
+    assert raw, error.value.decode()
+    handle = ctypes.c_void_p(raw)
+    try:
+        q, v = np.zeros(7), np.zeros(6)
+        assert lib.lms_get_state(handle, _pointer(q), _pointer(v)) == 0
+        initial_q, initial_v = q.copy(), v.copy()
+        assert lib.lms_set_state(handle, _pointer(q), _pointer(v)) == 0
+
+        def contact_forces():
+            count = lib.lms_contact_forces(handle, None, 0)
+            assert count > 0
+            rows = np.zeros((count, 11))
+            assert lib.lms_contact_forces(handle, _pointer(rows), count) >= 0
+            return rows
+
+        cold = contact_forces()
+        controls, origin = np.zeros(0), np.zeros(3)
+        qacc, actuator_force, stats = np.zeros(6), np.zeros(0), np.zeros(6)
+        assert lib.lms_step(handle, _pointer(controls), .0025, 1, _pointer(origin), 0.,
+                            _pointer(q), _pointer(v), _pointer(qacc),
+                            _pointer(actuator_force), _pointer(stats)) == 0
+        assert lib.lms_reset_episode(handle) == 0
+        assert lib.lms_set_state(handle, _pointer(initial_q), _pointer(initial_v)) == 0
+        np.testing.assert_array_equal(contact_forces(), cold)
+    finally:
+        lib.lms_destroy(handle)

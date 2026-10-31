@@ -67,6 +67,7 @@ src/space_sim_server/space_sim_UE_Adapter  -> ../space-sim/ue-adapter
 | `docs/naming-conventions.md` | 后续文件与目录命名规则 |
 | `manifests/environments/` | 核查时 Python 环境依赖清单 |
 | `manifests/assets/` | 资产索引规则；真实资产哈希以正式清单为准 |
+| `manifests/schemas/collection-layout-pool-v2.schema.json` | 可搬迁布局池、相对路径、文件哈希和原验收迁移证明契约 |
 | `server/` | API、网页、任务采集、权威动力学、模型、原生计算 |
 | `ue-adapter/` | Python 状态协议适配、UE渲染工程和运行插件 |
 | `tools/release/` | 两类交付包的构建、启动器及测试源码 |
@@ -171,6 +172,7 @@ tools/collect.py
 |---|---|
 | `assembly.py`、`physics_ports.py`、`physics_clock.py` | 组件装配、类型化物理消息、确定性时钟 |
 | `local_mujoco_stepper.py` | 本地坐标 MuJoCo 步进、状态读写与原生接口 |
+| `local_dynamics_config.py` | 不依赖 Basilisk 的物理步长/发布节拍配置，供原生步进和纯图兼容检查共用 |
 | `compiled_model_cache.py`、`publication_scene.py` | 编译模型内容指纹缓存、发布副本精简 |
 | `mujoco_runtime.py`、`mujoco_plugins.py`、`native_acceleration.py`、`native_integration.py` | 绑定Basilisk已加载的运行库、插件和源码匹配的原生库，配置积分 |
 | `native_posture.py`、`native_plug_retention.py` | 原生姿态计算与保持力接口 |
@@ -187,6 +189,7 @@ tools/collect.py
 | `observation_capture.py`、`wrench_sampling.py`、`wrench_sensors.py` | 同步观测、独立腕力采样和传感器适配 |
 | `plug_retention.py` | 插头接合、引导力和轴向干摩擦 |
 | `independent_task_box_layout.py`、`task_box_layout.py`、`collection_assets.py`、`socket_colors.py` | 独立布局、原布局原型、通用资产、每条颜色身份 |
+| `layout_package.py` | MJCF 资产引用解析、完整模型语义摘要和原生验收报告的搬迁等价证明 |
 | `camera_lighting.py`、`sarm_model_profile.py` | 相机补光、模型关节/执行器命名映射 |
 | `motion_diagnostics.py`、`runtime_performance.py`、`runtime_progress.py` | 运动/性能/启动诊断，不改物理时钟 |
 | `mjscene_threadpool.py`、`fastener_demo_schedule.py` | 显式启用的线程池实验、演示扭矩计划，不应误认当前默认采集路径 |
@@ -232,6 +235,10 @@ tools/collect.py
 | `config/collection-base-assets.json` | 通用模型/UE资源的路径和SHA清单 |
 | `config/plug_retention.json`、`task-instructions.json` | 保持力参数、任务指令模板 |
 | `contracts/*.schema.json` | 状态/控制消息结构契约 |
+| `scripts/ci_pytest.py`、`native-test-profile.json`、`ci-exclusions.json` | 基础/原生测试分层、显式平台节点排除；声明范围内出现 skip 即失败 |
+| `tools/assets/migrate_layout_pool.py` | 将 v1 布局池复制为 v2 完整包；拒绝覆盖原件、未声明资产根和路径逃逸 |
+
+布局迁移用法、包内目录和交付边界见[可搬迁布局包](guides/portable-layout-pools.md)。运行时每次选样重新校验文件哈希，历史 native 报告保持原字节，不把路径迁移当成重新完成几何验收。
 
 ## 模型：输入、正式装配与实验资产
 
@@ -291,6 +298,7 @@ ue-adapter/
 | `frames.py`、`descriptors.py`、`device_adapters.py` | 坐标/姿态转换、静态描述和设备可视化 |
 | `protocol.py`、`capture.py`、`recording.py` | 网络协议、相机数据解码、渲染流记录/回放 |
 | `mjcf_assets.py`、`stl_conversion.py`、`native_plugins.py`、`ue_support.py` | MJCF渲染元数据、STL转换、共享运行库插件和便捷API |
+| `portable_assets.py` | 按包根解析 v2 catalog 和 UE 资源路径；拒绝绝对路径、目录越界与软链接逃逸 |
 | `BskSceneController.cpp` | UE场景/资产/相机状态管理 |
 | `BskFrameParser.cpp`、`BskTcpReceiver.cpp` | 帧消息解析、TCP接收 |
 | `BskCoordinateConverter.cpp`、`BskRenderWorldSubsystem.cpp` | 坐标转换、渲染世界运行管理 |

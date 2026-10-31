@@ -179,7 +179,7 @@ def run(args):
     pool_snapshot = None
     if layout_pool is not None:
         pool_snapshot = output / "layout-pool.json"
-        atomic_json(pool_snapshot, layout_pool.document)
+        layout_pool.write_snapshot(pool_snapshot)
     episodes = args.episodes_root.resolve() if args.episodes_root else output / "episodes"
     entries, leases, handles, processes, groups = [], [], [], [], []
     started = time.monotonic()

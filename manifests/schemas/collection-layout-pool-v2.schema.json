@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "collection-layout-pool-v2.schema.json",
+  "title": "Portable accepted layout pool",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "root",
+    "layouts",
+    "files_sha256",
+    "source_pool_sha256",
+    "generator"
+  ],
+  "properties": {
+    "schema": {
+      "const": "collection-layout-pool/2"
+    },
+    "root": {
+      "const": "."
+    },
+    "layouts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "model",
+          "catalog",
+          "native_report",
+          "model_sha256",
+          "catalog_sha256",
+          "native_report_sha256",
+          "manifest_sha256",
+          "relocation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "description": "POSIX package-relative path; runtime additionally rejects traversal, drives, backslashes and symlink escapes."
+          },
+          "catalog": {
+            "type": "string",
+            "minLength": 1,
+            "description": "POSIX package-relative path; runtime additionally rejects traversal, drives, backslashes and symlink escapes."
+          },
+          "native_report": {
+            "type": "string",
+            "minLength": 1,
+            "description": "POSIX package-relative path; runtime additionally rejects traversal, drives, backslashes and symlink escapes."
+          },
+          "model_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "catalog_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "native_report_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "relocation": {
+            "type": "object",
+            "required": [
+              "original_model",
+              "original_directory",
+              "original_model_sha256",
+              "original_manifest",
+              "original_manifest_sha256",
+              "semantic_model_sha256",
+              "asset_mapping"
+            ],
+            "properties": {
+              "original_model": {
+                "type": "string",
+                "minLength": 1,
+                "description": "POSIX package-relative path; runtime additionally rejects traversal, drives, backslashes and symlink escapes."
+              },
+              "original_manifest": {
+                "type": "string",
+                "minLength": 1,
+                "description": "POSIX package-relative path; runtime additionally rejects traversal, drives, backslashes and symlink escapes."
+              },
+              "original_directory": {
+                "type": "string",
+                "description": "Historical source root; used only as a lookup key, never opened by the package loader."
+              },
+              "original_model_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "original_manifest_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "semantic_model_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "asset_mapping": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "POSIX package-relative path; runtime additionally rejects traversal, drives, backslashes and symlink escapes."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "files_sha256": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "source_pool_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "generator": {
+      "type": "string"
+    }
+  }
+}

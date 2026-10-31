@@ -331,7 +331,7 @@ def test_requires_two_distinct_layouts_and_valid_native_acceptance(layout_pool):
 
 
 @pytest.mark.parametrize("mismatched_recording", [False, True])
-def test_collector_passes_same_layout_to_probe_renderer_and_recording(layout_pool, tmp_path, monkeypatch, mismatched_recording):
+def test_collector_passes_same_layout_to_worker_renderer_and_recording(layout_pool, tmp_path, monkeypatch, mismatched_recording):
     import collection.collect_scripted_tasks as collector
     import collection.record_scripted_task as recorder
 
@@ -340,25 +340,13 @@ def test_collector_passes_same_layout_to_probe_renderer_and_recording(layout_poo
                                     collection_layout_randomization=True)))
     output, episodes = tmp_path / "batch", tmp_path / "episodes"
     episodes.mkdir()
-    calls, probes = [], []
-
-    class Probe:
-        def __init__(self, model):
-            self.model = model
-        def validate(self, model, scene, task):
-            assert self.model == model
-            assert digest(model) == scene["task_box_layout"]["model_sha256"]
-            probes.append(model)
-            return dict(accepted=True)
-        def close(self):
-            pass
+    calls = []
 
     def popen(command, **kwargs):
         calls.append(command)
         arg = lambda key: Path(command[command.index(key)+1])
         capture_scene = json.loads(arg("--scene").read_text())
         model, catalog = arg("--model"), arg("--catalog")
-        assert probes[-1] == model
         assert json.loads(catalog.read_text())["source_mjcf"] == str(model)
         assert digest(model) == capture_scene["task_box_layout"]["model_sha256"]
         if mismatched_recording:
@@ -372,14 +360,13 @@ def test_collector_passes_same_layout_to_probe_renderer_and_recording(layout_poo
         (episode / "metadata.json").write_text(json.dumps(dict(scene_instance=capture_scene)))
         return SimpleNamespace(poll=lambda: 0, returncode=0)
 
-    monkeypatch.setattr(collector, "NativePoseProbe", Probe)
     monkeypatch.setattr(collector, "check_port_available", lambda _: None)
     monkeypatch.setattr(recorder, "recording_settings", lambda _: None)
     monkeypatch.setattr(collector.subprocess, "Popen", popen)
     monkeypatch.setattr(collector, "validate_recording", lambda *_: dict(passed=True))
     monkeypatch.setattr("sys.argv", ["collect", "--scene", str(scene), "--output", str(output),
                                    "--episodes-root", str(episodes), "--layout-pool", str(layout_pool),
-                                   "--count", "2", "--max-attempts", "2", "--seed", "1"])
+                                   "--count", "2", "--max-attempts", "2", "--seed", "1", "--validation-mode", "full"])
     if mismatched_recording:
         assert collector.main() == 1
         report = json.loads((output / "summary.json").read_text())
@@ -417,6 +404,7 @@ def test_api_manager_requires_pool_and_snapshots_it(layout_pool, tmp_path, monke
         editor.touch()
         monkeypatch.setattr("space_arm_platform.collection_jobs.unreal_editor", lambda _: editor)
         monkeypatch.setattr(manager, "_run", lambda _: None)
+        monkeypatch.setattr("space_arm_platform.collection_jobs.free_ports", lambda _: [[21000, 21001, 21002, 21003]])
         owner = dict(user_id="u", username="user", role="admin")
         job = manager.start(request, owner, {})
         snapshot = manager.root / job["id"] / "layout-pool.json"

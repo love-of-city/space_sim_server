@@ -323,7 +323,7 @@ class CollectionManager:
                 write_json(directory / "fixed-layout.json", fixed)
             if pool is not None:
                 # Each batch pins the validated membership before workers start.
-                write_json(directory / "layout-pool.json", pool.document)
+                pool.write_snapshot(directory / "layout-pool.json")
             ports = free_ports(request.workers)
             workers = []
             seed = request.seed

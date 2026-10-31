@@ -429,7 +429,8 @@ def load_asset_catalog(catalog: str | Path | Mapping[str, Any] | None) -> dict[s
     if isinstance(catalog, Mapping):
         payload = catalog
     else:
-        payload = json.loads(Path(catalog).read_text(encoding="utf-8"))
+        from .portable_assets import catalog_document
+        payload = catalog_document(catalog)
     entries = payload.get("assets", payload)
     result: dict[str, RenderAsset] = {}
     for source, raw in entries.items():
@@ -447,7 +448,8 @@ def load_asset_catalog(catalog: str | Path | Mapping[str, Any] | None) -> dict[s
 def load_texture_catalog(catalog: str | Path | Mapping[str, Any] | None) -> dict[str, str]:
     if catalog is None:
         return {}
-    payload = catalog if isinstance(catalog, Mapping) else json.loads(Path(catalog).read_text(encoding="utf-8"))
+    from .portable_assets import catalog_document
+    payload = catalog if isinstance(catalog, Mapping) else catalog_document(catalog)
     return {_normalize_source(source): str(asset_path) for source, asset_path in payload.get("textures", {}).items()}
 
 

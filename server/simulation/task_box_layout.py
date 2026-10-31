@@ -36,13 +36,26 @@ MODULES = {
 def validated_capture_layout(model: Path, catalog: Path) -> dict:
     """Bind a generated model and its adapted visual to one capture catalog."""
     model, catalog = Path(model).resolve(), Path(catalog).resolve()
-    manifest = json.loads(model.with_suffix(".layout.json").read_text())
+    manifest_path = model.with_suffix(".layout.json")
+    manifest = json.loads(manifest_path.read_text())
+    if "package_root" in manifest:
+        from bsk_render_adapter.portable_assets import package_path, package_root
+        root = package_root(manifest_path, manifest["package_root"])
+        manifest["adapted_base"]["visual"] = str(package_path(root, manifest["adapted_base"]["visual"]))
+        for item in manifest.get("generated_visuals", []):
+            item["file"] = str(package_path(root, item["file"]))
+        for key in ("source", "model"):
+            if key in manifest:
+                manifest[key] = str(package_path(root, manifest[key]))
+        manifest["source_asset_sha256"] = {str(package_path(root, key)): value
+                                           for key, value in manifest.get("source_asset_sha256", {}).items()}
     independent = manifest.get("schema") in ("task-box-layout/2", "task-box-layout/3")
     if manifest.get("schema") not in (SCHEMA, "task-box-layout/2", "task-box-layout/3") or not manifest.get("adapted_base"):
         raise ValueError("Capture requires an adapted task-box layout manifest")
     if hashlib.sha256(model.read_bytes()).hexdigest() != manifest["model_sha256"]:
         raise ValueError("Layout manifest does not match the selected model")
-    assets = json.loads(catalog.read_text())
+    from bsk_render_adapter.portable_assets import catalog_document
+    assets = catalog_document(catalog)
     if Path(assets["source_mjcf"]).resolve() != model:
         raise ValueError("Capture catalog belongs to a different model")
     visual = Path(manifest["adapted_base"]["visual"]).resolve()

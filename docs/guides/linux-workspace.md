@@ -1,22 +1,37 @@
 # 本机维护入口
 
-- 源码：/home/spacesim-zmh/src/space-sim
-- 服务端：/home/spacesim-zmh/src/space-sim/server
-- 解释器：/home/spacesim-zmh/envs/spacesim/bin/python
-- UE：/home/spacesim-zmh/engines/UE_5.6
-- 当前新批次：/home/spacesim-zmh/data/collections/layout1000-20261031-0042
-- 保留旧批次：/home/spacesim-zmh/data/collections/layout1000-20261029
-- 保留新批次：/home/spacesim-zmh/data/collections/layout1000-20261030-1928
-- 必要布局池：/home/spacesim-zmh/data/layout-pools/random150-20261028/pool.json
+源码入口为 `/home/spacesim-zmh/src/space-sim`，服务端在 `server/`，UE适配器在 `ue-adapter/`。解释器为 `/home/spacesim-zmh/envs/spacesim/bin/python`，引擎为 `/home/spacesim-zmh/engines/UE_5.6`。
 
-2026-10-30按用户要求通过cancel.request取消采集，systemd服务已停止。取消时1076次完成尝试、946条pending_audit、130次skipped，另有取消中的任务。cancel.request保留，不能因整理删除它或恢复采集。
+## 当前状态：正式采集停止
 
-原始进度、计划、配置、视频、数据表和失败记录保持原位置和原字节。旧源码路径用兼容软链接解析到新目录，不改写原始数据。布局池、训练权重与引擎保留。
+| 保留批次 | 停止时完成尝试 | 待完整审核 | 跳过 |
+|---|---:|---:|---:|
+| `data/collections/layout1000-20261029` | 1076 | 946 | 130 |
+| `data/collections/layout1000-20261030-1928` | 130 | 111 | 19 |
+| `data/collections/layout1000-20261031-0042` | 296 | 246 | 50 |
 
-后续只有用户要求继续采集时，才按CLI恢复流程处理取消标记、沿用冻结计划；不重新生成seed，不隐式重试历史中断任务。946条数据没有完成批末审核。
+取消中的尝试另存；待审核不等于最终训练合格。第三批原计划1000布局轮次/5000尝试，原时间seed为1256867530。该批已通过 `cancel.request` 取消，`spacesim-layout1000-20261031-0042.service` 的 MainPID=0；取消返回码为1，因此systemd显示failed不代表仍在运行。
 
-整理前快照和补丁位于 /home/spacesim-zmh/archive/workspace-snapshots/2026-10-30-before-reorganization/。本轮清理与验证记录位于 /home/spacesim-zmh/reports/space-sim-audit-2026-10-30/。
+原始进度、计划、配置、视频、数据表、失败记录和取消标记保留。旧源码路径通过兼容软链接解析到新目录，历史批次不会被补写成新版认证。必要布局池仍为 `data/layout-pools/random150-20261028/pool.json`。
 
-2026-10-31 更新：新批次亦按用户要求停止，130次完成尝试、111条pending_audit、19次skipped。正式服务 MainPID=0；独立新版本验收不恢复任一批次。优化集成报告见 /home/spacesim-zmh/reports/optimized-version-update-20261031/REPORT.md。
+## 新版运行与恢复
 
-2026-10-31 后续用户要求重新实验：00:42 新建 `layout1000-20261031-0042`，使用已验收代码 `4cac86c`、时间种子 `1256867530`，计划1000布局轮次/5000次尝试。服务为 `spacesim-layout1000-20261031-0042.service`。前述两个旧批次继续停止；实时状态读取新批次 `progress.json`，来源见 `launch-provenance.json`。本文上方停止数量描述各自停止时状态，不代表此后新批次进度。
+本轮工程改进已同步到主目录，匹配的native与UE已重新构建。开始录制前可执行只读核验：
+
+```bash
+cd /home/spacesim-zmh/src/space-sim/server
+/home/spacesim-zmh/envs/spacesim/bin/python tools/deployment/check_runtime_provenance.py \
+  --adapter ../ue-adapter --unreal /home/spacesim-zmh/engines/UE_5.6
+```
+
+后续用户要求继续采集时，新实现建立新批次并冻结实际时间seed与来源；不要删除旧取消标记后直接用新版续写旧批次。新机制下同版本批次可通过 `--resume` 核验；运行身份或冻结输入改变时会拒绝。恢复历史实现需使用匹配的源码、环境与二进制。详见[来源契约](../architecture/runtime-provenance.md)。
+
+## 验收与恢复依据
+
+- 本轮实施与清理：`reports/ue-engineering-implementation-20261031/REPORT.md` 和 `cleanup-manifest.json`。
+- 独立验收：`artifacts/verification/ue-engineering-20261031/`，不属于正式采集任务。
+- 本轮快照：`archive/workspace-snapshots/workspace-before-ue-engineering-20261031/`。
+- 初次目录整理快照：`archive/workspace-snapshots/2026-10-30-before-reorganization/`。
+- 优化恢复依据：`experiments/recovery-20261030-optimized-runtime/`；此前验证报告为 `reports/optimized-version-update-20261031/REPORT.md`，其结果不自动授予后续代码认证。
+
+源文件职责见[项目地图](../project-map.md)，新增命名见[命名规则](../naming-conventions.md)。正式数据、资产、环境、构建产物与恢复证据按[目录规范](../project-layout.md)分开管理，不在源码中堆放逐次检测输出。

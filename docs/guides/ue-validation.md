@@ -20,7 +20,7 @@
 "$SPACE_SIM_PYTHON" ue-adapter/scripts/run_ue_automation.py --engine "$UE56_ROOT" --report /absolute/empty/automation-report
 ```
 
-构建使用 UBT 增量依赖判定，并在成功后调用统一 manifest 生成器。记录 UBT 实际输出的工具链信息；没有输出则标记 `not_recorded`，不冒用系统默认编译器。默认禁用 UBA，以免共享内存锁与本机加速服务影响独立构建。Automation 默认 NullRHI；报告必须非空、全部成功，旧报告目录拒绝重用。Linux 使用 NoZen DDC 回退。`--gpu` 只改变 Automation 的 RHI，不等价于完整双相机数据验收。
+构建使用 UBT 增量依赖判定，并在成功后调用统一 manifest 生成器。记录 UBT 实际输出的工具链信息；no-op构建仅在Engine版本和编译器文件哈希一致时复用上一份已验证工具链；没有可验证证据则标记 `not_recorded`，不冒用系统默认编译器。默认禁用 UBA，以免共享内存锁与本机加速服务影响独立构建。Automation 默认 NullRHI；报告必须非空、全部成功，旧报告目录拒绝重用。Linux 使用 NoZen DDC 回退。`--gpu` 只改变 Automation 的 RHI，不等价于完整双相机数据验收。
 
 原生 profile 见 `server/scripts/native-test-profile.json`，从 `server/` 执行：
 

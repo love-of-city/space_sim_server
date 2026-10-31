@@ -1,6 +1,6 @@
 # SpaceSim 项目结构地图
 
-核查日期：2026-10-31。本地图对应工程改进候选工作树 `worktrees/ue-engineering-20261031/`（分支 `chore/ue-engineering-20261031`）。正式采集已停止；原源码目录 `src/space-sim/` 保留此前 `4cac86c651f6a19abbc4ae24b1a97f477c9738bd`（`optimized-collection/20261031`）基线。本说明区分候选源码、运行生成内容和工作区数据，不将候选改动视为已部署版本。
+核查日期：2026-10-31。工程改进已从 `chore/ue-engineering-20261031` 同步到主目录 `src/space-sim/`，并在主目录重新构建 UE/native 与核验来源。正式采集仍停止；改造前源码和运行产物保存在工作区快照中。实际验收与未覆盖范围见[实施报告](/home/spacesim-zmh/reports/ue-engineering-implementation-20261031/REPORT.md)，目录整合不等于所有平台已完成交付认证。
 
 这份地图按职责维护；本机本次逐文件清单和完整文件树位于 `/home/spacesim-zmh/reports/project-structure-20261031/`。该盘点是时间点快照，后续新增文件以 Git 和实际磁盘为准。
 
@@ -12,7 +12,7 @@
 /home/spacesim-zmh/
 ├── WORKSPACE.md                    本机总入口
 ├── src/
-│   ├── space-sim/                  Git 主工作树，保留停止前的运行基线
+│   ├── space-sim/                  Git 主工作树，已集成工程改进
 │   └── space_sim_server/           README + 两个旧路径兼容软链接
 ├── data/
 │   ├── README.md                   批次保留与来源说明
@@ -29,7 +29,7 @@
 ├── envs/                           已安装 Python 环境
 ├── engines/UE_5.6/                 Unreal Engine 安装
 ├── worktrees/
-│   └── ue-engineering-20261031/    同一 Git 仓库的候选工作树，工程改进与独立验收
+│   └── ue-engineering-20261031/    同一Git仓库的改造工作树，保留实现与验收依据
 ├── migration/                      旧布局重编号计划的兼容链接
 ├── Library/Logs/                   UE 构建工具写入的用户级日志
 └── UnrealEngine/UnrealTrace/        UE Trace 服务日志，不是第二份引擎
@@ -46,7 +46,7 @@ src/space_sim_server/space_sim_server     -> ../space-sim/server
 src/space_sim_server/space_sim_UE_Adapter  -> ../space-sim/ue-adapter
 ```
 
-它们只让旧批次元数据的绝对路径继续有效。正式源码入口为 `src/space-sim/`；本轮开发和独立验收显式使用上述候选工作树。工作树共享 Git 历史，是隔离修改和构建的入口，不是通过复制目录维护另一套项目版本。
+它们只让旧批次元数据的绝对路径继续有效。正式源码入口为 `src/space-sim/`；本轮开发使用上述工作树；最终完整录制验收显式使用主目录源码和重建产物。工作树共享 Git 历史，是隔离修改和构建的入口，不是通过复制目录维护另一套项目版本。
 
 ## Git 仓库顶层
 

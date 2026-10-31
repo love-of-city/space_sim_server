@@ -638,8 +638,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
     try:
         save()
         if pool is not None:
-            (args.output / "layout-pool.snapshot.json").write_text(
-                json.dumps(pool.document, indent=2), encoding="utf-8")
+            pool.write_snapshot(args.output / "layout-pool.snapshot.json")
             report["layout_pool_sha256"] = pool.sha256
         for index in range(args.max_attempts):
             if args.cancel_file and args.cancel_file.exists():
@@ -751,6 +750,8 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                 report["renderer_pid"] = renderer.process.pid
                 renderer.check()
                 command.append("--external-renderer")
+                command += ["--renderer-runtime-report", str(renderer.runtime_report_path),
+                            "--renderer-pid", str(renderer.process.pid)]
             if args.reuse_dynamics:
                 if dynamics is not None and not dynamics.reusable():
                     dynamics.close()
@@ -784,6 +785,8 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                 child = subprocess.Popen(
                     command,
                     cwd=ROOT,
+                    env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                        [str(ROOT), str(ROOT / "backend"), str(args.adapter / "Adapters")])},
                     stdout=log,
                     stderr=subprocess.STDOUT,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

@@ -3,6 +3,8 @@ from pathlib import Path
 import os
 import subprocess
 import socket
+from copy import copy
+import uuid
 
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .recording_config import DEFAULT_CAMERA_IDS
@@ -34,6 +36,7 @@ def renderer_command(args, output: Path):
         f"-BskCaptureRate={DEFAULT_CAPTURE_HZ}", "-BskCaptureProducts=rgb",
         "-ExecCmds=t.MaxFPS 90,r.VSync 0", f"-DDC={ddc_graph}",
         f"-abslog={output / 'renderer.log'}",
+        f"-BskRuntimeReport={getattr(args, 'renderer_runtime_report', None) or output / 'runtime-identity.json'}",
     ]
     gpu = getattr(args, "gpu_index", None)
     if gpu is not None:
@@ -63,12 +66,20 @@ def renderer_environment(args):
 
 
 class PersistentRenderer:
-    """One renderer per batch worker; dynamics still starts fresh each episode."""
+    """Own one renderer and verify the modules actually loaded by its process."""
     def __init__(self, args, output):
+        from collection.runtime_provenance import load_build_identity
+        self.identity_module = load_build_identity(args.adapter)
+        self.project = args.adapter / "Unreal/BskUnrealRenderer"
+        self.build_manifest = self.identity_module.verify_build_manifest(self.project, args.unreal)
+        self.runtime_report_path = output / f"runtime-identity-{uuid.uuid4().hex}.json"
+        self.runtime_identity = None
+        launch_args = copy(args)
+        launch_args.renderer_runtime_report = self.runtime_report_path
         self.process = None
         self.log = (output / "renderer-process.log").open("w", encoding="utf-8")
         try:
-            self.process = subprocess.Popen(renderer_command(args, output),
+            self.process = subprocess.Popen(renderer_command(launch_args, output),
                 env=renderer_environment(args), stdout=self.log, stderr=subprocess.STDOUT,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except BaseException:
@@ -78,6 +89,9 @@ class PersistentRenderer:
     def check(self):
         if self.process.poll() is not None:
             raise RuntimeError(f"Persistent UE exited with code {self.process.returncode}")
+        if self.runtime_identity is None and self.runtime_report_path.is_file():
+            self.runtime_identity = self.identity_module.verify_runtime_report(
+                self.runtime_report_path, self.build_manifest, self.project, expected_pid=self.process.pid)
 
     def close(self):
         try:

@@ -8,6 +8,7 @@ param(
 . (Join-Path $PSScriptRoot 'common.ps1')
 $ue = Resolve-UnrealRoot $UnrealRoot
 $target = if ($Game) { 'BskUnrealRenderer' } else { 'BskUnrealRendererEditor' }
-$build = Join-Path $ue 'Engine\Build\BatchFiles\Build.bat'
-& $build $target Win64 $Configuration $ProjectFile -WaitMutex -NoHotReloadFromIDE
-if ($LASTEXITCODE -ne 0) { throw "Unreal build failed with exit code $LASTEXITCODE" }
+$python = Resolve-BskPython -RequiredModules @()
+$buildTool = Join-Path $WorkspaceRoot 'scripts/build_ue_project.py'
+& $python $buildTool --project $ProjectFile --engine $ue --target $target --configuration $Configuration
+if ($LASTEXITCODE -ne 0) { throw 'UE build or provenance validation failed; capture remains disabled.' }

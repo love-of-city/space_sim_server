@@ -59,6 +59,9 @@ def test_explicit_model_keeps_capture_layout_validation(tmp_path, monkeypatch):
     monkeypatch.setattr(recorder, "recording_settings", lambda _: SimpleNamespace())
     monkeypatch.setattr(recorder, "unreal_editor", lambda _: editor)
     monkeypatch.setattr(recorder, "check_port_available", lambda _: None)
+    monkeypatch.setattr("collection.runtime_provenance.runtime_identity", lambda **_: {})
+    monkeypatch.setattr("collection.runtime_provenance.load_build_identity", lambda _: SimpleNamespace(
+        verify_build_manifest=lambda *_: {"build_id": "fixture-build"}))
 
     class LayoutValidated(Exception):
         pass

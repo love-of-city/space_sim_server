@@ -356,6 +356,22 @@ async def run(args):
     for path in (editor, project / "BskUnrealRenderer.uproject", catalog):
         if not path.is_file():
             raise FileNotFoundError(path)
+    # A selected worktree must also supply Python catalog/runtime helpers, even
+    # when the environment has an editable adapter installed from another tree.
+    sys.path.insert(0, str(args.adapter / "Adapters"))
+    from collection.runtime_provenance import runtime_identity, fingerprint, load_build_identity, write_json
+    identity = runtime_identity(adapter=args.adapter, unreal=args.unreal)
+    identity_hash = fingerprint(identity)
+    expected_identity = os.environ.get("SPACE_SIM_EXPECTED_RUNTIME_SHA256")
+    if expected_identity is not None and identity_hash != expected_identity:
+        raise RuntimeError("Runtime changed after batch launch; start a new batch with the new version")
+    build_identity = load_build_identity(args.adapter)
+    ue_manifest = build_identity.verify_build_manifest(project, args.unreal)
+    external_renderer = getattr(args, "external_renderer", False)
+    renderer_report = getattr(args, "renderer_runtime_report", None)
+    renderer_pid = getattr(args, "renderer_pid", None)
+    if external_renderer and (renderer_report is None or renderer_pid is None):
+        raise ValueError("External capture renderer requires its runtime report and PID")
     ports = [
         args.control_port,
         args.capture_port,
@@ -370,6 +386,9 @@ async def run(args):
         check_port_available(port)
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
+    write_json(out / "runtime-provenance.json", {"schema": "collection-attempt-provenance/1",
+               "identity_sha256": identity_hash, "identity": identity})
+    renderer_report = renderer_report or out / "runtime-identity.json"
     from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
     prepare_episode(scene)
     source_model = (getattr(args, "model", None) or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
@@ -423,6 +442,8 @@ async def run(args):
         "instruction": instruction,
         "scripted_task_metadata": scripted_metadata,
         "recording_frame_limit_override": frame_limit_override,
+        "runtime_identity_sha256": identity_hash,
+        "ue_build_id": ue_manifest["build_id"],
     }
 
     def emit(stage, **values):
@@ -466,7 +487,8 @@ async def run(args):
         emit("writer_ready", output=str(out))
         env = renderer_environment(args)
         if not getattr(args, "external_renderer", False):
-            launch(renderer_command(args, out), "renderer-process", env)
+            renderer = launch(renderer_command(args, out), "renderer-process", env)
+            renderer_pid = renderer.pid
         emit("renderer_launched", reused=getattr(args, "external_renderer", False))
         env["PYTHONPATH"] = os.pathsep.join(
             [str(ROOT), str(ROOT / "backend"), str(args.adapter / "Adapters")]
@@ -536,6 +558,10 @@ async def run(args):
         emit("renderer_listening")
         await wait_for_simulation_startup(
             hub, capture_preroll_ns(args.warmup_sim_seconds), startup_timeout, check_processes, emit)
+        # Require actual loaded modules before admitting the first dataset frame.
+        # This runs after the parallel dynamics/renderer startup, preserving overlap.
+        report["ue_runtime"] = build_identity.verify_runtime_report(
+            renderer_report, ue_manifest, project, expected_pid=renderer_pid)
         # Asset registration and exposure settle with the policy held at its initial pose.
         emit("warming_renderer")
         warm_until = time.monotonic() + args.warmup_seconds
@@ -728,6 +754,8 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--offline", action="store_true", help="Disable WebRTC and the unused offscreen viewport")
     parser.add_argument("--gpu-index", type=int)
     parser.add_argument("--external-renderer", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--renderer-runtime-report", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--renderer-pid", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--dynamics-worker", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--profile-dynamics", action="store_true", help="Diagnostic CPU profile; adds timing overhead")
     parser.add_argument("--control-port", type=int, default=18766)

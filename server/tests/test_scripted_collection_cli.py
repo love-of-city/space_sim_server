@@ -73,6 +73,9 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
 
     def popen(command, **kwargs):
         assert kwargs["cwd"] == collector.ROOT
+        assert kwargs["env"]["PYTHONPATH"].split(collector.os.pathsep) == [
+            str(collector.ROOT), str(collector.ROOT / "backend"),
+            str(expected["--adapter"] / "Adapters")]
         scene = json.loads(Path(command[command.index("--scene")+1]).read_text())
         assert scene["overview_camera_sampling"] == "presets"
         assert scene["overview_camera"]["schema"] == SCHEMA

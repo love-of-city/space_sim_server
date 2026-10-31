@@ -68,7 +68,7 @@ if ($unsupportedCaptureProducts.Count -gt 0) {
 # Preview startup remains unchanged; authoritative RGB capture requires a fresh DLL.
 if ($normalizedCaptureProducts.Count -gt 0 -or $CaptureNetworkPort -gt 0 -or $CaptureDirectory) {
     . (Join-Path $PSScriptRoot 'runtime_build.ps1')
-    Assert-BskCaptureRuntimeBuild $ProjectRoot
+    Assert-BskCaptureRuntimeBuild $ProjectRoot $ue
     if ($CaptureRate -gt 0 -and $CaptureRate -notin @(1, 2, 5, 10, 25, 30, 50)) {
         throw 'LeRobot capture rate must be 1, 2, 5, 10, 25, 30 or 50 Hz.'
     }

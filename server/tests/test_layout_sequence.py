@@ -182,6 +182,7 @@ def test_shared_batch_session_reuses_runtime_without_outer_preflight(tmp_path, m
     class Renderer:
         def __init__(self, *args):
             created.append('renderer'); self.process=SimpleNamespace(pid=101)
+            self.runtime_report_path = tmp_path / 'runtime-identity.json'
         def check(self): pass
         def close(self): closed.append('renderer')
     class Dynamics:

@@ -74,6 +74,9 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
 
     native._build_simulation = build
     monkeypatch.setattr('scenario_spacecraft_arm_grasp_unreal.load_native_grasp_module', lambda _: native)
+    # This fixture stops at transport wiring; native runtime setup is separately
+    # exercised by the native profile and must not mix MuJoCo ABIs in this test.
+    monkeypatch.setattr('simulation.compiled_model_cache.configure_asset_cache', lambda: None)
     monkeypatch.setattr('simulation.scripted_tasks.disturbances.EpisodeDisturbances',
                         lambda _: SimpleNamespace(install_external_force=lambda _: None))
     monkeypatch.setattr('simulation.assembly.AssemblyContext', lambda sim, scene, config:

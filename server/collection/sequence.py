@@ -7,6 +7,7 @@ from copy import deepcopy
 import errno
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -482,7 +483,7 @@ def main(argv=None):
         output.mkdir(parents=True, exist_ok=False)
         atomic_json(output/'config.snapshot.json', config.model_dump(by_alias=True))
         atomic_json(output/'plan.json', plan)
-        atomic_json(output/'pool.snapshot.json', pool.document)
+        pool.write_snapshot(output/'pool.snapshot.json')
         atomic_json(output/'source-scene.json', source)
         atomic_json(output/'inputs.json', {name+'_sha256': hashlib.sha256(path.read_bytes()).hexdigest()
             for name, path in [('source_scene', output/'source-scene.json'),
@@ -494,8 +495,16 @@ def main(argv=None):
     if args.plan_only:
         return 0
     lease = ManagerLease(output/'collector.lock')
+    previous_identity = os.environ.get('SPACE_SIM_EXPECTED_RUNTIME_SHA256')
     try:
+        from collection.runtime_provenance import freeze_or_verify, fingerprint
+        provenance = freeze_or_verify(output, config)
+        os.environ['SPACE_SIM_EXPECTED_RUNTIME_SHA256'] = fingerprint(provenance['identity']['runtime'])
         result = execute_plan(config, pool, plan, source, output, resume=True)
     finally:
+        if previous_identity is None:
+            os.environ.pop('SPACE_SIM_EXPECTED_RUNTIME_SHA256', None)
+        else:
+            os.environ['SPACE_SIM_EXPECTED_RUNTIME_SHA256'] = previous_identity
         lease.close()
     return 0 if result['status'] == 'complete' else 1

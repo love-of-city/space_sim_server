@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "collection-provenance-v1.schema.json",
+  "type": "object",
+  "required": [
+    "schema",
+    "identity_sha256",
+    "identity",
+    "git",
+    "created_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "collection-provenance/1"
+    },
+    "identity_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "runtime",
+        "inputs",
+        "seed"
+      ],
+      "properties": {
+        "runtime": {
+          "type": "object",
+          "required": [
+            "source",
+            "native",
+            "environment",
+            "ue_build_id"
+          ],
+          "properties": {
+            "source": {
+              "type": "object",
+              "required": [
+                "sha256",
+                "files"
+              ]
+            },
+            "native": {
+              "type": "object"
+            },
+            "environment": {
+              "type": "object"
+            },
+            "ue_build_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "git": {
+      "type": "object"
+    },
+    "locations": {
+      "type": "object"
+    },
+    "seed_source": {
+      "type": "string"
+    },
+    "runtime_reports": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

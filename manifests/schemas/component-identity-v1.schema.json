@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "component-identity-v1.schema.json",
+  "title": "SpaceSim content identity",
+  "type": "object",
+  "required": [
+    "sources",
+    "binaries",
+    "engine",
+    "platform",
+    "target",
+    "configuration",
+    "modules",
+    "toolchain"
+  ],
+  "properties": {
+    "sources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "binaries": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "engine": {
+      "type": "object"
+    },
+    "platform": {
+      "enum": [
+        "Linux",
+        "Win64"
+      ]
+    },
+    "architecture": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "configuration": {
+      "enum": [
+        "Development",
+        "DebugGame",
+        "Shipping"
+      ]
+    },
+    "modules": {
+      "type": "object"
+    },
+    "toolchain": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

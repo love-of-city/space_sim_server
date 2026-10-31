@@ -22,6 +22,8 @@ git lfs pull
 服务端命令从 server/ 执行。目录名称与 Python 包名独立，space_arm_platform 和 bsk_render_adapter 导入名称保持不变。
 
 - [贡献与验证规范](CONTRIBUTING.md)
+- [项目结构与代码职责](docs/project-map.md)
+- [文件与目录命名规范](docs/naming-conventions.md)
 - [Linux 部署](server/docs/LINUX_DEPLOYMENT.md)
 - [Python/Basilisk 环境](server/docs/PYTHON_RUNTIME.md)
 - [采集入口与布局顺序](server/docs/LAYOUT_SEQUENCE_COLLECTION.md)
@@ -37,6 +39,6 @@ npm --prefix frontend ci
 npm --prefix signalling ci
 ```
 
-本机源码位于 /home/spacesim-zmh/src/space-sim。当前唯一保留的采集批次为 layout1000-20261029，已按用户要求停止；未执行批末完整审核，也未因整理自动恢复。详见[本机维护指南](docs/guides/linux-workspace.md)。
+本机源码位于 /home/spacesim-zmh/src/space-sim。2026-10-31 按用户要求以已验收运行版本 `4cac86c` 新建批次 `layout1000-20261031-0042`；此前两个停止批次继续保留。实时进度以批次 `progress.json` 为准，详见[本机维护指南](docs/guides/linux-workspace.md)。
 
 源码、测试、当前文档和配置模板进入 Git，交付模型与 UE 资产使用 LFS；数据、环境、运行状态与构建输出位于工作区或 Git 忽略目录。见[目录规范](docs/project-layout.md)。基础 CI 不等于完整 UE/GPU、真实动力学或采集验收。

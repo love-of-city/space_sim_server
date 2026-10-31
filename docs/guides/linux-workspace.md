@@ -4,6 +4,7 @@
 - 服务端：/home/spacesim-zmh/src/space-sim/server
 - 解释器：/home/spacesim-zmh/envs/spacesim/bin/python
 - UE：/home/spacesim-zmh/engines/UE_5.6
+- 当前新批次：/home/spacesim-zmh/data/collections/layout1000-20261031-0042
 - 保留旧批次：/home/spacesim-zmh/data/collections/layout1000-20261029
 - 保留新批次：/home/spacesim-zmh/data/collections/layout1000-20261030-1928
 - 必要布局池：/home/spacesim-zmh/data/layout-pools/random150-20261028/pool.json
@@ -17,3 +18,5 @@
 整理前快照和补丁位于 /home/spacesim-zmh/archive/workspace-snapshots/2026-10-30-before-reorganization/。本轮清理与验证记录位于 /home/spacesim-zmh/reports/space-sim-audit-2026-10-30/。
 
 2026-10-31 更新：新批次亦按用户要求停止，130次完成尝试、111条pending_audit、19次skipped。正式服务 MainPID=0；独立新版本验收不恢复任一批次。优化集成报告见 /home/spacesim-zmh/reports/optimized-version-update-20261031/REPORT.md。
+
+2026-10-31 后续用户要求重新实验：00:42 新建 `layout1000-20261031-0042`，使用已验收代码 `4cac86c`、时间种子 `1256867530`，计划1000布局轮次/5000次尝试。服务为 `spacesim-layout1000-20261031-0042.service`。前述两个旧批次继续停止；实时状态读取新批次 `progress.json`，来源见 `launch-provenance.json`。本文上方停止数量描述各自停止时状态，不代表此后新批次进度。

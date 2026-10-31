@@ -21,6 +21,8 @@
 
 ## 文件管理
 
+目录与入口职责见[项目结构地图](docs/project-map.md)；新增文件遵循[命名规范](docs/naming-conventions.md)。Python 使用有明确业务含义的 snake_case，文档/外部批次按对应规则命名；保留 UE、协议、原始资产与冻结数据的既有契约。新增模块写明职责，目录/入口变化同步更新地图。
+
 保留第三方许可。模型/CAD/UE交付资产使用LFS。环境、录制、日志、认证数据库、机器配置、Saved、Intermediate与构建产物不提交。Generated目录同时含通用资产与本机布局，按清单精确分类。
 
 发布源码在 tools/release/，输入 staging 和输出包在仓库外。发布包不能原地覆盖为新版本，其验收不能代表后续源码。见[目录规则](docs/project-layout.md)。

@@ -2,6 +2,8 @@
 
 标准布局为 space-sim/server 和 space-sim/ue-adapter；GitHub远端名称与Python包名保持不变。
 
+各目录与代码入口的具体职责见[项目结构地图](project-map.md)，后续新增文件遵循[命名规范](naming-conventions.md)。
+
 | 位置 | 内容 | 管理 |
 | --- | --- | --- |
 | server/backend、collection、simulation、native | 平台、编排、物理与原生源 | Git |

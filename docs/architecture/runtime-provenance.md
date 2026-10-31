@@ -4,7 +4,7 @@ SpaceSim 将构建来源、批次来源与实际加载模块分别记录。源�
 
 ## UE 构建
 
-`ue-adapter/scripts/build_ue_project.py` 在 UnrealBuildTool 成功后调用 `write_ue_build_manifest.py`。Windows `scripts/build.ps1` 同样生成清单。Editor 清单位于 UE 工程的 `Binaries/<platform>/ue-build-manifest.json`，Game 使用独立的 `ue-build-<target>-<configuration>.json`，避免覆盖 Editor 身份。
+`ue-adapter/scripts/build_ue_project.py` 在 UnrealBuildTool 成功后调用 `write_ue_build_manifest.py`。Windows `scripts/build.ps1` 同样生成清单。Development Editor清单位于UE工程的 `Binaries/<platform>/ue-build-manifest.json`；其他Editor配置及Game使用独立的 `ue-build-<target>-<configuration>.json`。非Development项目/插件模块按UBT规则读取带平台和配置后缀的 `.modules`，避免借用旧Development产物或覆盖其身份。
 
 清单记录项目与插件 Source、Shader、Config、uproject/uplugin、Engine Build.version/模块 Build ID、构建目标、平台、工具链证据以及模块二进制 SHA-256。普通 README 不参与 UE 源指纹。写清单工具只供成功构建后的装配步骤使用，不能通过手工重新生成清单代替编译。
 

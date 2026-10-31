@@ -91,7 +91,7 @@ def engine_identity(engine, platform: str) -> dict:
 def default_manifest_path(project, platform=None, target="BskUnrealRendererEditor",
                           configuration="Development") -> Path:
     platform = platform or ("Win64" if os.name == "nt" else "Linux")
-    name = ("ue-build-manifest.json" if target.endswith("Editor") else
+    name = ("ue-build-manifest.json" if target.endswith("Editor") and configuration == "Development" else
             f"ue-build-{target}-{configuration}.json")
     return project_directory(project) / "Binaries" / platform / name
 
@@ -100,8 +100,12 @@ def build_products(project, platform: str, target: str, configuration: str) -> t
     root = project_directory(project)
     binaries, modules = {}, {}
     if target.endswith("Editor"):
-        registries = [root / "Binaries" / platform / "UnrealEditor.modules"]
-        registries += sorted((root / "Plugins").glob(f"**/Binaries/{platform}/UnrealEditor.modules"))
+        # UBT keeps the engine DebugGame registry unsuffixed, but project and
+        # project-plugin registries always include their non-Development config.
+        registry_name = ("UnrealEditor.modules" if configuration == "Development" else
+                         f"UnrealEditor-{platform}-{configuration}.modules")
+        registries = [root / "Binaries" / platform / registry_name]
+        registries += sorted((root / "Plugins").glob(f"**/Binaries/{platform}/{registry_name}"))
         for registry in registries:
             document = json.loads(registry.read_text(encoding="utf-8-sig"))
             binaries[registry.relative_to(root).as_posix()] = file_sha256(registry)

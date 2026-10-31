@@ -112,3 +112,26 @@ def test_shipping_identity_requires_shipping_product_and_checks_monolithic_repor
     path.write_text(json.dumps(report))
     with pytest.raises(RuntimeError, match="module path"):
         identity.verify_runtime_report(path, manifest, project, expected_pid=123, check_process_maps=False)
+
+
+def test_editor_debuggame_never_certifies_or_overwrites_development_products(build):
+    project, engine = build
+    development = identity.default_manifest_path(project, "Linux")
+    previous = development.read_bytes()
+    debug = identity.default_manifest_path(project, "Linux", configuration="DebugGame")
+    assert debug != development
+    with pytest.raises(FileNotFoundError, match="UnrealEditor-Linux-DebugGame.modules"):
+        identity.write_build_manifest(project, engine, configuration="DebugGame")
+    assert development.read_bytes() == previous
+    registries = [project / "Binaries/Linux/UnrealEditor.modules", *project.glob("Plugins/**/Binaries/Linux/UnrealEditor.modules")]
+    for registry in registries:
+        document = json.loads(registry.read_text())
+        for name, filename in list(document["Modules"].items()):
+            debug_name = "debug-" + filename
+            (registry.parent / debug_name).write_bytes(debug_name.encode())
+            document["Modules"][name] = debug_name
+        registry.with_name("UnrealEditor-Linux-DebugGame.modules").write_text(json.dumps(document))
+    assert identity.write_build_manifest(project, engine, configuration="DebugGame") == debug
+    result = identity.verify_build_manifest(project, engine, debug)
+    assert all(Path(item["path"]).name.startswith("debug-") for item in result["identity"]["modules"].values())
+    assert development.read_bytes() == previous

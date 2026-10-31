@@ -11,6 +11,7 @@
 新布局包使用 `collection-layout-pool/2`，同时验证模型、catalog、网格/纹理和 UE 资产依赖闭包；旧池只读兼容。
 健康 worker 遇到初态业务拒绝时保留图，实际异常仍退役；原生 reset 恢复模型初始 timestep。
 真实完整 success→拒绝→success 对照中，两条抽屉各 12,933 个 400 Hz 样本（含初始接触力）逐字节一致。
+主目录重建后的独立固定布局五任务验收已完成：5 accepted、0 pending_audit、0 skipped，38,732帧双相机图像全解码，源状态/腕力和帧配对校验通过；总墙钟779.90秒（含审核72.31秒）。此前并行验证中的早期UE启动崩溃未定位，在本轮独占运行中未复现；Windows、干净重装、全布局池与长稳未认证。验收后仅补DebugGame构建清单隔离，31项相关测试通过，UE/native/物理与采集实现未变化；该补丁的最终来源另记录，不回写录制时来源。
 以下 `optimized-collection/20261031` 段落和五任务数字属于本轮修改前的历史验收，不自动授予新源码认证。
 
 源码位于 `space-sim/server` 和 `space-sim/ue-adapter`。运行版本标识为

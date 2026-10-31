@@ -1,11 +1,13 @@
 """Read task-specific state from the shared native simulation without changing it."""
 
 import numpy as np
+from dataclasses import dataclass, field
 from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 from simulation.scripted_tasks.drawer_lift import DrawerSample
 from simulation.scripted_tasks.plug_insert import PlugSample
 from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
+from simulation.scripted_tasks.floating_capture import FLOATING_TASKS
 
 
 class DrawerState:
@@ -222,6 +224,39 @@ class ThreadedState:
         return self.task.metrics(sample)
 
 
+@dataclass(frozen=True)
+class FloatingSample(PlugSample):
+    unexpected_contacts: list = field(default_factory=list)
+    finger_normal_force_n: tuple = (0., 0.)
+
+
+class FloatingState(PlugState):
+    def sample(self, time_s, q, v, wrench):
+        sample = super().sample(time_s, q, v, wrench)
+        unexpected = []
+        normal_force = [0., 0.]
+        for contact in self.stepper.contact_force_snapshot():
+            _, _, first, second, distance = contact[:5]
+            names = {self.body_names[int(first)], self.body_names[int(second)]}
+            if self.task.asset.body in names and distance <= .0001:
+                for index in (0, 1):
+                    if f"ee_finger{index+1}" in names:
+                        normal_force[index] += max(0., float(contact[5]))
+            if distance >= -.0005:
+                continue
+            a, b = self.body_names[int(first)], self.body_names[int(second)]
+            arm = lambda name: name.startswith(("ee", "wrist_ft")) or name in {f"link{i}" for i in range(1, 6)}
+            if a.startswith("ee") and b.startswith("ee"):
+                continue
+            if ((a in {"ee_finger1", "ee_finger2"} and b == self.task.asset.body)
+                    or (b in {"ee_finger1", "ee_finger2"} and a == self.task.asset.body)):
+                continue
+            if arm(a) or arm(b) or self.task.asset.body in (a, b):
+                unexpected.append(dict(body1=a, body2=b, penetration_m=float(-distance)))
+        return FloatingSample(**vars(sample), unexpected_contacts=unexpected,
+                              finger_normal_force_n=tuple(normal_force))
+
+
 STATE_READERS = {
     "drawer_cycle": DrawerState,
     "drawer_lift": DrawerState,
@@ -230,3 +265,4 @@ STATE_READERS = {
 
 STATE_READERS.update({name: PlugState for name in PLUG_PROFILES})
 STATE_READERS.update({name: ThreadedState for name in THREADED_TASKS})
+STATE_READERS.update({name: FloatingState for name in FLOATING_TASKS})

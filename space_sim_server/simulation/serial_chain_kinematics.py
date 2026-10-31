@@ -591,6 +591,14 @@ def axis_angle_to_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
 def rotation_matrix_to_vector(rotation: np.ndarray) -> np.ndarray:
     matrix = np.asarray(rotation, dtype=float)
     cosine = max(-1.0, min(1.0, (float(np.trace(matrix)) - 1.0) * 0.5))
+    if cosine < -1.0 + 1e-8:
+        # The skew part vanishes at a half-turn, where dividing by sin(angle)
+        # loses the axis and can report zero error. Use the diagonal-based
+        # quaternion branch there; keep the existing small-angle behaviour.
+        quaternion = matrix_to_quaternion_wxyz(matrix)
+        sine_half = float(np.linalg.norm(quaternion[1:]))
+        angle = 2.0 * math.atan2(sine_half, float(quaternion[0]))
+        return quaternion[1:] * (angle / sine_half)
     angle = math.acos(cosine)
     skew_vector = np.array([matrix[2, 1] - matrix[1, 2], matrix[0, 2] - matrix[2, 0], matrix[1, 0] - matrix[0, 1]])
     if angle < 1e-8:

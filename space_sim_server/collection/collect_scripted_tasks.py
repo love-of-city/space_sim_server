@@ -36,6 +36,7 @@ from simulation.scripted_tasks.plug_profiles import (
     plug_profile,
 )
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
+from simulation.scripted_tasks.floating_capture import FLOATING_TASKS, FloatingCaptureTask
 
 
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
@@ -44,6 +45,7 @@ from space_arm_platform.collection_runtime import PersistentRenderer, check_port
 from space_arm_platform.dynamics_worker import PersistentDynamics
 from space_arm_platform.collection_layouts import LayoutPool, attach_layout, validate_episode_layout
 from space_arm_platform.overview_camera import validate_episode_overview_camera
+from space_arm_platform.atomic_json import write_json
 
 
 def validate_threaded_recording(steps, stages, task_name):
@@ -224,6 +226,41 @@ def validate_recorded_layout_model(meta, observations):
         raise ValueError("Authoritative model differs from the saved layout/variant")
 
 
+def validate_floating_recording(steps, stages, task_name):
+    """Independently check the saved 50 Hz hold window, not just a success flag."""
+    import numpy as np
+    final = steps[-1]["scripted_task"]
+    assert stages == list(FloatingCaptureTask.stages), stages
+    assert final["task_version"] == FloatingCaptureTask.version
+    assert final["target_body"] == FLOATING_TASKS[task_name].body
+    assert final["result"] == "success"
+    duration = final["task_parameters"]["hold_s"]
+    assert np.isfinite(duration) and duration >= 3.
+    assert final["held_seconds"] >= duration
+    end = int(steps[-1]["sim_time_ns"])
+    window = [obs for obs in steps if int(obs["sim_time_ns"]) >= end-int((duration-.02)*1e9)]
+    assert len(window) >= 150
+    assert end-int(window[0]["sim_time_ns"]) >= int((duration-.021)*1e9)
+    for obs in steps:
+        task = obs["scripted_task"]
+        assert not task.get("unexpected_contacts")
+        assert task["feedback_source"] == "authoritative_simulation_state"
+        contacts = np.asarray(task["finger_target_contacts"])
+        forces = np.asarray(task["finger_normal_force_n"])
+        assert contacts.shape == forces.shape == (2,)
+        assert np.isfinite(contacts).all() and np.isfinite(forces).all()
+        assert np.all(contacts >= 0) and np.all(contacts == np.floor(contacts))
+        assert np.all(forces >= 0)
+        assert np.isfinite([task["slip_m"], task["angular_slip_rad"], task["relative_speed_m_s"],
+                            *task["finger_normal_force_n"]]).all()
+    for obs in window:
+        task = obs["scripted_task"]
+        assert task["stage"] == "hold" and all(count > 0 for count in task["finger_target_contacts"])
+        assert min(task["finger_normal_force_n"]) >= .02
+        assert task["slip_m"] < .003 and task["angular_slip_rad"] < .05
+        assert task["relative_speed_m_s"] < .005
+
+
 def validate_recording(episode, task_name="drawer_cycle"):
     import av
     import numpy as np
@@ -290,7 +327,16 @@ def validate_recording(episode, task_name="drawer_cycle"):
         if not compact:
             assert json.loads(row["observation.platform_json"]) == obs
     final = steps[-1]["scripted_task"]
-    if task_name in THREADED_TASKS:
+    if task_name in FLOATING_TASKS:
+        cfg = meta["scene_instance"]["collection_config"]
+        release = cfg["floating_initial_state"]
+        assert release["task"] == task_name and release["target_body"] == FLOATING_TASKS[task_name].body
+        assert .12 <= release["camera_to_grasp_distance_m"] <= .75
+        variant = cfg["model_randomization"]
+        assert release["source_sha256"] == variant["source_sha256"]
+        assert all(obs["model_sha256"] == variant["variant_sha256"] for obs in steps)
+        validate_floating_recording(steps, stages, task_name)
+    elif task_name in THREADED_TASKS:
         validate_threaded_recording(steps, stages, task_name)
     elif is_plug_task(task_name):
         from simulation.scripted_tasks.plug_insert import PlugInsertTask
@@ -412,7 +458,7 @@ class CollectionSession:
 def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--task", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS], default=default_task
+        "--task", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS], default=default_task
     )
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument("--layout-pool", type=Path,
@@ -436,7 +482,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
     parser.add_argument("--dynamics-max-rss-mb", type=int, default=8192)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--gpu-index", type=int)
-    parser.add_argument("--warmup-seconds", type=float, default=5.0)
+    parser.add_argument("--warmup-seconds", type=float, default=None)
     parser.add_argument("--reuse-warmup-seconds", type=float, default=5.0)
     parser.add_argument("--simulation-startup-timeout-seconds", type=float, default=600.0)
     parser.add_argument("--count", type=int, default=5)
@@ -480,6 +526,8 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
     if (source.get("collection_layout_randomization") or source.get("task_box_layout")
             or selected_layout.get("enabled")) and not (args.layout_pool or args.model):
         parser.error("--layout-pool is required for saved layouts, or explicit --model and --catalog")
+    if args.warmup_seconds is None:
+        args.warmup_seconds = 30. if args.task in FLOATING_TASKS else 5.
     if any(not 0 <= value <= 60 for value in (args.warmup_seconds, args.reuse_warmup_seconds)):
         parser.error("warmup must be between 0 and 60 seconds")
     if args.gpu_index is not None and not 0 <= args.gpu_index <= 255:
@@ -534,12 +582,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
 
     def save():
         report["wall_seconds"] = time.monotonic() - started
-        temporary = args.output / "summary.tmp"
-        temporary.write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
-        temporary.replace(args.output / "summary.json")
+        write_json(args.output / "summary.json", report)
 
     owned_session = session is None
     session = session or CollectionSession(args.output)
@@ -664,9 +707,9 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                 "--episodes-root",
                 str(args.episodes_root.resolve()),
                 "--substeps",
-                "1",
+                "4" if args.task in FLOATING_TASKS else "1",
                 "--max-sim-seconds",
-                "900" if args.task in THREADED_TASKS else "450",
+                "160" if args.task in FLOATING_TASKS else "900" if args.task in THREADED_TASKS else "450",
                 "--timeout-seconds",
                 "5400" if args.task in THREADED_TASKS else "1800",
                 "--simulation-startup-timeout-seconds",

@@ -100,6 +100,7 @@ jobs:
               - 'space_sim_server/scripts/linux_platform.sh'
               - 'space_sim_server/backend/space_arm_platform/linux_*.py'
               - 'space_sim_server/backend/space_arm_platform/scene_runtime.py'
+              - 'space_sim_server/backend/space_arm_platform/collection_runtime.py'
               - 'space_sim_server/backend/space_arm_platform/app.py'
               - 'space_sim_server/backend/space_arm_platform/main.py'
               - 'space_sim_server/tests/test_linux_deployment.py'

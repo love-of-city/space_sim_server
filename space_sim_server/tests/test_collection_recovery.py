@@ -10,7 +10,7 @@ import time
 import psutil
 import pytest
 
-from space_arm_platform.collection_jobs import CollectionCreate, CollectionManager, TERMINAL
+from space_arm_platform.collection_jobs import CollectionCreate, CollectionManager, TERMINAL, kill_owned_tree
 from test_collection_platform import FAKE_COLLECTOR, OWNER, exiting_collector, manager, wait_job
 
 
@@ -179,10 +179,11 @@ def test_killed_coordinator_recovers_worker_result_and_releases_processes(manage
     # The API never reads this worker's newer summary before it is killed.
     manager.close()
     (manager.project_root / "fake.py").write_text(r'''
-import argparse,json,time
+import argparse,json,os,time,psutil
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--output');a,_=p.parse_known_args()
 folder=Path(a.output);folder.mkdir()
+(folder/'process.json').write_text(json.dumps(dict(pid=os.getpid(),created=psutil.Process().create_time())))
 (folder/'summary.json').write_text(json.dumps(dict(status='running',
     attempts=[dict(status='accepted',directory=str(folder/'attempt-001'))],
     accepted_episodes=['episode-before-crash'])))
@@ -190,16 +191,19 @@ time.sleep(60)
 ''', encoding="utf-8")
     coordinator_script = manager.project_root / "coordinator.py"
     coordinator_script.write_text(r'''
-import sys,time
+import json,os,sys,time,psutil
+from pathlib import Path
 from space_arm_platform.collection_jobs import CollectionManager,CollectionCreate,TASKS,CollectionTask
 TASKS['drawer_cycle']=CollectionTask('fake','fake.py','fake')
 m=CollectionManager(*sys.argv[1:])
+(Path(sys.argv[1])/'coordinator-process.json').write_text(json.dumps(dict(pid=os.getpid(),created=psutil.Process().create_time())))
 m._refresh=lambda job,worker: None
 m.start(CollectionCreate(workers=1,count=2,max_attempts=3),
         dict(user_id='owner',username='alice',role='operator'),{})
 time.sleep(60)
 ''', encoding="utf-8")
     recovered = None
+    coordinator_identity = worker_identity = None
     with (manager.project_root / "coordinator.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen(
             [sys.executable, str(coordinator_script), str(manager.project_root),
@@ -220,20 +224,33 @@ time.sleep(60)
             snapshot = json.loads(job_path.read_text("utf-8"))
             assert snapshot["workers"][0]["accepted_episodes"] == []
             worker_pid = snapshot["workers"][0]["pid"]
-            process.kill()
+            coordinator_identity = json.loads((manager.project_root / 'coordinator-process.json').read_text('utf-8'))
+            worker_identity = json.loads((summaries[0].parent / 'process.json').read_text('utf-8'))
+            # A Windows venv redirector may own Popen.pid while its child runs
+            # Python. Kill the process that actually holds the coordinator lease.
+            coordinator = psutil.Process(coordinator_identity['pid'])
+            assert abs(coordinator.create_time() - coordinator_identity['created']) < .01
+            assert coordinator.pid in {process.pid, *(p.pid for p in psutil.Process(process.pid).children(recursive=True))}
+            coordinator.kill()
+            coordinator.wait(timeout=10)
             process.wait(timeout=10)
             recovered = CollectionManager(manager.project_root, manager.data_root, manager.adapter, manager.unreal)
             result = recovered.get(snapshot["id"], OWNER)
             assert result["status"] == "interrupted"
             assert result["accepted_episodes"] == ["episode-before-crash"]
             deadline = time.monotonic() + 5
-            while psutil.pid_exists(worker_pid) and time.monotonic() < deadline:
+            worker_pids = {worker_pid, worker_identity['pid']}
+            while any(psutil.pid_exists(pid) for pid in worker_pids) and time.monotonic() < deadline:
                 time.sleep(.05)
-            assert not psutil.pid_exists(worker_pid)
+            assert not any(psutil.pid_exists(pid) for pid in worker_pids)
             (manager.project_root / "fake.py").write_text(FAKE_COLLECTOR, encoding="utf-8")
             next_job = recovered.start(CollectionCreate(workers=1, count=1, max_attempts=1), OWNER, {})
             assert wait_job(recovered, next_job["id"])["status"] == "complete"
         finally:
+            if coordinator_identity is not None:
+                kill_owned_tree(coordinator_identity['pid'], coordinator_identity['created'])
+            if worker_identity is not None:
+                kill_owned_tree(worker_identity['pid'], worker_identity['created'])
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=10)

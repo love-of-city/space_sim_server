@@ -1,0 +1,34 @@
+name: Release validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-validation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  cook-linux:
+    runs-on: [self-hosted, Linux, X64, spacesim-ue-gpu]
+    environment: spacesim-release-validation
+    timeout-minutes: 240
+    env:
+      SPACE_SIM_PYTHON: ${{ vars.SPACE_SIM_VALIDATION_PYTHON }}
+      UE56_ROOT: ${{ vars.SPACE_SIM_VALIDATION_UE_ROOT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - name: Cook isolated inputs and load every declared runtime asset
+        run: |
+          test -n "$SPACE_SIM_PYTHON"
+          test -n "$UE56_ROOT"
+          "$SPACE_SIM_PYTHON" ue-adapter/scripts/package_ue_project.py --engine "$UE56_ROOT" --engine-policy manifests/environments/linux-runtime.json --staging "$RUNNER_TEMP/spacesim-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-project" --output "$RUNNER_TEMP/spacesim-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-package"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-cook-evidence
+          path: |
+            ${{ runner.temp }}/spacesim-${{ github.run_id }}-${{ github.run_attempt }}-package/*.json
+            ${{ runner.temp }}/spacesim-${{ github.run_id }}-${{ github.run_attempt }}-package/*.log
+            ${{ runner.temp }}/spacesim-${{ github.run_id }}-${{ github.run_attempt }}-project/cook-*.json

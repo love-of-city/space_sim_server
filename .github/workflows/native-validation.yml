@@ -1,0 +1,85 @@
+name: Native validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: native-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v3
+        id: paths
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            relevant:
+              - 'server/**'
+              - 'ue-adapter/Adapters/**'
+              - 'manifests/**'
+              - '.github/workflows/native-validation.yml'
+  native:
+    needs: changes
+    # Fork code must never execute on the simulation host. A maintainer can
+    # validate a reviewed branch manually in the protected validation environment.
+    if: (github.event_name != 'pull_request' || needs.changes.outputs.relevant == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Linux, X64, spacesim-native]
+    environment: spacesim-validation
+    timeout-minutes: 40
+    env:
+      SPACE_SIM_PYTHON: ${{ vars.SPACE_SIM_VALIDATION_PYTHON }}
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONPATH: .:backend:scripts:../ue-adapter/Adapters
+    defaults:
+      run:
+        shell: bash
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - name: Check isolated validation interpreter
+        run: |
+          test -n "$SPACE_SIM_PYTHON"
+          "$SPACE_SIM_PYTHON" scripts/check_basilisk.py
+      - name: Build candidate native libraries
+        run: |
+          "$SPACE_SIM_PYTHON" tools/assets/build_native_acceleration.py --component all
+          "$SPACE_SIM_PYTHON" tools/assets/build_sarm_plugin.py
+      - name: Native profile; skipped cases fail
+        run: '"$SPACE_SIM_PYTHON" -m pytest -p ci_pytest --ci-native --junitxml=reports/native.xml'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-validation
+          path: |
+            server/reports/native.xml
+            server/run/native_acceleration/**/manifest.json
+  required-result:
+    name: Native validation required
+    if: always()
+    needs: [changes, native]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Fail missing or unsuccessful validation
+        env:
+          RESULT: ${{ needs.native.result }}
+          RELEVANT: ${{ github.event_name != 'pull_request' || needs.changes.outputs.relevant == 'true' }}
+          DETECTION: ${{ needs.changes.result }}
+        run: |
+          test "$DETECTION" = success
+          if [ "$RELEVANT" = true ]; then test "$RESULT" = success; fi

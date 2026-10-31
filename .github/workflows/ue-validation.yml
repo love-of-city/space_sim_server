@@ -1,0 +1,92 @@
+name: UE validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: ue-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v3
+        id: paths
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            relevant:
+              - 'ue-adapter/**'
+              - 'server/collection/**'
+              - 'server/backend/**'
+              - 'server/simulation/**'
+              - 'server/tools/assets/**'
+              - 'server/config/**'
+              - 'manifests/**'
+              - '.github/workflows/ue-validation.yml'
+  ue-linux:
+    needs: changes
+    if: (github.event_name != 'pull_request' || needs.changes.outputs.relevant == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Linux, X64, spacesim-ue-gpu]
+    environment: spacesim-validation
+    timeout-minutes: 120
+    env:
+      SPACE_SIM_PYTHON: ${{ vars.SPACE_SIM_VALIDATION_PYTHON }}
+      UE56_ROOT: ${{ vars.SPACE_SIM_VALIDATION_UE_ROOT }}
+      SPACE_SIM_UE_CAPTURE_SMOKE: '1'
+      SPACE_SIM_UE_STARTUP_TIMEOUT: '600'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - name: Check explicit runner inputs
+        run: |
+          test -n "$SPACE_SIM_PYTHON"
+          test -n "$UE56_ROOT"
+      - name: Build Editor and Game targets with identities
+        run: |
+          "$SPACE_SIM_PYTHON" ue-adapter/scripts/build_ue_project.py --engine "$UE56_ROOT" --engine-policy manifests/environments/linux-runtime.json
+          "$SPACE_SIM_PYTHON" ue-adapter/scripts/build_ue_project.py --engine "$UE56_ROOT" --engine-policy manifests/environments/linux-runtime.json --target BskUnrealRenderer
+      - name: UE Automation with nonempty report validation
+        run: '"$SPACE_SIM_PYTHON" ue-adapter/scripts/run_ue_automation.py --engine "$UE56_ROOT" --report reports/ue-automation --engine-policy manifests/environments/linux-runtime.json'
+      - name: Real GPU capture smoke; fail skips
+        working-directory: server
+        env:
+          PYTHONPATH: .:backend:scripts:../ue-adapter/Adapters
+        run: |
+          "$SPACE_SIM_PYTHON" -m pytest tests/test_capture_on_demand_renderer.py --junitxml=reports/gpu-smoke.xml
+          "$SPACE_SIM_PYTHON" ../ue-adapter/scripts/check_test_report.py reports/gpu-smoke.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ue-linux-validation
+          path: |
+            reports/ue-automation/
+            server/reports/gpu-smoke.xml
+            ue-adapter/Unreal/BskUnrealRenderer/Binaries/Linux/ue-build*.json
+  required-result:
+    name: UE validation required
+    if: always()
+    needs: [changes, ue-linux]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Fail missing or unsuccessful validation
+        env:
+          RESULT: ${{ needs.ue-linux.result }}
+          RELEVANT: ${{ github.event_name != 'pull_request' || needs.changes.outputs.relevant == 'true' }}
+          DETECTION: ${{ needs.changes.result }}
+        run: |
+          test "$DETECTION" = success
+          if [ "$RELEVANT" = true ]; then test "$RESULT" = success; fi

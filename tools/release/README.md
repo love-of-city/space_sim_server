@@ -56,3 +56,9 @@ PYTHONPATH=server:server/backend python -m pytest tools/release/tests -q
 `verify_release.py`、`verify_artifact.py` 等是历史GPU集成验收程序，须显式提供 `--release-root`；`short_native.py` 须指定 `--bundle`。它们包含原验收场景/断言，运行前按新版本审阅，不在基础测试中自动启动仿真。
 
 本轮纳管并验证了源码和轻量打包流程，没有重新构建几十GiB的真实运行时，也没有新一轮UE/GPU发布验收。保留的两个旧安装包已完整校验SHA，仍标记为2026-10-28历史发布物。
+
+## 当前构建与验收入口
+
+UE 的显式资产 staging、Cook 及 packaged 资源加载使用 `ue-adapter/scripts/package_ue_project.py`；操作流程见 [发布重建](../../docs/guides/release-reproduction.md)。基础Python/native/UE/GPU检查的边界见 [UE分层验证](../../docs/guides/ue-validation.md)。
+
+`runtime_metadata.py` 实际读取Python/Engine/插件与ELF符号依赖；`copy-runtime.py` 在复制前验证解释器ABI，并写入 `RUNTIME-INPUTS.json`，BUILD信息不再硬编码版本。`resolve_environment.py` 只在新目录解析/安装候选锁，不改现有环境。元数据读取、单元测试和哈希通过均不等于新运行包已完成跨机或GPU验收。

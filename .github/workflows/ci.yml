@@ -223,5 +223,5 @@ jobs:
         run: python -m pytest -q -p ci_pytest --ci-basic --ci-skip-group windows-runtime
       - name: Portable packaging and launcher checks
         run: |
-          python -m pytest -q tools/release/tests/test_packaging.py tools/release/tests/layout_preparer/test_launcher.py
+          python -m pytest -q tools/release/tests/test_packaging.py tools/release/tests/test_ue_build_tools.py tools/release/tests/test_runtime_metadata.py tools/release/tests/layout_preparer/test_launcher.py
           python tools/release/tests/layout_preparer/test_self_extractor.py

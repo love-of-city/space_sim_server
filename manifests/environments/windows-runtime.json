@@ -1,0 +1,31 @@
+{
+  "schema": "spacesim-runtime-policy/1",
+  "engine": {
+    "MajorVersion": 5,
+    "MinorVersion": 6,
+    "PatchVersion": 1,
+    "Changelist": 44394996,
+    "CompatibleChangelist": 43139311,
+    "IsLicenseeVersion": 0,
+    "IsPromotedBuild": 1,
+    "BranchName": "++UE5+Release-5.6"
+  },
+  "python": {
+    "major_minor": "3.13",
+    "implementation": "CPython"
+  },
+  "required_engine_plugins": [
+    "CelestialVault",
+    "PixelStreaming2"
+  ],
+  "dependency_inputs": [
+    "server/pyproject.toml",
+    "ue-adapter/pyproject.toml"
+  ],
+  "clean_install_certification": "not-run",
+  "gpu_certification": "not-run",
+  "platform": "windows-x86_64",
+  "observed_python": null,
+  "lock_status": "not-generated",
+  "evidence": "Required engine family/build policy; Windows clean installation and GPU validation have not been executed"
+}

@@ -22,6 +22,22 @@ from space_arm_platform.scene_runtime import SceneLaunchConfig, SceneRuntimeMana
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux UID and process ownership")
 
 
+def test_prepare_uses_existing_moved_tools_and_checks_incremental_ue_build(tmp_path, monkeypatch):
+    config_path = tmp_path / "local.json"
+    config_path.write_text(json.dumps({"mode": "local"}))
+    config = deployment.settings(config_path)
+    monkeypatch.setattr(deployment, "unreal_editor", lambda root: root / "editor")
+    monkeypatch.setattr(deployment.shutil, "which", lambda value: sys.executable)
+    calls = []
+    monkeypatch.setattr(deployment.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    deployment.preflight(config, prepare=True)
+    scripts = [Path(command[1]) for command in calls if len(command) > 1 and str(command[1]).endswith(".py")]
+    assert all(path.is_file() for path in scripts), scripts
+    assert deployment.ROOT / "tools/assets/build_native_acceleration.py" in scripts
+    assert deployment.ROOT / "tools/assets/build_sarm_plugin.py" in scripts
+    assert deployment.ROOT / "tools/assets/build_unreal_linux.py" in scripts
+
+
 def test_account_only_default_clears_inherited_access_key(tmp_path, monkeypatch):
     monkeypatch.setenv("SPACE_SIM_STREAM_ACCESS_KEY", "stale-shell-key")
     config = deployment.settings(tmp_path / "missing.json")

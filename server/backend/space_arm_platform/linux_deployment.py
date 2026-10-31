@@ -126,12 +126,11 @@ def preflight(config, prepare=False):
         subprocess.run([config["npm"], "run", "build"], cwd=ROOT / "frontend", env=env, check=True)
         subprocess.run([config["npm"], "run", "check"], cwd=ROOT / "signalling", env=env, check=True)
         for tool, extra in (("build_native_acceleration.py", ["--component", "all"]), ("build_sarm_plugin.py", [])):
-            subprocess.run([config["python"], str(ROOT / "tools" / tool), *extra], cwd=ROOT, env=env, check=True)
-        binaries = [project / "Binaries/Linux/libUnrealEditor-BskUnrealRenderer.so",
-                    project / "Plugins/BskUnrealRuntime/Binaries/Linux/libUnrealEditor-BskUnrealRuntime.so"]
-        if not all(path.is_file() for path in binaries):
-            subprocess.run([config["python"], str(ROOT / "tools/assets/build_unreal_linux.py"),
-                            "--adapter", config["adapter"], "--unreal", config["unreal"]], cwd=ROOT, env=env, check=True)
+            subprocess.run([config["python"], str(ROOT / "tools/assets" / tool), *extra], cwd=ROOT, env=env, check=True)
+        # UBT owns incremental dependency checking. Existence of a previous .so
+        # does not prove that it matches the current source or shader inputs.
+        subprocess.run([config["python"], str(ROOT / "tools/assets/build_unreal_linux.py"),
+                        "--adapter", config["adapter"], "--unreal", config["unreal"]], cwd=ROOT, env=env, check=True)
     return env
 
 

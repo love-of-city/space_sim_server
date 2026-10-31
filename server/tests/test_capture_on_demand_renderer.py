@@ -44,7 +44,7 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
             time.sleep(.01)
         capture_port = captures._listener.getsockname()[1]
         args = [str(editor), str(adapter/"Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject"),
-            "-game", "-unattended", "-nop4", "-nosplash", "-RenderOffscreen", "-ForceRes", "-ResX=320", "-ResY=180",
+            "-game", "-DDC=InstalledNoZenLocalFallback", "-unattended", "-nop4", "-nosplash", "-RenderOffscreen", "-ForceRes", "-ResX=320", "-ResY=180",
             "-BskListen=127.0.0.1", f"-BskPort={render_port}", "-BskCaptureProducts=rgb", "-BskCaptureRate=30",
             "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={capture_port}", "-ExecCmds=t.MaxFPS 60,r.VSync 0",
             f"-AbsLog={tmp_path/'ue.log'}"]
@@ -201,7 +201,7 @@ def test_real_ue_rebuilds_geometry_when_reused_renderer_changes_layout(tmp_path)
         process = subprocess.Popen([
             str(unreal_editor(Path(unreal_root))),
             str(adapter / "Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject"),
-            "-game", "-unattended", "-nop4", "-nosplash", "-RenderOffscreen", "-ForceRes",
+            "-game", "-DDC=InstalledNoZenLocalFallback", "-unattended", "-nop4", "-nosplash", "-RenderOffscreen", "-ForceRes",
             "-ResX=320", "-ResY=180", "-BskOfflineCapture", "-BskListen=127.0.0.1",
             f"-BskPort={render_port}", "-BskCaptureProducts=rgb", "-BskCaptureRate=30",
             "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={capture_port}",
@@ -308,7 +308,7 @@ def test_real_ue_camera_modes_combine_fisheye_projection_and_monochrome(tmp_path
             render_port = reservation.getsockname()[1]
         command = [str(unreal_editor(Path(unreal_root))),
             str(adapter / "Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject"),
-            "-game", "-unattended", "-nop4", "-nosplash", "-RenderOffscreen",
+            "-game", "-DDC=InstalledNoZenLocalFallback", "-unattended", "-nop4", "-nosplash", "-RenderOffscreen",
             "-ForceRes", "-ResX=320", "-ResY=180", "-BskListen=127.0.0.1", f"-BskPort={render_port}",
             "-BskCaptureProducts=rgb", "-BskCaptureRate=30", "-BskCaptureHost=127.0.0.1",
             f"-BskCapturePort={captures._listener.getsockname()[1]}",

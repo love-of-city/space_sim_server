@@ -3,6 +3,7 @@
 - [目录与产物边界](project-layout.md)
 - [完整项目结构与代码职责](project-map.md)
 - [文件与目录命名规范](naming-conventions.md)
+- [UE 工程整理与交付改进方案（待实施）](ue-engineering-improvement-plan.md)
 - [系统架构](architecture/system.md)
 - [本机工作区与采集批次](guides/linux-workspace.md)
 - [数据管理](guides/data-management.md)

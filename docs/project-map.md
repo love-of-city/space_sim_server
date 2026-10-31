@@ -4,6 +4,8 @@
 
 这份地图按职责维护；本机本次逐文件清单和完整文件树位于 `/home/spacesim-zmh/reports/project-structure-20261031/`。该盘点是时间点快照，后续新增文件以 Git 和实际磁盘为准。
 
+后续目录调整、版本门禁、UE 验收与交付工作见[工程改进方案](ue-engineering-improvement-plan.md)。其中目标结构与拟新增文件属于待实施设计，不代表本地图中的现状已迁移。
+
 ## 工作区
 
 ```text

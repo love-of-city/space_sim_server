@@ -1,6 +1,7 @@
 """Hermetic release inputs and report guards; these tests do not launch UE."""
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -55,7 +56,9 @@ def test_cook_excludes_local_generated_assets_and_copies_only_declared_inputs(tm
 def test_cook_staging_is_content_identical_after_input_relocation(tmp_path):
     project, manifest, _ = fixture_project(tmp_path)
     first = cook.prepare(project, tmp_path / "one", [manifest])
-    second = cook.prepare(project, tmp_path / "two", [manifest])
+    relocated = tmp_path / "different user" / "relocated project"
+    shutil.copytree(project, relocated)
+    second = cook.prepare(relocated, tmp_path / "two", [manifest])
     assert first == second
 
 
@@ -102,3 +105,17 @@ def test_engine_policy_checks_patch_and_changelist(tmp_path):
     policy.write_text(json.dumps({"engine": {**version, "Changelist": 1}}))
     with pytest.raises(ValueError, match="Changelist mismatch"):
         build.validate_engine(tmp_path, policy)
+
+
+def test_noop_build_reuses_only_unchanged_compiler_identity(tmp_path):
+    engine = tmp_path / "Engine/Build"
+    engine.mkdir(parents=True)
+    (engine / "Build.version").write_text('{}')
+    compiler = tmp_path / "Engine/Extras/bin/clang++"
+    compiler.parent.mkdir(parents=True)
+    compiler.write_bytes(b"compiler v1")
+    full = build.toolchain_identity(f"Using clang ({compiler}) version 'clang 18.1.0'\nTotal time: 10 seconds", tmp_path)
+    assert full["status"] == "recorded"
+    assert build.toolchain_identity("Target is up to date\nTotal time: 2 seconds", tmp_path, full) == full
+    compiler.write_bytes(b"compiler v2")
+    assert build.toolchain_identity("Target is up to date", tmp_path, full)["status"] == "not_recorded"

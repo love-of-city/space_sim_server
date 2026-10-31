@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from build_ue_project import ADAPTER, ENGINE_POLICY, host_platform, validate_engine
+from build_ue_project import ADAPTER, ENGINE_POLICY, host_platform, toolchain_identity, validate_engine
 from prepare_cook_staging import REPO, digest, prepare
 
 
@@ -39,10 +39,12 @@ def main(argv=None) -> int:
         command.append("-AdditionalCookerOptions=-DDC=InstalledNoZenLocalFallback")
     with (output / "package-build.log").open("w") as log:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout)
+    toolchain = output / "package-toolchain.json"
+    toolchain.write_text(json.dumps(toolchain_identity((output / "package-build.log").read_text(), engine), indent=2) + "\n")
     subprocess.run([sys.executable, str(ADAPTER / "scripts/write_ue_build_manifest.py"),
                     "--project", str(staging), "--engine", str(engine), "--platform", platform,
                     "--target", "BskUnrealRenderer", "--configuration", "Development",
-                    "--output", str(output / "ue-build-manifest.json")], check=True)
+                    "--output", str(output / "ue-build-manifest.json"), "--toolchain-json", str(toolchain)], check=True)
     binary_name = "BskUnrealRenderer" if platform == "Linux" else "BskUnrealRenderer.exe"
     binaries = [path for path in output.rglob(binary_name) if f"Binaries/{platform}" in path.as_posix()]
     if len(binaries) != 1:

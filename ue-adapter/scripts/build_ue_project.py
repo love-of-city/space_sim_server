@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -53,6 +54,35 @@ def build_command(engine: Path, project: Path, platform: str, target: str, confi
         target, platform, configuration, f"-Project={project}", "-WaitMutex", "-NoHotReloadFromIDE", "-NoUBA"]
 
 
+def file_digest(path: Path) -> str:
+    result = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            result.update(chunk)
+    return result.hexdigest()
+
+
+def toolchain_identity(log_text: str, engine: Path, previous: dict | None = None) -> dict:
+    """Retain proven compiler identity on an incremental no-op, not log timing."""
+    engine_sha = file_digest(engine / "Engine/Build/Build.version")
+    lines = sorted(set(line.strip().replace(str(engine), "<engine>") for line in log_text.splitlines()
+                       if any(term in line.lower() for term in ("using clang", "using compiler", "toolchain", "using sdk", "visual studio", "windows sdk"))))
+    binaries = {}
+    for value in re.findall(r"Using (?:clang|compiler|llvm-ar) \(([^)]+)\)", log_text):
+        path = Path(value)
+        if path.is_file() and path.resolve().is_relative_to(engine.resolve()):
+            binaries[path.resolve().relative_to(engine.resolve()).as_posix()] = file_digest(path)
+    if not lines and previous and previous.get("engine_build_version_sha256") == engine_sha and previous.get("compiler_binaries"):
+        if all(not Path(rel).is_absolute() and ".." not in Path(rel).parts
+               and (engine / rel).resolve().is_relative_to(engine.resolve())
+               and (engine / rel).is_file() and file_digest(engine / rel) == sha
+               for rel, sha in previous["compiler_binaries"].items()):
+            return previous
+    return {"status": "recorded" if lines else "not_recorded", "source": "UBT build output",
+            "details": lines, "engine_build_version_sha256": engine_sha,
+            "compiler_binaries": dict(sorted(binaries.items()))}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", "--unreal", type=Path, required=True)
@@ -69,6 +99,8 @@ def main(argv=None) -> int:
     log_dir = project.parent / "Saved/BuildEvidence"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{args.target}-{platform}-{args.configuration}.log"
+    toolchain_path = log_path.with_suffix(".toolchain.json")
+    previous = json.loads(toolchain_path.read_text()) if toolchain_path.exists() else None
     with log_path.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(build_command(engine, project, platform, args.target, args.configuration),
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
@@ -78,11 +110,8 @@ def main(argv=None) -> int:
         if process.wait():
             raise subprocess.CalledProcessError(process.returncode, process.args)
     log_text = log_path.read_text(encoding="utf-8")
-    toolchain_lines = [line.strip() for line in log_text.splitlines()
-                       if any(term in line.lower() for term in ("using clang", "using compiler", "toolchain", "using sdk", "visual studio", "windows sdk"))]
-    toolchain_path = log_path.with_suffix(".toolchain.json")
-    toolchain_path.write_text(json.dumps({"status": "recorded" if toolchain_lines else "not_recorded",
-        "source": "UBT build output", "details": toolchain_lines,
+    toolchain_path.write_text(json.dumps(toolchain_identity(log_text, engine, previous), indent=2) + "\n")
+    log_path.with_suffix(".evidence.json").write_text(json.dumps({
         "build_log_sha256": hashlib.sha256(log_path.read_bytes()).hexdigest()}, indent=2) + "\n")
     subprocess.run([sys.executable, str(ADAPTER / "scripts/write_ue_build_manifest.py"),
                     "--project", str(project), "--engine", str(engine), "--platform", platform,

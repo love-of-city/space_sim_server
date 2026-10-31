@@ -1,10 +1,10 @@
 # SpaceSim 项目结构地图
 
-核查日期：2026-10-31。运行代码基线：`4cac86c651f6a19abbc4ae24b1a97f477c9738bd`（`optimized-collection/20261031`）。本说明区分实际源码、运行生成内容和工作区数据。
+核查日期：2026-10-31。本地图对应工程改进候选工作树 `worktrees/ue-engineering-20261031/`（分支 `chore/ue-engineering-20261031`）。正式采集已停止；原源码目录 `src/space-sim/` 保留此前 `4cac86c651f6a19abbc4ae24b1a97f477c9738bd`（`optimized-collection/20261031`）基线。本说明区分候选源码、运行生成内容和工作区数据，不将候选改动视为已部署版本。
 
 这份地图按职责维护；本机本次逐文件清单和完整文件树位于 `/home/spacesim-zmh/reports/project-structure-20261031/`。该盘点是时间点快照，后续新增文件以 Git 和实际磁盘为准。
 
-后续目录调整、版本门禁、UE 验收与交付工作见[工程改进方案](ue-engineering-improvement-plan.md)。其中目标结构与拟新增文件属于待实施设计，不代表本地图中的现状已迁移。
+工程改进范围与验收状态见[工程改进方案](ue-engineering-improvement-plan.md)。本页列出已经落地的目录和工具；[运行版本与构建来源](architecture/runtime-provenance.md)、[UE 与原生分层验证](guides/ue-validation.md)、[发布重建](guides/release-reproduction.md)说明使用方式和证据边界。提供工具入口不代表所有平台和发布检查已经通过。
 
 ## 工作区
 
@@ -12,7 +12,7 @@
 /home/spacesim-zmh/
 ├── WORKSPACE.md                    本机总入口
 ├── src/
-│   ├── space-sim/                  唯一 Git 源码仓库
+│   ├── space-sim/                  Git 主工作树，保留停止前的运行基线
 │   └── space_sim_server/           README + 两个旧路径兼容软链接
 ├── data/
 │   ├── README.md                   批次保留与来源说明
@@ -28,15 +28,16 @@
 ├── archive/workspace-snapshots/    整理前源码/工作区恢复快照
 ├── envs/                           已安装 Python 环境
 ├── engines/UE_5.6/                 Unreal Engine 安装
-├── worktrees/                      临时 Git 工作树；核查时为空
+├── worktrees/
+│   └── ue-engineering-20261031/    同一 Git 仓库的候选工作树，工程改进与独立验收
 ├── migration/                      旧布局重编号计划的兼容链接
 ├── Library/Logs/                   UE 构建工具写入的用户级日志
 └── UnrealEngine/UnrealTrace/        UE Trace 服务日志，不是第二份引擎
 ```
 
-实际保留的正式批次：`layout1000-20261029`、`layout1000-20261030-1928`（停止），以及当前 `layout1000-20261031-0042`（按用户要求重新启动）。它们不是三份代码仓库。
+实际保留的三个正式批次 `layout1000-20261029`、`layout1000-20261030-1928`、`layout1000-20261031-0042` 均已停止，`progress.json` 为 `cancelled`，保留 `cancel.request` 和原始输入/数据。锁文件可能保留在磁盘，不能据此判断进程仍在运行。本次工程验收输出到 `artifacts/verification/ue-engineering-20261031/`，不续写这三个批次。
 
-当前布局池：`data/layout-pools/random150-20261028/`。当前恢复证据：`experiments/recovery-20261030-optimized-runtime/`。环境包含 `spacesim`、`spacesim-geometry`、`epic-browser`；目录名不足以证明可删除，需查调用依赖。
+保留的原布局池：`data/layout-pools/random150-20261028/`。恢复证据包括 `experiments/recovery-20261030-optimized-runtime/` 和 `archive/workspace-snapshots/workspace-before-ue-engineering-20261031/`；本轮实施报告在 `reports/ue-engineering-implementation-20261031/`。环境包含 `spacesim`、`spacesim-geometry`、`epic-browser`；目录名不足以证明可删除，需查调用依赖。
 
 兼容关系：
 
@@ -45,13 +46,14 @@ src/space_sim_server/space_sim_server     -> ../space-sim/server
 src/space_sim_server/space_sim_UE_Adapter  -> ../space-sim/ue-adapter
 ```
 
-它们只让旧批次元数据的绝对路径继续有效。新开发、启动和文档引用统一使用 `src/space-sim/`。
+它们只让旧批次元数据的绝对路径继续有效。正式源码入口为 `src/space-sim/`；本轮开发和独立验收显式使用上述候选工作树。工作树共享 Git 历史，是隔离修改和构建的入口，不是通过复制目录维护另一套项目版本。
 
 ## Git 仓库顶层
 
 | 目录/文件 | 职责 |
 |---|---|
 | `.github/workflows/ci.yml` | CI 构建、检查和测试任务 |
+| `.github/workflows/native-validation.yml`、`ue-validation.yml`、`release-validation.yml` | 受控 runner 上的原生、UE/GPU、发布验证入口；远端 runner 和分支保护需另行配置 |
 | `.github/CODEOWNERS`、`pull_request_template.md` | 维护归属和变更审查模板 |
 | `.github/*settings*.json`、`branch-protection.json` | 仓库管理配置声明 |
 | `.gitattributes` | 文本与 Git LFS 资产属性 |
@@ -65,9 +67,10 @@ src/space_sim_server/space_sim_UE_Adapter  -> ../space-sim/ue-adapter
 | `docs/project-layout.md` | 路径与 Git/产物归属边界 |
 | `docs/project-map.md` | 本结构地图 |
 | `docs/naming-conventions.md` | 后续文件与目录命名规则 |
-| `manifests/environments/` | 核查时 Python 环境依赖清单 |
-| `manifests/assets/` | 资产索引规则；真实资产哈希以正式清单为准 |
+| `manifests/environments/` | Python 来源快照、Linux/Windows 运行环境状态和 UE 引擎兼容策略；不将未重装的环境声明为已认证锁 |
+| `manifests/assets/ue-cook-base-assets.json` | 527 个基础 UE 资产的 SHA、明确 Cook 目录和动态加载资源；不自动纳入本地布局资产 |
 | `manifests/schemas/collection-layout-pool-v2.schema.json` | 可搬迁布局池、相对路径、文件哈希和原验收迁移证明契约 |
+| `manifests/schemas/{collection-provenance-v1,component-identity-v1,ue-build-manifest-v1}.schema.json` | 批次来源、组件身份及 UE 构建身份的数据契约 |
 | `server/` | API、网页、任务采集、权威动力学、模型、原生计算 |
 | `ue-adapter/` | Python 状态协议适配、UE渲染工程和运行插件 |
 | `tools/release/` | 两类交付包的构建、启动器及测试源码 |
@@ -120,8 +123,9 @@ server/
 | `tools/collect.py` | 日常批采 CLI 入口 |
 | `config/collection.json` | 启用任务、布局轮次、时间种子、初态范围和资源限制 |
 | `collection/sequence.py` | 冻结计划；布局洗牌；依次调度；取消、失败跳过、恢复和批末审核 |
+| `collection/runtime_provenance.py` | 冻结实际源码、原生库、Python 环境、UE 构建和输入指纹；恢复及逐条录制拒绝混用实现 |
 | `collection/collect_scripted_tasks.py` | 单任务批采、共享 UE/动力学会话、录后快速检查与完整审核 |
-| `collection/record_scripted_task.py` | 单条 UE 双相机 / LeRobot 录制、启停边界和最终封装 |
+| `collection/record_scripted_task.py` | 单条 UE 双相机 / LeRobot 录制、启停边界和最终封装；首帧前验证实际 UE 进程及模块来源 |
 | `collection/run_scripted_task.py` | 单条权威物理任务循环，装配/重置图、运行控制器并写动力学报告 |
 | `collection/dynamics_worker.py` | 常驻采集动力学入口，创建图缓存并设置优化默认值 |
 | `backend/space_arm_platform/dynamics_worker.py` | 常驻进程的请求邮箱、身份检查、资源上限与退休机制 |
@@ -237,6 +241,7 @@ tools/collect.py
 | `contracts/*.schema.json` | 状态/控制消息结构契约 |
 | `scripts/ci_pytest.py`、`native-test-profile.json`、`ci-exclusions.json` | 基础/原生测试分层、显式平台节点排除；声明范围内出现 skip 即失败 |
 | `tools/assets/migrate_layout_pool.py` | 将 v1 布局池复制为 v2 完整包；拒绝覆盖原件、未声明资产根和路径逃逸 |
+| `tools/deployment/check_runtime_provenance.py` | 检查本机采集源码、原生库、环境与 UE 构建来源是否一致，不启动正式采集 |
 
 布局迁移用法、包内目录和交付边界见[可搬迁布局包](guides/portable-layout-pools.md)。运行时每次选样重新校验文件哈希，历史 native 报告保持原字节，不把路径迁移当成重新完成几何验收。
 
@@ -253,7 +258,7 @@ tools/collect.py
 | `model/nasa_lro_a/` | LRO模型、网格、来源与预览 |
 | `model/任务盒_v1/`、`地面验证星模型.stp` | 原始 CAD 设计源文件；不是采集日志 |
 
-本批实际物理输入来自仓库外布局池，并按任务生成变体，不能把 `model/README.md` 中某个历史默认场景当作所有采集任务的实际模型。`*_trial`、`*_validated2` 和预览目录目前仍存在，是需进一步分类的历史命名，不代表本次已全部规范化或可以直接删除。
+保留批次的实际物理输入来自仓库外布局池，并按任务生成变体，不能把 `model/README.md` 中某个历史默认场景当作所有采集任务的实际模型。`*_trial`、`*_validated2` 和预览目录目前仍存在，是需进一步分类的历史命名，不代表本次已全部规范化或可以直接删除。
 
 ## ue-adapter：协议和 Unreal 渲染
 
@@ -275,11 +280,17 @@ ue-adapter/
 │   │   └── Source/
 │   │       ├── BskUnrealRuntime/       场景、帧解析、网络、相机与渲染运行时
 │   │       │   ├── Public/            公开C++头文件
-│   │       │   └── Private/Tests/     实现目录内的UE自动化测试
+│   │       │   └── Private/
+│   │       │       ├── Scene/        场景生命周期、对象/资产与实际运行身份
+│   │       │       ├── Capture/      权威采集、GPU读回、编码、网络及落盘
+│   │       │       ├── Streaming/    Pixel Streaming 输出与UE版本兼容
+│   │       │       ├── Lighting/     CelestialVault 与场景光照
+│   │       │       ├── Tests/        UE自动化测试
+│   │       │       └── *.cpp         帧解析、TCP、相机输入及模块初始化
 │   │       └── BskCameraShaders/      相机着色器模块
 │   ├── Source/                          UE主工程模块及Target构建定义
 │   ├── python/bsk_unreal_adapter/       历史UE专属名称兼容包装
-│   ├── examples/                        独立示例场景，非当前批采入口
+│   ├── examples/                        示例场景；原生场景加载器仍被正式采集导入
 │   ├── scripts/                         实际工程构建、资产导入、启动与测试
 │   ├── tests/                           协议、帧、设备与渲染能力测试
 │   └── docs/                            UE协议、材质、网格和视频说明
@@ -299,7 +310,16 @@ ue-adapter/
 | `protocol.py`、`capture.py`、`recording.py` | 网络协议、相机数据解码、渲染流记录/回放 |
 | `mjcf_assets.py`、`stl_conversion.py`、`native_plugins.py`、`ue_support.py` | MJCF渲染元数据、STL转换、共享运行库插件和便捷API |
 | `portable_assets.py` | 按包根解析 v2 catalog 和 UE 资源路径；拒绝绝对路径、目录越界与软链接逃逸 |
-| `BskSceneController.cpp` | UE场景/资产/相机状态管理 |
+| `Adapters/bsk_render_adapter/build_identity.py` | UE 源码/着色器/引擎/二进制指纹；校验进程实际加载模块及 Game 单体程序 |
+| `Private/Scene/BskSceneController.cpp` | Actor 生命周期、配置和权威帧应用，保留公开反射类与对象所有权 |
+| `Private/Scene/BskSceneObjects.cpp`、`BskSceneUtilities.*` | 场景对象、资源清单、几何与材质辅助实现 |
+| `Private/Scene/BskRuntimeIdentity.*` | 输出实际模块路径/PID/引擎版本；提供显式 Cook 资源加载验证入口 |
+| `Private/Capture/BskCapturePipeline.*`、`BskCaptureProducts.h` | 权威采集请求、RHI/GPU 读回、帧顺序及采集产品；UObject 仍由 Actor 持有 |
+| `Private/Capture/BskCaptureEncoding.*` | 图像编码与相机元数据 |
+| `Private/Capture/BskCaptureNetworkSender.*` | 网络发送工作线程、连接/ACK/发送期限和取消 |
+| `Private/Capture/BskCaptureDiskWriter.*` | 有界异步写盘、错误回传；产品与元数据提交后写入完成标记 |
+| `Private/Streaming/BskPixelStreamingOutput.cpp`、`BskPixelStreamingCompatibility.*` | 相机流输出；集中隔离 UE 5.6 私有 API 依赖 |
+| `Private/Lighting/BskCelestialLightingController.cpp` | 天体光照、背景与补光配置 |
 | `BskFrameParser.cpp`、`BskTcpReceiver.cpp` | 帧消息解析、TCP接收 |
 | `BskCoordinateConverter.cpp`、`BskRenderWorldSubsystem.cpp` | 坐标转换、渲染世界运行管理 |
 | `BskCameraPawn.cpp`、`BskCameraInput.cpp` | 相机对象与输入 |
@@ -307,8 +327,25 @@ ue-adapter/
 | `BskRendererGameMode.cpp`、`BskRendererHUD.cpp` | 渲染场景模式和HUD |
 | `BskCaptureProvider.h`、`BskLeRobotSampling.h`、`BskPreviewCadence.h` | 采集接口、数据采样和预览节拍 |
 | `BskCameraEffects.cpp`、`CameraEffect.usf` | 相机效果及着色器 |
+| `examples/scenario_spacecraft_arm_grasp_unreal.py` | 正式采集导入的 `load_native_grasp_module`；与 `server/model/.../scenario_sarm_grasp.py` 一并参与运行源码指纹 |
 
-UE的 `Binaries/`、`Intermediate/`、`DerivedDataCache/`、`Saved/` 若存在均为本机产物；其中导入清单是否仍被布局引用必须实际检查，不能整目录盲删。
+上述 `Private/` 路径相对 `Plugins/BskUnrealRuntime/Source/BskUnrealRuntime/`。原来的单文件场景控制器已拆分到这些职责目录；TCP 断开时同时退休旧连接的部分包和排队命令。
+
+UE 的 `Binaries/`、`Intermediate/`、`DerivedDataCache/`、`Saved/` 若存在均为本机产物。其中 `Binaries/<platform>/ue-build-manifest.json` 绑定 Editor 构建，`ue-build-<target>-<configuration>.json` 绑定 Game 目标；它们随产物生成，不代替源码编译。导入清单是否仍被布局引用必须实际检查，不能整目录盲删。
+
+### UE 构建、打包和验证入口
+
+| 路径 | 职责 |
+|---|---|
+| `ue-adapter/scripts/build_ue_project.py` | 校验指定 UE 版本后构建 Editor 或 Game，记录实际工具链并生成构建身份 |
+| `ue-adapter/scripts/write_ue_build_manifest.py` | 成功构建后的清单生成及只读核验入口，不能手工重写清单冒充重建 |
+| `ue-adapter/scripts/prepare_cook_staging.py` | 校验声明资产的哈希及 LFS 内容，将候选源码与明确资产复制到新的 staging |
+| `ue-adapter/scripts/package_ue_project.py`、`package.ps1` | 独立 BuildCookRun、Game 构建身份、packaged 资源 LoadObject 验证和包指纹 |
+| `ue-adapter/scripts/run_ue_automation.py`、`check_test_report.py` | 启动 Automation，拒绝旧报告、零用例、失败及未执行用例 |
+| `ue-adapter/Unreal/BskUnrealRenderer/scripts/{build,runtime_build,start_renderer}.ps1` | Windows 工程构建与启动链路，按内容身份判断产物是否匹配 |
+| `server/tests/test_capture_on_demand_renderer.py` | 显式启用的真实 GPU 验证：启停/重置、场景复用及四种相机模式 |
+
+NullRHI Automation、packaged 资源加载、GPU 图像、五任务完整录制和跨平台发布分别形成证据；其中一种通过不代表其他验证已通过。
 
 ## 发布工具
 
@@ -322,24 +359,27 @@ UE的 `Binaries/`、`Intermediate/`、`DerivedDataCache/`、`Saved/` 若存在�
 | 各组件 `self-extractor.template` | 自解压包模板 |
 | 各组件 `licenses/` | 第三方许可 |
 | `tools/release/tests/` | 打包、启动、完整性和发布验证；产物仍写到仓库外 |
+| `tools/release/runtime_metadata.py` | 读取实际 Python ABI/依赖、引擎/插件及 ELF 符号需求，生成运行环境来源 |
+| `tools/release/resolve_environment.py` | 在全新输出目录解析哈希锁并可选安装隔离环境；不修改正式采集环境 |
 
-## 当前批次内部的数据目录
+## 保留批次与新版批次的数据目录
 
-本机实际批次根：`/home/spacesim-zmh/data/collections/layout1000-20261031-0042/`。
+本机最近保留批次根：`/home/spacesim-zmh/data/collections/layout1000-20261031-0042/`，现已停止。下表展示共同的批次结构；标注“新版”的来源文件由当前候选版本创建的新批次生成，不能据此声称旧批次已通过新版门禁，也不为旧数据追写认证。
 下列 `<任务>`、`<布局>`、`<attempt>`、`<episode>` 为程序生成标识，不是字面目录名。
 
 ```text
-layout1000-20261031-0042/
+<batch>/
 ├── config.snapshot.json                    冻结参数与实际整数种子
 ├── plan.json                               固定布局顺序、任务和各条种子
 ├── progress.json                           当前进度、成功/跳过与审核状态
 ├── source-scene.json                        基准场景
 ├── pool.snapshot.json                      布局池清单快照
 ├── inputs.json                             冻结配置/场景/录制参数哈希
-├── launch-provenance.json                  启动源码、原生库、环境开关与种子来源
+├── launch-provenance.json                  新版：冻结源码/native/环境/UE身份、输入与已解析种子
 ├── collector.lock                          单采集器租约，不能运行中删除
 ├── collector.log                           批次调度日志
 ├── renderer.log / renderer-process.log      渲染器日志
+├── runtime-identity-<id>.json               新版：常驻渲染器的实际模块、PID与引擎版本
 ├── dynamics-worker-<id>/                    worker邮箱、身份、请求/结果与退休记录
 ├── layouts/pass-001/<布局>/                 每轮颜色、机位、模型等准备结果
 ├── attempts/<任务>/pass-001/<布局>/
@@ -350,6 +390,8 @@ layout1000-20261031-0042/
 │       ├── validation.json                 本条快速或完整审核结果
 │       └── recording/
 │           ├── summary.json                录制启动、耗时、倍率与输出索引
+│           ├── runtime-provenance.json      新版：本次尝试的运行身份，与批次身份核对
+│           ├── runtime-identity.json        新版：独立渲染器报告；复用时引用批次级报告
 │           └── dynamics/summary.json       物理结果、复用信息、分段计时和源码指纹
 └── <任务>/pass-001/<布局>/episodes/<episode>/
     ├── metadata.json                       episode身份、任务和平台元数据

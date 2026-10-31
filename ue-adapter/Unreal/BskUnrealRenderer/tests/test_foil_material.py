@@ -41,7 +41,7 @@ def test_override_targets_only_one_fixed_panel_by_exact_asset_path():
 
 
 def test_material_override_precedes_generic_and_native_material_paths():
-    source = (ROOT / "Plugins/BskUnrealRuntime/Source/BskUnrealRuntime/Private/BskSceneController.cpp").read_text(encoding="utf-8")
+    source = (ROOT / "Plugins/BskUnrealRuntime/Source/BskUnrealRuntime/Private/Scene/BskSceneUtilities.cpp").read_text(encoding="utf-8")
     block = source.split("void ApplyGeometryMaterial(", 1)[1].split("\n}", 1)[0]
     assert block.index("ApplyConfiguredMaterialOverride") < block.index("bUseAssetMaterials")
     assert block.index("ApplyConfiguredMaterialOverride") < block.index('TEXT("Metallic"), 0.0f')
@@ -82,7 +82,16 @@ def test_foil_build_is_fingerprinted_and_runs_before_general_material_cache():
     assert prepare.index("FOIL002_BUILD_OK") < prepare.index("Set-Content -LiteralPath $marker")
 
 
-def test_foil_assets_are_inside_existing_cook_directory():
+def test_foil_assets_are_declared_and_inside_materials_cook_directory():
     config = (ROOT / "Config/DefaultGame.ini").read_text(encoding="utf-8")
-    assert '+DirectoriesToAlwaysCook=(Path="/Game/BSK")' in config
+    assert '+DirectoriesToAlwaysCook=(Path="/Game/BSK/Materials")' in config
     assert '/Game/BSK/Materials/Foil002/' in config
+    manifest = json.loads((ROOT.parents[2] / "manifests/assets/ue-cook-base-assets.json").read_text(encoding="utf-8"))
+    assert manifest["schema"] == "ue-cook-inputs/1"
+    assert "/Game/BSK/Materials" in manifest["cook_directories"]
+    for directory in ("Content/BSK/Materials/Foil002", "Content/BSK/Materials/SolarPanel"):
+        assets = list((ROOT / directory).glob("*.uasset"))
+        assert assets, directory
+        for asset in assets:
+            relative = asset.relative_to(ROOT).as_posix()
+            assert manifest["files"][relative] == hashlib.sha256(asset.read_bytes()).hexdigest()

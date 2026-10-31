@@ -28,9 +28,9 @@ struct BSKUNREALRUNTIME_API FBskCaptureRequest
     FMatrix44d LocalFromInertial = FMatrix44d::Identity;
     EBskCapturePurpose Purpose = EBskCapturePurpose::AuthoritativeDataset;
     bool bReuseExistingRgbTarget = false;
-    // Render-only phase: run the SceneCapture pass but skip the synchronous
-    // GPU readback. Submit every due camera first, then read each render target.
-    // ReadPixels remains synchronous; this is not an asynchronous readback API.
+    // Render-only phase: submit every due SceneCapture before requesting
+    // readback. The built-in authoritative provider defaults to async GPU
+    // readback; synchronous capture remains an explicit diagnostic option.
     bool bSkipReadback = false;
     FString OutputDirectory;
     bool bWriteToDisk = true;

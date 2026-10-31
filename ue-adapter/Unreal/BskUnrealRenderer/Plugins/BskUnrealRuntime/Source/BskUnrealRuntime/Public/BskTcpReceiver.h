@@ -35,6 +35,7 @@ public:
 private:
     friend class FBskReceiverResetTest;
     friend class FBskConnectionLifecycleTest;
+    friend class FBskConnectionReconnectTest;
     friend class FBskReliableFramesTest;
     friend class FBskOnDemandCaptureTest;
     bool CreateListener();

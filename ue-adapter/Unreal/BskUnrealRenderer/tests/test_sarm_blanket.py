@@ -83,13 +83,14 @@ def test_hardware_cutouts_and_seams_are_not_filled(mesh):
 
 
 def test_runtime_attaches_child_without_replacing_base_or_enabling_physics():
-    source=(ROOT/'Plugins/BskUnrealRuntime/Source/BskUnrealRuntime/Private/BskSceneController.cpp').read_text(encoding='utf-8')
+    source=(ROOT/'Plugins/BskUnrealRuntime/Source/BskUnrealRuntime/Private/Scene/BskSceneUtilities.cpp').read_text(encoding='utf-8')
     helper=source.split('void AttachConfiguredVisualOverlay(',1)[1].split('\n}',1)[0]
     for text in ['TEXT("BskDisableVisualOverlays")','*Geometry.AssetPath, MeshPath, GGameIni','Overlay->SetupAttachment(Parent)','Overlay->SetRelativeTransform(FTransform::Identity)','Overlay->SetCollisionEnabled(ECollisionEnabled::NoCollision)','Overlay->SetGenerateOverlapEvents(false)','Overlay->SetCanEverAffectNavigation(false)','original mesh retained']:
         assert text in helper
     assert 'Parent->SetStaticMesh' not in helper and 'SetSimulatePhysics(true)' not in helper
     assert 'ApplyGeometryMaterial(Overlay' not in helper
-    assert source.count('AttachConfiguredVisualOverlay(Component, Geometry);')==1
+    scene_source=(ROOT/'Plugins/BskUnrealRuntime/Source/BskUnrealRuntime/Private/Scene/BskSceneObjects.cpp').read_text(encoding='utf-8')
+    assert scene_source.count('AttachConfiguredVisualOverlay(Component, Geometry);')==1
 
 
 def test_config_only_attaches_to_arm_carrying_bus():

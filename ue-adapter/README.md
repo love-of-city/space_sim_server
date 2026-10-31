@@ -141,4 +141,15 @@ pwsh -NoProfile -File .\scripts\stop_renderer.ps1
 - [Python 发送端](Adapters/README.md) / [UE 模块](Unreal/BskUnrealRenderer/README.md)
 - [协议](Unreal/BskUnrealRenderer/docs/PROTOCOL.md) / [MJCF](Unreal/BskUnrealRenderer/docs/MJCF_MESHES.md) / [STL](Unreal/BskUnrealRenderer/docs/STL_MESHES.md)
 
-Demo 8、UR5e、CubeSat、轨道抓取、录制回放与打包脚本是可选开发工具，参数见对应脚本，不是首次部署必做步骤。OpNav 闭环、异步 GPU 读回和单遍分割尚未完成。
+Demo 8、UR5e、CubeSat、轨道抓取、录制回放与打包脚本是可选开发工具，参数见对应脚本，不是首次部署必做步骤。OpNav 闭环和单遍分割尚未完成。
+
+### 相机采集实现与验证边界
+
+| 能力 | 当前实现与默认值 | 验证边界 |
+| --- | --- | --- |
+| 权威 RGB 采集 | 默认 GPU 异步读回、后台 JPEG 编码，按提交顺序输出；元数据在呈现插值前冻结 | UE 5.6 Linux 编译、Automation 与双相机 GPU 验收分别记录；基础 CI 不代表 GPU 通过 |
+| 同步对照 | `-BskSynchronousCapture` 显式启用同步读回 | 仅用于故障定位和同输入对照；不能把同步对照测速当批量产出 |
+| 预览 | 可丢弃的最新帧；部分预览读取仍为同步 | 不作为正式采集帧；网络采集有独立背压与确认 |
+| UE 直接落盘 | 每帧文件成功后发布 `.complete.json`；失败有结果回执与日志，配置网络输出时还上报 `capture_error` | 只适用于 `-BskCaptureDir`；没有完成标记的部分输出不得视为完整帧 |
+
+相机 Shader 保持独立模块。内部实现按 `Scene/`、`Capture/`、`Streaming/`、`Lighting/` 分工，公开 UClass 和协议路径保持稳定。Pixel Streaming 内部 API 集中于兼容文件，当前支持 UE 5.6；升级引擎需重新编译和图形验收。

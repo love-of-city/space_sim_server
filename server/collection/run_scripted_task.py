@@ -251,7 +251,13 @@ def run(args, *, graph_cache=None):
                 probe.close()
                 initialization_seconds["native_preflight"] = time.perf_counter() - phase_started
             if not report["preflight"]["accepted"]:
-                raise ValueError("initialization_rejected: "+json.dumps(report["preflight"]))
+                # The private query has released its lease; no live graph has
+                # been restored or changed yet. Treat this as a sampled-pose
+                # rejection, preserving the healthy worker and its old graph.
+                report.update(reason="initialization_rejected: " + json.dumps(report["preflight"]),
+                              failure_kind="initialization_rejected", events=task.events,
+                              physics_graph_retained=graph_cache is not None and graph_cache.state is not None)
+                return 1
         phase_started = time.perf_counter()
         reuse_graph = graph_cache is not None and graph_cache.compatible(locals())
         initialization_seconds["graph_compatibility"] = time.perf_counter() - phase_started
@@ -565,6 +571,16 @@ def run(args, *, graph_cache=None):
                     stepper = orbit = capture = None
         raise
     finally:
+        unwinding = sys.exc_info()[0] is not None
+        provenance_error = None
+        try:
+            from collection.runtime_provenance import loaded_native_provenance
+            report["runtime_provenance"]["loaded_native"] = loaded_native_provenance(ROOT)
+        except Exception as error:
+            provenance_error = error
+            report["runtime_provenance_error"] = f"{type(error).__name__}: {error}"
+            if not unwinding:
+                report.update(result="failed", reason="native_runtime_identity_mismatch")
         finished = time.perf_counter()
         report["wall_seconds"] = finished - started
         report["task_loop_wall_seconds"] = (
@@ -595,6 +611,11 @@ def run(args, *, graph_cache=None):
             ),
             flush=True,
         )
+        if provenance_error is not None:
+            if graph_cache is not None:
+                graph_cache.close()
+            if not unwinding:
+                raise provenance_error
     return 0 if task.result == "success" else 1
 
 

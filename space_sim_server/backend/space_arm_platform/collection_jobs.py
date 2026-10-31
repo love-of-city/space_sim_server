@@ -9,6 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 import json
+import logging
 import os
 from pathlib import Path
 import socket
@@ -25,6 +26,7 @@ import psutil
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .collection_processes import ManagerLease, WindowsProcessGroup
+from .atomic_json import write_json
 from .collection_layouts import LayoutPool
 from .collection_inputs import (
     fixed_layout_input, requires_color_layout, validate_fixed_snapshot, validate_saved_layout,
@@ -136,14 +138,6 @@ def read_json(path, default=None):
         return default
 
 
-def write_json(path, value):
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    temporary.replace(path)
-
-
 def kill_owned_tree(pid, created):
     """Never terminate a reused PID or an unrelated interactive scene."""
     try:
@@ -217,6 +211,9 @@ class CollectionManager:
                     if worker.get("pid") and worker.get("created"):
                         kill_owned_tree(worker["pid"], worker["created"])
                     if worker["status"] not in TERMINAL:
+                        # Worker acceptance can reach disk before job.json.
+                        # Recover evidence after stopping it, without resuming.
+                        self._refresh(job, worker)
                         worker["status"] = "interrupted"
                 job.update(
                     status="interrupted",
@@ -370,11 +367,24 @@ class CollectionManager:
                 workers=workers,
             )
             self.jobs[key] = job
-            self._save(job)
-            self.thread = threading.Thread(
-                target=self._run, args=(job,), name=key, daemon=True
-            )
-            self.thread.start()
+            try:
+                self._save(job)
+                self.thread = threading.Thread(
+                    target=self._run, args=(job,), name=key, daemon=True
+                )
+                self.thread.start()
+            except Exception as error:
+                # No collector owns this slot when persistence/thread creation
+                # fails. Keep a diagnostic rather than a permanently running job.
+                job.update(status="failed", error=f"{type(error).__name__}: {error}",
+                           finished_at=time.time())
+                for worker in job["workers"]:
+                    worker["status"] = "failed"
+                try:
+                    self._save(job)
+                except Exception:
+                    logging.getLogger(__name__).exception("Could not persist failed collection startup")
+                raise
             return self._view(job)
 
     def stop(self, key, user):
@@ -390,12 +400,39 @@ class CollectionManager:
 
     def _refresh(self, job, worker):
         folder = self.root / job["id"] / f"worker-{worker['index']}"
-        summary = read_json(folder / "summary.json", {})
-        worker["attempts"] = summary.get("attempts", [])
-        worker["accepted_episodes"] = [
-            Path(p).name for p in summary.get("accepted_episodes", [])
-        ]
-        worker["collector_status"] = summary.get("status", "starting")
+        summary = read_json(folder / "summary.json")
+        try:
+            if not isinstance(summary, dict):
+                raise ValueError("进度文件缺失、不可读或不是对象")
+            attempts = summary.get("attempts", [])
+            episodes = summary.get("accepted_episodes", [])
+            status = summary["status"]
+            if status not in {"running", *TERMINAL}:
+                raise ValueError("无效的采集状态")
+            if not isinstance(attempts, list) or any(
+                not isinstance(a, dict) or not isinstance(a.get("status"), str)
+                or not isinstance(a.get("directory"), str) or not a["directory"]
+                or "\0" in a["directory"] for a in attempts
+            ):
+                raise ValueError("无效的尝试记录")
+            if not isinstance(episodes, list) or any(
+                not isinstance(p, str) or not p or "\0" in p or not Path(p).name
+                for p in episodes
+            ):
+                raise ValueError("无效的已验收记录")
+            accepted = [Path(p).name for p in episodes]
+            if (len(set(accepted)) != len(accepted) or len(accepted) > worker["count"]
+                    or not set(worker.get("accepted_episodes", [])).issubset(accepted)
+                    or len(attempts) < len(worker.get("attempts", []))):
+                raise ValueError("采集进度重复、超出数量或退回旧状态")
+        except (KeyError, TypeError, ValueError) as error:
+            # A transient read failure must not erase already accepted work.
+            worker["summary_error"] = f"采集进度异常，保留上次已验收结果：{error}"
+            return
+        worker.pop("summary_error", None)
+        worker["attempts"] = attempts
+        worker["accepted_episodes"] = accepted
+        worker["collector_status"] = status
         if summary.get("error"):
             worker["error"] = summary["error"]
         if worker["attempts"]:
@@ -412,7 +449,7 @@ class CollectionManager:
                         item = json.loads(line)
                     except ValueError:
                         continue
-                    if item.get("stage"):
+                    if isinstance(item, dict) and item.get("stage"):
                         worker["progress"] = item
                         break
             except OSError:
@@ -523,21 +560,31 @@ class CollectionManager:
                         # The child may have finalized after the refresh above.
                         # Read its durable final summary before counting results.
                         self._refresh(job, worker)
+                        if worker.get("summary_error"):
+                            worker["error"] = worker["summary_error"]
                         worker["returncode"] = process.returncode
                         worker["status"] = (
                             "cancelled"
                             if job["status"] == "stopping"
                             else "complete"
                             if process.returncode == 0
+                            and worker.get("collector_status") == "complete"
                             and len(worker["accepted_episodes"]) == worker["count"]
+                            and not worker.get("error")
                             else "attempt_limit"
                             if process.returncode == 1
-                            and worker["collector_status"] == "attempt_limit"
+                            and worker.get("collector_status") == "attempt_limit"
                             and not worker.get("error")
                             else "failed"
                         )
                         log.close()
                         if worker["status"] == "failed":
+                            if not worker.get("error"):
+                                worker["error"] = (
+                                    "采集进程退出结果与最终报告不一致："
+                                    f"退出码 {process.returncode}，报告状态 {worker.get('collector_status', 'missing')}，"
+                                    f"已验收 {len(worker['accepted_episodes'])}/{worker['count']}"
+                                )
                             log_path = folder / f"worker-{worker['index']}.log"
                             with log_path.open("rb") as stream:
                                 stream.seek(max(0, log_path.stat().st_size - 6000))
@@ -557,6 +604,12 @@ class CollectionManager:
                 kill_owned_tree(process.pid, worker.get("created", 0))
                 process.wait(timeout=5)
                 log.close()
+                with self.lock:
+                    try:
+                        self._refresh(job, worker)
+                    except Exception as error:
+                        worker["error"] = f"收尾时读取采集进度失败：{type(error).__name__}: {error}"
+                        failure = failure or worker["error"]
             with self.lock:
                 # Publish a terminal state only after cleanup, and persist it
                 # under the same lock before readers can observe completion.

@@ -42,6 +42,11 @@ def _skipped_group_files(config):
     return {name for group in config.getoption("--ci-skip-group") for name in groups[group]["files"]}
 
 
+def _skipped_group_nodes(config):
+    groups = EXCLUSIONS.get("groups", {})
+    return {name for group in config.getoption("--ci-skip-group") for name in groups[group].get("nodes", [])}
+
+
 def pytest_configure(config):
     _skipped.clear()
     if config.getoption("--ci-native") and config.getoption("--ci-basic"):
@@ -85,7 +90,8 @@ def pytest_collection_modifyitems(config, items):
     if missing:
         raise pytest.UsageError(f"Stale CI exclusions: {missing}")
     # Refuse stale node exclusions; renamed tests must update the reviewed manifest.
-    missing_nodes = sorted(node for node in EXCLUSIONS["nodes"] if not _node_exists(node))
+    group_nodes = [node for group in EXCLUSIONS.get("groups", {}).values() for node in group.get("nodes", [])]
+    missing_nodes = sorted(node for node in [*EXCLUSIONS["nodes"], *group_nodes] if not _node_exists(node))
     if missing_nodes:
         raise pytest.UsageError(f"Stale CI node exclusions: {missing_nodes}")
     kept, excluded = [], []
@@ -93,7 +99,7 @@ def pytest_collection_modifyitems(config, items):
         relative = item.path.relative_to(ROOT).as_posix()
         key = relative + "::" + getattr(item, "originalname", item.name)
         (excluded if key in EXCLUSIONS["nodes"] or relative in EXCLUSIONS["files"]
-         or relative in _skipped_group_files(config) else kept).append(item)
+         or relative in _skipped_group_files(config) or key in _skipped_group_nodes(config) else kept).append(item)
     items[:] = kept
     if excluded:
         config.hook.pytest_deselected(items=excluded)

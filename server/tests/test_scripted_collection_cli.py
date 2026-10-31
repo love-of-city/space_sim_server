@@ -52,15 +52,8 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
     }
     seen = []
 
-    class Probe:
-        def __init__(self, model):
-            pass
-
-        def validate(self, model, scene, task):
-            return {"accepted": True}
-
-        def close(self):
-            pass
+    def unexpected_outer_preflight(*_):
+        pytest.fail("Initial-state preflight belongs to the worker, not the collector")
 
     class Renderer:
         def __init__(self, args, output):
@@ -69,6 +62,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
             assert args.cancel_file == expected["--cancel-file"]
             assert output == tmp_path / "batch"
             self.process = SimpleNamespace(pid=123)
+            self.runtime_report_path = output / "runtime-identity.json"
             seen.append("renderer")
 
         def check(self):
@@ -97,7 +91,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
     def settings(path):
         assert path == expected["--recording-config"]
 
-    monkeypatch.setattr("simulation.scripted_tasks.drawer_initialization.NativePoseProbe", Probe)
+    monkeypatch.setattr("simulation.scripted_tasks.drawer_initialization.NativePoseProbe", unexpected_outer_preflight)
     monkeypatch.setattr(collector, "PersistentRenderer", Renderer)
     monkeypatch.setattr(collector, "check_port_available", lambda _: None)
     monkeypatch.setattr(recorder, "recording_settings", settings)

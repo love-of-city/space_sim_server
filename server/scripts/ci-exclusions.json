@@ -75,6 +75,52 @@
         "tests/test_fixed_deployment.py",
         "tests/test_deployment_scripts.py"
       ]
+    },
+    "windows-runtime": {
+      "reason": "PowerShell/Windows launcher and process tests; run on Windows basic CI, explicitly deselected only on Linux. Pure tests in the same files remain selected.",
+      "files": [],
+      "nodes": [
+        "tests/test_collection_platform.py::test_windows_group_cleans_orphan_descendant",
+        "tests/test_local_simulation_launcher.py::test_explicit_python_preserves_model_paths_and_control_port",
+        "tests/test_local_simulation_launcher.py::test_invalid_explicit_python_fails_without_conda_fallback",
+        "tests/test_platform_paths.py::test_dataset_worktree_fails_closed_without_paired_ue",
+        "tests/test_platform_paths.py::test_dataset_worktree_uses_matching_ue_not_main",
+        "tests/test_platform_paths.py::test_discovers_sibling_and_wrapped_checkouts",
+        "tests/test_platform_paths.py::test_empty_adapter_folder_is_not_a_checkout",
+        "tests/test_platform_paths.py::test_explicit_relative_path_overrides_discovery",
+        "tests/test_platform_paths.py::test_invalid_explicit_path_does_not_silently_fall_back",
+        "tests/test_platform_paths.py::test_monorepo_allows_explicit_external_adapter",
+        "tests/test_platform_paths.py::test_monorepo_missing_bundle_never_falls_back_to_external_checkout",
+        "tests/test_platform_paths.py::test_monorepo_prefers_bundled_adapter_over_external_checkout",
+        "tests/test_platform_paths.py::test_prefers_nearest_valid_checkout",
+        "tests/test_posture_runtime.py::test_backend_resolves_worker_before_frontend_build_and_server_start",
+        "tests/test_posture_runtime.py::test_invalid_local_selection_never_silently_falls_back",
+        "tests/test_posture_runtime.py::test_invalid_override_does_not_use_valid_local_selection",
+        "tests/test_posture_runtime.py::test_isolated_preflight_checks_required_mujoco_version",
+        "tests/test_posture_runtime.py::test_local_selection_works_without_inherited_environment",
+        "tests/test_posture_runtime.py::test_platform_validates_worker_before_stopping_existing_services",
+        "tests/test_posture_runtime.py::test_process_override_takes_precedence",
+        "tests/test_posture_runtime.py::test_unconfigured_selection_preserves_existing_behavior",
+        "tests/test_python_runtime.py::test_invalid_environment_never_falls_back",
+        "tests/test_python_runtime.py::test_local_directory_priority",
+        "tests/test_python_runtime.py::test_missing_dependency_never_falls_back",
+        "tests/test_python_runtime.py::test_path_fallback",
+        "tests/test_python_runtime.py::test_selection_priority_and_space_paths",
+        "tests/test_renderer_cache_startup.py::test_launcher_checks_persistent_cache_passes_child_environment_and_hides_window",
+        "tests/test_renderer_cache_startup.py::test_project_keeps_zen_and_makes_installed_graph_local_cache_writable",
+        "tests/test_renderer_capture_build.py::test_capture_launcher_checks_freshness_before_starting_a_process",
+        "tests/test_renderer_capture_build.py::test_capture_requires_a_linked_up_to_date_plugin",
+        "tests/test_scene_process_helpers.py::test_cleanup_does_not_touch_reused_ids_or_older_unrelated_children",
+        "tests/test_scene_process_helpers.py::test_orphan_cleanup_matches_project_game_mode_and_process_identity",
+        "tests/test_scene_process_helpers.py::test_readiness_checks_listener_owner_without_consuming_connection",
+        "tests/test_scene_process_helpers.py::test_real_child_exit_is_detected_and_other_child_is_cleaned",
+        "tests/test_scene_process_helpers.py::test_stop_marks_intent_before_ending_child_processes",
+        "tests/test_scene_process_helpers.py::test_unreadable_start_time_is_not_killed_and_does_not_abort_cleanup",
+        "tests/test_scene_process_helpers.py::test_watches_renderer_and_simulation_and_honors_intentional_stop",
+        "tests/test_video_delivery_config.py::test_deployment_encoder_min_quality_validation",
+        "tests/test_video_delivery_config.py::test_deployment_preview_fps_validation",
+        "tests/test_video_delivery_config.py::test_renderer_arguments_are_valid_and_do_not_start_ue"
+      ]
     }
   }
 }

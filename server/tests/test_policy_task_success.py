@@ -62,17 +62,17 @@ def test_model_geometry_uses_delivered_calibration_and_config():
     assert monitor.status()["lift_threshold_m"] == config.lift_m - config.loaded_position_tolerance_m
 
 
-def test_full_physical_cycle_requires_release_retreat_and_two_seconds_of_simulation():
+def test_full_physical_cycle_requires_release_retreat_and_continuous_confirmation():
     monitor = initialized()
     assert not feed(monitor, 101, opening=1., contacts=(0, 0), hover=True)["success"]
     grasp_and_lift(monitor)
     seat_and_release(monitor)
     assert not feed(monitor, 102, opening=1., contacts=(0, 0))["success"], "closed drawer at handle is not retreat"
-    result = feed(monitor, 100, opening=1., contacts=(0, 0), hover=True)
-    assert result["verification_stable_s"] == pytest.approx(1.98) and not result["success"]
+    result = feed(monitor, 15, opening=1., contacts=(0, 0), hover=True)
+    assert result["verification_stable_s"] == pytest.approx(.28) and not result["success"]
     result = feed(monitor, 1, opening=1., contacts=(0, 0), hover=True)
     assert result["success_available"] and result["success"]
-    assert result["verification_stable_s"] == pytest.approx(2.)
+    assert result["verification_stable_s"] == pytest.approx(.3)
     assert not {"phase", "stage"}.intersection(result)
 
 
@@ -115,11 +115,11 @@ def test_each_final_predicate_is_required_and_breaks_continuous_stability(bad):
     monitor = initialized()
     grasp_and_lift(monitor)
     seat_and_release(monitor)
-    feed(monitor, 100, opening=1., contacts=(0, 0), hover=True)
+    feed(monitor, 15, opening=1., contacts=(0, 0), hover=True)
     values = dict(opening=1., contacts=(0, 0), hover=True)
     values.update(bad)
     assert not feed(monitor, 1, **values)["success"]
-    assert not feed(monitor, 100, opening=1., contacts=(0, 0), hover=True)["success"]
+    assert not feed(monitor, 15, opening=1., contacts=(0, 0), hover=True)["success"]
     assert feed(monitor, 1, opening=1., contacts=(0, 0), hover=True)["success"]
 
 
@@ -136,11 +136,11 @@ def test_duplicate_samples_cannot_credit_wall_time_and_missing_frames_disable_su
     monitor = initialized()
     grasp_and_lift(monitor)
     seat_and_release(monitor)
-    feed(monitor, 50, opening=1., contacts=(0, 0), hover=True)
+    feed(monitor, 10, opening=1., contacts=(0, 0), hover=True)
     same = physical(monitor, monitor.last_time_ns, opening=1., contacts=(0, 0), hover=True)
     for _ in range(200):
         result = monitor.update(same)
-    assert result["verification_stable_s"] == pytest.approx(.98) and not result["success"]
+    assert result["verification_stable_s"] == pytest.approx(.18) and not result["success"]
     result = monitor.update({**same, "sim_time_ns": same["sim_time_ns"] + 1_000_000_000})
     assert not result["success_available"] and "consecutive" in result["success_unavailable_reason"]
 

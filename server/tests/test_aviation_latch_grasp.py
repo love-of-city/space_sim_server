@@ -265,7 +265,7 @@ def test_collection_version_and_historical_stage_validation():
     source = {"randomization": {"arm_joint_position_rad": [0.] * 8}}
     scene = randomized_scene(source, 42, task_name="aviation_plug_insert")
     version = scene["collection_config"]["task_version"]
-    assert version == PlugInsertTask.seated_completion_version
+    assert version == "plug-insert/17-smooth-insertion-gate"
     assert version == make_task("aviation_plug_insert")[0].version
     assert PlugInsertTask.recorded_stages(PlugInsertTask.latch_version) == PlugInsertTask.recorded_stages(version)
     assert "extract" in PlugInsertTask.recorded_stages(version)
@@ -426,10 +426,9 @@ def test_release_waits_for_part_specific_clearance_and_both_fingers(task_name, c
         assert task.stage == "release"
         return
     assert task.stage == "retract"
-    if task.profile.keyed:
-        assert .23 <= moving.joints[6] < task.config.release_open_rad-.1
-    else:
-        assert moving.joints[6] >= task.config.release_open_rad-.002
+    # v16/v17 allow all three connectors to retreat after geometric clearance
+    # while opening continues. Neither finger may retain contact.
+    assert .23 <= moving.joints[6] < task.config.release_open_rad-.1
     assert task._gripper_timing is timing
     before = task.reference.copy()
     elapsed = task._release_opening_s

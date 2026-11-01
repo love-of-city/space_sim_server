@@ -1,5 +1,7 @@
 # 仿真核心架构与扩展约定
 
+> 当前正式脚本的模型加载、`local` + `bsk` 职责、运行参数覆盖、单位/坐标及证据见[物理模型与配置参考](../../docs/reference/physics-model-configuration.md)。本文早期架构说明不能替代当前入口核对。
+
 > 更新：2026-09-14。本文聚焦 BSK/MJScene 核心；整个前端、后端、UE、视频、采集与部署关系见[总体架构文档](SYSTEM_ARCHITECTURE.md)。
 >
 > 本文区分当前 SARM 实际调用路径与通用架构抽象。8/6 关节契约不一致已修复；新姿态链详见[反作用轮与姿态保持](ATTITUDE_CONTROL.md)，其余限制见[当前缺口](SYSTEM_ARCHITECTURE.md#gaps)。

@@ -1,6 +1,8 @@
 # 锁紧杆旋松、放下及复位旋紧采集
 
-任务名为 `locking_rod_cycle`，控制器版本为
+> 本页以 v2 的设计和实验为背景；当前 v4 的完整成功条件及默认参数见[任务与数据验收](../../docs/reference/task-and-data-acceptance.md)。历史结果不授予当前任务或全部随机布局认证。
+
+任务名为 `locking_rod_cycle`，本页记录的历史控制器版本为
 `locking-rod-cycle/2-coaxial-latch`。这项任务操作的是杆端的防脱紧固件
 `fastener`，杆 `locking_rod` 始终绕原有底部铰链摆动，不会从底座中拔出。
 

@@ -1,5 +1,16 @@
 # 项目文档
 
+## 仿真与数据采集任务对齐
+
+- [全流程、阶段交接与变更影响](guides/simulation-data-workflow.md)
+- [物理模型加载、配置、单位与坐标](reference/physics-model-configuration.md)
+- [采集入口、参数优先级、随机种子与录制配置](reference/collection-configuration.md)
+- [任务版本、成功阈值与数据验收标准](reference/task-and-data-acceptance.md)
+- [验证缺口、补齐条件与证据边界](reference/simulation-validation-gaps.md)
+- [每批任务对齐记录模板](templates/collection-task-contract.md)
+
+## 工程与运行
+
 - [目录与产物边界](project-layout.md)
 - [完整项目结构与代码职责](project-map.md)
 - [文件与目录命名规范](naming-conventions.md)
@@ -22,6 +33,6 @@
 - [模型说明](../server/model/README.md)
 - [渲染适配器](../ue-adapter/README.md)
 
-2026-10-31 的工程改进在 `worktrees/ue-engineering-20261031/` 候选工作树验收；三个正式批次 `layout1000-20261029`、`layout1000-20261030-1928`、`layout1000-20261031-0042` 均已停止并保留。独立验证产物写入工作区 `artifacts/verification/ue-engineering-20261031/`，不是正式批次续采。具体目录职责以[项目结构地图](project-map.md)为准。
+2026-10-31 的工程改进已同步到 `src/space-sim/` 主目录，重建 UE/native，并完成主目录独立固定布局五任务录制审核。当时三个旧批次 `layout1000-20261029`、`layout1000-20261030-1928`、`layout1000-20261031-0042` 均已停止并保留；后续新批次单独记录，实时状态以对应 `progress.json` 为准。独立验证产物写入工作区 `artifacts/verification/ue-engineering-20261031/`，不是正式批次续采。具体目录职责以[项目结构地图](project-map.md)为准。
 
 专题正文保留在子项目 docs，避免重复维护。旧试验、原型和历史版本说明只适用于其注明的场景，不能替代当前验收；CI 入口已纳管与远端检查实际通过也是不同状态。

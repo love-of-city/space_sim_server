@@ -1,5 +1,7 @@
 # 轨道物理配置：J2 与逐物体大气阻力
 
+整个模型加载及参数覆盖链见[物理模型与配置参考](../../docs/reference/physics-model-configuration.md)，批次记录方式见[全流程任务对齐](../../docs/guides/simulation-data-workflow.md)。本页聚焦轨道配置；实际批次仍以保存的场景与运行配置为准。
+
 适用版本：2026-10-16，默认 `local` + `bsk` 轨道环境路径。
 
 ## 生效方式与兼容性

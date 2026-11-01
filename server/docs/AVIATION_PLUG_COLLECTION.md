@@ -1,7 +1,9 @@
 # 三类插头连续动作采集
 
+> 当前三类插头已使用 v17，版本、成功阈值与完整审核的覆盖范围见[任务与数据验收](../../docs/reference/task-and-data-acceptance.md)。下文 v15 是历史变更说明；当前入口差异与参数见[采集配置](../../docs/reference/collection-configuration.md)。
+
 `aviation_plug_insert`、`guide_plug_insert` 和 `cylindrical_plug_insert`
-当前共用 `plug-insert/15-seated-completion`，保留直线优先避障和圆柱慢速松爪。
+在本页记录的阶段共用 `plug-insert/15-seated-completion`，保留直线优先避障和圆柱慢速松爪。
 网页自动采集、
 `collection/collect_scripted_tasks.py`、`collection/record_scripted_task.py` 和原生诊断入口共用
 `simulation/scripted_tasks/plug_insert.py`，不需要另外切换采集算法。

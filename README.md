@@ -28,6 +28,7 @@ git lfs pull
 - [Python/Basilisk 环境](server/docs/PYTHON_RUNTIME.md)
 - [采集入口与布局顺序](server/docs/LAYOUT_SEQUENCE_COLLECTION.md)
 - [当前采集功能基线](server/docs/COLLECTION_BASELINE.md)
+- [仿真与采集全流程、参数和验收对齐](docs/guides/simulation-data-workflow.md)
 - [UE 构建与验证](ue-adapter/README.md)
 
 Python 环境必须包含匹配的 Basilisk/MuJoCo API 和原生 ABI；安装项目本身不会安装 UE。使用已有有效解释器安装两个包：
@@ -39,6 +40,6 @@ npm --prefix frontend ci
 npm --prefix signalling ci
 ```
 
-本机源码位于 /home/spacesim-zmh/src/space-sim。2026-10-31 按用户要求以已验收运行版本 `4cac86c` 新建批次 `layout1000-20261031-0042`；此前两个停止批次继续保留。实时进度以批次 `progress.json` 为准，详见[本机维护指南](docs/guides/linux-workspace.md)。
+本机源码位于 /home/spacesim-zmh/src/space-sim。2026-10-31 工程改进已集成并在主目录完成独立五任务录制审核；当时三个旧批次已停止并保留。后续新批次单独记录，实时运行状态以仓库外 `WORKSPACE.md` 和各批次 `progress.json` 为准，详见[本机维护指南](docs/guides/linux-workspace.md)。固定布局独立验收不代表全部布局或训练资格已验证。
 
 源码、测试、当前文档和配置模板进入 Git，交付模型与 UE 资产使用 LFS；数据、环境、运行状态与构建输出位于工作区或 Git 忽略目录。见[目录规范](docs/project-layout.md)。基础 CI 不等于完整 UE/GPU、真实动力学或采集验收。

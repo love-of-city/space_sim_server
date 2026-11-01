@@ -1,6 +1,6 @@
 # SpaceSim 项目结构地图
 
-核查日期：2026-10-31。工程改进已从 `chore/ue-engineering-20261031` 同步到主目录 `src/space-sim/`，并在主目录重新构建 UE/native 与核验来源。正式采集仍停止；改造前源码和运行产物保存在工作区快照中。实际验收与未覆盖范围见[实施报告](/home/spacesim-zmh/reports/ue-engineering-implementation-20261031/REPORT.md)，目录整合不等于所有平台已完成交付认证。
+结构核查日期：2026-10-31。工程改进已从 `chore/ue-engineering-20261031` 同步到主目录 `src/space-sim/`，并在主目录重新构建 UE/native 与核验来源。当时三个旧采集批次已停止；后续新批次及实时运行状态以仓库外 `WORKSPACE.md` 和各批次 `progress.json` 为准。改造前源码和运行产物保存在工作区快照中。实际验收与未覆盖范围见[实施报告](/home/spacesim-zmh/reports/ue-engineering-implementation-20261031/REPORT.md)，目录整合不等于所有平台已完成交付认证。
 
 这份地图按职责维护；本机本次逐文件清单和完整文件树位于 `/home/spacesim-zmh/reports/project-structure-20261031/`。该盘点是时间点快照，后续新增文件以 Git 和实际磁盘为准。
 
@@ -63,7 +63,9 @@ src/space_sim_server/space_sim_UE_Adapter  -> ../space-sim/ue-adapter
 | `CHANGELOG.md` | 可审查的项目变更记录 |
 | `README.md` | 对外项目说明和启动导航 |
 | `docs/architecture/system.md` | 系统架构 |
-| `docs/guides/` | 数据保留、本机运行与维护 |
+| `docs/guides/` | 仿真采集全流程、数据保留、本机运行与维护 |
+| `docs/reference/` | 物理模型与配置、各采集入口参数、任务/数据验收及验证缺口；关键规则链接到实际实现 |
+| `docs/templates/` | 批次任务对齐记录模板；填写后的具体报告放在仓库外 |
 | `docs/project-layout.md` | 路径与 Git/产物归属边界 |
 | `docs/project-map.md` | 本结构地图 |
 | `docs/naming-conventions.md` | 后续文件与目录命名规则 |

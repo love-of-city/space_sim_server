@@ -4,7 +4,9 @@
 
 # 完整抽屉循环与批量采集
 
-当前统一入口通过 `--task drawer_cycle` 选择抽屉完整循环，当前 v5 流程为：settle → approach → grip → lift → return → release → retract → verify。旧的仅提拉任务通过 `--task drawer_lift` 保留。
+> 本页保留任务实现演进和历史实测；当前 v7 的精确成功判据见[任务与数据验收](../../docs/reference/task-and-data-acceptance.md)，参数及运行入口见[采集配置](../../docs/reference/collection-configuration.md)。下文旧版本阈值不覆盖当前规则。
+
+统一入口通过 `--task drawer_cycle` 选择抽屉完整循环，下述 v5 历史流程为：settle → approach → grip → lift → return → release → retract → verify。旧的仅提拉任务通过 `--task drawer_lift` 保留。
 
 - 抽出 8 cm 并确认停稳后直接返回；回程主体速度上限 0.1 m/s，最后 2 cm 降到约 0.012 m/s。最终关闭状态持续验证 2 秒。
 - return 的末段增加 1 mm 的限速目标压入以克服伺服负载偏差，必须小于最终 2 mm 关闭容差；并保留原载荷保护。

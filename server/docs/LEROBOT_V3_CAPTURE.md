@@ -1,5 +1,7 @@
 # LeRobot v3 原生采集链路
 
+> 当前各入口的配置继承、流式编码和数据格式见[采集配置参考](../../docs/reference/collection-configuration.md)，完整检查及其边界见[任务与数据验收](../../docs/reference/task-and-data-acceptance.md)。下文带日期部分保留实现演进，配置示例为局部展示；实际值以配置文件与每条记录为准。
+
 > 2026-09-23：主分支已采用独立 writer、状态/RGB ACK 和有界 I/O；
 > 运行及重启要求见 `REALTIME_CAPTURE_ARCHITECTURE.md`。下面的分支路径是最初实现的历史说明。
 
@@ -29,7 +31,7 @@ Parquet、视频、任务、统计及 episode 索引。没有读取 `steps.jsonl
   "save_raw_camera_images": false,
   "video": {
     "codec": "h264",
-    "streaming_encoding": false,
+    "streaming_encoding": true,
     "encoder_threads": 2,
     "image_writer_threads": 0,
     "encoder_queue_maxsize": 30

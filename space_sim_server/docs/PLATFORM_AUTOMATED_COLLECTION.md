@@ -171,7 +171,7 @@ approach_path.py 提供带平滑收尾的空间曲线；motion_timing.py 除关�
 
 网页批采在 Windows 使用 Job Object；Linux 每路由独立的 subreaper 监督进程启动采集器。采集器退出后，监督进程先回收其遗留后代，再返回原退出码。管理服务被强制结束时，专属管道关闭也会触发回收，无需等待服务重启；自行创建新会话的后代仍在回收范围内。只处理本次创建的后代，不按进程名或全局端口杀进程。重启恢复使用保存的 PID、创建时间和监督类型，保留已验收记录且不自动续采。
 
-Linux 要求内核支持 `PR_SET_CHILD_SUBREAPER`（Linux 3.4 起）；若运行限制拒绝该设置，批次在启动实际采集器前失败。每路增加一个轻量 Python 监督进程，不改变采样、随机化、控制或验收判据。这项保护覆盖网页/API 批采入口；独立 CLI 的进程管理保持其原有范围。
+Linux 要求内核支持 [`PR_SET_CHILD_SUBREAPER`](https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html)（Linux 3.4 起）；若运行限制拒绝该设置，批次在启动实际采集器前失败。每路增加一个轻量 Python 监督进程，不改变采样、随机化、控制或验收判据。这项保护覆盖网页/API 批采入口；独立 CLI 的进程管理保持其原有范围。
 
 `server-linux-processes` CI 在 Ubuntu 的 Python 3.11/3.13 上运行真实进程故障测试，覆盖工作进程退出、SIGTERM/SIGKILL、后端 SIGKILL、脱离会话的子孙进程、并行隔离、PID 身份不匹配及启动失败。该检查不加载 UE/Basilisk，不替代目标 Linux 云机上的网页与完整采集验收。
 

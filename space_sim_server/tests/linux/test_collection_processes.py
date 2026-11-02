@@ -144,6 +144,33 @@ def test_recovery_uses_guard_identity_and_reaps_detached_children(tree):
     group.close()
 
 
+def test_short_lived_orphan_is_reaped_while_worker_keeps_running(tmp_path):
+    script = tmp_path / 'orphan.py'
+    script.write_text(r'''
+import json, subprocess, sys, time
+from pathlib import Path
+import psutil
+folder = Path(sys.argv[1])
+if len(sys.argv) == 2:
+    subprocess.run([sys.executable, __file__, str(folder), 'middle'], check=True)
+    (folder / 'ready').touch()
+    while not (folder / 'finish').exists(): time.sleep(.01)
+    raise SystemExit(7)
+child = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(.3)'], start_new_session=True)
+(folder / 'leaf.json').write_text(json.dumps(dict(pid=child.pid, created=psutil.Process(child.pid).create_time())))
+''')
+    process, group = launch_collector([sys.executable, str(script), str(tmp_path)])
+    try:
+        wait_for(lambda: (tmp_path / 'ready').exists(), 'worker did not orphan its child')
+        leaf = json.loads((tmp_path / 'leaf.json').read_text())
+        assert_tree_reaped([leaf])
+        assert process.poll() is None
+        (tmp_path / 'finish').touch()
+        assert process.wait(timeout=15) == 7
+    finally:
+        group.close()
+
+
 def test_coordinator_sigkill_reaps_tree_without_backend_restart(tmp_path):
     script = tmp_path / 'worker.py'
     script.write_text(TREE)

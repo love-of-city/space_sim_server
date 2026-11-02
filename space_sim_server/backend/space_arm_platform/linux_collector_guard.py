@@ -40,6 +40,18 @@ def reap_exited_children():
             return
 
 
+def reap_orphans(worker_pid):
+    # A long batch may leave short-lived adopted children (e.g. crash reporters).
+    # Reap them while it runs, without stealing the main worker's exit status
+    # from Popen.poll(). Only direct children are waitable here.
+    for child in psutil.Process().children():
+        if child.pid != worker_pid:
+            try:
+                os.waitpid(child.pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
+
+
 def close_descendants():
     owner = psutil.Process()
     deadline = time.monotonic() + 10
@@ -92,6 +104,7 @@ def run(owner_fd, command):
             returncode = process.poll()
             if returncode is not None:
                 return returncode
+            reap_orphans(process.pid)
             ready, _, _ = select.select([owner_fd], [], [], .1)
             if ready and not os.read(owner_fd, 1):
                 stopping = True

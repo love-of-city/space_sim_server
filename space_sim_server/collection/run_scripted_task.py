@@ -34,6 +34,7 @@ from simulation.scripted_tasks.plug_profiles import (
     plug_profile,
 )
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, create_threaded_task, task_default_duration_s
+from simulation.scripted_tasks.floating_capture import FLOATING_TASKS, create_floating_task
 
 
 def default_target_state(model):
@@ -50,6 +51,8 @@ def default_target_state(model):
 
 
 def run(args):
+    if args.task in FLOATING_TASKS and args.substeps is None:
+        args.substeps = 4
     initialization_started = time.perf_counter()
     initialization_seconds = {}
     # Establish the production DLL load order. Never import Python mujoco here.
@@ -130,7 +133,10 @@ def run(args):
         drawer_options["arm_speed_rad_s"] = args.arm_speed
     if args.linear_speed is not None:
         drawer_options["linear_speed_m_s"] = args.linear_speed
-    if args.task in THREADED_TASKS:
+    if args.task in FLOATING_TASKS:
+        task = create_floating_task(args.task, model)
+        config = task.config
+    elif args.task in THREADED_TASKS:
         options = {}
         if args.arm_speed is not None:
             options["arm_speed_rad_s"] = args.arm_speed
@@ -221,18 +227,24 @@ def run(args):
             str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in (Path(__file__), Path(native.__file__),
                          ROOT / "simulation/publication_scene.py",
-                         ROOT / "simulation/local_mujoco_stepper.py")
+                         ROOT / "simulation/local_mujoco_stepper.py",
+                         Path(sys.modules[type(task).__module__].__file__),
+                         ROOT / "simulation/scripted_tasks/native_state.py",
+                         ROOT / "simulation/components/plug_retention.py",
+                         *([ROOT / "simulation/scripted_tasks/floating_initialization.py"]
+                           if args.task in FLOATING_TASKS else []))
         },
     }
     sample = None
     simulation_wall_seconds = 0.0
     loop_started = None
     try:
-        if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task=="drawer_cycle":
+        if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task=="drawer_cycle" or args.task in FLOATING_TASKS:
             from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
             from copy import deepcopy
             from simulation.scripted_tasks.environment_motion import enable
-            enable(task)
+            if args.task not in FLOATING_TASKS:
+                enable(task)
             checked_scene = deepcopy(scene_instance)
             checked_scene.setdefault("randomization", {}).update(arm_joint_position_rad=initial.tolist())
             print(json.dumps({"type":"task_preflight","output":str(output)}),flush=True)
@@ -292,7 +304,8 @@ def run(args):
             ]
         )
         from simulation.components.plug_retention import install_configured_plug_retention
-        plug_retention = install_configured_plug_retention(ctx)
+        plug_retention = install_configured_plug_retention(
+            ctx, released_bodies=(task.asset.body,) if args.task in FLOATING_TASKS else ())
         report["plug_retention"] = (plug_retention.configuration() if plug_retention else {"enabled": False})
         if orbital_physics.drag is not None:
             from simulation.components.drag import configured_drag_components
@@ -343,6 +356,9 @@ def run(args):
             initial,
             orbit.origin,
         )
+        if args.task in FLOATING_TASKS:
+            from simulation.scripted_tasks.floating_initialization import initialize_floating_body
+            initialize_floating_body(scene, report["orbit"], native, scene_instance["collection_config"])
         joints = [scene.getBody(b).getScalarJoint(j) for b, j in profile.joints]
         qadr, dadr = [j.getQposAdr() for j in joints], [j.getQvelAdr() for j in joints]
         sim.ConfigureStopTime(0)
@@ -547,7 +563,7 @@ def main(default_task="drawer_lift", argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS],
         default=default_task,
     )
     parser.add_argument(

@@ -250,3 +250,7 @@ UE启动与动力学初始化存在重叠，不能直接把两者各自墙钟加
 | S17 | [build_identity.py](../../ue-adapter/Adapters/bsk_render_adapter/build_identity.py)：构建manifest与运行报告核验；[motion_options.py](../../server/simulation/scripted_tasks/motion_options.py)提供低层速度参数 |
 
 维护本表时先查实际调用方是否传参，再查参数模型默认，最后对照落盘结果；不要只更新示例JSON或沿用历史实验结论。
+
+## 四项独立操作的选择
+
+`drawer_open`、`drawer_close`、`locking_rod_fold`、`locking_rod_restore` 已接入网页/API、单条、批量、并行及按布局采集；[配置](../../server/config/collection.json)中默认关闭，原五项默认启用任务不变。按布局启用后会增加每轮尝试数量，不能继续使用五任务的总量推算。初态在录制前按方向建立，反向操作不需要前置录像；用法见[单向操作采集](../../server/docs/single-direction-collection.md)，版本与验收见[验收参考](task-and-data-acceptance.md#36-四项单向任务)。

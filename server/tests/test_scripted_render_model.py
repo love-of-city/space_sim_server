@@ -61,6 +61,11 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
         validate_initial=lambda *_: {'accepted': True}, close=lambda: None))
     monkeypatch.setattr('simulation.scripted_tasks.drawer_cycle.DrawerCycleTask', lambda *_: task)
     monkeypatch.setattr('simulation.scripted_tasks.plug_insert.PlugInsertTask', lambda *_: task)
+    # This harness checks model/renderer identity. Geometry preflight has its own
+    # native tests and must not try compiling this deliberately minimal fixture.
+    monkeypatch.setattr('simulation.scripted_tasks.environment_motion.enable', lambda _: None)
+    monkeypatch.setattr('simulation.scripted_tasks.drawer_initialization.NativePoseProbe',
+                        lambda _: SimpleNamespace(validate=lambda *_, **__: {"accepted": True}, close=lambda: None))
     monkeypatch.setattr('simulation.sarm_model_profile.load_model_profile', lambda _: SimpleNamespace(
         joints=[], joint_names=['joint']*6, arm_actuators=[]))
     stepper = SimpleNamespace(publish_every=1, close=lambda: None, model_compilation={})

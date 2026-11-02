@@ -12,6 +12,13 @@
 | 4 | `cylindrical_plug_insert` 圆柱插头拔取插入 | 是 |
 | 5 | `locking_rod_cycle` 锁杆松开、折叠、复位、锁紧 | 是 |
 | 6 | `aviation_bolt_insert` 航空螺栓旋出装配 | 否 |
+| 7 | `drawer_open` 抽屉拉起 | 否 |
+| 8 | `drawer_close` 抽屉放回 | 否 |
+| 9 | `locking_rod_fold` 锁杆装置放倒 | 否 |
+| 10 | `locking_rod_restore` 锁杆装置复位 | 否 |
+
+四项[单向任务](single-direction-collection.md)可独立启用，默认保留原五任务批次。`drawer_close` 在任务开始前初始化为约 8 cm 打开，`locking_rod_restore` 初始化为放倒入卡扣且紧固件松开的物理初态；无需先录前置任务，也不在录制中跳变物体状态。语言、阶段和验收按所选方向记录。
+
 
 每遍将池内布局洗牌、不重复遍历；当前配置 `layout_cycles: 1000` 表示总共 **1000个布局轮次 × 5种任务 = 5000次尝试**，即150套遍历6遍后再取100套。此参数存在时取代 `passes` 的总量设置；设为null时恢复按passes遍历，`--layouts`显式短批参数也关闭总轮次设置。成功数取决于实际结果。每个布局轮次初始化一次七孔颜色、源件颜色和五个固定机位中的一个，随后依序执行启用任务。孔颜色不重复；颜色不改变实际孔件对应关系。每条重新采样六关节相对基准的 ±30° 初态，恢复全部物体、关节速度和控制器状态。任务指令依照当条真实颜色生成英语，保留既有模板选择功能。
 
@@ -94,7 +101,7 @@ UE 跨任务、跨布局复用；动力学进程复用导入和原生库，并�
 | `collection/record_scripted_task.py` | 正式单条双相机录制 |
 | `collection/run_scripted_task.py` | 权威动力学与单任务诊断 |
 | `collection/collect_parallel.py`、`config/collection-parallel.json` | 保留的隔离多进程采集模式 |
-| `simulation/scripted_tasks/` | 六种任务控制逻辑 |
+| `simulation/scripted_tasks/` | 十种任务控制逻辑 |
 | `simulation/model_preparation/` | 螺纹、锁杆等物理模型准备函数 |
 | `tools/assets/` | 模型生成、布局池准备及UE资产导入 |
 | `tools/diagnostics/` | 检查、预览与独立验收工具 |

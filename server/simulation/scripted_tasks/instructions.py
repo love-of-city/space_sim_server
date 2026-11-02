@@ -10,7 +10,8 @@ BANK_SCHEMA = "task-instructions/1"
 SELECTION_SCHEMA = "task-instruction-selection/1"
 STREAM = "task-instruction-v1"
 TASKS = ("drawer_cycle", "aviation_plug_insert", "guide_plug_insert",
-         "cylindrical_plug_insert", "aviation_bolt_insert", "locking_rod_cycle")
+         "cylindrical_plug_insert", "aviation_bolt_insert", "locking_rod_cycle",
+         "drawer_open", "drawer_close", "locking_rod_fold", "locking_rod_restore")
 COLOR_TASKS = frozenset(TASKS[1:5])
 
 

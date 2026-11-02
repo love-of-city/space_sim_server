@@ -299,4 +299,7 @@ python tools/collect.py --output /absolute/new-smoke-batch --layouts 2
 
 详细流程、目录职责、输出分组及断点续采见[按布局顺序采集](docs/LAYOUT_SEQUENCE_COLLECTION.md)。实际采集实现统一放在 `collection/`；模型生成、检查、测速和部署辅助分别放在 `tools/` 的子目录。网页/API继续使用内部单任务批采入口。
 
-六种任务各20条英文指令模板见[采集英文指令模板](docs/TASK_INSTRUCTIONS.md)。
+十种任务各20条英文指令模板见[采集英文指令模板](docs/TASK_INSTRUCTIONS.md)。
+
+
+抽屉拉起（`drawer_open`）、抽屉放回（`drawer_close`）、锁杆放倒（`locking_rod_fold`）和锁杆复位（`locking_rod_restore`）也可独立采集，保留完整往返任务。网页任务列表和各命令行 `--task` 均支持这四项，布局序列配置默认将它们关闭；使用方法及对应初态见[单向操作采集](docs/single-direction-collection.md)。

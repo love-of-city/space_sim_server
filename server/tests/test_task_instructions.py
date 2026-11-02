@@ -42,7 +42,7 @@ def test_all_twenty_variants_reach_recording_with_actual_colours(task):
             noun = "hole" if source == "bolt" else "socket"
             assert f"{assignment['hole_colors'][target]} {noun}" in prompt
             assert cfg["color_randomization"]["prompt_instruction"] == prompt
-        elif task == "drawer_cycle":
+        elif task.startswith("drawer_"):
             assert "8 cm" in prompt and "drawer" in prompt
         else:
             assert "fastener" in prompt and "clip" in prompt and "rod" in prompt

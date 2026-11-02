@@ -1,8 +1,8 @@
 # 采集英文指令模板
 
-六种正式任务各 20 条模板，共 120 条。编辑 `config/task-instructions.json` 修改句子。每条尝试用独立 `task-instruction-v1` 随机流均匀、有放回地选择一句，因此连续两条可能选择同一模板。模板同时包含简短和详细表述，目标动作保持一致。
+十种正式任务各 20 条模板，共 200 条。编辑 `config/task-instructions.json` 修改句子。每条尝试用独立 `task-instruction-v1` 随机流均匀、有放回地选择一句，因此连续两条可能选择同一模板。模板同时包含简短和详细表述，目标动作保持一致。
 
-插头/螺栓模板中的 `{source_color}` 和 `{target_color}` 使用本条实际源件及目标孔配色。颜色不改变任务物理对应关系。抽屉模板保留约 8 cm 开合目标，锁杆模板保留松开、放倒入卡扣、扶起、重新拧紧顺序。
+插头/螺栓模板中的 `{source_color}` 和 `{target_color}` 使用本条实际源件及目标孔配色。颜色不改变任务物理对应关系。抽屉模板保留约 8 cm 开合目标，完整锁杆任务保留松开、放倒入卡扣、扶起、重新拧紧顺序。四个单向任务只描述所需的方向与对应初态，不把反向动作写入指令；既有六种任务的模板与随机流不变。
 
 选择保存于 `collection_config.instruction_randomization`：种子、模板编号、实际模板、SHA256、最终 instruction；录制任务元数据同步保存该记录。重复准备和回放复用所存模板，新批次逐次重新选择；改变模板库后需重启采集进程。新增随机流不会改变布局、关节、机位、配色的随机结果。
 
@@ -145,3 +145,95 @@
 18. Grasp the locking rod's fastener and loosen it, then lower the rod into the clip and release it. Grasp the rod again, raise it upright, retighten the fastener, and let go.
 19. Loosen the fastener so the locking rod can fold into its clip. Release the folded rod, grasp it again, return it to its upright position, and tighten the fastener before releasing it.
 20. Approach the locking rod and loosen its fastener, fold the rod into its clip, and release it. Grasp the rod again, raise it to its original position, tighten the fastener, then release it and move the gripper clear.
+
+## 抽屉拉起 · `drawer_open`
+
+1. Open the drawer about 8 cm and release it.
+2. Pull the drawer open approximately 8 cm and let go.
+3. Lift the drawer about 8 cm and leave it open.
+4. Extend the drawer approximately 8 cm, then release your grip.
+5. Pull out the drawer roughly 8 cm and leave it there.
+6. Raise the drawer about 8 cm, then release it.
+7. Open the closed drawer approximately 8 cm and let go.
+8. Grasp the drawer and pull it open about 8 cm.
+9. Move the drawer out about 8 cm and release it.
+10. Open the drawer to approximately 8 cm and move clear.
+11. Grasp the closed drawer, open it about 8 cm, then release it.
+12. Take hold of the drawer and lift it approximately 8 cm. Leave it open.
+13. Pull the drawer out roughly 8 cm, release your grip, and withdraw the gripper.
+14. Approach the drawer, grasp its handle, and open it approximately 8 cm before letting go.
+15. Use the gripper to release the drawer latch and open the drawer about 8 cm. Let go afterward.
+16. Grasp the handle of the closed drawer and pull it open approximately 8 cm. Release it and move away.
+17. Open the drawer by about 8 cm while holding its handle, then release the handle and withdraw the gripper.
+18. Take hold of the closed drawer, release its latch, and lift it about 8 cm. Leave the drawer open and move clear.
+19. Approach and grasp the drawer handle, pull the drawer open approximately 8 cm, then release it and move the gripper clear.
+20. With the drawer initially closed, grasp its handle, release the latch, and open it by about 8 cm. Let go and withdraw the gripper.
+
+## 抽屉放回 · `drawer_close`
+
+1. Close the drawer from its 8 cm open position and release it.
+2. Push the drawer, initially open about 8 cm, fully closed.
+3. Return the drawer from about 8 cm open to fully closed.
+4. Close the drawer that is open approximately 8 cm and let go.
+5. Lower the drawer from its 8 cm open position and latch it.
+6. Push the 8 cm open drawer fully back and release it.
+7. Grasp the drawer opened about 8 cm and close it fully.
+8. Shut the drawer from approximately 8 cm open and release your grip.
+9. Return the drawer opened about 8 cm to its closed position.
+10. Close and latch the drawer from about 8 cm open, then release it.
+11. Grasp the drawer, initially open about 8 cm, and guide it fully closed before letting go.
+12. Take hold of the drawer that is open about 8 cm, return it fully, and release it.
+13. Push the drawer from its approximately 8 cm open position until fully closed, then withdraw the gripper.
+14. Approach the drawer opened about 8 cm, grasp its handle, and return it to the closed position.
+15. Use the gripper to close the drawer from about 8 cm open. Make sure it is latched before releasing it.
+16. Grasp the handle of the drawer that is open approximately 8 cm, guide it fully closed, then release and move clear.
+17. Return the drawer from its 8 cm open position to fully closed while holding its handle, then release the handle and withdraw.
+18. Take hold of the drawer initially open about 8 cm, lower it until closed and latched, then let go and move away.
+19. Approach and grasp the drawer handle while the drawer is open approximately 8 cm. Guide it fully closed, release it, and withdraw.
+20. With the drawer initially open about 8 cm, grasp its handle and return it fully to its closed position. Engage the latch, let go, and move clear.
+
+## 锁杆装置放倒 · `locking_rod_fold`
+
+1. Loosen the fastener and fold the locking rod into its clip.
+2. Fold the locking rod into its clip after loosening the fastener.
+3. Loosen the locking rod fastener, then lower the rod into its clip.
+4. Unscrew the fastener enough to fold the locking rod into its clip.
+5. Release the locking rod fastener and fold the rod into its clip.
+6. Loosen the fastener, fold the locking rod into the clip, and let go.
+7. Lower the locking rod into its clip after releasing its fastener.
+8. Grasp the fastener, loosen it, and fold the locking rod into its clip.
+9. Loosen the locking rod fastener and place the rod in its retaining clip.
+10. Fold down the locking rod into its clip once its fastener is loose.
+11. Grasp and loosen the locking rod fastener, then lower the rod into its clip and release it.
+12. Take hold of the locking rod fastener and loosen it. Fold the rod into its clip and let go.
+13. Loosen the fastener holding the locking rod upright, lower the rod into its clip, then withdraw the gripper.
+14. Approach the locking rod, engage its fastener with the gripper, and loosen it before folding the rod into its clip.
+15. Use the gripper to loosen the locking rod fastener, then guide the rod downward until it sits in its clip.
+16. Grasp the locking rod fastener and loosen it fully enough to release the rod. Fold the rod into its clip, then let go.
+17. With the locking rod initially upright, loosen its fastener and lower the rod into its retaining clip. Release it and move clear.
+18. Approach and grasp the locking rod fastener, rotate it loose, then fold the rod down into the clip before opening and withdrawing the gripper.
+19. Loosen the fastener securing the upright locking rod, regrasp for folding, and guide the rod into its clip. Leave it folded and move the gripper away.
+20. With the locking rod upright and secured, grasp and loosen the fastener, fold the rod into its retaining clip, then release the rod and withdraw the gripper.
+
+## 锁杆装置复位 · `locking_rod_restore`
+
+1. Raise the locking rod from its clip and tighten the fastener.
+2. Restore the locking rod from its clip and secure its fastener.
+3. Lift the locking rod from the clip, then tighten its fastener.
+4. Return the locking rod upright from its clip and tighten the fastener.
+5. Raise the folded locking rod out of its clip and secure the fastener.
+6. Take the locking rod out of its clip and tighten its fastener upright.
+7. Lift the locking rod from its clip and lock it with the fastener.
+8. Grasp the locking rod in its clip, raise it, and tighten its fastener.
+9. Restore the locking rod upright from the clip, tightening its fastener.
+10. Raise the locking rod from the clip, tighten the fastener, and release it.
+11. Grasp the folded locking rod, lift it out of its clip, and tighten the fastener once upright.
+12. Take hold of the locking rod resting in its clip. Raise the rod and secure it by tightening the fastener.
+13. Lift the locking rod from its retaining clip, guide it back upright, tighten the fastener, and withdraw the gripper.
+14. Approach the folded locking rod, grasp it in the clip, and raise it upright before tightening its fastener.
+15. Use the gripper to free the locking rod from its clip, raise it to its upright position, and tighten the fastener.
+16. Grasp the locking rod resting in its clip, lift it upright, then engage and tighten the fastener before releasing it.
+17. With the locking rod initially folded into its clip, raise it back upright and tighten its fastener. Release it and move clear.
+18. Approach and grasp the locking rod in its clip, raise it to its original upright position, tighten the fastener, then open and withdraw the gripper.
+19. Remove the folded locking rod from its clip, guide it upright, and regrasp its fastener to tighten it. Leave the rod secured and move away.
+20. With the locking rod folded into its retaining clip, grasp and raise it upright, align the fastener, tighten it securely, then release and withdraw the gripper.

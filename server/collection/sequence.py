@@ -25,7 +25,8 @@ from simulation.scripted_tasks.randomization import generator
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
 
 TaskName = Literal['drawer_cycle', 'aviation_plug_insert', 'guide_plug_insert',
-                   'cylindrical_plug_insert', 'locking_rod_cycle', 'aviation_bolt_insert']
+                   'cylindrical_plug_insert', 'locking_rod_cycle', 'aviation_bolt_insert',
+                   'drawer_open', 'drawer_close', 'locking_rod_fold', 'locking_rod_restore']
 TASK_NAMES = tuple(TaskName.__args__)
 ORDER_STREAM = 'layout-sequence-without-replacement-v1'
 TERMINAL = {'accepted', 'pending_audit', 'skipped', 'interrupted'}
@@ -43,7 +44,7 @@ class SequenceConfig(BaseModel):
     layout_pool: str
     scene: str | None = None
     tasks: list[TaskConfig] = Field(default_factory=lambda: [
-        TaskConfig(name=name, enabled=name != 'aviation_bolt_insert') for name in TASK_NAMES])
+        TaskConfig(name=name, enabled=name != 'aviation_bolt_insert') for name in TASK_NAMES[:6]])
     passes: int = Field(default=1, ge=1, le=1000)
     layout_cycles: int | None = Field(default=None, ge=1, le=1000000)
     layouts_per_pass: int | None = Field(default=None, ge=1, le=1000)

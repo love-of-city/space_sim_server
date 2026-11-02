@@ -21,6 +21,7 @@ COLOR_RANDOMIZATION_TASKS = frozenset({
 # same appearance mapping. Only plug/bolt tasks put colour words in the prompt.
 COLOR_APPEARANCE_TASKS = COLOR_RANDOMIZATION_TASKS | frozenset({
     "drawer_cycle", "drawer_lift", "locking_rod_cycle",
+    "drawer_open", "drawer_close", "locking_rod_fold", "locking_rod_restore",
 })
 
 
@@ -266,7 +267,9 @@ def write_model_variant(source, output, scene):
     source = Path(source).resolve()
     dynamics_enabled = options_for_scene(scene).dynamics.enabled
     task = scene.get('scripted_task_name', scene.get('collection_config', {}).get('task'))
-    threaded_task = task in {'aviation_bolt_insert', 'locking_rod_cycle'}
+    from .threaded_tasks import THREADED_TASKS, LOCKING_ROD_TASKS
+    threaded_task = task in THREADED_TASKS
+    directional_drawer = task in {'drawer_open', 'drawer_close'}
     config = scene.setdefault("collection_config", {})
     # Keep the canonical episode assignment separate from the prompt/palette
     # metadata wrapper. The MJCF applier records the assignment schema, while
@@ -299,6 +302,8 @@ def write_model_variant(source, output, scene):
             )
     tree = probe_tree if probe_tree is not None else ET.parse(source)
     root = tree.getroot()
+    reset_drawer = (task in {'drawer_cycle', 'drawer_lift'} and
+                    root.find('./custom/numeric[@name="scripted_drawer_initial_state"]') is not None)
     # Physical storage retention belongs to the platform, even when another
     # object is the task target. Use this same preparation for preflight and
     # recording; a source layout predating the liner is never run unchanged.
@@ -310,7 +315,7 @@ def write_model_variant(source, output, scene):
             schema='collection-model-physics/1', source_model=str(source),
             source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
             bolt_storage_thread=storage_thread)
-    if not dynamics_enabled and not threaded_task and not visual_color and not physics_upgraded:
+    if not dynamics_enabled and not threaded_task and not directional_drawer and not reset_drawer and not visual_color and not physics_upgraded:
         return source
     realized = scene.get("collection_config", {}).get("realized_randomization", {})
     mass, friction = (realized["mass_scale"], realized["friction_scale"]) if dynamics_enabled else (1., 1.)
@@ -326,9 +331,14 @@ def write_model_variant(source, output, scene):
             "assignment_schema", color_config.get("schema")
         )
         appearance = apply_socket_colors(root, appearance_assignment)
-    if task == 'locking_rod_cycle':
-        from simulation.model_preparation.threaded_task_initialization import apply_locking_cycle_initial_state
-        initialization['locking_rod'] = apply_locking_cycle_initial_state(root)
+    if task in LOCKING_ROD_TASKS:
+        from simulation.model_preparation.threaded_task_initialization import apply_locking_task_initial_state
+        initialization['locking_rod'] = apply_locking_task_initial_state(root, task)
+    if directional_drawer or reset_drawer:
+        from simulation.model_preparation.drawer_task_initialization import prepare_drawer_initial_state
+        initialization['drawer'] = prepare_drawer_initial_state(
+            root, 'drawer_cycle' if task == 'drawer_lift' else task,
+            open_height_m=config.get('drawer_initial_opening_m', 0.08))
     if root.find(".//include") is not None:
         raise ValueError(
             "Dynamics randomization currently requires a standalone MJCF (no include)"
@@ -403,7 +413,7 @@ def write_model_variant(source, output, scene):
     output.parent.mkdir(parents=True, exist_ok=True)
     tree.write(output, encoding="utf-8", xml_declaration=True)
     settings = source.with_name("attitude_control.json")
-    if settings.is_file():
+    if settings.is_file() and settings.resolve() != output.with_name("attitude_control.json").resolve():
         from shutil import copyfile
 
         copyfile(settings, output.with_name("attitude_control.json"))
@@ -413,6 +423,7 @@ def write_model_variant(source, output, scene):
         mass_scale=mass,
         friction_scale=friction,
         scope=("all_bodies_and_contact_geoms" if (dynamics_enabled or threaded_task)
+               else "task_initial_state_and_appearance" if directional_drawer or reset_drawer
                else "appearance_and_storage_thread_upgrade" if visual_color and physics_upgraded
                else "storage_thread_upgrade" if physics_upgraded
                else "appearance_only_existing_visible_geoms"),

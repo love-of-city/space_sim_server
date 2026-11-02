@@ -33,7 +33,7 @@ async function setup(){
   const page=context.createCollectionPage({querySelectorAll:()=>[]},{api:async(path,options)=>{
     if(options){requests.push({path,options});return {};}
     if(path==='/api/collections/catalog')return {
-      tasks:['drawer_cycle','aviation_bolt_insert','locking_rod_cycle','aviation_plug_insert']
+      tasks:['drawer_cycle','drawer_open','drawer_close','aviation_bolt_insert','locking_rod_cycle','locking_rod_fold','locking_rod_restore','aviation_plug_insert']
         .map(id=>({id,label:id})),
       randomization_options:[],rates:{},cameras:{},baseline_joint_deg:[],max_workers:4,
     };
@@ -48,6 +48,8 @@ test('threaded speed control follows the selected task and never affects drawer 
   for(const [task,threaded,drawer] of [
     ['aviation_bolt_insert',true,false],['locking_rod_cycle',true,false],
     ['aviation_plug_insert',false,false],['drawer_cycle',false,true],
+    ['drawer_open',false,true],['drawer_close',false,true],
+    ['locking_rod_fold',true,false],['locking_rod_restore',true,false],
   ]){
     h.$('task').value=task;h.$('task').onchange();
     assert.equal(h.$('threaded-speed-field').hidden,!threaded);
@@ -63,6 +65,8 @@ test('submission preserves either threaded profile and drops stale values after 
     ['locking_rod_cycle','default','default'],
     ['aviation_plug_insert','default',undefined],
     ['drawer_cycle','fast_collection',undefined],
+    ['drawer_open','fast_collection',undefined],['drawer_close','default',undefined],
+    ['locking_rod_fold','default','default'],['locking_rod_restore','fast_collection','fast_collection'],
   ]){
     h.$('task').value=task;h.$('threaded-speed-profile').value=profile;
     h.$('task').onchange();

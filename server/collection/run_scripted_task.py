@@ -34,6 +34,7 @@ from simulation.scripted_tasks.plug_profiles import (
     is_plug_task,
     plug_profile,
 )
+from simulation.scripted_tasks.drawer_tasks import DRAWER_TASKS
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, create_threaded_task, task_default_duration_s
 
 
@@ -98,6 +99,8 @@ def run(args, *, graph_cache=None):
     scene_instance = json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
     scene_instance["scripted_task_name"] = args.task
     scene_instance.setdefault("collection_config", {})["task"] = args.task
+    if args.task == "drawer_close":
+        scene_instance["collection_config"]["drawer_initial_opening_m"] = args.lift_m
     if args.task in THREADED_TASKS:
         scene_instance["collection_config"]["threaded_speed_profile"] = args.threaded_speed_profile
     prepare_episode(scene_instance)
@@ -156,14 +159,11 @@ def run(args, *, graph_cache=None):
             force_limit_n=min(args.force_limit, 40.0),
         )
         task = PlugInsertTask(model, config)
-    elif args.task == "drawer_cycle":
-        from simulation.scripted_tasks.drawer_cycle import (
-            DrawerCycleTask,
-            DrawerCycleConfig,
-        )
+    elif args.task in DRAWER_TASKS:
+        from simulation.scripted_tasks.drawer_tasks import create_drawer_task
 
-        config = DrawerCycleConfig(**drawer_options)
-        task = DrawerCycleTask(model, config)
+        task = create_drawer_task(args.task, model, **drawer_options)
+        config = task.config
     else:
         config = DrawerLiftConfig(**drawer_options)
         task = DrawerLiftTask(model, config)
@@ -181,7 +181,7 @@ def run(args, *, graph_cache=None):
             "Initial arm angles must be finite and inside model joint limits"
         )
     command, velocity = initial.copy(), np.zeros(8)
-    if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task == "drawer_cycle":
+    if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS:
         scene_instance.setdefault("collection_config", {})["environment_planning"] = {
             "schema": "native-environment-motion/2",
             "enabled": True,
@@ -236,7 +236,7 @@ def run(args, *, graph_cache=None):
     simulation_wall_seconds = 0.0
     loop_started = None
     try:
-        if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task=="drawer_cycle":
+        if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS:
             phase_started = time.perf_counter()
             from copy import deepcopy
             from simulation.scripted_tasks.environment_motion import enable
@@ -623,7 +623,7 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
+        choices=["drawer_lift", *DRAWER_TASKS, "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
         default=default_task,
     )
     parser.add_argument(

@@ -50,7 +50,11 @@ const stageNames = {
   retract: "撤离",
   verify: "停稳检查",
 };
-const taskName = (r) =>
+const splitTaskLabels = {
+  drawer_open: "抽屉拉起", drawer_close: "抽屉放回",
+  locking_rod_fold: "锁杆装置放倒", locking_rod_restore: "锁杆装置复位",
+};
+const taskName = (r) => splitTaskLabels[(r.task || "").split(":")[0]] || (
   /drawer_cycle/.test(r.task || "")
     ? "抽屉取出与放回"
     : /plug_insert/.test(r.task || "")
@@ -59,7 +63,7 @@ const taskName = (r) =>
       ? "抽屉提拉任务"
       : r.task === "spacecraft arm teleoperation"
         ? "遥操作采集"
-        : r.task || "遥操作采集";
+        : r.task || "遥操作采集");
 const outcomeName = (s) =>
   ({ success: "成功", failure: "失败", aborted: "已中止", unknown: "未标记" })[
     s

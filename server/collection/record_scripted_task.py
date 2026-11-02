@@ -54,6 +54,7 @@ from simulation.scripted_tasks.plug_profiles import (
     is_plug_task,
     plug_profile,
 )
+from simulation.scripted_tasks.drawer_tasks import DRAWER_TASKS
 from simulation.scripted_tasks.threaded_tasks import (
     THREADED_INSTRUCTIONS,
     THREADED_TASKS,
@@ -233,6 +234,9 @@ def task_instruction(scene, task, target_site):
         "drawer" if scene.get("task_box_layout", {}).get("schema")
         in ("task-box-layout/2", "task-box-layout/3") else "rightmost drawer"
     )
+    if task in ("drawer_open", "drawer_close"):
+        from simulation.scripted_tasks.drawer_tasks import DRAWER_INSTRUCTIONS
+        return DRAWER_INSTRUCTIONS[task]
     if task == "drawer_cycle":
         return (
             f"Open the {drawer_location} approximately 8 cm, then close it fully and release it."
@@ -731,7 +735,7 @@ def main(default_task="drawer_cycle"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
+        choices=["drawer_lift", *DRAWER_TASKS, "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
         default=default_task,
     )
     parser.add_argument("--target-site", default=None)

@@ -426,3 +426,9 @@ NullRHI Automation、packaged 资源加载、GPU 图像、五任务完整录制�
 | `.mp4` / `.parquet` / `.jsonl` | 录制视频、状态动作、腕力和日志 | 批次或独立验证目录 |
 
 命名与后续新增文件要求见 [命名规范](naming-conventions.md)。当前已有重复通用文件名、日期模型目录、大小写不一致和历史原型；按职责可区分，不等于已完成所有命名迁移。进一步移动或退役应在冻结当前采集依赖后单独实施。
+
+### 独立操作任务
+
+`server/simulation/scripted_tasks/drawer_tasks.py` 注册抽屉完整循环及拉起/放回；`threaded_tasks.py` 注册航空螺栓、锁杆完整循环及放倒/复位。
+`server/simulation/model_preparation/drawer_task_initialization.py` 与 `threaded_task_initialization.py` 在录制前建立对应机构初态。
+四项入口与默认启用规则见[单向操作采集](../server/docs/single-direction-collection.md)，所有十项的验收见[任务与数据验收](reference/task-and-data-acceptance.md)。

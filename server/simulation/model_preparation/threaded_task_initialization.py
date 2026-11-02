@@ -1,8 +1,8 @@
-"""Legal episode-only MJCF initial state for the hinged locking-rod cycle.
+"""Legal episode-only MJCF initial states for hinged locking-rod skills.
 
 Joint reference coordinates and matching body rest transforms express the
-closed state in qpos0. No simulation state, actuator or equality is overwritten.
-Other tasks retain the delivered loose state and original hinge limits.
+closed or folded state in qpos0. No simulation state, actuator or equality is
+overwritten. Other tasks retain their original mechanism initial state.
 """
 
 import sys as _sys
@@ -19,9 +19,94 @@ from simulation.model_preparation.captive_fastener import LEAD, quaternion_produ
 LOCKED_TRAVEL_M = .00479054  # ~1-um first seating contact, without a large preload impulse
 LOCKING_ROD_HINGE_RANGE_RAD = (-1.75, .15)
 MARKER = 'scripted_locking_cycle_initial_state'
+FOLDED_MARKER = 'scripted_locking_folded_initial_state'
+FOLDED_HINGE_RAD = -1.53
+
+
+def _set_hinge_rest(body, joint, target):
+    """Change qpos0 while preserving the pose at every absolute coordinate."""
+    previous = float(joint.get('ref', '0'))
+    axis = np.fromstring(joint.get('axis', '0 0 1'), sep=' ')
+    axis /= np.linalg.norm(axis)
+    pivot = np.fromstring(joint.get('pos', '0 0 0'), sep=' ')
+    half_angle = (target-previous)/2
+    delta = np.r_[math.cos(half_angle), axis*math.sin(half_angle)]
+    quat = np.fromstring(body.get('quat', '1 0 0 0'), sep=' ')
+    position = np.fromstring(body.get('pos', '0 0 0'), sep=' ')
+    position += rotation(quat) @ (pivot-rotation(delta) @ pivot)
+    quat = quaternion_product(quat, delta)
+    body.set('pos', ' '.join(format(float(v), '.17g') for v in position))
+    body.set('quat', ' '.join(format(float(v), '.17g') for v in quat))
+    joint.set('ref', format(target, '.17g'))
+
+
+def _validate_folded_marker(root):
+    marker = root.find(f'./custom/numeric[@name="{FOLDED_MARKER}"]')
+    if marker is None:
+        return None
+    rod = root.find('.//body[@name="locking_rod"]')
+    nut = None if rod is None else rod.find('body[@name="fastener"]')
+    joints = [root.find(f'.//joint[@name="{name}"]') for name in
+              ('locking_rod_hinge', 'fastener_slide', 'fastener_spin')]
+    if nut is None or any(joint is None for joint in joints):
+        raise ValueError('Folded initial-state marker has no captive mechanism')
+    refs = [float(joint.get('ref', '0')) for joint in joints]
+    data = np.fromstring(marker.get('data', ''), sep=' ')
+    expected = [FOLDED_HINGE_RAD, 0., 0., LOCKED_TRAVEL_M,
+                LOCKED_TRAVEL_M*2*math.pi/LEAD]
+    if (data.shape != (5,) or not np.allclose(data, expected, atol=1e-12, rtol=0)
+            or not np.allclose(refs, expected[:3], atol=1e-12, rtol=0)):
+        raise ValueError('Folded initial-state marker disagrees with joint references')
+    return marker
+
+
+def apply_locking_task_initial_state(root, task='locking_rod_cycle'):
+    """Encode the selected skill's physical start before native model creation.
+
+    A restore episode begins loose and inside the real snap clip. Its hinge
+    reference and matching body transform describe the same mechanism as the
+    upright episode; no action demonstration or runtime state write is needed.
+    """
+    if task in ('locking_rod_cycle', 'locking_rod_fold'):
+        return apply_locking_cycle_initial_state(root)
+    if task != 'locking_rod_restore':
+        raise ValueError(f'Unsupported locking rod initial state: {task}')
+    marker = _validate_folded_marker(root)
+    if marker is None:
+        apply_locking_cycle_initial_state(root)
+        rod = root.find('.//body[@name="locking_rod"]')
+        nut = rod.find('body[@name="fastener"]')
+        slide = nut.find('joint[@name="fastener_slide"]')
+        spin = nut.find('joint[@name="fastener_spin"]')
+        quat = np.fromstring(nut.get('quat', '1 0 0 0'), sep=' ')
+        position = np.fromstring(nut.get('pos', '0 0 0'), sep=' ')
+        position -= rotation(quat)[:, 2]*float(slide.get('ref'))
+        nut.set('pos', ' '.join(format(float(v), '.17g') for v in position))
+        slide.set('ref', '0')
+        _set_hinge_rest(nut, spin, 0.)
+        _set_hinge_rest(rod, rod.find('joint[@name="locking_rod_hinge"]'), FOLDED_HINGE_RAD)
+        custom = root.find('custom')
+        custom.remove(custom.find(f'numeric[@name="{MARKER}"]'))
+        ET.SubElement(custom, 'numeric', name=FOLDED_MARKER, data=' '.join(
+            format(v, '.17g') for v in (FOLDED_HINGE_RAD, 0., 0., LOCKED_TRAVEL_M,
+                                       LOCKED_TRAVEL_M*2*math.pi/LEAD)))
+    from simulation.model_preparation.locking_cycle_contacts import apply_locking_cycle_contacts
+    return {'model': 'captive', 'initial_state': 'folded_in_clip',
+            'hinge_rad': FOLDED_HINGE_RAD, 'slide_m': 0., 'spin_rad': 0.,
+            'hinge_range_rad': list(LOCKING_ROD_HINGE_RANGE_RAD),
+            'source': ('existing_episode_initial_state' if marker is not None
+                       else 'MJCF_joint_ref_and_matching_rest_transform'),
+            'runtime_state_writes': False,
+            'physical_contacts': apply_locking_cycle_contacts(root),
+            'calibration': 'nominal folded endpoint; runtime must confirm real clip retention'}
 
 
 def apply_locking_cycle_initial_state(root):
+    folded = _validate_folded_marker(root)
+    if folded is not None:
+        rod = root.find('.//body[@name="locking_rod"]')
+        _set_hinge_rest(rod, rod.find('joint[@name="locking_rod_hinge"]'), 0.)
+        root.find('custom').remove(folded)
     travel = LOCKED_TRAVEL_M
     spin = travel*(2*math.pi/LEAD)
     existing = root.find(f'./custom/numeric[@name="{MARKER}"]')

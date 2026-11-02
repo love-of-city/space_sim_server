@@ -73,7 +73,7 @@
 
 | 功能 | 当前实现与约束 | 主要入口/验证 |
 |---|---|---|
-| 任务注册 | 抽屉完整循环、航空/导向/圆柱插头插入、航空螺丝装配、锁杆循环共六种网页采集任务；旧 drawer_lift 为诊断入口 | collection_jobs.TASKS、threaded_tasks；threaded_collection_integration 与各控制器测试。代码/单测通过不等于各任务在任意随机场景必成功 |
+| 任务注册 | 原六种任务及抽屉拉起/放回、锁杆放倒/复位四项独立任务，共十种网页采集任务；旧 drawer_lift 为诊断入口 | collection_jobs.TASKS、drawer_tasks、threaded_tasks；[单向任务说明](single-direction-collection.md)。代码/单测通过不等于各任务在任意随机场景必成功 |
 | 初始关节 | 六轴相对基准独立均匀偏移，支持0–50°，本批±30°；保留限位、初始碰撞、接近路径检查 | collection_jobs、drawer_initialization、collect_scripted_tasks；网页/API/CLI范围一致 |
 | 安装单元随机布局 | 移动安装单元与对应底板开口，保留实体间距、操作包络、撤离通道及原生几何验收；布局入池不再要求逐套运行完整任务轨迹，每条采集仍保留初态及必要路径预检 | independent_task_box_layout、build/check工具、LayoutPool、drawer_initialization |
 | 布局切换 | 常驻UE按新manifest更新同ID几何/材质/灯光，避免保留旧孔位；A→B→A复用 | BskSceneController.cpp/.h、BskRuntimeTests、test_capture_on_demand_renderer |
@@ -143,3 +143,16 @@
 
 
 > 维护说明（2026-10-30）：本文引用的旧 migration 实验输出已按用户要求清理；以上历史数据不是当前版本重新验收结果。见[历史清理说明](../../docs/history.md)。
+
+## 2026-11-03 单向任务集成
+
+将 `13fc699` 的 `drawer_open`、`drawer_close`、`locking_rod_fold`、`locking_rod_restore` 合入现有 `server/` 结构。
+各任务通过任务专用 MJCF 参考值和匹配静态变换设置初态，运行中只发送机械臂/夹爪执行器参考。
+网页/API、单条/批量/并行及布局顺序入口接入；四项默认禁用，不改变原五任务批次。
+每项有20条独立英文指令，放回/复位不伪造本条拉起/放倒历史。
+
+保留完整循环的当前完成规则与物理图复用；四项独立任务保留各自版本的方向、接触、释放稳定性审核。
+10月30日旧工作区的默认布局四项成功、随机布局抽屉放回卡扣超时属于历史结果，不能替代本次合并版本的原生动力学与 UE 双相机验收。
+任务使用方法和初态见[单向操作采集](single-direction-collection.md)。本次合并不重启任何已停止的采集批次。
+
+本次合并验证：126项方向任务/接入测试通过（含原生抓取几何）；Linux基础服务端集合1862项中首次1861通过、1项因LFS资源未展开失败，恢复资源后该文件8项复测通过；前端189项及构建通过；适配器85项及3个子测试通过。基础集合按CI清单排除Windows/部署与专用原生/GPU项。未重新运行完整任务及UE双相机录制，未认证随机布局成功率。

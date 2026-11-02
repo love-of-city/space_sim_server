@@ -1,8 +1,8 @@
-# 六任务与采集数据验收口径
+# 任务与采集数据验收口径
 
 核对日期：2026-10-31；核对主仓库源码基线：`30dea8f89765ff3530c6b08b730891bf8ee92c42`。本文说明实际执行的判据与审核范围，不把历史测试通过、任务版本名或目录中的 `accepted` 单独当成新批次认证。具体 episode 还须核对其 `task_version`、`task_parameters`、配置快照与运行来源记录；参数被显式覆盖时，以该条保存值和对应版本实现为准。
 
-本文只记录现状，没有更改控制器、成功条件或历史数据。操作入口见[项目结构地图](../project-map.md)，版本与已完成实验的边界见[采集功能基线](../../server/docs/COLLECTION_BASELINE.md)。
+2026-11-03 补充四项单向任务集成：保留下文原六任务的当前规则，新增方向专用验收；本次未重新完成 UE/native 实采认证。操作入口见[项目结构地图](../project-map.md)，版本与已完成实验的边界见[采集功能基线](../../server/docs/COLLECTION_BASELINE.md)。
 
 批任务交接见[全流程指南](../guides/simulation-data-workflow.md)，参数的覆盖优先级见[采集配置参考](collection-configuration.md)，模型与物理假设见[物理模型参考](physics-model-configuration.md)。
 
@@ -18,7 +18,7 @@
 
 源码：[录制结束检查 `validate_episode`](../../server/collection/record_scripted_task.py)、[快速/完整审核与任务记录审核](../../server/collection/collect_scripted_tasks.py)、[compact 记录读取与数值摘要](../../server/backend/space_arm_platform/compact_storage.py)。
 
-## 2. 当前六任务及默认启用范围
+## 2. 当前十项任务及默认启用范围
 
 | 任务标识 | 实际控制器版本 | 默认批次启用 | 核心动作 |
 |---|---|---|---|
@@ -28,6 +28,11 @@
 | `cylindrical_plug_insert` | `plug-insert/17-smooth-insertion-gate` | 是 | 拔取圆柱插头，插入对应圆孔 |
 | `locking_rod_cycle` | `locking-rod-cycle/4-locked-completion` | 是 | 松紧固件、杆放入卡扣、扶起、重新锁紧 |
 | `aviation_bolt_insert` | `aviation-bolt/5-seated-completion` | 否 | 从源孔旋出航空螺栓，搬运并旋入目标孔 |
+| `drawer_open` | `drawer-open/1` | 否 | 从关闭拉起并释放，保持打开 |
+| `drawer_close` | `drawer-close/1` | 否 | 从打开状态放回、锁定并释放 |
+| `locking_rod_fold` | `locking-rod-fold/1-straight-approach` | 否 | 从竖起锁紧状态旋松、放倒入卡扣并释放 |
+| `locking_rod_restore` | `locking-rod-restore/1-straight-approach` | 否 | 从卡扣内扶起、旋紧并释放 |
+
 
 启用状态来自 [collection.json](../../server/config/collection.json)。任务存在、能列在网页中，不等于当前默认批次会采集，也不等于它已完成本轮 UE 实采验收。
 
@@ -35,7 +40,7 @@
 
 源码：[抽屉](../../server/simulation/scripted_tasks/drawer_cycle.py)、[插头控制器](../../server/simulation/scripted_tasks/plug_insert.py)、[插头 profile](../../server/simulation/scripted_tasks/plug_profiles.py)、[螺纹任务注册](../../server/simulation/scripted_tasks/threaded_tasks.py)、[航空螺栓](../../server/simulation/scripted_tasks/aviation_bolt.py)、[锁杆](../../server/simulation/scripted_tasks/locking_rod.py)。
 
-## 3. 六任务的实际关键判据
+## 3. 任务的实际关键判据
 
 以下长度均为米换算的毫米，角度均为 rad。SARM 当前夹爪驱动范围为 0–1 rad，保存的归一化开度在该模型上数值相同；不要把其他夹爪的归一化开度直接当成 rad。
 
@@ -135,6 +140,16 @@
 
 批次默认选择 `fast_collection`：自由开爪目标为 `0.45 rad`，常规 profile 是 `0.75 rad`；两者与当前最终净空下界 `0.40 rad` 含义不同。具体速度/路径参数见 [THREAD_SPEED_PROFILES](../../server/simulation/scripted_tasks/threaded_motion.py)。
 
+### 3.6 四项单向任务
+
+任务专用初态在录制前生成 MJCF，不在采集中改写机构状态。抽屉放回的默认初始开度为 `0.08 m`，锁杆复位初态为约 `−1.53 rad` 放倒且紧固件松开；对应记录不得冒充本条已完成反向操作。
+
+抽屉审核要求当前任务版本和完整阶段、正确的实际起终位置、操作阶段双指接触、释放后零接触及按配置保持的稳定状态；最终开度 `≥0.95`。锁杆放倒仅要求旋松及入卡扣的操作证据；复位要求真实初始卡扣状态、扶起和旋紧证据，不要求本条旋松/放倒历史。
+
+独立抽屉 v1 默认释放保持 `2 s`，独立锁杆 v1 默认 `1 s`，不继承完整循环新版本的 `0.3 s`。独立锁杆 v1 的释放保持期仍检查机构速度（线速度 `<0.008 m/s`、角速度及铰链/旋转速度 `<0.05 rad/s`）；保持期间夹爪开度 `≥0.40 rad`，末帧达到配置自由开度减 `0.01 rad`。完整循环 v4 和航空螺栓 v5 的几何完成规则不自动套用到这两个独立版本。
+
+使用及初态见[单向操作采集](../../server/docs/single-direction-collection.md)，在线判定见[抽屉拉起](../../server/simulation/scripted_tasks/drawer_open.py)、[抽屉放回](../../server/simulation/scripted_tasks/drawer_close.py)、[锁杆任务](../../server/simulation/scripted_tasks/locking_rod.py)，录后判定见[采集验证器](../../server/collection/collect_scripted_tasks.py)。历史默认布局录像不代表本次合并版本或任意随机布局验收通过。
+
 ## 4. 预检几何、在线规划和失败
 
 ### 4.1 三个不同检查阶段
@@ -191,7 +206,7 @@
 
 ## 6. 数据契约与输出目录
 
-当前脚本录制入口要求双相机 RGB、`50 Hz`；不是任意一套 recorder 配置都能用于六任务审核。动力学 `400 Hz`、脚本控制与腕力 `200 Hz`，状态/动作及每路图像 `50 Hz`。遥操作 IK 默认 `100 Hz` 是另一条控制节拍，不应写成脚本任务的运行频率。
+当前脚本录制入口要求双相机 RGB、`50 Hz`；不是任意一套 recorder 配置都能用于任务审核。动力学 `400 Hz`、脚本控制与腕力 `200 Hz`，状态/动作及每路图像 `50 Hz`。遥操作 IK 默认 `100 Hz` 是另一条控制节拍，不应写成脚本任务的运行频率。
 
 默认相机为 `teleop/camera/spacecraft_overview` 和 `teleop/camera/sarm_wrist_cam`，各 `1024×1024`。`observation.state`/`action` 为 7 维：六轴关节角加归一化夹爪开度；action 是控制目标，不是测量位置或关节力矩。
 

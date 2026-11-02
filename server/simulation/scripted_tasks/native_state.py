@@ -6,7 +6,7 @@ from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 from simulation.scripted_tasks.drawer_lift import DrawerSample
 from simulation.scripted_tasks.plug_insert import PlugSample
 from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
-from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
+from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, LOCKING_ROD_TASKS
 
 
 class DrawerState:
@@ -40,8 +40,8 @@ class DrawerState:
         )
 
     def metrics(self, sample):
-        return dict(
-            **(self.task.metrics(sample) if hasattr(self.task, "metrics") else {}),
+        metrics = dict(self.task.metrics(sample)) if hasattr(self.task, "metrics") else {}
+        metrics.update(
             drawer_position_m=sample.drawer_m,
             drawer_m=sample.drawer_m,
             final_drawer_velocity_m_s=sample.drawer_velocity_m_s,
@@ -50,6 +50,7 @@ class DrawerState:
             finger_drawer_contacts=sample.finger_drawer_contacts,
             drawer_displacement_m=sample.drawer_m - self.task._initial_drawer,
         )
+        return metrics
 
 
 class PlugState:
@@ -123,7 +124,7 @@ class ThreadedState:
         self.part = scene.getBody(task.config.part_body).getOrigin().stateOutMsg
         self.body_names = {i: stepper._name(1, i) for i in range(stepper.nbody)}
         self.scalar_joints = {}
-        if task.name == "locking_rod_cycle":
+        if task.name in LOCKING_ROD_TASKS:
             for name in self.scalar_names:
                 for body_name in scene.getBodyNames():
                     try:
@@ -151,9 +152,9 @@ class ThreadedState:
             scalars[name] = float(self.stepper.qpos[joint.getQposAdr()])
             scalars[name + "_velocity"] = float(self.stepper.qvel[joint.getQvelAdr()])
         contacts = [0, 0]
-        if self.task.name == "locking_rod_cycle":
+        if self.task.name in LOCKING_ROD_TASKS:
             scalars.update({name: 0.0 for name in self.contact_pairs})
-        force_snapshot = (self.task.name == "locking_rod_cycle"
+        force_snapshot = (self.task.name in LOCKING_ROD_TASKS
                           and hasattr(self.stepper, "contact_force_snapshot"))
         snapshot = (self.stepper.contact_force_snapshot() if force_snapshot
                     else self.stepper.contact_snapshot())
@@ -170,7 +171,7 @@ class ThreadedState:
                     if f"ee_finger{index + 1}" in names:
                         contacts[index] += 1
             for key, pair in self.contact_pairs.items():
-                if self.task.name == "locking_rod_cycle" and pair == names:
+                if self.task.name in LOCKING_ROD_TASKS and pair == names:
                     scalars[key] += 1.0
                     if force_snapshot:
                         force_key = key.replace("_contacts", "_normal_force_n")
@@ -205,6 +206,8 @@ class ThreadedState:
 
 STATE_READERS = {
     "drawer_cycle": DrawerState,
+    "drawer_open": DrawerState,
+    "drawer_close": DrawerState,
     "drawer_lift": DrawerState,
     "plug_insert": PlugState,
 }

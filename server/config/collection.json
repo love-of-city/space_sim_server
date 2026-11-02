@@ -8,7 +8,11 @@
     {"name": "guide_plug_insert", "enabled": true},
     {"name": "cylindrical_plug_insert", "enabled": true},
     {"name": "locking_rod_cycle", "enabled": true},
-    {"name": "aviation_bolt_insert", "enabled": false}
+    {"name": "aviation_bolt_insert", "enabled": false},
+    {"name": "drawer_open", "enabled": false},
+    {"name": "drawer_close", "enabled": false},
+    {"name": "locking_rod_fold", "enabled": false},
+    {"name": "locking_rod_restore", "enabled": false}
   ],
   "passes": 1,
   "layout_cycles": 1000,

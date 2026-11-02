@@ -10,6 +10,7 @@ from .drawer_lift import DrawerSample
 from .plug_insert import PlugInsertTask
 from .plug_profiles import is_plug_task, plug_profile
 from .threaded_tasks import THREADED_TASKS, create_threaded_task, threaded_task_class
+from .floating_capture import FLOATING_TASKS, FLOATING_BASELINE_DEG, FloatingCaptureTask
 
 NOISE_DISABLED = {
     name: False
@@ -33,6 +34,16 @@ def randomized_scene(source, seed, half_range_deg=30.0, task_name="drawer_cycle"
     baseline = np.asarray(
         source["randomization"]["arm_joint_position_rad"][:6], dtype=float
     )
+    if task_name in FLOATING_TASKS:
+        baseline = np.deg2rad(FLOATING_BASELINE_DEG)
+        half_range_deg = 0.
+        # Task 5 varies the free object's state and keeps camera installation
+        # fixed. It does not inherit an unrelated docking/target hinge state.
+        scene["randomize_overview_camera"] = False
+        scene["randomization"].pop("target_hinge_position_rad", None)
+        scene["randomization"].pop("coorbital_initialization", None)
+        scene["randomization"].pop("formation_hold", None)
+        scene["randomization"]["target_position_m"] = [3., 0., 0.]
     if baseline.shape != (6,) or not np.isfinite(baseline).all():
         raise ValueError("source scene must supply six finite baseline joint angles")
     rng = np.random.Generator(np.random.PCG64(seed))
@@ -60,7 +71,8 @@ def randomized_scene(source, seed, half_range_deg=30.0, task_name="drawer_cycle"
         if task_name == "drawer_cycle"
         else "scripted-collection/2",
         task=task_name,
-        task_version=threaded_task_class(task_name).version
+        task_version=FloatingCaptureTask.version if task_name in FLOATING_TASKS
+        else threaded_task_class(task_name).version
         if task_name in THREADED_TASKS
         else DrawerCycleTask.version
         if task_name == "drawer_cycle"
@@ -261,8 +273,9 @@ class NativePoseProbe:
                             else {"bolt"} if task_name == "aviation_bolt_insert"
                             else {task_name.removesuffix("_insert")} if task_name in ("aviation_plug_insert","guide_plug_insert","cylindrical_plug_insert")
                             else {"cylindrical_plug"} if task_name == "plug_insert"
-                            else {"drawer_base", "drawer_buckle"} if task_name == "drawer_cycle" else set())
-        if task_name not in THREADED_TASKS and not allowed_contact_bodies and axial_socket is None:
+                            else {"drawer_base", "drawer_buckle"} if task_name == "drawer_cycle"
+                            else {FLOATING_TASKS[task_name].body} if task_name in FLOATING_TASKS else set())
+        if task_name not in THREADED_TASKS and task_name not in FLOATING_TASKS and not allowed_contact_bodies and axial_socket is None:
             # A released plug or drawer is static scene geometry. Its own seat
             # contact must not reject an unrelated empty-gripper withdrawal.
             moving_mechanism = set()
@@ -350,6 +363,9 @@ class NativePoseProbe:
         return dict(accepted=True, checked_poses=checked, checked_stages=stages)
 
     def validate(self, model, scene, task_name="drawer_cycle", *, task=None):
+        if task_name in FLOATING_TASKS:
+            from .floating_initialization import validate_floating_preflight
+            return validate_floating_preflight(self, model, scene, task_name)
         self.q[:] = self.home
         target = scene.get("randomization", {})
         if "target_position_m" in target:

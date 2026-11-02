@@ -22,10 +22,9 @@ import uuid
 import xml.etree.ElementTree as ET
 from simulation.scripted_tasks.floating_capture import FLOATING_TASKS
 
-import psutil
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .collection_processes import ManagerLease, WindowsProcessGroup
+from .collection_processes import ManagerLease, kill_owned_tree, launch_collector
 from .atomic_json import write_json
 from .collection_layouts import LayoutPool
 from .collection_inputs import (
@@ -138,26 +137,6 @@ def read_json(path, default=None):
         return default
 
 
-def kill_owned_tree(pid, created):
-    """Never terminate a reused PID or an unrelated interactive scene."""
-    try:
-        parent = psutil.Process(pid)
-        if abs(parent.create_time() - created) > 0.01:
-            return
-        children = parent.children(recursive=True)
-        # Stop the supervisor first so that it cannot spawn replacements.
-        parent.suspend()
-        for process in reversed(children):
-            try:
-                process.kill()
-            except psutil.Error:
-                pass
-        parent.kill()
-        psutil.wait_procs([parent, *children], timeout=3)
-    except psutil.NoSuchProcess:
-        pass
-
-
 def free_ports(count):
     """Probe both protocols. Child listeners also fail closed if a port is taken."""
     for base in range(21000, 30000, 40):
@@ -209,7 +188,10 @@ class CollectionManager:
             if job["status"] not in TERMINAL:
                 for worker in job["workers"]:
                     if worker.get("pid") and worker.get("created"):
-                        kill_owned_tree(worker["pid"], worker["created"])
+                        kill_owned_tree(
+                            worker["pid"], worker["created"],
+                            guarded=worker.get("process_guard") == "linux_subreaper/1",
+                        )
                     if worker["status"] not in TERMINAL:
                         # Worker acceptance can reach disk before job.json.
                         # Recover evidence after stopping it, without resuming.
@@ -520,7 +502,7 @@ class CollectionManager:
                         "w", encoding="utf-8"
                     )
                     try:
-                        process = subprocess.Popen(
+                        process, group = launch_collector(
                             command,
                             cwd=self.project_root,
                             stdout=log,
@@ -530,19 +512,12 @@ class CollectionManager:
                     except BaseException:
                         log.close()
                         raise
-                    try:
-                        group = WindowsProcessGroup(process)
-                    except BaseException:
-                        kill_owned_tree(
-                            process.pid, psutil.Process(process.pid).create_time()
-                        )
-                        log.close()
-                        raise
                     active.append((worker, process, log, group))
                     worker.update(
                         status="running",
                         pid=process.pid,
-                        created=psutil.Process(process.pid).create_time(),
+                        created=group.created,
+                        process_guard=group.kind,
                     )
                     self._save(job)
             while active:
@@ -553,7 +528,7 @@ class CollectionManager:
                             job.get("stop_requested_at")
                             and time.time() - job["stop_requested_at"] > 180
                         ):
-                            kill_owned_tree(process.pid, worker["created"])
+                            group.close()
                             worker["forced_stop"] = True
                         if process.poll() is None:
                             continue
@@ -600,10 +575,23 @@ class CollectionManager:
             failure = f"{type(error).__name__}: {error}"
         finally:
             for worker, process, log, group in active:
-                group.close()
-                kill_owned_tree(process.pid, worker.get("created", 0))
-                process.wait(timeout=5)
-                log.close()
+                # One cleanup failure must not strand the other workers or
+                # prevent the final failure record from being persisted.
+                for cleanup in (
+                    group.close,
+                    lambda: kill_owned_tree(
+                        process.pid, worker.get("created", 0),
+                        guarded=worker.get("process_guard") == "linux_subreaper/1",
+                    ),
+                    lambda: process.wait(timeout=5),
+                    log.close,
+                ):
+                    try:
+                        cleanup()
+                    except Exception as error:
+                        detail = f"采集进程回收失败：{type(error).__name__}: {error}"
+                        worker["error"] = detail
+                        failure = f"{failure}; {detail}" if failure else detail
                 with self.lock:
                     try:
                         self._refresh(job, worker)

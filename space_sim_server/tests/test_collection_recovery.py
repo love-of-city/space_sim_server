@@ -14,6 +14,46 @@ from space_arm_platform.collection_jobs import CollectionCreate, CollectionManag
 from test_collection_platform import FAKE_COLLECTOR, OWNER, exiting_collector, manager, wait_job
 
 
+def test_cleanup_error_still_releases_other_workers_and_persists_failure(manager, monkeypatch):
+    from space_arm_platform import collection_jobs
+
+    launch = collection_jobs.launch_collector
+    launched = []
+
+    def failing_cleanup(*args, **kwargs):
+        process, group = launch(*args, **kwargs)
+        close = group.close
+        first = not launched
+
+        def close_with_failure():
+            close()
+            if first:
+                raise OSError('injected group cleanup failure')
+
+        group.close = close_with_failure
+        launched.append((process, kwargs['stdout']))
+        return process, group
+
+    def fail_progress(*_):
+        assert len(launched) == 2
+        raise RuntimeError('injected coordinator failure')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(collection_jobs, 'launch_collector', failing_cleanup)
+        patch.setattr(manager, '_refresh', fail_progress)
+        job = manager.start(CollectionCreate(workers=2, count=2, max_attempts=2), OWNER, {})
+        result = wait_job(manager, job['id'])
+    assert result['status'] == 'failed'
+    assert 'injected coordinator failure' in result['error']
+    assert 'injected group cleanup failure' in result['error']
+    assert all(process.poll() is not None and log.closed for process, log in launched)
+    saved = json.loads((manager.root / job['id'] / 'job.json').read_text('utf-8'))
+    assert saved['status'] == 'failed'
+    assert all(worker['status'] == 'failed' for worker in saved['workers'])
+    next_job = manager.start(CollectionCreate(workers=1, count=1, max_attempts=1), OWNER, {})
+    assert wait_job(manager, next_job['id'])['status'] == 'complete'
+
+
 def save(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value), encoding="utf-8")

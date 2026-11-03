@@ -166,7 +166,7 @@ def test_current_mounts_form_a_regular_side_rail_with_consistent_calibration():
 
 
 def test_saved_v6_records_replay_all_five_original_calibrations(tmp_path):
-    saved = json.loads((ROOT / "tests/fixtures/overview_camera_v6.json").read_text())
+    saved = json.loads((ROOT / "tests/fixtures/overview_camera_v6.json").read_text(encoding="utf-8"))
     assert {r["preset_id"] for r in saved} == set(PRESETS)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     for record in saved:

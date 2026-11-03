@@ -42,10 +42,10 @@ def build(tmp_path):
                                      "Plugins/BskUnrealRuntime/BskUnrealRuntime.uplugin"])
 def test_source_shader_and_descriptor_changes_require_rebuild(build, relative):
     project, engine = build
-    assert identity.verify_build_manifest(project, engine)["schema"] == identity.SCHEMA
+    assert identity.verify_build_manifest(project, engine, identity.default_manifest_path(project, "Linux"))["schema"] == identity.SCHEMA
     (project / relative).write_text("modified after build")
     with pytest.raises(RuntimeError, match="rebuild"):
-        identity.verify_build_manifest(project, engine)
+        identity.verify_build_manifest(project, engine, identity.default_manifest_path(project, "Linux"))
 
 
 def test_binary_or_engine_replacement_is_rejected(build):
@@ -53,17 +53,17 @@ def test_binary_or_engine_replacement_is_rejected(build):
     binary = project / "Plugins/BskUnrealRuntime/Binaries/Linux/BskCameraShaders.so"
     binary.write_bytes(b"another build")
     with pytest.raises(RuntimeError, match="binary"):
-        identity.verify_build_manifest(project, engine)
+        identity.verify_build_manifest(project, engine, identity.default_manifest_path(project, "Linux"))
     identity.write_build_manifest(project, engine)
     (engine / "Engine/Build/Build.version").write_text('{"MajorVersion": 6}')
     with pytest.raises(RuntimeError, match="Engine"):
-        identity.verify_build_manifest(project, engine)
+        identity.verify_build_manifest(project, engine, identity.default_manifest_path(project, "Linux"))
 
 
 def test_documents_do_not_invalidate_build_and_paths_cannot_escape(build):
     project, engine = build
     (project / "README.md").write_text("Updated documentation")
-    assert identity.verify_build_manifest(project, engine)
+    assert identity.verify_build_manifest(project, engine, identity.default_manifest_path(project, "Linux"))
     with pytest.raises(ValueError, match="escapes"):
         identity.contained_path(project, "../outside.so")
 
@@ -78,7 +78,7 @@ def test_build_log_timing_does_not_change_content_identity(build):
 
 def test_runtime_report_checks_pid_and_actual_module_paths(build, tmp_path):
     project, engine = build
-    manifest = identity.verify_build_manifest(project, engine)
+    manifest = identity.verify_build_manifest(project, engine, identity.default_manifest_path(project, "Linux"))
     report = {"schema": identity.RUNTIME_SCHEMA, "pid": 123, "engine_version": "5.6.1-44394996+++UE5+Release-5.6", "monolithic": False,
               "modules": {name: str(project / manifest["identity"]["modules"][name]["path"])
                           for name in identity.MODULE_NAMES}}

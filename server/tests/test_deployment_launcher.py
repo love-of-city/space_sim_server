@@ -51,7 +51,7 @@ def run_ps(script, *args, env=None):
 @pytest.fixture
 def repo(tmp_path):
     root = tmp_path / "launcher repo with spaces"
-    for name in ("scripts", "deploy", "tools"):
+    for name in ("scripts", "deploy", "tools/deployment"):
         (root / name).mkdir(parents=True)
     for name in ("deployment_launcher.ps1", "deployment_bootstrap.ps1", "deployment_config.ps1"):
         shutil.copyfile(ROOT / "scripts" / name, root / "scripts" / name)

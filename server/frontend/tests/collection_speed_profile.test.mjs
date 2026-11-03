@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import {collectionLayoutError} from '../pages/collection_layout_status.js';
 
 const source=readFileSync(new URL('../pages/collection.js',import.meta.url),'utf8')
-  .replace(/^import .*;\n/gm,'').replace('export function createCollectionPage','function createCollectionPage');
+  .replace(/^import .*;\r?\n/gm,'').replace('export function createCollectionPage','function createCollectionPage');
 
 async function setup(){
   const nodes=new Map(), requests=[];

@@ -36,7 +36,11 @@
     "tests/test_native_contact_force_snapshot.py": "Native contact forces and mixed friction coefficients; requires locally compiled helper and Basilisk, run separately on the simulation host",
     "tests/test_native_episode_reset.py": "Basilisk and built native reset helper; explicitly executed by --ci-native",
     "tests/test_flight_environment.py": "Basilisk messages; run in the native simulation acceptance suite",
-    "tests/test_gyroscope_native.py": "Basilisk scheduler and real SCStatesMsg; run in the native simulation environment. Pure sensor statistics, wire validation and recording remain in basic CI."
+    "tests/test_gyroscope_native.py": "Basilisk scheduler and real SCStatesMsg; run in the native simulation environment. Pure sensor statistics, wire validation and recording remain in basic CI.",
+    "tests/test_native_pose_ik.py": "Compiled posture helper and native IK equivalence; executed by --ci-native",
+    "tests/test_native_plug_retention.py": "Compiled MuJoCo helper and native retention equivalence; executed by --ci-native",
+    "tests/test_axial_friction_coupled.py": "Basilisk and native coupled friction dynamics; executed by --ci-native",
+    "tests/test_scripted_render_model.py": "Scripted run wiring imports the Basilisk assembly/runtime; executed by --ci-native"
   },
   "nodes": {
     "tests/test_overview_camera.py::test_saved_v3_p3_replays_its_real_recording_calibration": "Basilisk live scene loader; run separately in the native simulation environment",
@@ -76,7 +80,12 @@
     "tests/test_cylindrical_plug_clearance.py::test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
     "tests/test_cylindrical_plug_clearance.py::test_rising_retreat_avoids_neighbor_that_blocks_old_horizontal_path": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
     "tests/test_threaded_collection_integration.py::test_native_grasp_opening_matches_delivered_head_and_measured_finger_geometry": "Native SARM geometry and measured passive gripper linkage; run separately on the simulation host",
-    "tests/test_plug_retention.py::test_cross_owner_channels_apply_only_one_retention_reaction": "Basilisk MJScene and locally built native friction solver; cross-owner claims are executed in the --ci-native profile"
+    "tests/test_plug_retention.py::test_cross_owner_channels_apply_only_one_retention_reaction": "Basilisk MJScene and locally built native friction solver; cross-owner claims are executed in the --ci-native profile",
+    "tests/test_continuous_overview_camera.py::test_saved_v5_record_replays_its_frozen_calibration": "Basilisk live scene loader; executed by --ci-native",
+    "tests/test_overview_camera.py::test_saved_v4_p3_replays_its_real_recording_calibration": "Basilisk live scene loader; executed by --ci-native",
+    "tests/test_compiled_model_cache.py::test_cache_reconstructs_fresh_state_and_servos": "Basilisk MJScene and compiled model cache; executed by --ci-native",
+    "tests/test_initial_joint_angles.py::test_task_box_operating_pose_overrides_only_six_axes_and_is_persisted": "Basilisk live scene loader; executed by --ci-native",
+    "tests/test_publication_scene.py::test_native_publication_keeps_mass_states_and_visible_geom_indices": "Basilisk MJScene publication model equivalence; executed by --ci-native"
   },
   "groups": {
     "deploy": {

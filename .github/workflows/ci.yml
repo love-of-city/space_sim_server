@@ -53,10 +53,17 @@ jobs:
           key: ${{ steps.venv.outputs.cache-primary-key }}
       - name: Activate Python environment
         run: (Resolve-Path ../.venv-ci/Scripts).Path >> $env:GITHUB_PATH
+      # Editable installs contain absolute source paths. A restored environment
+      # must bind both packages to this checkout after repository/path changes.
+      - name: Refresh editable project paths
+        run: python -m pip install --no-deps -e "../ue-adapter" -e "."
       - name: Check installed dependencies
         run: |
           python -c "import sys; assert sys.prefix != sys.base_prefix, sys.prefix"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "import bsk_render_adapter, space_arm_platform"
       - name: Python syntax and undefined names
         run: python -m ruff check .
       - name: Verify CI failure guards

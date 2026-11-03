@@ -33,15 +33,16 @@ Resolve-PlatformAdapterRoot $Requested $Project
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
 
 
+@pytest.mark.parametrize("adapter_name", ["ue-adapter", "space_sim_UE_adapter"])
 @pytest.mark.parametrize("server_wrapped", [False, True])
 @pytest.mark.parametrize("adapter_wrapped", [False, True])
-def test_discovers_sibling_and_wrapped_checkouts(tmp_path, server_wrapped, adapter_wrapped):
+def test_discovers_sibling_and_wrapped_checkouts(tmp_path, server_wrapped, adapter_wrapped, adapter_name):
     workspace = tmp_path / "workspace with spaces"
     project = workspace / "server"
     if server_wrapped:
         project /= "server"
     project.mkdir(parents=True)
-    adapter = workspace / "space_sim_UE_adapter"
+    adapter = workspace / adapter_name
     if adapter_wrapped:
         adapter /= "ue-adapter"
     make_adapter(adapter)

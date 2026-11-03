@@ -143,7 +143,7 @@ def test_referenced_file_must_be_in_hash_manifest(package_inputs, tmp_path, kind
     if kind == 'marker':
         relative = 'layout-package.json'
     elif kind == 'manifest':
-        relative = str(Path(entry['model']).with_suffix('.layout.json'))
+        relative = Path(entry['model']).with_suffix('.layout.json').as_posix()
     elif kind in {'model', 'catalog', 'native_report'}:
         relative = entry[kind]
     elif kind.startswith('original_'):

@@ -33,6 +33,10 @@ def layout_model(tmp_path):
     return model
 
 
+class FakeTask(SimpleNamespace):
+    pass
+
+
 @pytest.mark.parametrize('task_name', ['drawer_cycle', 'guide_plug_insert'])
 def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp_path, monkeypatch, task_name):
     from simulation.scripted_tasks.drawer_lift import DrawerLiftConfig
@@ -54,7 +58,7 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
         capture_render_port=124, catalog=tmp_path/'catalog.json')
     catalog_asset = '/Game/Test/Surface.Surface'
     args.catalog.write_text(json.dumps({'assets': {str(tmp_path/'meshes/surface.obj'): catalog_asset}}))
-    task = SimpleNamespace(lower=np.full(6, -10.), upper=np.full(6, 10.),
+    task = FakeTask(lower=np.full(6, -10.), upper=np.full(6, 10.),
                            config=DrawerLiftConfig(), events=[],
                            chain=SimpleNamespace(enable_native_geometry=lambda: None))
     monkeypatch.setattr('simulation.scripted_tasks.drawer_cycle.DrawerCycleTask', lambda *_: task)
@@ -84,7 +88,7 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
         monkeypatch.setattr('simulation.components.'+module+'.'+name, lambda *_, **__: None)
     monkeypatch.setattr('simulation.components.orbit.OrbitComponent', lambda **kwargs:
                         SimpleNamespace(earth=None, epoch_utc=kwargs['epoch_utc'], gravity_factory=None))
-    monkeypatch.setattr('simulation.components.plug_retention.install_configured_plug_retention', lambda _: None)
+    monkeypatch.setattr('simulation.components.plug_retention.install_configured_plug_retention', lambda _, *, released_bodies=(): None)
     monkeypatch.setattr('simulation.orbital_configuration.resolve_orbital_physics', lambda _: SimpleNamespace(drag=None))
     monkeypatch.setattr('simulation.orbital_configuration.environment_metadata', lambda *_, **__: {})
     monkeypatch.setitem(native_state.STATE_READERS, task_name, lambda *_: None)

@@ -18,13 +18,14 @@ def taskbox_frame_bounds(root, body_name='task_box_base'):
     Only the fixed root frame is used: moving drawers and protruding service
     tools must not enlarge the installation aperture.
     """
-    import trimesh
     body=root.find(f'.//body[@name="{body_name}"]')
     assets={a.get('name'):a for a in root.findall('./asset/mesh')}
     lows=[]; highs=[];cache={}
     for geom in body.findall('geom'):
         p,r=_pose(geom)
         if geom.get('mesh'):
+            import trimesh
+
             asset=assets[geom.get('mesh')];path=asset.get('file')
             if any(k in asset.attrib for k in ('refpos','refquat')):
                 raise ValueError('Mount frame mesh reference transform needs explicit handling')

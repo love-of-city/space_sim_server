@@ -107,10 +107,12 @@ def test_wrist_view_contains_horizontal_fingers_entering_from_below():
 
 @pytest.mark.parametrize("template", ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf", "sarm-task-box-20261012-demo"])
 @pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome"])
-def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, template, mode):
+def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch, capsys, template, mode):
+    import json
     import sys
     from types import SimpleNamespace
     import importlib.util
+    from bsk_render_adapter.descriptors import CameraVisual
     # Basic CI has no Basilisk. Isolate only the scheduling boundary, and load
     # this component separately so no fake assembly is cached for native tests.
     monkeypatch.setitem(sys.modules, "simulation.assembly", SimpleNamespace(
@@ -121,9 +123,9 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
     spec.loader.exec_module(module)
     RenderComponent = module.RenderComponent
 
-    overview = SimpleNamespace(camera_id="teleop/camera/spacecraft_overview", parent_id="teleop/cubesat_bus",
+    overview = CameraVisual(camera_id="teleop/camera/spacecraft_overview", parent_id="teleop/cubesat_bus",
                                position_body_m=(1, 2, 3), field_of_view_rad=0.9)
-    wrist = SimpleNamespace(camera_id="teleop/camera/sarm_wrist_cam", parent_id="teleop/ee_base",
+    wrist = CameraVisual(camera_id="teleop/camera/sarm_wrist_cam", parent_id="teleop/ee_base",
                             position_body_m=(4, 5, 6), field_of_view_rad=1.2, display_name="Wrist")
     bridge = SimpleNamespace(_cameras=[overview, wrist], add_mj_scene=lambda *a, **kw: None)
     bridge.set_scene_settings = lambda settings: setattr(bridge, "settings", settings)
@@ -136,6 +138,9 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
     RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,
                     render_rate_hz=60, capture_rate_hz=30, capture_state_provider=None,
                     wrist_camera_mode=mode).install(ctx)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    camera_record, = [record for record in records if record['type'] == 'platform_camera_configuration']
+    assert camera_record['cameras'] == [overview.to_payload(), wrist.to_payload()]
     assert wrist.parent_id == "teleop/ee_base"
     assert wrist.position_body_m == (4, 5, 6)
     assert wrist.camera_mode == mode

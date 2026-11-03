@@ -47,7 +47,10 @@ def test_rejects_aperture_that_breaks_adjacent_wall():
         add_hull_closure(root,[[0,0,0],[1,1,2]],[.2,.2,0],[1,.8,0])
 
 
-def test_aperture_uses_fixed_frame_geometry_including_collision_proxy():
+def test_aperture_uses_fixed_frame_geometry_including_collision_proxy(monkeypatch):
+    import sys
+    # Primitive frames must work without the optional mesh tooling installed.
+    monkeypatch.setitem(sys.modules, 'trimesh', None)
     root=ET.fromstring('''<mujoco><worldbody><body name="task_box_base">
     <geom type="box" pos=".225 .275 0" size=".225 .275 .01"/>
     <geom type="box" pos=".225 .275 0" size=".228 .278 .012" group="3"/>

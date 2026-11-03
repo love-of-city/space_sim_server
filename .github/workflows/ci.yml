@@ -11,6 +11,35 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  linux-processes:
+    name: server-linux-processes (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    defaults:
+      run:
+        working-directory: space_sim_server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install process-test dependencies
+        run: python -m pip install 'pytest>=8' 'psutil>=5.9' 'numpy>=1.24,<2.4' 'pydantic>=2.8'
+      - name: Linux collector lifecycle
+        run: python -m pytest --confcutdir=tests/linux tests/linux/test_collection_processes.py -ra --junitxml=reports/linux-processes.xml
+      - name: Test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-processes-${{ matrix.python }}
+          path: space_sim_server/reports/linux-processes.xml
+          if-no-files-found: warn
   python:
     name: server-python
     runs-on: windows-latest
@@ -106,6 +135,7 @@ jobs:
               - 'space_sim_server/scripts/linux_platform.sh'
               - 'space_sim_server/backend/space_arm_platform/linux_*.py'
               - 'space_sim_server/backend/space_arm_platform/scene_runtime.py'
+              - 'space_sim_server/backend/space_arm_platform/collection_runtime.py'
               - 'space_sim_server/backend/space_arm_platform/app.py'
               - 'space_sim_server/backend/space_arm_platform/main.py'
               - 'space_sim_server/tests/test_linux_deployment.py'

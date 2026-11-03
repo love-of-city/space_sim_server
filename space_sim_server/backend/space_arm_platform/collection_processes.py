@@ -1,4 +1,4 @@
-"""OS ownership for collector processes; closing a Windows job kills descendants."""
+"""OS ownership for collectors, including descendants left by an exited worker."""
 
 from __future__ import annotations
 
@@ -6,6 +6,87 @@ import ctypes
 from ctypes import wintypes
 import os
 from pathlib import Path
+import subprocess
+import sys
+
+import psutil
+
+
+def kill_owned_tree(pid, created, *, guarded=False):
+    """Never terminate a reused PID or an unrelated interactive scene."""
+    try:
+        parent = psutil.Process(pid)
+        if abs(parent.create_time() - created) > 0.01:
+            return
+        if guarded and sys.platform == "linux":
+            # The subreaper must stay alive until it has adopted and reaped
+            # orphan descendants, including children with their own sessions.
+            parent.terminate()
+            parent.wait(timeout=15)
+            return
+        parent.suspend()
+        children = parent.children(recursive=True)
+        for process in reversed(children):
+            try:
+                process.kill()
+            except psutil.Error:
+                pass
+        parent.kill()
+        psutil.wait_procs([parent, *children], timeout=3)
+    except psutil.NoSuchProcess:
+        pass
+
+
+class LinuxProcessGroup:
+    """A private subreaper owns the worker; pipe EOF also handles owner SIGKILL."""
+
+    kind = "linux_subreaper/1"
+
+    def __init__(self, command, **kwargs):
+        self.owner_fd = None
+        self.process = None
+        reader, writer = os.pipe()
+        try:
+            self.owner_fd = writer
+            helper = Path(__file__).with_name("linux_collector_guard.py")
+            self.process = subprocess.Popen(
+                [sys.executable, "-X", "utf8", str(helper), str(reader), *command],
+                pass_fds=(reader,), start_new_session=True, **kwargs,
+            )
+            # The helper cannot launch or finish before this identity is saved.
+            self.created = psutil.Process(self.process.pid).create_time()
+            os.write(writer, b"G")
+        except BaseException:
+            self.close()
+            raise
+        finally:
+            os.close(reader)
+
+    def close(self):
+        if self.owner_fd is not None:
+            os.close(self.owner_fd)
+            self.owner_fd = None
+        if self.process is not None:
+            self.process.wait(timeout=15)
+
+
+def launch_collector(command, **kwargs):
+    """Return the process and its lifetime owner; only the owner closes the tree."""
+    if sys.platform == "linux":
+        group = LinuxProcessGroup(command, **kwargs)
+        return group.process, group
+    process = subprocess.Popen(command, **kwargs)
+    try:
+        created = psutil.Process(process.pid).create_time()
+        group = WindowsProcessGroup(process)
+        group.created = created
+        return process, group
+    except BaseException:
+        # Job assignment can fail after launch. Do not leave that worker alive.
+        if process.poll() is None:
+            kill_owned_tree(process.pid, psutil.Process(process.pid).create_time())
+        process.wait(timeout=5)
+        raise
 
 
 class ManagerLease:
@@ -39,6 +120,8 @@ class ManagerLease:
 
 class WindowsProcessGroup:
     """No persistent helper: kernel handle lifetime owns the entire child tree."""
+
+    kind = "windows_job/1"
 
     def __init__(self, process):
         self.handle = None

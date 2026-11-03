@@ -89,6 +89,7 @@ jobs:
               - 'space_sim_server/simulation/near23_navigation.py'
               - 'space_sim_server/simulation/vbar_stereo_sequence.py'
               - 'space_sim_server/simulation/own_motion.py'
+              - 'space_sim_server/simulation/wheel_unloading.py'
               - 'space_sim_server/config/vision/capture26_near23*.json'
               - 'space_sim_server/backend/space_arm_platform/vision*.py'
               - 'space_sim_server/backend/space_arm_platform/visual_navigation.py'

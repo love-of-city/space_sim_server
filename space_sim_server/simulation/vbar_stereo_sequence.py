@@ -96,7 +96,14 @@ class VbarStereoSequence:
         capture_active = self.with_grasp and self.platform_completed_s is not None
         if grasp_failure:
             self.vbar.fail('grasp:'+str(grasp_failure), state)
-        common = bool(inputs_valid and service_ready and corridor_ready and geometry_ready
+        # A real image can correct gyro drift while all sensors remain healthy.
+        # After the initial pointing handshake, let the formal route brake and
+        # reacquire both spacecraft attitudes under their existing limits.
+        recover_pointing = (self.vbar.original_camera_policy.mission_profile == 'near23_vbar_v1'
+                            and self.vbar.pointing_gate.completed_at_s is not None and not capture_active)
+        if recover_pointing:
+            prealigned = bool(prealigned and service_ready)
+        common = bool(inputs_valid and (service_ready or recover_pointing) and corridor_ready and geometry_ready
                       and np.isfinite(position_sigma_m) and 0 <= position_sigma_m < self.limits.sigma_m
                       and np.isfinite(observation_age_s) and 0 <= observation_age_s <= .35+1e-9)
         fresh = bool(visual_ready and visual_stamp_s is not None and np.isfinite(visual_stamp_s)
@@ -126,6 +133,8 @@ class VbarStereoSequence:
         segment = self.vbar.telemetry['subsegment']
         if self.failure:
             phase = 'SafeHold'
+        elif segment.startswith('AlignmentRecovery'):
+            phase = 'TargetRealignment'
         elif self.platform_completed_s is not None:
             phase = 'Complete' if self.with_grasp and grasp_complete else 'Grasp' if self.with_grasp else 'TerminalHold'
         elif self.platform_entered_s is not None:

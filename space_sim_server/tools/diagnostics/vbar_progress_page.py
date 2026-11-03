@@ -16,6 +16,7 @@ CHINA = timezone(timedelta(hours=8))
 PHASES = {
     'VbarAcquire': 'GNSS入口归线与停稳', 'NearAcquire': 'GNSS入口归线与停稳',
     'TargetPointing': '17.4 m停泊调姿',
+    'TargetRealignment': '已制动，重新确认目标稳姿',
     'GNSSBridge5p5Approach': 'GNSS引导，接近5.5 m停泊点',
     'GNSSBridge5p5Hold': '5.5 m停泊检查',
     'GNSSBridgeNearApproach': '继续沿V-bar接近，尝试识别靶标',
@@ -109,6 +110,7 @@ def render(directory):
         ('0.5 m平台驻留 · 连续5 s', (policy.get('platform_hold') or {}).get('completed', False)),
         ('四爪承载、抓持力合格 · 连续20 s', capture.get('completed', False)),
     ]
+    far_phase = False
     if formal:
         source = read_json(directory/'input_handoff.json')
         continuity = read_json(directory/'continuity-audit.json')
@@ -118,7 +120,7 @@ def render(directory):
         checks.insert(0, ('真实远距飞行至约110 m，连续停稳5 s',
             far_passed))
         if guidance.get('phase') in ('Team approach', 'NavigationAcquire', 'FarReady', '100 m handoff hold'):
-            checks = checks[:1]
+            far_phase = not source
             phase = 'Team approach'
             PHASES['Team approach'] = '7 km起始的远距GNSS交会'
     steps = []
@@ -141,9 +143,22 @@ def render(directory):
             if (directory/relative).is_file():
                 pictures += f'<figure><img src="{relative}" alt="{label}"><figcaption>{label}</figcaption></figure>'
     if not pictures:
-        pictures = '<p class="muted">等待本轮第一组实采双目图像。</p>'
+        pictures = '<p class="muted">双目画面可在仿真平台查看。</p>'
     visual = '本帧已被导航接受' if image.get('ekf_accepted') else '本帧没有有效视觉测量'
     freshness = f'图像采样时间 {duration(image_stamp)}，距当前仿真时刻 {max(0., stamp-image_stamp):.2f} s'
+    if not image:
+        visual = '远距阶段按计划使用GNSS，尚未启用靶标视觉。' if far_phase else '尚未收到本轮双目图像测量。'
+        freshness = '进入近距后继续获取原双目；约3 m才可能获得有效PnP。' if far_phase else '等待第一组原图和对应采样时间。'
+        if formal and not far_phase:
+            ingress = read_json(directory/'vision-status.json')
+            latest = ingress.get('last_result') or {}
+            if 'stereo_activation_ns' in row and row['stereo_activation_ns'] is None:
+                visual = '当前使用GNSS，双目将在5.5 m停泊检查通过后启用。'
+                freshness = '这是按阶段启用，当前没有请求曝光；启用后保持原10 Hz采样。'
+            elif latest.get('sim_time_ns') is not None:
+                visual = '导航视觉已就绪。' if (row.get('visual') or {}).get('ready') else '已收到双目图像，导航视觉尚未就绪。'
+                freshness = (f"最近图像采样时间 {duration(int(latest['sim_time_ns'])*1e-9)}，"
+                             f"已处理 {ingress.get('processed_pairs',0)} 组双目。")
     updated = datetime.now(CHINA).strftime('%Y-%m-%d %H:%M:%S')
     try:
         age = max(0., time.time()-(directory/('score.jsonl' if formal else 'trajectory.jsonl')).stat().st_mtime)
@@ -157,7 +172,7 @@ def render(directory):
                         for name, value in acceptance.get('checks', {}).items())
         final_checks = f'<section class="panel"><h2>独立物理验收结果</h2><ul>{items}</ul></section>'
     depth_text = '—' if depth is None else f'{depth:.3f} m'
-    distance_label = '相机到目标参考点的光学深度'
+    distance_label = '导航估计的光学深度' if formal else '相机到目标参考点的光学深度'
     if formal and depth is None and row.get('truth_com_position_n_m'):
         distance_label = '当前两星质心距离'
         depth_text = f"{math.dist(*row['truth_com_position_n_m']):.1f} m"

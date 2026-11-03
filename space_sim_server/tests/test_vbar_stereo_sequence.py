@@ -92,10 +92,11 @@ def fly(seq, target, *, images=False, state=None, now=None):
     raise AssertionError('stage not reached: '+target)
 
 
-def test_vbar_receives_updated_navigation_after_images_and_holds_for_arm_grasp():
+@pytest.mark.parametrize('mission_profile', [None, 'near23_vbar_v1'])
+def test_vbar_receives_updated_navigation_after_images_and_holds_for_arm_grasp(mission_profile):
     seq = VbarStereoSequence([50.02, 0., 0.], [17.4, 0., 0.], [5.5, 0., 0.],
                             [1.5, 0., 0.], [.6, .01, 0.],
-                            gnss_bridge_diagnostic=True, with_grasp=True)
+                            gnss_bridge_diagnostic=True, with_grasp=True, mission_profile=mission_profile)
     now, state = fly(seq, 'OriginalStereoAcquire')
     assert seq.vbar.gates['GNSS5p5m'].completed_at_s is not None
     assert seq.image_release_s is None
@@ -130,3 +131,124 @@ def test_missing_visual_never_admits_offset_and_loss_after_release_latches():
     assert seq.phase == 'SafeHold' and seq.failure == 'visual_readiness_lost_after_release'
     tick(seq, now+.05, state, prealigned=True, visual_ready=True, visual_stamp_s=now+.05)
     assert seq.phase == 'SafeHold' and seq.owner == 'vbar'
+
+
+def formal_bridge():
+    seq = VbarStereoSequence([50.02, 0., 0.], [17.4, 0., 0.], [5.5, 0., 0.],
+        [1.5, 0., 0.], [.6, .01, 0.], mission_profile='near23_vbar_v1')
+    now, state = fly(seq, 'GNSSBridge5p5Approach')
+    state[3] = -.02
+    return seq, now, state
+
+
+def test_formal_alignment_loss_brakes_then_requires_a_new_complete_dwell():
+    seq, now, state = formal_bridge()
+    completed = {k: seq.vbar.gates[k].completed_at_s for k in ('Vbar50m', 'Optical17p4m')}
+    before = state.copy()
+    ref, vel, _ = tick(seq, now, state, prealigned=False)
+    np.testing.assert_array_equal(state, before)
+    np.testing.assert_allclose(ref, state[:3])
+    np.testing.assert_allclose(vel, state[3:])
+    assert seq.phase == 'TargetRealignment' and not seq.failure
+    assert seq.owner == 'vbar'
+    stop = seq.vbar.alignment_stop
+    assert stop.endpoint[0] < state[0]  # brake along the current closing motion
+    start = now
+    state = np.r_[ref, vel]
+    for _ in range(1000):
+        now += .05
+        elapsed = now-start
+        aligned = elapsed >= stop.duration+1.
+        previous_velocity = state[3:].copy()
+        ref, vel, acc = tick(seq, now, state, prealigned=aligned)
+        assert np.linalg.norm(acc) <= .005+1e-12
+        assert np.linalg.norm(vel-previous_velocity)/.05 <= .005+1e-10
+        state = np.r_[ref, vel]
+        assert not seq.failure
+        if seq.vbar.alignment_wait is None:
+            break
+        assert seq.phase == 'TargetRealignment'
+        assert seq.vbar.gates['GNSS5p5m'].completed_at_s is None
+    else:
+        raise AssertionError('stable alignment did not release the paused leg')
+    recovery = seq.vbar.alignment_recovery_gate
+    assert recovery.dwell_s >= 5.-1e-9 and recovery.samples >= 101
+    assert now-start >= stop.duration+6.-1e-9
+    assert {k: seq.vbar.gates[k].completed_at_s for k in completed} == completed
+    resume, velocity, _ = tick(seq, now+.05, state, prealigned=True)
+    np.testing.assert_allclose(resume, stop.endpoint, atol=1e-12)
+    np.testing.assert_allclose(velocity, 0., atol=1e-12)
+    assert seq.phase == 'GNSSBridge5p5Approach'
+
+
+@pytest.mark.parametrize('fault', ['persistent_misalignment', 'navigation_loss'])
+def test_alignment_recovery_keeps_timeout_and_navigation_protection(fault):
+    seq, now, state = formal_bridge()
+    tick(seq, now, state, prealigned=False)
+    for _ in range(4000):
+        now += .05
+        ref, vel, _ = tick(seq, now, state, prealigned=False,
+            inputs_valid=fault != 'navigation_loss')
+        state = np.r_[ref, vel]
+        if seq.failure:
+            break
+    assert seq.failure == ('target_realignment_timeout' if fault == 'persistent_misalignment'
+                           else 'navigation_health_lost')
+    assert seq.phase == 'SafeHold' and seq.owner == 'vbar'
+
+
+def test_first_image_attitude_correction_waits_for_service_tracking_without_losing_healthy_navigation():
+    seq, now, state = formal_bridge()
+    ref, vel, _ = tick(seq, now, state, prealigned=True, service_ready=False,
+        visual_ready=True, visual_stamp_s=now)
+    assert seq.phase == 'TargetRealignment' and not seq.failure
+    assert not seq.telemetry['prealigned']
+    assert seq.vbar.telemetry['conditions']['common']
+    state = np.r_[ref,vel]
+    for _ in range(400):
+        now += .05
+        ref,vel,_ = tick(seq, now,state,prealigned=True,service_ready=False,
+            visual_ready=True,visual_stamp_s=now)
+        state=np.r_[ref,vel]
+        assert seq.phase == 'TargetRealignment' and not seq.failure
+        assert seq.vbar.alignment_recovery_gate.samples == 0
+    now,state = fly(seq,'GNSSBridge5p5Approach',images=True,now=now+.05,state=state)
+    assert seq.vbar.alignment_recovery_gate.dwell_s >= 5.-1e-9
+
+
+def test_service_attitude_still_blocks_initial_unqualified_entry():
+    seq=sequence(mission_profile='near23_vbar_v1')
+    state=np.array([51.,0.,0.,0.,0.,0.])
+    for k in range(110):
+        tick(seq,k*.05,state,service_ready=False)
+    assert seq.vbar.acquire.completed_at_s is None
+    assert not seq.vbar.acquire.telemetry(5.45)['completed']
+
+
+def test_realign_on_gnss_leg_to_first_image_does_not_require_unavailable_vision():
+    seq=VbarStereoSequence([50.02,0.,0.],[17.4,0.,0.],[5.5,0.,0.],
+        [1.5,0.,0.],[.6,.01,0.],mission_profile='near23_vbar_v1',with_grasp=True)
+    now,state=fly(seq,'GNSSBridgeNearApproach')
+    assert seq.vbar.gates['GNSS5p5m'].completed_at_s is not None
+    assert seq.image_release_s is None
+    state[3]=-.02
+    ref,vel,_=tick(seq,now,state,prealigned=False)
+    state=np.r_[ref,vel]
+    assert seq.phase=='TargetRealignment' and not seq.failure
+    for _ in range(600):
+        now+=.05
+        ref,vel,_=tick(seq,now,state,prealigned=True)
+        state=np.r_[ref,vel]
+        assert not seq.failure
+        if seq.phase=='GNSSBridgeNearApproach':
+            break
+    else:
+        raise AssertionError('GNSS bridge deadlocked waiting for unavailable first vision')
+    assert seq.image_release_s is None
+    now,state=fly(seq,'OriginalStereoAcquire',state=state,now=now+.05)
+    assert seq.image_release_s is None  # reaching the node never grants visual release
+    now,state=fly(seq,'VisualApproach',images=True,state=state,now=now+.05)
+    now,state=fly(seq,'Grasp',images=True,state=state,now=now+.05)
+    assert seq.image_release_s is not None and seq.platform_completed_s is not None
+    tick(seq,now,state,grasp_complete=True)
+    assert seq.phase=='Complete' and not seq.failure

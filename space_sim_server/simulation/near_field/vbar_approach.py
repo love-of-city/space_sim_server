@@ -74,6 +74,10 @@ class VbarApproach:
         self.offset_progress = 0.
         self.pointing_gate = DwellGate(timeout_s=180.)
         self.pointing_started_s = None
+        self.alignment_wait = None
+        self.alignment_stop = None
+        self.alignment_recovery_gate = None
+        self.alignment_events = []
         self.platform_hold_gate = DwellGate(timeout_s=P.node_timeout_s)
 
     def fail(self, reason, state):
@@ -102,6 +106,15 @@ class VbarApproach:
         sigma_limit = policy.navigation_sigma_m if policy else P.gnss_sigma_m
         pointing_pause = bool(policy and self.gates['Optical17p4m'].completed_at_s is not None
                               and self.pointing_gate.completed_at_s is None)
+        recoverable_pointing = bool(policy and policy.mission_profile == 'near23_vbar_v1')
+        if (recoverable_pointing and self.pointing_gate.completed_at_s is not None
+                and not prealigned and not capture_active and self.failure_reason is None
+                and self.alignment_wait is None):
+            self.alignment_wait = now
+            self.alignment_stop = StopReference(state)
+            self.alignment_recovery_gate = DwellGate(timeout_s=policy.pointing_timeout_s)
+            self.alignment_events.append(dict(time_s=now, event='brake_for_target_realign',
+                node=node, stop_com_m=self.alignment_stop.endpoint.tolist()))
         if self.boundary_wait is not None:
             recovered = visual_valid if self.boundary_kind == P.vision_boundary_m else visual_ready
             if recovered and now-self.boundary_wait >= self.boundary_stop.duration:
@@ -136,6 +149,29 @@ class VbarApproach:
                 self.offset_end_s = offset_end_s
                 self.leg = None
                 self.next_start = reference[0]
+        elif self.alignment_wait is not None:
+            elapsed = now-self.alignment_wait
+            reference, velocity, acceleration = self.alignment_stop.sample(elapsed)
+            holding = elapsed >= self.alignment_stop.duration
+            subsegment = 'AlignmentRecoveryHold' if holding else 'AlignmentRecoveryBrake'
+            conditions = dict(position=np.linalg.norm(state[:3]-self.alignment_stop.endpoint) < policy.position_tolerance_m,
+                speed=speed < speed_limit, sigma=sigma < sigma_limit, common=common,
+                cooperative_geometry=geometry_ready, target_aligned=prealigned,
+                # The explicit GNSS bridge also owns the leg TO the visual
+                # acquisition point. Requiring vision while paused on that
+                # leg would deadlock before the markers have enough pixels.
+                visual_ready=self.gates[self.node_ids[self.visual_index]].completed_at_s is None or visual_ready)
+            self.alignment_recovery_gate.update(now, holding=holding, qualified=all(conditions.values()))
+            if self.alignment_recovery_gate.completed_at_s is not None:
+                # Finish braking and acquire a fresh five-second stable window
+                # before planning a new leg. Original completed nodes remain.
+                self.next_start = reference[0]
+                self.leg = None
+                self.alignment_events.append(dict(time_s=now, event='resume_after_target_realign',
+                    node=node, dwell=self.alignment_recovery_gate.telemetry(now)))
+                self.alignment_wait = None
+            elif elapsed >= policy.pointing_timeout_s:
+                self.fail('target_realignment_timeout', state)
         elif pointing_pause:
             reference = self.targets[1].copy()
             subsegment = 'TargetPointing'
@@ -187,7 +223,7 @@ class VbarApproach:
                 self.leg = None
 
         if policy and self.gates['PlatformStandoff'].completed_at_s is not None:
-            qualified = (common and geometry_ready and platform_ready and visual_ready and prealigned
+            qualified = (self.alignment_wait is None and common and geometry_ready and platform_ready and visual_ready and prealigned
                          and sigma < sigma_limit and speed < speed_limit
                          and np.linalg.norm(state[:3]-hold) < policy.position_tolerance_m)
             self.platform_hold_gate.update(now, holding=True, qualified=qualified)
@@ -220,7 +256,8 @@ class VbarApproach:
             if policy:
                 if not common or not np.isfinite(sigma) or not 0 <= sigma < sigma_limit:
                     self.fail('navigation_health_lost', state)
-                if self.pointing_gate.completed_at_s is not None and not prealigned and not capture_active:
+                if (not recoverable_pointing and self.pointing_gate.completed_at_s is not None
+                        and not prealigned and not capture_active):
                     self.fail('target_alignment_lost', state)
             if self.boundary_wait is not None or (boundary is not None and margin is not None and margin < 0):
                 active_boundary = self.boundary_kind if self.boundary_kind is not None else boundary
@@ -270,5 +307,8 @@ class VbarApproach:
                 original_camera_gnss_bridge=policy.gnss_bridge_enabled,
                 mission_profile=policy.mission_profile,
                 target_pointing=self.pointing_gate.telemetry(now),
+                target_realignment=dict(active=self.alignment_wait is not None,
+                    events=list(self.alignment_events),
+                    dwell=self.alignment_recovery_gate.telemetry(now) if self.alignment_recovery_gate else None),
                 platform_hold=self.platform_hold_gate.telemetry(now))
         return reference, velocity, acceleration

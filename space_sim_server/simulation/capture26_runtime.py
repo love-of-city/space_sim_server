@@ -60,6 +60,7 @@ def run(args):
     vision_config = load_vision(ROOT, mission_config)
     near23_route = None
     own_motion = None
+    wheel_unloading = None
     auto_capture = None
     body_image_bridge = None
     handoff_continuity = None
@@ -113,6 +114,10 @@ def run(args):
     if near23:
         from simulation.capture26_near23 import Near23Route
         from simulation.own_motion import OwnMotionFeedback
+        from simulation.wheel_unloading import WheelUnloading
+        wheel_unloading = WheelUnloading()
+        if incoming and incoming['control'].get('wheel_unloading'):
+            wheel_unloading.restore(incoming['control']['wheel_unloading'])
         near23_route = Near23Route(ROOT, vision_config, epoch_ns=epoch_ns)
         preparation = near23_route.preparation
         own_motion = OwnMotionFeedback()
@@ -557,6 +562,15 @@ def run(args):
                     covariance=relative_cov,sigma=principal_sigma(pc),last_gnss_ns=self.last_gnss_ns,
                     last_cooperative_ns=self.last_cooperative_ns,healthy=healthy,visual_ready=gate.ready,
                     visual_stamp_ns=gate.last_exposure_ns,mass=masses[0],grasp_complete=auto_capture.complete,grasp_failure=auto_capture.failure)
+                if (bridge is not None and not bridge.vision_requests_enabled
+                        and near23_route.sequence.vbar.gates['GNSS5p5m'].completed_at_s is not None):
+                    # GNSS owns the outer leg. Activate real RGB exposures only
+                    # after its 5.5 m dwell; every later requested frame retains
+                    # the original 10 Hz grid and fixed delivery deadline.
+                    bridge.vision_requests_enabled = True
+                    control.stereo_activation_ns = now
+                    delivery.events.append(dict(kind='stereo_activation',time_ns=now,
+                        policy='after_qualified_GNSS5p5m_dwell',rate_hz=mission_config.stereo_hz))
                 if near23_route.safe_hold and auto_capture.active and auto_capture.failure is None:
                     auto_capture.failure = near23_route.sequence.failure or 'platform_safe_hold'
                 if near23_route.sequence.phase=='Grasp' and not auto_capture.active:
@@ -631,6 +645,14 @@ def run(args):
             # The force acts at bus COM; cancel its moment about assembly COM
             # using the estimated attitude and the fixed physical lever arm.
             moment = np.cross(com[0]-bus_com, s['r'][0].T@self.force_n)
+            if wheel_unloading is not None:
+                wheels = attitude.control.telemetry()['reaction_wheels']
+                unload = wheel_unloading.update(wheels['speed_rad_s'],
+                    [w.spin_inertia for w in attitude.control.wheels], wheels['max_speed_rad_s'])
+                # Known feedforward lets the one wheel controller hold attitude
+                # while the bounded external actuator removes wheel momentum.
+                attitude.control.controller.knownTorquePntB_B = unload.tolist()
+                moment += unload
             torque.write(messaging.CmdTorqueBodyMsgPayload(torqueRequestBody=moment.tolist()), now, self.moduleID)
             nav.command(np.array([self.force_n/masses[0], np.zeros(3)]))
 
@@ -709,6 +731,7 @@ def run(args):
         bridge.epoch_offset_ns = epoch_ns
         bridge.vision_delivery_delay_ns = round(mission_config.stereo_delay_s*1e9)
         bridge.vision_exposure_after_ns = delivery.last_exposure
+        bridge.vision_requests_enabled = not (near23 and mission == 'near')
         bridge.frame_id_from_simulation_epoch = True
         result_receiver = VisionResultReceiver(mission_id, session_id, calibration_id(vision_config))
         external_vision = getattr(args, 'external_vision', False)
@@ -1040,6 +1063,12 @@ def run(args):
                 relative_error_m=(estimated-actual_relative).tolist(),
                 attitude_error_rad=[log(nav.state['r'][i]@rotations_truth[i].T).tolist() for i in range(2)],
                 truth_angular_velocity_body_rad_s=[v_truth[va+3:va+6].tolist() for _, va, _ in free_layouts],
+                attitude_control=attitude.control.telemetry()['attitude_control'],
+                reaction_wheels=attitude.control.telemetry()['reaction_wheels'],
+                wheel_unloading=wheel_unloading.snapshot() if wheel_unloading else None,
+                stereo_activation_ns=getattr(control,'stereo_activation_ns',None),
+                attitude_tracking_error_mrp=list(attitude.control.tracking_error.attGuidOutMsg.read().sigma_BR),
+                attitude_torque_body_nm=list(attitude.control.controller.cmdTorqueOutMsg.read().torqueRequestBody),
                 service_angular_rate_rad_s=float(np.linalg.norm(nav.state['rates'][0]-nav.state['b'][0])),
                 truth_com_position_n_m=[p.tolist() for p in actual],
                 truth_com_velocity_n_m_s=[assembly_truth[name]['velocity_n_m_s'].tolist() for name in ('cubesat_bus', 'capture_target')],
@@ -1183,6 +1212,9 @@ def run(args):
             vision=vision.status() if vision else None,
             sensor_delivery=delivery.status(), mission_configuration=mission_config.to_dict(),
             preparation=preparation.status() if preparation else None, unplanned_contacts=cross_contacts,
+            initial_attitude_inertia_kg_m2=attitude.control.initial_inertia.tolist(),
+            stereo_activation=dict(policy='after_qualified_GNSS5p5m_dwell' if near23 and mission=='near' else 'stage_start',
+                time_ns=getattr(control,'stereo_activation_ns',None),capture_rate_hz=mission_config.stereo_hz),
             visual_readiness=gate.status(now, time.time_ns() if args.ue else None),
             maximum_relative_position_error_m=maximum_relative_error,
             gyro_final_health=nav.gyro_health(now),
@@ -1195,6 +1227,7 @@ def run(args):
                 validation_claim='simulation state feedback motion demonstration only')
         if near23:
             control.own_motion = own_motion
+            control.wheel_unloading = wheel_unloading
             near23_route.capture_feedback = auto_capture.audit.feedback if auto_capture and auto_capture.audit else None
             summary.update(acceptance_profile=mission_config.acceptance_profile,feedback_source=mission_config.feedback_source,
                 handoff_continuity=handoff_continuity,
@@ -1219,6 +1252,7 @@ def run(args):
                          gyro_pending=control.gyro_pending, last_cooperative_ns=control.last_cooperative_ns,
                          platform_stability=operation_stability.snapshot() if operations else approach.stability.snapshot() if approach and not near23 else None,
                          preparation=preparation.snapshot() if preparation else None,
+                         wheel_unloading=wheel_unloading.snapshot() if wheel_unloading else None,
                          own_motion=own_motion.snapshot() if own_motion else None),
             environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else []),
             default=lambda a: a.tolist())+'\n', encoding='utf-8')

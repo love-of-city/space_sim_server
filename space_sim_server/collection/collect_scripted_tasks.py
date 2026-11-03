@@ -36,7 +36,8 @@ from simulation.scripted_tasks.plug_profiles import (
     plug_profile,
 )
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
-from simulation.scripted_tasks.floating_capture import FLOATING_TASKS, FloatingCaptureTask
+from simulation.scripted_tasks.floating_assets import FLOATING_TASKS, validate_asset_snapshot
+from simulation.scripted_tasks.floating_capture import FloatingCaptureTask
 
 
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
@@ -330,6 +331,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
     if task_name in FLOATING_TASKS:
         cfg = meta["scene_instance"]["collection_config"]
         release = cfg["floating_initial_state"]
+        validate_asset_snapshot(release, FLOATING_TASKS[task_name])
         assert release["task"] == task_name and release["target_body"] == FLOATING_TASKS[task_name].body
         assert .12 <= release["camera_to_grasp_distance_m"] <= .75
         variant = cfg["model_randomization"]

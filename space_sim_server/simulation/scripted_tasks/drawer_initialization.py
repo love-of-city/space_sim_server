@@ -10,7 +10,8 @@ from .drawer_lift import DrawerSample
 from .plug_insert import PlugInsertTask
 from .plug_profiles import is_plug_task, plug_profile
 from .threaded_tasks import THREADED_TASKS, create_threaded_task, threaded_task_class
-from .floating_capture import FLOATING_TASKS, FLOATING_BASELINE_DEG, FloatingCaptureTask
+from .floating_assets import FLOATING_TASKS
+from .floating_capture import FLOATING_BASELINE_DEG, FloatingCaptureTask
 
 NOISE_DISABLED = {
     name: False

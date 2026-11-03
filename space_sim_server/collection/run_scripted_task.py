@@ -34,7 +34,8 @@ from simulation.scripted_tasks.plug_profiles import (
     plug_profile,
 )
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, create_threaded_task, task_default_duration_s
-from simulation.scripted_tasks.floating_capture import FLOATING_TASKS, create_floating_task
+from simulation.scripted_tasks.floating_assets import FLOATING_TASKS
+from simulation.scripted_tasks.floating_capture import create_floating_task
 
 
 def default_target_state(model):
@@ -231,7 +232,8 @@ def run(args):
                          Path(sys.modules[type(task).__module__].__file__),
                          ROOT / "simulation/scripted_tasks/native_state.py",
                          ROOT / "simulation/components/plug_retention.py",
-                         *([ROOT / "simulation/scripted_tasks/floating_initialization.py"]
+                         *([ROOT / "simulation/scripted_tasks/floating_initialization.py",
+                            ROOT / "simulation/scripted_tasks/floating_assets.py"]
                            if args.task in FLOATING_TASKS else []))
         },
     }

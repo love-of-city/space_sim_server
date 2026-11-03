@@ -10,7 +10,8 @@ from simulation.serial_chain_kinematics import (
     SerialChainKinematics, axis_angle_to_matrix, matrix_to_quaternion_wxyz,
     quaternion_wxyz_to_matrix,
 )
-from .floating_capture import FLOATING_TASKS, create_floating_task
+from .floating_assets import FLOATING_TASKS, validate_asset_snapshot
+from .floating_capture import create_floating_task
 from .motion import solve_pose
 
 
@@ -96,7 +97,7 @@ def apply_floating_model(root, source, scene):
             # Magnitude bounded sampling, not three independently maximal axes.
             velocity = rng.normal(size=3); velocity *= rng.uniform(.25, 1.)*options.max_speed_m_s/np.linalg.norm(velocity)
             spin = rng.normal(size=3); spin *= rng.uniform(.25, 1.)*options.max_spin_rad_s/np.linalg.norm(spin)
-            saved = dict(schema="floating-release/1", task=name, target_body=asset.body,
+            saved = dict(schema="floating-release/2", asset_snapshot=asset.snapshot(), task=name, target_body=asset.body,
                 seed=int(scene.get("seed", 0)), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
                 options=vars(options), position_body_m=(point-rotation@asset.grip_point).tolist(),
                 orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(),
@@ -109,7 +110,8 @@ def apply_floating_model(root, source, scene):
         else:
             raise ValueError("No reachable floating release in the requested distance range")
         cfg["floating_initial_state"] = saved
-    if (saved.get("schema") != "floating-release/1" or saved.get("task") != name
+    validate_asset_snapshot(saved, asset)
+    if (saved.get("schema") != "floating-release/2" or saved.get("task") != name
             or saved.get("target_body") != asset.body
             or saved.get("seed") != int(scene.get("seed", 0))
             or saved.get("source_sha256") != hashlib.sha256(source.read_bytes()).hexdigest()

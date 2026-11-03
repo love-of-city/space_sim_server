@@ -3,6 +3,7 @@
 The controller writes actuator references only. A successful capture requires
 bilateral finger contact and a stable object-to-hand transform, never a weld.
 """
+from .floating_assets import FLOATING_TASKS
 from dataclasses import dataclass
 from pathlib import Path
 import math
@@ -16,27 +17,6 @@ from simulation.serial_chain_kinematics import (
 )
 
 
-@dataclass(frozen=True)
-class FloatingAsset:
-    body: str
-    label: str
-    instruction_name: str
-    grip_point: tuple[float, float, float]
-    closing_axis: tuple[float, float, float]
-    approach_axis: tuple[float, float, float]
-
-
-FLOATING_TASKS = {
-    "floating_bolt_capture": FloatingAsset(
-        "bolt", "漂浮航空螺栓", "floating aviation bolt", (0., 0., -.005),
-        (0., 1., 0.), (0., 0., 1.)),
-    "floating_plug_capture": FloatingAsset(
-        "cylindrical_plug", "漂浮圆柱插头", "floating cylindrical plug", (0., 0., -.006),
-        (0., 1., 0.), (0., 0., 1.)),
-    "floating_panel_capture": FloatingAsset(
-        "satellite_outer_panel", "漂浮卫星外侧板", "detached satellite panel",
-        (-.36, .0046, 0.), (0., 1., 0.), (1., 0., 0.)),
-}
 FLOATING_BASELINE_DEG = (90., -60., 60., 0., -45., 0.)
 
 

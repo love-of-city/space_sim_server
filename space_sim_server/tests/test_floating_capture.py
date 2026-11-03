@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 
 from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.floating_assets import FLOATING_TASKS
 from simulation.scripted_tasks.floating_capture import (
-    FLOATING_TASKS, FloatingCaptureConfig, create_floating_task,
+    FloatingCaptureConfig, create_floating_task,
 )
 from simulation.scripted_tasks.floating_initialization import FloatingInitialConfig
 from simulation.scripted_tasks.native_state import FloatingSample
@@ -273,3 +274,22 @@ def test_recording_requires_two_valid_finger_channels(contacts, forces):
     steps = [dict(sim_time_ns=str(i*20_000_000), scripted_task=deepcopy(state)) for i in range(160)]
     with pytest.raises(AssertionError):
         validate_floating_recording(steps, list(FloatingCaptureTask.stages), "floating_bolt_capture")
+
+
+@pytest.mark.parametrize("field,value", [
+    ("grip_point", (float("nan"), 0., 0.)),
+    ("closing_axis", (0., 2., 0.)),
+    ("approach_axis", (0., 1., 0.)),
+])
+def test_invalid_asset_vectors_rejected(field, value):
+    with pytest.raises(ValueError):
+        replace(FLOATING_TASKS["floating_aviation_plug_capture"], **{field: value})
+
+
+def test_release_freezes_grasp_description(tmp_path):
+    scene, path = realized(tmp_path, "floating_aviation_plug_capture", 75)
+    release = scene["collection_config"]["floating_initial_state"]
+    assert release["asset_snapshot"] == FLOATING_TASKS["floating_aviation_plug_capture"].snapshot()
+    release["asset_snapshot"]["grip_point"][2] += .001
+    with pytest.raises(ValueError, match="snapshot"):
+        write_model_variant(MODEL, tmp_path/"changed.xml", scene)

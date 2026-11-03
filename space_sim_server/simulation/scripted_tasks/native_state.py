@@ -7,7 +7,7 @@ from simulation.scripted_tasks.drawer_lift import DrawerSample
 from simulation.scripted_tasks.plug_insert import PlugSample
 from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
-from simulation.scripted_tasks.floating_capture import FLOATING_TASKS
+from simulation.scripted_tasks.floating_assets import FLOATING_TASKS
 
 
 class DrawerState:

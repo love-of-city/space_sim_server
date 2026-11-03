@@ -60,7 +60,7 @@ from simulation.scripted_tasks.threaded_tasks import (
     task_default_duration_s,
 )
 
-from simulation.scripted_tasks.floating_capture import FLOATING_TASKS
+from simulation.scripted_tasks.floating_assets import FLOATING_TASKS
 
 CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
 

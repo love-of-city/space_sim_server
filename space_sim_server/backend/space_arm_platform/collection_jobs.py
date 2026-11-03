@@ -20,7 +20,7 @@ import time
 from typing import Literal
 import uuid
 import xml.etree.ElementTree as ET
-from simulation.scripted_tasks.floating_capture import FLOATING_TASKS
+from simulation.scripted_tasks.floating_assets import FLOATING_TASKS
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

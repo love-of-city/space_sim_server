@@ -266,7 +266,7 @@ def write_model_variant(source, output, scene):
     source = Path(source).resolve()
     dynamics_enabled = options_for_scene(scene).dynamics.enabled
     task = scene.get('scripted_task_name', scene.get('collection_config', {}).get('task'))
-    from .floating_capture import FLOATING_TASKS
+    from .floating_assets import FLOATING_TASKS
     floating_task = task in FLOATING_TASKS
     threaded_task = task in {'aviation_bolt_insert', 'locking_rod_cycle'}
     config = scene.setdefault("collection_config", {})

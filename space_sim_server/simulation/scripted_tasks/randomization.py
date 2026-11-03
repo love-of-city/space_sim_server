@@ -319,7 +319,9 @@ def write_model_variant(source, output, scene):
     initialization = {}
     if floating_task:
         from .floating_initialization import apply_floating_model
+        from .floating_variations import apply_target_variations
         initialization['floating_release'] = apply_floating_model(root, source, scene)
+        initialization['floating_target'] = apply_target_variations(root, scene, initialization['floating_release']['target_body'])
     if storage_thread is not None:
         initialization['bolt_storage_thread'] = storage_thread
     appearance = None
@@ -417,7 +419,8 @@ def write_model_variant(source, output, scene):
         variant_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
         mass_scale=mass,
         friction_scale=friction,
-        scope=("all_bodies_and_contact_geoms" if (dynamics_enabled or threaded_task)
+        scope=("floating_target_and_release" if floating_task
+               else "all_bodies_and_contact_geoms" if (dynamics_enabled or threaded_task)
                else "appearance_and_storage_thread_upgrade" if visual_color and physics_upgraded
                else "storage_thread_upgrade" if physics_upgraded
                else "appearance_only_existing_visible_geoms"),

@@ -233,6 +233,8 @@ def run(args):
                          ROOT / "simulation/scripted_tasks/native_state.py",
                          ROOT / "simulation/components/plug_retention.py",
                          *([ROOT / "simulation/scripted_tasks/floating_initialization.py",
+                            ROOT / "simulation/scripted_tasks/floating_variations.py",
+                            ROOT / "simulation/scripted_tasks/floating_profiles.py",
                             ROOT / "simulation/scripted_tasks/floating_assets.py"]
                            if args.task in FLOATING_TASKS else []))
         },

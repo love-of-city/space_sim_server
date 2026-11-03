@@ -337,3 +337,19 @@ python tools/collect.py --output /absolute/new-smoke-batch --layouts 2
 详细流程、目录职责、输出分组及断点续采见[按布局顺序采集](docs/LAYOUT_SEQUENCE_COLLECTION.md)。实际采集实现统一放在 `collection/`；模型生成、检查、测速和部署辅助分别放在 `tools/` 的子目录。网页/API继续使用内部单任务批采入口。
 
 六种任务各20条英文指令模板见[采集英文指令模板](docs/TASK_INSTRUCTIONS.md)。
+
+### 漂浮抓取的多样性条件
+
+`collect_scripted_tasks.py` 可将同一物体任务与独立的场景条件组合：
+
+```bash
+python collection/collect_scripted_tasks.py \
+  --task floating_aviation_plug_capture --scene /path/to/source-scene.json \
+  --floating-profile right-incoming-blue \
+  --output /path/to/new-validation-directory --episodes-root /path/to/episodes \
+  --count 1 --max-attempts 6 --seed 75 --offline
+```
+
+条件定义见 `simulation/scripted_tasks/floating_profiles.py`，包括 `left-static-red`、`right-incoming-blue`、`left-receding-green`、`right-lateral-orange`、`upper-drift-purple`、`lower-drift-yellow`、`noisy-observations`、`action-perturbation`。它们覆盖释放位置、朝向、平移/旋转、起姿、目标质量/惯量/摩擦、纯色、光照、轨道相位与观测/动作扰动。可直接在原生scene JSON中设置 `floating_capture`、`floating_target`、`collection_randomization` 和 `environment` 自定义条件。profile会覆盖这些维度的配置，保留其他源场景设置；`initialization_enabled=false`仍关闭起姿扰动。
+
+物体定义、场景变化、控制器分开维护，不为条件组合增加task ID。相机安装和成功标准保持固定，所有条件仍经过原生碰撞预检。`floating-release/3`使用独立position/tilt/speed/spin随机流，新的seed初态与旧版本不同；历史数据可阅读，新代码重放要求当前schema。每条scene保存profile定义、实际释放、目标变体及随机扰动；平移速度表示目标body原点的运动。摩擦记录目标geom/pair参数，实际接触仍遵循MuJoCo混合规则。

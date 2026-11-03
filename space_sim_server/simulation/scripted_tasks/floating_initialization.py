@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from copy import deepcopy
 import hashlib
+import json
 import math
 import xml.etree.ElementTree as ET
 
@@ -23,15 +24,56 @@ class FloatingInitialConfig:
     max_speed_m_s: float = .001
     max_spin_rad_s: float = .003
     max_tilt_deg: float = 8.
+    min_tilt_deg: float = 0.
+    tilt_axis: str = "random"
+    view_x_range: tuple = (-.08, .08)
+    view_y_range: tuple = (-.08, .08)
+    min_speed_m_s: float = 0.
+    velocity_direction: str = "random"
+    min_spin_rad_s: float = 0.
+    spin_axis: str = "random"
+    spin_sign: int = 1
+    arm_half_range_deg: float = 0.
 
     def __post_init__(self):
-        if not all(math.isfinite(v) for v in vars(self).values()):
+        scalars = [v for v in vars(self).values() if isinstance(v, (int, float))]
+        if not all(math.isfinite(v) for v in scalars):
             raise ValueError("Floating initial conditions must be finite")
         if not .12 <= self.min_distance_m <= self.max_distance_m <= .75:
             raise ValueError("Camera-to-grasp distance must be within [0.12, 0.75] m")
-        if not (0 <= self.max_speed_m_s <= .01 and 0 <= self.max_spin_rad_s <= .05
-                and 0 <= self.max_tilt_deg <= 20):
+        if not (0 <= self.min_speed_m_s <= self.max_speed_m_s <= .01
+                and 0 <= self.min_spin_rad_s <= self.max_spin_rad_s <= .05
+                and 0 <= self.min_tilt_deg <= self.max_tilt_deg <= 20
+                and 0 <= self.arm_half_range_deg <= 10):
             raise ValueError("Floating velocity, spin or tilt exceeds task envelope")
+        axes = ("random", "camera_x", "camera_y", "camera_z")
+        if self.tilt_axis not in axes or self.spin_axis not in axes or self.spin_sign not in (-1, 1):
+            raise ValueError("Invalid floating rotation axis or sign")
+        if self.velocity_direction not in ("random", "stationary", "approaching", "receding", "lateral_left", "lateral_right", "up", "down"):
+            raise ValueError("Invalid floating velocity direction")
+        if self.velocity_direction == "stationary" and self.max_speed_m_s != 0:
+            raise ValueError("Stationary releases require max_speed_m_s=0")
+        for interval in (self.view_x_range, self.view_y_range):
+            if len(interval) != 2 or not all(math.isfinite(x) for x in interval) or not -.30 <= interval[0] <= interval[1] <= .30:
+                raise ValueError("Floating view slopes must be ordered within [-0.30, 0.30]")
+
+    def snapshot(self):
+        return json.loads(json.dumps(vars(self)))
+
+
+def _axis(name, camera_rotation, rng):
+    if name != "random":
+        return camera_rotation[:, ("camera_x", "camera_y", "camera_z").index(name)]
+    value = rng.normal(size=3)
+    return value / np.linalg.norm(value)
+
+
+def _velocity_axis(name, ray, camera_rotation, rng):
+    if name == "random":
+        return _axis("random", camera_rotation, rng)
+    return {"stationary": np.zeros(3), "approaching": -ray, "receding": ray,
+            "lateral_left": -camera_rotation[:, 0], "lateral_right": camera_rotation[:, 0],
+            "up": camera_rotation[:, 1], "down": -camera_rotation[:, 1]}[name]
 
 
 def _fixed_pose(root, element, ancestor):
@@ -70,6 +112,13 @@ def apply_floating_model(root, source, scene):
         if original is None or original.find("geom") is None:
             raise ValueError(f"Floating source {asset.source_body} has no direct geometry")
         body = ET.Element("body", name=asset.body)
+        parents = {child: parent for parent in root.iter() for child in parent}
+        ancestor = original
+        while ancestor is not None:
+            if "childclass" in ancestor.attrib:
+                body.set("childclass", ancestor.get("childclass"))
+                break
+            ancestor = parents.get(ancestor)
         # Geometry and inertia remain in source-body coordinates. Assembly poses,
         # descendants, joints and sites do not belong to this independent part.
         for index, item in enumerate(original):
@@ -102,14 +151,18 @@ def apply_floating_model(root, source, scene):
     saved = cfg.get("floating_initial_state")
     if saved is None:
         from .randomization import generator
-        rng = generator(scene.get("seed", 0), "floating-release-v1")
+        rng = generator(scene.get("seed", 0), "floating-position-v3")
+        tilt_rng = generator(scene.get("seed", 0), "floating-tilt-v3")
+        speed_rng = generator(scene.get("seed", 0), "floating-speed-v3")
+        spin_rng = generator(scene.get("seed", 0), "floating-spin-v3")
         for attempt in range(128):
             distance = float(rng.uniform(options.min_distance_m, options.max_distance_m))
-            ray = camera_rotation @ np.array([rng.uniform(-.08, .08), rng.uniform(-.08, .08), -1.])
+            ray = camera_rotation @ np.array([rng.uniform(*options.view_x_range), rng.uniform(*options.view_y_range), -1.])
             ray /= np.linalg.norm(ray)
             point = camera_position + distance*ray
-            axis = rng.normal(size=3); axis /= np.linalg.norm(axis)
-            desired = axis_angle_to_matrix(axis, math.radians(rng.uniform(-options.max_tilt_deg, options.max_tilt_deg)))@r
+            axis = _axis(options.tilt_axis, camera_rotation, tilt_rng)
+            angle = tilt_rng.uniform(options.min_tilt_deg, options.max_tilt_deg) * tilt_rng.choice([-1, 1])
+            desired = axis_angle_to_matrix(axis, math.radians(angle))@r
             rotation = desired@basis.T
             try:
                 goal = solve_pose(chain, point, desired, initial, lower, upper)
@@ -118,27 +171,27 @@ def apply_floating_model(root, source, scene):
             if np.min(np.minimum(goal-lower, upper-goal)) < .15:
                 continue
             # Magnitude bounded sampling, not three independently maximal axes.
-            velocity = rng.normal(size=3); velocity *= rng.uniform(.25, 1.)*options.max_speed_m_s/np.linalg.norm(velocity)
-            spin = rng.normal(size=3); spin *= rng.uniform(.25, 1.)*options.max_spin_rad_s/np.linalg.norm(spin)
-            saved = dict(schema="floating-release/2", asset_snapshot=asset.snapshot(), task=name, target_body=asset.body,
+            velocity = _velocity_axis(options.velocity_direction, ray, camera_rotation, speed_rng) * speed_rng.uniform(options.min_speed_m_s, options.max_speed_m_s)
+            spin = _axis(options.spin_axis, camera_rotation, spin_rng) * options.spin_sign * spin_rng.uniform(options.min_spin_rad_s, options.max_spin_rad_s)
+            saved = dict(schema="floating-release/3", asset_snapshot=asset.snapshot(), task=name, target_body=asset.body,
                 seed=int(scene.get("seed", 0)), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
-                options=vars(options), position_body_m=(point-rotation@asset.grip_point).tolist(),
+                options=options.snapshot(), position_body_m=(point-rotation@asset.grip_point).tolist(),
                 orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(),
                 velocity_body_m_s=velocity.tolist(), angular_velocity_body_rad_s=spin.tolist(),
                 camera_position_body_m=camera_position.tolist(), camera_to_grasp_distance_m=distance,
                 grasp_position_body_m=point.tolist(), ik_joint_position_rad=goal.tolist(),
-                sampling="uniform distance and small view-cone offsets, conditioned on pose IK; native collision preflight follows",
+                sampling="uniform configured distance, view slopes and magnitudes, conditioned on pose IK; native collision preflight follows",
                 rejected_ik_candidates=attempt, camera_intrinsics="unchanged source MJCF")
             break
         else:
             raise ValueError("No reachable floating release in the requested distance range")
         cfg["floating_initial_state"] = saved
     validate_asset_snapshot(saved, asset)
-    if (saved.get("schema") != "floating-release/2" or saved.get("task") != name
+    if (saved.get("schema") != "floating-release/3" or saved.get("task") != name
             or saved.get("target_body") != asset.body
             or saved.get("seed") != int(scene.get("seed", 0))
             or saved.get("source_sha256") != hashlib.sha256(source.read_bytes()).hexdigest()
-            or saved.get("options") != vars(options)):
+            or saved.get("options") != options.snapshot()):
         raise ValueError("Saved floating release does not match task, source or configuration")
     vectors = {}
     for key, size in (("position_body_m", 3), ("orientation_wxyz", 4),
@@ -159,17 +212,36 @@ def apply_floating_model(root, source, scene):
     tilt = 2.*math.atan2(float(np.linalg.norm(relative_quat[1:])), abs(float(relative_quat[0])))
     delta = point-camera_position
     distance = float(saved.get("camera_to_grasp_distance_m", float("nan")))
+    camera_delta = camera_rotation.T @ delta
+    slopes = camera_delta[:2] / max(1e-20, -camera_delta[2])
+    for value, interval in zip(slopes, (options.view_x_range, options.view_y_range)):
+        if not interval[0]-1e-10 <= value <= interval[1]+1e-10:
+            raise ValueError("Saved floating release violates its view configuration")
+    speed, spin_speed = (np.linalg.norm(vectors[key]) for key in ("velocity_body_m_s", "angular_velocity_body_rad_s"))
+    if options.velocity_direction != "random":
+        expected = _velocity_axis(options.velocity_direction, delta/max(np.linalg.norm(delta), 1e-20), camera_rotation, None)*speed
+        if not np.allclose(vectors["velocity_body_m_s"], expected, atol=1e-12, rtol=0):
+            raise ValueError("Saved floating release violates velocity direction")
+    if options.spin_axis != "random":
+        expected = _axis(options.spin_axis, camera_rotation, None)*options.spin_sign*spin_speed
+        if not np.allclose(vectors["angular_velocity_body_rad_s"], expected, atol=1e-12, rtol=0):
+            raise ValueError("Saved floating release violates spin axis")
+    if options.tilt_axis != "random" and tilt > 1e-9:
+        if np.linalg.norm(np.cross(relative_quat[1:], _axis(options.tilt_axis, camera_rotation, None))) > 1e-9:
+            raise ValueError("Saved floating release violates tilt axis")
     goal = vectors["ik_joint_position_rad"]
     gp, gr = chain.forward(goal)
     if (not math.isfinite(distance) or not options.min_distance_m-1e-10 <= distance <= options.max_distance_m+1e-10
             or np.linalg.norm(vectors["velocity_body_m_s"]) > options.max_speed_m_s+1e-12
             or np.linalg.norm(vectors["angular_velocity_body_rad_s"]) > options.max_spin_rad_s+1e-12
+            or speed < options.min_speed_m_s-1e-12 or spin_speed < options.min_spin_rad_s-1e-12
+            or tilt < math.radians(options.min_tilt_deg)-1e-9
             or tilt > math.radians(options.max_tilt_deg)+1e-9
             or np.any(goal < lower) or np.any(goal > upper)
             or not np.allclose(camera_position, vectors["camera_position_body_m"], atol=1e-10, rtol=0)
             or not np.allclose(point, vectors["grasp_position_body_m"], atol=1e-10, rtol=0)
             or abs(np.linalg.norm(delta)-distance) > 1e-10
-            or np.dot(delta/distance, -camera_rotation[:, 2]) < .99
+            or camera_delta[2] >= 0
             or np.linalg.norm(gp-point) > 3e-6
             or np.linalg.norm(gr-grasp_rotation) > 2e-5):
         raise ValueError("Saved floating release violates its physical configuration")

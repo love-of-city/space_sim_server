@@ -36,8 +36,11 @@ def randomized_scene(source, seed, half_range_deg=30.0, task_name="drawer_cycle"
         source["randomization"]["arm_joint_position_rad"][:6], dtype=float
     )
     if task_name in FLOATING_TASKS:
+        from .floating_initialization import FloatingInitialConfig
         baseline = np.deg2rad(FLOATING_BASELINE_DEG)
-        half_range_deg = 0.
+        half_range_deg = FloatingInitialConfig(**scene.get("floating_capture", {})).arm_half_range_deg
+        if not source.get("initialization_enabled", True):
+            half_range_deg = 0.
         # Task 5 varies the free object's state and keeps camera installation
         # fixed. It does not inherit an unrelated docking/target hinge state.
         scene["randomize_overview_camera"] = False

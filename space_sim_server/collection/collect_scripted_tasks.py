@@ -38,6 +38,7 @@ from simulation.scripted_tasks.plug_profiles import (
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
 from simulation.scripted_tasks.floating_assets import FLOATING_TASKS, validate_asset_snapshot
 from simulation.scripted_tasks.floating_capture import FloatingCaptureTask
+from simulation.scripted_tasks.floating_profiles import FLOATING_PROFILES, apply_floating_profile
 
 
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
@@ -463,6 +464,8 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
         "--task", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS], default=default_task
     )
     parser.add_argument("--scene", type=Path, required=True)
+    parser.add_argument("--floating-profile", choices=FLOATING_PROFILES,
+                        help="Explicit floating diversity condition applied to the source scene")
     parser.add_argument("--layout-pool", type=Path,
                         help="Validated layout pool; select a reproducible layout per attempt")
     parser.add_argument("--model", type=Path, help="Fixed validated layout model for this batch")
@@ -524,6 +527,12 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
     if bool(args.model) != bool(args.catalog) or (args.layout_pool and args.model):
         parser.error("provide --model and --catalog together, or --layout-pool")
     source = json.loads(args.scene.read_text(encoding="utf-8-sig"))
+    if args.floating_profile:
+        if prepared_scene is not None:
+            parser.error("--floating-profile cannot be combined with a prepared scene")
+        if args.task not in FLOATING_TASKS:
+            parser.error("--floating-profile requires a floating capture task")
+        source = apply_floating_profile(source, args.floating_profile)
     selected_layout = source.get("collection_config", {}).get("layout_randomization", {})
     if (source.get("collection_layout_randomization") or source.get("task_box_layout")
             or selected_layout.get("enabled")) and not (args.layout_pool or args.model):

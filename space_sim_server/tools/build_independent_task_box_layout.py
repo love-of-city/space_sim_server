@@ -16,7 +16,6 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-import coacd
 import manifold3d as mf
 import numpy as np
 import trimesh
@@ -688,6 +687,8 @@ class Builder:
                     convex.append((mesh.vertices, mesh.faces))
             collision_method = "Exact rectangular slab plus original hulls clipped to individual CAD top-feature envelopes; exact aperture subtraction"
         else:
+            import coacd
+
             coacd.set_log_level("warn")
             convex = coacd.run_coacd(coacd.Mesh(np.asarray(result.vertices, dtype=np.float64),
                                               np.asarray(result.faces, dtype=np.int32)),

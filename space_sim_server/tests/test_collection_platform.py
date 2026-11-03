@@ -114,6 +114,110 @@ def wait_job(manager, key):
     pytest.fail("collector did not terminate")
 
 
+@pytest.fixture
+def exiting_collector(manager, monkeypatch):
+    """Finish a real child after the manager reads its penultimate summary."""
+    (manager.project_root / "fake.py").write_text(r'''
+import argparse, json, time
+from pathlib import Path
+p = argparse.ArgumentParser()
+for name in ('output', 'seed'):
+    p.add_argument('--' + name)
+a, _ = p.parse_known_args()
+folder = Path(a.output)
+folder.mkdir()
+def save(value):
+    temporary = folder / 'summary.tmp'
+    temporary.write_text(json.dumps(value))
+    temporary.replace(folder / 'summary.json')
+save(dict(status='running', attempts=[], accepted_episodes=[]))
+(folder / 'ready').touch()
+deadline = time.monotonic() + 10
+while not (folder / 'finish.request').exists():
+    if time.monotonic() > deadline:
+        raise RuntimeError('manager never released test collector')
+    time.sleep(.01)
+seed = int(a.seed)
+status = {31: 'attempt_limit', 32: 'failed', 35: 'attempt_limit',
+          36: 'attempt_limit', 37: 'attempt_limit'}.get(seed, 'complete')
+accepted = [str(folder / ('episode-' + str(seed)))] if status == 'complete' else []
+attempt = dict(attempt=1, seed=seed, directory=str(folder / 'attempt-001'),
+               status='accepted' if accepted else 'initialization_rejected')
+save(dict(status=status, attempts=[attempt], accepted_episodes=accepted,
+          error='renderer process failed' if status == 'failed' else None))
+raise SystemExit(2 if seed == 37 else 0 if status == 'complete' else 1)
+''', encoding="utf-8")
+    processes = {}
+    original_popen = subprocess.Popen
+    original_refresh = manager._refresh
+    released = []
+
+    def launch(*args, **kwargs):
+        process = original_popen(*args, **kwargs)
+        processes[process.pid] = process
+        return process
+
+    def refresh_then_finish(job, worker):
+        original_refresh(job, worker)
+        folder = manager.root / job["id"] / f"worker-{worker['index']}"
+        gate = folder / "finish.request"
+        if (folder / "ready").exists() and not gate.exists():
+            assert worker["accepted_episodes"] == []
+            gate.touch()
+            processes[worker["pid"]].wait(timeout=10)
+            released.append(worker["index"])
+
+    monkeypatch.setattr(subprocess, "Popen", launch)
+    monkeypatch.setattr(manager, "_refresh", refresh_then_finish)
+    return released
+
+
+@pytest.mark.parametrize("seed,expected,successes", [
+    (30, "complete", 1), (31, "attempt_limit", 0), (32, "failed", 0),
+    (37, "failed", 0),  # A crash exit code must not become an ordinary limit.
+])
+def test_worker_exit_reads_final_summary_before_persisting_status(
+    manager, exiting_collector, seed, expected, successes
+):
+    job = manager.start(CollectionCreate(workers=1, count=1, max_attempts=1, seed=seed), OWNER, {})
+    result = wait_job(manager, job["id"])
+    assert exiting_collector == [0]
+    assert result["status"] == result["workers"][0]["status"] == expected
+    assert result["success_count"] == successes
+    assert len(result["workers"][0]["attempts"]) == 1
+    if seed == 32:
+        assert result["workers"][0]["error"] == "renderer process failed"
+    saved = json.loads((manager.root / job["id"] / "job.json").read_text(encoding="utf-8"))
+    assert saved["status"] == expected
+    assert saved["workers"][0]["accepted_episodes"] == result["accepted_episodes"]
+    manager.close()
+    recovered = CollectionManager(manager.project_root, manager.data_root, manager.adapter, manager.unreal)
+    try:
+        reloaded = recovered.get(job["id"], OWNER)
+        assert reloaded["status"] == expected and reloaded["success_count"] == successes
+    finally:
+        recovered.close()
+
+
+@pytest.mark.parametrize("seed,expected,statuses,successes", [
+    (30, "attempt_limit", ["complete", "attempt_limit"], 1),
+    (31, "failed", ["attempt_limit", "failed"], 0),
+    (33, "complete", ["complete", "complete"], 2),
+    (35, "attempt_limit", ["attempt_limit", "attempt_limit"], 0),
+])
+def test_batch_completion_combines_final_worker_results(
+    manager, exiting_collector, seed, expected, statuses, successes
+):
+    job = manager.start(CollectionCreate(workers=2, count=2, max_attempts=2, seed=seed), OWNER, {})
+    result = wait_job(manager, job["id"])
+    assert sorted(exiting_collector) == [0, 1]
+    assert result["status"] == expected and result["success_count"] == successes
+    assert [worker["status"] for worker in result["workers"]] == statuses
+    # An exhausted batch must release its resources and permit another batch.
+    next_job = manager.start(CollectionCreate(workers=1, count=1, max_attempts=1, seed=40), OWNER, {})
+    assert wait_job(manager, next_job["id"])["status"] == "complete"
+
+
 def test_four_workers_exact_success_budget_isolation_and_reload(manager):
     job = manager.start(
         CollectionCreate(workers=4, count=5, max_attempts=9, seed=30),

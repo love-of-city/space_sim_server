@@ -60,7 +60,7 @@ FLOATING_TASKS = {
         "floating_drawer_base", "漂浮抽屉本体", "floating drawer body", (0., 0., -.005),
         (0., 1., 0.), (0., 0., 1.), source_body="drawer_base"),
     "floating_board1_capture": FloatingAsset(
-        "floating_asm_board1", "漂浮安装板1", "floating mounting board 1", (.267, .250, .0025),
+        "floating_asm_board1", "漂浮安装板1", "floating mounting board 1", (.317, .250, .0025),
         (0., 0., 1.), (1., 0., 0.), source_body="asm_board1"),
     "floating_board2_capture": FloatingAsset(
         "floating_asm_board2", "漂浮安装板2", "floating mounting board 2", (.0955, .210, -.005),

@@ -6,7 +6,7 @@ Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真�
 
 近距交会通过现有事件HUD显示阶段、导航质量与逻辑捕获状态，使用 `Adapters/bsk_render_adapter/near_field.py`；配套动力学、入口和限制见 [近距交会方案](../space_sim_server/docs/NEAR_FIELD_RENDEZVOUS.md)。原模型路径中 UE 只渲染，双目图像没有参与其参数化导航算法。
 
-capture26 网页新增显式 `near23_vbar_v1` 路线：远距GNSS → V-bar → 17.4 m调姿并稳姿 → 约3 m获取原双目 → 平台驻留 → 四爪实际抓持。相机仍为夹爪上的原双目；完整7 km连续验收正在执行，详见[原双目正式任务](../space_sim_server/docs/CAPTURE26_NEAR23_FORMAL.md)。
+capture26 网页新增显式 `near23_vbar_v1` 路线：远距GNSS → V-bar → 17.4 m调姿并稳姿 → 约3 m获取原双目 → 平台驻留 → 四爪实际抓持。相机仍为夹爪上的原双目；本地7 km远距记录经正式协调器续接至实际四爪抓持已通过独立验收，HTTP全程及共享网页部署尚未验收，详见[原双目正式任务](../space_sim_server/docs/CAPTURE26_NEAR23_FORMAL.md)。
 
 保留的 `simulation_state_demo_v1` 演示配置读取权威仿真状态，经原制导、PD、关节与飞轮控制产生动力学运动。约 110 m 远距停留 5 s 后，沿质心 V-bar 依次在 50 m、光学深度 17.4 m、5.50 m 和收拢 TCP 轴向间隙 0.5 m 的作业参考处实际连续停留 5 s，最终持续保持并接续原操作工作台。位置/速度按当前参考判断，超限清零；停泊最高 1 倍节拍，航行允许加速。
 

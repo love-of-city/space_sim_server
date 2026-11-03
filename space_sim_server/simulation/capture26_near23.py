@@ -173,7 +173,7 @@ class Near23CaptureClient:
         p,r = c.target.kinematics.forward(q[:6])
         try:
             own = self.motion.update(round(t*1e9),self.gyro_provider(),self.com_provider(),epoch=self.motion.epoch)
-            action,_ = self.servo.command(t,q,(p,r),feedback,own_feedback=own)
+            action,_ = self.servo.command(t,q,(p,r),feedback,reference_from_base=own)
         except ValueError as error:
             action,_ = self.servo.gyro_unavailable(str(error),t,q,feedback)
         if self.servo.sequence.phase=='abort':

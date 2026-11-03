@@ -128,6 +128,9 @@ def write_stage_result(output, args, summary, rows, windows, nav, gyros, receive
         environment=[m.snapshot(epoch_ns=epoch_ns) for m in environment.models] if environment else [])
     if near23:
         document['control']['own_motion'] = control.own_motion.snapshot()
+        if getattr(control, 'wheel_unloading', None) is not None:
+            document['control']['wheel_unloading'] = control.wheel_unloading.snapshot()
+        document['control']['stereo_activation'] = summary.get('stereo_activation')
         document['control']['near23_capture'] = summary['near23_capture']
     if demo:
         document['control']['parking_completion'] = dict(acceptance_profile=summary['acceptance_profile'],

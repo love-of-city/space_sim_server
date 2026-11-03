@@ -196,6 +196,7 @@ class BasiliskRenderBridge(_BridgeBase):
         self.vision_delivery_delay_ns = None
         self.last_vision_exposure = None
         self.vision_exposure_after_ns = None
+        self.vision_requests_enabled = True
         self.frame_id_from_simulation_epoch = False
         if self.vision_capture_camera_ids and self.frame_rate_hz is not None:
             if self.frame_rate_hz % self.vision_capture_rate_hz:
@@ -909,7 +910,7 @@ class BasiliskRenderBridge(_BridgeBase):
             # admission above. Never invent a camera sample between source frames.
             tick = (current_sim_ns * self.vision_capture_rate_hz + 500_000_000) // 1_000_000_000
             expected = (tick * 1_000_000_000 + self.vision_capture_rate_hz // 2) // self.vision_capture_rate_hz
-            requested = (current_sim_ns == expected and (self.vision_exposure_after_ns is None
+            requested = (self.vision_requests_enabled and current_sim_ns == expected and (self.vision_exposure_after_ns is None
                          or current_sim_ns > self.vision_exposure_after_ns))
             message["vision_capture_requested"] = requested
             if requested:

@@ -41,6 +41,25 @@ def test_restored_frame_and_exposure_keep_mission_epoch_on_sensor_grid():
         BasiliskRenderBridge(publisher=publisher, epoch_offset_ns=-1)
 
 
+def test_stage_activation_starts_real_exposures_without_replaying_disabled_frames():
+    publisher = Publisher()
+    bridge = BasiliskRenderBridge(publisher=publisher,frame_rate_hz=50,
+        epoch_offset_ns=5_120_000_000_000,vision_capture_camera_ids=('left','right'))
+    bridge.vision_delivery_delay_ns = 200_000_000
+    bridge.vision_requests_enabled = False
+    bridge.Reset(0)
+    for stamp in range(0,140_000_001,2_500_000):
+        bridge.UpdateState(stamp)
+    assert bridge.last_vision_exposure is None
+    assert not any(f.get('vision_capture_requested') for f in publisher.frames)
+    bridge.vision_requests_enabled = True
+    for stamp in range(142_500_000,400_000_001,2_500_000):
+        bridge.UpdateState(stamp)
+    requested = [f for f in publisher.frames if f.get('vision_capture_requested')]
+    assert [int(f['sim_time_ns']) for f in requested] == [5_120_200_000_000,5_120_300_000_000,5_120_400_000_000]
+    assert all(int(f['vision_delivery_time_ns'])-int(f['sim_time_ns']) == 200_000_000 for f in requested)
+
+
 def test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idle():
     publisher = Publisher()
     bridge = BasiliskRenderBridge(

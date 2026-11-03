@@ -11,6 +11,7 @@ from space_arm_platform.visual_navigation import covariance
 
 SCHEMA = 'space-sim-capture26-handoff/2'
 DEMO_SCHEMA = 'space-sim-capture26-handoff/3'
+NEAR23_SCHEMA = 'space-sim-capture26-handoff/4'
 LEGACY_SCHEMA = 'space-sim-capture26-handoff/1'
 COMMON_CHECKS = {'completed_stage', 'native_state_not_overwritten', 'no_spacecraft_contact',
                  'gyros_healthy', 'gnss_healthy', 'common_sensor_epoch'}
@@ -22,11 +23,19 @@ LEGACY_PERFORMANCE_CHECKS = {'processing_capacity_1x', 'time_backlog_not_growing
 def validate(document, root, *, accepted=True):
     d = deepcopy(document)
     demo = d.get('schema') == DEMO_SCHEMA
-    if (d.get('schema') not in (SCHEMA, LEGACY_SCHEMA, DEMO_SCHEMA) or d.get('model_id') != MODEL_ID
+    near23 = d.get('schema') == NEAR23_SCHEMA
+    from simulation.capture26_mission import load_mission
+    configuration = load_mission(root, d.get('mission_options', {}).get('capture26_profile'))
+    if near23 != configuration.is_near23:
+        raise ValueError('capture26 handoff route/schema mismatch')
+    if near23 and (d.get('acceptance_profile')!=configuration.acceptance_profile
+                   or d.get('feedback_source')!=configuration.feedback_source):
+        raise ValueError('near23 handoff profile/feedback mismatch')
+    if (d.get('schema') not in (SCHEMA, LEGACY_SCHEMA, DEMO_SCHEMA, NEAR23_SCHEMA) or d.get('model_id') != MODEL_ID
             or d.get('source_sha256') != hashlib.sha256((Path(root)/MODEL_PATH).read_bytes()).hexdigest()
             or accepted and d.get('accepted') is not True):
         raise ValueError('capture26 handoff model, schema or acceptance mismatch')
-    if d.get('phase') not in ('FarReady', 'NearParked'):
+    if d.get('phase') not in (('FarReady', 'GraspHold') if near23 else ('FarReady', 'NearParked')):
         raise ValueError('capture26 handoff requires a completed parking phase')
     epoch = d.get('time_ns')
     if type(epoch) is not int or epoch < 0 or epoch % 100_000_000:
@@ -71,7 +80,7 @@ def validate(document, root, *, accepted=True):
             raise ValueError('capture26 control reference mismatch')
     from simulation.capture26_mission import load_vision
     from space_arm_platform.visual_navigation import calibration_id
-    if not d['mission_id'] or d['calibration_id'] != calibration_id(load_vision(root)):
+    if not d['mission_id'] or d['calibration_id'] != calibration_id(load_vision(root, configuration)):
         raise ValueError('capture26 mission and calibration identity required')
     required = COMMON_CHECKS | ({'actual_120s_hold', 'actual_tracking_2m', 'actual_velocity_2cm_s'}
         if d['phase'] == 'FarReady' else {'current_visual_ready', 'vision_nodes_prevalidated',
@@ -83,14 +92,18 @@ def validate(document, root, *, accepted=True):
                     'common_sensor_epoch', 'authoritative_simulation_feedback'}
         required |= ({'actual_5s_hold', 'actual_tracking_2m', 'actual_velocity_1cm_s', 'continuous_physical_evidence'}
                      if d['phase'] == 'FarReady' else {'all_four_actual_five_second_dwells', 'working_reference_bound'})
+    if near23:
+        required = COMMON_CHECKS | {'normal_joint_preparation_complete', 'own_motion_history_continuous'}
+        required |= ({'actual_5s_hold', 'actual_tracking_2m', 'actual_velocity_1cm_s', 'continuous_physical_evidence'}
+                     if d['phase'] == 'FarReady' else {'far_handoff_continuity', 'all_near_nodes_passed', 'physical_four_jaw_hold_20s', 'real_stereo_navigation_used'})
     if d.get('accepted') and (not required <= set(d.get('checks', {}))
                              or not all(v is True for k, v in d['checks'].items()
                                         if k not in LEGACY_PERFORMANCE_CHECKS)):
         raise ValueError('capture26 accepted handoff has failed independent checks')
-    if d['schema'] in (SCHEMA, DEMO_SCHEMA):
+    if d['schema'] in (SCHEMA, DEMO_SCHEMA, NEAR23_SCHEMA):
         from simulation.capture26_mission import load_mission
         from simulation.sensor_delivery import FixedStereoDelivery
-        configuration = load_mission(root)
+        configuration = load_mission(root, d.get('mission_options', {}).get('capture26_profile'))
         if d.get('mission_configuration') != configuration.to_dict() or not isinstance(d.get('sensor_delivery'), dict):
             raise ValueError('capture26 v2 handoff lacks frozen configuration or scheduled sensors')
         scheduler = FixedStereoDelivery(round(configuration.stereo_delay_s*1e9), configuration.vision_task_timeout_wall_s)
@@ -119,6 +132,20 @@ def validate(document, root, *, accepted=True):
         if any((control[key] is not None or not demo) and (type(control[key]) is not int or not 0 <= control[key] <= epoch)
                for key in ('last_cooperative_ns', 'last_gnss_ns')):
             raise ValueError('capture26 received sensor history mismatch')
+    if near23:
+        from simulation.capture26_near23 import preparation_plan
+        from simulation.own_motion import OwnMotionFeedback
+        plan = preparation_plan(root)
+        plan.restore(d['control'].get('preparation', {}))
+        if not plan.complete or plan.failed:
+            raise ValueError('near23 handoff requires actual completed joint preparation')
+        motion = OwnMotionFeedback()
+        motion.restore(d['control'].get('own_motion', {}))
+        if motion.last_control_ns != epoch or motion.last_sample_ns != epoch or motion.epoch != (d['mission_id'], 'continuous'):
+            raise ValueError('near23 own-motion handoff epoch mismatch')
+        from space_arm_platform.visual_navigation import NEAR23_BODY_PROFILE
+        if d['navigation']['configuration'].get('visual_profile') != NEAR23_BODY_PROFILE:
+            raise ValueError('near23 navigation profile missing at far handoff')
     if demo:
         from simulation.capture26_mission import load_mission
         configuration = load_mission(root)
@@ -169,7 +196,7 @@ def validate(document, root, *, accepted=True):
 def load(path, root):
     document = validate(json.loads(Path(path).read_text('utf-8')), root)
     from simulation.capture26_mission import load_mission
-    configuration = load_mission(root)
+    configuration = load_mission(root, document.get('mission_options', {}).get('capture26_profile'))
     if configuration.is_demo and document['schema'] != DEMO_SCHEMA:
         raise ValueError('old image-navigation results cannot acquire demonstration acceptance')
     return document

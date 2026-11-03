@@ -9,7 +9,7 @@ class Capture26Flight:
     def __init__(self, scenario, *, handoff_distance_m=110., config=None):
         self.config = config or Capture26Mission()
         self.profile = FlightProfile(scenario=scenario, handoff_distance_m=handoff_distance_m,
-                                     hold_duration_s=5. if self.config.is_demo else 120.)
+                                     hold_duration_s=5. if self.config.is_demo or self.config.is_near23 else 120.)
         self.dwell_start = None
         self.safe_hold = False
         self.hold_offset = None
@@ -21,8 +21,8 @@ class Capture26Flight:
         self.reason = reason
         self.dwell_start = None
 
-    def step(self, now_ns, state, *, healthy):
-        if self.config.is_demo and self.last_ns is not None and now_ns-self.last_ns > 150_000_000:
+    def step(self, now_ns, state, *, healthy, preparation_ready=True):
+        if (self.config.is_demo or self.config.is_near23) and self.last_ns is not None and now_ns-self.last_ns > 150_000_000:
             self.dwell_start = None
         self.last_ns = now_ns
         t = now_ns*1e-9
@@ -42,15 +42,19 @@ class Capture26Flight:
             p = state['p'][1]+self.hold_offset
             v = state['v'][1].copy()
         service_rate = float(np.linalg.norm(state['rates'][0]-state['b'][0]))
+        if self.config.is_near23:
+            from simulation.near_field.orbital_guidance import vbar_frame
+            _, orbital_rate = vbar_frame(np.r_[state['p'][1], state['v'][1]])
+            service_rate = float(np.linalg.norm(state['rates'][0]-state['b'][0]-state['r'][0].T@orbital_rate))
         rate_stable = service_rate <= self.config.service_angular_rate_limit_rad_s
         position_error = float(np.linalg.norm(p-state['p'][0]))
         velocity_error = float(np.linalg.norm(v-state['v'][0]))
-        stable = (healthy and (self.config.is_demo or rate_stable) and not self.safe_hold
+        stable = (healthy and preparation_ready and (self.config.is_demo or rate_stable) and not self.safe_hold
                   and t >= self.profile.start_approach_s+self.profile.approach_duration_s
                   and position_error <= 2.
-                  and velocity_error <= (.01 if self.config.is_demo else .02))
+                  and velocity_error <= (.01 if self.config.is_demo or self.config.is_near23 else .02))
         self.dwell_start = now_ns if stable and self.dwell_start is None else self.dwell_start if stable else None
-        required_s = 5. if self.config.is_demo else 120.
+        required_s = 5. if self.config.is_demo or self.config.is_near23 else 120.
         released = self.dwell_start is not None and now_ns-self.dwell_start >= round(required_s*1e9)
         return dict(position_goal=p, velocity_goal=v,
                     differential_acceleration=np.zeros(3) if self.safe_hold else desired_a-target_a,

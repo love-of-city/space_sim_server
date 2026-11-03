@@ -79,7 +79,7 @@ def main():
         fault_after_release=cli.fault_after_release, fault_duration=cli.fault_duration,
         post_release_duration=cli.post_release_duration,
         mission_stage='near' if incoming else 'far', scenario=cli.scenario, flight_options=flight,
-        mission_config=load_mission(ROOT), handoff=cli.handoff, mission_id=cli.mission_id,
+        mission_config=load_mission(ROOT, flight.capture26_profile), handoff=cli.handoff, mission_id=cli.mission_id,
         external_vision=cli.external_vision, state_port=cli.state_port)
     os.environ['SPACE_SIM_LOCAL_PUBLISH_STRIDE'] = '8'
     from simulation.capture26_runtime import run

@@ -2,6 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {missionPresentation, createMissionPanel, missionArtifactLinks} from '../mission_panel.js';
 
+test('near23 route shows physical grasp and retains force evidence after completion', () => {
+  const nodes = new Map();
+  const $ = id => {
+    if (!nodes.has(id)) nodes.set(id, {value:'', textContent:'', addEventListener() {},
+      querySelectorAll:() => [], getContext:() => ({clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}}),
+      width:620, height:200});
+    return nodes.get(id);
+  };
+  const panel = createMissionPanel({$, state:{}, message() {}, reconnect() {}});
+  const meta = {model:'capture26',acceptance_profile:'near23_vbar_v1',phase:'Grasp',
+    capture_feedback:{jaw_force_n:5.02},capture_force_hold_s:8.5,visual:{ready:true}};
+  const mission = {mission_id:'formal',stage:'flight',phase:'flight',active:true,can_manage:true,
+    options:{model_id:'sarm-dual-capture26',capture26_profile:'near23_vbar_v1'},telemetry:{state:{metadata:meta}}};
+  panel.render(mission);
+  assert.equal($('capture26Route').value,'near23_vbar_v1');
+  assert.match($('missionPhase').textContent,/实际抓持/);
+  assert.doesNotMatch($('missionPhase').textContent,/代理/);
+  assert.match($('nearCapture').textContent,/5.02 N.*8.5 s/);
+  panel.render({...mission,phase:'completed',active:false,telemetry:{},report:{
+    acceptance_profile:'near23_vbar_v1',outcome:'GraspHold',basic_nominal_passed:true,
+    final:{...meta,phase:'GraspHold',capture_force_hold_s:20.1}}});
+  assert.match($('missionPhase').textContent,/四爪实际抓持保持通过/);
+  assert.match($('nearCapture').textContent,/20.1 s/);
+});
+
 test('demo dwell, completion and safety persist independently of sensor diagnostics and live telemetry', () => {
   const nodes = new Map();
   const $ = id => {
@@ -175,6 +200,13 @@ test('continuous start uses the shared receiver defaults in the existing mission
     assert.equal(request.mode, 'team-in-orbit');
     assert.deepEqual(request.options.differential_gnss, {...receiver, absolute_position_sigma_m: .6, delay_s: .12});
     assert.equal(request.options.gnss_position_sigma_m, .6);
+    $('sceneTemplate').value = 'sarm-dual-capture26';
+    $('capture26Route').value = 'near23_vbar_v1';
+    panel.render({phase:'idle',active:false});
+    $('sceneTemplate').value = 'sarm-dual-capture26';
+    $('capture26Route').value = 'near23_vbar_v1';
+    await panel.startFlight();
+    assert.equal(JSON.parse(requests.at(-1)[1].body).options.capture26_profile,'near23_vbar_v1');
   } finally { globalThis.document = previousDocument; globalThis.Option = previousOption; }
 });
 

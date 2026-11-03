@@ -324,3 +324,21 @@ def test_existing_snapshot_and_copy_source_identity(tmp_path):
     scene["collection_config"]["floating_initial_state"]["asset_snapshot"]["source_body"] = "limit_clip"
     with pytest.raises(ValueError, match="snapshot"):
         write_model_variant(MODEL, tmp_path/"changed-source.xml", scene)
+
+
+def test_floating_release_rejects_shallow_target_background_penetration(tmp_path):
+    from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+    from simulation.scripted_tasks.floating_initialization import validate_floating_preflight
+    name = "floating_task_box_capture"
+    scene, model = realized(tmp_path, name, 75)
+    probe = NativePoseProbe.__new__(NativePoseProbe)
+    probe.home = np.zeros(8)
+    probe.q = probe.home.copy()
+    probe.address = lambda _: 0
+    probe.names = {1: "floating_task_box_base", 2: "cubesat_bus"}
+    probe.contacts = lambda q: np.array([[0, 1, 1, 2, -.000148]])
+    result = validate_floating_preflight(probe, model, scene, name)
+    assert not result["accepted"]
+    assert result["contact"]["penetration_m"] == pytest.approx(.000148)
+    probe.contacts = lambda q: np.empty((0, 5))
+    assert validate_floating_preflight(probe, model, scene, name)["accepted"]

@@ -230,7 +230,10 @@ def validate_floating_preflight(probe, model, scene, name):
     count = 0
     for q in candidates:
         allowed = () if count < 21 else (task.asset.body,)
-        hit = probe.pose_collision(q, name, allowed_contact_bodies=allowed, joint_values=overrides)
+        # A released target must start without even shallow background penetration:
+        # sub-millimetre overlap can impart a large impulse to a heavy part.
+        hit = probe.pose_collision(q, name, allowed_contact_bodies=allowed, joint_values=overrides,
+                                   mechanism_clearance_m=0.)
         count += 1
         if hit:
             return dict(accepted=False, reason="approach_collision", contact=hit, checked_poses=count)

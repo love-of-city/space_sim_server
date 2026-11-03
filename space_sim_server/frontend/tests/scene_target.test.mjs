@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { groupSceneTemplates, libraryFamilyId } from "../library_templates.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const catalogSource = source.slice(source.indexOf("async function loadSceneCatalog()"), source.indexOf("function applySceneRuntime("));
@@ -21,6 +22,8 @@ function setup() {
   };
   const requests = [];
   const ctx = vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+    selectedSceneTemplate: () => null, groupSceneTemplates, libraryFamilyId,
+    visibleSceneTemplates: [], configureLibraryTasks() {},
     initialJoints: { read: () => null, setRuntime() {} }, $, console, state: { stateRequestSequence: 0, currentUser: { role: "admin" } },
     Option: function(label, value) { this.label = label; this.value = value; }, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},

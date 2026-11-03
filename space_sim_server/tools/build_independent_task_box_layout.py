@@ -146,7 +146,10 @@ def carve_convex_hulls(hulls, polygons):
         holes.append((polygon, prism, np.array([polygon.min(0), polygon.max(0)])))
     output, discarded = [], []
     for vertices, faces in hulls:
-        pieces = [solid(trimesh.Trimesh(vertices=vertices, faces=faces, process=False).convex_hull)]
+        hull = mf.Manifold.hull_points(np.asarray(vertices, dtype=np.float64))
+        if hull.status() != mf.Error.NoError or hull.is_empty():
+            raise ValueError('Invalid convex collision input')
+        pieces = [hull]
         for polygon, prism, hole_bounds in holes:
             next_pieces = []
             for piece in pieces:
@@ -178,13 +181,34 @@ def carve_convex_hulls(hulls, polygons):
                         discarded_collision_volume_m3=sum(discarded), collision_minimum_principal_std_m=1e-6)
 
 
-def inset_mount(piece, point):
+def slab_convex_cells(slab_with_holes):
+    """Triangulate the perforated cross-section without bridging its holes."""
+    contours = mf.CrossSection(slab_with_holes.slice(-.01).to_polygons()).simplify(1e-8).to_polygons()
+    vertices = np.concatenate(contours)
+    triangles = mf.triangulate(contours, epsilon=1e-12)
+    cells = []
+    for triangle in triangles:
+        points = vertices[np.asarray(triangle)]
+        if polygon_area(points) <= 1e-14:
+            continue
+        cell_mesh = mesh_of(mf.CrossSection([points]).extrude(.025).translate((0, 0, -.025)))
+        if not cell_mesh.is_volume:
+            raise ValueError('Invalid slab collision cell')
+        cells.append(cell_mesh)
+    if abs(sum(p.volume for p in cells)-slab_with_holes.volume()) > 1e-10:
+        raise ValueError('Slab collision triangulation changed volume')
+    return cells
+
+
+def inset_mount(piece, point, deck_clearance_m=.00025):
     """Keep the original sleeve and a narrow rim, replacing its large plate.
 
     Both the sleeve and the complete top opening contribute to the envelope:
     the guide's keyway extends past its open-sided sleeve. Deriving a profile
     from the sleeve alone would cut away the closed rim around that keyway.
     """
+    if not np.isfinite(deck_clearance_m) or not 0 < deck_clearance_m < .001:
+        raise ValueError('Deck clearance must stay inside the original 1 mm mounting rim')
     original = solid(piece)
     # Exclude the original plate's coplanar z=0 numerical fragments before
     # constructing the sleeve footprint. The full original sleeve is retained
@@ -209,7 +233,7 @@ def inset_mount(piece, point):
     profile = mf.CrossSection([vertices[hull.vertices]])
     # A regular outline following the sleeve; no Voronoi plate corners remain.
     rim = profile.offset(.001, circular_segments=64)
-    cavity = profile.offset(.00025, circular_segments=64)
+    cavity = profile.offset(deck_clearance_m, circular_segments=64)
     contour = np.asarray(rim.to_polygons()[0])
     prism = rim.extrude(.1).translate((0, 0, -.075))
     kept = original ^ prism
@@ -223,7 +247,7 @@ def inset_mount(piece, point):
         raise ValueError("Inset mount must remain one closed solid")
     report = dict(original_volume_m3=float(piece.volume), retained_volume_m3=float(result.volume),
                   removed_plate_volume_m3=float(piece.volume-result.volume),
-                  rim_extension_m=.001, deck_clearance_m=.00025,
+                  rim_extension_m=.001, deck_clearance_m=deck_clearance_m,
                   rim_height_m=.005, preserved_sleeve_depth_m=float(-piece.bounds[0, 2]),
                   missing_original_sleeve_volume_m3=lost_sleeve,
                   missing_original_top_opening_area_m2=lost_opening_area,
@@ -244,7 +268,10 @@ def clip_convex_profile(value, contour):
 
 
 class Builder:
-    def __init__(self, source, output, *, target_mounts="plates", pickup_mounts="plates"):
+    def __init__(self, source, output, *, target_mounts="plates", pickup_mounts="plates", inset_deck_clearance_m=.00025):
+        if not np.isfinite(inset_deck_clearance_m) or not 0 < inset_deck_clearance_m < .001:
+            raise ValueError('Deck clearance must stay inside the original 1 mm mounting rim')
+        self.inset_deck_clearance_m = inset_deck_clearance_m
         if target_mounts not in {"plates", "inset"} or pickup_mounts not in {"plates", "inset"}:
             raise ValueError("Unknown mounting style")
         self.target_mounts = target_mounts
@@ -401,7 +428,7 @@ class Builder:
             original_piece_volume += float(piece.volume)
             mounting_style = self.target_mounts if name == "asm_board1" else self.pickup_mounts
             if mounting_style == "inset":
-                piece, contour, cavity, report = inset_mount(piece, points[key])
+                piece, contour, cavity, report = inset_mount(piece, points[key], self.inset_deck_clearance_m)
                 self.inset_profiles[key] = contour
                 self.inset_cavities[key] = cavity
                 self.inset_reports[key] = report
@@ -632,17 +659,34 @@ class Builder:
             # Avoid numerical CoACD failures on many narrow circular Boolean
             # holes. The slab is exact; reuse the delivered top-feature hulls
             # and carve every opening from this union of convex components.
-            slab_mesh = mesh_of(slab)
-            convex = [(slab_mesh.vertices, slab_mesh.faces)]
+            cut_slab = slab
+            for name, cavity in self.cavities.items():
+                cut_slab -= moved_solid(cavity, name)
+            slab_cells = slab_convex_cells(cut_slab)
+            convex = []
+            # Delivered base hulls can bridge separate raised CAD features.
+            # A cut at x=.23 alone leaves ghost wedges between the fixed ridge
+            # and moved lock supports. Restrict each hull to a real feature's
+            # envelope before relocating it; preserve the original hull surface
+            # inside that envelope. A tiny positive slice separates CAD seams.
+            feature_envelopes = []
+            for feature in self.base_solid.trim_by_plane((0, 0, 1), 1e-7).decompose():
+                if feature.volume() < 1e-12:
+                    continue
+                feature_mesh = mesh_of(feature)
+                feature_mesh.vertices = feature_mesh.vertices.copy()
+                feature_mesh.vertices[feature_mesh.vertices[:, 2] < 2e-7, 2] = 0.
+                envelope = solid(feature_mesh.convex_hull)
+                feature_envelopes.append((envelope, envelope.bounding_box()[0] >= .23))
             for geom in originals:
                 upper = solid(self.asset_mesh(geom.get("mesh")).convex_hull).trim_by_plane((0, 0, 1), 0.)
-                for normal, offset, move in (((-1, 0, 0), -.23, False), ((1, 0, 0), .23, True)):
-                    part = upper.trim_by_plane(normal, offset)
+                for envelope, move in feature_envelopes:
+                    part = upper ^ envelope
                     if part.is_empty() or part.volume() < 1e-12 or part.bounding_box()[5] < 1e-6:
                         continue
                     mesh = mesh_of(moved_solid(part, "locking_mechanism") if move else part)
                     convex.append((mesh.vertices, mesh.faces))
-            collision_method = "Exact rectangular slab plus relocated original top-feature convex hulls; exact aperture subtraction"
+            collision_method = "Exact rectangular slab plus original hulls clipped to individual CAD top-feature envelopes; exact aperture subtraction"
         else:
             coacd.set_log_level("warn")
             convex = coacd.run_coacd(coacd.Mesh(np.asarray(result.vertices, dtype=np.float64),
@@ -655,6 +699,8 @@ class Builder:
         polygons = [polygon for name, cavity in self.cavities.items()
                     for polygon in convex_apertures(moved_solid(cavity, name))]
         convex, numerical_collision = carve_convex_hulls(convex, polygons)
+        if self.has_inset_mounts:
+            convex = slab_cells + convex
         for index, part in enumerate(convex):
             self.export_convex(f"layout_base_collision_{index:03d}",
                                part, template, self.base)
@@ -796,6 +842,7 @@ if __name__ == "__main__":
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument('--inset-deck-clearance-m', type=float, default=.00025)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument('--clearance-mode',choices=('xy-reservations','native-3d-candidate'),
                         default='xy-reservations',help='Native candidates retain physical packing checks but require separate native task validation; never capture-ready')
@@ -808,7 +855,7 @@ if __name__ == "__main__":
     parser.add_argument("--pickup-mounts", choices=("plates", "inset"), default="plates",
                         help="Keep split starting-socket plates, or crop them to narrow rims without moving the seated plugs")
     args = parser.parse_args()
-    Builder(args.source, args.output, target_mounts=args.target_mounts, pickup_mounts=args.pickup_mounts).build(args.seed, plan_only=args.plan_only,
+    Builder(args.source, args.output, target_mounts=args.target_mounts, pickup_mounts=args.pickup_mounts, inset_deck_clearance_m=args.inset_deck_clearance_m).build(args.seed, plan_only=args.plan_only,
         placements=json.loads(args.placements.read_text()) if args.placements else None,
         yaw_range_deg=args.yaw_range_deg, yaws=json.loads(args.yaws.read_text()) if args.yaws else None,
         clearance_mode=args.clearance_mode)

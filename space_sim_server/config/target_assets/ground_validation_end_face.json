@@ -1,0 +1,78 @@
+{
+  "schema": "target-taskbox-profile/1",
+  "id": "ground_validation_end_face",
+  "adapter": "ground_validation_end_face",
+  "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+  "source_sha256": "1485987b90df5eff177743fbe6d34985d262f56dfa94b676d6c62627d3867c9c",
+  "baseline": "model/scene_library/original-root-v2",
+  "mount": {
+    "face_axis": 2,
+    "face_sign": -1,
+    "panel_size_m": [
+      0.45,
+      0.55
+    ],
+    "clearance_m": 0.005,
+    "recess_depth_m": 0.107,
+    "center_from_high_x_m": 0.28,
+    "rotation_columns": [
+      [
+        -0.0,
+        -1.0,
+        0.0
+      ],
+      [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    ],
+    "closure_thickness_m": 0.001,
+    "closure_inset_m": 0.0001,
+    "closure_aperture_clearance_m": 0.0002
+  },
+  "scale": {
+    "value": 4.7,
+    "max_value": 5.0,
+    "solar": "uniform_with_housing",
+    "interface": "preserve_metric",
+    "mass_rule": "fixed_mass"
+  },
+  "constraints": {
+    "taskbox_world_pose": "fixed",
+    "service_spacecraft": "fixed",
+    "operating_arm": "fixed",
+    "cameras": "fixed",
+    "solar_structure": "preserve",
+    "full_task_accepted": false,
+    "hull_exterior": "closed_except_task_panel_footprint"
+  },
+  "capture_joint_seed": [
+    0.39139216669619403,
+    -0.7079990961292466,
+    1.8412915029975887,
+    0.4378285619094101,
+    -0.39132362808249155,
+    6.281311915609271,
+    0.002630407763114736,
+    1.029744258517333,
+    -0.011799961138489305,
+    -0.011800787089506177,
+    -0.011800069349358745,
+    -0.01179959838787752
+  ],
+  "inspection_view": {
+    "direction": [
+      -1.0,
+      -0.8,
+      0.9
+    ],
+    "distance_m": 5.8,
+    "insets": false
+  }
+}

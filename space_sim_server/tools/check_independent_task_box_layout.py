@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from simulation.independent_task_box_layout import (
     FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, OPERATION_CLEARANCE_SCHEMA,
-    planar_transform, validate_layout_record,
+    planar_transform, validate_layout_record, NATIVE_CANDIDATE_SCHEMA,
 )
 from simulation.plug_retention import model_retention_sockets
 from simulation.serial_chain_kinematics import matrix_to_quaternion_wxyz, quaternion_wxyz_to_matrix
@@ -38,18 +38,24 @@ def load_geometry_plugin(runtime, root):
     return keep
 
 
-def check(source, layout, report_path):
+def check(source, layout, report_path, *, preview_candidate=False):
     record = json.loads(layout.with_suffix(".layout.json").read_text())
-    if record["schema"] not in (SCHEMA, POSE_SCHEMA):
+    if record["schema"] not in ((SCHEMA, POSE_SCHEMA, NATIVE_CANDIDATE_SCHEMA) if preview_candidate else (SCHEMA, POSE_SCHEMA)):
         raise ValueError("Expected the independent 13-unit layout")
     for file, field in ((source, "source_sha256"), (layout, "model_sha256")):
         if hashlib.sha256(file.read_bytes()).hexdigest() != record[field]:
             raise ValueError(f"Stale model/manifest: {file}")
-    validate_layout_record(record)
+    validate_layout_record(record, allow_native_candidate=preview_candidate)
     keep = load_geometry_plugin(mujoco,ROOT)
-    a, b = (mujoco.MjModel.from_xml_path(str(path)) for path in (source, layout))
+    print('Compiling source geometry', flush=True)
+    a = mujoco.MjModel.from_xml_path(str(source))
+    print('Compiling generated layout geometry', flush=True)
+    b = mujoco.MjModel.from_xml_path(str(layout))
+    print('Checking poses and insertion contacts', flush=True)
     from bsk_render_adapter.mjcf_assets import parse_mjcf_geometry_metadata
-    metadata = parse_mjcf_geometry_metadata(layout)
+    # Identity/order validation below uses the already compiled model b. Mesh
+    # recenter compensation is unused here and would compile a third full model.
+    metadata = parse_mjcf_geometry_metadata(layout, compile_mesh_poses=False)
     assert len(metadata) == b.ngeom, "Render metadata geom count differs from compiled physics"
     for index, entry in enumerate(metadata):
         body = mujoco.mj_id2name(b, mujoco.mjtObj.mjOBJ_BODY, int(b.geom_bodyid[index]))
@@ -58,8 +64,11 @@ def check(source, layout, report_path):
             mesh = mujoco.mj_id2name(b, mujoco.mjtObj.mjOBJ_MESH, int(b.geom_dataid[index]))
             assert entry.mesh_name == mesh, f"Render metadata mesh mismatch at geom {index}: {entry.mesh_name}, {mesh}"
     da, db = mujoco.MjData(a), mujoco.MjData(b)
-    mujoco.mj_forward(a, da)
-    mujoco.mj_forward(b, db)
+    # This audit reads poses and contacts only; do not solve accelerations for
+    # every hypothetical insertion pose. Position-stage collision checks are
+    # identical to the position stage of mj_forward, with no task acceptance.
+    mujoco.mj_fwdPosition(a, da)
+    mujoco.mj_fwdPosition(b, db)
 
     def ident(model, kind, name):
         index = mujoco.mj_name2id(model, kind, name)
@@ -163,10 +172,10 @@ def check(source, layout, report_path):
             seat = next(socket for socket in sockets_b[prefix+"_plug"] if socket.name == site)
             for offset in (0., .004, .0079, .02):
                 db.qpos[:] = b.qpos0
-                mujoco.mj_forward(b, db)
+                mujoco.mj_fwdPosition(b, db)
                 db.qpos[address:address+3] = seat.position_body_m + seat.rotation_body[:, 2]*offset
                 db.qpos[address+3:address+7] = matrix_to_quaternion_wxyz(seat.plug_rotation_body)
-                mujoco.mj_forward(b, db)
+                mujoco.mj_fwdPosition(b, db)
                 hits = base_contacts(prefix)
                 maximum = max((h["penetration_m"] for h in hits), default=0.)
                 clearance.append(dict(site=site, axial_offset_m=offset, max_base_penetration_m=maximum,
@@ -179,17 +188,18 @@ def check(source, layout, report_path):
         s = ident(b, mujoco.mjtObj.mjOBJ_SITE, site)
         for offset in (0., .004, .01, .03):
             db.qpos[:] = b.qpos0
-            mujoco.mj_forward(b, db)
+            mujoco.mj_fwdPosition(b, db)
             direction = db.site_xmat[s].reshape(3, 3)[:, 2].copy()
             db.qpos[address:address+3] += offset*direction
-            mujoco.mj_forward(b, db)
+            mujoco.mj_fwdPosition(b, db)
             hits = base_contacts(prefix)
             maximum = max((h["penetration_m"] for h in hits), default=0.)
             pickup_clearance.append(dict(site=site, axial_offset_m=offset, max_base_penetration_m=maximum,
                                          contacts=hits, passed=maximum <= .0002))
     all_clearance = clearance+pickup_clearance
     report = dict(passed=all(c["passed"] for c in all_clearance), layout_seed=record["seed"],
-                  operation_clearance_schema=OPERATION_CLEARANCE_SCHEMA,
+                  operation_clearance_schema=None if preview_candidate else OPERATION_CLEARANCE_SCHEMA,
+                  preview_candidate=preview_candidate, full_task_accepted=False,
                   source_model_sha256=record["source_sha256"], model_sha256=record["model_sha256"],
                   scope="13-unit footprint, compiled joints/states, 11 mating frames, precision contact parameters and 36 shaft/base clearance samples",
                   initial_states_preserved=True, orientations_preserved=record["schema"] == SCHEMA,
@@ -209,5 +219,6 @@ if __name__ == "__main__":
     p.add_argument("--source", type=Path, required=True)
     p.add_argument("--layout", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
+    p.add_argument('--preview-candidate', action='store_true')
     args = p.parse_args()
-    raise SystemExit(0 if check(args.source.resolve(), args.layout.resolve(), args.report.resolve()) else 1)
+    raise SystemExit(0 if check(args.source.resolve(), args.layout.resolve(), args.report.resolve(), preview_candidate=args.preview_candidate) else 1)

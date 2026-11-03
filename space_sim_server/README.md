@@ -3,6 +3,11 @@
 本地八类任务的资产清单、脚本场景配置、原生运行与验收边界见
 [场景库](docs/SCENE_LIBRARY.md)。未实现的任务能力会明确拒绝运行，不标记成功。
 
+目标星端面安装配置、自动装配和 UE 检查入口见[目标星资产库](docs/TARGET_ASSET_LIBRARY.md)。
+
+当前完整太阳翼、封闭外壳和按种子生成双任务盒的可迁移模型及准备入口见
+[太阳翼双任务盒版本](model/scene_library/solar-closed-hull-v3/README.md)。
+
 团队开发请先阅读[贡献指南](CONTRIBUTING.md)。基础 CI 不替代完整仿真、UE 和采集验收。
 
 抽屉与三类插头的同条件、同动作重复测试见[固定轨迹评估](docs/FIXED_TRAJECTORY_EVALUATION.md)。

@@ -35,9 +35,9 @@ def top_opening(value, center):
     return mf.CrossSection(candidates)
 
 
-def check(layout, output):
+def check(layout, output, *, preview_candidate=False):
     record = json.loads(layout.with_suffix(".layout.json").read_text())
-    validate_layout_record(record)
+    validate_layout_record(record, allow_native_candidate=preview_candidate)
     styles = {"target": record["target_mounts"], "pickup": record.get("pickup_mounts", "plates")}
     assert "inset" in styles.values()
     assert hashlib.sha256(layout.read_bytes()).hexdigest() == record["model_sha256"]
@@ -185,6 +185,8 @@ def check(layout, output):
                   whole_deck_missing_volume_m3=missing_slab, whole_deck_extra_volume_m3=extra_slab,
                   whole_deck_volume_tolerance_m3=slab_tolerance,
                   original_mount_heights_and_positions_retained=True, **rows)
+    result.update(model_sha256=record['model_sha256'], full_task_accepted=False,
+                  preview_candidate=preview_candidate)
     output.write_text(json.dumps(result, indent=2)+"\n")
     print(json.dumps(result, indent=2))
     return result["passed"]
@@ -194,5 +196,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--layout", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument('--preview-candidate', action='store_true')
     args = parser.parse_args()
-    raise SystemExit(0 if check(args.layout.resolve(), args.report.resolve()) else 1)
+    raise SystemExit(0 if check(args.layout.resolve(), args.report.resolve(), preview_candidate=args.preview_candidate) else 1)

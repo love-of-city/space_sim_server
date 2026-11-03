@@ -351,6 +351,8 @@ class SceneRuntimeManager:
         self._lock = threading.RLock()
         self._last_instance: dict[str, Any] | None = None
         self._launched_instance: dict[str, Any] | None = None
+        self._preparing = False
+        self._preparation_cancelled = False
         self.scene_root.mkdir(parents=True, exist_ok=True)
         self.log_root.mkdir(parents=True, exist_ok=True)
 
@@ -390,6 +392,7 @@ class SceneRuntimeManager:
             templates.append({**base, 'id': entry['id'], 'label': entry['label'],
                               'description': entry['description'], 'library_scene': True,
                               'library_kind': entry['kind'],
+                              'task_box_layout_randomization_available': bool(entry.get('task_box_layout_generator') or entry.get('task_box_layout_pool')),
                               'default_randomization_profile': ZERO_START_TELEOP_PROFILE})
         return {
             "templates": templates,
@@ -417,6 +420,15 @@ class SceneRuntimeManager:
     def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         from .imported_scene_library import lookup, verified_source, apply_instance
         imported = lookup(self.project_root, request.template_id)
+        layout_selection = layout_record = None
+        if request.randomize_task_box_layout:
+            if request.dataset_capture:
+                raise ValueError('随机任务盒候选布局仅用于预览/遥操作；请关闭数据采集，完整路径验收后才能采集')
+            if not imported or not imported['id'].startswith(('library/02_', 'library/04_')):
+                raise ValueError('任务盒随机布局仅支持已配置生成器的第 2、4 类场景')
+            from .library_layouts import select_layout
+            selected_seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
+            imported, layout_selection, layout_record = select_layout(imported, selected_seed)
         if imported:
             if imported['kind'] != 'operation':
                 raise ValueError('The imported rendezvous scene uses the platform flight executor')
@@ -425,7 +437,8 @@ class SceneRuntimeManager:
             request = request.model_copy(update={
                 'template_id': imported['base_template_id'],
                 'randomization_profile': ZERO_START_TELEOP_PROFILE,
-                'seed': initial.get('seed', 42), 'initial_arm_joint_position_deg': None,
+                'seed': layout_selection['selection_seed'] if layout_selection else initial.get('seed', 42),
+                'initial_arm_joint_position_deg': None,
                 'operating_arm_joint_position_deg': [math.degrees(v) for v in initial['randomization']['arm_joint_position_rad'][:6]],
                 'randomize_orbit_phase': False, 'randomize_overview_camera': False,
             })
@@ -504,6 +517,13 @@ class SceneRuntimeManager:
             instance["arm_preparation_required"] = False
         if imported:
             apply_instance(instance, imported)
+            if layout_selection:
+                instance['seed'] = layout_selection['selection_seed']
+                instance['task_box_layout_randomization'] = layout_selection
+                instance['task_box_layout'] = layout_record
+                instance['capture_target']['runtime_warning'] = (
+                    '已按种子生成两个完整任务盒的独立内部布局；双臂、两星安装关系和相机不变。'
+                    '布局仅通过初始几何检查，完整转运轨迹尚未验收。')
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -527,7 +547,20 @@ class SceneRuntimeManager:
             status = self.status()
             if status["active"]:
                 raise RuntimeError("a scene instance is already starting or running")
+            self._preparing = True
+            self._preparation_cancelled = False
+        # Generation may take minutes. Keep status/stop responsive while the
+        # worker prepares immutable geometry and UE assets.
+        try:
             instance = self.create_instance(request, created_by, handoff=handoff, mission=mission)
+        except BaseException:
+            with self._lock:
+                self._preparing = False
+            raise
+        with self._lock:
+            self._preparing = False
+            if self._preparation_cancelled:
+                raise RuntimeError('场景生成已取消；已生成文件保留，未启动仿真')
             instance_path = Path(instance["config_path"])
             script = launch_script
             command = [
@@ -585,6 +618,9 @@ class SceneRuntimeManager:
         if not self.launch:
             raise RuntimeError("scene runtime launching is not configured")
         with self._lock:
+            if self._preparing:
+                self._preparation_cancelled = True
+                return self.status()
             script = self.launch.project_root / "scripts" / "stop_scene_instance.ps1"
             flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             try:
@@ -618,6 +654,10 @@ class SceneRuntimeManager:
 
     def status(self) -> dict[str, Any]:
         with self._lock:
+            if self._preparing:
+                return dict(phase='stopping' if self._preparation_cancelled else 'preparing_layout',
+                            active=True, enabled=self.enabled,
+                            message='正在按种子生成并检查双任务盒布局')
             state: dict[str, Any] = {}
             if self.state_path.is_file():
                 try:

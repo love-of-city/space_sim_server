@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { groupSceneTemplates, libraryFamilyId } from "../library_templates.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const startSource = source.slice(source.indexOf("async function startScene()"), source.indexOf("async function stopScene()"));
@@ -21,6 +22,8 @@ function setup(value = "1") {
   const requests=[], messages=[];
   const state={stateRequestSequence:0,sceneDefaults:{simulation_rate:1,capture_rate_hz:30,ik_rate_hz:120}, currentUser:{role:"admin",user_id:"admin"}, scenePhase:"idle"};
   const ctx=vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+    selectedSceneTemplate: () => null, groupSceneTemplates, libraryFamilyId,
+    visibleSceneTemplates: [], configureLibraryTasks() {},
     initialJoints: { read: () => null, setRuntime() {} },$,state,console,Option:function(){}, scenePhaseLabels:{running:"运行中"},
     setMessage:m=>messages.push(m), updateOperationUI(){},updateEpisodeUI(){},connectPixelStreaming(){},exitOperationMode(){},refreshState:async()=>{},
     apiRequest:async (path, options={})=>{requests.push({path,options});return {ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{}})};},

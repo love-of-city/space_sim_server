@@ -6,7 +6,7 @@ lateral/angular guidance and the seated backstop, without rewriting geometry.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 import json
 import math
 import os
@@ -85,7 +85,9 @@ def model_retention_sockets(model_path: Path, *, owned=False) -> dict[str, tuple
 
     root = ET.parse(model_path).getroot()
     result = {}
-    for profile in PLUG_PROFILES.values():
+    profiles = [replace(profile, body=namespace+profile.body, prefix=namespace+profile.prefix)
+                for namespace in ('', 'service_') for profile in PLUG_PROFILES.values()]
+    for profile in profiles:
         body = root.find(f'./worldbody/body[@name="{profile.body}"]')
         if body is None or (body.find("freejoint") is None and body.find('joint[@type="free"]') is None):
             continue
@@ -95,7 +97,7 @@ def model_retention_sockets(model_path: Path, *, owned=False) -> dict[str, tuple
             raise ValueError(f"Invalid initial position for {profile.body}")
         pickup_site = f"{profile.prefix}_pickup"
         seat_rotation = (fixed_site_pose(root, pickup_site)[1]
-                         if root.find(f'.//site[@name="{pickup_site}"]') is not None else np.eye(3))
+                         if not owned and root.find(f'.//site[@name="{pickup_site}"]') is not None else np.eye(3))
         sockets = [RetentionSocket(f"{profile.prefix}_initial", position, seat_rotation, rotation,
                                    initial=True, keyed=profile.keyed)]
         if owned:
@@ -105,10 +107,10 @@ def model_retention_sockets(model_path: Path, *, owned=False) -> dict[str, tuple
             bp = np.fromstring(base.get('pos', '0 0 0'), sep=' ')
             sockets = [RetentionSocket(f'{profile.prefix}_initial', br.T @ (position-bp), seat_rotation,
                 br.T @ rotation, initial=True, keyed=profile.keyed, owner_body=owner)]
-        # The donor keeps its stable names. A complete service-side task box
-        # provides additional compatible recipients without inventing a second
-        # initial plug or assigning its reaction to the donor spacecraft.
-        for name in (namespace + profile.prefix + suffix
+        # Each populated box has its own free plugs and initial seats. Both
+        # sets may use the compatible empty insertion sockets on either star.
+        kind = profile.prefix.removeprefix('service_')
+        for name in (namespace + kind + suffix
                      for namespace in ('', 'service_')
                      for suffix in ('_insert_40p1', '_insert_40p5')):
             if root.find(f'.//site[@name="{name}"]') is None:

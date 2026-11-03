@@ -28,8 +28,9 @@ def write(path, value):
                     encoding='utf-8', newline='\n')
 
 
-def prepare(output):
-    manifest = read(PACKAGE/'manifest.json')
+def prepare(output, package=PACKAGE):
+    package = Path(package).resolve()
+    manifest = read(package/'manifest.json')
     dependencies = []
     for item in manifest['dependencies']:
         path = (ROOT/item['path']).resolve()
@@ -38,25 +39,26 @@ def prepare(output):
         dependencies.append(dict(path=str(path), sha256=item['sha256']))
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    tree = ET.parse(PACKAGE/'preheld-dual.xml')
+    tree = ET.parse(package/'preheld-dual.xml')
     for node in tree.iter():
         if 'file' in node.attrib:
-            node.set('file', str((PACKAGE/node.get('file')).resolve()))
+            node.set('file', str((package/node.get('file')).resolve()))
     model = output/'preheld-dual.xml'
     tree.write(model, encoding='utf-8', xml_declaration=True)
-    shutil.copyfile(PACKAGE/'attitude_control.json', output/'attitude_control.json')
-    shutil.copyfile(PACKAGE/'initial-scene.json', output/'initial-scene.json')
+    for name in ('attitude_control.json', 'initial-scene.json', 'hull-closure.json'):
+        if (package/name).exists():
+            shutil.copyfile(package/name, output/name)
     dependencies.append(dict(path=str(model), sha256=digest(model)))
-    catalog = read(PACKAGE/'ue-catalog.json')
+    catalog = read(package/'ue-catalog.json')
     catalog['source_mjcf'] = str(model)
     catalog['assets'] = {str((ROOT/k).resolve()):v for k,v in catalog['assets'].items()}
     write(output/'catalog.json', catalog)
     receipt = dict(schema='saved-model-registration/1', full_task_accepted=False,
-        manifest_sha256=digest(PACKAGE/'manifest.json'), model_sha256=digest(model),
+        manifest_sha256=digest(package/'manifest.json'), model_sha256=digest(model),
         linux_runtime_verified=False, ue_asset_import_verified=False)
     write(output/'receipt.json', receipt)
     entries = []
-    for task in read(PACKAGE/'tasks.json'):
+    for task in read(package/'tasks.json'):
         initial = deepcopy(task['initial_scene'])
         instance = dict(schema='space-arm-scene-instance/1', recipe=task['recipe'],
             model=str(model), dependencies=dependencies, seed=initial.get('seed',42),
@@ -66,7 +68,7 @@ def prepare(output):
         write(output/filename, instance)
         entry = dict(id=task['id'], scene_id=task['scene_id'], label=task['label'],
             kind='operation', base_template_id='sarm-dual-capture26',
-            layout_revision='original-root-v2', full_task_accepted=False,
+            layout_revision=manifest['revision'], full_task_accepted=False,
             description='保存的双臂已抓持初态；原系统相机；完整作业未通过验收。')
         for key, path in [('source_instance',output/filename), ('receipt',output/'receipt.json'),
                           ('catalog',output/'catalog.json')]:
@@ -74,7 +76,7 @@ def prepare(output):
             entry[key+'_sha256'] = digest(path)
         entries.append(entry)
     write(output/'imported_scene_library.json', dict(schema='space-arm-platform-library/1',
-        layout_revision='original-root-v2', entries=entries))
+        layout_revision=manifest['revision'], entries=entries))
     return dict(output=str(output), verified_dependencies=len(manifest['dependencies']),
                 initializations=len(entries), installed=False, ue_assets_imported=False)
 
@@ -82,4 +84,6 @@ def prepare(output):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    print(json.dumps(prepare(parser.parse_args().output), ensure_ascii=False))
+    parser.add_argument('--package', type=Path, default=PACKAGE)
+    args = parser.parse_args()
+    print(json.dumps(prepare(args.output, args.package), ensure_ascii=False))

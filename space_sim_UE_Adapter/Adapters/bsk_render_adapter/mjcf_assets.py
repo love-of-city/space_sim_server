@@ -259,8 +259,10 @@ def parse_mjcf_geometry_metadata(mjcf_path: str | Path, *, compile_mesh_poses: b
                 meshes[name] = (source, _vec3(mesh.get("scale")))
 
     output: list[MjcfGeometryMetadata] = []
+    body_order: dict[str, int] = {}
 
     def walk_container(container: ET.Element, body_name: str) -> None:
+        body_order.setdefault(body_name, len(body_order))
         for child in list(container):
             if child.tag == "geom":
                 mesh_name = child.get("mesh", "")
@@ -305,6 +307,10 @@ def parse_mjcf_geometry_metadata(mjcf_path: str | Path, *, compile_mesh_poses: b
     for worldbody in root.findall("./worldbody"):
         for body in worldbody.findall("body"):
             walk_container(body, body.get("name", ""))
+    # MuJoCo emits all of a body's geoms before its child bodies, including
+    # geoms authored after a child <body> or within transparent <frame>s.
+    # Stabilize this order before pairing with compiled mesh poses/native IDs.
+    output.sort(key=lambda item: body_order[item.body_name])
     compiled_poses = _compiled_source_mesh_poses(Path(mjcf_path)) if compile_mesh_poses else []
     if len(compiled_poses) == len(output):
         output = [

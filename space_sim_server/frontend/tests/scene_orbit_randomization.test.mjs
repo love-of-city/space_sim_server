@@ -11,7 +11,7 @@ const catalogSource = source.slice(source.indexOf("async function loadSceneCatal
 function setup() {
   const nodes = new Map();
   const $ = id => {
-    if (!nodes.has(id)) nodes.set(id, { value: "", checked: false, disabled: false,
+    if (!nodes.has(id)) nodes.set(id, { value: "", checked: false, disabled: false, dataset: {},
       textContent: "", classList: { toggle() {} }, replaceChildren() {}, focus() {} });
     return nodes.get(id);
   };
@@ -22,6 +22,8 @@ function setup() {
   const state = { stateRequestSequence: 0, sceneDefaults: { simulation_rate: 1, capture_rate_hz: 30, ik_rate_hz: 120 },
     currentUser: { role: "admin" }, scenePhase: "idle" };
   const ctx = vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+    selectedSceneTemplate: () => null, groupSceneTemplates: templates => templates,
+    visibleSceneTemplates: [], libraryFamilyId: () => null, configureLibraryTasks() {},
     initialJoints: { read: () => null, setRuntime() {} }, $, state, console, Option: function() {}, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},
     exitOperationMode() {}, refreshState: async () => {}, applySceneRuntime() {},
@@ -74,6 +76,46 @@ test("catalog defaults and older backends leave the orbital option off", async (
     await h.ctx.loadSceneCatalog();
     assert.equal(h.$("sceneRandomizeOrbitPhase").checked, value === true);
   }
+});
+
+test("task-box randomization keeps its own flag and seed", async () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const input = html.match(/<input[^>]+id="sceneRandomizeTaskBoxLayout"[^>]*>/)?.[0];
+  assert.ok(input);
+  assert.doesNotMatch(input, /\bchecked\b/);
+  for (const enabled of [false, true]) {
+    const h = setup();
+    h.$('sceneRandomizeTaskBoxLayout').checked = enabled;
+    h.$('sceneSeed').value = '101';
+    vm.runInContext(startSource, h.ctx);
+    await h.ctx.startScene();
+    const body = JSON.parse(h.requests[0].options.body);
+    assert.equal(body.randomize_task_box_layout, enabled);
+    assert.equal(body.randomize_orbit_phase, false);
+    assert.equal(body.seed, 101);
+  }
+});
+
+test("selecting a supported task defaults to generated layouts and preserves a manual choice within that task", () => {
+  const h = setup();
+  h.ctx.AUTO_PREPARE_PROFILE = "auto";
+  const configureSource = source.slice(source.indexOf("function configureSceneSelection()"), source.indexOf("const jointAngles ="));
+  vm.runInContext(configureSource, h.ctx);
+  h.ctx.selectedSceneTemplate = () => ({ id: "library/04/a", task_box_layout_randomization_available: true });
+  h.$("sceneDatasetCapture").checked = true;
+  h.ctx.configureSceneSelection();
+  assert.equal(h.$("sceneRandomizeTaskBoxLayout").checked, true);
+  assert.equal(h.$("sceneDatasetCapture").checked, false);
+  h.$("sceneRandomizeTaskBoxLayout").checked = false;
+  h.ctx.configureSceneSelection();
+  assert.equal(h.$("sceneRandomizeTaskBoxLayout").checked, false);
+  h.ctx.selectedSceneTemplate = () => ({ id: "library/02/b", task_box_layout_randomization_available: true });
+  h.ctx.configureSceneSelection();
+  assert.equal(h.$("sceneRandomizeTaskBoxLayout").checked, true);
+  h.ctx.selectedSceneTemplate = () => ({ id: "other" });
+  h.ctx.configureSceneSelection();
+  assert.equal(h.$("sceneRandomizeTaskBoxLayout").checked, false);
+  assert.equal(h.$("sceneRandomizeTaskBoxLayout").disabled, true);
 });
 
 test("active scene restores and locks the saved option and displays the actual angle including zero", () => {

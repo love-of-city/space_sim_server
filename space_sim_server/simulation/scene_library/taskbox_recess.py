@@ -97,10 +97,6 @@ def apply_recess_contract(root, contract_path):
 
 def carve_rear_pocket(root, housing, output):
     import numpy as np
-    import trimesh
-    from .taskbox_mount import _world_pose, _pose
-    target = root.find('.//body[@name="capture_target"]')
-    tp, tr = _world_pose(root, target)
     center = np.asarray(housing['back_mount_center_xz_m'])
     hull = np.asarray(housing['housing_bounds_m'])
     # 5 mm around the complete 450 x 550 mm panel and 5 mm behind its
@@ -109,11 +105,33 @@ def carve_rear_pocket(root, housing, output):
     high = np.array([center[0]+.230, hull[0, 1]+.107, center[1]+.280])
     if np.any(low[[0, 2]] < hull[0, [0, 2]]) or np.any(high[[0, 2]] > hull[1, [0, 2]]) or high[1] >= hull[1, 1]:
         raise ValueError('Pocket must fit inside the housing and preserve its front face')
+    return carve_pocket(root, housing, output, low, high, surface_axis=1, surface=float(hull[0, 1]))
+
+
+def carve_pocket(root, housing, output, low, high, *, surface_axis, surface):
+    """Carve a negative-axis hull face while retaining declared protected parts."""
+    import numpy as np
+    import trimesh
+    from .taskbox_mount import _world_pose, _pose
+    low, high = np.asarray(low), np.asarray(high)
+    hull = np.asarray(housing['housing_bounds_m'])
+    tangents = [i for i in range(3) if i != surface_axis]
+    if (surface_axis not in (0, 1, 2) or np.any(high <= low)
+            or np.any(low[tangents] < hull[0, tangents])
+            or np.any(high[tangents] > hull[1, tangents])
+            or high[surface_axis] >= hull[1, surface_axis]
+            or not low[surface_axis] < surface < high[surface_axis]):
+        raise ValueError('Pocket must enter only its selected hull face')
+    target = root.find('.//body[@name="capture_target"]')
+    tp, tr = _world_pose(root, target)
     cutter = trimesh.creation.box(extents=high-low, transform=trimesh.transformations.translation_matrix((high+low)/2))
     output = Path(output); output.mkdir(parents=True, exist_ok=False)
     report = dict(schema='taskbox-recess/1', pocket_bounds_target_m=[low.tolist(), high.tolist()],
-                  work_surface_y_target_m=float(hull[0, 1]), depth_inside_hull_m=.107,
+                  work_surface_axis=surface_axis, work_surface_coordinate_m=surface,
+                  depth_inside_hull_m=float(high[surface_axis]-surface),
                   panel_clearance_m=.005, protected_front_unchanged=True, assets=[], edits=[])
+    if surface_axis == 1:
+        report['work_surface_y_target_m'] = surface
     assets = {n.get('name'): n for n in root.find('asset') if n.tag == 'mesh'}
     protected = set(housing['protected_geometry'])
     fmt = lambda a: ' '.join(format(float(v), '.17g') for v in a)

@@ -223,6 +223,11 @@
             <span>沿当前圆轨道随机初始位置</span>
           </label>
           <small id="sceneOrbitPhaseHelp">在圆周 0～360° 内随机选择起点，轨道高度与倾角不变；独立于抓取目标随机化。相同 Seed 可复现，关闭时使用原来的 180° 起点。</small>
+          <label class="scene-checkbox">
+            <input id="sceneRandomizeTaskBoxLayout" type="checkbox" disabled aria-describedby="sceneTaskBoxLayoutHelp">
+            <span>随机初始化两个任务盒的内部布局</span>
+          </label>
+          <small id="sceneTaskBoxLayoutHelp">第 2、4 类按种子分别生成两盒内 13 个安装单元的位置和朝向，保留两盒零件。相同种子可复现；留空使用新种子。任务盒安装位置、两星、双臂和相机不变。首次生成需准备模型和 UE 资产，请等待。仅预览/遥操作，完整操作路径尚未验收。</small>
           <label for="sceneSunlightIntensity">太阳光照强度（倍率）
             <input id="sceneSunlightIntensity" type="number" min="0" max="20000" step="any" value="1" required aria-describedby="sceneSunlightHelp">
           </label>

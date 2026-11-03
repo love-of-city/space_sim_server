@@ -5,16 +5,18 @@ import xml.etree.ElementTree as ET
 
 def initialize_free_plugs(scene, model_path: Path, orbital_position, bus_velocity):
     names = set(scene.getBodyNames())
-    selected = names.intersection(('guide_plug', 'aviation_plug', 'cylindrical_plug', 'bolt', 'fastener'))
+    selected = names.intersection(prefix + part for prefix in ('', 'service_')
+                                  for part in ('guide_plug', 'aviation_plug', 'cylindrical_plug', 'bolt', 'fastener'))
     if not selected:
         return
     root = ET.parse(model_path).getroot()
     for name in selected:
-        if name == 'fastener':
-            captive = root.find('.//body[@name="locking_rod"]/body[@name="fastener"]')
-            if (captive is not None and captive.find('joint[@name="fastener_slide"]') is not None
-                    and captive.find('joint[@name="fastener_spin"]') is not None
-                    and root.find('./equality/joint[@name="fastener_helix"]') is not None):
+        if name in ('fastener', 'service_fastener'):
+            prefix = name.removesuffix('fastener')
+            captive = root.find(f'.//body[@name="{prefix}locking_rod"]/body[@name="{name}"]')
+            if (captive is not None and captive.find(f'joint[@name="{prefix}fastener_slide"]') is not None
+                    and captive.find(f'joint[@name="{prefix}fastener_spin"]') is not None
+                    and root.find(f'./equality/joint[@name="{prefix}fastener_helix"]') is not None):
                 # Its parent already inherits the orbital transform/velocity.
                 continue
         element = root.find(f'./worldbody/body[@name="{name}"]')

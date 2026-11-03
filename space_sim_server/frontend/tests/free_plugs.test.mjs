@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { groupSceneTemplates, resolveSceneTask } from "../library_templates.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const selectionSource = source.slice(source.indexOf("function configureSceneSelection()"), source.indexOf("const jointAngles ="));
@@ -15,7 +16,7 @@ function setup() {
   const nodes = new Map();
   const $ = id => {
     if (!nodes.has(id)) nodes.set(id, {
-      value: "", checked: false, disabled: false, hidden: false, textContent: "",
+      value: "", checked: false, disabled: false, hidden: false, textContent: "", dataset: {},
       classList: { toggle() {} }, replaceChildren(...items) { this.options = items; }, focus() {},
     });
     return nodes.get(id);
@@ -44,6 +45,8 @@ function setup() {
     sceneTransitionPending: false,
   };
   const ctx = vm.createContext({
+    selectedSceneTemplate: () => resolveSceneTask(ctx.initialJointCatalog?.templates || [], $("sceneTemplate").value, $("sceneTaskProfile").value),
+    groupSceneTemplates, visibleSceneTemplates: [], configureLibraryTasks() {},
     AUTO_PREPARE_PROFILE: autoPrepare,
     ZERO_START_PROFILE: directStart,
     initialJointCatalog: null,

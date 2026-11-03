@@ -1,0 +1,61 @@
+{
+  "schema": "target-taskbox-profile/1",
+  "id": "nasa_lro_visual",
+  "adapter": "static_visual_target",
+  "source_model": "model/nasa_lro_a/nasa_lro_a.xml",
+  "source_sha256": "afb2ac73d0d17b7932bf39956c81b914471fbbadd7b22475805c63956cdf1312",
+  "baseline": "model/scene_library/original-root-v2",
+  "scale": {
+    "value": 0.07,
+    "max_value": 0.1,
+    "physical_scale_verified": false
+  },
+  "mount": {
+    "center_source": [
+      -0.35,
+      4.82600021362,
+      3.0
+    ],
+    "basis_source": [
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        -1
+      ],
+      [
+        0,
+        1,
+        0
+      ]
+    ],
+    "pocket_meshes": [
+      "n000_m00_p20"
+    ],
+    "pocket_low_m": [
+      -0.2545,
+      0.2308200149534001,
+      -0.07
+    ],
+    "pocket_high_m": [
+      0.20550000000000002,
+      0.3428200149534001,
+      0.49000000000000005
+    ]
+  },
+  "constraints": {
+    "taskbox_world_pose": "fixed",
+    "full_task_accepted": false,
+    "dynamics_allowed": false
+  },
+  "missing_capabilities": [
+    "calibrated_physical_scale",
+    "mass_and_inertia",
+    "collision_model",
+    "capture_interface"
+  ]
+}

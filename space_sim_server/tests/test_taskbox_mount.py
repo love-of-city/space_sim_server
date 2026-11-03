@@ -8,6 +8,7 @@ import pytest
 from simulation.scene_library.taskbox_mount import (
     ROOT_BODIES, LOOSE_BODIES, detach_taskbox, extract_taskbox, mount_taskbox,
     _world_pose,
+    restore_owner_exclusions,
 )
 
 
@@ -55,9 +56,17 @@ def test_relocates_free_parts_and_internal_sites_as_one_rigid_assembly():
         assert np.allclose(actual_p, tp+tr @ (p+r @ or_.T @ (original_p-op)))
         assert np.allclose(actual_r, tr @ r @ or_.T @ original_r)
     assert result['loose_parts'] == list(LOOSE_BODIES)
-    assert source.find('./contact/exclude[@name="old_hull_drawer"]') is None
+    assert source.find('./contact/exclude[@name="old_hull_drawer"]').get('body1') == 'capture_target'
     assert source.find('./contact/pair[@name="finger_pair"]').get('geom1') == 'finger'
     assert source.find('./equality/joint[@name="helix"]').get('polycoef') == '0 10 0 0 0'
+
+
+def test_plugin_whitespace_is_not_a_configuration_conflict():
+    root = fixture()
+    template = extract_taskbox(root)
+    ET.indent(root)
+    detach_taskbox(root)
+    mount_taskbox(root, template, 'capture_target', position=[0, 0, 0], rotation=np.eye(3), move_loose_parts=True)
 
 
 def test_second_box_has_independent_mechanisms_and_plugin_instances_but_shared_assets():
@@ -73,7 +82,8 @@ def test_second_box_has_independent_mechanisms_and_plugin_instances_but_shared_a
     assert root.find('./equality/joint[@name="service_helix"]').get('joint1') == 'service_spin'
     assert root.find('.//geom[@name="service_thread_geom"]/plugin').get('instance') == 'service_thread'
     assert root.find('./extension/plugin/instance[@name="service_thread"]/config').attrib == {'key': 'mode', 'value': '3'}
-    assert root.find('./contact/exclude[@name="service_old_hull_drawer"]') is None
+    exclusion = root.find('./contact/exclude[@name="service_old_hull_drawer"]')
+    assert (exclusion.get('body1'), exclusion.get('body2')) == ('cubesat_bus', 'service_drawer_base')
     pair = root.find('./contact/pair[@name="service_thread_pair"]')
     assert pair.get('geom1') == 'bolt_thread'
     assert pair.get('geom2') == 'service_bore'
@@ -102,7 +112,18 @@ def test_delivered_source_copies_complete_hardware_and_resolves_references():
     assert root.find('.//joint[@name="service_drawer_base_slide"]') is not None
     assert root.find('.//site[@name="service_aviation_insert_40p1"]') is not None
     assert root.find('./contact/pair[@name="service_physical_two_start_thread"]').get('geom1') == 'bolt_thread_sdf'
-    assert root.find('./contact/exclude[@name="service_base_link_drawer_base_exclude"]') is None
+    for suffix in ('drawer_base', 'drawer_buckle'):
+        exclusion = root.find(f'./contact/exclude[@name="service_base_link_{suffix}_exclude"]')
+        assert (exclusion.get('body1'), exclusion.get('body2')) == ('cubesat_bus', 'service_'+suffix)
+        target_exclusion = root.find(f'./contact/exclude[@name="base_link_{suffix}_exclude"]')
+        assert (target_exclusion.get('body1'), target_exclusion.get('body2')) == ('capture_target', suffix)
     assert result['plugin_instances']['fastener_female_sdf'] == 'service_fastener_female_sdf'
     for name in LOOSE_BODIES:
         assert len(root.findall(f'.//body[@name="{name}"]')) == 1
+    # The baseline-reuse path must recover exactly the same mapped rules.
+    rule=root.find('./contact/exclude[@name="service_base_link_drawer_buckle_exclude"]')
+    expected=dict(rule.attrib);root.find('contact').remove(rule)
+    restore_owner_exclusions(root,template,'cubesat_bus',prefix='service_')
+    restore_owner_exclusions(root,template,'cubesat_bus',prefix='service_')
+    matches=root.findall('./contact/exclude[@name="service_base_link_drawer_buckle_exclude"]')
+    assert len(matches)==1 and matches[0].attrib==expected

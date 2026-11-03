@@ -434,6 +434,7 @@ class SceneInstanceCreate(BaseModel):
 
     wrist_camera_mode: Literal["rgb", "fisheye", "monochrome"] = "rgb"
     randomize_overview_camera: bool = Field(default=False, strict=True)
+    randomize_task_box_layout: bool = Field(default=False, strict=True)
 
     orbital_physics: OrbitalPhysics = Field(default_factory=OrbitalPhysics)
 

@@ -171,6 +171,15 @@ function configureInitialJoints() {
 function configureSceneSelection() {
   configureLibraryTasks();
   const template = selectedSceneTemplate();
+  const layoutToggle = $("sceneRandomizeTaskBoxLayout");
+  const layoutSupported = Boolean(template?.task_box_layout_randomization_available);
+  layoutToggle.disabled = !layoutSupported;
+  if (layoutToggle.dataset.templateId !== (template?.id || "")) {
+    layoutToggle.checked = layoutSupported;
+    layoutToggle.dataset.templateId = template?.id || "";
+  }
+  if (!layoutSupported) layoutToggle.checked = false;
+  if (layoutToggle.checked) $("sceneDatasetCapture").checked = false;
   if (template?.library_scene) {
     $("randomizationProfile").value = template.default_randomization_profile;
     $("sceneRandomizeOrbitPhase").checked = false;
@@ -408,6 +417,7 @@ function applySceneRuntime(runtime = {}, mission = state.mission) {
   $("startScene").disabled = active || !enabled;
   $("stopScene").disabled = !active || !state.canManageScene;
   $('sceneTaskProfile').disabled = active || Boolean(mission?.active);
+  $('sceneRandomizeTaskBoxLayout').disabled = active || Boolean(mission?.active) || !selectedSceneTemplate()?.task_box_layout_randomization_available;
   $("resetScene").disabled = !state.sceneReady || !state.simulationConnected
     || !state.resetSupported || !state.canManageScene || Boolean(state.activeEpisode);
   $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在复原…" : "一键复原初始位置";
@@ -442,6 +452,7 @@ function applySceneRuntime(runtime = {}, mission = state.mission) {
     $("sceneSunlightIntensity").value = String(instanceSunlight);
     $("sceneWristCameraMode").value = instance.wrist_camera_mode || "rgb";
     $("sceneRandomizeOverviewCamera").checked = instance.randomize_overview_camera === true;
+    $("sceneRandomizeTaskBoxLayout").checked = instance.task_box_layout_randomization?.enabled === true;
     $("sceneRandomizeOrbitPhase").checked = randomizeOrbitPhase;
   }
   configureInitialJoints();
@@ -449,11 +460,12 @@ function applySceneRuntime(runtime = {}, mission = state.mission) {
   armPreparation.setRuntime(active ? instance : null, state.sceneReady);
   if (["failed", "stopping", "stopped"].includes(phase)) armPreparation.cancel("场景停止或失败，请显式重试");
   $("sceneParameters").textContent = instance.randomization
-    ? JSON.stringify({ capture_target: instance.capture_target || {}, wrist_camera_mode: instance.wrist_camera_mode || "rgb", randomize_overview_camera: instance.randomize_overview_camera === true, overview_camera: instance.overview_camera || null, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, randomization: instance.randomization }, null, 2)
+    ? JSON.stringify({ capture_target: instance.capture_target || {}, wrist_camera_mode: instance.wrist_camera_mode || "rgb", randomize_overview_camera: instance.randomize_overview_camera === true, overview_camera: instance.overview_camera || null, randomize_orbit_phase: randomizeOrbitPhase, environment: instance.environment || {}, task_box_layout_randomization: instance.task_box_layout_randomization || null, randomization: instance.randomization }, null, 2)
     : "尚未生成实例";
   if (!flight && runtime.error) setMessage(`场景失败：${runtime.error}`);
   if (phase === "running" && previousPhase !== "running") {
-    const readiness = instance.arm_preparation_required
+    const readiness = instance.task_box_layout_randomization?.enabled ? '随机布局候选，仅预览/遥操作'
+      : instance.arm_preparation_required
       ? '等待机械臂准备实测到位后操作或采集' : '可进入操作或开始采集';
     setMessage(`场景 ${instance.instance_id || ""} ${instance.rendezvous_handoff ? '已接续交会终态' : '已运行'}，${readiness}`);
     // The waiting player may have subscribed milliseconds ago. Moving from
@@ -497,6 +509,7 @@ async function startScene() {
     sunlight_intensity_scale: sunlightScale,
     wrist_camera_mode: $("sceneWristCameraMode").value,
     randomize_overview_camera: $("sceneRandomizeOverviewCamera").checked,
+    randomize_task_box_layout: $("sceneRandomizeTaskBoxLayout").checked,
     initial_arm_joint_position_deg: initialAngles,
     ...(operatingProfile ? {operating_arm_joint_position_deg: operatingAngles} : {}),
   };
@@ -1726,6 +1739,9 @@ $("linearSpeed").addEventListener("input", (event) => {
 $("startScene").addEventListener("click", startScene);
 $("sceneTemplate").addEventListener("change", configureSceneSelection);
 $("sceneTaskProfile").addEventListener("change", configureSceneSelection);
+$("sceneRandomizeTaskBoxLayout").addEventListener("change", () => {
+  if ($("sceneRandomizeTaskBoxLayout").checked) $("sceneDatasetCapture").checked = false;
+});
 $("randomizationProfile").addEventListener("change", configureSceneSelection);
 $("stopScene").addEventListener("click", stopScene);
 $("resetScene").addEventListener("click", resetScene);

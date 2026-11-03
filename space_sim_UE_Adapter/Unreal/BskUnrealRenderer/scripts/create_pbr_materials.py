@@ -41,6 +41,8 @@ def create_material(name: str, translucent: bool) -> None:
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT if translucent else unreal.BlendMode.BLEND_OPAQUE)
     material.set_editor_property("two_sided", False)
     material.set_editor_property("used_with_instanced_static_meshes", True)
+    if not translucent:
+        material.set_editor_property("used_with_nanite", True)
 
     base_color = vector(material, "BaseColor", unreal.LinearColor(0.7, 0.7, 0.7, 1.0), -900, -250)
     texture_repeat = vector(material, "TextureRepeat", unreal.LinearColor(1.0, 1.0, 0.0, 0.0), -1100, -550)

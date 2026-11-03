@@ -1,0 +1,37 @@
+{
+  "passed": true,
+  "scope": "seeded_initialization_and_live_loading",
+  "instance_id": "scene-20261103-225454-ab70a9a1",
+  "seed": 202,
+  "cameras": [
+    {
+      "camera": "BskRenderer",
+      "sim_time_s": 28.8,
+      "retained_plugs": 6,
+      "image": "BskRenderer.png"
+    },
+    {
+      "camera": "BskRenderer__teleop_camera_spacecraft_overview",
+      "sim_time_s": 30.94,
+      "retained_plugs": 6,
+      "image": "BskRenderer__teleop_camera_spacecraft_overview.png"
+    },
+    {
+      "camera": "BskRenderer__teleop_camera_sarm_wrist_cam",
+      "sim_time_s": 32.94,
+      "retained_plugs": 6,
+      "image": "BskRenderer__teleop_camera_sarm_wrist_cam.png"
+    },
+    {
+      "camera": "BskRenderer__teleop_camera_capture_wrist_cam",
+      "sim_time_s": 35.02,
+      "retained_plugs": 6,
+      "image": "BskRenderer__teleop_camera_capture_wrist_cam.png"
+    }
+  ],
+  "free_parts": 8,
+  "initial_seats_retained": true,
+  "full_task_accepted": false,
+  "orbital_initialization_code_sha256": "c0c96bfcf7ad44ab65bafef2faa7425464ad45a9d089f49c362649fda3099ab0",
+  "source_artifact": "seeded-dual-taskbox-20261103/live-orbit-fix/verification.json"
+}

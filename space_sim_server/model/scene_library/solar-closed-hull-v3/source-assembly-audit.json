@@ -1,0 +1,21 @@
+{
+  "schema": "target-asset-assembly-audit/1",
+  "model_sha256": "7f45114b85efd369f368a90aedd36d11d966aa32b53963515c31c9950c224732",
+  "checks": {
+    "service_arms_and_service_taskbox_unchanged": true,
+    "original_camera_attributes_unchanged": true,
+    "complete_task_modules_and_world_poses_preserved": true,
+    "operating_arm_initial_joints_unchanged": true,
+    "L_shape_preserved": true,
+    "original_interface_metric_geometry_preserved": true,
+    "complete_solar_hierarchy_present": true,
+    "solar_uniform_scale_structure_and_hinge_angles_preserved": true,
+    "fixed_visual_attachments_preserved": true,
+    "all_hull_faces_closed_except_task_aperture": true
+  },
+  "passed": true,
+  "errors": [],
+  "collision_verified": false,
+  "native_dynamics_verified": false,
+  "full_task_accepted": false
+}

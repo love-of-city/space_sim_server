@@ -17,7 +17,7 @@ const browser=spawn(process.env.SPACE_SIM_EDGE || 'C:/Program Files (x86)/Micros
   '--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','about:blank'
 ],{windowsHide:true,stdio:'ignore'});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-let ws;
+let ws, closeBrowser;
 try {
   let pages;
   for(let i=0;i<150;i++) {
@@ -28,7 +28,10 @@ try {
   await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});
   const pending=new Map();let nextId=0;
   ws.onmessage=event=>{const m=JSON.parse(event.data),p=pending.get(m.id);if(p){pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);}};
-  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++nextId;const timer=setTimeout(()=>reject(new Error(`CDP timeout ${method}`)),30000);pending.set(id,{resolve,reject,timer});ws.send(JSON.stringify({id,method,params}));});
+  const call=(method,params={},timeoutMs=30000)=>new Promise((resolve,reject)=>{const id=++nextId;const timer=setTimeout(()=>reject(new Error(`CDP timeout ${method}`)),timeoutMs);pending.set(id,{resolve,reject,timer});ws.send(JSON.stringify({id,method,params}));});
+  // Edge can relaunch itself, leaving spawn().pid already exited. CDP closes
+  // the actual browser and its children rather than only that launcher PID.
+  closeBrowser=()=>call('Browser.close',{},3000);
   const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
   await call('Page.enable');
   await call('Page.addScriptToEvaluateOnNewDocument',{source:`window.__inspectionPeers=[];const NativePeer=window.RTCPeerConnection;window.RTCPeerConnection=new Proxy(NativePeer,{construct(Target,args){const p=new Target(...args);window.__inspectionPeers.push(p);return p;}});`});
@@ -115,6 +118,7 @@ try {
   const adapter=latest.scene_runtime?.adapter_root;
   if(adapter)await copyFile(path.join(adapter,'Unreal/BskUnrealRenderer/Saved/Logs/BskUnrealRenderer.log'),path.join(output,'renderer.log'));
 } finally {
+  try {await closeBrowser?.();} catch {}
   ws?.close();
   browser.kill();
 }

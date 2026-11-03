@@ -1,4 +1,4 @@
-"""Copy complete passive task boxes without copying spacecraft mount exclusions.
+"""Copy complete passive task boxes and remap their spacecraft mount exclusions.
 
 Mount transforms map the source spacecraft frame into the destination owner
 frame: ``p_owner = position + rotation @ p_source``. Meshes/materials are shared;
@@ -102,8 +102,8 @@ def extract_taskbox(source_root, source_owner='cubesat_bus'):
 def detach_taskbox(root, *, include_loose_parts=True):
     """Remove original task bodies and references touching them, keeping assets.
 
-    Capture the template first. Old hull-vs-hardware exclusions are deliberately
-    removed so they cannot hide penetration at a newly selected mounting face.
+    Capture the template first. Mounting restores the captured hull exclusions
+    against the destination owner rather than leaving references to the donor.
     """
     names = ROOT_BODIES + (LOOSE_BODIES if include_loose_parts else ())
     nodes = [root.find(f'.//body[@name="{n}"]') for n in names]
@@ -121,6 +121,36 @@ def detach_taskbox(root, *, include_loose_parts=True):
     return sorted(removed)
 
 
+def restore_owner_exclusions(root, template, owner_name, *, prefix=''):
+    """Restore source rules when a builder reuses an already-mounted box."""
+    owned = _names(template.roots + template.loose)
+    bodies = {n.get('name') for n in root.iter('body')}
+    if owner_name not in bodies:
+        raise ValueError('Missing destination owner '+owner_name)
+    section = root.find('contact')
+    if section is None:
+        section = ET.SubElement(root, 'contact')
+    restored = []
+    for node in template.sections['contact']:
+        refs = _references(node)
+        if node.tag != 'exclude' or template.source_owner not in refs or not refs & owned:
+            continue
+        copied = deepcopy(node)
+        copied.set('name', prefix+node.get('name'))
+        for key in ('body1', 'body2'):
+            original = node.get(key)
+            copied.set(key, owner_name if original == template.source_owner else prefix+original)
+        if any(copied.get(k) not in bodies for k in ('body1', 'body2')):
+            continue
+        existing = section.find(f'exclude[@name="{copied.get("name")}"]')
+        if existing is None:
+            section.append(copied)
+        elif existing.attrib != copied.attrib:
+            raise ValueError('Conflicting owner exclusion '+copied.get('name'))
+        restored.append(dict(copied.attrib))
+    return restored
+
+
 def mount_taskbox(root, template, owner_name, *, position, rotation,
                   prefix='', move_loose_parts=False):
     """Install one box; optionally place its free donor parts in worldbody.
@@ -128,7 +158,7 @@ def mount_taskbox(root, template, owner_name, *, position, rotation,
     The destination must already contain the template's shared assets/defaults.
     ``move_loose_parts=False`` leaves the source pickup slots empty. Contact
     pairs between that box and the existing donor/fingers are preserved, but
-    source spacecraft-body contact exclusions are never transplanted.
+    source spacecraft-body contact exclusions are mapped to the new owner.
     """
     p, r = np.asarray(position, dtype=float), np.asarray(rotation, dtype=float)
     if (p.shape != (3,) or r.shape != (3, 3) or not np.isfinite(p).all()
@@ -167,13 +197,15 @@ def mount_taskbox(root, template, owner_name, *, position, rotation,
             refs = _references(node)
             if not refs & owned:
                 continue
-            if section == 'contact' and node.tag == 'exclude' and template.source_owner in refs:
-                continue
             # A copied passive mechanism must not acquire a constraint to an
             # unrelated source satellite or to a joint that was not copied.
             if section != 'contact' and refs - owned:
                 raise ValueError(f'External reference in task {section}: {sorted(refs-owned)}')
             copied = clone(node)
+            if section == 'contact' and node.tag == 'exclude':
+                for key in ('body1', 'body2'):
+                    if node.get(key) == template.source_owner:
+                        copied.set(key, owner_name)
             missing = _references(copied) - available
             if missing:
                 # Missing donor bodies are legitimate only when omitted from
@@ -193,7 +225,9 @@ def mount_taskbox(root, template, owner_name, *, position, rotation,
         definition = deepcopy(definition)
         definition.set('name', new)
         if current is not None:
-            if ET.tostring(current) != ET.tostring(definition):
+            def structure(node):
+                return node.tag, node.attrib, (node.text or '').strip(), [structure(c) for c in node]
+            if structure(current) != structure(definition):
                 raise ValueError(f'Conflicting plugin instance {new}')
             continue
         if extension is None:

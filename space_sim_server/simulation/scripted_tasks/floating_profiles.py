@@ -45,6 +45,10 @@ FLOATING_PROFILES = {
         release=dict(min_distance_m=.30, max_distance_m=.50), target={}, sunlight=1., phase=180.,
         randomization=dict(action_noise=dict(enabled=True, std_deg=.01, correlation_s=.3),
                            lighting=dict(enabled=True, variation_pct=20.))),
+    "external-wrench": dict(
+        release=dict(min_distance_m=.30, max_distance_m=.50), target={}, sunlight=1., phase=180.,
+        randomization=dict(external_disturbance=dict(enabled=True, body="ee_base",
+                                                     force_std_n=.01, torque_std_nm=.0001, interval_s=1.))),
 }
 
 

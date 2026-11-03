@@ -350,6 +350,6 @@ python collection/collect_scripted_tasks.py \
   --count 1 --max-attempts 6 --seed 75 --offline
 ```
 
-条件定义见 `simulation/scripted_tasks/floating_profiles.py`，包括 `left-static-red`、`right-incoming-blue`、`left-receding-green`、`right-lateral-orange`、`upper-drift-purple`、`lower-drift-yellow`、`noisy-observations`、`action-perturbation`。它们覆盖释放位置、朝向、平移/旋转、起姿、目标质量/惯量/摩擦、纯色、光照、轨道相位与观测/动作扰动。可直接在原生scene JSON中设置 `floating_capture`、`floating_target`、`collection_randomization` 和 `environment` 自定义条件。profile会覆盖这些维度的配置，保留其他源场景设置；`initialization_enabled=false`仍关闭起姿扰动。
+条件定义见 `simulation/scripted_tasks/floating_profiles.py`，包括 `left-static-red`、`right-incoming-blue`、`left-receding-green`、`right-lateral-orange`、`upper-drift-purple`、`lower-drift-yellow`、`noisy-observations`、`action-perturbation`、`external-wrench`。它们覆盖释放位置、朝向、平移/旋转、起姿、目标质量/惯量/摩擦、纯色、光照、轨道相位与观测/动作/末端外力扰动。可直接在原生scene JSON中设置 `floating_capture`、`floating_target`、`collection_randomization` 和 `environment` 自定义条件。profile会覆盖这些维度的配置，保留其他源场景设置；`initialization_enabled=false`仍关闭起姿扰动。
 
 物体定义、场景变化、控制器分开维护，不为条件组合增加task ID。相机安装和成功标准保持固定，所有条件仍经过原生碰撞预检。`floating-release/3`使用独立position/tilt/speed/spin随机流，新的seed初态与旧版本不同；历史数据可阅读，新代码重放要求当前schema。每条scene保存profile定义、实际释放、目标变体及随机扰动；平移速度表示目标body原点的运动。摩擦记录目标geom/pair参数，实际接触仍遵循MuJoCo混合规则。

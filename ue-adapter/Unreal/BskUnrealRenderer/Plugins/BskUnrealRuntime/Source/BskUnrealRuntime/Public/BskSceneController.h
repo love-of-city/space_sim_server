@@ -5,6 +5,7 @@
 #include "BskCoordinateConverter.h"
 #include "BskFrameSource.h"
 #include "BskProtocolTypes.h"
+#include "BskPresentationClock.h"
 #include "BskSceneController.generated.h"
 
 class ADirectionalLight;
@@ -17,6 +18,8 @@ class USceneCaptureComponent2D;
 class UStaticMeshComponent;
 class UTextureRenderTarget2D;
 class IPixelStreaming2Streamer;
+class IPixelStreaming2InputHandler;
+class ULightComponent;
 class IPixelStreaming2VideoProducer;
 class IBskCaptureProvider;
 class FBskCaptureNetworkSender;
@@ -89,6 +92,8 @@ public:
     int32 GetCameraCount() const { return CameraActors.Num(); }
     int64 GetCaptureDiskCompletedCount() const { return CaptureDiskCompletedCount; }
     int64 GetCaptureDiskFailureCount() const { return CaptureDiskFailureCount; }
+    FString GetLightingStatus() const;
+    bool GetRelativeViewState(FBskRelativeViewState& Out) const;
     int32 GetPendingCommandCount() const { return PendingCommandIds.Num(); }
     FString GetLastCommandStatus() const { return LastCommandStatus; }
 
@@ -123,6 +128,7 @@ private:
     friend class FBskManifestGeometryRefreshTest;
     friend class FBskCameraMountedLightTest;
     friend class FBskOfflineCameraWarmupTest;
+    friend class FBskFlushPlaneGeometryTest;
     friend class FBskLocalFrameExtrapolationTest;
     friend class FBskSceneResetTest;
     friend class FBskSceneSunlightIntensityTest;
@@ -144,7 +150,7 @@ private:
     void ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame = true);
     void ConfigureOfflineSkyLighting();
     FBskRenderFrame InterpolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double Alpha) const;
-    FBskRenderFrame ExtrapolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double SecondsBeyondTarget) const;
+    FBskRenderFrame ExtrapolateFrame(const FBskRenderFrame& From, const FBskRenderFrame& To, double SecondsBeyondTarget, double SimulationRate = 1.0) const;
     AActor* GetOrCreateActor(const FBskRenderObjectState& State);
     AActor* FindBoundActor(const FString& ObjectName) const;
     AActor* SpawnFromSpec(const FString& ObjectName, const FObjectSpec& Spec);
@@ -161,7 +167,7 @@ private:
     AActor* SpawnVisual(const FBskVisualDefinition& Definition);
     AActor* SpawnCamera(const FBskCameraDefinition& Definition);
     void ConfigureCamera(AActor* Actor, const FBskCameraDefinition& Definition);
-    void ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture) const;
+    void ConfigureFixedRgbExposure(USceneCaptureComponent2D* Capture, const FBskCameraDefinition* Definition = nullptr) const;
     void CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture);
     void ConfigureRgbRenderTarget(UTextureRenderTarget2D* Target) const;
     void UpdatePictureInPictureCaptures();
@@ -191,6 +197,12 @@ private:
     void UpdateCelestialBodies(const FBskRenderFrame& Frame);
     double SolarVisibilityAt(const FVector3d& ReceiverMeters) const;
     void UpdateVisualStates(const FBskRenderFrame& Frame);
+    void RegisterWorkLightInput(const TSharedPtr<IPixelStreaming2Streamer>& Streamer);
+    void CapturePreview(const FString& CameraId, USceneCaptureComponent2D* Capture);
+    TMap<FString, FVector2D> PreviewOrbitDegrees;
+    TMap<FString, TWeakObjectPtr<ULightComponent>> CameraWorkLights;
+    ULightComponent* ResolveCameraWorkLight(const FString& StreamerId);
+    TMap<FString, TWeakPtr<IPixelStreaming2InputHandler>> WorkLightInputHandlers;
     void UpdateLightTargets();
     void ConfigureManifestLighting(const FBskSceneManifest& Manifest);
     void DrawOrbitLines(const FBskRenderFrame& Frame) const;
@@ -199,6 +211,7 @@ private:
     FObjectSpec ResolveSpec(const FBskRenderObjectState& State) const;
 
     TUniquePtr<IBskFrameSource> Receiver;
+    FBskRelativeView RelativeView;
     FOnBskFrameApplied FrameAppliedEvent;
     TMap<FString, TObjectPtr<AActor>> BoundActors;
     // Only runtime-created objects may be retired on a manifest change.
@@ -312,12 +325,8 @@ private:
     FString TimeMode = TEXT("interpolated");
     double InterpolationDelaySeconds = 0.1;
     double MaxExtrapolationSeconds = 0.1;
-    double LastFrameArrivalSeconds = 0.0;
-    double BlendElapsedSeconds = 0.0;
-    double BlendDurationSeconds = 1.0 / 30.0;
-    bool bHasTargetFrame = false;
-    FBskRenderFrame PreviousFrame;
-    FBskRenderFrame TargetFrame;
+    FBskPresentationClock PresentationClock;
+    TArray<FBskRenderFrame> PresentationFrames;
     FBskRenderFrame PresentationFrame;
     bool bHasPresentationFrame = false;
     bool bScreenshotRequested = false;
@@ -352,6 +361,9 @@ private:
     int64 CaptureSequence = 0;
     int64 CaptureDiskCompletedCount = 0;
     int64 CaptureDiskFailureCount = 0;
+    int64 VisionCaptureFramesRequested = 0;
+    int64 VisionCapturePacketsQueued = 0;
+    int64 VisionCaptureErrors = 0;
     bool bAsyncCaptureEnabled = true;
     static constexpr int32 MaxAsyncCaptureJobs = 16;
     static constexpr uint64 MaxAsyncCaptureBytes = 256ull * 1024 * 1024;

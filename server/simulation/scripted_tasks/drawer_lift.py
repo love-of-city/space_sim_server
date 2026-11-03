@@ -76,6 +76,7 @@ class DrawerSample:
     wrench_valid: bool
     finger_drawer_contacts: tuple[int, int] | None = None
     native_qpos: np.ndarray | None = None
+    drawer_mount: tuple | None = None
 
 
 # Re-export retained for existing drawer-policy users.
@@ -110,30 +111,24 @@ class DrawerLiftTask:
         )
         root = ET.parse(model_path).getroot()
         bus = root.find('.//body[@name="cubesat_bus"]')
-        drawer = bus.find('body[@name="drawer_base"]') if bus is not None else None
+        drawer = root.find('.//body[@name="drawer_base"]')
         if drawer is None or root.find('.//body[@name="drawer_buckle"]') is None:
             raise ValueError("Task requires the SARM drawer and its original buckle")
         slide = drawer.find('joint[@name="drawer_base_slide"]')
         if slide is None or slide.get("type") != "slide":
             raise ValueError("Task requires drawer_base_slide")
-        drawer_rotation = quaternion_wxyz_to_matrix(
-            np.fromstring(drawer.get("quat", "1 0 0 0"), sep=" ")
-        )
-        if not np.allclose(drawer_rotation[:, 2], [0., 0., -1.]):
-            raise ValueError(
-                "Unsupported drawer orientation; recalibrate the grasp pose"
-            )
+        from simulation.scene_library.frames import mounted_body_pose
+        drawer_origin, drawer_rotation = mounted_body_pose(root, "drawer_base", allow_preheld=True)
         self.drawer_rotation = drawer_rotation
-        self.axis = self.drawer_rotation @ np.fromstring(slide.get("axis"), sep=" ")
-        if not np.allclose(self.axis, [0.0, 0.0, 1.0]):
-            raise ValueError("Task requires the delivered upward slide axis")
+        local_axis = np.fromstring(slide.get("axis", "0 0 1"), sep=" ")
+        # Grasp offsets are calibrated in the delivered drawer's own frame.
+        # A different mounting orientation rotates this complete mechanism;
+        # changing its internal rail axis still requires new calibration.
+        if local_axis.shape != (3,) or not np.allclose(local_axis, [0., 0., -1.]):
+            raise ValueError("Task requires the delivered local drawer slide axis")
+        self.axis = self.drawer_rotation @ local_axis
         self.drawer_initial_reference_m = float(slide.get("ref", "0"))
-        # Episode models can start opened through a matching MJCF rest transform
-        # and joint ref. Geometry below is expressed at physical slide q == 0.
-        self.drawer_origin = (
-            np.fromstring(drawer.get("pos"), sep=" ")
-            - self.axis * self.drawer_initial_reference_m
-        )
+        self.drawer_origin = drawer_origin - self.axis * self.drawer_initial_reference_m
         self.grip_origin = self.drawer_origin + self.drawer_rotation @ np.asarray(
             self.config.grip_offset_m
         )
@@ -218,8 +213,7 @@ class DrawerLiftTask:
         goal = None
         rotation = r
         if name == "raise":
-            goal = p.copy()
-            goal[2] = max(p[2], self.hover[2])
+            goal = p + self.axis * max(0., float((self.hover-p) @ self.axis))
         elif name == "above_drawer":
             goal = self.hover
         elif name == "align":
@@ -264,6 +258,19 @@ class DrawerLiftTask:
         return "drawer_not_initially_closed" if abs(sample.drawer_m) > 0.005 else None
 
     def step(self, sample: DrawerSample):
+        if sample.drawer_mount is not None:
+            origin, rotation = sample.drawer_mount
+            old_grip = self.grip_origin.copy()
+            change_r = rotation @ self.drawer_rotation.T
+            self.grip_origin = origin + rotation @ np.asarray(self.config.grip_offset_m)
+            self.drawer_origin = np.asarray(origin).copy()
+            self.axis = change_r @ self.axis
+            self.drawer_rotation = rotation
+            for name in ('grasp', 'hover'):
+                if getattr(self, name, None) is not None:
+                    setattr(self, name, self.grip_origin + change_r @ (getattr(self, name)-old_grip))
+            if getattr(self, 'grasp_rotation', None) is not None:
+                self.grasp_rotation = change_r @ self.grasp_rotation
         if self.result is not None:
             return self.reference.copy(), np.zeros(8)
         if (

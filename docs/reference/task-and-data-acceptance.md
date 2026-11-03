@@ -342,3 +342,6 @@ python tools/diagnostics/validate_task_trajectory_contacts.py \
 | 目录中有 `accepted_episodes`、任务成功或 `dataset_status=complete` | 必须同时读 pending 标志、sequence job 状态、最终完整审核报告及隔离记录 |
 
 本文不是全场景认证清单。每次对外报告应给出任务与布局范围、源码/构建来源、完整任务还是短测、原生还是 UE 实录、全解码与接触覆盖情况，以及尚未覆盖的任务/平台/长稳条件。固定布局五任务通过不能表述成六任务或整个随机布局池通过。
+
+
+2026-11-03 master 集成补充：场景库专家和冻结轨迹评估使用独立控制器类别及独立物理评分，不覆盖日常采集和四项单向任务判据。入口及来源区别见[采集基线](../../server/docs/COLLECTION_BASELINE.md)；新模型仍需按实际布局和运行产物记录完整任务验收。

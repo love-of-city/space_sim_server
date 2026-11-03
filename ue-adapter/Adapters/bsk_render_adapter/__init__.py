@@ -7,6 +7,7 @@ from .descriptors import (
     CameraVisual,
     CelestialBodyVisual,
     GeometryVisual,
+    RelativeView,
     SceneSettings,
     VisualElement,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "CAPTURE_PROTOCOL",
     "CelestialBodyVisual",
     "GeometryVisual",
+    "RelativeView",
     "PROTOCOL_V2",
     "RecordingOnlyPublisher",
     "RenderPublisher",

@@ -1,0 +1,51 @@
+{
+  "camera_id": "teleop/camera/sarm_wrist_cam",
+  "camera_count": 1,
+  "camera_model": "Basler ace 2 a2A1920-51gc",
+  "sensor": "Sony IMX392",
+  "lens": "Kowa LM6HC 6 mm",
+  "model": "ideal_pinhole",
+  "resolution_wh": [
+    1920,
+    1200
+  ],
+  "focal_length_m": 0.006,
+  "pixel_pitch_m": 3.45e-06,
+  "sensor_size_m": [
+    0.006624,
+    0.00414
+  ],
+  "K": [
+    [
+      1739.1304347826087,
+      0.0,
+      959.5
+    ],
+    [
+      0.0,
+      1739.1304347826087,
+      599.5
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "distortion_model": "none",
+  "distortion_coefficients": [],
+  "fov_xy_deg": [
+    57.797395201683145,
+    38.068868709670376
+  ],
+  "capture_rate_hz": 10,
+  "global_shutter": true,
+  "max_exposure_ms_requirement": 2.0,
+  "intrinsics_version": "basler-1920x1200-6mm-3p45um-monocular-nominal-v1",
+  "calibration_status": "nominal_simulation_parameters_not_hardware_calibration",
+  "optical_axes": "x_right_y_down_z_forward",
+  "mount": "Existing camera optical center/orientation retained; future arm extrinsics pending",
+  "parameter_source": "User supplied camera/lens selection; f_px=f_m/pixel_pitch_m",
+  "capture_note": "10 Hz and exposure are requirements; this image runner does not configure a camera device or UE",
+  "entrypoint": "run_pnp.py explicitly passes this K to FiducialEstimator.estimate(image,K)"
+}

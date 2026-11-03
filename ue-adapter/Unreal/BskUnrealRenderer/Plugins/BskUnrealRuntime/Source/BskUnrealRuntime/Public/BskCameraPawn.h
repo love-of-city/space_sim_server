@@ -6,6 +6,7 @@
 #include "BskCameraPawn.generated.h"
 
 class UCameraComponent;
+class ABskSceneController;
 class IPixelStreaming2InputHandler;
 
 UENUM(BlueprintType)
@@ -32,6 +33,7 @@ public:
     bool IsFreeCameraActive() const { return bFreeCameraActive; }
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
+    void ApplyPreviewOrbit(double Yaw, double Pitch);
     void SetMainViewTransform(const FVector& Location, const FRotator& Rotation);
 
     UFUNCTION(BlueprintCallable, Category="BSK Renderer|Camera")
@@ -42,6 +44,9 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="BSK Renderer|Camera")
     void SetOrbitDistanceMeters(double DistanceMeters);
+    void ConfigureRelativeView(bool bEnabled);
+    bool SetRelativeViewMode(const FString& Mode);
+    FString GetRelativeViewMode() const { return bFreeCameraActive ? TEXT("free") : RelativeViewMode; }
 
 private:
     void RegisterRemoteCameraInput();
@@ -91,6 +96,9 @@ private:
     FVector MainViewLocation = FVector::ZeroVector;
     FRotator MainViewRotation = FRotator::ZeroRotator;
     TWeakPtr<IPixelStreaming2InputHandler> RemoteInputHandler;
+    TWeakObjectPtr<ABskSceneController> RelativeScene;
+    FString RelativeViewMode;
+    double FixedOverviewDistanceCentimeters = 0.0;
     FBskCameraInput RemoteCameraInput;
     FQuat FreeCameraOrientation = FQuat::Identity;
     double LastRemoteCameraInputSeconds = 0.0;

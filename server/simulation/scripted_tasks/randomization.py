@@ -175,35 +175,36 @@ def _prepare_color_randomization(scene, cfg):
     return cfg["color_randomization"]
 
 
-def prepare_episode(scene):
-    """Called once per attempted episode, before the recorder snapshots metadata."""
+def prepare_episode(scene, *, collection_features=True):
+    """Prepare stochastic streams; scene benchmarks can omit collection appearance."""
     options = options_for_scene(scene)
     seed = int(scene.get("seed", 0))
     realized = {}
     cfg = scene.setdefault("collection_config", {})
     previous = cfg.get("realized_randomization", {})
 
-    # Every attempted episode carries one complete seven-colour assignment,
-    # even when its task does not need a colour prompt. The two groups use
-    # independent named streams and are preserved on recorder replay.
-    from simulation.socket_colors import normalize_color_assignment, sample_color_assignment
-    assignment = (
-        cfg.get("episode_color_assignment")
-        or cfg.get("color_randomization")
-        or previous.get("episode_color_assignment")
-    )
-    if assignment is None:
-        assignment = sample_color_assignment(
-            hole_rng=generator(seed, "hole-colors-v1"),
-            source_rng=generator(seed, "source-colors-v1"),
+    if collection_features:
+        # Every attempted episode carries one complete seven-colour assignment,
+        # even when its task does not need a colour prompt. The two groups use
+        # independent named streams and are preserved on recorder replay.
+        from simulation.socket_colors import normalize_color_assignment, sample_color_assignment
+        assignment = (
+            cfg.get("episode_color_assignment")
+            or cfg.get("color_randomization")
+            or previous.get("episode_color_assignment")
         )
-        assignment["seed"] = seed
-        assignment["stream"] = "socket-colors-v1"
-    else:
-        assignment = normalize_color_assignment(assignment)
-        assignment.setdefault("seed", seed)
-    cfg["episode_color_assignment"] = assignment
-    realized["episode_color_assignment"] = deepcopy(assignment)
+        if assignment is None:
+            assignment = sample_color_assignment(
+                hole_rng=generator(seed, "hole-colors-v1"),
+                source_rng=generator(seed, "source-colors-v1"),
+            )
+            assignment["seed"] = seed
+            assignment["stream"] = "socket-colors-v1"
+        else:
+            assignment = normalize_color_assignment(assignment)
+            assignment.setdefault("seed", seed)
+        cfg["episode_color_assignment"] = assignment
+        realized["episode_color_assignment"] = deepcopy(assignment)
 
     if not options.lighting.enabled and "base_sunlight_intensity_scale" in previous:
         scene.setdefault("environment", {}).setdefault("lighting", {})["sunlight_intensity_scale"] = previous["base_sunlight_intensity_scale"]
@@ -254,11 +255,12 @@ def prepare_episode(scene):
         safety_and_task_feedback="ground_truth",
         action_recording="applied_joint_reference",
     )
-    _prepare_color_randomization(scene, cfg)
+    if collection_features:
+        _prepare_color_randomization(scene, cfg)
     return scene
 
 
-def write_model_variant(source, output, scene):
+def write_model_variant(source, output, scene, *, collection_features=True):
     """Scale one standalone MJCF consistently for BOTH MJScene and local MuJoCo.
 
     Uniform mass scaling also scales inertia, preserving centers of mass. Original
@@ -266,7 +268,10 @@ def write_model_variant(source, output, scene):
     """
     source = Path(source).resolve()
     dynamics_enabled = options_for_scene(scene).dynamics.enabled
-    task = scene.get('scripted_task_name', scene.get('collection_config', {}).get('task'))
+    if not collection_features and not dynamics_enabled:
+        return source
+    task = (scene.get("scripted_task_name", scene.get("collection_config", {}).get("task"))
+            if collection_features else None)
     from .threaded_tasks import THREADED_TASKS, LOCKING_ROD_TASKS
     threaded_task = task in THREADED_TASKS
     directional_drawer = task in {'drawer_open', 'drawer_close'}
@@ -274,8 +279,9 @@ def write_model_variant(source, output, scene):
     # Keep the canonical episode assignment separate from the prompt/palette
     # metadata wrapper. The MJCF applier records the assignment schema, while
     # the wrapper carries the collection-level schema and instruction text.
-    color_assignment = config.get("episode_color_assignment") or config.get("color_randomization")
-    color_config = config.get("color_randomization") or color_assignment
+    color_assignment = ((config.get("episode_color_assignment") or config.get("color_randomization"))
+                        if collection_features else None)
+    color_config = (config.get("color_randomization") or color_assignment) if collection_features else None
     visual_color = False
     probe_tree = None
     if color_config is not None:
@@ -308,7 +314,7 @@ def write_model_variant(source, output, scene):
     # object is the task target. Use this same preparation for preflight and
     # recording; a source layout predating the liner is never run unchanged.
     from simulation.model_preparation.bolt_storage_thread import ensure_bolt_storage_thread
-    storage_thread = ensure_bolt_storage_thread(root)
+    storage_thread = ensure_bolt_storage_thread(root) if collection_features else None
     physics_upgraded = storage_thread is not None and storage_thread['status'] == 'installed'
     if storage_thread is not None:
         config['model_physics'] = dict(

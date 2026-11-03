@@ -32,6 +32,7 @@ if ($LASTEXITCODE -ne 0) { throw 'SARM blanket source generation failed.' }
 $log = Join-Path $saved 'sarm_mli_build.log'
 # StaticMeshEditorSubsystem requires editor mode, not PythonScriptCommandlet.
 $args = @(('"' + $ProjectFile + '"'), ('-ExecutePythonScript="' + $script + '"'), '-unattended', '-nop4', '-nosplash', '-RenderOffscreen', ('-abslog="' + $log + '"'))
+$args += @('-DDC=InstalledDerivedDataBackendGraph', ('-LocalDataCachePath="' + $BskDerivedDataCachePath + '"'))
 $p = Start-Process -FilePath (Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe') -ArgumentList $args -WindowStyle Hidden -PassThru
 $p.WaitForExit()
 if ($p.ExitCode -ne 0) { throw "SARM blanket asset build failed ($($p.ExitCode)); see $log" }

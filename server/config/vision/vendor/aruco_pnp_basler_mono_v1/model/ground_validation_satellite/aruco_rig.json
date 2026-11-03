@@ -1,0 +1,142 @@
+{
+  "schema": "space-arm-fiducials/1",
+  "dictionary": "DICT_4X4_50",
+  "body": "capture_target",
+  "face": "+Y",
+  "units": "metres",
+  "size_definition": "outer black border; white margin is one extra module per edge",
+  "view_joint_deg": [
+    -45.30575007,
+    -5.38843463,
+    126.66068994,
+    27.30403314,
+    25.16743958,
+    41.8405306
+  ],
+  "markers": [
+    {
+      "id": 0,
+      "size_m": 0.05,
+      "center_m": [
+        0.1005,
+        0.0578,
+        0.18207870013
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "010110",
+        "001010",
+        "000110",
+        "000100",
+        "000000"
+      ]
+    },
+    {
+      "id": 1,
+      "size_m": 0.05,
+      "center_m": [
+        0.2505,
+        0.0578,
+        0.18207870013
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "000000",
+        "011110",
+        "010010",
+        "010100",
+        "000000"
+      ]
+    },
+    {
+      "id": 2,
+      "size_m": 0.05,
+      "center_m": [
+        0.1005,
+        0.0578,
+        -0.09792129987
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "000110",
+        "000110",
+        "000100",
+        "011010",
+        "000000"
+      ]
+    },
+    {
+      "id": 3,
+      "size_m": 0.05,
+      "center_m": [
+        0.2505,
+        0.0578,
+        -0.09792129987
+      ],
+      "right": [
+        -1,
+        0,
+        0
+      ],
+      "down": [
+        0,
+        0,
+        -1
+      ],
+      "bits": [
+        "000000",
+        "010010",
+        "010010",
+        "001000",
+        "001100",
+        "000000"
+      ]
+    }
+  ],
+  "mounting": {
+    "mode": "surface-plate",
+    "layout_version": "wf10-centered-four-points-3mm-plate-v2",
+    "hull_geometry": "target_instance_0006_part_001_color_00",
+    "hull_surface_y_m": 0.05475,
+    "plate_thickness_m": 0.003,
+    "film_thickness_m": 5e-05,
+    "support_posts": false,
+    "mounting_plate": true,
+    "symmetry_reference_target_m": [
+      0.1755,
+      0.073,
+      0.04207870013
+    ],
+    "symmetry_axes": "X/Z in target frame; projected onto the +Y mounting face"
+  }
+}

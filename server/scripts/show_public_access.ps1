@@ -62,10 +62,10 @@ try {
         Add-AccessLabel '此地址为固定公网 IP 入口，使用 Let''s Encrypt IP 证书（约 6 天，自动续期）。证书续期依赖本机 Caddy 持续运行，长时间关机后请重新启动部署。' 275
     } elseif ($isFixed) {
         Add-AccessLabel '此地址为固定公网入口，使用本机 Caddy 自动签发 HTTPS，并已接入本机 TURN。请按所在单位规定处理仿真数据。' 275
-        Add-AccessLabel '网页入口已验证。视频仍建议在用户自己的网络和浏览器中实际验收。关闭此窗口不停止平台；使用 stop_deployment.cmd 停止。' 335
+        Add-AccessLabel '网页入口已验证。视频仍建议在用户自己的网络和浏览器中实际验收。关闭此窗口不停止平台；使用 ./scripts/deployment_launcher.ps1 -Action Stop 停止。' 335
     } else {
         Add-AccessLabel '此网址由第三方临时隧道提供，重启可能变化，无生产可用性保证。HTTPS 在第三方边缘终止；不要上传敏感仿真数据。' 275
-        Add-AccessLabel '网页入口已验证。视频需要另外验证 WebRTC，部分网络需 TURN。关闭此窗口不停止平台；使用 stop_deployment.cmd 停止。' 335
+        Add-AccessLabel '网页入口已验证。视频需要另外验证 WebRTC，部分网络需 TURN。关闭此窗口不停止平台；使用 ./scripts/deployment_launcher.ps1 -Action Stop 停止。' 335
     }
     if ($ValidateOnly) {
         Write-Output 'Encrypted credentials and access-window controls validated; no window, clipboard, or secret output.'
@@ -86,7 +86,7 @@ public static class SpaceSimAccessWindow {
     }
 } catch {
     if ($ValidateOnly) { throw 'Access-window validation failed. No credentials were displayed.' }
-    $null=[Windows.Forms.MessageBox]::Show('无法读取当前公网部署的访问资料。请先运行 start_deployment.cmd，并使用同一 Windows 账号。不会在此输出密钥。','仿真平台')
+    $null=[Windows.Forms.MessageBox]::Show('无法读取当前公网部署的访问资料。请先运行 ./scripts/deployment_launcher.ps1 -Action Start，并使用同一 Windows 账号。不会在此输出密钥。','仿真平台')
     exit 1
 }
 finally {

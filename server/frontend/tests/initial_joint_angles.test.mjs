@@ -1,3 +1,4 @@
+import { installSceneSelection } from "./helpers/scene_context.mjs";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -85,6 +86,7 @@ test("actual scene-start handler submits custom degrees, supports opt-out and bl
     apiRequest: async (path, options) => {requests.push(JSON.parse(options.body)); return {ok: true};},
     readApiResponse: async () => ({instance_id: "test", seed: 1}),
   });
+  installSceneSelection(ctx, appSource);
   vm.runInContext(startSource, ctx);
   await ctx.startScene();
   assert.equal(requests.at(-1).initial_arm_joint_position_deg, null);

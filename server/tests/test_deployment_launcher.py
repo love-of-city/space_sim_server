@@ -1,4 +1,4 @@
-"""Desktop launcher regression tests in throwaway repositories.
+"""Deployment command regression tests in throwaway repositories.
 
 The real platform start/stop scripts and the real Caddy download are NEVER called.
 """
@@ -326,14 +326,6 @@ Resolve-LauncherCaddy './nonexistent-custom/caddy.exe' $Root
     assert "NETWORK-MUST-NOT-BE-USED" not in result.stderr
 
 
-def test_desktop_wrappers_are_independent_of_cwd_and_preserve_exit_status():
-    for action in ("Start", "Stop"):
-        text = (ROOT / f"{action.lower()}_deployment.cmd").read_text(encoding="ascii")
-        assert '"%~dp0scripts\\deployment_launcher.ps1"' in text
-        assert f"-Action {action} %*" in text
-        assert '-NoProfile -ExecutionPolicy RemoteSigned' in text
-        assert 'exit /b %RESULT%' in text
-        assert "run_platform.ps1" not in text
 
 @pytest.mark.parametrize("matching", [True, False])
 def test_interactive_secret_confirmation_and_automatic_random_keys(repo, matching):
@@ -410,10 +402,9 @@ function Read-Host { param($Prompt) return $script:answers.Dequeue() }
     assert not (repo / "run").exists()
 
 @pytest.mark.parametrize("action,flags", [("start", "-ValidateOnly"), ("stop", "")])
-def test_actual_cmd_entry_in_throwaway_repo_from_another_directory(repo, action, flags):
-    batch = repo / f"{action}_deployment.cmd"
-    shutil.copyfile(ROOT / batch.name, batch)
-    command = f'"{os.environ["COMSPEC"]}" /d /s /c ""{batch}" {flags}"'
+def test_powershell_entry_in_throwaway_repo_from_another_directory(repo, action, flags):
+    command = [PWSH, "-NoProfile", "-File", str(repo / "scripts/deployment_launcher.ps1"),
+               "-Action", action.capitalize(), "-NonInteractive", *([flags] if flags else [])]
     before = snapshot(repo)
     result = subprocess.run(command, cwd=repo.parent, env=environment(), input="",
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)

@@ -41,6 +41,34 @@ def request(seed: int | None, profile: str = "training-v1") -> SceneInstanceCrea
     return SceneInstanceCreate(seed=seed, randomization_profile=profile, template_id="spacecraft-arm-teleop")
 
 
+def test_dual_capture_scene_starts_without_automatic_grasp(tmp_path: Path) -> None:
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    instance = manager.create_instance(SceneInstanceCreate(
+        seed=26, template_id='sarm-dual-capture26', randomization_profile='none'))
+    assert instance['randomization']['capture_window_trial'] is False
+    assert instance['render_profile']['camera_ids'] == [
+        'teleop/camera/spacecraft_overview', 'teleop/camera/sarm_wrist_cam',
+        'teleop/camera/capture_wrist_cam']
+    assert instance['render_profile']['asset_catalog'] == 'sarm_dual_capture26.catalog.json'
+
+
+def test_dual_capture_defaults_to_supported_direct_start(tmp_path: Path) -> None:
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    template_id = 'sarm-dual-capture26'
+    template = next(item for item in manager.catalog()['templates'] if item['id'] == template_id)
+    assert template['default_randomization_profile'] == ZERO_START_TELEOP_PROFILE
+    assert AUTO_PREPARE_TELEOP_PROFILE in template['unsupported_randomization_profiles']
+    instance = manager.create_instance(SceneInstanceCreate(template_id=template_id, seed=26))
+    assert instance['randomization_profile'] == ZERO_START_TELEOP_PROFILE
+    assert instance['arm_preparation_required'] is False
+    assert instance['randomization']['capture_window_trial'] is False
+    before = set(manager.scene_root.iterdir())
+    with pytest.raises(ValueError, match='SARM.*teleop-zero-prepare-v1'):
+        manager.create_instance(SceneInstanceCreate(
+            template_id=template_id, randomization_profile=AUTO_PREPARE_TELEOP_PROFILE, seed=26))
+    assert set(manager.scene_root.iterdir()) == before
+
+
 def test_scene_randomization_is_reproducible(tmp_path: Path) -> None:
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     first = manager.create_instance(request(12345))

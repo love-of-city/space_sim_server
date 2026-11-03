@@ -4,6 +4,8 @@ param(
     [int]$StreamerPort = 8888,
     [ValidateRange(1, 65535)]
     [int]$PlayerPort = 8080,
+    [ValidateRange(1, 65535)]
+    [int]$SfuPort = 8889,
     [string]$PublicIp = '127.0.0.1',
     [ValidateRange(20, 300)]
     [int]$ReadyTimeout = 120
@@ -42,6 +44,7 @@ if (Test-Path -LiteralPath $bundledNode -PathType Leaf) {
 }
 $arguments = @(
     'dist/index.js', '--streamer_port', "$StreamerPort", '--player_port', "$PlayerPort",
+    '--sfu_port', "$SfuPort",
     '--serve', '--http_root', 'www', '--homepage', 'player.html',
     '--public_ip', $PublicIp, '--console_messages', 'basic', '--log_config'
 )

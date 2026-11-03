@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { once } from "node:events";
 import { PeerDeparture } from "./peer_departure.mjs";
 import { parseAllowedOrigins, isAllowedOrigin } from "./origin.mjs";
+import { validateSessionEndpoint, sessionAccess } from "./session_access.mjs";
 import { URL } from "node:url";
 import WebSocket, { WebSocketServer } from "ws";
 import {
@@ -25,13 +26,14 @@ const streamerHost = process.env.PS_STREAMER_HOST || "127.0.0.1";
 const maxSubscribers = Number(process.env.PS_MAX_SUBSCRIBERS || 4);
 const jwtSecret = process.env.PS_JWT_SECRET || "";
 const allowedOrigins = parseAllowedOrigins(process.env.PS_ALLOWED_ORIGINS);
+const sessionEndpoint = validateSessionEndpoint(process.env.PS_SESSION_AUTH_URL, playerHost, allowedOrigins, jwtSecret);
 const staticIceServers = parseJsonArray(process.env.PS_ICE_SERVERS_JSON);
 const turnUrls = parseJsonArray(process.env.PS_TURN_URLS_JSON).map(String);
 const turnSecret = process.env.PS_TURN_AUTH_SECRET || "";
 const turnPrefix = process.env.PS_TURN_USERNAME_PREFIX || "space-arm";
 const turnTtl = Number(process.env.PS_TURN_CREDENTIAL_TTL_SECONDS || 86400);
 
-if (!jwtSecret) throw new Error("PS_JWT_SECRET is required for secure signalling");
+if (!jwtSecret && !sessionEndpoint) throw new Error("PS_JWT_SECRET or loopback session authentication is required for secure signalling");
 Logger.InitLogging(LogLevel.Info, false);
 
 function parseJsonArray(raw) {
@@ -244,13 +246,20 @@ streamerServer.on("connection", (ws, request) => {
 const playerServer = new WebSocketServer({
   host: playerHost, port: playerPort, backlog: 64,
   // Reject cross-origin browser upgrades before establishing a player session.
-  verifyClient: (info, done) => done(isAllowedOrigin(info.origin, allowedOrigins), 403, "Origin not allowed"),
+  verifyClient: (info, done) => {
+    if (!isAllowedOrigin(info.origin, allowedOrigins)) return done(false, 403, "Origin not allowed");
+    if (!sessionEndpoint) return done(true);
+    sessionAccess(sessionEndpoint, info.req.headers.cookie).then(access => {
+      info.req.sessionAccess = access;
+      done(true);
+    }).catch(() => done(false, 401, "Unauthorized"));
+  },
 });
 playerServer.on("connection", (ws, request) => {
   try {
     const requestUrl = new URL(request.url || "/", "http://localhost");
     const token = requestUrl.searchParams.get("token") || request.headers.authorization?.replace(/^Bearer\s+/i, "");
-    const access = verifyAccessToken(token);
+    const access = sessionEndpoint ? request.sessionAccess : verifyAccessToken(token);
     const player = new AuthorizedPlayerConnection(ws, access, request.socket.remoteAddress);
     playerRegistry.add(player);
     player.transport.on("close", () => playerRegistry.remove(player));

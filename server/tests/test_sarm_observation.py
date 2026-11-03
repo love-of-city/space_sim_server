@@ -86,6 +86,7 @@ def test_schema_and_backend_agree_on_sarm_shapes_and_fields():
             assert properties[key].get(constraint) == source['properties'][key].get(constraint)
     assert schema['$defs']['ReactionWheelObservation'] == source['$defs']['ReactionWheelObservation']
     assert schema['$defs']['WrenchObservation'] == source['$defs']['WrenchObservation']
+    assert schema['$defs']['GyroObservation'] == source['$defs']['GyroObservation']
     assert len(schema['$defs']['observation']['allOf'][2]['oneOf']) == 2
 
 
@@ -105,6 +106,8 @@ def test_real_hub_accepts_repeated_sarm_frames_and_records_wheels(tmp_path):
             revision = 0
             for step in range(1, 4):
                 payload = observation()
+                from simulation.gyroscope import Gyroscope
+                payload['service_gyro'] = Gyroscope(seed=7).sample(0, [.01, -.02, .03])
                 payload['step_id'] = payload['render_frame_id'] = str(step)
                 await write_async(writer, payload)
                 revision, received = await asyncio.wait_for(hub.wait_for_observation(revision), 2)
@@ -115,6 +118,7 @@ def test_real_hub_accepts_repeated_sarm_frames_and_records_wheels(tmp_path):
             assert closed['step_count'] == 3
             rows = [json.loads(line) for line in (tmp_path/episode['episode_id']/'steps.jsonl').read_text().splitlines()]
             assert rows[-1]['observation']['reaction_wheels']['speed_rad_s'] == [1,2,3]
+            assert rows[-1]['observation']['service_gyro'] == payload['service_gyro']
             assert rows[-1]['observation']['gripper_position_m'] == [.01,.01]
             assert rows[-1]['observation']['arm_joint_limits_rad'][5] == [-6.2832,6.2832]
         finally:

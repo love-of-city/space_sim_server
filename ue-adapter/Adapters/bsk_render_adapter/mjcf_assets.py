@@ -213,8 +213,13 @@ def _load_expanded(document: Path, stack: tuple[Path, ...] = ()) -> ET.Element:
     return root
 
 
-def parse_mjcf_geometry_metadata(mjcf_path: str | Path) -> list[MjcfGeometryMetadata]:
-    """Return body geometry metadata in MuJoCo's body/geom traversal order."""
+def parse_mjcf_geometry_metadata(mjcf_path: str | Path, *, compile_mesh_poses: bool = True) -> list[MjcfGeometryMetadata]:
+    """Return body geometry metadata in MuJoCo's body/geom traversal order.
+
+    Asset-only tools can skip pose compilation: mesh/material source discovery
+    does not require a physics runtime or the model's custom dynamics plugins.
+    Runtime consumers retain the existing compiler recenter compensation.
+    """
 
     root = _load_expanded(Path(mjcf_path))
     meshes: dict[str, tuple[str, tuple[float, float, float]]] = {}
@@ -300,7 +305,7 @@ def parse_mjcf_geometry_metadata(mjcf_path: str | Path) -> list[MjcfGeometryMeta
     for worldbody in root.findall("./worldbody"):
         for body in worldbody.findall("body"):
             walk_container(body, body.get("name", ""))
-    compiled_poses = _compiled_source_mesh_poses(Path(mjcf_path))
+    compiled_poses = _compiled_source_mesh_poses(Path(mjcf_path)) if compile_mesh_poses else []
     if len(compiled_poses) == len(output):
         output = [
             replace(item, position_body_m=compiled_poses[index][0], orientation_body_from_geometry_wxyz=compiled_poses[index][1])

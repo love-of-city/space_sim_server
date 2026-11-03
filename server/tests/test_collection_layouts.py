@@ -455,3 +455,18 @@ def test_parallel_workers_receive_same_pool_with_disjoint_attempt_seeds(layout_p
     snapshot = args.output / "layout-pool.json"
     assert all(cmd[cmd.index("--layout-pool")+1] == str(snapshot) for cmd in commands)
     assert LayoutPool(snapshot).document == LayoutPool(layout_pool).document
+
+
+def test_scene_expert_clearance_cannot_be_admitted_to_collection_pool(layout_pool):
+    from space_arm_platform.collection_layouts import validate_entry
+    from simulation.independent_task_box_layout import SCENE_OPERATION_CLEARANCE_SCHEMA
+
+    document = json.loads(layout_pool.read_text())
+    entry = document["layouts"][0]
+    manifest = Path(entry["model"]).with_suffix(".layout.json")
+    record = json.loads(manifest.read_text())
+    record["operational_clearance"]["schema"] = SCENE_OPERATION_CLEARANCE_SCHEMA
+    manifest.write_text(json.dumps(record))
+    entry["manifest_sha256"] = digest(manifest)
+    with pytest.raises(ValueError, match="current operational clearance"):
+        validate_entry(entry)

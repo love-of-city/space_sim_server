@@ -72,3 +72,31 @@ def test_override_is_explicit_and_incompatible_backends_fail(tmp_path):
             resolve_orbital_physics(old_scene, override=path, **kwargs)
     with pytest.raises(ValueError, match="explicit density"):
         resolve_orbital_physics(old_scene, require_drag=True)
+
+
+@pytest.mark.parametrize("settings", [None, {"earth_gravity": "j2", "j2_coefficient": 0.00108263,
+                                          "coefficient_source": "explicit test coefficient"}])
+def test_handoff_preserves_gravity_through_scene_creation_and_resolution(tmp_path, settings):
+    from space_arm_platform.rendezvous_config import FlightOptions
+    from simulation.orbital_configuration import resolve_orbital_physics
+
+    options = FlightOptions(orbital_physics=settings)
+    handoff = {"accepted": True, "mission_options": options.to_dict(),
+               "ephemeris_epoch_utc": "2026 October 19 00:00:00.000000", "state": {"sim_time_s": 5120.0}}
+    manager = SceneRuntimeManager(None, project_root=tmp_path)
+    instance = manager.create_instance(SceneInstanceCreate(seed=123, randomization_profile="none"), handoff=handoff)
+    assert instance["environment"]["physics"] == options.physics.model_dump(mode="json")
+    assert resolve_orbital_physics(instance) == options.physics
+    opposite = OrbitalPhysics(earth_gravity="j2" if options.physics.earth_gravity == "point_mass" else "point_mass")
+    with pytest.raises(ValueError, match="preserve"):
+        manager.create_instance(SceneInstanceCreate(seed=123, orbital_physics=opposite), handoff=handoff)
+    path = tmp_path / "override.json"
+    path.write_text(opposite.model_dump_json(), encoding="utf-8")
+    with pytest.raises(ValueError, match="preserve"):
+        resolve_orbital_physics(instance, override=path)
+
+
+def test_flight_cannot_install_two_drag_models():
+    from space_arm_platform.rendezvous_config import FlightOptions
+    with pytest.raises(ValueError, match="duplicate"):
+        FlightOptions(orbital_physics=OrbitalPhysics(drag=drag_parameters()).model_dump())

@@ -1,4 +1,6 @@
 #include "BskSceneController.h"
+#include "IPixelStreaming2Streamer.h"
+#include "IPixelStreaming2Module.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "BskPreviewCadence.h"
 #include "BskUnrealRuntime.h"
@@ -102,6 +104,12 @@ void ABskSceneController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ABskSceneController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (IPixelStreaming2Module::IsAvailable() && IPixelStreaming2Module::Get().IsReady())
+    {
+        auto& Module = IPixelStreaming2Module::Get();
+        RegisterWorkLightInput(Module.FindStreamer(Module.GetDefaultStreamerID()));
+        for (const auto& Pair : PixelStreamingCameraStreamers) RegisterWorkLightInput(Pair.Value);
+    }
     // Drain after STOP too: accepted strict jobs retain their original episode.
     PollCaptureJobs();
     PollCaptureDiskResults();
@@ -161,7 +169,7 @@ void ABskSceneController::Tick(float DeltaSeconds)
             {
                 // Dataset products are rendered from the exact received frame before
                 // presentation interpolation/extrapolation is allowed to touch it.
-                const bool bCaptureActive = (!Latest.bCaptureOnDemand || !Latest.CaptureEpisodeId.IsEmpty())
+                const bool bCaptureActive = (Latest.bVisionCaptureRequested || !Latest.bCaptureOnDemand || !Latest.CaptureEpisodeId.IsEmpty())
                     && (!CaptureOutputDirectory.IsEmpty() || CaptureNetworkSender.IsValid());
                 const double PreviewRate = bCaptureActive && RequestedPixelStreamingCameraRateHertz > 30.0
                     ? 5.0 : RequestedPixelStreamingCameraRateHertz;
@@ -172,39 +180,37 @@ void ABskSceneController::Tick(float DeltaSeconds)
                         PreviewRate, bCaptureActive ? TEXT("on") : TEXT("off"), *Latest.CaptureEpisodeId);
                 }
                 UpdateAuthoritativeDataProductCaptures(Latest);
-                if (TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) || !bHasTargetFrame)
+                if (!PresentationClock.Observe(static_cast<double>(Latest.SimulationTimeNanoseconds) * 1.e-9, NowSeconds))
                 {
-                    PreviousFrame = Latest;
-                    TargetFrame = Latest;
-                    bHasTargetFrame = true;
+                    PresentationFrames.Reset();
+                }
+                if (TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) || PresentationFrames.IsEmpty())
+                {
                     ApplyFrame(Latest);
                 }
-                else
-                {
-                    PreviousFrame = TargetFrame;
-                    TargetFrame = MoveTemp(Latest);
-                    BlendElapsedSeconds = 0.0;
-                    if (LastFrameArrivalSeconds > 0.0)
-                    {
-                        BlendDurationSeconds = FMath::Clamp(NowSeconds - LastFrameArrivalSeconds, 1.0 / 240.0, InterpolationDelaySeconds);
-                    }
-                }
-                LastFrameArrivalSeconds = NowSeconds;
+                PresentationFrames.Add(MoveTemp(Latest));
+                if (PresentationFrames.Num() > 64) PresentationFrames.RemoveAt(0, PresentationFrames.Num() - 64, EAllowShrinking::No);
             }
         }
-        if (bHasTargetFrame && !TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase) && PreviousFrame.FrameId != TargetFrame.FrameId)
+        if (PresentationFrames.Num() >= 2 && !TimeMode.Equals(TEXT("latest"), ESearchCase::IgnoreCase))
         {
-            BlendElapsedSeconds += DeltaSeconds;
-            const double BlendDuration = FMath::Max(BlendDurationSeconds, UE_DOUBLE_SMALL_NUMBER);
-            const double Alpha = BlendElapsedSeconds / BlendDuration;
-            if (Alpha <= 1.0)
+            const double Cursor = PresentationClock.Advance(DeltaSeconds, FPlatformTime::Seconds(),
+                InterpolationDelaySeconds, MaxExtrapolationSeconds);
+            while (PresentationFrames.Num() > 2 && static_cast<double>(PresentationFrames[1].SimulationTimeNanoseconds) * 1.e-9 <= Cursor)
+                PresentationFrames.RemoveAt(0, 1, EAllowShrinking::No);
+            const FBskRenderFrame& From = PresentationFrames[0];
+            const FBskRenderFrame& To = PresentationFrames[1];
+            const double FromSeconds = static_cast<double>(From.SimulationTimeNanoseconds) * 1.e-9;
+            const double ToSeconds = static_cast<double>(To.SimulationTimeNanoseconds) * 1.e-9;
+            if (Cursor <= ToSeconds)
             {
-                ApplyFrame(InterpolateFrame(PreviousFrame, TargetFrame, Alpha));
+                const double Alpha = FMath::Clamp((Cursor - FromSeconds) / FMath::Max(ToSeconds - FromSeconds, 1.e-9), 0.0, 1.0);
+                ApplyFrame(InterpolateFrame(From, To, Alpha));
             }
             else
             {
-                const double ExtrapolationSeconds = FMath::Min(BlendElapsedSeconds - BlendDuration, MaxExtrapolationSeconds);
-                ApplyFrame(ExtrapolateFrame(PreviousFrame, TargetFrame, ExtrapolationSeconds));
+                const double Rate = FMath::Max(PresentationClock.GetRate(), 1.e-9);
+                ApplyFrame(ExtrapolateFrame(From, To, (Cursor - ToSeconds) / Rate, Rate));
             }
         }
     }
@@ -578,15 +584,14 @@ bool ABskSceneController::LoadConfiguration()
 void ABskSceneController::ResetPresentationState()
 {
     check(IsInGameThread());
+    VisionCaptureFramesRequested = 0;
+    VisionCapturePacketsQueued = 0;
+    VisionCaptureErrors = 0;
     LastFrameId = -1;
-    bHasTargetFrame = false;
     bHasPresentationFrame = false;
-    PreviousFrame = FBskRenderFrame{};
-    TargetFrame = FBskRenderFrame{};
     PresentationFrame = FBskRenderFrame{};
-    LastFrameArrivalSeconds = 0.0;
-    BlendElapsedSeconds = 0.0;
-    BlendDurationSeconds = 1.0 / 30.0;
+    PresentationClock.Reset();
+    PresentationFrames.Reset();
     // Simulation time goes back to zero: old deadlines would stall capture
     // until the new session caught up with the previous one.
     CameraNextDataCaptureSimulationNanoseconds.Reset();
@@ -810,11 +815,12 @@ FBskRenderFrame ABskSceneController::InterpolateFrame(const FBskRenderFrame& Fro
 FBskRenderFrame ABskSceneController::ExtrapolateFrame(
     const FBskRenderFrame& From,
     const FBskRenderFrame& To,
-    double SecondsBeyondTarget) const
+    double SecondsBeyondTarget,
+    double SimulationRate) const
 {
     FBskRenderFrame Result = To;
     const double SourceDeltaSeconds = static_cast<double>(To.SimulationTimeNanoseconds - From.SimulationTimeNanoseconds) * 1.0e-9;
-    const double ExtraSeconds = FMath::Clamp(SecondsBeyondTarget, 0.0, MaxExtrapolationSeconds);
+    const double ExtraSeconds = FMath::Clamp(SecondsBeyondTarget, 0.0, MaxExtrapolationSeconds) * FMath::Max(0.0, SimulationRate);
     if (SourceDeltaSeconds <= UE_DOUBLE_SMALL_NUMBER || ExtraSeconds <= 0.0) return Result;
     Result.SimulationTimeNanoseconds += FMath::RoundToInt64(ExtraSeconds * 1.0e9);
     Result.OriginInertialMeters += (To.OriginInertialMeters - From.OriginInertialMeters) * (ExtraSeconds / SourceDeltaSeconds);
@@ -864,4 +870,29 @@ FBskRenderFrame ABskSceneController::ExtrapolateFrame(
         State.OrientationWxyz = ExtrapolateOrientation((*Prior)->OrientationWxyz, State.OrientationWxyz);
     }
     return Result;
+}
+
+
+bool ABskSceneController::GetRelativeViewState(FBskRelativeViewState& Out) const
+{
+    if (!RelativeView.IsConfigured() || !bHasPresentationFrame) return false;
+    const AActor* Primary = BoundActors.FindRef(RelativeView.PrimaryObjectId);
+    const AActor* Secondary = BoundActors.FindRef(RelativeView.SecondaryObjectId);
+    if (!IsValid(Primary) || !IsValid(Secondary)) return false;
+    Out.PrimaryCentimeters = Primary->GetActorTransform().TransformPosition(
+        FVector(Converter.LocalMetersToUnrealCentimeters(RelativeView.PrimaryCenterBodyMeters)));
+    Out.SecondaryCentimeters = Secondary->GetActorTransform().TransformPosition(
+        FVector(Converter.LocalMetersToUnrealCentimeters(RelativeView.SecondaryCenterBodyMeters)));
+    Out.PrimaryLabel = RelativeView.PrimaryLabel;
+    Out.SecondaryLabel = RelativeView.SecondaryLabel;
+    Out.DistanceMeters = FVector::Distance(Out.PrimaryCentimeters, Out.SecondaryCentimeters) / Converter.GetCentimetersPerMeter();
+    Out.SimulationSeconds = static_cast<double>(PresentationFrame.SimulationTimeNanoseconds) * 1e-9;
+    const auto LocalMeters = [this](const FVector& Position)
+    {
+        const double YSign = Converter.MirrorsLocalY() ? -1.0 : 1.0;
+        return FVector3d(Position.X, Position.Y * YSign, Position.Z) / Converter.GetCentimetersPerMeter();
+    };
+    Out.PrimarySunlight = SolarVisibilityAt(LocalMeters(Out.PrimaryCentimeters));
+    Out.SecondarySunlight = SolarVisibilityAt(LocalMeters(Out.SecondaryCentimeters));
+    return true;
 }

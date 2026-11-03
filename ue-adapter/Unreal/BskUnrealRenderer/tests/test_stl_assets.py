@@ -131,5 +131,27 @@ class StlAssetTests(unittest.TestCase):
             self.assertEqual(import_settings["ImportGroups"][0]["Filenames"][0], entry["import_source"])
 
 
+def test_catalog_generation_does_not_require_custom_dynamics_plugins(tmp_path, monkeypatch):
+    import runpy
+    from bsk_render_adapter import mjcf_assets
+    source = tmp_path / "part.stl"
+    write_binary_stl(source)
+    model = tmp_path / "model.xml"
+    model.write_text('<mujoco><extension><plugin plugin="application.custom.dynamics"/></extension>'
+                     '<asset><mesh name="part" file="part.stl"/></asset>'
+                     '<worldbody><body name="satellite"><geom type="mesh" mesh="part"/></body></worldbody></mujoco>', encoding="utf-8")
+    def unavailable_compiler(_):
+        raise AssertionError("Asset discovery must not compile a dynamics model")
+    monkeypatch.setattr(mjcf_assets, "_compiled_source_mesh_poses", unavailable_compiler)
+    generator = Path(__file__).resolve().parents[1] / "scripts/generate_mjcf_asset_catalog.py"
+    catalog = tmp_path / "catalog.json"
+    monkeypatch.setattr(sys, "argv", [str(generator), "--mjcf", str(model), "--destination", "/Game/BSK/Test/Plugin",
+                                      "--catalog", str(catalog), "--import-settings", str(tmp_path / "import.json")])
+    runpy.run_path(str(generator), run_name="__main__")
+    entry = json.loads(catalog.read_text(encoding="utf-8"))["assets"][str(source.resolve())]
+    assert entry["asset_path"] == "/Game/BSK/Test/Plugin/part.part"
+    assert entry["stl"]["triangle_count"] == 4
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,24 @@ from simulation.independent_task_box_layout import (
 from simulation.task_box_layout import validated_capture_layout
 
 
+def test_native_candidate_contract_keeps_physical_checks_and_cannot_enter_capture():
+    from simulation.independent_task_box_layout import NATIVE_CANDIDATE_SCHEMA, validate_layout_record
+    footprints={name:[[.01,.01],[.02,.02]] for name in MODULES}
+    offsets,_=sample_placements(footprints,20261029)
+    anchors={name:[.015,.015,.005] for name in MODULES}
+    record=dict(schema=NATIVE_CANDIDATE_SCHEMA,initial_states_randomized=False,
+        orientations_randomized=False,offsets_body_xy_m=offsets,
+        original_footprints_body_xy_m=footprints,fixed_obstacles_body_xy_m=[],
+        deck_edge_margin_m=.005,minimum_module_gap_m=.008,
+        modules={name:dict(original_anchor_body_m=anchors[name]) for name in MODULES},
+        feasibility=dict(method='native-3d-trajectory',status='pending'))
+    with pytest.raises(ValueError,match='pending native'):validate_layout_record(record)
+    validate_layout_record(record,allow_native_candidate=True)
+    broken=copy.deepcopy(record)
+    broken['offsets_body_xy_m']['guide_pickup']=offsets['aviation_pickup']
+    with pytest.raises(ValueError):validate_layout_record(broken,allow_native_candidate=True)
+
+
 @pytest.fixture
 def deck():
     # Conservative sizes of the delivered split plates and swept mechanisms.
@@ -203,11 +221,14 @@ def operation_case():
     return footprints, anchors, offsets
 
 
-@pytest.mark.parametrize("operation,nearby", [
-    ("aviation_pickup", [0., .07]),
-    ("aviation_insert_40p5", [.12, 0.]),
+@pytest.mark.parametrize("task_family,operation,nearby", [
+    ("collection", "aviation_pickup", [0., .07]),
+    ("collection", "aviation_insert_40p5", [.12, 0.]),
+    ("scene", "aviation_pickup", [.07, 0.]),
+    ("scene", "aviation_insert_40p5", [0., .14]),
+    ("scene", "aviation_insert_40p5", [0., -.14]),
 ])
-def test_disjoint_bodies_cannot_intrude_into_open_fingers_or_withdrawal(operation_case, operation, nearby):
+def test_disjoint_bodies_cannot_intrude_into_open_fingers_or_withdrawal(operation_case, task_family, operation, nearby):
     footprints, anchors, offsets = operation_case
     offsets[operation] = [0., 0.]
     offsets["bolt_assembly_hole"] = nearby
@@ -215,7 +236,7 @@ def test_disjoint_bodies_cannot_intrude_into_open_fingers_or_withdrawal(operatio
         offsets["aviation_pickup"] = [-1., 0.]
     assert separated(footprints[operation], np.asarray(footprints["bolt_assembly_hole"])+nearby, .008)
     with pytest.raises(ValueError, match="Tool operation clearance conflict"):
-        validate_operational_placements(footprints, offsets, anchors)
+        validate_operational_placements(footprints, offsets, anchors, task_family=task_family)
 
 
 def test_sequential_operation_reservations_may_overlap_without_physical_interference(operation_case):
@@ -227,26 +248,71 @@ def test_sequential_operation_reservations_may_overlap_without_physical_interfer
         validate_operational_placements(footprints, offsets, anchors, obstacles=[[[-.01, .06], [.01, .08]]])
 
 
-def test_rotated_tool_space_follows_yaw_and_keeps_positive_deck_x_withdrawal(operation_case):
+@pytest.mark.parametrize("task_family", ["collection", "scene"])
+def test_rotated_tool_space_follows_family_heading_and_withdrawal(operation_case, task_family):
     _, anchors, _ = operation_case
     yaws = dict.fromkeys(MODULES, 0.)
-    original = operation_footprints(anchors)
+    original = operation_footprints(anchors, task_family=task_family)
     yaws["aviation_insert_40p5"] = np.pi
-    rotated = operation_footprints(anchors, yaws)
+    rotated = operation_footprints(anchors, yaws, task_family=task_family)
     np.testing.assert_allclose(rotated["aviation_insert_40p5"], original["aviation_insert_40p5"], atol=1e-15)
     yaws["guide_pickup"] = np.pi/2
-    rotated = operation_footprints(anchors, yaws)
-    np.testing.assert_allclose(rotated["guide_pickup"], [[-.095, -.04], [.095, .04]], atol=1e-15)
+    rotated = operation_footprints(anchors, yaws, task_family=task_family)
+    expected = [[-.095, -.04], [.095, .04]] if task_family == "collection" else [[-.04, -.095], [.04, .095]]
+    np.testing.assert_allclose(rotated["guide_pickup"], expected, atol=1e-15)
 
 
-def test_operational_sampler_is_reproducible_diverse_and_preserves_global_rng():
+@pytest.mark.parametrize("task_family", ["collection", "scene"])
+def test_operational_sampler_is_reproducible_diverse_and_preserves_global_rng(task_family):
     footprints = {name: [[.01, .01], [.02, .02]] for name in MODULES}
     anchors = {name: [.015, .015, .005] for name in MODULES}
     before = random.getstate()
-    first = sample_placements(footprints, 1, operation_anchors=anchors)
-    assert first == sample_placements(footprints, 1, operation_anchors=anchors)
-    assert first != sample_placements(footprints, 2, operation_anchors=anchors)
-    positions, yaws, _ = sample_pose_placements(footprints, anchors, 1, operational_clearance=True)
+    first = sample_placements(footprints, 1, operation_anchors=anchors, task_family=task_family)
+    assert first == sample_placements(footprints, 1, operation_anchors=anchors, task_family=task_family)
+    assert first != sample_placements(footprints, 2, operation_anchors=anchors, task_family=task_family)
+    positions, yaws, _ = sample_pose_placements(footprints, anchors, 1, operational_clearance=True, task_family=task_family)
     validate_pose_placements(footprints, positions, anchors, yaws)
-    validate_operational_placements(footprints, positions, anchors, yaws)
+    validate_operational_placements(footprints, positions, anchors, yaws, task_family=task_family)
     assert random.getstate() == before
+
+
+@pytest.mark.parametrize("task_family", ["collection", "scene"])
+def test_actual_plug_task_withdrawal_is_inside_reserved_space(operation_case,monkeypatch,task_family):
+    from pathlib import Path
+    from types import SimpleNamespace
+    if task_family == "collection":
+        from simulation.scripted_tasks.plug_insert import PlugInsertTask,PlugSample
+    else:
+        from simulation.scripted_tasks.scene_plug import PlugInsertTask,PlugSample
+    from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
+    task=PlugInsertTask(Path(__file__).resolve().parents[1]/'model/SARM/platform/sarm_20261012.xml')
+    q=np.r_[np.deg2rad(DEFAULT_OPERATING_JOINT_DEG),0.,0.]
+    sample=PlugSample(0.,q,np.zeros(8),np.array([.3695,.33003,.032]),np.diag([1.,-1.,-1.]),
+                      np.zeros(3),np.zeros(3),np.zeros(6),True)
+    task.step(sample)
+    origin=np.array([0.,0.,.2])
+    task.chain=SimpleNamespace(forward=lambda q:(origin.copy(),task.grasp_rotation.copy()),
+                               jacobian=lambda q:np.zeros((6,6)))
+    monkeypatch.setattr(task,'_plan',lambda goal,rotation:setattr(task,'_goal',goal))
+    task._enter('retract',sample)
+    _,anchors,_=operation_case
+    zone=operation_footprints(anchors, task_family=task_family)['cylindrical_insert_40p5']
+    assert np.all(task._goal[:2]>=zone[0]) and np.all(task._goal[:2]<=zone[1])
+
+
+@pytest.mark.parametrize("task_family", ["collection", "scene"])
+def test_reserved_open_space_contains_measured_source_gripper(operation_case, task_family):
+    from pathlib import Path
+    source=Path(__file__).resolve().parents[1]/'model/SARM/platform/sarm_20261012.xml'
+    # MuJoCo 3.7 compiled mesh/passive-joint measurement, all wrist descendants
+    # at opening=1 rad in sarm_ee coordinates. The merged model preserves the
+    # measured ee_base subtree and mesh declarations; its extra storage thread
+    # changes the full-model hash without changing gripper geometry.
+    # Re-measure if the model changes.
+    assert hashlib.sha256(source.read_bytes()).hexdigest()=='45766f3ea2ce267350328153e0b9e18dc038fc254916884333569e4302170f0f'
+    _,anchors,_=operation_case
+    low,high=operation_footprints(anchors, task_family=task_family)['cylindrical_pickup']
+    for x in [-.084991014,.084991014]:
+        for y in [-.034946864,.034946864]:
+            point = np.array([-y,x]) if task_family == "collection" else np.array([x,y])
+            assert np.all(point>=low) and np.all(point<=high)

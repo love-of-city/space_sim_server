@@ -147,7 +147,6 @@ def _library():
     lib.lms_id2name.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     lib.lms_joint.argtypes = [ctypes.c_void_p, ctypes.c_int, _INT64_P]
     lib.lms_body_inertial.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
-    lib.lms_body_geometry_pose.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
     lib.lms_free_joints.argtypes = [ctypes.c_void_p, _INT64_P, ctypes.c_int]
     lib.lms_set_servo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double]
     lib.lms_set_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
@@ -156,11 +155,16 @@ def _library():
                              _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P]
     lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
     lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
-    lib.lms_contacts.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_probe_clearance.argtypes = [ctypes.c_void_p, ctypes.c_double]
+    lib.lms_probe_clearance.restype = ctypes.c_int
+    lib.lms_body_geometry_pose.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
+    lib.lms_body_geometry_pose.restype = ctypes.c_int
+    lib.lms_contacts.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_contact_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_contact_materials.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_contact_geometry.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
+    lib.lms_contact_detail.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
+    lib.lms_body_detail.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
     lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, _DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
     lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
@@ -472,6 +476,19 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._check(self._lib.lms_body_geometry_pose(self._handle, body_id, _pointer(values)), "body geometry pose")
         return values[:3], values[3:].reshape(3, 3)
 
+    def contact_detail(self):
+        count = self._lib.lms_contact_detail(self._handle, None, 0)
+        self._check(count, 'contact detail count')
+        rows = np.empty((count, 23), dtype=np.float64)
+        self._check(self._lib.lms_contact_detail(self._handle, _pointer(rows), count), 'contact detail')
+        return rows
+
+    def body_detail(self, name):
+        bid = self._lib.lms_name2id(self._handle, 1, name.encode())
+        row = np.empty(14, dtype=np.float64)
+        self._check(self._lib.lms_body_detail(self._handle, bid, _pointer(row)), 'body detail')
+        return row
+
     @property
     def state_initialized(self) -> bool:
         """The first update has adopted the scene's final initial conditions."""
@@ -736,6 +753,55 @@ class LocalMujocoStepper(sysModel.SysModel):
                 self._check(self._lib.lms_body_inertial(self._handle, index, _pointer(values)), 'body inertia')
                 return values
         raise ValueError(f'Unknown model body: {name}')
+
+    def initial_assembly_properties(self, model_path: Path, root_names) -> dict:
+        """Read compiled whole-assembly mass/COM at the assigned initial pose.
+
+        No integration, mass edits or published-state writes. Detached free
+        children belong to their own spacecraft. The native scratch state is
+        restored afterwards. Call only before the first physics step.
+        """
+        import xml.etree.ElementTree as ET
+        from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+
+        if self.step_count:
+            raise RuntimeError('assembly initial properties require unstepped physics')
+        if self._qpos_state is None:
+            self._bind_scene()
+        root = ET.parse(model_path).getroot()
+        ids = {self._name(_OBJ_BODY, i): i for i in range(self.nbody)}
+        saved_q, saved_v = np.empty(self.nq), np.empty(self.nv)
+        self._check(self._lib.lms_get_state(self._handle, _pointer(saved_q), _pointer(saved_v)), 'save initial state')
+        q, v = self._scene_state()
+        # Translate to small coordinates before subtracting COMs; axes stay inertial.
+        qa, da = self.free_qpos[0], self.free_dof[0]
+        q, v = self._to_local(q, v, q[qa:qa+3], v[da:da+3])
+        result = {}
+        try:
+            self._check(self._lib.lms_set_state(self._handle, _pointer(q), _pointer(v)), 'initial COM pose')
+            positions, masses = np.zeros((self.nbody, 3)), np.zeros(self.nbody)
+            self._check(self._lib.lms_body_coms(self._handle, _pointer(positions), _pointer(masses)), 'initial COMs')
+            for name in root_names:
+                element = root.find(f"./worldbody/body[@name='{name}']")
+                if element is None or name not in ids or not self.scene.getBody(name).isFree():
+                    raise ValueError(f'assembly root must be a world-level free body: {name}')
+                def attached(body):
+                    if body.get('name') in ids:
+                        yield ids[body.get('name')]
+                    for child in body.findall('body'):
+                        if child.find('freejoint') is None and child.find('joint[@type="free"]') is None:
+                            yield from attached(child)
+                selected = list(attached(element))
+                mass = float(masses[selected].sum())
+                if mass <= 0:
+                    raise ValueError(f'assembly has no positive compiled mass: {name}')
+                centre = np.sum(positions[selected]*masses[selected, None], axis=0)/mass
+                pose = self.body_detail(name)
+                rotation = quaternion_wxyz_to_matrix(pose[3:7])
+                result[name] = dict(mass_kg=mass, com_body_m=(rotation.T@(centre-pose[:3])).tolist())
+        finally:
+            self._check(self._lib.lms_set_state(self._handle, _pointer(saved_q), _pointer(saved_v)), 'restore initial state')
+        return result
 
     def _verify_mass_properties(self) -> None:
         """The publish-only copy must describe the same masses as this model.

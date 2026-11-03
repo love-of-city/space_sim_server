@@ -21,6 +21,13 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT/'backend'))
+from space_arm_platform.unreal_runtime import unreal_editor
+
+
+def unreal_command(unreal_root, project):
+    return [str(unreal_editor(unreal_root)),str(project/'BskUnrealRenderer.uproject'),
+            '-unattended','-nosplash','-nosourcecontrol','-NullRHI','-DDC=InstalledDerivedDataBackendGraph']
 from simulation.independent_task_box_layout import PICKUPS, POSE_SCHEMA, SCHEMA, TARGETS, validate_layout_record
 from simulation.task_box_layout import validated_capture_layout
 
@@ -69,9 +76,7 @@ def prepare(args):
          "--destination", destination, "--catalog", str(catalog), "--import-settings", str(settings),
          "--mesh-cache", str(output/"mesh-cache"), "--normal-mode", "preserve", "--stl-smoothing-angle", "60",
          "--build-scale", "100", "--component-scale", "1"], "generate")
-    editor = args.unreal.resolve()/"Engine/Binaries/Linux/UnrealEditor-Cmd"
-    common = [str(editor), str(project/"BskUnrealRenderer.uproject"), "-unattended", "-nosplash",
-              "-nosourcecontrol", "-NullRHI", "-DDC=InstalledDerivedDataBackendGraph"]
+    common = unreal_command(args.unreal.resolve(),project)
     run([*common, "-run=ImportAssets", "-importsettings="+str(settings), "-dest="+destination,
          "-AllowCommandletRendering"], "import")
     # Explicit acknowledgement: UE sometimes exits 0 after a Python exception.

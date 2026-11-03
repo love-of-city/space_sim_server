@@ -23,6 +23,9 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #define API extern "C" __declspec(dllexport)
 #else
@@ -76,6 +79,7 @@ struct Api {
     int (*name2id)(const mjModel*, int, const char*);
     const char* (*id2name)(const mjModel*, int, int);
     void (*contactForce)(const mjModel*, const mjData*, int, mjtNum*);
+    void (*objectVelocity)(const mjModel*, const mjData*, int, int, mjtNum*, int);
 };
 
 struct AxialFriction {
@@ -590,7 +594,8 @@ API void* lms_create_cached(const RuntimePathChar* runtime_path, const char* xml
               resolve(module, "mj_kinematics", a.kinematics) && resolve(module, "mj_comPos", a.comPos) &&
               resolve(module, "mj_name2id", a.name2id) &&
               resolve(module, "mj_id2name", a.id2name) &&
-              resolve(module, "mj_contactForce", a.contactForce);
+              resolve(module, "mj_contactForce", a.contactForce) &&
+              resolve(module, "mj_objectVelocity", a.objectVelocity);
 #ifndef _WIN32
     dlclose(module);  // Balance NOLOAD's reference; Basilisk retains its own.
 #endif
@@ -865,7 +870,7 @@ API int lms_add_axial_friction(void* handle, int plug, int base, double static_n
         if (s->m->body_jntnum[b] != 1 || s->m->jnt_type[s->m->body_jntadr[b]] != mjJNT_FREE)
             return ERR_ARGUMENT;
     }
-    for (const auto& f : s->friction) if (f.plug == plug) return ERR_ARGUMENT;
+    for (const auto& f : s->friction) if (f.plug == plug && f.base == base) return ERR_ARGUMENT;
     if (!s->friction_trial) s->friction_trial = s->api.makeData(s->m);
     if (!s->friction_trial) return ERR_RUNTIME;
     AxialFriction f{};
@@ -881,6 +886,12 @@ API int lms_set_axial_friction(void* handle, int id, int enabled, const double* 
     double length = std::sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
     if (std::abs(length - 1) > 1e-8) return ERR_ARGUMENT;
     auto& f = s->friction[id];
+    // Donor and recipient channels may coexist, but only one may own a plug.
+    if (enabled) {
+        for (int i = 0; i < static_cast<int>(s->friction.size()); ++i)
+            if (i != id && s->friction[i].plug == f.plug && s->friction[i].enabled)
+                return ERR_ARGUMENT;
+    }
     f.enabled = enabled != 0;
     std::copy(axis, axis+3, f.axis);
     std::copy(seat, seat+3, f.seat);
@@ -1806,4 +1817,29 @@ API int lms_reset_episode(void* handle) {
     for (auto* values : {&s->force_world, &s->torque_body, &s->orbital_force, &s->sensor_sample})
         std::fill(values->begin(), values->end(), 0.);
     return OK;
+}
+
+// Read-only diagnostic samples in the local inertial axes. No forward/step calls.
+API int lms_contact_detail(void* handle, double* out, int capacity) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;
+    for (int i=0; i<s->d->ncon && i<capacity; ++i) {
+        const auto& c=s->d->contact[i]; double* r=out+23*i;
+        r[0]=c.geom[0]; r[1]=c.geom[1]; r[2]=c.dist;
+        for(int k=0;k<3;++k) r[3+k]=c.pos[k];
+        mjtNum force[6]={}; s->api.contactForce(s->m,s->d,i,force);
+        for(int k=0;k<6;++k) r[6+k]=force[k];
+        for(int k=0;k<9;++k) r[12+k]=c.frame[k];
+        r[21]=c.efc_address; r[22]=s->d->time;
+    }
+    return s->d->ncon;
+}
+API int lms_body_detail(void* handle, int body, double* out) {
+    auto* s=static_cast<Stepper*>(handle);
+    if(!s || !out || body<0 || body>=s->m->nbody) return ERR_ARGUMENT;
+    for(int k=0;k<3;++k) out[k]=s->d->xpos[3*body+k];
+    for(int k=0;k<4;++k) out[3+k]=s->d->xquat[4*body+k];
+    mjtNum vel[6]={}; s->api.objectVelocity(s->m,s->d,mjOBJ_BODY,body,vel,0);
+    for(int k=0;k<6;++k) out[7+k]=vel[k];
+    out[13]=s->d->time; return OK;
 }

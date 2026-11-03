@@ -1,4 +1,10 @@
 #include "BskSceneController.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonReader.h"
+#include "Async/Async.h"
+#include "Components/SceneComponent.h"
+#include "Components/SpotLightComponent.h"
+#include "IPixelStreaming2InputHandler.h"
 #include "BskUnrealRuntime.h"
 #include "BskRenderWorldSubsystem.h"
 #include "Scene/BskSceneUtilities.h"
@@ -134,7 +140,7 @@ void ABskSceneController::ConfigurePixelStreamingCamera(AActor* Actor, const FBs
             *Definition.CameraId);
         return;
     }
-    ConfigureFixedRgbExposure(Capture);
+    ConfigureFixedRgbExposure(Capture, &Definition);
     ConfigureRgbRenderTarget(Target);
     Capture->bAlwaysPersistRenderingState = true;
     Capture->TextureTarget = Target;
@@ -251,7 +257,7 @@ void ABskSceneController::UpdatePixelStreamingCameraCaptures()
         if (bVisibleInHud || !HasPixelStreamingCameraViewers(Pair.Key)) continue;
         double& NextSeconds = PixelStreamingCameraNextCaptureSeconds.FindOrAdd(Pair.Key);
         if (!BskPreviewCaptureDue(Now, PixelStreamingCameraRateHertz, NextSeconds)) continue;
-        CaptureRgbCamera(Pair.Key, Pair.Value);
+        CapturePreview(Pair.Key, Pair.Value);
         if (bVideoDiagnostics) ++VideoDiagnosticsCaptures.FindOrAdd(Pair.Key);
     }
 }
@@ -278,4 +284,146 @@ void ABskSceneController::ShutdownPixelStreamingCameras()
     PixelStreamingCameraNextCaptureSeconds.Reset();
     PixelStreamingCameraCaptures.Reset();
     PixelStreamingCameraTargets.Reset();
+}
+
+
+ULightComponent* ABskSceneController::ResolveCameraWorkLight(const FString& StreamerId)
+{
+    if (auto Existing = CameraWorkLights.FindRef(StreamerId).Get()) return Existing;
+    USceneComponent* OpticalComponent = nullptr;
+    if (IPixelStreaming2Module::IsAvailable() && StreamerId == IPixelStreaming2Module::Get().GetDefaultStreamerID())
+    {
+        APlayerController* Player = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+        ABskCameraPawn* Pawn = Player ? Cast<ABskCameraPawn>(Player->GetPawn()) : nullptr;
+        OpticalComponent = Pawn ? Pawn->GetBskCameraComponent() : nullptr;
+    }
+    else
+    {
+        for (const auto& Pair : PixelStreamingCameraCaptures)
+        {
+            if (PixelStreamingIdForCamera(Pair.Key) == StreamerId)
+            {
+                OpticalComponent = Pair.Value;
+                break;
+            }
+        }
+    }
+    if (!OpticalComponent) return nullptr;
+    auto* Light = NewObject<USpotLightComponent>(OpticalComponent->GetOwner());
+    Light->SetupAttachment(OpticalComponent);
+    Light->SetRelativeTransform(FTransform::Identity);
+    Light->SetMobility(EComponentMobility::Movable);
+    // Explicit photometric units: legacy Unitless 1500 is only about 2.4 cd.
+    // Inspection-preview settings, not a calibrated flight lamp specification.
+    const bool bMainViewport = IPixelStreaming2Module::IsAvailable()
+        && StreamerId == IPixelStreaming2Module::Get().GetDefaultStreamerID();
+    Light->SetIntensityUnits(ELightUnits::Candelas);
+    Light->SetIntensity(bMainViewport ? 150000.0f : 1500.0f);
+    Light->SetAttenuationRadius(1000.0f);
+    Light->SetInnerConeAngle(35.0f);
+    Light->SetOuterConeAngle(65.0f);
+    Light->SetCastShadows(false);
+    Light->RegisterComponent();
+    CameraWorkLights.Add(StreamerId, Light);
+    UE_LOG(LogBskUnreal, Display, TEXT("Camera work light mounted streamer=%s parent=%s relative_location=%s relative_rotation=%s"),
+        *StreamerId, *OpticalComponent->GetName(), *Light->GetRelativeLocation().ToString(), *Light->GetRelativeRotation().ToString());
+    return Light;
+}
+
+
+void ABskSceneController::RegisterWorkLightInput(const TSharedPtr<IPixelStreaming2Streamer>& Streamer)
+{
+    const auto Handler = Streamer ? Streamer->GetInputHandler().Pin() : nullptr;
+    if (!Handler || WorkLightInputHandlers.FindRef(Streamer->GetId()).Pin() == Handler) return;
+    const TWeakObjectPtr<ABskSceneController> WeakThis(this);
+    const TWeakPtr<IPixelStreaming2Streamer> WeakStreamer(Streamer);
+    Handler->SetCommandHandler(TEXT("BskWorkLight"),
+        [WeakThis, WeakStreamer](FString SourceId, FString, FString Payload)
+        {
+            if (Payload.Len() > 256) return;
+            const auto Apply = [WeakThis, WeakStreamer, SourceId, Payload]()
+            {
+                auto* Self = WeakThis.Get();
+                const auto Target = WeakStreamer.Pin();
+                if (!Self || !Target) return;
+                TSharedPtr<FJsonObject> Request;
+                if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Payload), Request) || !Request) return;
+                if (Request->HasField(TEXT("enabled")) && !Request->HasTypedField<EJson::Boolean>(TEXT("enabled"))) return;
+                ULightComponent* Light = Self->ResolveCameraWorkLight(Target->GetId());
+                bool bEnabled = false;
+                if (Light && Request->TryGetBoolField(TEXT("enabled"), bEnabled))
+                {
+                    Light->SetVisibility(bEnabled);
+                    UE_LOG(LogBskUnreal, Display, TEXT("Camera work light streamer=%s enabled=%d intensity_cd=%.1f (render only)"), *Target->GetId(), bEnabled, Light->Intensity);
+                }
+                auto Reply = MakeShared<FJsonObject>();
+                Reply->SetStringField(TEXT("type"), TEXT("bsk_work_light"));
+                Reply->SetBoolField(TEXT("supported"), Light != nullptr);
+                Reply->SetBoolField(TEXT("enabled"), Light && Light->IsVisible());
+                FString Json;
+                FJsonSerializer::Serialize(Reply, TJsonWriterFactory<>::Create(&Json));
+                Target->SendPlayerMessage(SourceId, TEXT("Response"), Json);
+            };
+            if (IsInGameThread()) Apply(); else AsyncTask(ENamedThreads::GameThread, Apply);
+        });
+    Handler->SetCommandHandler(TEXT("BskPreviewOrbit"),
+        [WeakThis, WeakStreamer](FString SourceId, FString, FString Payload)
+        {
+            if (Payload.Len() > 256) return;
+            const auto Apply = [WeakThis, WeakStreamer, SourceId, Payload]()
+            {
+                auto* Self = WeakThis.Get();
+                const auto Target = WeakStreamer.Pin();
+                if (!Self || !Target) return;
+                TSharedPtr<FJsonObject> Request;
+                double Yaw = 0, Pitch = 0;
+                if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Payload), Request) || !Request
+                    || !Request->TryGetNumberField(TEXT("yaw"), Yaw) || !Request->TryGetNumberField(TEXT("pitch"), Pitch)
+                    || !FMath::IsFinite(Yaw) || !FMath::IsFinite(Pitch) || FMath::Abs(Yaw)>360 || FMath::Abs(Pitch)>180) return;
+                Self->PreviewOrbitDegrees.Add(Target->GetId(), FVector2D(Yaw, Pitch));
+                if (Target->GetId() == IPixelStreaming2Module::Get().GetDefaultStreamerID())
+                {
+                    APlayerController* Player = Self->GetWorld()->GetFirstPlayerController();
+                    auto* Pawn = Player ? Cast<ABskCameraPawn>(Player->GetPawn()) : nullptr;
+                    if (Pawn) Pawn->ApplyPreviewOrbit(Yaw, Pitch);
+                }
+                auto Reply = MakeShared<FJsonObject>();
+                Reply->SetStringField(TEXT("type"), TEXT("bsk_preview_orbit"));
+                Reply->SetNumberField(TEXT("yaw"), Yaw);
+                Reply->SetNumberField(TEXT("pitch"), Pitch);
+                FString Json;
+                FJsonSerializer::Serialize(Reply, TJsonWriterFactory<>::Create(&Json));
+                Target->SendPlayerMessage(SourceId, TEXT("Response"), Json);
+            };
+            if (IsInGameThread()) Apply(); else AsyncTask(ENamedThreads::GameThread, Apply);
+        });
+    WorkLightInputHandlers.Add(Streamer->GetId(), Handler);
+}
+
+
+void ABskSceneController::CapturePreview(const FString& CameraId, USceneCaptureComponent2D* Capture)
+{
+    if (!Capture) return;
+    AActor* CameraActor = CameraActors.FindRef(CameraId);
+    AActor* Bus = BoundActors.FindRef(TEXT("teleop/cubesat_bus"));
+    const FVector2D Offset = PreviewOrbitDegrees.FindRef(PixelStreamingIdForCamera(CameraId));
+    if (!CameraActor || !Bus || Offset.IsNearlyZero())
+    {
+        CaptureRgbCamera(CameraId, Capture);
+        return;
+    }
+    // Only the preview component moves, for this capture call. Restore it before
+    // authoritative dataset rendering; neither the camera actor nor its manifest changes.
+    const FTransform Saved = Capture->GetRelativeTransform();
+    const FTransform Base = CameraActor->GetActorTransform();
+    const FBox Bounds = Bus->GetComponentsBoundingBox(true);
+    const FVector Center = CameraId == TEXT("teleop/camera/spacecraft_overview")
+        ? (Bounds.IsValid ? Bounds.GetCenter() : Bus->GetActorLocation())
+        : Base.GetLocation() + Base.GetRotation().GetForwardVector() * 30.0;
+    const FQuat Yaw(Base.GetRotation().GetUpVector(), FMath::DegreesToRadians(Offset.X));
+    const FQuat Pitch(Base.GetRotation().GetRightVector(), FMath::DegreesToRadians(Offset.Y));
+    const FQuat Orbit = Yaw * Pitch;
+    Capture->SetWorldLocationAndRotation(Center + Orbit.RotateVector(Base.GetLocation()-Center), Orbit * Base.GetRotation());
+    CaptureRgbCamera(CameraId, Capture);
+    Capture->SetRelativeTransform(Saved);
 }

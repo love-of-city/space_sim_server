@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 import pytest
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -15,6 +16,61 @@ HELPERS=ROOT/'scripts/scene_process_helpers.ps1'
 
 def invoke(path,*args):
     return subprocess.run([PWSH,'-NoProfile','-File',str(path),*map(str,args)],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=25)
+
+
+def atomic_writer(tmp_path):
+    script=tmp_path/'replace-state.ps1'
+    script.write_text('''
+param($Helpers,$Temporary,$Destination)
+$ErrorActionPreference='Stop'
+. $Helpers
+'READY'
+Move-SceneRuntimeState $Temporary $Destination
+''',encoding='utf-8')
+    temporary=tmp_path/'state.json.tmp'
+    destination=tmp_path/'state.json'
+    temporary.write_text('{"phase":"running"}',encoding='utf-8')
+    destination.write_text('{"phase":"launching"}',encoding='utf-8')
+    return script,temporary,destination
+
+
+def test_state_replacement_retries_real_reader_lock_without_removing_old_json(tmp_path):
+    script,temporary,destination=atomic_writer(tmp_path)
+    process=None
+    try:
+        with destination.open('rb') as reader:
+            process=subprocess.Popen([PWSH,'-NoProfile','-File',str(script),str(HELPERS),str(temporary),str(destination)],
+                                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8')
+            assert process.stdout.readline().strip()=='READY'
+            time.sleep(.1)
+            assert process.poll() is None
+            assert json.loads(reader.read())=={'phase':'launching'}
+            assert json.loads(destination.read_text())=={'phase':'launching'}
+        stdout,stderr=process.communicate(timeout=10)
+        assert process.returncode==0,stdout+stderr
+        assert json.loads(destination.read_text())=={'phase':'running'}
+        assert not temporary.exists()
+    finally:
+        if process and process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+
+
+def test_persistent_reader_lock_fails_without_destroying_either_state(tmp_path):
+    script,temporary,destination=atomic_writer(tmp_path)
+    with destination.open('rb'):
+        result=invoke(script,HELPERS,temporary,destination)
+    assert result.returncode!=0
+    assert json.loads(destination.read_text())=={'phase':'launching'}
+    assert json.loads(temporary.read_text())=={'phase':'running'}
+
+
+def test_atomic_state_initial_creation(tmp_path):
+    script,temporary,destination=atomic_writer(tmp_path)
+    destination.unlink()
+    result=invoke(script,HELPERS,temporary,destination)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert json.loads(destination.read_text())=={'phase':'running'}
 
 @pytest.mark.parametrize('component', ['renderer','simulation','stopped'])
 def test_watches_renderer_and_simulation_and_honors_intentional_stop(tmp_path,component):
@@ -63,7 +119,7 @@ Stop-RecordedProcessTree 1001 20
 ''',encoding='utf-8')
     result=invoke(script,HELPERS)
     assert result.returncode==0,result.stdout+result.stderr
-    assert result.stdout.split()==['STOP-1002','STOP-1001']
+    assert result.stdout.split()==['STOP-1001','STOP-1002']
 
 def test_real_child_exit_is_detected_and_other_child_is_cleaned(tmp_path):
     short=tmp_path/'renderer.py'; short.write_text('import time; time.sleep(0.5); raise SystemExit(3)',encoding='utf-8')
@@ -143,7 +199,7 @@ Stop-RecordedProcessTree 1001 20
     # final JSON line while retaining the warning for real startup diagnostics.
     out=json.loads(result.stdout.strip().splitlines()[-1])
     assert out['completed']
-    assert out['stops'] == {'root':[], 'child':[1001], 'recheck':[1002]}[stage]
+    assert out['stops'] == {'root':[], 'child':[1001], 'recheck':[]}[stage]
 
 
 def test_orphan_cleanup_matches_project_game_mode_and_process_identity(tmp_path):
@@ -183,3 +239,65 @@ def test_readiness_checks_listener_owner_without_consuming_connection():
     assert 'Get-NetTCPConnection -LocalPort $Port -State Listen' in source
     assert '$listenerOwner -ne $rendererPid' in source
     assert 'BeginConnect' not in source
+
+
+def test_cleanup_catches_child_created_while_parent_is_stopping(tmp_path):
+    script = tmp_path / 'late_child.ps1'
+    script.write_text('''
+param($Helpers)
+$ErrorActionPreference='Stop'
+. $Helpers
+$script:stopped=[Collections.Generic.List[int]]::new()
+function Get-Process {param($Id,$ErrorAction)
+    $ticks=if($Id -eq 1001){20L}else{25L}
+    $p=[pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+    $p | Add-Member ScriptMethod WaitForExit {param($Timeout) $true}
+    $p
+}
+function Stop-Process {param($Id,[switch]$Force,$ErrorAction) $script:stopped.Add([int]$Id)}
+function Get-CimInstance {param($ClassName,$Filter,$ErrorAction)
+    if($Filter -eq 'ParentProcessId=1001' -and $script:stopped.Contains(1001)) {
+        [pscustomobject]@{ProcessId=1002}
+    }
+}
+Stop-RecordedProcessTree 1001 20
+@($script:stopped) | ConvertTo-Json -Compress
+''', encoding='utf-8')
+    result = invoke(script, HELPERS)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == [1001, 1002]
+
+
+def test_simulation_orphan_recovery_checks_script_instance_and_pid_identity(tmp_path):
+    script = tmp_path / 'simulation_orphans.ps1'
+    script.write_text(r'''
+param($Helpers,$Project)
+$ErrorActionPreference='Stop'
+. $Helpers
+$entry=Join-Path $Project 'simulation/teleop_grasp_unreal.py'
+$instance=Join-Path $Project 'run/scenes/scene-20261010-120000-abcd1234.json'
+function Get-CimInstance {param($ClassName,$Filter,$ErrorAction)
+    foreach($number in 1..8) {
+        $command=switch($number) {
+            1 {'python "'+$entry+'" --scene-instance "'+$instance+'"'}
+            2 {'python "'+$entry+'.other" --scene-instance "'+$instance+'"'}
+            3 {'python "'+$entry+'" --scene-instance "C:/someone-else/run/scenes/scene-20261010-120000-abcd1234.json"'}
+            4 {'python "'+$entry+'" --output "'+$instance+'"'}
+            5 {'python -m simulation.orbital_rendezvous.run --scene-instance "'+$instance+'"'}
+            8 {'python inspect.py --scenario "'+$entry+'" --scene-instance "'+$instance+'"'}
+            default {'python "'+$entry+'" --scene-instance "'+$instance+'"'}
+        }
+        [pscustomobject]@{ProcessId=$number;CommandLine=$command;CreationDate=[DateTime]::new(20000,[DateTimeKind]::Utc)}
+    }
+}
+function Get-Process {param($Id,$ErrorAction)
+    if($Id -eq 7){return $null}
+    $ticks=if($Id -eq 6){40000L}else{20000L}
+    [pscustomobject]@{StartTime=[DateTime]::new($ticks,[DateTimeKind]::Utc)}
+}
+function Stop-RecordedProcessTree {param($ProcessId,$ExpectedStartTicks) "MATCH-$ProcessId"}
+Stop-ProjectSimulations $Project
+''', encoding='utf-8')
+    result = invoke(script, HELPERS, tmp_path / 'project with spaces')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.split() == ['MATCH-1']

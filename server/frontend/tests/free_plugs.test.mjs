@@ -1,3 +1,4 @@
+import { installSceneSelection } from "./helpers/scene_context.mjs";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -60,6 +61,7 @@ function setup() {
     },
     readApiResponse: async () => ({ instance_id: "s1", seed: 42 }),
   });
+  installSceneSelection(ctx, source);
   vm.runInContext(selectionSource + catalogSource + startSource, ctx);
   return { $, ctx, requests, catalog, configuredProfiles };
 }

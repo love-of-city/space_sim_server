@@ -120,6 +120,9 @@ struct BSKUNREALRUNTIME_API FBskCameraDefinition
     {
         return CameraMode == TEXT("monochrome") || CameraMode == TEXT("monochrome_fisheye");
     }
+    FString CaptureConsumer = TEXT("dataset");
+    double ExposureTimeSeconds = 0.0;
+    double ApertureFNumber = 0.0;
 };
 
 struct BSKUNREALRUNTIME_API FBskUiCommandDefinition
@@ -131,6 +134,29 @@ struct BSKUNREALRUNTIME_API FBskUiCommandDefinition
     bool bRequiresConfirmation = false;
 };
 
+struct BSKUNREALRUNTIME_API FBskRelativeView
+{
+    FString PrimaryObjectId;
+    FString SecondaryObjectId;
+    FString PrimaryLabel = TEXT("Chaser");
+    FString SecondaryLabel = TEXT("Target");
+    FVector3d PrimaryCenterBodyMeters = FVector3d::ZeroVector;
+    FVector3d SecondaryCenterBodyMeters = FVector3d::ZeroVector;
+    bool IsConfigured() const { return !PrimaryObjectId.IsEmpty() && !SecondaryObjectId.IsEmpty(); }
+};
+
+struct BSKUNREALRUNTIME_API FBskRelativeViewState
+{
+    FVector PrimaryCentimeters = FVector::ZeroVector;
+    FVector SecondaryCentimeters = FVector::ZeroVector;
+    FString PrimaryLabel;
+    FString SecondaryLabel;
+    double DistanceMeters = 0.0;
+    double SimulationSeconds = 0.0;
+    double PrimarySunlight = 1.0;
+    double SecondarySunlight = 1.0;
+};
+
 struct BSKUNREALRUNTIME_API FBskSceneManifest
 {
     FString Protocol;
@@ -138,6 +164,7 @@ struct BSKUNREALRUNTIME_API FBskSceneManifest
     int64 Revision = 0;
     FString OriginObjectId;
     FString DefaultCameraTarget;
+    FBskRelativeView RelativeView;
     bool bUseSceneLighting = false;
     bool bHeadlightEnabled = false;
     FVector3d HeadlightDiffuseRgb = FVector3d(0.6, 0.6, 0.6);
@@ -213,6 +240,8 @@ struct BSKUNREALRUNTIME_API FBskRenderFrame
     // Presence distinguishes on-demand peers from legacy always-capture peers.
     bool bCaptureOnDemand = false;
     FString CaptureEpisodeId;
+    bool bVisionCaptureRequested = false;
+    TArray<FString> VisionCaptureCameraIds;
     int64 SimulationTimeNanoseconds = 0;
     int64 WallTimeNanoseconds = 0;
     FVector3d OriginInertialMeters = FVector3d::ZeroVector;

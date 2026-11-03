@@ -291,6 +291,21 @@ def _sampling_mode(scene):
     return mode
 
 
+def _same_saved_calibration(actual, expected):
+    # Saved trigonometric results can differ by a few ULPs across platforms.
+    # Keep the saved values; allow only numerical roundoff when validating them.
+    if isinstance(expected, float):
+        return (isinstance(actual, (int, float)) and not isinstance(actual, bool)
+                and math.isclose(actual, expected, rel_tol=0., abs_tol=1e-14))
+    if isinstance(expected, dict):
+        return (isinstance(actual, dict) and actual.keys() == expected.keys()
+                and all(_same_saved_calibration(actual[key], value) for key, value in expected.items()))
+    if isinstance(expected, list):
+        return (isinstance(actual, list) and len(actual) == len(expected)
+                and all(_same_saved_calibration(a, b) for a, b in zip(actual, expected, strict=True)))
+    return actual == expected
+
+
 def validate_overview_camera(scene):
     _sampling_mode(scene)
     enabled = scene.get("randomize_overview_camera", False)
@@ -310,7 +325,7 @@ def validate_overview_camera(scene):
     if isinstance(record, dict):
         expected = (_sample_continuous_camera(seed) if record.get("schema") == _V5_SCHEMA
                     else sample_overview_camera(seed, schema=record.get("schema")))
-    if not isinstance(record, dict) or record != expected:
+    if not isinstance(record, dict) or not _same_saved_calibration(record, expected):
         raise ValueError("overview_camera does not match the saved seed and versioned sampling")
     return deepcopy(record)
 

@@ -2,6 +2,7 @@
 
 import numpy as np
 from simulation.plug_retention import _cross3
+import xml.etree.ElementTree as ET
 from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 from simulation.scripted_tasks.drawer_lift import DrawerSample
 from simulation.scripted_tasks.plug_insert import PlugSample
@@ -21,11 +22,22 @@ class DrawerState:
         self.buckle = scene.getBody("drawer_buckle").getScalarJoint(
             "drawer_buckle_joint"
         )
+        self.moving_mount = bool(getattr(task, 'model_path', None) and
+            ET.parse(task.model_path).find(
+                './worldbody/body[@name="capture_target"]//body[@name="drawer_base"]') is not None)
 
     def sample(self, time_s, q, v, wrench):
         contacts = None
         if self.body_names:
             contacts = self.stepper.finger_contact_counts(('drawer_base','drawer_buckle'))
+        mount = None
+        if self.moving_mount:
+            base, drawer = [self.stepper.body_detail(n) for n in ('cubesat_bus', 'drawer_base')]
+            rb = quaternion_wxyz_to_matrix(base[3:7])
+            rd = rb.T @ quaternion_wxyz_to_matrix(drawer[3:7])
+            axis_local = self.task.drawer_rotation.T @ self.task.axis
+            origin = rb.T @ (drawer[:3]-base[:3]) - rd @ axis_local * self.stepper.qpos[self.drawer.getQposAdr()]
+            mount = origin, rd
         return DrawerSample(
             time_s,
             q,
@@ -36,7 +48,8 @@ class DrawerState:
             np.r_[wrench["force_n"], wrench["torque_nm"]],
             wrench["valid"],
             tuple(contacts) if contacts is not None else None,
-            native_qpos=self.stepper.qpos.copy(),
+            self.stepper.qpos.copy(),
+            mount,
         )
 
     def metrics(self, sample):
@@ -59,6 +72,13 @@ class PlugState:
         self.base = scene.getBody("cubesat_bus").getFreeJoint()
         self.plug = scene.getBody(task.config.plug_body).getFreeJoint()
         self.body_names = {i: stepper._name(1, i) for i in range(stepper.nbody)}
+        self.sites = {}
+        if hasattr(task, "hole_owner"):
+            from simulation.scene_library.frames import site_attachment
+            root = ET.parse(task.model_path).getroot()
+            for key, name in (("hole", task.config.target_site), ("pickup", task.profile.prefix + "_pickup")):
+                owner, position, rotation = site_attachment(root, name)
+                self.sites[key] = (scene.getBody(owner).getFreeJoint(), position, rotation)
 
     def sample(self, time_s, q, v, wrench):
         qa, va = self.base.getQposAdr(), self.base.getQvelAdr()
@@ -72,6 +92,12 @@ class PlugState:
             rate[va + 3 : va + 6], position
         )
         omega = rotation @ rate[pv + 3 : pv + 6] - rate[va + 3 : va + 6]
+        sites = {}
+        for key, (joint, local_p, local_r) in self.sites.items():
+            address = joint.getQposAdr()
+            owner_r = quaternion_wxyz_to_matrix(state[address+3:address+7])
+            sites[key] = (rb.T @ (state[address:address+3] + owner_r @ local_p - state[qa:qa+3]),
+                          rb.T @ owner_r @ local_r)
         contacts = None
         if getattr(self, "body_names", None):
             contacts = self.stepper.finger_contact_counts((self.task.config.plug_body,))
@@ -87,6 +113,7 @@ class PlugState:
             wrench["valid"],
             tuple(contacts) if contacts is not None else None,
             native_qpos=state.copy(),
+            site_poses=sites,
         )
 
     def metrics(self, sample):

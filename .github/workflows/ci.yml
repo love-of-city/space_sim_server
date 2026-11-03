@@ -2,7 +2,7 @@ name: Basic CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, master, zmh_linux]
   workflow_dispatch:
 permissions:
   contents: read
@@ -42,7 +42,7 @@ jobs:
         if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python -m venv ../.venv-ci
-          ../.venv-ci/Scripts/python -m pip install -e "../ue-adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
+          ../.venv-ci/Scripts/python -m pip install -e "../ue-adapter[test]" -e ".[test,simulation,posture,vision]" "ruff==0.15.7"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Save right after installing so a failing test run still warms the cache.
       - name: Save Python environment
@@ -96,7 +96,6 @@ jobs:
               - 'server/scripts/platform_paths.ps1'
               - 'server/scripts/posture_runtime.ps1'
               - 'server/scripts/native_acceleration_runtime.ps1'
-              - 'server/scripts/prepare_sarm_scene.ps1'
               - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/prepare_mjcf_assets.ps1'
               - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/generate_mjcf_asset_catalog.py'
               - 'server/scripts/ci*'
@@ -105,11 +104,18 @@ jobs:
               - 'server/tools/deployment/check_deployment_auth.py'
               - 'server/tools/deployment/prepare_public_auth.py'
               - 'server/*_deployment.cmd'
-              - 'server/*_deployment.sh'
               - 'server/tests/test_deployment_launcher.py'
               - 'server/tests/test_public_deployment.py'
               - 'server/tests/test_fixed_deployment.py'
               - 'server/tests/test_deployment_scripts.py'
+              - 'server/scripts/start_secure_pixel_streaming.ps1'
+              - 'server/signalling/**'
+              - 'server/backend/space_arm_platform/rendezvous_runtime.py'
+              - 'server/backend/space_arm_platform/near_field_config.py'
+              - 'server/simulation/near_field/**'
+              - 'ue-adapter/Adapters/bsk_render_adapter/near_field.py'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/Plugins/BskUnrealRuntime/Source/**'
+              - 'server/scripts/*scene*.ps1'
               - '.github/**'
               - 'server/pyproject.toml'
               - '.gitattributes'

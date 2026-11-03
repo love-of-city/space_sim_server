@@ -1,7 +1,7 @@
 """Fast fixed-shape rotation checks retain the original acceptance thresholds."""
 import numpy as np
 import pytest
-from bsk_render_adapter.frames import dcm_to_quaternion_wxyz, mrp_to_dcm_b_from_n
+from bsk_render_adapter.frames import FrameConverter, dcm_to_quaternion_wxyz, mrp_to_dcm_b_from_n
 
 
 def legacy_valid(r):
@@ -34,6 +34,34 @@ def test_nonfinite_rotation_rejected(value):
     with pytest.raises(ValueError): dcm_to_quaternion_wxyz(r)
 
 
+def test_direct_mrp_conversion_matches_matrix_path_at_pi_and_shadow_rotations():
+    rng = np.random.default_rng(27182)
+    samples = [np.zeros(3), *np.eye(3), *(-np.eye(3))]
+    samples.extend(rng.normal(size=(1000, 3)) * 10.0 ** rng.uniform(-6, 6, (1000, 1)))
+    converter = FrameConverter()
+    for sigma in samples:
+        expected = dcm_to_quaternion_wxyz(mrp_to_dcm_b_from_n(sigma).T)
+        actual = converter.body_orientation(sigma)
+        np.testing.assert_allclose(actual, expected, atol=2e-14, rtol=0)
+        assert np.linalg.norm(actual) == pytest.approx(1., abs=2e-15)
+
+
+def test_body_orientation_honours_changed_local_axes_without_stale_cache():
+    converter = FrameConverter()
+    sigma = np.array([.2, -.3, .4])
+    converter.body_orientation(sigma)
+    converter.c_l_n[:] = [[0, 1, 0], [-1, 0, 0], [0, 0, 1]]
+    expected = dcm_to_quaternion_wxyz(converter.c_l_n @ mrp_to_dcm_b_from_n(sigma).T)
+    np.testing.assert_array_equal(converter.body_orientation(sigma), expected)
+    converter.c_l_n[0, 0] = 1
+    with pytest.raises(ValueError, match="orthonormal"):
+        converter.body_orientation(sigma)
+
+
+@pytest.mark.parametrize("sigma", [[np.nan, 0, 0], [0, np.inf, 0], [0, 0], [0, 0, 0, 0]])
+def test_direct_mrp_conversion_rejects_invalid_states(sigma):
+    with pytest.raises(ValueError):
+        FrameConverter().body_orientation(sigma)
 def test_batched_bodies_match_per_body_conversion():
     # The render bridge converts every body in one batched pass; it must match
     # the per-body FrameConverter methods, including all quaternion branches.

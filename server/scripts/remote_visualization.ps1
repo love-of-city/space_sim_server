@@ -39,7 +39,7 @@ $mode = switch ($settings.tls_mode) {
 }
 & (Join-Path $PSScriptRoot 'deployment_launcher.ps1') -Action Start -Mode $mode -ConfigPath $ConfigPath -Python $pythonExe -NonInteractive -Restart:$Restart
 if ($settings.require_access_key) {
-    Write-Host 'Use show_remote_access.cmd to copy the protected access link. Open that link on your own computer, not inside Remote Desktop.'
+    Write-Host 'Use ./scripts/remote_visualization.ps1 -Action Show to copy the protected access link. Open that link on your own computer, not inside Remote Desktop.'
 } else {
     Write-Host ('Open ' + $settings.public_url + '/ on your own computer and log in. No access_key parameter is required.')
 }

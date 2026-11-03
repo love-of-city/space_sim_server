@@ -1,6 +1,6 @@
 """Independent plug tasks and geometry measured from the delivered MJCF."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,7 @@ class PlugProfile:
     flange_m: float = 0.025
     keyed: bool = False
     feedback_extraction: bool = False
+    seat_clearance_m: float = .00025
     # Object-local closing axis through the two modeled head latch features.
     # Explicit axes opt into coordinated approach/extract/carry/release motion.
     grasp_closing_axis: tuple[float, float, float] | None = None
@@ -67,3 +68,11 @@ def plug_profile(task):
 
 def is_plug_task(task):
     return task == "plug_insert" or task in PLUG_PROFILES
+
+
+# Scene-library experiments retain their axial extraction and seating contract.
+SCENE_PLUG_PROFILES = {
+    name: replace(profile, feedback_extraction=True,
+                  seat_clearance_m=.00075 if profile.keyed else .00025)
+    for name, profile in PLUG_PROFILES.items()
+}

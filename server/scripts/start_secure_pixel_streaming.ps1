@@ -3,8 +3,8 @@ param(
     [int]$StreamerPort = 8888,
     [ValidateRange(1, 65535)]
     [int]$PlayerPort = 8080,
-    [Parameter(Mandatory = $true)]
-    [string]$JwtSecret,
+    [string]$JwtSecret = '',
+    [string]$SessionAuthUrl = '',
     [string]$PlayerHost = '0.0.0.0',
     [string]$AllowedOriginsJson = '[]',
     [string]$IceServersJson = '[]',
@@ -63,6 +63,7 @@ $previous = @{
     PS_STREAMER_PORT = $env:PS_STREAMER_PORT
     PS_STREAMER_HOST = $env:PS_STREAMER_HOST
     PS_JWT_SECRET = $env:PS_JWT_SECRET
+    PS_SESSION_AUTH_URL = $env:PS_SESSION_AUTH_URL
     PS_ICE_SERVERS_JSON = $env:PS_ICE_SERVERS_JSON
     PS_TURN_URLS_JSON = $env:PS_TURN_URLS_JSON
     PS_TURN_AUTH_SECRET = $env:PS_TURN_AUTH_SECRET
@@ -75,6 +76,7 @@ try {
     $env:PS_STREAMER_PORT = "$StreamerPort"
     $env:PS_STREAMER_HOST = '127.0.0.1'
     $env:PS_JWT_SECRET = $JwtSecret
+    $env:PS_SESSION_AUTH_URL = $SessionAuthUrl
     $env:PS_ICE_SERVERS_JSON = $IceServersJson
     $env:PS_TURN_URLS_JSON = $TurnUrlsJson
     $env:PS_TURN_AUTH_SECRET = $TurnAuthSecret

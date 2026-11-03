@@ -43,7 +43,8 @@ $missing = @($expected | Where-Object { !(Test-Path -LiteralPath (Join-Path (Joi
 if (!$Force -and $signature -eq $old -and $missing.Count -eq 0) { Write-Output 'PBR0110 SARM material preview assets are ready.'; return }
 $log = Join-Path $saved 'pbr0110_build.log'
 $arguments = @(('"' + $ProjectFile + '"'), ('-ExecutePythonScript="' + $script + '"'), '-unattended','-nop4','-nosplash','-RenderOffscreen', ('-abslog="' + $log + '"'))
-if ($DerivedDataCacheGraph) { $arguments += ('-ddc=' + $DerivedDataCacheGraph) }
+if (!$DerivedDataCacheGraph) { $DerivedDataCacheGraph = 'InstalledDerivedDataBackendGraph' }
+$arguments += @(('-ddc=' + $DerivedDataCacheGraph), ('-LocalDataCachePath="' + $BskDerivedDataCachePath + '"'))
 $p = Start-Process -FilePath (Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
 try {
     if (!$p.WaitForExit($TimeoutSeconds * 1000)) { throw "PBR0110 build timed out; see $log" }

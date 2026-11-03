@@ -31,7 +31,7 @@ if ($actualSha256 -ne $expectedSha256) {
 $editorCmd = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
 $script = Join-Path $PSScriptRoot 'create_sun_assets.py'
 Write-Output 'Importing Sun texture and creating M_Sun ...'
-& $editorCmd $ProjectFile -run=pythonscript "-script=$script" -unattended -nop4 -nosplash
+& $editorCmd $ProjectFile @BskDerivedDataCacheArguments -run=pythonscript "-script=$script" -unattended -nop4 -nosplash
 if ($LASTEXITCODE -ne 0) { throw "Sun asset creation failed with exit code $LASTEXITCODE." }
 if (!(Test-Path -LiteralPath $textureAsset) -or !(Test-Path -LiteralPath $materialAsset)) {
     throw 'Sun asset commandlet completed without creating both assets.'

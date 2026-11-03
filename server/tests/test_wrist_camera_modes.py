@@ -25,7 +25,7 @@ def test_mode_roundtrip_and_recording_provenance(tmp_path, mode):
     recorder = EpisodeRecorder(tmp_path / "episodes")
     episode = recorder.start(EpisodeStart(scene_instance=instance))
     recorder.stop(EpisodeStop())
-    metadata = json.loads((tmp_path / "episodes" / episode["episode_id"] / "metadata.json").read_text())
+    metadata = json.loads((tmp_path / "episodes" / episode["episode_id"] / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["scene_instance"]["wrist_camera_mode"] == mode
 
 

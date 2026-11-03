@@ -30,7 +30,7 @@ from scipy.spatial import ConvexHull
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from simulation.independent_task_box_layout import (
-    FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, TARGETS,
+    FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, TARGETS, NATIVE_CANDIDATE_SCHEMA,
     make_operational_clearance, validate_operational_placements,
     normalize_geometry_order, planar_transform, sample_placements, sample_pose_placements,
     validate_pose_placements,
@@ -680,7 +680,11 @@ class Builder:
                     collision_max_parts=128 if not self.has_inset_mounts else None,
                     decomposition_seconds=time.monotonic()-started, cavity_bounds=moved)
 
-    def build(self, seed, *, plan_only=False, placements=None, yaw_range_deg=0., yaws=None):
+    def build(self, seed, *, plan_only=False, placements=None, yaw_range_deg=0., yaws=None,
+              clearance_mode='xy-reservations', task_family='collection'):
+        if clearance_mode not in ('xy-reservations','native-3d-candidate'):
+            raise ValueError('Unknown clearance mode')
+        native_candidate=clearance_mode=='native-3d-candidate'
         self.prepare()
         self.output.with_suffix(".footprints.json").write_text(json.dumps(
             dict(footprints=self.footprints, obstacles=self.obstacles), indent=2)+"\n")
@@ -694,17 +698,20 @@ class Builder:
             if rotated:
                 placements, yaws, restarts = sample_pose_placements(
                     self.footprints, anchors, seed, self.obstacles, yaw_range_deg=yaw_range_deg,
-                    operational_clearance=True)
+                    operational_clearance=not native_candidate, task_family=task_family)
             else:
                 placements, restarts = sample_placements(self.footprints, seed, self.obstacles,
-                                                        operation_anchors=anchors)
+                                                        operation_anchors=None if native_candidate else anchors,
+                                                        task_family=task_family)
         else:
             if yaw_range_deg != 0.:
                 raise ValueError("Use explicit --yaws with --placements, or sample both with --yaw-range-deg")
             restarts = 0
         yaws = dict.fromkeys(MODULES, 0.) if yaws is None else yaws
         rectangles = validate_pose_placements(self.footprints, placements, anchors, yaws, self.obstacles)
-        operation_boxes = validate_operational_placements(self.footprints, placements, anchors, yaws, self.obstacles)
+        operation_boxes = (None if native_candidate else
+            validate_operational_placements(self.footprints, placements, anchors, yaws, self.obstacles,
+                                            task_family=task_family))
         transforms = {name: planar_transform(anchors[name], placements[name], yaws[name]) for name in MODULES}
         record = dict(schema=POSE_SCHEMA if rotated else SCHEMA, seed=seed, source=str(self.source),
                       source_sha256=hashlib.sha256(self.source_bytes).hexdigest(),
@@ -712,17 +719,22 @@ class Builder:
                       offsets_body_xy_m=placements, original_footprints_body_xy_m=self.footprints,
                       placed_footprints_body_xy_m=rectangles, fixed_obstacles_body_xy_m=self.obstacles,
                       sampling_restarts=restarts, minimum_module_gap_m=.008, deck_edge_margin_m=.005,
-                      operational_clearance=make_operational_clearance(self.footprints, anchors, self.obstacles),
+                      operational_clearance=make_operational_clearance(self.footprints, anchors, self.obstacles, task_family=task_family),
                       placed_operation_envelopes_body_xy_m=operation_boxes,
                       target_mounts=self.target_mounts, pickup_mounts=self.pickup_mounts,
                       inset_targets={key: value for key, value in self.inset_reports.items() if key in TARGETS},
                       inset_pickups={key: value for key, value in self.inset_reports.items() if key in PICKUPS},
                       scope="13 independent installation units; optional deck-normal yaw; original mechanism joint states",
-                      limits="Tool-operation reservations do not establish full-arm reachability or dynamic task success; native trajectory acceptance remains required",
+                      limits="Tool-operation reservations do not establish full-arm reachability or dynamic task success",
                       modules={name:dict(delta_body_m=[*placements[name], 0.],
                                         original_anchor_body_m=anchors[name],
                                         transform_body=transforms[name].tolist())
                                for name in MODULES})
+        if native_candidate:
+            record.update(schema=NATIVE_CANDIDATE_SCHEMA,
+                feasibility=dict(method='native-3d-trajectory',status='pending'),
+                operational_clearance=None,
+                limits='Physical footprint candidate only; native path, measured contacts and independent physical scoring still required; not eligible for capture')
         if rotated:
             record.update(installation_yaw_rad=yaws, rotation_axis="task_box_base/+Z",
                           yaw_sampling_half_range_deg=yaw_range_deg if restarts else None,
@@ -794,6 +806,10 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument('--clearance-mode',choices=('xy-reservations','native-3d-candidate'),
+                        default='xy-reservations',help='Native candidates retain physical packing checks but require separate native task validation; never capture-ready')
+    parser.add_argument('--task-family', choices=('collection', 'scene'), default='collection',
+                        help='Match XY reservations to collection v17 latch alignment or the separate scene expert; scene layouts are not collection-pool inputs')
     parser.add_argument("--placements", type=Path, help="JSON with all 13 XY deltas; checked for overlap/bounds")
     parser.add_argument("--yaw-range-deg", type=float, default=0.,
                         help="Sample independent yaw in +/- this angle, in [0,180]; 0 keeps legacy translation sampling")
@@ -805,4 +821,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     Builder(args.source, args.output, target_mounts=args.target_mounts, pickup_mounts=args.pickup_mounts).build(args.seed, plan_only=args.plan_only,
         placements=json.loads(args.placements.read_text()) if args.placements else None,
-        yaw_range_deg=args.yaw_range_deg, yaws=json.loads(args.yaws.read_text()) if args.yaws else None)
+        yaw_range_deg=args.yaw_range_deg, yaws=json.loads(args.yaws.read_text()) if args.yaws else None,
+        clearance_mode=args.clearance_mode, task_family=args.task_family)

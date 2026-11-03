@@ -1,3 +1,4 @@
+import { installSceneSelection } from "./helpers/scene_context.mjs";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -29,7 +30,7 @@ function harness() {
   $("sceneSunlightIntensity").value = "1";
   $("randomizationProfile").value = "teleop-zero-prepare-v2";
   const requests = [], runtimes = [], armed = [], online = [], messages = [];
-  const context = vm.createContext({clearWristWrench() {}, state, $, ZERO_START_PROFILE: "teleop-zero-prepare-v1",
+  const context = vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {}, state, $, ZERO_START_PROFILE: "teleop-zero-prepare-v1",
     initialJoints: { read: () => null },
     armPreparation: { read: () => [0, -67.6, -86.6, 143.2, -85.5, 0], armAutoStart: id => armed.push(id) },
     apiRequest(path, options) {
@@ -43,6 +44,7 @@ function harness() {
     setMessage: message => messages.push(message),
     jointAngles: { clear() {} },
   });
+  installSceneSelection(context, source);
   vm.runInContext(startSource + stopSource + refreshSource, context);
   return { context, state, requests, runtimes, armed, online, messages };
 }
@@ -108,18 +110,20 @@ for (const action of ["startScene", "stopScene"]) {
   });
 }
 
-test("overlapping polls cannot apply older JSON after a newer poll", async () => {
+test("slow JSON decoding prevents overlapping polls and releases the next read", async () => {
   const h = harness();
   const oldBody = deferred();
   const oldPoll = h.context.refreshState();
   h.requests[0].resolve({ ok: true, json: () => oldBody.promise });
   await flush();
+  await h.context.refreshState();
+  assert.equal(h.requests.length, 1);
+  oldBody.resolve(snapshot("old", "stopped"));
+  await oldPoll;
   const newPoll = h.context.refreshState();
   respond(h.requests[1], snapshot("new"));
   await newPoll;
-  oldBody.resolve(snapshot("old", "stopped"));
-  await oldPoll;
-  assert.deepEqual(h.runtimes.map(runtime => runtime.instance.instance_id), ["new"]);
+  assert.deepEqual(h.runtimes.map(runtime => runtime.instance.instance_id), ["old", "new"]);
   assert.deepEqual(h.armed, []);
 });
 

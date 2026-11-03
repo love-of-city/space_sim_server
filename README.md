@@ -10,10 +10,16 @@
 | [tools/release/](tools/release/README.md) | 版本管理下的打包工具和应用启动器 |
 | [manifests/](manifests/README.md) | 环境和资产的索引规范 |
 
+## 场景与任务
+
+平台支持直接机械臂操作、7 km 交会和 300 km 入轨后连续任务，共用原控制台与任务编号。远距、近距共享 GNSS 配置和在途观测，进入操作阶段时继承真实关节终态。近距视觉当前包含参数化观测与逻辑捕获，不代表真实图像闭环或物理锁定已验收，详见[交会接口](server/docs/NEAR_FIELD_RENDEZVOUS.md)。
+
+双臂捕获场景、便携初始化快照、视觉标记与相机配置见[场景库](server/docs/SCENE_LIBRARY.md)；原操作场景的模拟陀螺观测见[服务星陀螺反馈](server/docs/SERVICE_GYROSCOPE.md)。原有十项自动采集任务（含四个单向任务）继续使用[采集功能基线](server/docs/COLLECTION_BASELINE.md)。动画预览时钟与物理推进分别计时，画面帧率不等同于动力学实时倍率。
+
 ## 开发入口
 
 ```bash
-git clone https://github.com/love-of-city/space_sim_server.git space-sim
+git clone https://github.com/mingti-org/SpaceSim.git space-sim
 cd space-sim
 git lfs install --local
 git lfs pull

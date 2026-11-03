@@ -1,15 +1,15 @@
 # 本机完整 SARM 平台
 
-跨电脑浏览器直连请使用 `start_remote_visualization.cmd`，具体见 `REMOTE_VISUALIZATION.md`。两种入口不要同时运行；切换前先停止当前模式。
+跨电脑浏览器直连请使用 `./scripts/remote_visualization.ps1 -Action Start`，具体见 `REMOTE_VISUALIZATION.md`。两种入口不要同时运行；切换前先停止当前模式。
 
 ## 日常操作
 
-1. 在远端桌面双击 `start_local_visualization.cmd`，保留启动窗口。默认启动完整平台，不再自动运行 CubeSat 演示。
+1. 在远端 PowerShell 7 中执行 `./scripts/local_visualization.ps1 -Action Start`，保留启动窗口。默认启动完整平台，不再自动运行 CubeSat 演示。
 2. 浏览器打开 `http://127.0.0.1:18000/`，使用原有账号登录。
 3. 在右侧“场景实例”保留默认 SARM 模板，点击“生成并启动场景”。初次加载资源需要等待；未启动场景时“仿真未连接”正常，但不应显示“运行时未配置”。
 4. 等待“场景运行中”“仿真在线”和 `LIVE WEBRTC`。点击画面进入操作：W/S、A/D、Q/E 平移，Shift 配合切换旋转，R/F 控制夹爪；Esc 退出操作。C 进入自由视角，Home 返回主视角。
 5. 点击“停止场景”只停止物理仿真和 UE，网页保持在线。完整场景没有 120 秒或一小时自动退出限制。
-6. 双击 `stop_local_visualization.cmd` 停止整个平台；再次启动后可重新生成场景。
+6. 在 PowerShell 7 中执行 `./scripts/local_visualization.ps1 -Action Stop` 停止整个平台；再次启动后可重新生成场景。
 
 “生成并启动场景”使用项目原有 `start_scene_instance.ps1` 和 `simulation/teleop_grasp_unreal.py`，包括后台控制连接、状态反馈、UE 渲染。数据集采集默认关闭，交互和预览验证不等于 RGB/深度/分割数据采集已验收。
 

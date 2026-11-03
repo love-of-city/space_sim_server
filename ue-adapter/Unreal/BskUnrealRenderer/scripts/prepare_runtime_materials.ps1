@@ -25,7 +25,7 @@ if (!$Force -and (Test-Path -LiteralPath $opaque) -and (Test-Path -LiteralPath $
 $editorCmd = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
 $script = Join-Path $PSScriptRoot 'create_pbr_materials.py'
 Write-Output 'Creating BSK PBR runtime material assets ...'
-& $editorCmd $ProjectFile -run=pythonscript "-script=$script" -unattended -nop4 -nosplash
+& $editorCmd $ProjectFile @BskDerivedDataCacheArguments -run=pythonscript "-script=$script" -unattended -nop4 -nosplash
 if ($LASTEXITCODE -ne 0) { throw "PBR material creation failed with exit code $LASTEXITCODE." }
 if (!(Test-Path -LiteralPath $opaque) -or !(Test-Path -LiteralPath $translucent)) {
     throw 'PBR material commandlet completed without creating both assets.'

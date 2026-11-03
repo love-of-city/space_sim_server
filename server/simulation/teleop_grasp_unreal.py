@@ -241,6 +241,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
         "target_angular_velocity_rad_s": 3,
         "arm_joint_position_rad": 8,
     }
+    if "target_relative_velocity_m_s" in randomization:
+        expected_lengths["target_relative_velocity_m_s"] = 3
     for field, length in expected_lengths.items():
         values = randomization.get(field)
         if not isinstance(values, list) or len(values) != length:
@@ -256,7 +258,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     if quaternion_norm <= 1.0e-12:
         raise ValueError("scene target quaternion must have non-zero norm")
     joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
-    scene_model = target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model
+    from space_arm_platform.imported_scene_library import model_for_instance
+    scene_model = model_for_instance(document) or (target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model)
     from simulation.sarm_model_profile import load_model_profile
     scene_limits = load_joint_limits(scene_model, load_model_profile(scene_model).joint_names)
     if np.any(joints < np.array(scene_limits.lower)) or np.any(joints > np.array(scene_limits.upper)):
@@ -544,6 +547,8 @@ class CartesianTeleopTarget:
             return self.position.copy(), self.velocity.copy()
 
         action, stale = self.client.latest_action()
+        if action.get('active_arm', 'operating') != 'operating':
+            action = dict(action, deadman=False, arm_preparation=None, allow_reference_recovery=False)
         if self.preparation.required:
             try:
                 measured = self._actual_arm_position() if self._joint_state_provider is not None else np.full(6, np.nan)
@@ -862,6 +867,7 @@ def _apply_orbital_initial_state(
     randomized: dict[str, Any],
     initial_joints: np.ndarray,
     orbit_origin: Any | None = None,
+    local_stepper: Any | None = None,
 ) -> dict[str, Any]:
     """Apply one saved orbital phase to the authoritative MJScene bodies.
 
@@ -891,14 +897,21 @@ def _apply_orbital_initial_state(
     target = scene.getBody("capture_target")
     bus.setPosition(orbital_position)
     bus.setVelocity(bus_velocity)
+    if 'target_relative_velocity_m_s' in randomized:
+        bus.setAttitudeRate(np.zeros(3))
     from space_arm_platform.task_box import initialize_free_plugs
     initialize_free_plugs(scene, native.MODEL_PATH, orbital_position, bus_velocity)
     target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
     # Both free bodies use the same inertial frame.  The randomized
     # target velocity is only a local offset, not its full orbital speed.
-    target.setVelocity(
-        orbital_velocity + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float)
-    )
+    target_velocity = (bus_velocity + np.asarray(randomized["target_relative_velocity_m_s"], dtype=float)
+                       if "target_relative_velocity_m_s" in randomized else
+                       orbital_velocity + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float))
+    target.setVelocity(target_velocity)
+    if "target_relative_velocity_m_s" in randomized:
+        print(json.dumps({"type": "target_relative_initial_state",
+                          "position_m": randomized["target_position_m"],
+                          "relative_velocity_m_s": (target_velocity-bus_velocity).tolist()}, sort_keys=True), flush=True)
     target.setAttitude(
         native._quaternion_to_mrp(
             np.asarray(randomized["target_orientation_wxyz"], dtype=float)
@@ -915,11 +928,31 @@ def _apply_orbital_initial_state(
         joint.setPosition(float(position))
         joint.setVelocity(0.0)
 
+    if native.MODEL_PATH.name == 'sarm_dual_capture26.xml':
+        from simulation.components.capture26 import INITIAL_JOINTS
+        for body_name, joint_name, value in INITIAL_JOINTS:
+            joint = scene.getBody(body_name).getScalarJoint(joint_name)
+            joint.setPosition(value)
+            joint.setVelocity(0.0)
+
     # Extra target DOFs never enter the SARM arm/IK/actuator arrays.
     if "target_hinge_position_rad" in randomized:
         hinge = scene.getBody("satellite_outer_panel").getScalarJoint("outer_panel_hinge")
         hinge.setPosition(float(randomized["target_hinge_position_rad"]))
         hinge.setVelocity(0.0)
+
+    # Whole-spacecraft COM depends on the arm pose: assign it before measuring.
+    if 'capture_arm_joint_position_rad' in randomized:
+        for i, value in enumerate(randomized['capture_arm_joint_position_rad'], 1):
+            scene.getBody(f'bottom_link{i}').getScalarJoint(f'bottom_joint{i}').setPosition(float(value))
+    if 'preheld_capture_joint_position' in randomized:
+        from simulation.components.preheld_capture import validate_preheld
+        from simulation.capture_arm_target import INITIAL_JOINTS
+        values = validate_preheld(native.MODEL_PATH, randomized['preheld_capture_joint_position'])
+        for (body_name, joint_name, _), value in zip(INITIAL_JOINTS, values, strict=True):
+            joint = scene.getBody(body_name).getScalarJoint(joint_name)
+            joint.setPosition(float(value))
+            joint.setVelocity(0.)
 
     orbit_state = {
         "semi_major_axis_m": float(elements.a),
@@ -928,6 +961,67 @@ def _apply_orbital_initial_state(
         "initial_altitude_m": float(np.linalg.norm(orbital_position) - float(earth.radEquator)),
         "initial_speed_m_s": float(np.linalg.norm(bus_velocity)),
     }
+    formation = randomized.get('coorbital_initialization', randomized.get('formation_hold', {}))
+    if formation.get('enabled'):
+        if float(orbit['eccentricity']) != 0 or not math.isfinite(float(formation['separation_m'])) or float(formation['separation_m']) <= 0:
+            raise ValueError('coorbital initialization requires a circular orbit and positive finite separation')
+        from Basilisk.utilities import RigidBodyKinematics as rbk
+        from simulation.formation_hold import reference
+        import xml.etree.ElementTree as ET
+        point = formation.get('reference_point', 'body_origin')
+        if point not in ('body_origin', 'assembly_com'):
+            raise ValueError('coorbital reference_point must be body_origin or assembly_com')
+        com_args = {}
+        if point == 'assembly_com':
+            if local_stepper is None:
+                raise ValueError('assembly_com initialization requires the authoritative local backend')
+            properties = local_stepper.initial_assembly_properties(
+                native.MODEL_PATH, ['cubesat_bus', 'capture_target'])
+            com_args = dict(service_com_body_m=properties['cubesat_bus']['com_body_m'],
+                            target_com_body_m=properties['capture_target']['com_body_m'])
+            orbit_state['assembly_com_properties'] = properties
+        ref = reference(orbital_position, orbital_velocity, formation['separation_m'],
+                        service_body_rotation_wxyz=formation.get('service_body_rotation_wxyz'), **com_args)
+        rs, rt, omega = ref['service_rotation'], ref['target_rotation'], ref['omega']
+        bus.setPosition(ref['service_position'])
+        bus.setAttitude(rbk.C2MRP(rs.T)); bus.setVelocity(ref['service_velocity'])
+        bus.setAttitudeRate(rs.T @ omega)
+        target.setPosition(ref['target_position']); target.setVelocity(ref['target_velocity'])
+        target.setAttitude(rbk.C2MRP(rt.T)); target.setAttitudeRate(rt.T @ omega)
+        # Free task-box plugs must follow the new bus initial transform too.
+        root = ET.parse(native.MODEL_PATH).getroot()
+        for element in root.findall('./worldbody/body'):
+            name = element.get('name')
+            if name in ('cubesat_bus','capture_target'): continue
+            if element.find('freejoint') is None and element.find('joint[@type="free"]') is None: continue
+            local = np.fromstring(element.get('pos','0 0 0'),sep=' ')
+            quat = np.fromstring(element.get('quat','1 0 0 0'),sep=' ')
+            body = scene.getBody(name); offset = rs @ local
+            body.setPosition(ref['service_position']+offset)
+            body.setVelocity(ref['service_velocity']+np.cross(omega,offset))
+            rotation = rs @ np.asarray(rbk.EP2C(quat)).T
+            body.setAttitude(rbk.C2MRP(rotation.T)); body.setAttitudeRate(rotation.T @ omega)
+        orbit_state['initial_position_m'] = ref['service_position'].tolist()
+        orbit_state['initial_velocity_m_s'] = ref['service_velocity'].tolist()
+        orbit_state['initial_altitude_m'] = float(np.linalg.norm(ref['service_position'])-earth.radEquator)
+        orbit_state['initial_speed_m_s'] = float(np.linalg.norm(ref['service_velocity']))
+        orbit_state['coorbital_initialization'] = formation
+        if point == 'assembly_com':
+            orbit_state['initial_com_states'] = {
+                name: dict(position_m=ref[prefix+'_com_position'].tolist(),
+                           velocity_m_s=ref[prefix+'_com_velocity'].tolist())
+                for name, prefix in [('cubesat_bus', 'service'), ('capture_target', 'target')]}
+        if 'grip_frame_standoff_m' in formation:
+            from simulation.capture_arm_target import CaptureArmTarget
+            arm = CaptureArmTarget(native.MODEL_PATH)
+            p, rotation = arm.kinematics.forward(randomized['capture_arm_joint_position_rad'])
+            interface = rs.T @ (ref['target_position']-ref['service_position']
+                                + rt @ np.array([.1755, .05475, .0420787001299893]))
+            gap = float(np.linalg.norm(interface-p))
+            expected_gap = float(formation['grip_frame_standoff_m'])
+            if not math.isfinite(expected_gap) or expected_gap <= 0 or abs(gap-expected_gap) > .001:
+                raise ValueError(f'initial capture standoff mismatch: {gap:.6f} m versus {expected_gap} m')
+            orbit_state['initial_grip_to_interface_m'] = gap
     return orbit_state
 
 
@@ -956,6 +1050,10 @@ def run(args: argparse.Namespace) -> None:
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     target_spec = capture_target(template_id)
     model_override = getattr(args, "model_path", None)
+    if scene_instance and scene_instance.get('library_scene'):
+        from space_arm_platform.imported_scene_library import model_for_instance
+        model_override = model_for_instance(scene_instance)
+        args.catalog = Path(scene_instance['library_scene']['catalog'])
     native.MODEL_PATH = (
         Path(model_override).resolve()
         if model_override is not None
@@ -1124,6 +1222,10 @@ def _run_session(
         print(json.dumps({"type": "native_integration_configuration", **integration,
                           "dynamics_rate_hz": DYNAMICS_HZ}, sort_keys=True), flush=True)
         ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
+        flight_handoff = scene_instance.get("rendezvous_handoff") if scene_instance else None
+        handoff_continuity = []
+        if flight_handoff and not local_backend:
+            raise ValueError("rendezvous handoff requires the shared local dynamics backend")
         ephemeris_epoch = str(
             ephemeris_environment.get("ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC)
         )
@@ -1172,7 +1274,12 @@ def _run_session(
             camera_display_names={
                 "spacecraft_overview": "Spacecraft Overview",
                 "sarm_wrist_cam": "SARM Wrist Camera",
-            })
+                "capture_wrist_cam": "Capture Wrist Camera",
+            },
+            visual_attachments=(scene_instance.get('render_profile', {}).get('visual_attachments', [])
+                                if scene_instance else []),
+            vision_capture=(scene_instance.get('render_profile', {}).get('vision_capture')
+                            if scene_instance else None))
         assembly.install([
             ClockComponent(),
             orbit_component,
@@ -1192,12 +1299,54 @@ def _run_session(
                 enabled=False if getattr(args, "disable_attitude_control", False) else None),
             render,
         ])
+        capture_component = None
+        formation_component = None
+        if scene_instance and 'preheld_capture_joint_position' in scene_instance.get('randomization', {}):
+            from simulation.components.preheld_capture import PreheldCaptureComponent
+            assembly.install([PreheldCaptureComponent(native.MODEL_PATH,
+                scene_instance['randomization']['preheld_capture_joint_position'],
+                scene_instance.get('preheld_capture', {}).get('hold_gains'))])
+        elif template_id == 'sarm-dual-capture26':
+            from simulation.components.capture26 import Capture26Component
+            capture_component = Capture26Component(native.MODEL_PATH, client,
+                scene_instance.get('randomization', {}).get('capture_arm_joint_position_rad') if scene_instance else None,
+                experiment=bool(scene_instance and scene_instance.get('randomization', {}).get('capture_window_trial', False)),
+                visual_test=scene_instance.get('randomization',{}).get('capture_visual_test') if scene_instance else None,
+                render_session_id=render.bridge.session_id)
+            assembly.install([capture_component])
+            formation = scene_instance.get('randomization', {}).get('formation_hold', {}) if scene_instance else {}
+            if formation.get('enabled'):
+                if not local_backend:
+                    raise ValueError('formation hold requires the local backend')
+                if float(scene_instance['environment']['orbit']['eccentricity']) != 0:
+                    raise ValueError('formation preview currently requires a circular orbit')
+                for key in ('separation_m', 'force_limit_n', 'torque_limit_nm'):
+                    if not math.isfinite(float(formation[key])) or float(formation[key]) <= 0:
+                        raise ValueError(f'invalid formation {key}')
+                from simulation.components.formation_hold import FormationHoldComponent
+                formation_component = FormationHoldComponent(formation, native.MODEL_PATH)
+                assembly.install([formation_component])
+            elif scene_instance.get('randomization', {}).get('coorbital_initialization', {}).get('enabled'):
+                from simulation.components.orbit_attitude_reference import OrbitAttitudeReferenceComponent
+                assembly.install([OrbitAttitudeReferenceComponent(
+                    scene_instance['randomization']['coorbital_initialization'].get('service_body_rotation_wxyz'))])
+
         from simulation.components.plug_retention import install_configured_plug_retention
         plug_retention = install_configured_plug_retention(assembly)
         retention_configuration = (plug_retention.configuration() if plug_retention else {"enabled": False})
         if template_id == 'sarm-task-box-20261012-demo':
             from simulation.components.fastener_demo import FastenerDemoComponent
             assembly.install([FastenerDemoComponent()])
+        flight_environment = None
+        if flight_handoff:
+            from simulation.components.flight_environment import FlightEnvironmentComponent
+            from space_arm_platform.rendezvous_config import FlightOptions
+            flight_options = FlightOptions.from_dict(flight_handoff["mission_options"])
+            flight_environment = FlightEnvironmentComponent(flight_options, [
+                ("capture_target", None, flight_handoff["body_properties"]["capture_target"]["mass_kg"], flight_options.target_area_m2),
+                ("cubesat_bus", None, flight_handoff["body_properties"]["cubesat_bus"]["mass_kg"], flight_options.chaser_area_m2),
+            ])
+            assembly.install([flight_environment])
         drag_components = []
         if orbital_physics.drag is not None:
             from simulation.components.drag import configured_drag_components
@@ -1209,6 +1358,18 @@ def _run_session(
         orbital_metadata = environment_metadata(orbital_physics, earth, epoch_utc=ephemeris_epoch)
         print(json.dumps({"type": "orbital_physics_configuration", **orbital_metadata}, sort_keys=True), flush=True)
         bridge = render.bridge
+        from dataclasses import asdict
+        from simulation.components.gyroscope import GyroscopeComponent
+
+        sensor_options = scene_instance.get("sensors", {}) if scene_instance else {}
+        if not isinstance(sensor_options, dict):
+            raise ValueError("scene sensors must be an object")
+        gyro = GyroscopeComponent(sensor_options.get("service_gyro", {}),
+                                  seed=scene_instance["seed"] if scene_instance else 0)
+        assembly.install([gyro])
+        print(json.dumps({"type": "service_gyro_configuration", "seed": gyro.sensor.seed,
+                          "sample_rate_hz": 50, "settings": asdict(gyro.sensor.config),
+                          "scope": "passive_rate_feedback"}), flush=True)
         ephemeris = orbit_component.ephemeris
         orbit_origin = orbit_component.origin
         gravity_target_names = orbit_component.gravity_targets
@@ -1228,6 +1389,9 @@ def _run_session(
         # authoritative native state at its original scheduled timestamp.
         position_readers = [joint.stateOutMsg.addSubscriber() for joint in joints]
         velocity_readers = [joint.stateDotOutMsg.addSubscriber() for joint in joints]
+        relative_readers = ([scene.getBody(name).getOrigin().stateOutMsg.addSubscriber()
+                             for name in ('cubesat_bus', 'capture_target')] if capture_component else [])
+        relative_state_logged = False
         hinge_reader = (
             scene.getBody(target_spec.hinge_body).getScalarJoint(target_spec.hinge_joint)
             .stateOutMsg.addSubscriber() if target_spec.hinge_joint else None
@@ -1269,6 +1433,36 @@ def _run_session(
         )
 
         def snapshot_observation(render_frame_id: int, render_sim_time_ns: int) -> dict[str, Any]:
+            nonlocal relative_state_logged
+            if capture_component:capture_component.scoring_snapshot(render_frame_id,render_sim_time_ns)
+            if local_backend and capture_component and capture_component.experiment and render_frame_id % 25 == 0:
+                stepper = simulation.local_stepper
+                capture_contacts = []
+                for row in stepper.contact_snapshot():
+                    bodies = [stepper._name(1, int(i)) for i in row[2:4]]
+                    if 'capture_target' in bodies and any(n.startswith(('jaw_', 'bottom_', 'gripper', 'axial_', 'cam')) for n in bodies):
+                        capture_contacts.append({'geoms':[stepper._name(5,int(i)) for i in row[:2]], 'separation_m':float(row[4])})
+                print(json.dumps({'type':'capture_window_contacts','t':render_sim_time_ns/1e9,
+                    'contacts':capture_contacts,'capture_actuator_efforts':{n:float(f) for n,f in zip(stepper.actuator_names,stepper.actuator_force) if n in ('axial_act','cam_act','jaw_act_0','jaw_act_1','jaw_act_2','jaw_act_3')}}),flush=True)
+            relative_state = None
+            if relative_readers:
+                from Basilisk.utilities import RigidBodyKinematics as rbk
+                bus_state, target_state = [reader() for reader in relative_readers]
+                bus_rotation = np.asarray(rbk.MRP2C(bus_state.sigma_BN)).T
+                target_rotation = np.asarray(rbk.MRP2C(target_state.sigma_BN)).T
+                relative_state = {
+                    'position_inertial_m': (np.asarray(target_state.r_BN_N)-bus_state.r_BN_N).tolist(),
+                    'velocity_inertial_m_s': (np.asarray(target_state.v_BN_N)-bus_state.v_BN_N).tolist(),
+                    'angular_velocity_inertial_rad_s': (target_rotation@np.asarray(target_state.omega_BN_B)-bus_rotation@np.asarray(bus_state.omega_BN_B)).tolist(),
+                }
+                r=np.asarray(bus_state.r_BN_N); v=np.asarray(bus_state.v_BN_N)
+                omega=np.cross(r,v)/np.dot(r,r)
+                relative_state['velocity_rotating_m_s']=(np.asarray(relative_state['velocity_inertial_m_s'])-np.cross(omega,relative_state['position_inertial_m'])).tolist()
+                if scene_instance and scene_instance.get('randomization', {}).get('coorbital_initialization', {}).get('enabled') and render_frame_id % 500 == 0:
+                    print(json.dumps({'type':'coorbital_free_motion','sim_time_ns':render_sim_time_ns,**relative_state}),flush=True)
+                if not relative_state_logged:
+                    print(json.dumps({'type':'dual_arm_first_measured_state','sim_time_ns':render_sim_time_ns,**relative_state}),flush=True)
+                    relative_state_logged = True
             joint_position = [float(read().state) for read in position_readers]
             joint_velocity = [float(read().state) for read in velocity_readers]
             end_effector_position, end_effector_rotation = kinematics.forward(
@@ -1296,6 +1490,12 @@ def _run_session(
                     "orbital_dynamics": (
                         simulation.local_stepper.telemetry()["orbital_environment"]
                         if local_backend else {"mode": "basilisk"}),
+                    "rendezvous_handoff": ({"source_run_id": flight_handoff["state"]["metadata"]["run_id"],
+                                            "initial_state_errors_m_m_s": handoff_continuity,
+                                            "epoch_s": flight_handoff["state"]["sim_time_s"],
+                                            "navigation_estimates_eci": flight_handoff["gnss_estimates_eci"],
+                                            "navigation_covariances": flight_handoff["covariances"]} if flight_handoff else None),
+                    "flight_environment": flight_environment.telemetry() if flight_environment else None,
                     "orbital_physics": orbital_metadata,
                     "plug_retention": {
                         **retention_configuration,
@@ -1317,6 +1517,10 @@ def _run_session(
                         "hinge_position_rad": float(hinge_reader().state) if hinge_reader is not None else None,
                     },
                     "scene_template_id": template_id,
+                    "capture_arm": capture_component.telemetry() if capture_component else None,
+                    "target_relative_state": relative_state,
+                    "formation_hold": formation_component.telemetry() if formation_component else None,
+                    "coorbital_initialization": bool(scene_instance and scene_instance.get('randomization', {}).get('coorbital_initialization', {}).get('enabled')),
                     "step_id": str(render_frame_id + 1),
                     "observation_source": "authoritative_render_snapshot",
                     "render_frame_id": str(render_frame_id),
@@ -1340,6 +1544,7 @@ def _run_session(
                         "gripper_velocity_m_s": joint_velocity[6:],
                         "target_gripper_position_m": targets.position[6:].tolist()}),
                     **simulation.attitude_control.telemetry(),
+                    "service_gyro": gyro.observation(),
                     "joint_position_rad": joint_position,
                     "joint_velocity_rad_s": joint_velocity,
                     "target_joint_position_rad": targets.position.tolist(),
@@ -1455,8 +1660,45 @@ def _run_session(
         if target_spec.hinge_joint:
             randomized.setdefault("target_hinge_position_rad", 0.0)
         orbit_state = _apply_orbital_initial_state(
-            scene, native, earth, orbit, randomized, initial_joints, orbit_origin
+            scene, native, earth, orbit, randomized, initial_joints, orbit_origin,
+            local_stepper=getattr(simulation, 'local_stepper', None)
         )
+        if flight_handoff:
+            from simulation.orbital_rendezvous.handoff import apply_handoff, validate_handoff
+            validate_handoff(flight_handoff, native.MODEL_PATH)
+            apply_handoff(scene, flight_handoff)
+            scene.postIntegration(0)
+            # postIntegration refreshes body/site kinematics only. Publish the
+            # scalar joints before seeding hold references or the first IK tick
+            # would consume the zero-position messages from initialization.
+            # With the required local backend this call only publishes states.
+            scene.UpdateState(0)
+            # A near-field handoff may contain a deployed arm and closed
+            # fingers. Seed the operator's hold references from those joints.
+            targets.initial_position = np.array([
+                float(scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
+                for body, joint in native.JOINTS])
+            targets.reset(0.0)
+            restored_joints = {(item["body"], item["joint"]["name"]): item["position"]
+                               for item in flight_handoff["stowed_joints"]}
+            reference_error = max(abs(value - restored_joints[key])
+                                  for key, value in zip(native.JOINTS, targets.position, strict=True))
+            if reference_error >= 1e-8:
+                raise ValueError("handoff joint hold reference continuity failed")
+            print(json.dumps({"type": "handoff_joint_reference", "max_error_rad_or_m": reference_error,
+                              "position": targets.position.tolist()}), flush=True)
+            for saved in flight_handoff["state"]["bodies"]:
+                body_name = "capture_target" if saved["body_id"] == "rendezvous/target" else "cubesat_bus"
+                actual = scene.getBody(body_name).getOrigin().stateOutMsg.read()
+                handoff_continuity.extend([float(np.linalg.norm(np.asarray(actual.r_BN_N)-saved["position_m"])),
+                                           float(np.linalg.norm(np.asarray(actual.v_BN_N)-saved["velocity_m_s"]))])
+            if max(handoff_continuity) >= 1e-8:
+                raise ValueError("handoff initial state continuity failed")
+            target_state = next(body for body in flight_handoff["state"]["bodies"] if body["body_id"] == "rendezvous/target")
+            orbit_origin.set_state(np.asarray(target_state["position_m"]), np.asarray(target_state["velocity_m_s"]))
+            for module, saved in zip(flight_environment.models, flight_handoff.get("environment_state", []), strict=True):
+                module.restore(saved)
+            orbit_state["rendezvous_handoff_applied"] = True
         print(
             json.dumps(
                 {

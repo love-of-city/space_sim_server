@@ -125,6 +125,7 @@ def test_historical_continuous_pose_reaches_renderer_without_a_preset_id(monkeyp
     spec.loader.exec_module(module)
     camera = saved_v5_camera()
     actual = SimpleNamespace(camera_id=CAMERA_ID, display_name="Overview")
+    actual.to_payload = lambda: {k: v for k, v in vars(actual).items() if k != "to_payload"}
     lamps = []
     bridge = SimpleNamespace(_cameras=[actual], add_mj_scene=lambda *a, **kw: None,
                              add_lights=lambda lamp: lamps.append(lamp),

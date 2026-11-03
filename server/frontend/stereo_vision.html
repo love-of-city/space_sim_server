@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>双目视觉定位 · Space Arm</title>
+<style>
+body{margin:24px;background:#101922;color:#e2edf5;font:16px system-ui}h1{font-size:24px;margin-bottom:8px}p{color:#a7bdcd;line-height:1.5}a{color:#7bc8ff}.eyes{display:grid;grid-template-columns:1fr 1fr;gap:18px}.eye{background:#070c11;padding:12px;border:1px solid #37516a;border-radius:10px}canvas{width:100%;height:auto;display:block;margin-top:8px}pre{white-space:pre-wrap;background:#1b2a36;padding:18px;border-radius:10px;font:14px ui-monospace,monospace}#state{font-size:20px;color:#83d4b1}@media(max-width:800px){.eyes{grid-template-columns:1fr}}
+</style>
+<h1>双目相机 · 靶标定位</h1>
+<p>1920 × 1200 · 12 cm 基线 · 10 Hz 仿真触发。定位只使用原图、静态标定和靶标几何；本页不控制机械臂。<a href="/">返回仿真工作台</a></p>
+<p id="state">等待同步原图…</p>
+<div class="eyes"><div class="eye">左眼<canvas id="left" width="1920" height="1200"></canvas></div><div class="eye">右眼<canvas id="right" width="1920" height="1200"></canvas></div></div>
+<p><a href="/api/vision/image/left" download="stereo_left.png">左眼原图</a> · <a href="/api/vision/image/right" download="stereo_right.png">右眼原图</a> · <a href="/api/vision/diagnostics" download="stereo_capture_metadata.json">采集诊断</a> · <a href="/api/vision/status" download="stereo_pose_status.json">定位状态</a></p>
+<pre id="result">尚无结果</pre>
+<p>标定当前为理想针孔模型，畸变为零。2 ms 曝光只配置渲染曝光，不模拟运动模糊或传感器噪声；相同仿真时间戳不能替代实体相机同步与标定验收。</p>
+<script>
+let lastFrame='';
+async function draw(eye, frame, corners){
+ const response=await fetch('/api/vision/image/'+eye+'?frame='+frame,{cache:'no-store'});
+ if(!response.ok)return;
+ const bitmap=await createImageBitmap(await response.blob());
+ const ctx=document.getElementById(eye).getContext('2d');ctx.drawImage(bitmap,0,0);bitmap.close();
+ ctx.lineWidth=3;ctx.strokeStyle='#24ff7d';ctx.fillStyle='#24ff7d';ctx.font='22px system-ui';
+ for(const [id,pts] of Object.entries(corners||{})){ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.stroke();ctx.fillText('ID '+id,pts[0][0],pts[0][1]-8)}
+}
+async function refresh(){
+ try{
+ const response=await fetch('/api/vision/status',{cache:'no-store'});
+ if(response.status===401){document.getElementById('state').textContent='请先在仿真工作台登录';return}
+ const s=await response.json(),r=s.last_result;
+ document.getElementById('state').textContent=s.stale?'等待当前场景的双目原图':r?('单目 L:'+r.provided_monocular?.left?.status+' R:'+r.provided_monocular?.right?.status+' ｜ 双目融合:'+r.status+' · 源帧 '+r.source_frame_id+' · 同步差 '+r.stereo_skew_ns+' ns'):'已收到图像，等待配对／计算';
+ const frame=r?(r.session_id+':'+r.source_frame_id):String(s.received_images);
+ if(frame!==lastFrame){lastFrame=frame;await Promise.all(['left','right'].map(e=>draw(e,frame,r?.detected_corners_px?.[e])))}
+ document.getElementById('result').textContent=JSON.stringify({result:r,last_error:s.last_error,received_images:s.received_images,matched_pairs:s.matched_pairs,processed_pairs:s.processed_pairs,dropped_pairs:s.dropped_pairs,rejected_pairs:s.rejected_pairs},null,2);
+ }catch(error){document.getElementById('state').textContent='连接中断：'+error.message}
+ finally{setTimeout(refresh,500)}
+}refresh();
+</script></html>

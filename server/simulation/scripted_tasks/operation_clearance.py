@@ -45,8 +45,11 @@ def check_operation(task, sample):
             part_start = sample.plug_position_body_m
             part_end = part_start.copy()
             pickup = task.stage == "extract"
-            part_end[:2] = (task.pickup if pickup else task.hole)[:2]
-            part_end[2] = task._extract_z if pickup else task._seat_z
+            if hasattr(task, "_axis_goal"):
+                part_end = task._axis_goal(task._extract_z if pickup else task._seat_z, pickup=pickup)
+            else:
+                part_end[:2] = (task.pickup if pickup else task.hole)[:2]
+                part_end[2] = task._extract_z if pickup else task._seat_z
             p, r = task.chain.forward(sample.joints[:6])
             relp = r.T @ (part_start - p)
             relr = r.T @ sample.plug_rotation_body
@@ -88,7 +91,7 @@ def check_operation(task, sample):
                     ]
                 }
                 allowed = (task.config.plug_body,)
-                socket = (task.profile.prefix, pickup)
+                socket = (task.profile.prefix, pickup, task.config.target_site)
             else:
                 q = task._timing.path.at(u)[:6]
                 p, _ = task.chain.forward(q)
@@ -106,6 +109,7 @@ def check_operation(task, sample):
                 overrides,
                 baseline,
                 axial_socket=socket,
+                **(dict(arm_penetration_m=0.,mechanism_clearance_m=0.) if plug else {}),
             )
             report["checked_poses"] += 1
             if hit:

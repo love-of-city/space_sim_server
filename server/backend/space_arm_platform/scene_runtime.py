@@ -30,6 +30,9 @@ from .control_defaults import (
     ZERO_START_TELEOP_PROFILE, ZERO_TELEOP_HOME, DEFAULT_OPERATING_JOINT_DEG,
 )
 from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET_TEMPLATE, SELF_COLLISION_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, capture_target
+
+SCENE_RENDER_PROFILES = json.loads(
+    (Path(__file__).resolve().parents[2] / 'config/scene_render_profiles.json').read_text(encoding='utf-8'))
 from .scene_targets import SARM_20261012_TEMPLATE, SARM_SDF_TEMPLATE, SARM_DEMO_TEMPLATE, SARM_TEMPLATES
 
 
@@ -84,6 +87,13 @@ SCENE_TEMPLATES += tuple(dict(id=name, label=label,
     for name, label in ((SARM_DEMO_TEMPLATE, '防脱紧固件 · 自动拧紧/拧松演示'),
                         (SARM_SDF_TEMPLATE, '新版 SARM · 原始 SDF 螺纹对照')))
 
+SCENE_TEMPLATES += ({
+    'id': 'sarm-dual-capture26',
+    'label': '双臂 SARM + 四 L 爪（26 mm 行程·导入预览）',
+    'description': capture_target('sarm-dual-capture26').runtime_warning,
+    'camera_ids': SCENE_RENDER_PROFILES['sarm-dual-capture26']['camera_ids'],
+},)
+
 RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     {
         "id": AUTO_PREPARE_TELEOP_PROFILE,
@@ -122,10 +132,12 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
 # validate flex contacts without ignoring the experiment's core collision.
 TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES: dict[str, str] = {
     SARM_20261012_TEMPLATE: ZERO_START_TELEOP_PROFILE,
+    'sarm-dual-capture26': ZERO_START_TELEOP_PROFILE,
     FREE_PLUG_TEMPLATE: ZERO_START_TELEOP_PROFILE,
 }
 TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
     SARM_20261012_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE, ELBOW_UP_TELEOP_PROFILE, BALANCED_TELEOP_PROFILE, 'none', 'training-v1'),
+    'sarm-dual-capture26': (AUTO_PREPARE_TELEOP_PROFILE,),
     FREE_PLUG_TEMPLATE: (AUTO_PREPARE_TELEOP_PROFILE,),
 }
 
@@ -373,6 +385,13 @@ class SceneRuntimeManager:
                 # A missing optional template must not break the whole catalog.
                 item["initial_arm_error"] = str(error)
             templates.append(item)
+        from .imported_scene_library import entries
+        for entry in entries(self.project_root):
+            base = next(item for item in templates if item['id'] == entry['base_template_id'])
+            templates.append({**base, 'id': entry['id'], 'label': entry['label'],
+                              'description': entry['description'], 'library_scene': True,
+                              'library_kind': entry['kind'],
+                              'default_randomization_profile': ZERO_START_TELEOP_PROFILE})
         return {
             "templates": templates,
             "initial_arm_presets_deg": {
@@ -397,13 +416,32 @@ class SceneRuntimeManager:
             },
         }
 
-    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
+        from .imported_scene_library import lookup, verified_source, apply_instance
+        imported = lookup(self.project_root, request.template_id)
+        if imported:
+            if imported['kind'] != 'operation':
+                raise ValueError('The imported rendezvous scene uses the platform flight executor')
+            source = verified_source(imported)
+            initial = source['initial_scene']
+            request = request.model_copy(update={
+                'template_id': imported['base_template_id'],
+                'randomization_profile': ZERO_START_TELEOP_PROFILE,
+                'seed': initial.get('seed', 42), 'initial_arm_joint_position_deg': None,
+                'operating_arm_joint_position_deg': [math.degrees(v) for v in initial['randomization']['arm_joint_position_rad'][:6]],
+                'randomize_orbit_phase': False, 'randomize_overview_camera': False,
+            })
         if request.template_id not in {item["id"] for item in SCENE_TEMPLATES}:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
             raise ValueError(f"unknown randomization profile: {request.randomization_profile}")
         unsupported_profiles = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES.get(request.template_id, ())
         if request.randomization_profile in unsupported_profiles:
+            if request.template_id in SARM_TEMPLATES:
+                raise ValueError(
+                    '当前 SARM 场景不支持所选启动配置；请选择“指定操作姿态直接启动”'
+                    '（teleop-zero-prepare-v1）'
+                )
             raise ValueError(
                 "本地任务盒（两个活动插头·实验）包含 flexcomp 接触网格，"
                 "当前不支持“零位启动并自动展开”（teleop-zero-prepare-v2）；"
@@ -425,6 +463,12 @@ class SceneRuntimeManager:
                     raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
+        if mission is not None:
+            instance["mission"] = dict(mission)
+        if request.template_id in SCENE_RENDER_PROFILES:
+            profile = SCENE_RENDER_PROFILES[request.template_id]
+            instance['render_profile'] = dict(profile)
+            instance['randomization']['capture_window_trial'] = profile['automatic_capture_default']
         if request.randomization_profile == AUTO_PREPARE_TELEOP_PROFILE:
             from .preparation_planning import prepare_arm_plan
             model_root = self.launch.model_root if self.launch else self.project_root / "model/SARM/platform"
@@ -445,6 +489,23 @@ class SceneRuntimeManager:
             instance["ik_initialization"] = report
             if report["status"] in {"selected", "kept"}:
                 instance["randomization"]["arm_joint_position_rad"][:6] = report["joint_position_rad"]
+        if handoff is not None:
+            from datetime import datetime, timedelta
+            from .rendezvous_config import FlightOptions
+            if request.template_id != SELF_COLLISION_TEMPLATE or handoff.get("accepted") is not True:
+                raise ValueError("handoff requires the original team model and an accepted flight")
+            physics = FlightOptions.from_dict(handoff.get("mission_options", {})).physics
+            if "orbital_physics" in request.model_fields_set and request.orbital_physics != physics:
+                raise ValueError("handoff must preserve the flight orbital physics configuration")
+            instance["environment"]["physics"] = physics.model_dump(mode="json")
+            epoch = datetime.strptime(handoff["ephemeris_epoch_utc"], "%Y %B %d %H:%M:%S.%f")
+            epoch += timedelta(seconds=float(handoff["state"]["sim_time_s"]))
+            instance["environment"]["ephemeris_epoch_utc"] = epoch.strftime("%Y %B %d %H:%M:%S.%f")
+            instance["rendezvous_handoff"] = handoff
+            instance["randomization"]["arm_joint_position_rad"] = [0.0] * 8
+            instance["arm_preparation_required"] = False
+        if imported:
+            apply_instance(instance, imported)
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -453,7 +514,7 @@ class SceneRuntimeManager:
         self._last_instance = instance
         return instance
 
-    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
+    def start(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
         if not self.launch:
             raise RuntimeError("scene runtime launching is not configured")
         linux = self.launch.python_exe is not None
@@ -468,7 +529,7 @@ class SceneRuntimeManager:
             status = self.status()
             if status["active"]:
                 raise RuntimeError("a scene instance is already starting or running")
-            instance = self.create_instance(request, created_by)
+            instance = self.create_instance(request, created_by, handoff=handoff, mission=mission)
             instance_path = Path(instance["config_path"])
             script = launch_script
             command = [
@@ -483,7 +544,10 @@ class SceneRuntimeManager:
                 "-RenderPort", str(self.launch.render_port),
                 "-PixelStreamerPort", str(self.launch.pixel_streamer_port),
                 "-PixelStreamingId", self.launch.pixel_streaming_id,
-                "-PixelStreamingCameraIds", ",".join(self.launch.pixel_streaming_camera_ids),
+                "-PixelStreamingCameraIds", ",".join(dict.fromkeys([
+                    *self.launch.pixel_streaming_camera_ids,
+                    *SCENE_RENDER_PROFILES.get(instance['template_id'], {}).get('camera_ids', []),
+                ])),
                 "-PixelStreamingCameraWidth", str(self.launch.pixel_streaming_camera_width),
                 "-PixelStreamingCameraHeight", str(self.launch.pixel_streaming_camera_height),
                 "-PreviewRate", str(self.launch.preview_rate),

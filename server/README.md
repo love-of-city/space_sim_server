@@ -1,6 +1,11 @@
 # 太空机械臂遥操作与数据采集平台
 
+本地八类任务的资产清单、脚本场景配置、原生运行与验收边界见
+[场景库](docs/SCENE_LIBRARY.md)。未实现的任务能力会明确拒绝运行，不标记成功。
+
 团队开发请先阅读[贡献指南](CONTRIBUTING.md)。基础 CI 不替代完整仿真、UE 和采集验收。
+
+抽屉与三类插头的同条件、同动作重复测试见[固定轨迹评估](docs/FIXED_TRAJECTORY_EVALUATION.md)。
 
 浏览器操作台、用户与场景管理、训练数据记录。Basilisk 在轨组件与本地 MuJoCo 负责权威动力学，[UE 适配器](../ue-adapter/README.md)负责渲染。WebRTC 用于操作预览；训练图像通过独立的 `bsk-capture/1` 通道采集。
 
@@ -8,11 +13,27 @@
 
 新建场景默认保存地球 **J2 + 太阳点质量** 配置；旧实例缺少 `environment.physics` 时仍按点质量重放。逐物体大气阻力需要明确提供密度、面积、Cd 及参数来源，默认关闭。配置、物理边界和验收方式见 [轨道物理配置](docs/ORBITAL_PHYSICS_CONFIGURATION.md)。
 
+## 卫星交会接入
+
+现有工作台提供直接机械臂操作、7 km 交会、300 km 入轨后三种起始条件。连续任务使用共享 GNSS 配置；远距通过验收后接续近距，近距通过后以实际关节状态进入原操作场景，任务编号保持一致。独立 110 m 初态演示仍可通过诊断 API/CLI 使用，不作为第四个工作台入口。近距双目目前为参数化观测，捕获为逻辑代理，不代表真实图像闭环或接触力学验证。接口和验证边界见[连续任务整合说明](../archive/2026_10_17_连续任务与共享导航.md)及[近距方案](docs/NEAR_FIELD_RENDEZVOUS.md)。
+
+原工作台高级参数支持0—0.25 s GNSS通信时延，默认0。观测按物理采集时刻标记，交付后预测到当前控制时刻；跨阶段保留在途包、采样序号和联合不确定性。非零时延的远距阶段增加原始GNSS观测下载。模型范围、物理采样时钟修正及复验记录见[GNSS时延说明](../archive/2026_10_19_GNSS时延与物理采样时钟.md)。
+
+个人全部关联任务、会议分工、算法输入输出及协作所需数据见[任务与集成依据](docs/AOC_SEVEN_TASKS.md)。
+
+三个起始条件始终共用“末端六维遥操作”工作台。控制、关节角、采集、场景详情与交会遥测固定保留；自动交会期间控制入口禁用，进入操作阶段后按实际就绪状态开放。不适用的初始参数显示为禁用，避免把未使用的参数误认为本次配置。
+
+切换阶段、重置或断线会清理上一场景的末端、IK、轮系与动作读数。原仿真状态区在交会时显示当前任务的时间和本体角速度；未提供的机械臂遥测显示为“—”，不以历史值冒充实时值。
+
+登录原控制台，在“任务与场景”选择交会模式，使用默认 **SARM＋地面验证星** 运行 7 km 接近或约 300→500 km 升轨后接近，在 100 m 外保持。交会使用团队 LocalMujocoStepper、Basilisk 在轨组件与原生飞轮，包含大气阻力、太阳光压、双星 GNSS 误差和未知轨道扰动。创建者及管理员可配置、启停任务，在原主视窗查看 UE 画面、下载结果，并在同一页面接续遥操作与采集。任务编号贯穿交会、场景和数据集；旧 `/static/rendezvous.html` 链接自动进入控制台。模型、工程参数和验证标准见 [团队双星交会](docs/TEAM_RENDEZVOUS.md)。
+
+后端默认使用自身 Python（需具备 Basilisk 及渲染适配器），也可通过 `SPACE_SIM_RENDEZVOUS_PYTHON` 指定仿真解释器。在本机 8768 端口接收只读 `space-sim-state/1`；UE 接收端监听 5558。团队模型任务不依赖旧示例仓库。需要历史通用模型示例时，再设置 `SPACE_SIM_RENDEZVOUS_REPO` 指向 `basilisk-rendezvous-demo`，并使用安装其依赖的 Python。
 插拔件使用静摩擦保持与恒定滑动阻力，复用现有结构及孔位；默认配置与动力学验证见 [插拔件保持力](docs/PLUG_RETENTION.md)。
 
 三类插头自动采集共用连续接近、拔取搬运、反馈插入和边松爪边撤离；各自按夹持轴和尺寸处理，见 [插头采集](docs/AVIATION_PLUG_COLLECTION.md)。
 
 航空螺丝旋出后装配，以及杆状机构旋松、放倒入卡扣、扶起复位和重新锁紧，使用独立的螺纹任务控制器；自动采集入口、任务初态及物理验收见 [螺纹操作采集](docs/THREADED_TASK_COLLECTION.md)。
+原操作场景提供 50 Hz 服务星模拟陀螺角速度观测，包含白噪声、偏置与饱和标志，随原观测通道录制。配置、时间与坐标定义及接入边界见[服务星陀螺反馈](docs/SERVICE_GYROSCOPE.md)。
 
 ## 环境要求
 
@@ -39,7 +60,7 @@ Python 要求 3.11+，版本必须与安装的 Basilisk 二进制匹配。真实
 在选定的工作区父目录执行；已有仓库跳过 clone。
 
 ```powershell
-git clone https://github.com/love-of-city/space_sim_server.git space-sim
+git clone https://github.com/mingti-org/SpaceSim.git space-sim
 Set-Location .\space-sim
 git lfs install --local
 git lfs pull
@@ -134,6 +155,12 @@ npm.cmd --prefix signalling run check
 CAD 转换等可选测试可能因缺少专用依赖而 skip；skip 不代表功能验收通过。UE 构建与接收端测试见适配器 README。
 
 ## 4. 启动与停止
+
+双臂场景的三路相机及渲染资产目录统一配置在 `config/scene_render_profiles.json`。
+平台启动会注册所需相机，场景启动会补齐遗漏的相机参数；无需在启动命令中重复填写。
+双臂场景普通启动不自动抓取。保存场景中的 `randomization.capture_window_trial=true`
+仅用于明确启用的自动抓取测试；复用旧测试场景时须将其设为 `false` 才进入手动模式。
+资产导入检查会验证每个可见网格都有映射，避免只检查目录内文件而遗漏腕部零件。
 
 指定本机包含 `Engine` 的目录，下例按实际安装位置修改。环境变量仅影响当前终端及其子进程。
 

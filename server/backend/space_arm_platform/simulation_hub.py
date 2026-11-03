@@ -82,13 +82,16 @@ class SimulationHub:
         self.cancel_reset()
         if self._server:
             self._server.close()
-            await self._server.wait_closed()
         async with self._writer_lock:
             if self._writer:
                 self._writer.close()
                 with contextlib.suppress(Exception):
                     await self._writer.wait_closed()
                 self._writer = None
+        # Python 3.12+ also waits for accepted connections; close peers first.
+        if self._server:
+            await self._server.wait_closed()
+            self._server = None
 
     @property
     def resetting(self) -> bool:

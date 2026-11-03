@@ -10,6 +10,7 @@
     "tests/test_simulation_reset_native.py",
     "tests/test_physics_clock_native.py",
     "tests/test_wrist_wrench_native.py",
-    "tests/test_collection_physics_graph.py"
+    "tests/test_collection_physics_graph.py",
+    "tests/test_plug_retention.py"
   ]
 }

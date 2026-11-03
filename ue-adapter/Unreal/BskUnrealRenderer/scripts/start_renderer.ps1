@@ -34,15 +34,15 @@ param(
     [switch]$Foreground
 )
 
-. (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'common.ps1') -RequestedDerivedDataCachePath $DerivedDataCachePath
 $ue = Resolve-UnrealRoot $UnrealRoot
 $editor = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor.exe'
 # The installed graph normally relies on Zen and marks its filesystem node
 # DeleteOnly. Our project config makes Local writable as a persistent fallback.
 # Keep Zen enabled so existing cached shaders/assets do not need recompilation.
-if (!$DerivedDataCachePath) { $DerivedDataCachePath = Join-Path $ProjectRoot 'Saved\DerivedDataCache' }
-$DerivedDataCachePath = [IO.Path]::GetFullPath($DerivedDataCachePath)
-New-Item -ItemType Directory -Path $DerivedDataCachePath -Force | Out-Null
+# The common resolver honors UE-LocalDataCachePath and otherwise selects a
+# short per-checkout cache. An explicit launcher parameter takes precedence.
+$DerivedDataCachePath = $script:BskDerivedDataCachePath
 $probe = Join-Path $DerivedDataCachePath ('.write-probe-' + [Guid]::NewGuid().ToString('N'))
 try {
     [IO.File]::WriteAllText($probe, 'writable')
@@ -146,8 +146,28 @@ if ($Foreground) {
 }
 $saved = Join-Path $ProjectRoot 'Saved'
 New-Item -ItemType Directory -Path $saved -Force | Out-Null
-$process = Start-Process -FilePath $editor -ArgumentList $arguments -PassThru -WindowStyle Hidden `
-    -Environment @{'UE-LocalDataCachePath' = $DerivedDataCachePath}
+if ($env:SSH_CONNECTION) {
+    # OpenSSH owns its child process job. Launch through the Windows process
+    # service so the renderer and its helpers survive the SSH connection.
+    # WMI does not inherit this session's environment; pass the DDC explicitly.
+    $detachedArguments = @($arguments) + "-LocalDataCachePath=$DerivedDataCachePath"
+    $commandArguments = @($detachedArguments | ForEach-Object {
+        if ($_ -match '\s' -and $_ -notmatch '"') { '"' + $_ + '"' } else { $_ }
+    })
+    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow = [uint16]0}
+    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = ('"{0}" {1}' -f $editor, ($commandArguments -join ' '))
+        CurrentDirectory = $ProjectRoot
+        ProcessStartupInformation = $startup
+    }
+    if ($created.ReturnValue -ne 0 -or !$created.ProcessId) {
+        throw "Detached renderer startup failed (Windows error $($created.ReturnValue))."
+    }
+    $process = [pscustomobject]@{Id = $created.ProcessId}
+} else {
+    $process = Start-Process -FilePath $editor -ArgumentList $arguments -PassThru -WindowStyle Hidden `
+        -Environment @{'UE-LocalDataCachePath' = $DerivedDataCachePath}
+}
 Set-Content -LiteralPath (Join-Path $saved 'BskRenderer.pid') -Value $process.Id -Encoding ascii
 if ($ReplayPath) {
     Write-Output "BSK Unreal Renderer started (PID $($process.Id)), replaying $resolvedReplay at ${ReplayRate}x"

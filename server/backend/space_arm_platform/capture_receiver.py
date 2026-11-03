@@ -30,11 +30,13 @@ class PreviewFrame:
 
 class CaptureReceiver:
     def __init__(self, host: str, port: int, on_authoritative_capture: Callable[[dict[str, Any], dict[str, bytes]], None],
-                 on_authoritative_error: Callable[[str], None] | None = None) -> None:
+                 on_authoritative_error: Callable[[str], None] | None = None,
+                 on_vision_capture: Callable[[dict[str, Any], dict[str, bytes]], None] | None = None) -> None:
         self.host = host
         self.port = int(port)
         self.on_authoritative_capture = on_authoritative_capture
         self.on_authoritative_error = on_authoritative_error
+        self.on_vision_capture = on_vision_capture
         self._accepted_packets = OrderedDict()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -50,6 +52,8 @@ class CaptureReceiver:
         self.last_authoritative_error: str | None = None
         self.preview_count = 0
         self.authoritative_count = 0
+        self.vision_count = 0
+        self.last_vision_error = None
         self._pipeline_status = {}
 
     def start(self) -> None:
@@ -120,6 +124,8 @@ class CaptureReceiver:
                 "preview_cameras": sorted(self._frames),
                 "preview_count": self.preview_count,
                 "authoritative_count": self.authoritative_count,
+                "vision_count": self.vision_count,
+                "last_vision_error": self.last_vision_error,
                 "last_error": self.last_error,
                 "last_authoritative_error": self.last_authoritative_error,
                 "pending_authoritative_packets": self._authoritative_queue.qsize(),
@@ -150,7 +156,9 @@ class CaptureReceiver:
                 )
                 self._condition.notify_all()
             return
-        if stream_kind == "authoritative" and state_kind == "authoritative":
+        if stream_kind in {"authoritative", "vision"} and state_kind == "authoritative":
+            if stream_kind == 'vision' and self.on_vision_capture is None:
+                raise ValueError('vision capture consumer is not configured')
             with self._condition:
                 self._pipeline_status = {key: metadata.get(key) for key in (
                     'capture_episode_id', 'source_frame_id', 'camera_id', 'render_queue_frames',
@@ -172,7 +180,10 @@ class CaptureReceiver:
             # slow writer cannot make UE's reliable capture queue overflow.
             if self._authoritative_thread and self._authoritative_thread.is_alive():
                 with self._condition:
-                    self.authoritative_count += 1
+                    if stream_kind == 'vision':
+                        self.vision_count += 1
+                    else:
+                        self.authoritative_count += 1
                 # Preserve the packet across temporary stalls; do not crash the
                 # receiver thread with queue.Full or abandon a partial TCP packet.
                 while not self._stop.is_set():
@@ -183,7 +194,10 @@ class CaptureReceiver:
                         continue
             else:
                 with self._condition:
-                    self.authoritative_count += 1
+                    if stream_kind == 'vision':
+                        self.vision_count += 1
+                    else:
+                        self.authoritative_count += 1
                 self._process_authoritative_capture(metadata, products)
             if key is not None:
                 self._accepted_packets[key] = None
@@ -204,6 +218,13 @@ class CaptureReceiver:
         return True
 
     def _process_authoritative_capture(self, metadata: dict[str, Any], products: dict[str, bytes]) -> None:
+        if metadata.get('stream_kind') == 'vision':
+            try:
+                self.on_vision_capture(metadata, products)
+                self.last_vision_error = None
+            except Exception as error:
+                self.last_vision_error = str(error)
+            return
         try:
             self.on_authoritative_capture(metadata, products)
             with self._condition:

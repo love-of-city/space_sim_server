@@ -185,13 +185,13 @@ function Show-PublicAccess([string]$ProjectRoot, [string]$ConfigPath, [switch]$N
     if ($showWindow) {
         Write-Host '访问链接和自动生成的登录信息在本机凭据窗口中查看，不会写入命令行/普通报告文件。'
     } else {
-        Write-Host '已按配置跳过凭据窗口（show_access_window=false）。需要时运行 show_deployment_access.cmd。'
+        Write-Host '已按配置跳过凭据窗口（show_access_window=false）。需要时运行 ./scripts/show_public_access.ps1。'
     }
     if ($showWindow -and !$NonInteractive) {
         try {
             $pwsh = (Get-Process -Id $PID).Path
             $null = Start-Process -FilePath $pwsh -ArgumentList @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-STA', '-File', ('"' + (Join-Path $ProjectRoot 'scripts/show_public_access.ps1') + '"'), '-ConfigPath', ('"' + $ConfigPath + '"')) -WindowStyle Hidden
-        } catch { Write-Warning 'Credential window could not open. Run show_deployment_access.cmd to retry; services remain running.' }
+        } catch { Write-Warning 'Credential window could not open. Run ./scripts/show_public_access.ps1 to retry; services remain running.' }
     }
 }
 

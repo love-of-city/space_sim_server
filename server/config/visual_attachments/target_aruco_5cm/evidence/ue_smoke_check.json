@@ -1,0 +1,44 @@
+{
+  "scope": "Actual UE static scene: mounting/display/detection smoke check only; not full accuracy qualification",
+  "rig_sha256": "068a317e139b3f1a0f2af923fbcd2da004f672b02cd427d4070a4509e0f6252b",
+  "mounting": {
+    "mode": "surface-plate",
+    "layout_version": "original-four-points-3mm-plate-v1",
+    "hull_geometry": "target_instance_0006_part_001_color_00",
+    "hull_surface_y_m": 0.05475,
+    "plate_thickness_m": 0.003,
+    "film_thickness_m": 5e-05,
+    "support_posts": false,
+    "mounting_plate": true
+  },
+  "distance_m": 0.5,
+  "nominal_angles_deg": [
+    0,
+    40,
+    65
+  ],
+  "illumination": "fixed front directional solar channel; no wrist lamp",
+  "truth_reference": "sarm_ee tool center to fixed WF10 assembly AABB center",
+  "source_image_truth_pairs": 6,
+  "statistics": {
+    "frames": 6,
+    "valid": 6,
+    "statuses": {
+      "tracking": 6
+    },
+    "range_rmse_mm": 0.6505730077605502,
+    "range_p95_mm": 0.9605049062999249,
+    "position_rmse_mm": 0.7679705939071062,
+    "position_p95_mm": 1.1893248574697761,
+    "range_bias_mm": 0.5491150529359686,
+    "detected_marker_counts": {
+      "4": 6
+    }
+  },
+  "regression": {
+    "passed": 18,
+    "failed": 2,
+    "failures": "Only ID3: synthetic body-origin position error 10.1/13.3 mm exceeds 6 mm"
+  },
+  "renderer_error_lines": []
+}

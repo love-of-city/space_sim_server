@@ -26,11 +26,12 @@ import struct
 import sys
 import traceback
 import xml.etree.ElementTree as ET
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 TASKS = ("drawer_cycle", "drawer_lift", "aviation_plug_insert",
-         "guide_plug_insert", "cylindrical_plug_insert")
-POLICY_VERSION = "task-trajectory-contacts/2"
+         "guide_plug_insert", "cylindrical_plug_insert", "locking_rod_cycle")
+POLICY_VERSION = "task-trajectory-contacts/3-local-physical"
 FINGERS = frozenset(("ee_finger1", "ee_finger2"))
 PLUGS = {name + "_plug_insert": name + "_plug"
          for name in ("aviation", "guide", "cylindrical")}
@@ -41,11 +42,15 @@ MODULES = tuple(name + "_pickup" for name in ("aviation", "guide", "cylindrical"
 # Production stage names: PlugInsertTask.latch_stages (v11),
 # DrawerCycleTask.stages (v5), DrawerLiftTask.stages. A short failed plan is
 # never evidence that the full extraction/insertion/retraction path is clear.
+from simulation.scripted_tasks.plug_insert import PlugInsertTask
+from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask
+from simulation.scripted_tasks.drawer_lift import DrawerLiftTask
+from simulation.scripted_tasks.locking_rod_replay import LockingRodReplayTask
 REQUIRED_OPERATION_STAGES = {
-    **{task: ("settle", "approach", "grip", "extract", "lift", "transfer", "above_hole",
-              "insert", "release", "retract", "verify") for task in PLUGS},
-    "drawer_cycle": ("settle", "approach", "grip", "lift", "return", "release", "retract", "verify"),
-    "drawer_lift": ("settle", "raise", "above_drawer", "align", "open", "descend", "grip", "lift", "hold"),
+    **{task: PlugInsertTask.latch_stages for task in PLUGS},
+    "drawer_cycle": DrawerCycleTask.stages,
+    "drawer_lift": DrawerLiftTask.stages,
+    'locking_rod_cycle': LockingRodReplayTask.stages,
 }
 
 
@@ -58,6 +63,43 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def controller_snapshot(task):
+    """Last applied references and internal goals, kept outside scoring inputs."""
+    goal=getattr(task,'_plug_goal',None)
+    seat=getattr(task,'_seat_z',None)
+    hole_rotation=getattr(task,'hole_rotation',None)
+    normal=None if hole_rotation is None else hole_rotation[:,2]
+    return dict(last_joint_reference=task.reference.tolist(),
+        plug_goal_body_m=None if goal is None else goal.tolist(),
+        seat_target_z_m=(float(seat) if seat is not None and normal is not None
+                         and np.allclose(normal,[0.,0.,1.]) else None),
+        seat_target_axis_coordinate_m=None if seat is None else float(seat),
+        seat_axis_body=None if normal is None else normal.tolist(),
+        seat_recovery=bool(getattr(task,'_seat_recovery',False)),
+        seat_unloaded=bool(getattr(task,'_seat_unloaded',False)),
+        seat_axial_enabled=bool(getattr(task,'_seat_axial_enabled',False)))
+
+
+def physical_scorer(task):
+    if task.name == 'locking_rod_cycle':
+        from simulation.evaluation.locking_rod import LockingRodScorer
+        return LockingRodScorer(), dict(task=task.name)
+    from simulation.evaluation.scoring import PhysicalScorer
+    spec=dict(task=task.name,final_tool_position=[0.,0.,0.])
+    if task.name=='drawer_cycle':
+        spec['final_tool_position']=(task.grip_origin+task.axis*task.config.clearance_m).tolist()
+        from simulation.policy_task_success import DrawerCycleSuccess,EVALUATION_PERIOD_NS
+        spec['drawer_spec']=DrawerCycleSuccess(task.model_path,
+            sample_period_ns=EVALUATION_PERIOD_NS,mode='benchmark').specification()
+    else:
+        spec.update(hole=task.hole.tolist(),hole_rotation=task.hole_rotation.tolist(),
+                    tip=task.config.shaft_tip_local_m,flange=task.config.flange_local_m,keyed=task.profile.keyed,
+                    moving_hole=getattr(task, 'hole_owner', 'cubesat_bus') != 'cubesat_bus',
+                    pickup=task.pickup.tolist(),pickup_rotation=task.pickup_rotation.tolist(),
+                    moving_pickup=getattr(task, 'pickup_owner', 'cubesat_bus') != 'cubesat_bus')
+    return PhysicalScorer(**spec),spec
+
+
 class ContactPolicy:
     """An explicit body/installation ownership policy, independent of the task.
 
@@ -67,10 +109,15 @@ class ContactPolicy:
     No stage, penetration tolerance or success criterion weakens this policy.
     """
 
-    def __init__(self, model, task, target_site=None, ignore_free_bolt=False):
+    def __init__(self, model, task, target_site=None, ignore_free_bolt=False, *, scene_expert=False):
         if task not in TASKS:
             raise ValueError(f"Unsupported task: {task}")
         self.task = task
+        self.scene_expert = bool(scene_expert)
+        self.required_stages = REQUIRED_OPERATION_STAGES[task]
+        if scene_expert and task in PLUGS:
+            from simulation.scripted_tasks.scene_plug import PlugInsertTask as ScenePlugTask
+            self.required_stages = ScenePlugTask.stages
         self.ignore_free_bolt = bool(ignore_free_bolt)
         self.model = Path(model).resolve()
         root = ET.parse(self.model).getroot()
@@ -84,12 +131,17 @@ class ContactPolicy:
         if not FINGERS.issubset(self.robot_bodies):
             raise ValueError("Expected both original gripper finger bodies")
         self.active_bodies = ({PLUGS[task]} if task in PLUGS
+                              else {'locking_rod', 'fastener'} if task == 'locking_rod_cycle'
                               else {"drawer_base", "drawer_buckle"})
         kind = PLUGS[task].removesuffix("_plug") if task in PLUGS else None
         self.target_site = target_site or (kind + "_insert_40p5" if kind else None)
-        if kind and self.target_site not in {kind + "_insert_40p1", kind + "_insert_40p5"}:
+        if kind and self.target_site not in {
+            namespace+kind+suffix for namespace in ('', 'service_')
+            for suffix in ('_insert_40p1', '_insert_40p5')
+        }:
             raise ValueError("Target site must be one of this plug's original holes")
-        self.legal_modules = ({kind + "_pickup", self.target_site} if kind else {"drawer"})
+        self.legal_modules = ({kind + "_pickup", self.target_site} if kind
+                              else {'locking_mechanism'} if task == 'locking_rod_cycle' else {"drawer"})
         self.body_modules = {"drawer_base": "drawer", "drawer_buckle": "drawer",
                              "asm_board3": "drawer", "locking_rod": "locking_mechanism",
                              "fastener": "locking_mechanism", "hook": "locking_mechanism",
@@ -113,73 +165,16 @@ class ContactPolicy:
                     self.body_modules[child.get("name", "")] = module
         for geom in root.findall(".//geom"):
             name = geom.get("name", "")
-            match = re.fullmatch(r"(aviation|guide|cylindrical)_(?:bore|pin_floor)_(40p1|40p5)_.+", name)
+            match = re.fullmatch(r"(service_)?(aviation|guide|cylindrical)_(?:bore|pin_floor)_(40p1|40p5)_.+", name)
             if match:
-                self.geom_modules[name] = match[1] + "_insert_" + match[2]
+                self.geom_modules[name] = (match[1] or '') + match[2] + "_insert_" + match[3]
         self.geom_modules["board_thread_sdf"] = "bolt_assembly_hole"
         self.ownership_assets = {}
         self._assign_delivered_shared_mounts(root)
 
     def _assign_delivered_shared_mounts(self, root):
-        """Identify wholly owned original convex plate pieces conservatively.
-
-        The delivered model predates separate installation bodies. A convex
-        collider belongs to a site only when *all* its vertices lie strictly
-        inside that site's XY Voronoi cell, as used by the layout partitioner.
-        A piece spanning cells stays unknown. This never allows a shared board
-        wholesale, and generated layouts use their explicit body ownership.
-        """
-        assets = {node.get("name"): node for node in root.findall("./asset/mesh")}
-        compiler = root.find("compiler")
-        meshdir = compiler.get("meshdir", ".") if compiler is not None else "."
-        for board, sites in (("asm_board2", MODULES[:3]), ("asm_board1", MODULES[3:11])):
-            body = root.find(f'.//body[@name="{board}"]')
-            if body is None:
-                continue
-            points = []
-            for name in sites:
-                node = body.find(f'site[@name="{name}"]')
-                if node is not None:
-                    points.append((name, tuple(map(float, node.get("pos", "0 0 0").split()))))
-            if len(points) != len(sites):
-                continue
-            for geom in body.findall("geom"):
-                if (geom.get("name") in self.geom_modules
-                        or geom.get("pos", "0 0 0") != "0 0 0"
-                        or geom.get("quat", "1 0 0 0") != "1 0 0 0"
-                        or any(geom.get(tag) for tag in ("euler", "axisangle", "xyaxes", "zaxis"))):
-                    continue
-                asset = assets.get(geom.get("mesh"))
-                if asset is None or any(asset.get(tag) for tag in ("refpos", "refquat")):
-                    continue
-                filename = asset.get("file", "")
-                if not filename.lower().endswith(".stl"):
-                    continue
-                path = (self.model.parent / meshdir / filename).resolve()
-                data = path.read_bytes()
-                if len(data) < 84:
-                    continue
-                triangles = struct.unpack_from("<I", data, 80)[0]
-                if len(data) != 84 + triangles * 50:
-                    continue
-                self.ownership_assets[str(path)] = hashlib.sha256(data).hexdigest()
-                scale = tuple(map(float, asset.get("scale", "1 1 1").split()))
-                owner = None
-                for i in range(triangles):
-                    for j in range(3):
-                        vertex = struct.unpack_from("<fff", data, 84 + i * 50 + 12 + j * 12)
-                        x, y = vertex[0] * scale[0], vertex[1] * scale[1]
-                        ranked = sorted(((x - p[0]) ** 2 + (y - p[1]) ** 2, name)
-                                        for name, p in points)
-                        if (ranked[1][0] - ranked[0][0] <= 1e-12
-                                or owner is not None and owner != ranked[0][1]):
-                            owner = "ambiguous"
-                            break
-                        owner = ranked[0][1]
-                    if owner == "ambiguous":
-                        break
-                if owner not in (None, "ambiguous"):
-                    self.geom_modules[geom.get("name", "")] = owner
+        from simulation.scripted_tasks.mount_ownership import assign_delivered_shared_mounts
+        self.geom_modules, self.ownership_assets = assign_delivered_shared_mounts(self.model,root,self.geom_modules)
 
     def module(self, body, geom):
         return self.geom_modules.get(geom, self.body_modules.get(body))
@@ -211,6 +206,7 @@ class ContactPolicy:
 
     def metadata(self):
         return dict(version=POLICY_VERSION, task=self.task, target_site=self.target_site,
+                    scene_expert=self.scene_expert, required_stages=list(self.required_stages),
                     robot_bodies=sorted(self.robot_bodies), active_bodies=sorted(self.active_bodies),
                     legal_object_mount_modules=sorted(self.legal_modules),
                     contact_threshold_m=0.0,
@@ -306,7 +302,7 @@ class ContactAccumulator:
         forbidden = sum(count for kind, count in self.counts.items() if kind.startswith("forbidden"))
         clear = forbidden == 0 and self.invalid_rows == 0 and self.samples > 0
         success = stock_summary.get("result") == "success"
-        required = REQUIRED_OPERATION_STAGES[self.policy.task]
+        required = self.policy.required_stages
         missing = [stage for stage in required if stage not in self.observed_stages]
         positions = [self.observed_stages.index(stage) for stage in required if stage in self.observed_stages]
         ordered = positions == sorted(positions)
@@ -337,10 +333,42 @@ class ContactAccumulator:
                     contact_pairs=rows)
 
 
+def apply_physical_gate(report, source, online=None):
+    """Identical fail-closed physical acceptance for live runs and reanalysis."""
+    from simulation.evaluation.scoring import PhysicalScorer
+    spec_path=source/'independent-scorer-spec.json'
+    trace=source/'states-200hz.jsonl.gz'
+    if not spec_path.is_file() or not trace.is_file():
+        report['independent_evaluation']=dict(status='unscorable',reason='missing_physical_evidence')
+        report['online_offline_agree']=False
+        report['accepted']=False
+        return
+    try:
+        spec=json.loads(spec_path.read_text(encoding='utf-8-sig'))
+        if spec.get('task') == 'locking_rod_cycle':
+            from simulation.evaluation.locking_rod import LockingRodScorer
+            scorer=LockingRodScorer(**spec)
+        else:
+            scorer=PhysicalScorer(**spec)
+    except ValueError as exc:
+        report['independent_evaluation']=dict(status='unscorable',reason=str(exc))
+        report['online_offline_agree']=False
+        report['accepted']=False
+        return
+    with gzip.open(trace,'rt') as stream:
+        for line in stream:
+            row=json.loads(line)
+            if row.get('evaluation') is not None:scorer.update(row['evaluation'])
+    offline=scorer.report()
+    report['independent_evaluation']=offline
+    report['online_offline_agree']=online is not None and online==offline
+    report['accepted']=bool(report['accepted'] and offline['success'] and report['online_offline_agree'])
+
+
 def analyze_existing(args, policy, output):
     source = args.analyze_existing.resolve()
-    names = json.loads((source / "names.json").read_text())
-    summary = json.loads((source / "run/summary.json").read_text())
+    names = json.loads((source / "names.json").read_text(encoding='utf-8-sig'))
+    summary = json.loads((source / "run/summary.json").read_text(encoding='utf-8-sig'))
     accumulator = ContactAccumulator(policy)
     accumulator.substeps.add(int(summary.get("substeps", 1)))
     native_ticks = (source / "contacts-400hz.jsonl.gz").is_file()
@@ -356,13 +384,15 @@ def analyze_existing(args, policy, output):
             for line in stream:
                 accumulator.observe_task_stage(json.loads(line)["stage"])
     launch_path = source / "launch.json"
-    launch = json.loads(launch_path.read_text()) if launch_path.is_file() else {}
+    launch = json.loads(launch_path.read_text(encoding='utf-8-sig')) if launch_path.is_file() else {}
     previous_path = source / "acceptance.json"
-    previous = json.loads(previous_path.read_text()) if previous_path.is_file() else {}
+    previous = json.loads(previous_path.read_text(encoding='utf-8-sig')) if previous_path.is_file() else {}
     native_code = launch.get("native_returncode", launch.get("returncode",
                               0 if summary.get("result") == "success" else 1))
     report = accumulator.report(summary, native_code, expected_hz=400 if native_ticks else 200,
                                 error=previous.get("execution_error"))
+    if policy.task!='drawer_lift':
+        apply_physical_gate(report,source,previous.get('independent_evaluation'))
     report["analyzed_existing"] = str(source)
     report["analysis_source_sha256"] = {str(path): sha256(path) for path in
                                         (trace, source / "names.json", source / "run/summary.json",
@@ -370,6 +400,8 @@ def analyze_existing(args, policy, output):
     report["ownership_asset_sha256"] = policy.ownership_assets
     if state_trace.is_file():
         report["analysis_source_sha256"][str(state_trace)] = sha256(state_trace)
+    spec=source/'independent-scorer-spec.json'
+    if spec.is_file():report['analysis_source_sha256'][str(spec)]=sha256(spec)
     if launch_path.is_file():
         # Preserve the actual native launch unchanged. The analysis provenance
         # and effective policy above bind the new classification separately.
@@ -390,13 +422,15 @@ def run_native(args, policy, output):
     load_native_grasp_module(ROOT / "model/SARM/platform")
     from simulation.local_mujoco_stepper import LocalMujocoStepper
     from simulation.scripted_tasks.native_state import DrawerState, PlugState
+    from simulation.scripted_tasks.locking_rod_replay import LockingRodState
     from collection import run_scripted_task
 
     accumulator = ContactAccumulator(policy)
     task_holder = {}
+    scorer_holder={}
     contact_stream = gzip.open(output / "contacts-400hz.jsonl.gz", "wt", compresslevel=1)
     state_stream = gzip.open(output / "states-200hz.jsonl.gz", "wt", compresslevel=1)
-    originals = {cls: (cls.__init__, cls.sample) for cls in (DrawerState, PlugState)}
+    originals = {cls: (cls.__init__, cls.sample) for cls in (DrawerState, PlugState, LockingRodState)}
     original_update = LocalMujocoStepper.UpdateState
 
     def update(stepper, now):
@@ -422,11 +456,26 @@ def run_native(args, policy, output):
         def sample(reader, time_s, q, v, wrench):
             value = original(reader, time_s, q, v, wrench)
             accumulator.observe_task_stage(reader.task.stage)
+            evaluation=None
+            if reader.task.name in PLUGS or reader.task.name in ('drawer_cycle', 'locking_rod_cycle'):
+                from simulation.evaluation.replay import physical_row
+                if not scorer_holder:
+                    scorer,spec=physical_scorer(reader.task)
+                    scorer_holder.update(scorer=scorer,spec=spec)
+                    write_json(output/'independent-scorer-spec.json',spec)
+                if reader.task.name == 'locking_rod_cycle':
+                    from simulation.evaluation.locking_rod import physical_row as rod_row
+                    evaluation=rod_row(value,reader.task)
+                else:
+                    evaluation=physical_row(value,reader.task,reader.task.reference)
+                scorer_holder['scorer'].update(evaluation)
             state_stream.write(json.dumps(dict(sim_time_ns=round(float(time_s) * 1e9),
                                                stage=reader.task.stage, result=reader.task.result,
                                                joint_position=q.tolist(), joint_velocity=v.tolist(),
                                                qpos=reader.stepper.qpos.tolist(),
                                                qvel=reader.stepper.qvel.tolist(),
+                                               controller=controller_snapshot(reader.task),
+                                               evaluation=evaluation,
                                                metrics=reader.metrics(value)),
                                               separators=(",", ":")) + "\n")
             return value
@@ -434,9 +483,26 @@ def run_native(args, policy, output):
 
     argv = ["--model", str(args.model.resolve()), "--scene", str(args.scene.resolve()),
             "--task", args.task, "--output", str(output / "run"),
-            "--max-sim-seconds", str(args.max_sim_seconds), "--no-save-trace"]
+            "--max-sim-seconds", str(args.max_sim_seconds), "--no-save-trace",
+            "--terminal-observation-seconds", "2.5"]
+    if getattr(args, "scene_expert", False):
+        argv.append("--scene-expert")
     if args.target_site:
         argv += ["--target-site", args.target_site]
+    if getattr(args, 'rod_path', None):
+        argv += ['--rod-path', str(args.rod_path)]
+    if getattr(args, "transport_clearance", None) is not None:
+        argv += ["--transport-clearance", str(args.transport_clearance)]
+    if getattr(args, 'part_velocity_damping', None) is not None:
+        argv += ['--part-velocity-damping', str(args.part_velocity_damping)]
+    if getattr(args, 'transfer_offset_xy', None) is not None:
+        argv += ['--transfer-offset-xy', *map(str,args.transfer_offset_xy)]
+    if getattr(args, 'release_speed', None) is not None:
+        argv += ['--release-speed', str(args.release_speed)]
+    if getattr(args, "grip_offset_m", None) is not None:
+        argv += ["--grip-offset-m", *map(str, args.grip_offset_m)]
+    if getattr(args, 'seating_overtravel', None) is not None:
+        argv += ['--seating-overtravel', str(args.seating_overtravel)]
     if args.initial_joints_deg:
         argv += ["--initial-joints-deg", *map(str, args.initial_joints_deg)]
     if args.native_geometry:
@@ -444,8 +510,20 @@ def run_native(args, policy, output):
     sources = [Path(__file__), ROOT / "collection/run_scripted_task.py",
                ROOT / "simulation/local_mujoco_stepper.py",
                ROOT / "simulation/scripted_tasks/native_state.py", args.model, args.scene]
+    if getattr(args, 'rod_path', None):
+        sources.append(args.rod_path)
     if policy.manifest:
         sources.append(policy.manifest)
+    sources.extend(sorted((ROOT/'simulation/scripted_tasks').glob('*.py')))
+    sources.extend(sorted((ROOT/'simulation/components').glob('*.py')))
+    sources.extend(sorted((ROOT/'simulation/evaluation').glob('*.py')))
+    sources.append(ROOT/'simulation/policy_task_success.py')
+    sources.append(ROOT/'native/local_mujoco_stepper.cpp')
+    sources = sorted(set(sources) | set((ROOT/'simulation').rglob('*.py')))
+    for source in sources:
+        if source.is_relative_to(ROOT):
+            archived=output/'sources'/source.relative_to(ROOT)
+            archived.parent.mkdir(parents=True,exist_ok=True);archived.write_bytes(source.read_bytes())
     launch = dict(schema=POLICY_VERSION, started_utc=datetime.now(timezone.utc).isoformat(),
                   argv=[sys.executable, str(ROOT / "collection/run_scripted_task.py"), *argv],
                   source_sha256={str(path.resolve()): sha256(path) for path in sources},
@@ -453,6 +531,7 @@ def run_native(args, policy, output):
                   contact_policy=policy.metadata(),
                   observation="read-only wrappers after original native tick and task sample",
                   physics_control_and_success_thresholds_unchanged=True, ue_gpu_started=False)
+    launch['terminal_stationary_observation_s']=2.5
     write_json(output / "launch.json", launch)
     code, error = 2, None
     try:
@@ -471,8 +550,13 @@ def run_native(args, policy, output):
         state_stream.close()
         write_json(output / "names.json", accumulator.names)
     summary_path = output / "run/summary.json"
-    summary = json.loads(summary_path.read_text()) if summary_path.is_file() else {}
+    summary = json.loads(summary_path.read_text(encoding='utf-8-sig')) if summary_path.is_file() else {}
     report = accumulator.report(summary, code, error=error)
+    if scorer_holder:
+        apply_physical_gate(report,output,scorer_holder['scorer'].report())
+    elif args.task!='drawer_lift':
+        report['independent_evaluation']=dict(status='unscorable',reason='no_measurements')
+        report['accepted']=False
     write_json(output / "acceptance.json", report)
     launch.update(finished_utc=datetime.now(timezone.utc).isoformat(), native_returncode=code,
                   accepted=report["accepted"])
@@ -487,6 +571,14 @@ def main(argv=None):
     parser.add_argument("--task", choices=TASKS, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-site")
+    parser.add_argument("--scene-expert", action="store_true")
+    parser.add_argument('--rod-path', type=Path)
+    parser.add_argument("--transport-clearance", type=float)
+    parser.add_argument('--part-velocity-damping', type=float)
+    parser.add_argument('--transfer-offset-xy', type=float, nargs=2)
+    parser.add_argument('--release-speed', type=float)
+    parser.add_argument("--grip-offset-m", type=float, nargs=3)
+    parser.add_argument('--seating-overtravel', type=float)
     parser.add_argument("--ignore-free-bolt", action="store_true",
                         help="Explicitly defer otherwise forbidden contacts involving only the free grey bolt; physics unchanged")
     parser.add_argument("--initial-joints-deg", type=float, nargs=6)
@@ -495,10 +587,12 @@ def main(argv=None):
     parser.add_argument("--analyze-existing", type=Path,
                         help="Read saved native 400 Hz or historical 200 Hz contacts; no simulation")
     args = parser.parse_args(argv)
+    if args.task == "locking_rod_cycle" and not args.rod_path and args.analyze_existing is None:
+        parser.error("The fixed rod diagnostic requires --rod-path; collection uses collection/run_scripted_task.py")
     if args.scene is None and args.analyze_existing is None:
         parser.error("--scene is required for a native run")
     policy = ContactPolicy(args.model, args.task, args.target_site,
-                           ignore_free_bolt=args.ignore_free_bolt)
+                           ignore_free_bolt=args.ignore_free_bolt, scene_expert=args.scene_expert)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = (analyze_existing(args, policy, output) if args.analyze_existing

@@ -91,6 +91,10 @@ FName SafeActorName(const FString& Value)
 
 const TCHAR* PrimitiveMeshPath(const FString& Shape)
 {
+    if (Shape.Equals(TEXT("plane"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("/Engine/BasicShapes/Plane.Plane");
+    }
     if (Shape.Equals(TEXT("sphere"), ESearchCase::IgnoreCase) || Shape.Equals(TEXT("ellipsoid"), ESearchCase::IgnoreCase))
     {
         return TEXT("/Engine/BasicShapes/Sphere.Sphere");
@@ -333,7 +337,10 @@ void ApplyGeometryMaterial(UStaticMeshComponent* Component, UObject* Owner, cons
     Material->SetScalarParameterValue(TEXT("Specular"), Specular);
     Material->SetScalarParameterValue(TEXT("Metallic"), 0.0f);
     Material->SetScalarParameterValue(TEXT("Emission"), static_cast<float>(FMath::Max(0.0, Geometry.MaterialEmission)));
-    Material->SetScalarParameterValue(TEXT("Ambient"), static_cast<float>(FMath::Max(0.0, Ambient)));
+    // Legacy PBR assets add Ambient to Emissive. Scene/headlight ambient is
+    // illumination, not material emission: let actual lights illuminate geometry.
+    // Keep explicit MJCF emission above for intentionally luminous objects.
+    Material->SetScalarParameterValue(TEXT("Ambient"), 0.0f);
     Material->SetScalarParameterValue(TEXT("Opacity"), Geometry.Color.A);
     Material->SetScalarParameterValue(TEXT("UseTexture"), 0.0f);
     Material->SetVectorParameterValue(TEXT("TextureRepeat"), FLinearColor(

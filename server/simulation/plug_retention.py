@@ -63,6 +63,7 @@ class RetentionSocket:
     plug_rotation_body: np.ndarray
     initial: bool = False
     keyed: bool = True
+    owner_body: str | None = None
 
 
 def load_retention_parameters(path: str | Path | None = None) -> RetentionParameters | None:
@@ -77,10 +78,11 @@ def load_retention_parameters(path: str | Path | None = None) -> RetentionParame
     return parameters if payload["enabled"] else None
 
 
-def model_retention_sockets(model_path: Path) -> dict[str, tuple[RetentionSocket, ...]]:
+def model_retention_sockets(model_path: Path, *, owned=False) -> dict[str, tuple[RetentionSocket, ...]]:
     """Read seat frames from existing model poses/sites; never rewrite the MJCF."""
     from simulation.scripted_tasks.plug_insert import fixed_site_pose
     from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
+    from simulation.scene_library.frames import site_attachment
 
     root = ET.parse(model_path).getroot()
     result = {}
@@ -93,20 +95,36 @@ def model_retention_sockets(model_path: Path) -> dict[str, tuple[RetentionSocket
         if position.shape != (3,) or not np.isfinite(position).all():
             raise ValueError(f"Invalid initial position for {profile.body}")
         pickup_site = f"{profile.prefix}_pickup"
-        seat_rotation = (fixed_site_pose(root, pickup_site)[1]
-                         if root.find(f'.//site[@name="{pickup_site}"]') is not None else np.eye(3))
-        sockets = [RetentionSocket(f"{profile.prefix}_initial", position, seat_rotation, rotation,
-                                   initial=True, keyed=profile.keyed)]
-        for suffix in ("_insert_40p1", "_insert_40p5"):
-            name = profile.prefix + suffix
+        if owned:
+            owner, _, seat_rotation = site_attachment(root, pickup_site)
+            base = root.find(f'./worldbody/body[@name="{owner}"]')
+            br = quaternion_wxyz_to_matrix(np.fromstring(base.get('quat', '1 0 0 0'), sep=' '))
+            bp = np.fromstring(base.get('pos', '0 0 0'), sep=' ')
+            sockets = [RetentionSocket(f'{profile.prefix}_initial', br.T @ (position-bp), seat_rotation,
+                br.T @ rotation, initial=True, keyed=profile.keyed, owner_body=owner)]
+        else:
+            seat_rotation = (fixed_site_pose(root, pickup_site)[1]
+                             if root.find(f'.//site[@name="{pickup_site}"]') is not None else np.eye(3))
+            sockets = [RetentionSocket(f"{profile.prefix}_initial", position, seat_rotation, rotation,
+                                       initial=True, keyed=profile.keyed)]
+        # The donor keeps its stable names. A complete service-side task box
+        # provides additional compatible recipients without inventing a second
+        # initial plug or assigning its reaction to the donor spacecraft.
+        for name in (namespace + profile.prefix + suffix
+                     for namespace in ('', 'service_')
+                     for suffix in ('_insert_40p1', '_insert_40p5')):
             if root.find(f'.//site[@name="{name}"]') is None:
                 continue
-            hole, orientation = fixed_site_pose(root, name)
+            owner = None
+            if owned:
+                owner, hole, orientation = site_attachment(root, name)
+            else:
+                hole, orientation = fixed_site_pose(root, name)
             # Existing insertion tasks seat the flange at the hole surface;
             # plug +Z points into the hole, socket +Z points out of it.
             seat = hole + orientation[:, 2] * profile.flange_m
             sockets.append(RetentionSocket(name, seat, orientation,
-                                            orientation @ np.diag([1., -1., -1.]), keyed=profile.keyed))
+                                            orientation @ np.diag([1., -1., -1.]), keyed=profile.keyed, owner_body=owner))
         result[profile.body] = tuple(sockets)
     return result
 

@@ -122,7 +122,7 @@ class DrawerCycleTask(DrawerLiftTask):
     def _stage_goal(self, name, p, r):
         if name == "approach":
             return self.grasp.copy(), self.grasp_rotation
-        if name == "raise" and p[2] >= self.hover[2] - 1e-9:
+        if name == "raise" and float((p-self.hover) @ self.axis) >= -1e-9:
             # Already at safe height: there is no trajectory to time.
             return None, r
         if name == "above_drawer":
@@ -151,6 +151,8 @@ class DrawerCycleTask(DrawerLiftTask):
         continuing_open = self.stage == "release" and name == "retract"
         previous_gripper = self._gripper_timing, self._gripper_motion_s
         self._record_verified_transition(name, sample)
+        if name == "retract":
+            self._retract_gripper_entry_s = self._gripper_motion_s
         error=None
         try:
             super()._enter(name, sample)
@@ -159,6 +161,20 @@ class DrawerCycleTask(DrawerLiftTask):
             error=str(exc)
         if self.environment_planning and name in ("approach","retract"):
             from .environment_motion import plan
+            if name=='retract' and sample.native_qpos is not None and error is None and self._timing is not None:
+                from .planning_context import acquire_probe
+                probe=acquire_probe(self, clearance_m=.002)
+                try:
+                    probe.use_measured_qpos(sample.native_qpos,sample.joints)
+                    candidate=self.path_reference(1.)
+                    # Verify any opening remaining after the arm stops too.
+                    for opening in np.linspace(candidate[6],1.,33):
+                        candidate[6:]=[opening,-opening]
+                        hit=probe.pose_collision(candidate,'free_motion',arm_penetration_m=0.,clearance_m=.002)
+                        if hit:
+                            error='retract_endpoint_opening_blocked: '+str(hit)
+                            break
+                finally:probe.close()
             # A failed template still has the intended goal set by the base.
             self._timeout=max(20.,2.5*self._duration+10.)
             plan(self,sample,self._goal,self._rotation,self.axis if name=="approach" else -self.axis,
@@ -219,7 +235,7 @@ class DrawerCycleTask(DrawerLiftTask):
         if len(q)==7:return np.r_[q[:6],q[6],-q[6]]
         opening=self._approach_profile.opening(progress) if self.stage=="approach" else float(self.reference[6])
         if self.stage == "retract" and self._gripper_timing is not None:
-            elapsed = self._gripper_motion_s + self._timing.seconds_at(progress)
+            elapsed = self._retract_gripper_entry_s + self._timing.seconds_at(progress)
             opening = self._gripper_timing.joint_state(elapsed)[0][0]
         return np.r_[q,opening,-opening]
 
@@ -273,6 +289,9 @@ class DrawerCycleTask(DrawerLiftTask):
             self.reference[6] = self._approach_profile.opening(self._timing.at(self._motion_s))
         elif self._gripper_timing is None:
             self.reference[6] = target
+        elif self.stage=='retract' and self.environment_planning:
+            self._gripper_motion_s=min(self._retract_gripper_entry_s+self._motion_s,self._gripper_timing.duration)
+            self.reference[6]=self._gripper_timing.joint_state(self._gripper_motion_s)[0][0]
         else:
             self._gripper_motion_s = min(
                 self._gripper_motion_s + dt, self._gripper_timing.duration

@@ -1,0 +1,6 @@
+{
+  "tools\\generate_target_fiducials.py": "2b30221e63537b9a27cfbe92589384807ffb10bc8adb6a4fcf8caed61255cb19",
+  "tools\\export_target_fiducial_handoff.py": "e5d85f33f5b94e2ea2fcdf44f8854d778adb60b455126af6201430a260885510",
+  "simulation\\target_fiducials.py": "87470851aacc07bda2ee7dca6c0475224ecd8665996965aae0bb85ec8d3c6c36",
+  "backend\\space_arm_platform\\fiducials.py": "80a5bf3b97bf3b360307593894166124d87667e70bc944e70807262568478dac"
+}

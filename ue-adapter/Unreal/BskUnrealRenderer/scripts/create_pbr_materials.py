@@ -64,7 +64,8 @@ def create_material(name: str, translucent: bool) -> None:
     specular = scalar(material, "Specular", 0.5, -600, 25)
     metallic = scalar(material, "Metallic", 0.0, -600, 150)
     emission = scalar(material, "Emission", 0.0, -600, 300)
-    ambient = scalar(material, "Ambient", 0.18, -600, 400)
+    # Compatibility parameter for older runtime clients; no emissive fill by default.
+    ambient = scalar(material, "Ambient", 0.0, -600, 400)
     light_sum = expression(material, unreal.MaterialExpressionAdd, -430, 300)
     unreal.MaterialEditingLibrary.connect_material_expressions(emission, "", light_sum, "A")
     unreal.MaterialEditingLibrary.connect_material_expressions(ambient, "", light_sum, "B")

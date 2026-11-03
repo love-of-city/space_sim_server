@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-21",
+  "scope": "existing_monocular_algorithm_with_new_nominal_intrinsics",
+  "algorithm_source_unchanged": true,
+  "new_ue_capture": false,
+  "new_measurements_or_accuracy_claims": false,
+  "live_runtime_changed": false,
+  "sources": [
+    {
+      "source_relative_to_server": "backend/space_arm_platform/fiducials.py",
+      "package_file": "source/space_arm_platform/fiducials.py",
+      "sha256": "80a5bf3b97bf3b360307593894166124d87667e70bc944e70807262568478dac"
+    },
+    {
+      "source_relative_to_server": "backend/space_arm_platform/camera_defaults.py",
+      "package_file": "source/space_arm_platform/camera_defaults.py",
+      "sha256": "f1cfd969b370101f8e1f0802a47369fb89c3b5242781b1d79946475cdbf5d71f"
+    },
+    {
+      "source_relative_to_server": "tools/fiducial_center_metrics.py",
+      "package_file": "source/fiducial_center_metrics.py",
+      "sha256": "b13b93f0b6bf97b10c595be250dc6560d34a173d364b07efd5a3fb6bec396743"
+    },
+    {
+      "source_relative_to_server": "model/ground_validation_satellite/aruco_rig.json",
+      "package_file": "model/ground_validation_satellite/aruco_rig.json",
+      "sha256": "eed29cba723f93a1445f4e25a89fc551b0580b32db007c3c4f760208a3d65990"
+    },
+    {
+      "source_relative_to_server": "run/aruco/basler_mono_handoff_20261021/run_pnp.py",
+      "package_file": "run_pnp.py",
+      "sha256": "d9d07bf50f0c0ff08915006b3a1537d505f90a3533038f47a94332b6ffc6689c"
+    },
+    {
+      "source_relative_to_server": "run/aruco/pnp_source_20261021/aruco_pnp_source_5cm_symmetric_v1/legacy_reference.json",
+      "package_file": "legacy_reference.json",
+      "sha256": "b533e37be315df3abf940433b62082e8ba12a9cee5dce2e9f2b3cced9fd08afc"
+    }
+  ],
+  "generator": "run\\aruco\\basler_mono_handoff_20261021\\build_package.py"
+}

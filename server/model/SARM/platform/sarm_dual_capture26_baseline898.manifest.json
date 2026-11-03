@@ -1,0 +1,231 @@
+{
+  "base_commit": "7f01764",
+  "base_model": "model\\SARM\\platform\\sarm_20261012.xml",
+  "base_sha256": "0d6e28ea9c0e1255ce19f41292269500dffdfd5560050c2086d0a95ac8057cc0",
+  "source_gripper_sha256": "ff37fbe67069d5038104fef01a97465c6b3af89f0282c7cb043424a032eac3f6",
+  "model_sha256": "3dd2da7a6d78c03edb4025e783806e293cb50054eff74db3723a93812eb41cbc",
+  "added_actuators": [
+    "bottom_joint1_act",
+    "bottom_joint2_act",
+    "bottom_joint3_act",
+    "bottom_joint4_act",
+    "bottom_joint5_act",
+    "bottom_joint6_act",
+    "axial_act",
+    "cam_act",
+    "jaw_act_0",
+    "jaw_act_1",
+    "jaw_act_2",
+    "jaw_act_3"
+  ],
+  "preserved": "Original bodies, inertia, task box and operating arm preserved. Base visual/collision portions below mounting plane Z=-0.49 m removed as previously authorized.",
+  "limitations": [
+    "One nominal coorbital open/extend/approach/close/tighten trial observed; not a capture robustness or load qualification",
+    "Pad remains rigid",
+    "Additional-arm contact with original service-body excluded by masks; installation interference needs geometric validation"
+  ],
+  "sha256": "3dd2da7a6d78c03edb4025e783806e293cb50054eff74db3723a93812eb41cbc",
+  "sources": {
+    "model\\SARM\\platform\\sarm_20261012.xml": "0d6e28ea9c0e1255ce19f41292269500dffdfd5560050c2086d0a95ac8057cc0"
+  },
+  "mount_clearance_changes": [
+    {
+      "geom": "base_link_geom",
+      "action": "clipped",
+      "before_bounds": [
+        -295.00006103515625,
+        725.0000610351562,
+        -265.0,
+        768.7426147460938,
+        -690.0,
+        40.70001220703125
+      ],
+      "after_bounds": [
+        -295.00006103515625,
+        725.0000610351562,
+        -265.0,
+        768.7426147460938,
+        -490.0,
+        40.70001220703125
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_000",
+      "action": "clipped",
+      "before_bounds": [
+        231.13870239257812,
+        605.685546875,
+        -123.09318542480469,
+        -64.06543731689453,
+        -495.6855773925781,
+        -305.29132080078125
+      ],
+      "after_bounds": [
+        231.13870239257812,
+        605.685546875,
+        -123.09318542480469,
+        -64.06543731689453,
+        -490.0,
+        -305.29132080078125
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_000.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_001",
+      "action": "clipped",
+      "before_bounds": [
+        -274.8223876953125,
+        457.0436096191406,
+        -79.07315063476562,
+        503.6678466796875,
+        -695.6668090820312,
+        -403.1259765625
+      ],
+      "after_bounds": [
+        -274.8223876953125,
+        457.0436096191406,
+        -79.07315063476562,
+        503.6678466796875,
+        -490.0,
+        -403.1259765625
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_001.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_003",
+      "action": "clipped",
+      "before_bounds": [
+        457.0436096191406,
+        672.7450561523438,
+        -115.68560791015625,
+        679.095947265625,
+        -505.25201416015625,
+        5.672145843505859
+      ],
+      "after_bounds": [
+        457.0436096191406,
+        672.7450561523438,
+        -115.68560791015625,
+        679.095947265625,
+        -490.0,
+        5.672145843505859
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_003.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_004",
+      "action": "clipped",
+      "before_bounds": [
+        1.2593830823898315,
+        231.07994079589844,
+        -184.27398681640625,
+        605.9821166992188,
+        -535.4735717773438,
+        -177.18746948242188
+      ],
+      "after_bounds": [
+        1.2593830823898315,
+        231.07994079589844,
+        -184.27398681640625,
+        605.9821166992188,
+        -490.0,
+        -177.18746948242188
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_004.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_007",
+      "action": "clipped",
+      "before_bounds": [
+        -168.91604614257812,
+        166.49429321289062,
+        -188.64512634277344,
+        -52.258113861083984,
+        -536.1942138671875,
+        -305.29132080078125
+      ],
+      "after_bounds": [
+        -167.93222045898438,
+        166.49429321289062,
+        -188.64512634277344,
+        -52.258113861083984,
+        -490.0,
+        -305.29132080078125
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_007.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_008",
+      "action": "clipped",
+      "before_bounds": [
+        -273.3357849121094,
+        -55.91884231567383,
+        -115.69219970703125,
+        596.5018920898438,
+        -495.6662292480469,
+        -32.42414093017578
+      ],
+      "after_bounds": [
+        -273.3357849121094,
+        -55.91884231567383,
+        -115.69219970703125,
+        596.5018920898438,
+        -490.0,
+        -32.42414093017578
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_008.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_011",
+      "action": "clipped",
+      "before_bounds": [
+        -205.68556213378906,
+        569.0388793945312,
+        475.68896484375,
+        714.2617797851562,
+        -534.515625,
+        41.18275451660156
+      ],
+      "after_bounds": [
+        -205.68556213378906,
+        569.0388793945312,
+        475.68896484375,
+        714.2617797851562,
+        -490.0,
+        41.18275451660156
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_011.stl"
+    },
+    {
+      "geom": "base_link_geom_collision_015",
+      "action": "clipped",
+      "before_bounds": [
+        -294.74542236328125,
+        -39.25551223754883,
+        26.23476219177246,
+        771.4006958007812,
+        -495.6582946777344,
+        -177.15240478515625
+      ],
+      "after_bounds": [
+        -294.74542236328125,
+        -39.25551223754883,
+        26.23476219177246,
+        771.4006958007812,
+        -490.0,
+        -177.15240478515625
+      ],
+      "file": "D:\\mingti\\captive-fastener\\space_sim_server\\model\\dual_arm_capture26\\meshes\\capture26_trim_base_link_mujoco_ec9f7fce_convex_015.stl"
+    }
+  ],
+  "added_cameras": [
+    "capture_wrist_cam"
+  ],
+  "real_window_collision": {
+    "source": "dual_arm_mujoco_14mm_stroke26/scene.xml",
+    "convex_pieces": 898,
+    "mass_inertia": "unchanged",
+    "old_hull": "internal explicit pair only"
+  }
+}

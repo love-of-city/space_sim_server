@@ -27,6 +27,7 @@ if ($ScreenshotPath) {
     New-Item -ItemType Directory -Path $screenshotDirectory -Force | Out-Null
     $arguments += "-BskScreenshot=$ScreenshotPath"
 }
+$arguments += @('-DDC=InstalledDerivedDataBackendGraph', ('-LocalDataCachePath="' + $BskDerivedDataCachePath + '"'))
 $process = Start-Process -FilePath $editor -ArgumentList $arguments -WindowStyle Hidden -PassThru
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds(45)

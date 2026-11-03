@@ -70,12 +70,20 @@ src/space_sim_server/space_sim_UE_Adapter  -> ../space-sim/ue-adapter
 | `docs/project-map.md` | 本结构地图 |
 | `docs/naming-conventions.md` | 后续文件与目录命名规则 |
 | `manifests/environments/` | Python 来源快照、Linux/Windows 运行环境状态和 UE 引擎兼容策略；不将未重装的环境声明为已认证锁 |
-| `manifests/assets/ue-cook-base-assets.json` | 527 个基础 UE 资产的 SHA、明确 Cook 目录和动态加载资源；不自动纳入本地布局资产 |
+| `manifests/assets/ue-cook-base-assets.json` | 565 个基础 UE 资产的 SHA、明确 Cook 目录和动态加载资源；不自动纳入本地布局资产 |
 | `manifests/schemas/collection-layout-pool-v2.schema.json` | 可搬迁布局池、相对路径、文件哈希和原验收迁移证明契约 |
 | `manifests/schemas/{collection-provenance-v1,component-identity-v1,ue-build-manifest-v1}.schema.json` | 批次来源、组件身份及 UE 构建身份的数据契约 |
 | `server/` | API、网页、任务采集、权威动力学、模型、原生计算 |
 | `ue-adapter/` | Python 状态协议适配、UE渲染工程和运行插件 |
 | `tools/release/` | 两类交付包的构建、启动器及测试源码 |
+
+## 场景库与连续任务集成（2026-11-03）
+
+`server/backend/space_arm_platform/mission_runtime.py` 管理连续任务生命周期，`rendezvous_runtime.py` 管理交会进程；`server/simulation/orbital_rendezvous/` 与 `near_field/` 保留各阶段动力学、导航与制导。模拟陀螺位于 `simulation/gyroscope.py` 及对应组件，视觉计算在独立 worker 中运行。
+
+`server/simulation/scene_library/` 管理场景配方、物理资产、初态和独立验收，CLI 是 `server/tools/diagnostics/scene_library.py`。`simulation/evaluation/` 承担固定轨迹与末态评分；评估规则不由专家是否自行报告成功决定。新场景的模型位于 `server/model/dual_arm_capture26/` 和 `model/scene_library/`，基础文件仍使用 Git LFS。
+
+`server/collection/run_scripted_task.py` 默认保持现有自动采集控制器。显式 `--scene-expert` 使用 `scene_plug.py` / `scene_drawer.py`，`--rod-path` 使用 `locking_rod_replay.py`；这些入口服务于不同模型与评估契约，摘要记录 `controller_family`。默认任务列表、单向任务初态与完成规则继续见[采集基线](../server/docs/COLLECTION_BASELINE.md)。
 
 ## server：平台和权威动力学
 

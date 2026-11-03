@@ -162,6 +162,7 @@ def test_socket_exemption_does_not_exempt_arm_or_other_obstacles():
     probe.home = np.zeros(1)
     probe.names = {1:'aviation_plug',2:'asm_board2',3:'ee_finger1',4:'fastener'}
     probe.geom_name = lambda geom: 'holder_geom'
+    probe._mount_ownership = {'holder_geom': 'aviation_pickup'}
     candidate = np.zeros(8)
     row = [1,2,1,2,-.001]
     probe.contacts = lambda q:[row]

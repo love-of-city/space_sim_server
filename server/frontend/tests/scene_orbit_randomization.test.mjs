@@ -1,3 +1,4 @@
+import { installSceneSelection } from "./helpers/scene_context.mjs";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -21,7 +22,7 @@ function setup() {
   const requests = [];
   const state = { stateRequestSequence: 0, sceneDefaults: { simulation_rate: 1, capture_rate_hz: 30, ik_rate_hz: 120 },
     currentUser: { role: "admin" }, scenePhase: "idle" };
-  const ctx = vm.createContext({clearWristWrench() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+  const ctx = vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
     initialJoints: { read: () => null, setRuntime() {} }, $, state, console, Option: function() {}, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},
     exitOperationMode() {}, refreshState: async () => {}, applySceneRuntime() {},
@@ -31,6 +32,7 @@ function setup() {
       return { ok: true, json: async () => ({ templates: [], randomization_profiles: [], defaults: {} }) };
     },
   });
+  installSceneSelection(ctx, source);
   return { $, ctx, state, requests };
 }
 

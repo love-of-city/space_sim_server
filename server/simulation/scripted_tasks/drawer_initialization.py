@@ -1,6 +1,7 @@
 """Reproducible reset configuration and read-only native collision preflight."""
 
 from copy import deepcopy
+from pathlib import Path
 import ctypes
 import math
 import os
@@ -103,6 +104,8 @@ class NativePoseProbe:
     """
 
     def __init__(self, model_path, *, clearance_m=0., cache_key=None):
+        self.model_path = Path(model_path)
+        self._mount_ownership = None
         if not np.isfinite(clearance_m) or not 0. <= clearance_m <= .02:
             raise ValueError("Planning clearance must be between 0 and 0.02 m")
         from .gripper_preflight import ParallelogramGripper
@@ -170,6 +173,17 @@ class NativePoseProbe:
             self.lib.lms_id2name(self.handle, 5, geom, buf, len(buf))
             self.geom_names[geom] = buf.value.decode()
         return self.geom_names[geom]
+
+    def apply_scene_initial(self, scene):
+        """Seed only this private geometry probe with the declared held arm."""
+        values = scene.get('randomization', {}).get('preheld_capture_joint_position')
+        if values is not None:
+            from simulation.components.preheld_capture import validate_preheld
+            from simulation.capture_arm_target import INITIAL_JOINTS
+            references = validate_preheld(self.model_path, values)
+            for (_, joint, _), value in zip(INITIAL_JOINTS, references, strict=True):
+                self.home[self.address(joint)] = value
+            self.q[:] = self.home
 
     @staticmethod
     def check(status):
@@ -346,11 +360,16 @@ class NativePoseProbe:
                 if axial_socket is not None:
                     # Only the active connector's own mating wall is intentional
                     # during its constrained axial stroke; never exempt an arm.
-                    prefix, pickup = axial_socket
+                    prefix, pickup = axial_socket[:2]
+                    target_site=axial_socket[2] if len(axial_socket)>2 else prefix+'_insert_40p5'
                     other = b if a == prefix + "_plug" else a
                     geom = self.geom_name(geom2 if a == prefix + "_plug" else geom1)
-                    if ((pickup and other == "asm_board2") or
-                            (not pickup and geom.startswith(prefix + "_bore_"))):
+                    if pickup:
+                        if self._mount_ownership is None:
+                            from .mount_ownership import source_mount_ownership
+                            self._mount_ownership,_=source_mount_ownership(self.model_path)
+                        if (other=='asm_board2' or other.startswith('layout_'+prefix+'_pickup')) and self._mount_ownership.get(geom)==prefix+'_pickup':continue
+                    elif geom.startswith(target_site.replace('_insert_','_bore_')+'_'):
                         continue
                 if task_name in LOCKING_ROD_TASKS and frozenset((a, b)) in own_rod_contacts:
                     continue
@@ -388,6 +407,7 @@ class NativePoseProbe:
 
     def validate_initial(self, scene, task):
         """Production reset check only; operation paths are planned on demand."""
+        self.apply_scene_initial(scene)
         q = np.asarray(scene['randomization']['arm_joint_position_rad'], dtype=float)
         if q.shape != (8,) or not np.isfinite(q).all():
             return dict(accepted=False, reason='invalid_initial_joints')
@@ -404,6 +424,7 @@ class NativePoseProbe:
                     contact=hit, checked_poses=1, scope='initial_state_only')
 
     def validate(self, model, scene, task_name="drawer_cycle", *, task=None):
+        self.apply_scene_initial(scene)
         self.q[:] = self.home
         target = scene.get("randomization", {})
         if "target_position_m" in target:

@@ -1,3 +1,4 @@
+import {armObservation} from "../dual_arm.js";
 import { formatWristWrench } from "../wrist_wrench.js";
 import { formatMotionSpeedDiagnostics } from "../motion_diagnostics.js";
 import { readFileSync } from "node:fs";
@@ -7,10 +8,10 @@ import assert from "node:assert/strict";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "../control_status.js";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const start = source.indexOf('const obs = message.payload;', source.indexOf('message.type === "observation"'));
+const start = source.indexOf('const raw = message.payload;', source.indexOf('message.type === "observation"'));
 const observationHandler = source.slice(start, source.indexOf('} else if (message.type === "action_ack")', start));
 
-function observe(payload) {
+function observe(payload, state = {}) {
   const nodes = new Map();
   let output;
   let jointObservation;
@@ -18,7 +19,8 @@ function observe(payload) {
     if (!nodes.has(id)) nodes.set(id, { textContent: "" });
     return nodes.get(id);
   };
-  vm.runInNewContext(observationHandler, {
+  vm.runInNewContext(`(()=>{${observationHandler}})()`, {
+    state: {controlledArm: "operating", ...state}, armObservation,
     armPreparation: { update() {} },
     referenceProtectionLabel, dynamicsTimingLabel, formatWristWrench,
     message: { payload }, $, setOnline() {}, formatMotionSpeedDiagnostics,
@@ -27,6 +29,12 @@ function observe(payload) {
   });
   return { output, $, jointObservation };
 }
+
+test("previous-scene observations cannot replace current joint and motion telemetry", () => {
+  const h = observe({scene_instance_id: "previous", sim_time_ns: "1000000000"}, {sceneInstanceId: "current"});
+  assert.equal(h.jointObservation, undefined);
+  assert.equal(h.output, undefined);
+});
 
 test("SARM telemetry uses a slider velocity, not the sixth revolute joint", () => {
   const h = observe({

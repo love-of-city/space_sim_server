@@ -66,7 +66,7 @@ $ConfigPath = [IO.Path]::GetFullPath($ConfigPath, $projectRoot)
 . (Join-Path $PSScriptRoot 'deployment_config.ps1')
 . (Join-Path $PSScriptRoot 'deployment_bootstrap.ps1')
 
-# Both desktop launchers share a lock. A second click must not race startup/cleanup.
+# Start and stop operations share a lock. A second click must not race startup/cleanup.
 $hash = [Security.Cryptography.SHA256]::Create()
 try {
     $projectId = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($projectRoot.ToLowerInvariant()))).Replace('-', '')

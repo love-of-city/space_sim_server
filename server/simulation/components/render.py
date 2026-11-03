@@ -17,6 +17,8 @@ class RenderComponent:
                  capture_state_provider: Any,
                  sunlight_intensity_scale: float = 1.0,
                  camera_display_names: dict[str, str] | None = None,
+                 visual_attachments: list[dict[str, Any]] | None = None,
+                 vision_capture: dict | None = None,
                  wrist_camera_mode: str = "rgb",
                  overview_camera: dict | None = None) -> None:
         if wrist_camera_mode not in ("rgb", "fisheye", "monochrome", "monochrome_fisheye"):
@@ -32,12 +34,20 @@ class RenderComponent:
         self.capture_state_provider = capture_state_provider
         self.sunlight_intensity_scale = float(sunlight_intensity_scale)
         self.camera_display_names = camera_display_names or {}
+        self.visual_attachments = visual_attachments or []
+        self.vision_capture = vision_capture
         self.bridge: Any = None
 
     def install(self, ctx: AssemblyContext) -> None:
         from bsk_render_adapter import BasiliskRenderBridge, SceneSettings
 
         from simulation.teleop_grasp_unreal import _register_celestial_bodies
+        from pathlib import Path
+        from simulation.stereo_cameras import load_stereo_setup, register_stereo_cameras, configure_wrist_capture, vision_trigger_ids
+
+        stereo = load_stereo_setup(Path(__file__).resolve().parents[2], self.vision_capture)
+        wrist_enabled=bool(self.vision_capture and self.vision_capture.get('wrist_alignment_enabled') and ctx.extra.get('template_id')=='sarm-dual-capture26')
+        vision_ids=vision_trigger_ids(stereo, wrist_enabled, self.vision_capture)
 
         bridge = BasiliskRenderBridge(
             reliable_frames=False,
@@ -46,6 +56,8 @@ class RenderComponent:
             port=self.port,
             origin_object="teleop/cubesat_bus",
             frame_rate_hz=self.render_rate_hz,
+            vision_capture_camera_ids=tuple(vision_ids),
+            vision_capture_rate_hz=float(stereo.get('trigger_rate_hz', 10)) if stereo else 10,
         )
         bridge.add_mj_scene(
             ctx.scene,
@@ -60,6 +72,25 @@ class RenderComponent:
             camera_picture_in_picture_start_slot=1,
             camera_display_names=self.camera_display_names,
         )
+        # Added after MJCF registration to preserve full stereo resolution and all
+        # existing preview-camera poses, dimensions and product settings.
+        register_stereo_cameras(bridge, stereo)
+        configure_wrist_capture(bridge, wrist_enabled)
+        if self.visual_attachments:
+            import json
+            from pathlib import Path
+            from simulation.visual_attachments import attach_visual_geometries
+
+            contracts = []
+            count = attach_visual_geometries(bridge._objects, self.visual_attachments,
+                                            Path(__file__).resolve().parents[2],
+                                            model_path=self.model_path, contracts=contracts)
+            print(json.dumps({'type': 'visual_attachments_configuration',
+                              'geometry_count': count, 'attachments': self.visual_attachments,
+                              'resolved_contracts': contracts,
+                              'fiducial_calibration_valid': (self.vision_capture or {}).get('fiducial_calibration_valid', True),
+                              'scope': 'rendering_only'}), flush=True)
+
         for camera in bridge._cameras:
             if camera.camera_id == "teleop/camera/sarm_wrist_cam":
                 camera.camera_mode = self.wrist_camera_mode
@@ -96,6 +127,17 @@ class RenderComponent:
                 # Mount to the final camera, including sampled and demo poses.
                 # UE uses this same world light for preview and strict captures.
                 bridge.add_lights(overview_camera_lamp(camera.camera_id))
+        if ctx.extra.get('template_id') == 'sarm-dual-capture26':
+            # Internal reaction wheels remain in dynamics; omit only their display geometry.
+            for body in bridge._objects:
+                if body.object_id in {'teleop/rw_x', 'teleop/rw_y', 'teleop/rw_z'}:
+                    body.geometries = []
+            # Preview work lights are attached to optical components in UE.
+        # Persist the final platform camera contract, after its normal overrides.
+        import json
+        print(json.dumps({'type': 'platform_camera_configuration',
+                          'model': str(self.model_path),
+                          'cameras': [camera.to_payload() for camera in bridge._cameras]}), flush=True)
         celestial = ctx.extra.get("celestial")
         if celestial is not None:
             _register_celestial_bodies(bridge, *celestial)

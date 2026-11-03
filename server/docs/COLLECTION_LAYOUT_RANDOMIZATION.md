@@ -73,3 +73,17 @@ export SPACE_SIM_COLLECTION_LAYOUT_POOL=/path/to/pool.json
 录制前由 `write_model_variant` 将同一分配应用到独立模型中现有的非接触可见表面，另写外观变体和摘要；源模型、布局池、mesh、碰撞、关节和目标 site 不变。默认整体模型的多个孔共用一块视觉网格，不能独立实现七孔配色；带颜色指令的任务使用该模型时会明确报错，须传入具有完整独立孔面绑定的模型。无颜色语义的默认抽屉和诊断入口继续可用。
 
 保存的 `assignment_sha256` 必须与实际孔/零件颜色一致；改动颜色后沿用旧摘要、重复颜色、缺少可见表面绑定或跨类型目标都会在启动前被拒绝。颜色、指令和材质的静态检查不替代真实相机画面的可辨认性验收，也不代表七个孔的物理任务全部通过。
+
+
+## 操作空间与任务控制器匹配
+
+安装布局生成器 `tools/assets/build_independent_task_box_layout.py` 默认使用
+`--task-family collection`，保持 v17 插头采集的卡扣对齐姿态、沿台面正 X 方向的撤离和
+`task-box-operation-clearance/1` 操作空间契约。原有布局的几何、采样种子和验收边界不因合并场景库而切换。
+
+单独的场景库专家控制器采用另一种夹持朝向，可显式选择 `--task-family scene`；其
+`task-box-operation-clearance/2` 契约将张爪空间放在安装坐标 X 方向，并预留沿安装坐标 Y
+正负两个方向各 12 cm 的撤离空间。这种布局不能进入 v17 自动采集布局池，不能只改 schema 来复用验收。
+
+`--clearance-mode native-3d-candidate` 仅生成保留实体间距的三维规划候选；清单状态为
+`pending`，仍需独立原生轨迹和接触验收，不是可直接采集的布局。两种 XY 契约也不代表完整机械臂可达性或任务成功认证。

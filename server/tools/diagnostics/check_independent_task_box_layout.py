@@ -24,11 +24,23 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from simulation.independent_task_box_layout import (
-    FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA, OPERATION_CLEARANCE_SCHEMA,
+    FREE_BODY_MODULES, MODULES, PICKUPS, POSE_SCHEMA, SCHEMA,
     planar_transform, validate_layout_record,
 )
 from simulation.plug_retention import model_retention_sockets
 from simulation.serial_chain_kinematics import matrix_to_quaternion_wxyz, quaternion_wxyz_to_matrix
+
+
+def load_geometry_plugin(runtime, root):
+    # POSIX plugins need globally visible MuJoCo symbols. Windows Python has
+    # already loaded mujoco.dll; it has no libmujoco.so to discover.
+    libraries=list(Path(runtime.__file__).parent.glob('libmujoco.so*'))
+    keep=ctypes.CDLL(str(libraries[0]),mode=ctypes.RTLD_GLOBAL) if libraries else None
+    plugin=json.loads((root/'run/native_acceleration/sarm_thread.json').read_text())
+    if runtime.mj_version()!=plugin['runtime_version']:
+        raise ValueError('Geometry probe and production MuJoCo versions differ')
+    runtime.mj_loadPluginLibrary(str(root/plugin['library']))
+    return keep
 
 
 def check(source, layout, report_path):
@@ -39,12 +51,7 @@ def check(source, layout, report_path):
         if hashlib.sha256(file.read_bytes()).hexdigest() != record[field]:
             raise ValueError(f"Stale model/manifest: {file}")
     validate_layout_record(record)
-    library = next(Path(mujoco.__file__).parent.glob("libmujoco.so*"))
-    keep = ctypes.CDLL(str(library), mode=ctypes.RTLD_GLOBAL)
-    plugin = json.loads((ROOT/"run/native_acceleration/sarm_thread.json").read_text())
-    if mujoco.mj_version() != plugin["runtime_version"]:
-        raise ValueError("Geometry probe and production MuJoCo versions differ")
-    mujoco.mj_loadPluginLibrary(str(ROOT/plugin["library"]))
+    keep = load_geometry_plugin(mujoco,ROOT)
     a, b = (mujoco.MjModel.from_xml_path(str(path)) for path in (source, layout))
     from bsk_render_adapter.mjcf_assets import parse_mjcf_geometry_metadata
     metadata = parse_mjcf_geometry_metadata(layout)
@@ -187,7 +194,7 @@ def check(source, layout, report_path):
                                          contacts=hits, passed=maximum <= .0002))
     all_clearance = clearance+pickup_clearance
     report = dict(passed=all(c["passed"] for c in all_clearance), layout_seed=record["seed"],
-                  operation_clearance_schema=OPERATION_CLEARANCE_SCHEMA,
+                  operation_clearance_schema=record["operational_clearance"]["schema"],
                   source_model_sha256=record["source_sha256"], model_sha256=record["model_sha256"],
                   scope="13-unit footprint, compiled joints/states, 11 mating frames, precision contact parameters and 36 shaft/base clearance samples",
                   initial_states_preserved=True, orientations_preserved=record["schema"] == SCHEMA,

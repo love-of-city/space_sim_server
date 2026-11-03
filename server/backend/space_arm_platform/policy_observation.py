@@ -152,6 +152,7 @@ class PolicyObservationCache:
             "state": list(state.joint_position_rad[:6]) + [opening], "images": images,
             "applied_action": list(state.target_joint_position_rad[:6]) + [state.target_gripper_opening_normalized],
             "wrist_wrench": state.wrist_wrench.model_dump() if state.wrist_wrench else None,
+            "service_gyro": state.service_gyro.model_dump() if state.service_gyro else None,
             "policy_task_state": getattr(state, "policy_task_state", {}),
             "model_sha256": state.model_sha256,
         }

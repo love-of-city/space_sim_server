@@ -352,7 +352,8 @@ def test_randomization_switch_requires_a_boolean(value):
         CollectionCreate(randomize_overview_camera=value)
 
 
-def test_invalid_or_unsupported_saved_poses_fail_closed(tmp_path):
+@pytest.mark.parametrize("position_delta", [.1, 1e-8])
+def test_invalid_or_unsupported_saved_poses_fail_closed(tmp_path, position_delta):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     with pytest.raises(ValidationError):
         SceneInstanceCreate(template_id="sarm-task-box-20261012-demo", randomize_overview_camera=True)
@@ -363,7 +364,7 @@ def test_invalid_or_unsupported_saved_poses_fail_closed(tmp_path):
         changed[field] = value
         with pytest.raises(ValueError):
             validate_overview_camera(changed)
-    instance["overview_camera"]["position_body_m"][0] += .1
+    instance["overview_camera"]["position_body_m"][0] += position_delta
     with pytest.raises(ValueError):
         validate_overview_camera(instance)
 

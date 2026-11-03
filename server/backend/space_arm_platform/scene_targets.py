@@ -86,7 +86,7 @@ TARGETS[FREE_PLUG_TEMPLATE] = replace(
     TARGETS[TASK_BOX_TEMPLATE],
     model_file="sarm_task_box_plugs.xml",
     collision_model="local_task_box_free_plugs",
-    runtime_warning="两个无卡扣插头为自由刚体，初始抬离存放孔以避免 CAD 干涉；质量为临时假设。精细孔槽接触，实际整臂插拔尚需验收。",
+    runtime_warning="两个无卡扣插头为自由刚体，初始位于存放孔内，轴向留 0.05 mm 数值间隙；质量为临时假设。头部网格与轴部碰撞代理不等价于完整 CAD 接触，实际整臂插拔尚需验收。",
 )
 
 
@@ -110,3 +110,12 @@ def capture_target(template_id: str) -> CaptureTarget:
         return TARGETS[template_id]
     except KeyError as error:
         raise ValueError(f"unsupported scene template: {template_id}") from error
+
+
+DUAL_CAPTURE_TEMPLATE = 'sarm-dual-capture26'
+TARGETS[DUAL_CAPTURE_TEMPLATE] = replace(
+    TARGETS[SARM_20261012_TEMPLATE], model_file='sarm_dual_capture26.xml',
+    collision_model='dual_capture26_import_preview',
+    runtime_warning='新版带贴图 SARM 与任务盒 + 底部四 L 爪。两臂可独立选择遥操作，抓取臂初始收起；精细目标碰撞和完整抓取轨迹尚待平台验证。')
+
+SARM_TEMPLATES += (DUAL_CAPTURE_TEMPLATE,)

@@ -102,21 +102,23 @@ def cylindrical_hold_opening(task, sample):
         probe.close()
 
 
+plug_hold_opening = cylindrical_hold_opening
+
+
 def cylindrical_retract_candidates(task):
     """The same short rising endpoints for direct checks and detour search."""
     position, rotation = task.chain.forward(task.reference[:6])
-    tangent = rotation[:, 1].copy()
-    tangent[2] = 0.
+    normal = task.hole_rotation[:, 2]
+    tangent = rotation[:, 1] - normal * float(rotation[:, 1] @ normal)
     tangent /= np.linalg.norm(tangent)
-    if tangent[0] < 0:
+    if tangent @ task.hole_rotation[:, 0] < 0:
         tangent = -tangent
     candidates = []
     for height in (.08, .12):
         for angle in (0., math.pi/4, -math.pi/4, math.pi/2, -math.pi/2, math.pi):
             c, s = math.cos(angle), math.sin(angle)
-            direction = np.array([c*tangent[0]-s*tangent[1],
-                                  s*tangent[0]+c*tangent[1], 0.])
-            candidates.append(dict(position=position+.12*direction+[0.,0.,height],
+            direction = c*tangent + s*np.cross(normal,tangent)
+            candidates.append(dict(position=position+.12*direction+normal*height,
                                    rotation=rotation,height_m=height,angle_rad=angle,
                                    direction_body=direction.tolist()))
     return candidates

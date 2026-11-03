@@ -1,4 +1,4 @@
-"""Real catalog compilation with the locally built SARM plugin, when available."""
+"""Asset metadata extraction must not load a second MuJoCo/plugin runtime."""
 import json
 from pathlib import Path
 import subprocess
@@ -7,7 +7,7 @@ import sys
 import pytest
 
 
-def test_catalog_generator_registers_plugin_in_its_own_process(tmp_path):
+def test_catalog_generator_reads_geometry_without_compiling_plugin_physics(tmp_path):
     root = Path(__file__).resolve().parents[1]
     manifest = root / 'run/native_acceleration/sarm_thread.json'
     if not manifest.is_file():
@@ -29,9 +29,10 @@ def test_catalog_generator_registers_plugin_in_its_own_process(tmp_path):
     command = [sys.executable, str(generator), '--mjcf', str(model), '--destination', '/Game/Test',
                '--catalog', str(tmp_path / 'catalog.json'), '--import-settings', str(tmp_path / 'import.json')]
     missing = subprocess.run(command, capture_output=True, text=True, timeout=30)
-    assert missing.returncode != 0
-    assert 'plugin sarm.sdf.two_start_thread not found' in missing.stderr
+    assert missing.returncode == 0, missing.stderr
+    expected = json.loads((tmp_path / 'catalog.json').read_text())
     loaded = subprocess.run(command + ['--mujoco-plugin', str(library)], capture_output=True,
                             text=True, timeout=30)
     assert loaded.returncode == 0, loaded.stderr
+    assert json.loads((tmp_path / 'catalog.json').read_text()) == expected
     assert len(json.loads((tmp_path / 'catalog.json').read_text())['assets']) == 1

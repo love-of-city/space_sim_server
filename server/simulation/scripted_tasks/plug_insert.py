@@ -147,6 +147,7 @@ class PlugSample:
     wrench_valid: bool
     finger_plug_contacts: tuple[int, int] | None = None
     native_qpos: np.ndarray | None = None
+    site_poses: dict | None = None
 
 
 class PlugInsertTask:

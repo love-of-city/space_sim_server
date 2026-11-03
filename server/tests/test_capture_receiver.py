@@ -77,3 +77,18 @@ def test_network_ack_and_replay_with_real_socket():
         assert receiver.wait_for_authoritative_idle()
         assert len(received)==1 and received[0][1]=={"rgb":b"jpg"}
     finally:receiver.close()
+
+
+def test_vision_is_reliable_but_never_recorded_as_dataset():
+    recorded, vision = [], []
+    receiver = CaptureReceiver('127.0.0.1', 0, lambda m, p: recorded.append(m),
+                               on_vision_capture=lambda m, p: vision.append((m, p)))
+    metadata = dict(stream_kind='vision', state_kind='authoritative', session_id='s',
+                    source_frame_id='10', camera_id='left', capture_sequence='2',
+                    sim_time_ns='100000000', capture_episode_id='', ack_required=True)
+    receiver.route_capture(metadata, {'rgb': b'png'})
+    receiver.route_capture(metadata, {'rgb': b'png'})
+    assert recorded == []
+    assert vision == [(metadata, {'rgb': b'png'})]
+    assert receiver.status()['vision_count'] == 1
+    assert receiver.status()['authoritative_count'] == 0

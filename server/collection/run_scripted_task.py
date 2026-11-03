@@ -51,6 +51,15 @@ def default_target_state(model):
     )
 
 
+def benchmark_wrist_protection(force_limit):
+    return dict(force_limit_n=min(force_limit, 40.), torque_limit_nm=4.)
+
+
+def uses_scene_expert(args):
+    """Scene-library experts and fixed replay are explicit, separate contracts."""
+    return bool(getattr(args, "scene_expert", False) or getattr(args, "replay_trajectory", None))
+
+
 def run(args, *, graph_cache=None):
     initialization_started = time.perf_counter()
     initialization_seconds = {}
@@ -97,16 +106,33 @@ def run(args, *, graph_cache=None):
     from simulation.scripted_tasks.disturbances import EpisodeDisturbances
     source_model = model
     scene_instance = json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
+    scene_expert = uses_scene_expert(args)
+    rod_replay = bool(getattr(args, "rod_path", None))
+    if scene_expert or rod_replay:
+        # Scene/preheld and benchmark state is deliberately not reused by the
+        # collection graph cache, whose contract contains collection components.
+        graph_cache = None
     scene_instance["scripted_task_name"] = args.task
     scene_instance.setdefault("collection_config", {})["task"] = args.task
+    scene_instance["collection_config"]["controller_family"] = (
+        "rod_replay" if rod_replay else "scene_expert" if scene_expert else "collection")
     if args.task == "drawer_close":
         scene_instance["collection_config"]["drawer_initial_opening_m"] = args.lift_m
     if args.task in THREADED_TASKS:
         scene_instance["collection_config"]["threaded_speed_profile"] = args.threaded_speed_profile
-    prepare_episode(scene_instance)
+    prepare_episode(scene_instance, collection_features=not (scene_expert or rod_replay))
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    model = write_model_variant(source_model, output / "model.xml", scene_instance)
+    if rod_replay or getattr(args, "replay_trajectory", None):
+        from simulation.scripted_tasks.randomization import options_for_scene
+        randomized = options_for_scene(scene_instance).model_dump()
+        if any(isinstance(value, dict) and value.get("enabled") for value in randomized.values()):
+            raise ValueError("Model-matched replay forbids collection randomization")
+        # A frozen path binds the exact source geometry and mechanism initial state.
+        model = source_model
+    else:
+        model = write_model_variant(source_model, output / "model.xml", scene_instance,
+                                    collection_features=not scene_expert)
     disturbances = EpisodeDisturbances(scene_instance)
     native.MODEL_PATH = model
     profile = load_model_profile(model)
@@ -118,7 +144,7 @@ def run(args, *, graph_cache=None):
     )
     native.TIME_STEP = 1 / DYNAMICS_HZ
     orbital_physics = resolve_orbital_physics(scene_instance)
-    if args.scene and scene_instance.get("template_id") != "sarm-task-box-20261012":
+    if args.scene and scene_instance.get("template_id") != "sarm-task-box-20261012" and not scene_instance.get('preheld_capture'):
         raise ValueError("The scripted task requires the SARM 2026-10-12 scene")
     initial = np.r_[
         np.deg2rad(args.initial_joints_deg or DEFAULT_OPERATING_JOINT_DEG), 0.0, 0.0
@@ -130,13 +156,18 @@ def run(args, *, graph_cache=None):
     drawer_options = dict(
         lift_m=args.lift_m,
         grip_offset_m=tuple(args.grip_offset_m),
-        force_limit_n=args.force_limit,
+        **(benchmark_wrist_protection(args.force_limit) if scene_expert
+           else dict(force_limit_n=args.force_limit)),
     )
     if args.arm_speed is not None:
         drawer_options["arm_speed_rad_s"] = args.arm_speed
     if args.linear_speed is not None:
         drawer_options["linear_speed_m_s"] = args.linear_speed
-    if args.task in THREADED_TASKS:
+    if rod_replay:
+        from simulation.scripted_tasks.locking_rod_replay import LockingRodReplayTask
+        task = LockingRodReplayTask(model, args.rod_path)
+        config = task.config
+    elif args.task in THREADED_TASKS:
         options = {}
         if args.arm_speed is not None:
             options["arm_speed_rad_s"] = args.arm_speed
@@ -151,25 +182,66 @@ def run(args, *, graph_cache=None):
             PlugInsertConfig,
         )
 
-        config = PlugInsertConfig(
-            plug_body=plug_profile(args.task).body,
-            target_site=args.target_site,
-            arm_speed_rad_s=args.arm_speed,
-            grasp_offset_m=tuple(args.plug_grasp_offset) if args.plug_grasp_offset is not None else None,
-            force_limit_n=min(args.force_limit, 40.0),
-        )
-        task = PlugInsertTask(model, config)
+        if scene_expert:
+            from simulation.scripted_tasks.scene_plug import PlugInsertConfig, PlugInsertTask
+            config = PlugInsertConfig(
+                plug_body=plug_profile(args.task).body,
+                transport_clearance_m=getattr(args, "transport_clearance", None),
+                part_velocity_damping=getattr(args, "part_velocity_damping", None),
+                transfer_offset_xy_m=tuple(getattr(args, "transfer_offset_xy", None) or (0., 0.)),
+                release_speed_rad_s=.05 if args.release_speed is None else args.release_speed,
+                target_site=args.target_site,
+                arm_speed_rad_s=.08 if args.arm_speed is None else args.arm_speed,
+                grasp_offset_m=tuple(args.plug_grasp_offset or (0., 0., -.003)),
+                **benchmark_wrist_protection(args.force_limit),
+            )
+            if args.environment_planning and not args.replay_trajectory:
+                from simulation.scripted_tasks.environment_tasks import EnvironmentPlugTask
+                task = EnvironmentPlugTask(model, config)
+            else:
+                task = PlugInsertTask(model, config)
+        else:
+            config = PlugInsertConfig(
+                plug_body=plug_profile(args.task).body,
+                target_site=args.target_site,
+                arm_speed_rad_s=args.arm_speed,
+                grasp_offset_m=tuple(args.plug_grasp_offset) if args.plug_grasp_offset is not None else None,
+                force_limit_n=min(args.force_limit, 40.0),
+                release_speed_rad_s=getattr(args, "release_speed", None),
+            )
+            task = PlugInsertTask(model, config)
     elif args.task in DRAWER_TASKS:
         from simulation.scripted_tasks.drawer_tasks import create_drawer_task
 
-        task = create_drawer_task(args.task, model, **drawer_options)
+        if getattr(args, "seating_overtravel", None) is not None:
+            drawer_options["seating_overtravel_m"] = args.seating_overtravel
+        if scene_expert and args.task == "drawer_cycle":
+            from simulation.scripted_tasks.scene_drawer import SceneDrawerCycleTask, SceneDrawerCycleConfig
+            task = SceneDrawerCycleTask(model, SceneDrawerCycleConfig(**drawer_options))
+            if args.environment_planning and not args.replay_trajectory:
+                from simulation.scripted_tasks.environment_motion import enable
+                enable(task)
+        else:
+            task = create_drawer_task(args.task, model, **drawer_options)
         config = task.config
     else:
         config = DrawerLiftConfig(**drawer_options)
         task = DrawerLiftTask(model, config)
+    config = task.config
     if getattr(args, "native_geometry", False):
         task.chain.enable_native_geometry()
     from simulation.scripted_tasks.native_state import STATE_READERS
+    state_reader_class = STATE_READERS[args.task]
+    if rod_replay:
+        from simulation.scripted_tasks.locking_rod_replay import LockingRodState
+        state_reader_class = LockingRodState
+
+    if getattr(args, "replay_trajectory", None):
+        from simulation.evaluation.replay import FixedReplayTask
+        options = scene_instance.get("collection_config", {}).get("randomization_options", {})
+        if any(v.get("enabled", False) for v in options.values() if isinstance(v, dict)):
+            raise ValueError("Fixed-condition evaluation forbids randomization")
+        task = FixedReplayTask(task, args.replay_trajectory, model, initial, ROOT)
 
     if (
         initial.shape != (8,)
@@ -181,7 +253,7 @@ def run(args, *, graph_cache=None):
             "Initial arm angles must be finite and inside model joint limits"
         )
     command, velocity = initial.copy(), np.zeros(8)
-    if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS:
+    if not (scene_expert or rod_replay) and (args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS):
         scene_instance.setdefault("collection_config", {})["environment_planning"] = {
             "schema": "native-environment-motion/2",
             "enabled": True,
@@ -195,11 +267,13 @@ def run(args, *, graph_cache=None):
     sim = stepper = orbit = capture = None
     report = dict(
         task_name=args.task,
+        controller_family="rod_replay" if rod_replay else "scene_expert" if scene_expert else "collection",
         result="failed",
         reason="initialization_incomplete",
         model=str(model),
         model_sha256=hashlib.sha256(model.read_bytes()).hexdigest(),
         config=asdict(config),
+        environment_planning=bool(getattr(task, 'environment_planning', False)),
         collection_config=scene_instance.get("collection_config"),
         initial_arm_joint_deg=np.rad2deg(initial[:6]).tolist(),
         physics_hz=DYNAMICS_HZ,
@@ -232,11 +306,16 @@ def run(args, *, graph_cache=None):
                          ROOT / "simulation/scripted_tasks/physics_graph.py")
         },
     }
+    evidence_stream = None
+    if getattr(args, "replay_trajectory", None):
+        evidence_stream = (output / "evaluation_rows.jsonl").open("x", encoding="utf-8")
+        (output / "scorer_spec.json").write_text(json.dumps(task.scorer_spec(), indent=2), encoding="utf-8")
+        report["fixed_trajectory_sha256"] = task.trajectory_sha256
     sample = None
     simulation_wall_seconds = 0.0
     loop_started = None
     try:
-        if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS:
+        if not (scene_expert or rod_replay) and (args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS):
             phase_started = time.perf_counter()
             from copy import deepcopy
             from simulation.scripted_tasks.environment_motion import enable
@@ -314,6 +393,13 @@ def run(args, *, graph_cache=None):
                 ]
             )
             from simulation.components.plug_retention import install_configured_plug_retention
+            if scene_instance.get("preheld_capture"):
+                from simulation.components.preheld_capture import PreheldCaptureComponent
+                hold = PreheldCaptureComponent(
+                    model, scene_instance["randomization"]["preheld_capture_joint_position"],
+                    gains=scene_instance["preheld_capture"].get("hold_gains"))
+                ctx.install([hold])
+                report["preheld_capture"] = dict(scene_instance["preheld_capture"], hold_gains=hold.gains)
             plug_retention = install_configured_plug_retention(ctx)
             report["plug_retention"] = (plug_retention.configuration() if plug_retention else {"enabled": False})
             if orbital_physics.drag is not None:
@@ -322,7 +408,10 @@ def run(args, *, graph_cache=None):
                     orbital_physics.drag, planet_radius_m=float(orbit.earth.radEquator)))
             report["orbital_physics"] = environment_metadata(
                 orbital_physics, orbit.earth, epoch_utc=orbit.epoch_utc)
-            state_reader = STATE_READERS[args.task](task, scene, stepper)
+            if getattr(args, "replay_trajectory", None):
+                task.trajectory.validate_physics(dict(substeps=stepper.substeps,
+                    plug_retention=report["plug_retention"], orbital_physics=report["orbital_physics"]))
+            state_reader = state_reader_class(task, scene, stepper)
             initialization_seconds["assemble_components"] = time.perf_counter() - phase_started
             phase_started = time.perf_counter()
             if args.capture_control_port:
@@ -389,6 +478,7 @@ def run(args, *, graph_cache=None):
         # pre-roll and video finalization; no per-tick logging or profiling.
         recording_work = dict(transport_s=0., backpressure_wait_s=0., state_sample_s=0.,
                               task_control_s=0., simulation_s=0., loop_other_s=0.)
+        terminal_observer=None
         trace_context = (output / "trace.jsonl").open("w", encoding="utf-8") if getattr(args, "save_trace", True) else nullcontext(None)
         with trace_context as trace:
             while True:
@@ -463,6 +553,8 @@ def run(args, *, graph_cache=None):
                         # can finish and the dataset records a rejected episode.
                         task.fail(f"planning_failed: {error}", sample)
                         nominal_command, nominal_velocity = task.reference.copy(), np.zeros(8)
+                    if evidence_stream is not None and task.last_physical_row is not None and abs(task.last_physical_row["time_s"]-elapsed)<1e-9:
+                        evidence_stream.write(json.dumps(task.last_physical_row) + "\n")
                     if task.result is None:
                         command[:], velocity[:] = disturbances.action(nominal_command, nominal_velocity, elapsed, task.lower, task.upper)
                     else:
@@ -520,7 +612,23 @@ def run(args, *, graph_cache=None):
                         flush=True,
                     )
                 if not capture and task.result is not None:
-                    break
+                    if task.result!='success' or getattr(args,'terminal_observation_seconds',0.)==0:
+                        break
+                    if terminal_observer is None:
+                        from simulation.evaluation.terminal_observation import TerminalObservation
+                        terminal_observer=TerminalObservation(args.terminal_observation_seconds,
+                            task.config.force_limit_n,task.config.torque_limit_nm,.15 if is_plug_task(args.task) else .1)
+                        if getattr(task,'_overload',0.)>0:
+                            terminal_observer.overload=elapsed-task._overload
+                    if not sample.wrench_valid:
+                        task.fail('wrist_sensor_unavailable_during_terminal_observation',sample)
+                        break
+                    task.max_force_n=max(task.max_force_n,float(np.linalg.norm(sample.wrench[:3])))
+                    task.max_torque_nm=max(task.max_torque_nm,float(np.linalg.norm(sample.wrench[3:])))
+                    if terminal_observer.update(elapsed,sample.wrench):break
+                    if terminal_observer.failed:
+                        task.fail('wrist_load_limit_during_terminal_observation',sample)
+                        break
                 sim.ConfigureStopTime(tick_time_ns(frame + 1, SCRIPTED_TASK_HZ))
                 step_started = time.perf_counter()
                 sim.ExecuteSimulation()
@@ -536,6 +644,8 @@ def run(args, *, graph_cache=None):
                 frame += 1
             if task.result is None:
                 task.fail("total_simulation_timeout", sample)
+            elif terminal_observer is not None and not terminal_observer.complete and task.result=='success':
+                task.fail('terminal_observation_timeout',sample)
         report.update(
             recording_work_wall_seconds={**recording_work, "total_s": sum(recording_work.values())},
             result=task.result,
@@ -558,10 +668,11 @@ def run(args, *, graph_cache=None):
             schedule=ctx.summary(),
             plug_retention_final=plug_retention.telemetry() if plug_retention else {},
         )
+        report['motion_plans'] = getattr(task, 'motion_plans', [])
         _ = models, recorders, ctx
     except (Exception, KeyboardInterrupt) as exc:
         report.update(
-            result="failed", reason=f"{type(exc).__name__}: {exc}", events=task.events
+            result="failed", reason=f"{type(exc).__name__}: {exc}", events=task.events, runtime_error=True
         )
         if graph_cache is not None:
             graph_cache.close()
@@ -581,6 +692,9 @@ def run(args, *, graph_cache=None):
             report["runtime_provenance_error"] = f"{type(error).__name__}: {error}"
             if not unwinding:
                 report.update(result="failed", reason="native_runtime_identity_mismatch")
+        if evidence_stream is not None:
+            evidence_stream.close()
+            report["independent_evaluation"] = task.scorer.report()
         finished = time.perf_counter()
         report["wall_seconds"] = finished - started
         report["task_loop_wall_seconds"] = (
@@ -632,6 +746,15 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
         help="Diagnostic model override; recording requires a validated layout manifest and matching catalog",
     )
     parser.add_argument("--target-site", default=None)
+    parser.add_argument("--scene-expert", action="store_true", help="Use scene-library benchmark expert instead of the collection controller")
+    parser.add_argument('--rod-path', type=Path, help='Model-matched native geometry path for captive rod diagnostics')
+    parser.add_argument('--seating-overtravel', type=float,
+                        help='Drawer seating reference preload in metres; validated below closure tolerance')
+    parser.add_argument("--transport-clearance", type=float, default=None,
+                        help="Optional plug transport clearance above the highest mating surface (m)")
+    parser.add_argument('--part-velocity-damping', type=float, help='Optional measured-part velocity damping during insertion/seating')
+    parser.add_argument('--transfer-offset-xy', type=float, nargs=2, help='Intermediate carry waypoint offset; mating hole stays fixed')
+    parser.add_argument('--release-speed', type=float, help='Optional slower physical jaw opening in rad/s')
     parser.add_argument(
         "--plug-grasp-offset", type=float, nargs=3, default=None
     )
@@ -644,6 +767,10 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     parser.add_argument("--substeps", type=int, default=None)
     parser.add_argument("--save-trace", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--native-geometry", action="store_true", help="Use the installed exact C++ FK/Jacobian helper")
+    parser.add_argument('--environment-planning',action=argparse.BooleanOptionalAction,default=True,
+                        help='Check actual 3D environment and search free-motion paths; fixed replay never replans')
+    parser.add_argument('--terminal-observation-seconds',type=float,default=0.,
+                        help='Optional stationary post-completion evidence; raw overload stop remains active')
     parser.add_argument("--capture-backpressure-poll-s", type=float, default=0.002)
     parser.add_argument("--warmup-sim-seconds", type=float, default=0.0)
     parser.add_argument("--lift-m", type=float, default=0.08)
@@ -655,6 +782,7 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     )
     parser.add_argument("--initial-joints-deg", type=float, nargs=6)
     parser.add_argument("--scene", type=Path)
+    parser.add_argument("--replay-trajectory", type=Path, help="Fixed-condition replay; no adaptive task execution or online target correction")
     parser.add_argument("--capture-control-port", type=int)
     parser.add_argument("--capture-render-port", type=int)
     parser.add_argument("--catalog", type=Path)
@@ -662,6 +790,17 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     args = parser.parse_args(argv)
     if args.max_sim_seconds is None:
         args.max_sim_seconds = task_default_duration_s(args.task)
+    if args.rod_path and (args.task != 'locking_rod_cycle' or args.capture_control_port or args.replay_trajectory):
+        parser.error('Rod diagnostic requires --rod-path and currently supports headless native execution only')
+    if not np.isfinite(args.terminal_observation_seconds) or not 0<=args.terminal_observation_seconds<=10:
+        parser.error('terminal-observation-seconds must be finite and in [0,10]')
+    if args.terminal_observation_seconds and args.capture_control_port:
+        parser.error('terminal observation is currently supported by headless evaluation only')
+    if args.replay_trajectory and (args.scene or args.capture_control_port or args.warmup_sim_seconds):
+        parser.error("Fixed-condition replay currently requires default scene, zero warmup, and no capture mode")
+    if not uses_scene_expert(args) and any(value is not None for value in (
+            args.transport_clearance, args.part_velocity_damping, args.transfer_offset_xy)):
+        parser.error("Scene-specific plug options require --scene-expert")
     try:
         motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
     except ValueError as error:

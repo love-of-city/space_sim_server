@@ -10,7 +10,10 @@ cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
 def test_all_six_tasks_are_production_names():
     from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
     from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
-    assert set(cli.TASKS)=={'drawer_cycle',*PLUG_PROFILES,*THREADED_TASKS}
+    # The existing release launcher offers six complete tasks; the backend also
+    # registers directional phases. Adding a phase must not widen this package.
+    assert set(cli.TASKS)=={'drawer_cycle',*PLUG_PROFILES,'aviation_bolt_insert','locking_rod_cycle'}
+    assert set(cli.TASKS)<={'drawer_cycle',*PLUG_PROFILES,*THREADED_TASKS}
 
 @pytest.mark.parametrize('arguments',[
  ['run','--task','drawer_cycle','--output','unused'],

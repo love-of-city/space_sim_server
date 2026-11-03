@@ -38,6 +38,7 @@ private:
     friend class FBskConnectionReconnectTest;
     friend class FBskReliableFramesTest;
     friend class FBskOnDemandCaptureTest;
+    friend class FBskVisionSourceRetentionTest;
     bool CreateListener();
     void CloseClient();
     void CloseSockets();

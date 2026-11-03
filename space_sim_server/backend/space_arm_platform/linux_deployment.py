@@ -79,6 +79,7 @@ def environment(config):
     engine = Path(config["unreal"]) / "Engine"
     dotnet = engine / "Binaries/ThirdParty/DotNet/8.0.300/linux-x64"
     env["UE_DOTNET_DIR"] = env["DOTNET_ROOT"] = str(dotnet)
+    env["PATH"] = str(dotnet) + os.pathsep + env["PATH"]
     env["DOTNET_CLI_HOME"] = str(ROOT / "run/dotnet")
     env["DOTNET_SYSTEM_GLOBALIZATION_APPLOCALICU"] = ":64.1"
     env["DOTNET_gcServer"] = "0"
@@ -126,7 +127,7 @@ def preflight(config, prepare=False):
         subprocess.run([config["npm"], "run", "build"], cwd=ROOT / "frontend", env=env, check=True)
         subprocess.run([config["npm"], "run", "check"], cwd=ROOT / "signalling", env=env, check=True)
         for tool, extra in (("build_native_acceleration.py", ["--component", "all"]), ("build_sarm_plugin.py", [])):
-            subprocess.run([config["python"], str(ROOT / "tools" / tool), *extra], cwd=ROOT, env=env, check=True)
+            subprocess.run([config["python"], str(ROOT / "tools/assets" / tool), *extra], cwd=ROOT, env=env, check=True)
         binaries = [project / "Binaries/Linux/libUnrealEditor-BskUnrealRenderer.so",
                     project / "Plugins/BskUnrealRuntime/Binaries/Linux/libUnrealEditor-BskUnrealRuntime.so"]
         if not all(path.is_file() for path in binaries):

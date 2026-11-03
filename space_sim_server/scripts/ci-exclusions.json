@@ -36,6 +36,8 @@
     "tests/test_gyroscope_native.py": "Basilisk scheduler and real SCStatesMsg; run in the native simulation environment. Pure sensor statistics, wire validation and recording remain in basic CI."
   },
   "nodes": {
+    "tests/test_native_planning_clearance.py::test_clearance_is_local_to_private_model_and_reports_positive_separation": "Basilisk MuJoCo runtime and locally built clearance helper; run separately on the native simulation host",
+    "tests/test_plug_retention.py::test_cross_owner_channels_apply_only_one_retention_reaction": "Basilisk MJScene and locally built native friction solver; run on the simulation host alongside the other native retention tests",
     "tests/test_overview_camera.py::test_saved_v3_p3_replays_its_real_recording_calibration": "Basilisk live scene loader; run separately in the native simulation environment",
     "tests/test_overview_camera.py::test_saved_v1_record_replays_without_switching_to_30cm": "Basilisk live scene loader; run separately in the native simulation environment",
     "tests/test_overview_camera.py::test_attempt_resamples_but_recording_preparation_and_reload_preserve_pose": "Basilisk live scene loader; run separately in the native simulation environment",

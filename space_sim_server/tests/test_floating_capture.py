@@ -53,7 +53,8 @@ def test_release_replays_and_preserves_team_geometry(tmp_path, name):
     assert 0 < np.linalg.norm(state["angular_velocity_body_rad_s"]) <= .003
     before, after = ET.fromstring(original), ET.parse(path).getroot()
     body = after.find(f'./worldbody/body[@name="{FLOATING_TASKS[name].body}"]')
-    original_body = before.find(f'.//body[@name="{FLOATING_TASKS[name].body}"]')
+    asset = FLOATING_TASKS[name]
+    original_body = before.find(f'.//body[@name="{asset.source_body or asset.body}"]')
     assert body is not None
     assert body.find("freejoint") is not None or body.find('joint[@type="free"]') is not None
     inertial, original_inertial = body.find("inertial"), original_body.find("inertial")
@@ -61,7 +62,7 @@ def test_release_replays_and_preserves_team_geometry(tmp_path, name):
         assert inertial is None  # Source mass/inertia are computed from geoms.
     else:
         assert inertial.attrib == original_inertial.attrib
-    physical = lambda g: {key: value for key, value in g.attrib.items() if key not in ("rgba", "material")}
+    physical = lambda g: {key: value for key, value in g.attrib.items() if key not in ("rgba", "material", "name")}
     assert [physical(g) for g in body.findall("geom")] == [physical(g) for g in original_body.findall("geom")]
     assert not after.findall("./equality/weld")
     assert before.find('.//camera[@name="sarm_wrist_cam"]').attrib == after.find('.//camera[@name="sarm_wrist_cam"]').attrib
@@ -293,3 +294,33 @@ def test_release_freezes_grasp_description(tmp_path):
     release["asset_snapshot"]["grip_point"][2] += .001
     with pytest.raises(ValueError, match="snapshot"):
         write_model_variant(MODEL, tmp_path/"changed.xml", scene)
+
+
+@pytest.mark.parametrize("name", [n for n, a in FLOATING_TASKS.items() if a.source_body])
+def test_copied_part_preserves_assembly_and_has_one_free_body(tmp_path, name):
+    scene, path = realized(tmp_path, name)
+    before, after = ET.parse(MODEL).getroot(), ET.parse(path).getroot()
+    asset = FLOATING_TASKS[name]
+    original = before.find(f'.//body[@name="{asset.source_body}"]')
+    retained = after.find(f'.//body[@name="{asset.source_body}"]')
+    assert ET.tostring(original) == ET.tostring(retained)
+    body = after.find(f'./worldbody/body[@name="{asset.body}"]')
+    assert body.find("body") is None and body.find("site") is None
+    assert len(body.findall("freejoint")) == 1 and not body.findall("joint")
+    for tag in ("contact", "equality", "actuator", "sensor"):
+        assert ET.tostring(before.find(tag)) == ET.tostring(after.find(tag))
+    assert scene["collection_config"]["floating_initial_state"]["asset_snapshot"]["source_body"] == asset.source_body
+    for tag in ("body", "geom"):
+        names = [e.get("name") for e in after.iter(tag) if e.get("name")]
+        assert len(names) == len(set(names))
+    joints = [e.get("name") for e in after.iter() if e.tag in ("joint", "freejoint") and e.get("name")]
+    # Equality entries use joint tags too, but names are also globally distinct here.
+    assert len(joints) == len(set(joints))
+
+
+def test_existing_snapshot_and_copy_source_identity(tmp_path):
+    assert "source_body" not in FLOATING_TASKS["floating_aviation_plug_capture"].snapshot()
+    scene, _ = realized(tmp_path, "floating_hook_capture")
+    scene["collection_config"]["floating_initial_state"]["asset_snapshot"]["source_body"] = "limit_clip"
+    with pytest.raises(ValueError, match="snapshot"):
+        write_model_variant(MODEL, tmp_path/"changed-source.xml", scene)

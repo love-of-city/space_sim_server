@@ -1,5 +1,6 @@
 """Reproducible release of existing model parts, before dynamics starts."""
 from dataclasses import dataclass
+from copy import deepcopy
 import hashlib
 import math
 import xml.etree.ElementTree as ET
@@ -64,7 +65,29 @@ def apply_floating_model(root, source, scene):
     asset = FLOATING_TASKS[name]
     cfg = scene["collection_config"]
     options = FloatingInitialConfig(**scene.get("floating_capture", {}))
-    body = root.find(f'.//body[@name="{asset.body}"]')
+    if asset.source_body is not None:
+        original = root.find(f'.//body[@name="{asset.source_body}"]')
+        if original is None or original.find("geom") is None:
+            raise ValueError(f"Floating source {asset.source_body} has no direct geometry")
+        body = ET.Element("body", name=asset.body)
+        # Geometry and inertia remain in source-body coordinates. Assembly poses,
+        # descendants, joints and sites do not belong to this independent part.
+        for index, item in enumerate(original):
+            if item.tag not in ("geom", "inertial"):
+                continue
+            copied = deepcopy(item)
+            if item.tag == "geom":
+                copied.set("name", f"{asset.body}_{item.get('name', str(index))}")
+            body.append(copied)
+        ET.SubElement(body, "freejoint", name=f"{asset.body}_free")
+        for item in body.iter():
+            tags = ("joint", "freejoint") if item.tag == "freejoint" else (item.tag,)
+            if "name" in item.attrib and any(
+                    root.find(f'.//{tag}[@name="{item.get("name")}"]') is not None for tag in tags):
+                raise ValueError(f"Floating copy name already exists: {item.get('name')}")
+        root.find("worldbody").append(body)
+    else:
+        body = root.find(f'.//body[@name="{asset.body}"]')
     if body is None:
         raise ValueError(f"Team asset {asset.body} is missing from the selected model")
     chain = SerialChainKinematics.from_mjcf(source, base_body="cubesat_bus",

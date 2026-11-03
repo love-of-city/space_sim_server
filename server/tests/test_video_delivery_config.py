@@ -84,7 +84,7 @@ def test_rate_plumbed_through_both_deployment_modes():
 
 
 def test_no_change_to_physics_or_camera_resolution():
-    runtime = (ROOT / "simulation/teleop_grasp_unreal.py").read_text(encoding="utf-8")
+    runtime = (ROOT / "simulation/teleop_session.py").read_text(encoding="utf-8")
     # The render bridge is created by the render component now; the rates and the
     # camera resolution are still plumbed through unchanged.
     render = (ROOT / "simulation/components/render.py").read_text(encoding="utf-8")
@@ -186,7 +186,8 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
     import sys
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
-    from space_arm_platform.app import PlatformConfig, create_app
+    from space_arm_platform.app import create_app
+    from space_arm_platform.platform_config import PlatformConfig
     from space_arm_platform.models import SceneInstanceCreate
 
     project = tmp_path / "project"
@@ -232,7 +233,7 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
 
 @pytest.mark.parametrize("quality", [-1, 101, True, "60", 60.5, None])
 def test_platform_config_rejects_invalid_quality(tmp_path, quality):
-    from space_arm_platform.app import PlatformConfig
+    from space_arm_platform.platform_config import PlatformConfig
     with pytest.raises(ValueError, match="runtime_encoder_min_quality"):
         PlatformConfig(project_root=tmp_path, data_root=tmp_path, runtime_encoder_min_quality=quality)
 

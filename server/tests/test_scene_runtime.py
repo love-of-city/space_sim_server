@@ -10,7 +10,8 @@ import pytest
 
 from fastapi.testclient import TestClient
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.orbital_physics import OrbitalPhysics
 from space_arm_platform.control_defaults import (

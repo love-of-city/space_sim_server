@@ -1,12 +1,10 @@
+import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const startSource = source.slice(source.indexOf("async function startScene()"), source.indexOf("async function resetScene()"));
-const stopSource = source.slice(source.indexOf("async function stopScene()"), source.indexOf("function connect()"));
-const refreshSource = source.slice(source.indexOf("async function refreshState()"), source.indexOf("function updateEpisodeUI()"));
 
 function deferred() {
   let resolve, reject;
@@ -43,7 +41,7 @@ function harness() {
     setMessage: message => messages.push(message),
     jointAngles: { clear() {} },
   });
-  vm.runInContext(startSource + stopSource + refreshSource, context);
+  Object.assign(context, createSceneSession(context));
   return { context, state, requests, runtimes, armed, online, messages };
 }
 

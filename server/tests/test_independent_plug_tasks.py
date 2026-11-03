@@ -5,11 +5,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
-from simulation.scripted_tasks.plug_insert import (
-    PlugInsertTask,
-    PlugInsertConfig,
-    PlugSample,
-)
+from simulation.scripted_tasks.plug_insert import PlugInsertTask, PlugSample
+from simulation.scripted_tasks.plug_motion_config import PlugInsertConfig
 from simulation.scripted_tasks.motion import solve_pose
 from simulation.serial_chain_kinematics import (
     quaternion_wxyz_to_matrix,
@@ -135,7 +132,7 @@ def test_geometric_confirmation_restarts_when_plug_leaves_seat():
 
 @pytest.mark.parametrize("name", PLUG_PROFILES)
 def test_saved_completion_accepts_residual_motion_but_keeps_geometry_and_history(name):
-    from collection.collect_scripted_tasks import validate_plug_recording
+    from collection.recording_validation import validate_plug_recording
 
     task, sample = make_task(name)
     q = sample.joints.copy()
@@ -154,7 +151,7 @@ def test_saved_completion_accepts_residual_motion_but_keeps_geometry_and_history
     with pytest.raises(AssertionError):
         validate_plug_recording(steps, stages, name)
     steps[-1]["scripted_task"]["seat_gap_m"] = 0.
-    steps[-1]["scripted_task"]["task_version"] = task.straight_approach_version
+    steps[-1]["scripted_task"]["task_version"] = 'plug-insert/14-straight-approach-gentle-release'
     with pytest.raises(AssertionError):
         validate_plug_recording(steps, stages, name)
 
@@ -169,7 +166,7 @@ def test_tracking_moves_reference_without_editing_sample():
         task.lower,
         task.upper,
     )
-    task._enter("open", sample)
+    task._enter("grip", sample)
     before = task.reference.copy()
     moved = replace(
         sample, plug_position_body_m=sample.plug_position_body_m + [0.004, 0, 0]
@@ -198,22 +195,25 @@ def test_contact_gate_does_not_accept_empty_grip():
 
 
 @pytest.mark.parametrize("name", PLUG_PROFILES)
-def test_historical_final_acceptance_rejects_a_seated_but_spinning_part(name):
+def test_historical_record_rejects_a_seated_but_spinning_part(name):
+    from collection.recorded_task_contracts import recorded_stages
+    from collection.recording_validation import validate_plug_recording
+
     task, sample = make_task(name)
-    task.version = task.straight_approach_version
     task._ever_lifted = True
-    task._enter("verify", sample)
     q = sample.joints.copy()
-    q[6:] = [0.65, -0.65]
-    moving = replace(
-        sample,
-        joints=q,
-        plug_position_body_m=task.hole + [0, 0, 0.025],
-        plug_angular_velocity_body_rad_s=np.array([0.0, 0.0, 0.12]),
-    )
-    for tick in range(1, 90):
-        task.step(replace(moving, time_s=tick / 30))
-    assert task.result is None
+    q[6:] = [.65, -.65]
+    moving = replace(sample, joints=q,
+                     plug_position_body_m=task.hole + [0, 0, .025],
+                     plug_angular_velocity_body_rad_s=np.array([0., 0., .12]))
+    version = "plug-insert/14-straight-approach-gentle-release"
+    stages = list(recorded_stages(name, version))
+    metrics = {**task.metrics(moving), "task_version": version, "result": "success",
+               "grasp_heading_error_rad": 0., "finger_plug_contacts": [1, 1]}
+    steps = [{"scripted_task": {**metrics, "stage": stage},
+              "gripper_opening_normalized": .65} for stage in stages]
+    with pytest.raises(AssertionError):
+        validate_plug_recording(steps, stages, name)
 
 
 def test_headless_default_target_matches_current_scene_model():

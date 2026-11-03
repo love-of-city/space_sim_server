@@ -37,7 +37,7 @@ class Client:
 
 def target_for(command, mode='ik_pose', preference=True):
     # Keep pure safety/protocol tests available without the native runtime.
-    from simulation.teleop_grasp_unreal import ARM_JOINT_NAMES, CartesianTeleopTarget
+    from simulation.teleop_control import ARM_JOINT_NAMES, CartesianTeleopTarget
 
     applied = SafetyController().process('test', command, None)
     assert SimulationControlClient._valid_action(applied.model_dump())
@@ -52,7 +52,7 @@ def target_for(command, mode='ik_pose', preference=True):
 
 def test_joint6_torque_trial_preserves_other_limits_and_pid_gains():
     # Keep this configuration regression available in CI without native Basilisk.
-    source = Path(__file__).resolve().parents[1] / 'simulation/teleop_grasp_unreal.py'
+    source = Path(__file__).resolve().parents[1] / 'simulation/teleop_control.py'
     settings = {
         node.targets[0].id: ast.literal_eval(node.value.args[0])
         for node in ast.parse(source.read_text(encoding='utf-8')).body
@@ -187,7 +187,7 @@ def test_direct_joint_still_obeys_tracking_protection():
 
 @pytest.mark.parametrize('stop', ['stale', 'deadman'])
 def test_mixed_tool_and_joint_commands_stop_together_and_reset(stop):
-    from simulation.teleop_grasp_unreal import ARM_JOINT_VELOCITY_LIMIT
+    from simulation.teleop_control import ARM_JOINT_VELOCITY_LIMIT
 
     t, client, kin = target_for(request(joint6_velocity=1., end_effector_angular_velocity=[1., 1., 0.],
                                       end_effector_linear_velocity=[.5, 0., 0.]))

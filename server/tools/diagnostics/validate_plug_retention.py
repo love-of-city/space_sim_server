@@ -42,7 +42,7 @@ def validate_case(case, model_path=None):
     from simulation.sarm_model_profile import load_model_profile
     from simulation.orbital_configuration import resolve_orbital_physics, environment_metadata
     from simulation.serial_chain_kinematics import matrix_to_quaternion_wxyz, quaternion_wxyz_to_matrix
-    from simulation.teleop_grasp_unreal import DEFAULT_ORBIT, DEFAULT_EPHEMERIS_EPOCH_UTC, _apply_orbital_initial_state
+    from simulation.teleop_scene import DEFAULT_ORBIT, DEFAULT_EPHEMERIS_EPOCH_UTC, apply_orbital_initial_state
     from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
     from space_arm_platform.sampling import DYNAMICS_HZ, tick_time_ns
     from collection.run_scripted_task import default_target_state
@@ -80,7 +80,7 @@ def validate_case(case, model_path=None):
             ctx.ports.add_body_wrench(name, source=f"acceptance_{name}", force_inertial=drive)
             drives[name] = drive
         sim.InitializeSimulation()
-        orbital = _apply_orbital_initial_state(scene, native, orbit.earth, DEFAULT_ORBIT,
+        orbital = apply_orbital_initial_state(scene, native, orbit.earth, DEFAULT_ORBIT,
                                                default_target_state(model), initial, orbit.origin)
         seats = {}
         for name, module in retention.models.items():

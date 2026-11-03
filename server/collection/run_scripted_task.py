@@ -30,12 +30,54 @@ from simulation.scripted_tasks.motion_options import (
     motion_arguments,
 )
 from simulation.scripted_tasks.plug_profiles import (
-    PLUG_PROFILES,
     is_plug_task,
     plug_profile,
 )
 from simulation.scripted_tasks.drawer_tasks import DRAWER_TASKS
-from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, create_threaded_task, task_default_duration_s
+from simulation.scripted_tasks.threaded_tasks import create_threaded_task
+from space_arm_platform.task_catalog import RUNNER_TASK_CHOICES, THREADED_TASKS, task_default_duration_s
+
+
+def create_task(args, model, scene):
+    """Bind the selected model and effective options to one current controller."""
+    options = dict(lift_m=args.lift_m, grip_offset_m=tuple(args.grip_offset_m),
+                   force_limit_n=80.0 if args.force_limit is None else args.force_limit)
+    if args.arm_speed is not None:
+        options["arm_speed_rad_s"] = args.arm_speed
+    if args.linear_speed is not None:
+        options["linear_speed_m_s"] = args.linear_speed
+    if args.task in THREADED_TASKS:
+        threaded = {name: value for name, value in (
+            ("arm_speed_rad_s", args.arm_speed), ("linear_speed_m_s", args.linear_speed)
+        ) if value is not None}
+        return create_threaded_task(args.task, model, speed_profile=args.threaded_speed_profile, **threaded)
+    if is_plug_task(args.task):
+        from simulation.scripted_tasks.plug_insert import PlugInsertTask
+        from simulation.scripted_tasks.plug_motion_config import plug_motion_config
+        config = plug_motion_config(
+            args.task, scene, target_site=args.target_site, arm_speed_rad_s=args.arm_speed,
+            grasp_offset_m=tuple(args.plug_grasp_offset) if args.plug_grasp_offset is not None else None,
+            force_limit_n=min(args.force_limit, 40.0) if args.force_limit is not None else None,
+        )
+        task = PlugInsertTask(model, config)
+        scene.setdefault("collection_config", {})["plug_config_snapshot"] = task.configuration_snapshot
+        return task
+    if args.task in DRAWER_TASKS:
+        from simulation.scripted_tasks.drawer_tasks import create_drawer_task
+        return create_drawer_task(args.task, model, **options)
+    from simulation.scripted_tasks.drawer_lift import DrawerLiftConfig, DrawerLiftTask
+    return DrawerLiftTask(model, DrawerLiftConfig(**options))
+
+
+def close_task_runtime(sim, stepper, orbit, capture, graph_cache):
+    """Release episode transport and runtime resources not retained by the cache."""
+    if capture is not None:
+        capture.close()
+    if graph_cache is None or not graph_cache.holds(sim):
+        if stepper is not None:
+            stepper.close()
+        if orbit is not None and orbit.gravity_factory is not None:
+            orbit.gravity_factory.unloadSpiceKernels()
 
 
 def default_target_state(model):
@@ -71,14 +113,10 @@ def run(args, *, graph_cache=None):
     from simulation.components.orbital_gravity import OrbitalGravityComponent
     from simulation.joint_reference_publisher import HeldJointReferencePublisher
     from simulation.sarm_model_profile import load_model_profile
-    from simulation.scripted_tasks.drawer_lift import (
-        DrawerLiftConfig,
-        DrawerLiftTask,
-    )
-    from simulation.teleop_grasp_unreal import (
+    from simulation.teleop_scene import (
         DEFAULT_ORBIT,
         DEFAULT_EPHEMERIS_EPOCH_UTC,
-        _apply_orbital_initial_state,
+        apply_orbital_initial_state,
     )
     from simulation.wrench_sensors import WRIST_SENSOR
     from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
@@ -127,46 +165,8 @@ def run(args, *, graph_cache=None):
         initial = np.asarray(
             scene_instance["randomization"]["arm_joint_position_rad"], dtype=float
         )
-    drawer_options = dict(
-        lift_m=args.lift_m,
-        grip_offset_m=tuple(args.grip_offset_m),
-        force_limit_n=args.force_limit,
-    )
-    if args.arm_speed is not None:
-        drawer_options["arm_speed_rad_s"] = args.arm_speed
-    if args.linear_speed is not None:
-        drawer_options["linear_speed_m_s"] = args.linear_speed
-    if args.task in THREADED_TASKS:
-        options = {}
-        if args.arm_speed is not None:
-            options["arm_speed_rad_s"] = args.arm_speed
-        if args.linear_speed is not None:
-            options["linear_speed_m_s"] = args.linear_speed
-        options["speed_profile"] = args.threaded_speed_profile
-        task = create_threaded_task(args.task, model, **options)
-        config = task.config
-    elif is_plug_task(args.task):
-        from simulation.scripted_tasks.plug_insert import (
-            PlugInsertTask,
-            PlugInsertConfig,
-        )
-
-        config = PlugInsertConfig(
-            plug_body=plug_profile(args.task).body,
-            target_site=args.target_site,
-            arm_speed_rad_s=args.arm_speed,
-            grasp_offset_m=tuple(args.plug_grasp_offset) if args.plug_grasp_offset is not None else None,
-            force_limit_n=min(args.force_limit, 40.0),
-        )
-        task = PlugInsertTask(model, config)
-    elif args.task in DRAWER_TASKS:
-        from simulation.scripted_tasks.drawer_tasks import create_drawer_task
-
-        task = create_drawer_task(args.task, model, **drawer_options)
-        config = task.config
-    else:
-        config = DrawerLiftConfig(**drawer_options)
-        task = DrawerLiftTask(model, config)
+    task = create_task(args, model, scene_instance)
+    config = task.config
     if getattr(args, "native_geometry", False):
         task.chain.enable_native_geometry()
     from simulation.scripted_tasks.native_state import STATE_READERS
@@ -229,9 +229,22 @@ def run(args, *, graph_cache=None):
             for path in (Path(__file__), Path(native.__file__),
                          ROOT / "simulation/publication_scene.py",
                          ROOT / "simulation/local_mujoco_stepper.py",
+                         ROOT / "simulation/local_mujoco_bindings.py",
+                         ROOT / "simulation/teleop_scene.py",
+                         ROOT / "simulation/scripted_tasks/task_initialization.py",
+                         ROOT / "simulation/scripted_tasks/native_geometry_probe.py",
+                         ROOT / "backend/space_arm_platform/task_catalog.py",
                          ROOT / "simulation/scripted_tasks/physics_graph.py")
         },
     }
+    if is_plug_task(args.task):
+        report["config_schema"] = task.config_schema
+        report["configuration_snapshot"] = task.configuration_snapshot
+        for filename in ("plug_insert.py", "plug_contact_feedback.py", "plug_clearance.py",
+                         "plug_motion_config.py", "plug_profiles.py"):
+            path = ROOT / "simulation/scripted_tasks" / filename
+            report["runtime_provenance"]["sources_sha256"][str(path.relative_to(ROOT))] = (
+                hashlib.sha256(path.read_bytes()).hexdigest())
     sample = None
     simulation_wall_seconds = 0.0
     loop_started = None
@@ -358,9 +371,12 @@ def run(args, *, graph_cache=None):
             report["physics_graph_reused"] = False
             if graph_cache is not None:
                 graph_cache.remember(locals())
+        if is_plug_task(args.task):
+            report["contact_feedback"] = task.configure_contact_feedback(
+                native.KP, plug_retention.parameters if plug_retention else None)
         report["asset_compilation_cache"] = configure_asset_cache()
         phase_started = time.perf_counter()
-        report["orbit"] = _apply_orbital_initial_state(
+        report["orbit"] = apply_orbital_initial_state(
             scene,
             native,
             orbit.earth,
@@ -593,13 +609,7 @@ def run(args, *, graph_cache=None):
         (output / "summary.json").write_text(
             json.dumps(report, indent=2), encoding="utf-8"
         )
-        if capture is not None:
-            capture.close()
-        if graph_cache is None or not graph_cache.holds(sim):
-            if stepper is not None:
-                stepper.close()
-            if orbit is not None and orbit.gravity_factory is not None:
-                orbit.gravity_factory.unloadSpiceKernels()
+        close_task_runtime(sim, stepper, orbit, capture, graph_cache)
         print(
             json.dumps(
                 {
@@ -623,7 +633,7 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", *DRAWER_TASKS, "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
+        choices=RUNNER_TASK_CHOICES,
         default=default_task,
     )
     parser.add_argument(
@@ -649,7 +659,8 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     parser.add_argument("--lift-m", type=float, default=0.08)
     parser.add_argument("--arm-speed", type=float, default=None)
     add_motion_options(parser)
-    parser.add_argument("--force-limit", type=float, default=80.0)
+    parser.add_argument("--force-limit", type=float, default=None,
+                        help="Explicit force limit; otherwise keep the task's resolved configuration")
     parser.add_argument(
         "--grip-offset-m", type=float, nargs=3, default=[0.0, 0.0, -0.005]
     )
@@ -684,7 +695,7 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     ):
         parser.error("capture mode requires render port, catalog, scene, and stop file")
     if args.model is not None and args.capture_control_port:
-        from simulation.task_box_layout import validated_capture_layout
+        from simulation.capture_layout import validated_capture_layout
         try:
             layout = validated_capture_layout(args.model, args.catalog)
             scene = json.loads(args.scene.read_text(encoding="utf-8-sig"))

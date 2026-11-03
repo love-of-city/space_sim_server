@@ -18,6 +18,11 @@ sits on top of this backend are described in [MUJOCO_CORE_ARCHITECTURE.md](MUJOC
 
 ## Architecture
 
+* `simulation/local_mujoco_bindings.py` owns loading and C ABI signatures for the
+  source-matched native helper; `simulation/mujoco_runtime.py` locates the runtime
+  already loaded by Basilisk. Native geometry probes and plug guidance use these
+  bindings directly. `local_mujoco_stepper.py` owns BSK scheduling, force inputs,
+  state integration and message publication, without re-exporting binding helpers.
 * Basilisk propagates only the orbital reference point O (point-mass `Spacecraft`
   `localFrameOrigin`, Earth/Sun gravity, same SPICE ephemeris), in `graspTask` before IK.
 * `LocalMujocoStepper` (`simulation/local_mujoco_stepper.py`, `graspTask` priority 1000) integrates

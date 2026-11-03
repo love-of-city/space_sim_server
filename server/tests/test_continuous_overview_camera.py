@@ -8,14 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from simulation.scripted_tasks.randomization import prepare_episode
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SceneInstanceCreate
-from space_arm_platform.overview_camera import (
-    CAMERA_ID, LEGACY_SCHEMA, SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA,
-    initialize_overview_camera, sample_overview_camera,
-    validate_episode_overview_camera, validate_overview_camera,
-)
+from space_arm_platform.overview_camera import (CAMERA_ID, PRESETS, SCHEMA, initialize_overview_camera, sample_overview_camera)
+from space_arm_platform.overview_camera_calibration import (LEGACY_SCHEMA, V2_PRESETS, V2_SCHEMA, V3_PRESETS, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA)
+from space_arm_platform.overview_camera_records import (record_camera_pose as camera_pose, restore_overview_camera, validate_episode_overview_camera, validate_overview_camera, validate_overview_capture)
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 
@@ -60,10 +58,10 @@ def test_saved_v5_record_replays_its_frozen_calibration(tmp_path):
     assert scene["overview_camera"] == saved
     assert scene["overview_camera_sampling"] == "continuous"
     original = copy.deepcopy(scene)
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
     path = tmp_path / "v5.json"
     path.write_text(json.dumps(scene), encoding="utf-8")
-    assert _load_scene_instance(path)["overview_camera"] == saved
+    assert load_scene_instance(path)["overview_camera"] == saved
     recorder = EpisodeRecorder(tmp_path / "episodes")
     episode = recorder.start(EpisodeStart(scene_instance=scene))
     recorder.stop(EpisodeStop())
@@ -78,7 +76,7 @@ def test_saved_v5_record_replays_its_frozen_calibration(tmp_path):
 
 @pytest.mark.parametrize("schema", [LEGACY_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, SCHEMA])
 def test_saved_sampling_preference_does_not_enable_continuous_new_attempts(schema):
-    record = sample_overview_camera(23, schema=schema)
+    record = restore_overview_camera(23, schema=schema)
     scene = dict(template_id="sarm-task-box-20261012", seed=23,
                  randomize_overview_camera=True, overview_camera_sampling="continuous",
                  overview_camera=record)
@@ -91,8 +89,9 @@ def test_saved_sampling_preference_does_not_enable_continuous_new_attempts(schem
 
 
 def test_new_sampling_rejects_continuous_schema():
-    with pytest.raises(ValueError, match="unsupported overview camera preset version"):
+    with pytest.raises(TypeError):
         sample_overview_camera(91, schema=V5_SCHEMA)
+    assert restore_overview_camera(91, schema=V5_SCHEMA) == saved_v5_camera()
 
 
 @pytest.mark.parametrize("field,value", [
@@ -132,8 +131,8 @@ def test_historical_continuous_pose_reaches_renderer_without_a_preset_id(monkeyp
     monkeypatch.setitem(sys.modules, "bsk_render_adapter", SimpleNamespace(
         BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace,
         VisualElement=SimpleNamespace))
-    monkeypatch.setitem(sys.modules, "simulation.teleop_grasp_unreal", SimpleNamespace(
-        _register_celestial_bodies=lambda *a: None))
+    monkeypatch.setitem(sys.modules, "simulation.teleop_scene", SimpleNamespace(
+        register_celestial_bodies=lambda *a: None))
     ctx = SimpleNamespace(scene=object(), extra={"template_id": "sarm-task-box-20261012"},
                           add=lambda *a, **kw: None, keep_alive=lambda *a: None)
     module.RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,

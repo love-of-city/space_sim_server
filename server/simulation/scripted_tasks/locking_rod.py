@@ -73,10 +73,8 @@ class LockingRodDirectionalConfig(LockingRodConfig):
 class LockingRodTask(ThreadedTaskBase):
     name = "locking_rod_cycle"
     config_class = LockingRodConfig
-    previous_version = "locking-rod-cycle/3-straight-approach"
     version = "locking-rod-cycle/4-locked-completion"
     operation = "cycle"
-    _legacy_versions = ("locking-rod-cycle/2-coaxial-latch",)
     stages = (
         "settle", "approach", "grip", "loosen", "fold_release", "fold_clear",
         "fold_approach", "fold_grip", "lower", "release_down", "clear_down",
@@ -89,18 +87,7 @@ class LockingRodTask(ThreadedTaskBase):
     _fold_closing_local = np.array([-math.sqrt(3)/2, .5, 0.])
     _fold_approach_local = np.array([math.sqrt(3)/4, .75, .5])
 
-    @classmethod
-    def recorded_stages(cls, version=None):
-        if version not in (None, cls.version, cls.previous_version, *cls._legacy_versions):
-            raise ValueError(f"Unsupported locking rod task version: {version}")
-        return cls.stages
 
-    @classmethod
-    def validate_recorded_stages(cls, stages, version=None):
-        """Require every physical operation, allowing repeated sampled labels."""
-        expected = cls.recorded_stages(version)
-        compact = tuple(name for i, name in enumerate(stages) if i == 0 or name != stages[i-1])
-        return compact == expected
 
     def __init__(self, model_path, config=None):
         super().__init__(model_path, config or self.config_class())
@@ -648,7 +635,7 @@ class LockingRodTask(ThreadedTaskBase):
 
     def _contact_opening(self, reference, mechanism_state):
         """Use physical jaw contact, not a fully closed preload, in preflight."""
-        from .drawer_initialization import NativePoseProbe
+        from .native_geometry_probe import NativePoseProbe
 
         probe = NativePoseProbe(self.model_path)
         try:
@@ -663,10 +650,8 @@ class LockingRodFoldTask(LockingRodTask):
     """Loosen and fold, ending released with the physical clip retaining the rod."""
     name = "locking_rod_fold"
     config_class = LockingRodDirectionalConfig
-    previous_version = None
     version = "locking-rod-fold/1-straight-approach"
     operation = "fold"
-    _legacy_versions = ()
     stages = LockingRodTask.stages[:11]+("verify",)
 
 
@@ -674,8 +659,6 @@ class LockingRodRestoreTask(LockingRodTask):
     """Start in the clip, raise, then actually tighten the original fastener."""
     name = "locking_rod_restore"
     config_class = LockingRodDirectionalConfig
-    previous_version = None
     version = "locking-rod-restore/1-straight-approach"
     operation = "restore"
-    _legacy_versions = ()
     stages = ("settle",)+LockingRodTask.stages[11:]

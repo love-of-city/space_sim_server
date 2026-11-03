@@ -4,7 +4,8 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.auth import AuthError, AuthStore
 from space_arm_platform.recorder import EpisodeRecorder
 

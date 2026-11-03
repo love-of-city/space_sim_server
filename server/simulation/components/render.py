@@ -37,7 +37,7 @@ class RenderComponent:
     def install(self, ctx: AssemblyContext) -> None:
         from bsk_render_adapter import BasiliskRenderBridge, SceneSettings
 
-        from simulation.teleop_grasp_unreal import _register_celestial_bodies
+        from simulation.teleop_scene import register_celestial_bodies
 
         bridge = BasiliskRenderBridge(
             reliable_frames=False,
@@ -98,7 +98,7 @@ class RenderComponent:
                 bridge.add_lights(overview_camera_lamp(camera.camera_id))
         celestial = ctx.extra.get("celestial")
         if celestial is not None:
-            _register_celestial_bodies(bridge, *celestial)
+            register_celestial_bodies(bridge, *celestial)
         bridge.set_scene_settings(
             SceneSettings(
                 sunlight_intensity_scale=self.sunlight_intensity_scale,

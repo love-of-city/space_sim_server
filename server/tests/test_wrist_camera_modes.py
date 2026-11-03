@@ -14,14 +14,14 @@ from space_arm_platform.scene_runtime import SceneRuntimeManager
 
 @pytest.mark.parametrize("mode", ["rgb", "fisheye", "monochrome", "monochrome_fisheye"])
 def test_mode_roundtrip_and_recording_provenance(tmp_path, mode):
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
 
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     baseline = manager.create_instance(SceneInstanceCreate(seed=7))
     instance = manager.create_instance(SceneInstanceCreate(seed=7, wrist_camera_mode=mode))
     assert instance["randomization"] == baseline["randomization"]
     assert instance["environment"] == baseline["environment"]
-    assert _load_scene_instance(Path(instance["config_path"]))["wrist_camera_mode"] == mode
+    assert load_scene_instance(Path(instance["config_path"]))["wrist_camera_mode"] == mode
     recorder = EpisodeRecorder(tmp_path / "episodes")
     episode = recorder.start(EpisodeStart(scene_instance=instance))
     recorder.stop(EpisodeStop())
@@ -30,18 +30,18 @@ def test_mode_roundtrip_and_recording_provenance(tmp_path, mode):
 
 
 def test_legacy_scene_defaults_to_rgb(tmp_path):
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
 
     instance = SceneRuntimeManager(None, project_root=tmp_path).create_instance(SceneInstanceCreate())
     instance.pop("wrist_camera_mode")
     path = tmp_path / "legacy.json"
     path.write_text(json.dumps(instance))
-    assert _load_scene_instance(path)["wrist_camera_mode"] == "rgb"
+    assert load_scene_instance(path)["wrist_camera_mode"] == "rgb"
 
 
 @pytest.mark.parametrize("mode", ["unknown", "RGB", None, True, 1, {}])
 def test_invalid_mode_rejected_in_api_and_saved_scene(tmp_path, mode):
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
 
     with pytest.raises(ValidationError):
         SceneInstanceCreate(wrist_camera_mode=mode)
@@ -50,7 +50,7 @@ def test_invalid_mode_rejected_in_api_and_saved_scene(tmp_path, mode):
     path = tmp_path / "invalid.json"
     path.write_text(json.dumps(instance))
     with pytest.raises(ValueError, match="wrist_camera_mode"):
-        _load_scene_instance(path)
+        load_scene_instance(path)
 
 
 @pytest.mark.parametrize("mode", ["fisheye", "monochrome_fisheye"])

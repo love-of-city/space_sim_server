@@ -159,7 +159,8 @@ def benchmark(args) -> dict:
         native.MODEL_PATH = model_path
     import bsk_render_adapter
     from bsk_render_adapter.protocol import RecordingOnlyPublisher, encode_packet
-    from simulation import teleop_grasp_unreal as teleop
+    from simulation import teleop_control as teleop
+    from simulation import teleop_session as session
     from simulation import attitude_control
     from simulation import native_integration
     if not math.isfinite(args.rkf_relative_tol) or args.rkf_relative_tol <= 0:
@@ -347,8 +348,8 @@ def benchmark(args) -> dict:
             (native, "_build_simulation", build),
             (native, "_initialize_state", initialize),
             (bsk_render_adapter, "BasiliskRenderBridge", OfflineBridge),
-            (teleop, "SimulationControlClient", OfflineClient),
-            (teleop, "CartesianTeleopTarget", TimedTarget),
+            (session, "SimulationControlClient", OfflineClient),
+            (session, "CartesianTeleopTarget", TimedTarget),
         ):
             stack.enter_context(patch.object(obj, name, value))
         if args.profile:
@@ -367,7 +368,7 @@ def benchmark(args) -> dict:
 
                 stack.enter_context(patch.object(cls, "UpdateState", profiled))
         try:
-            teleop.run(runtime)
+            session.run(runtime)
         finally:
             for probe in scene_probes:
                 probe.close()

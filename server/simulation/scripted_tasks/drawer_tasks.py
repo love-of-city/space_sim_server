@@ -1,11 +1,6 @@
 """Lazy identities and factories for full-cycle and independent drawer tasks."""
 
-DRAWER_TASKS = ("drawer_cycle", "drawer_open", "drawer_close")
-DRAWER_INSTRUCTIONS = {
-    "drawer_cycle": "Open the drawer approximately 8 cm, then close it fully and release it.",
-    "drawer_open": "Open the drawer approximately 8 cm, then release it and withdraw the gripper.",
-    "drawer_close": "Close the open drawer fully, then release it and withdraw the gripper.",
-}
+from space_arm_platform.task_catalog import DRAWER_TASKS
 
 
 def drawer_task_class(name):

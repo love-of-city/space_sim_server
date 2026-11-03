@@ -1,11 +1,11 @@
+import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const startSource = source.slice(source.indexOf("async function startScene()"), source.indexOf("async function stopScene()"));
-const applySource = source.slice(source.indexOf("function applySceneRuntime("), source.indexOf("async function readApiResponse("));
+const applySource = source.slice(source.indexOf("function applySceneRuntime("), source.indexOf("function applyControlLimits("));
 const catalogSource = source.slice(source.indexOf("async function loadSceneCatalog()"), source.indexOf("function applySceneRuntime("));
 function setup(value = "1") {
   const nodes = new Map();
@@ -26,7 +26,7 @@ function setup(value = "1") {
     apiRequest:async (path, options={})=>{requests.push({path,options});return {ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{}})};},
     readApiResponse:async()=>({instance_id:"s1",seed:42}),applySceneRuntime(){}
   });
-  vm.runInContext(startSource,ctx);
+  Object.assign(ctx, createSceneSession({...ctx, applySceneRuntime: (...args) => ctx.applySceneRuntime(...args)}));
   return {$,ctx,requests,messages,state};
 }
 

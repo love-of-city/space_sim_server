@@ -30,10 +30,7 @@ from .collection_inputs import (
 )
 from .unreal_runtime import default_unreal_root, unreal_editor
 
-# The API package can be installed without the repository's simulation sources.
-# Its catalog carries pure identities; child collectors load the controllers.
-DRAWER_TASKS = ("drawer_cycle", "drawer_open", "drawer_close")
-THREADED_TASKS = ("aviation_bolt_insert", "locking_rod_cycle", "locking_rod_fold", "locking_rod_restore")
+from .task_catalog import DRAWER_TASKS, THREADED_TASKS, TASK_CATALOG
 
 
 @dataclass(frozen=True)
@@ -46,48 +43,12 @@ class CollectionTask:
 
 
 TASKS = {
-    "drawer_cycle": CollectionTask(
-        "抽屉取出、放回与撤离",
-        "collection/collect_scripted_tasks.py",
-        "sarm-task-box-20261012",
-        arguments=("--task", "drawer_cycle"),
-    ),
+    name: CollectionTask(
+        task.label, "collection/collect_scripted_tasks.py", task.template,
+        arguments=("--task", name), description=task.description,
+    )
+    for name, task in TASK_CATALOG.items()
 }
-for _task, _label, _description in (
-    ("drawer_open", "抽屉拉起", "关闭初态 → 接近并抓取 → 解锁拉起约 8 cm → 松爪撤离，保持打开。"),
-    ("drawer_close", "抽屉放回", "已打开约 8 cm 的初态 → 抓取 → 放回并锁定 → 松爪撤离。"),
-):
-    TASKS[_task] = CollectionTask(
-        _label, "collection/collect_scripted_tasks.py", "sarm-task-box-20261012",
-        arguments=("--task", _task), description=_description,
-    )
-for _task, _label in (
-    ("aviation_plug_insert", "航空插头"),
-    ("guide_plug_insert", "导向插头"),
-    ("cylindrical_plug_insert", "圆柱插头"),
-):
-    TASKS[_task] = CollectionTask(
-        _label + "拿取与插入",
-        "collection/collect_scripted_tasks.py",
-        "sarm-task-box-20261012",
-        arguments=("--task", _task),
-        description=f"独立任务：跟踪并抓取{_label} → 搬到前方对应插孔 → 对准插入 → 松爪撤离 → 验收。",
-    )
-
-for _task, _label, _description in (
-    ("aviation_bolt_insert", "航空螺丝旋出与装配",
-     "抓取初始孔内螺丝 → 旋出取下 → 搬运对孔 → 旋入拧紧 → 松爪撤离 → 验收。"),
-    ("locking_rod_fold", "锁杆装置放倒",
-     "竖起锁紧初态 → 旋松紧固件 → 放倒入卡扣 → 松爪撤离。"),
-    ("locking_rod_restore", "锁杆装置复位",
-     "放倒入卡扣初态 → 抓取扶起 → 旋紧紧固件 → 松爪撤离。"),
-    ("locking_rod_cycle", "杆状机构放倒与复位",
-     "旋松防脱紧固件 → 绕底部铰链放倒至卡扣 → 松爪再抓取 → 扶起复位 → 旋紧 → 撤离验收。"),
-):
-    TASKS[_task] = CollectionTask(
-        _label, "collection/collect_scripted_tasks.py", "sarm-task-box-20261012",
-        arguments=("--task", _task), description=_description,
-    )
 
 TERMINAL = {"complete", "failed", "cancelled", "interrupted", "attempt_limit"}
 

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.stream_access import verify_stream_access_token
 
 

@@ -46,11 +46,16 @@ def test_observed_half_millimetre_gap_keeps_seating_feedback_active_and_jaws_clo
     assert position[2] < start_position[2]-1e-4
 
 
-@pytest.mark.parametrize("angular_speed,expected_stage", [(0., "release"), (.0368, "insert")])
-def test_seated_cylinder_releases_with_existing_stability_time_but_not_while_spinning(
-    angular_speed, expected_stage,
+@pytest.mark.parametrize("angular_velocity,expected_stage", [
+    ([0., 0., 0.], "release"),
+    ([0., 0., .0368], "release"),
+    ([.0368, 0., 0.], "insert"),
+])
+def test_seated_cylinder_ignores_axial_spin_but_waits_for_tilt_motion(
+    angular_velocity, expected_stage,
 ):
-    task, sample = inserted_sample(.000001, angular_speed)
+    task, sample = inserted_sample(.000001)
+    sample = replace(sample, plug_angular_velocity_body_rad_s=np.array(angular_velocity))
     for tick in range(1, 35):
         task.step(replace(sample, time_s=tick*.005))
     assert task.stage == expected_stage

@@ -47,9 +47,9 @@ layout_seed = seed + (pass_index * pool_size + position_in_pass) * 7
 task_seed = layout_seed + TASK_NAMES中该任务的固定索引 + 1
 ```
 
-单遍布局无放回；跨遍允许重复布局。`layout_cycles` 指总布局组数，并优先决定遍数；默认 1000 组不是 1000 套互不重复布局。默认 5 个启用任务意味着 5000 次尝试，不能写成 5000 条已合格数据。
+单遍布局无放回；跨遍允许重复布局。`layout_cycles` 指总布局组数，并优先决定遍数；默认 1000 组不是 1000 套互不重复布局。当前 3 个启用插头任务意味着 3000 次尝试，不能写成 3000 条已合格数据。
 
-同一个布局组固定布局、颜色和全局相机；各任务单独生成六关节初态。六关节偏移使用 `numpy.PCG64(task_seed)` 独立均匀采样 ±`range_deg`；基准来自 source scene 的 `randomization.arm_joint_position_rad`。指定 `scene` 后，`baseline_joint_deg` 不再重写该 scene 的关节基准。顺序入口会清除旧任务的可变字段，强制开启初始化和全局相机预设随机化。颜色、任务指令等使用有名称的独立 PCG64/SeedSequence 流；全局相机当前为 v7 的 5 个固定机位，通过独立的 `random.Random(stream:seed)` 选择，轨道相位也有独立流。[S1][S9]
+同一个布局组固定布局、颜色和全局相机；各任务单独生成六关节初态。六关节偏移使用 `numpy.PCG64(task_seed)` 独立均匀采样 ±`range_deg`；当前显式配置为0，所有偏移为零；基准来自 source scene 的 `randomization.arm_joint_position_rad`。指定 `scene` 后，`baseline_joint_deg` 不再重写该 scene 的关节基准。顺序入口会清除旧任务的可变字段，强制开启初始化和全局相机预设随机化。颜色、任务指令等使用有名称的独立 PCG64/SeedSequence 流；全局相机当前为 v7 的 5 个固定机位，通过独立的 `random.Random(stream:seed)` 选择，轨道相位也有独立流。[S1][S9]
 
 复现至少保留：整数 seed、冻结 plan、source scene、布局池成员及资产哈希、实际颜色/机位/关节初态、录制配置内容、任务版本、运行源码、原生库、UE build identity 和解释器环境。相同 seed 只保证同版本算法的随机输入可追溯，不能单独保证不同版本/平台/GPU下逐位一致。
 
@@ -62,12 +62,12 @@ task_seed = layout_seed + TASK_NAMES中该任务的固定索引 + 1
 | `schema` | `layout-sequence/1` | 仅支持此版本 | `config.snapshot.json` |
 | `layout_pool` | 路径；`~/data/layout-pools/random150-20261028/pool.json` | 必需；验证几何/哈希，不代表池内每套完整轨迹均成功 | `pool.snapshot.json`、plan 的 `pool_sha256`、逐组 initialization |
 | `scene` | 路径；`null` | 空时生成 `sarm-task-box-20261012` 模板；否则使用指定场景为基准 | `source-scene.json` |
-| `tasks` | 有序数组；前五项启用，`aviation_bolt_insert` 关闭 | 抽屉→航空插头→导向插头→圆柱插头→锁杆→航空螺栓；至少启用一项，不允许重复 | plan 的 `task_order/jobs` |
+| `tasks` | 有序数组；仅航空、导向、圆柱三种插头启用 | 按目录顺序执行；其他七种任务关闭；至少启用一项，不允许重复 | plan 的 `task_order/jobs` |
 | `passes` | 遍；1 | 1–1000；仅当 `layout_cycles=null` 时决定完整遍数 | plan 的 `groups/pass_number` |
 | `layout_cycles` | 布局组；1000 | 1–1,000,000 或 null；模型默认 null；优先于 passes | plan 的组数、`total_attempts` |
 | `layouts_per_pass` | 布局数；null | null 表示池全部；整数 1–1000 且不能大于池规模 | 每遍的 groups；`--layouts` 可覆盖 |
 | `seed` | 整数；null | 新批次按上一节解析；恢复固定 | snapshot、plan、场景 `collection_config` |
-| `range_deg` | °；30 | 有限数 0–50；每个旋转关节独立偏移；不是速度参数 | `initialization.offset_deg/half_range_deg` |
+| `range_deg` | °；0 | 有限数 0–50；0表示固定基准姿态，无随机偏移；模型/单任务CLI缺省仍为30，仓库顺序配置显式覆盖为0 | `initialization.offset_deg/half_range_deg` |
 | `baseline_joint_deg` | °；`[90,-60,60,0,-90,0]` | 6 个有限值；仅默认场景生成使用；不是一般关节限位保证 | source scene、逐条 initialization |
 | `randomize_orbit_phase` | bool；false | 开启后逐任务重新采样真近点角；环境变化也可能使物理图无法复用 | `orbital_phase_randomization`、environment |
 | `recording_config` | 路径；`recording-veryfast.json` | 相对配置目录；原文件内容的哈希冻结，但不会自动复制文件 | `inputs.json`、recording summary 的 `recording_settings` |
@@ -232,14 +232,14 @@ UE启动与动力学初始化存在重叠，不能直接把两者各自墙钟加
 | 编号 | 文件与关键检查点 |
 |---|---|
 | S1 | [sequence.py](../../server/collection/sequence.py)：`SequenceConfig/load_config/make_plan/source_scene/run_attempt/execute_plan/main`；[collection.json](../../server/config/collection.json) |
-| S2 | [collect_scripted_tasks.py](../../server/collection/collect_scripted_tasks.py)：CLI默认、scene_key、进程复用、quick/full验证、CollectionSession |
+| S2 | [collect_scripted_tasks.py](../../server/collection/collect_scripted_tasks.py)：CLI默认、scene_key、进程复用、审核调度、CollectionSession；校验实现见[recording_validation.py](../../server/collection/recording_validation.py) |
 | S3 | [record_scripted_task.py](../../server/collection/record_scripted_task.py)：`recording_settings/task_recording_settings/scene_copy/run`、终态屏障与计时 |
 | S4 | [collect_parallel.py](../../server/collection/collect_parallel.py)：配置模型、worker_plan、run_worker、ResourceSampler；[collection-parallel.json](../../server/config/collection-parallel.json) |
 | S5 | [collection_jobs.py](../../server/backend/space_arm_platform/collection_jobs.py)：CollectionCreate、start、_run、stop；[collection_api.py](../../server/backend/space_arm_platform/collection_api.py) |
 | S6 | [collection_cli.py](../../tools/release/collector/app/collection_cli.py)：发布工具main/run/collection_command |
 | S7 | [app.py](../../server/backend/space_arm_platform/app.py)：启动时recording_config/capture_defaults及recording_request |
 | S8 | [runtime_provenance.py](../../server/collection/runtime_provenance.py)：source/native/environment/runtime identity、freeze_or_verify、loaded_native_provenance |
-| S9 | [drawer_initialization.py](../../server/simulation/scripted_tasks/drawer_initialization.py)、[randomization.py](../../server/simulation/scripted_tasks/randomization.py)、[overview_camera.py](../../server/backend/space_arm_platform/overview_camera.py) |
+| S9 | [task_initialization.py](../../server/simulation/scripted_tasks/task_initialization.py)、[randomization.py](../../server/simulation/scripted_tasks/randomization.py)、[overview_camera.py](../../server/backend/space_arm_platform/overview_camera.py) |
 | S10 | [collection_runtime.py](../../server/backend/space_arm_platform/collection_runtime.py)、[unreal_runtime.py](../../server/backend/space_arm_platform/unreal_runtime.py) |
 | S11 | [sampling.py](../../server/backend/space_arm_platform/sampling.py)、[camera_defaults.py](../../server/backend/space_arm_platform/camera_defaults.py) |
 | S12 | [recording_config.py](../../server/backend/space_arm_platform/recording_config.py)、[recording.json](../../server/config/recording.json)、[recording-veryfast.json](../../server/config/recording-veryfast.json) |

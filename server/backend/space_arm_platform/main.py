@@ -10,7 +10,8 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import PlatformConfig, create_app
+from .app import create_app
+from .platform_config import PlatformConfig
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ
 

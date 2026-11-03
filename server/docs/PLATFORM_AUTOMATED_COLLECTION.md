@@ -50,7 +50,7 @@ export SPACE_SIM_COLLECTION_FIXED_CATALOG=/absolute/path/to/ue-assets/layout.cat
   --output run\drawer-batch-001 --count 1 --max-attempts 3 --seed 20261016
 ```
 
-`collect_scripted_tasks.py` 负责随机初始化、碰撞预检查、重试和完整验收；`record_scripted_task.py` 录制单次任务；`run_scripted_task.py` 单独运行时只输出动力学诊断，没有训练视频。网页批量任务支持抽屉完整循环、三种独立插头任务、航空螺丝和杆状机构，全部任务经 `collect_scripted_tasks.py --task <任务名>` 进入共用采集器；详见[螺纹任务采集](THREADED_TASK_COLLECTION.md)。`drawer_lift` 仅作为独立诊断/轨迹校验任务。
+`collect_scripted_tasks.py` 负责随机初始化、碰撞预检查、重试和完整验收；`record_scripted_task.py` 录制单次任务；`run_scripted_task.py` 单独运行时只输出动力学诊断，没有训练视频。网页批量任务支持抽屉完整循环、三种独立插头任务、航空螺丝、杆状机构，以及抽屉拉起/放回、锁杆放倒/复位四项独立操作，全部任务经 `collect_scripted_tasks.py --task <任务名>` 进入共用采集器；详见[螺纹任务采集](THREADED_TASK_COLLECTION.md)。`drawer_lift` 仅作为独立诊断/轨迹校验任务。
 
 流式编码、原生几何计算、配置覆盖和测速口径见 [单机采集性能](COLLECTION_PERFORMANCE.md)。单条摘要记录启动、录制、收尾和总时间，不能将正式录制倍率当成包含启动与验收的全流程倍率。
 
@@ -121,7 +121,7 @@ approach_path.py 提供带平滑收尾的空间曲线；motion_timing.py 除关�
 - `frontend/platform_shell.js`、`platform.css`、`ui.js`：统一导航、路由、公共样式和表单。`frontend/pages/` 中的 collection、datasets、users 分别提供页面模板与 activate/deactivate/reset 生命周期，保持原生 ES modules，不引入新框架。后端四个页面入口返回同一 Vite 构建，替代原 public 下的独立 HTML。
 - `collection/collect_scripted_tasks.py`（统一批次入口）和 `record_scripted_task.py`（单条录制实现）：复用已验证的真实 BSK/MuJoCo → UE 相机 → CaptureReceiver/SimulationHub → EpisodeRecorder → LeRobot 链路；增加协作停止与运行路径透传。
 
-新增任务在 `TASKS` 注册任务名、显示名称和场景模板，统一通过 `collect_scripted_tasks.py --task <任务名>` 调度。适配 CLI 接受管理器传入的 count/max-attempts/seed/range-deg、场景/输出/数据目录、四个端口、UE/adapter 路径和 cancel-file；原子写入 summary.json，报告 attempts、accepted_episodes 和 status。各任务自行实现成功条件与数据校验，不能只依据进程退出码或录制时长判成功。插头的几何参数集中在 `simulation/scripted_tasks/plug_profiles.py`，控制器共用 `plug_insert.py`。新增插头时显式配置物体、取件位、装配孔、插入长度与键槽要求，并独立注册任务；不修改底层动力学和录制链路。
+新增任务在 `backend/space_arm_platform/task_catalog.py` 注册任务名、显示名称和场景模板，统一通过 `collect_scripted_tasks.py --task <任务名>` 调度。适配 CLI 接受管理器传入的 count/max-attempts/seed/range-deg、场景/输出/数据目录、四个端口、UE/adapter 路径和 cancel-file；原子写入 summary.json，报告 attempts、accepted_episodes 和 status。各任务控制器实现在线成功条件，`collection/recording_validation.py`按保存版本统一校验记录，不能只依据进程退出码或录制时长判成功。插头的几何参数集中在 `simulation/scripted_tasks/plug_profiles.py`，控制器共用 `plug_insert.py`。新增插头时显式配置物体、取件位、装配孔、插入长度与键槽要求，并独立注册任务；不修改底层动力学和录制链路。
 
 离开工作台时先停止遥操作输入，再释放该页的控制连接及视频资源；返回后重新连接。离开数据详情会暂停视频。退出登录会清空当前页面数据和表单，避免切换账号后出现上一账号的内容。后台采集任务的生命周期由服务端管理。
 

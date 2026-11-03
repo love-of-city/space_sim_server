@@ -48,7 +48,7 @@ class PlanningContext:
             from simulation.compiled_model_cache import configure_asset_cache, model_cache_key
             from simulation.mujoco_plugins import ensure_model_plugins
             from simulation.mujoco_runtime import basilisk_mujoco_runtime
-            from .drawer_initialization import NativePoseProbe
+            from .native_geometry_probe import NativePoseProbe
             started = time.perf_counter()
             ensure_model_plugins(self.model)
             configure_asset_cache()
@@ -78,5 +78,5 @@ def acquire_probe(task, *, clearance_m=.002):
     if context is not None:
         return context.acquire()
     # Explicit diagnostics and small isolated tests own their original probe.
-    from .drawer_initialization import NativePoseProbe
+    from .native_geometry_probe import NativePoseProbe
     return NativePoseProbe(task.model_path, clearance_m=clearance_m)

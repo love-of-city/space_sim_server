@@ -1,5 +1,7 @@
 from pathlib import Path
 import importlib.util,json
+import subprocess
+import sys
 from types import SimpleNamespace
 import pytest
 
@@ -7,10 +9,59 @@ ROOT=Path(__file__).resolve().parents[2]/'collector'
 spec=importlib.util.spec_from_file_location('cli',ROOT/'app/collection_cli.py')
 cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
 
-def test_all_six_tasks_are_production_names():
-    from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
-    from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
-    assert set(cli.TASKS)=={'drawer_cycle',*PLUG_PROFILES,*THREADED_TASKS}
+def test_collector_product_declares_its_supported_subset(capsys):
+    from space_arm_platform.task_catalog import COLLECTOR_TASK_CHOICES, TASK_CHOICES, TASK_LABELS
+
+    tasks=cli.collector_tasks()
+    assert tuple(tasks)==COLLECTOR_TASK_CHOICES
+    assert set(tasks)=={'drawer_cycle','aviation_plug_insert','guide_plug_insert',
+                        'cylindrical_plug_insert','aviation_bolt_insert','locking_rod_cycle'}
+    assert set(tasks)<set(TASK_CHOICES)
+    assert tasks=={name:TASK_LABELS[name] for name in COLLECTOR_TASK_CHOICES}
+    assert cli.main(['tasks'])==0
+    assert json.loads(capsys.readouterr().out)==tasks
+
+def test_release_module_can_be_imported_without_server_or_site_packages():
+    result=subprocess.run([sys.executable,'-I','-S','-c',
+        'import importlib.util,sys; '
+        'spec=importlib.util.spec_from_file_location("collector_cli",sys.argv[1]); '
+        'module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)',
+        str(ROOT/'app/collection_cli.py')],text=True,capture_output=True)
+    assert result.returncode==0,result.stderr
+
+def test_check_imports_real_recording_validator_before_external_bundle_probe(monkeypatch):
+    class BundleProbeReached(Exception):
+        pass
+
+    # Do not replace the validator with a fake: this must expose stale imports.
+    monkeypatch.delitem(sys.modules,'collection.recording_validation',raising=False)
+    def probe(command,**kwargs):
+        validator=sys.modules.get('collection.recording_validation')
+        assert validator is not None,'check must load the real validator before probing the runtime'
+        assert Path(validator.__file__).name=='recording_validation.py'
+        assert callable(validator.validate_recording)
+        assert command==[sys.executable,str(cli.BASE/'app/check.py')]
+        assert kwargs['check'] is True
+        raise BundleProbeReached
+
+    monkeypatch.setattr(cli.subprocess,'run',probe)
+    with pytest.raises(BundleProbeReached):
+        cli.main(['check'])
+
+def test_validate_calls_real_recording_validator(tmp_path):
+    missing=tmp_path/'unrecorded-episode'
+    with pytest.raises(FileNotFoundError) as error:
+        cli.main(['validate','--episode',str(missing),'--task','drawer_cycle'])
+    assert Path(error.value.filename)==missing/'metadata.json'
+
+@pytest.mark.parametrize('task',['drawer_open','drawer_close','locking_rod_fold','locking_rod_restore'])
+def test_other_repository_tasks_are_outside_collector_product(task,tmp_path):
+    from space_arm_platform.task_catalog import TASK_CHOICES
+
+    assert task in TASK_CHOICES
+    with pytest.raises(SystemExit) as error:
+        cli.main(['validate','--episode',str(tmp_path),'--task',task])
+    assert error.value.code==2
 
 @pytest.mark.parametrize('arguments',[
  ['run','--task','drawer_cycle','--output','unused'],

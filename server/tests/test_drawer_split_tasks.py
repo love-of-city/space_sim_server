@@ -1,3 +1,4 @@
+from collection.recorded_task_contracts import recorded_stages, validate_recorded_stages
 """Independent directions must preserve physical initialization and acceptance."""
 
 from dataclasses import replace
@@ -146,7 +147,7 @@ def test_registry_keeps_original_cycle_and_direction_specific_versions():
     assert DRAWER_TASKS == ("drawer_cycle", "drawer_open", "drawer_close")
     for name in DRAWER_TASKS:
         cls = drawer_task_class(name)
-        assert cls.recorded_stages(cls.version) == cls.stages
+        assert recorded_stages(cls.name, cls.version) == cls.stages
         assert create_drawer_task(name, MODEL, linear_speed_m_s=.05).config.linear_speed_m_s == .05
     with pytest.raises(ValueError, match="Unknown"):
         drawer_task_class("drawer_invalid")

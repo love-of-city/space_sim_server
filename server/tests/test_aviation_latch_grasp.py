@@ -1,3 +1,4 @@
+from collection.recorded_task_contracts import recorded_stages
 """Aviation grasps must follow the tabs, not merely touch the hexagonal head."""
 
 from dataclasses import replace
@@ -192,7 +193,7 @@ def test_other_plugs_share_continuous_sequence_with_their_latch_axis():
         task, _ = make_task(name)
         assert "open" not in task.stages
         assert "extract" in task.stages
-        assert task.coordinated_grasp
+        assert task.profile.grasp_closing_axis is not None
         assert task.profile.grasp_closing_axis == (0., 1., 0.)
         assert task.config.insert_speed_m_s == .025
         assert task.config.carry_speed_m_s == .05
@@ -261,21 +262,21 @@ def test_release_unwinds_insertion_preload_before_finishing_opening():
 
 
 def test_collection_version_and_historical_stage_validation():
-    from simulation.scripted_tasks.drawer_initialization import randomized_scene
+    from simulation.scripted_tasks.task_initialization import randomized_scene
     source = {"randomization": {"arm_joint_position_rad": [0.] * 8}}
     scene = randomized_scene(source, 42, task_name="aviation_plug_insert")
     version = scene["collection_config"]["task_version"]
-    assert version == "plug-insert/17-smooth-insertion-gate"
+    assert version == PlugInsertTask.version
     assert version == make_task("aviation_plug_insert")[0].version
-    assert PlugInsertTask.recorded_stages(PlugInsertTask.latch_version) == PlugInsertTask.recorded_stages(version)
-    assert "extract" in PlugInsertTask.recorded_stages(version)
-    assert "open" in PlugInsertTask.recorded_stages("plug-insert/2")
-    assert "raise" in PlugInsertTask.recorded_stages("plug-insert/3-latch-grasp")
-    assert "raise" not in PlugInsertTask.recorded_stages(version)
-    assert "descend" in PlugInsertTask.recorded_stages("plug-insert/4-coordinated-approach")
-    assert "descend" not in PlugInsertTask.recorded_stages(version)
+    assert recorded_stages('aviation_plug_insert', 'plug-insert/11-all-latch-aligned') == recorded_stages('aviation_plug_insert', version)
+    assert "extract" in recorded_stages('aviation_plug_insert', version)
+    assert "open" in recorded_stages('aviation_plug_insert', "plug-insert/2")
+    assert "raise" in recorded_stages('aviation_plug_insert', "plug-insert/3-latch-grasp")
+    assert "raise" not in recorded_stages('aviation_plug_insert', version)
+    assert "descend" in recorded_stages('aviation_plug_insert', "plug-insert/4-coordinated-approach")
+    assert "descend" not in recorded_stages('aviation_plug_insert', version)
     with pytest.raises(ValueError, match="Unsupported"):
-        PlugInsertTask.recorded_stages("future-unknown")
+        recorded_stages('aviation_plug_insert', "future-unknown")
 
 
 def test_actual_pickup_following_does_not_chase_socket_vibration():
@@ -324,7 +325,7 @@ def test_carrying_has_gentle_speed_acceleration_and_jerk(stage):
 
 
 def test_gentle_carry_keeps_v5_recordings_compatible():
-    assert PlugInsertTask.recorded_stages("plug-insert/5-smooth-tracking") == PlugInsertTask.continuous_carry_stages
+    assert recorded_stages('aviation_plug_insert', "plug-insert/5-smooth-tracking") == ('settle', 'approach', 'grip', 'extract', 'lift', 'transfer', 'above_hole', 'align_hole', 'insert', 'seat', 'release', 'retract', 'verify')
 
 
 @pytest.mark.parametrize("yaw", [0., .5])
@@ -367,7 +368,7 @@ def test_continuous_carry_does_not_stop_or_replan_at_phase_boundaries(task_name,
     offset, relative_r = task._grasp_transform
     np.testing.assert_allclose(end_p+end_r @ offset, [*task.hole[:2], task.hole[2]+task.profile.tip_m+.012], atol=2e-5)
     np.testing.assert_allclose(end_r @ relative_r, task.plug_rotation, atol=2e-5)
-    assert PlugInsertTask.recorded_stages("plug-insert/6-gentle-carry") == task.continuous_carry_stages
+    assert recorded_stages('aviation_plug_insert', "plug-insert/6-gentle-carry") == ('settle', 'approach', 'grip', 'extract', 'lift', 'transfer', 'above_hole', 'align_hole', 'insert', 'seat', 'release', 'retract', 'verify')
 
 
 def test_contact_speed_is_not_limited_to_position_gain_times_two_mm():
@@ -381,14 +382,15 @@ def test_contact_speed_is_not_limited_to_position_gain_times_two_mm():
     desired = np.array([0., 0., .025, 0., 0., 0.])
     qd = np.linalg.solve(jac, desired)
     sample = replace(sample, time_s=.005, joint_velocities=np.r_[qd, 0., 0.])
-    task._axial_speed = task._axial_measured_velocity = .025
+    task._axial_speed = .025
+    task._contact_feedback.measured_axial_velocity_m_s = .025
     _, velocity = task.step(sample)
     commanded = task.chain.jacobian(task.reference[:6])[:3] @ velocity[:6]
     assert commanded[2] == pytest.approx(.025, abs=.001)
     assert task.stage == "extract"
     assert task.config.insert_speed_m_s == .025
     assert "align_hole" not in task.stages and "seat" not in task.stages
-    assert "align_hole" in task.recorded_stages("plug-insert/7-continuous-carry")
+    assert "align_hole" in recorded_stages(task.name, "plug-insert/7-continuous-carry")
 
 
 @pytest.mark.parametrize("task_name", ["aviation_plug_insert", "guide_plug_insert", "cylindrical_plug_insert"])
@@ -438,7 +440,7 @@ def test_release_waits_for_part_specific_clearance_and_both_fingers(task_name, c
     assert task._release_opening_s > elapsed
     assert task.reference[6] > before[6]
     assert np.linalg.norm(task.reference[:6]-before[:6]) > 1e-6
-    assert task.recorded_stages("plug-insert/8-continuous-contact") == task.latch_stages
+    assert recorded_stages(task.name, "plug-insert/8-continuous-contact") == task.stages
 
 
 @pytest.mark.parametrize("gap", [.0005, .002])

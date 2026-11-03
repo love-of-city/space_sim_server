@@ -17,7 +17,7 @@ from collection.record_scripted_task import scene_copy, validate_episode
 @pytest.mark.parametrize("raw", [False, True, None])
 def test_capture_manifest_accepts_optional_raw_images_and_rejects_bad_pairing(tmp_path, raw):
     from PIL import Image
-    from collection.collect_scripted_tasks import validate_capture_manifest
+    from collection.recording_validation import validate_capture_manifest
     from collection.record_scripted_task import CAMERAS
 
     steps = [{"render_frame_id": "42", "render_session_id": "session", "sim_time_ns": "840000000"}]

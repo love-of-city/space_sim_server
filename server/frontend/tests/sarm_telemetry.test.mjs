@@ -1,14 +1,9 @@
+import { createOperatorSession } from '../operator_session.js';
 import { formatWristWrench } from "../wrist_wrench.js";
 import { formatMotionSpeedDiagnostics } from "../motion_diagnostics.js";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { referenceProtectionLabel, dynamicsTimingLabel } from "../control_status.js";
-
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const start = source.indexOf('const obs = message.payload;', source.indexOf('message.type === "observation"'));
-const observationHandler = source.slice(start, source.indexOf('} else if (message.type === "action_ack")', start));
 
 function observe(payload) {
   const nodes = new Map();
@@ -18,13 +13,13 @@ function observe(payload) {
     if (!nodes.has(id)) nodes.set(id, { textContent: "" });
     return nodes.get(id);
   };
-  vm.runInNewContext(observationHandler, {
+  createOperatorSession({
     armPreparation: { update() {} },
     referenceProtectionLabel, dynamicsTimingLabel, formatWristWrench,
-    message: { payload }, $, setOnline() {}, formatMotionSpeedDiagnostics,
+    $, setOnline() {}, formatMotionSpeedDiagnostics,
     jointAngles: { update(obs) { jointObservation = obs; } },
     updateMotionOutputs(twist, grip) { output = { twist, grip }; },
-  });
+  }).handleObservation(payload);
   return { output, $, jointObservation };
 }
 

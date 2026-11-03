@@ -3,12 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from simulation.teleop_grasp_unreal import (
-    _create_ephemeris_interface,
-    _register_celestial_bodies,
-    DEFAULT_EPHEMERIS_EPOCH_UTC,
-    CELESTIAL_FIXED_FRAMES,
-)
+from simulation.teleop_scene import create_ephemeris_interface, register_celestial_bodies, DEFAULT_EPHEMERIS_EPOCH_UTC, CELESTIAL_FIXED_FRAMES
 
 
 def test_ephemeris_translation_and_fixed_frames_are_not_conflated():
@@ -18,7 +13,7 @@ def test_ephemeris_translation_and_fixed_frames_are_not_conflated():
             return SimpleNamespace()
 
     factory = Factory()
-    spice = _create_ephemeris_interface(factory, DEFAULT_EPHEMERIS_EPOCH_UTC)
+    spice = create_ephemeris_interface(factory, DEFAULT_EPHEMERIS_EPOCH_UTC)
     assert spice.referenceBase == "J2000"
     assert spice.zeroBase == "Earth"
     assert factory.kwargs == {
@@ -35,7 +30,7 @@ def test_native_spice_earth_spin_and_sun_share_the_simulation_clock():
     earth = factory.createEarth()
     sun = factory.createSun()
     try:
-        spice = _create_ephemeris_interface(factory, DEFAULT_EPHEMERIS_EPOCH_UTC)
+        spice = create_ephemeris_interface(factory, DEFAULT_EPHEMERIS_EPOCH_UTC)
         simulation = SimulationBaseClass.SimBaseClass()
         process = simulation.CreateNewProcess("ephemerisTestProcess")
         process.addTask(simulation.CreateNewTask("ephemerisTestTask", macros.sec2nano(3600)))
@@ -66,7 +61,7 @@ def test_renderer_registers_the_same_earth_and_sun_objects_as_gravity():
     earth, sun = object(), object()
     calls = []
     bridge = SimpleNamespace(add_celestial_bodies=lambda bodies, **kwargs: calls.append((bodies, kwargs)))
-    _register_celestial_bodies(bridge, earth, sun)
+    register_celestial_bodies(bridge, earth, sun)
     assert len(calls) == 1
     bodies, kwargs = calls[0]
     assert bodies == [earth, sun]

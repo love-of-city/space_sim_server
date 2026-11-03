@@ -6,10 +6,7 @@ import sys
 import numpy as np
 import pytest
 
-from simulation.teleop_grasp_unreal import (
-    CartesianTeleopTarget, SerialChainKinematics, ARM_JOINT_NAMES,
-    SARM_JOINT_NAMES, IK_MODES, ARM_JOINT_VELOCITY_LIMIT,
-)
+from simulation.teleop_control import CartesianTeleopTarget, SerialChainKinematics, ARM_JOINT_NAMES, SARM_JOINT_NAMES, IK_MODES, ARM_JOINT_VELOCITY_LIMIT
 from simulation.serial_chain_kinematics import _uniform_limit_reasons
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 from space_arm_platform.joint_limits import load_joint_limits
@@ -123,7 +120,7 @@ sys.path[:0] = ['.', 'backend']
 sys.modules['osqp'] = None
 sys.modules['scipy'] = None
 import numpy as np
-from simulation.teleop_grasp_unreal import CartesianTeleopTarget, SerialChainKinematics, ARM_JOINT_NAMES
+from simulation.teleop_control import CartesianTeleopTarget, SerialChainKinematics, ARM_JOINT_NAMES
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 kin=SerialChainKinematics.from_mjcf('model/SARM/platform/sarm_platform.xml',base_body='cubesat_bus',joint_names=ARM_JOINT_NAMES,tool_site='sarm_ee')
 t=CartesianTeleopTarget(np.array(BALANCED_TELEOP_HOME),None,kin)

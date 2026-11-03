@@ -9,7 +9,7 @@ import pytest
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 from space_arm_platform.scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, capture_target
-from simulation.teleop_grasp_unreal import _load_scene_instance
+from simulation.teleop_scene import load_scene_instance
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_loader_accepts_new_scene_and_keeps_zero_pose_validation(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     instance = manager.create_instance(SceneInstanceCreate(seed=42))
-    loaded = _load_scene_instance(Path(instance["config_path"]))
+    loaded = load_scene_instance(Path(instance["config_path"]))
     assert loaded["template_id"] == DEFAULT_TEMPLATE
     assert loaded["randomization"]["target_hinge_position_rad"] == 0.0
     import json
@@ -26,7 +26,7 @@ def test_loader_accepts_new_scene_and_keeps_zero_pose_validation(tmp_path):
         path = tmp_path / "invalid.json"
         path.write_text(json.dumps(loaded), encoding="utf-8")
         with pytest.raises(ValueError, match="target_hinge_position_rad"):
-            _load_scene_instance(path)
+            load_scene_instance(path)
 
 
 def test_native_scene_has_independent_free_target_and_passive_wing(monkeypatch):

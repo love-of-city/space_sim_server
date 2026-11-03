@@ -214,8 +214,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install adapter and test dependencies
-        run: python -m pip install -e './ue-adapter[test]' pytest-xdist
+      - name: Install adapter and release-test dependencies
+        run: python -m pip install -e './ue-adapter[test]' pytest-xdist 'pydantic>=2.8' 'av>=14.2,<16' pyarrow
       - name: Linux adapter Python checks
         working-directory: ue-adapter
         env:
@@ -225,3 +225,7 @@ jobs:
         run: |
           python -m pytest -q tools/release/tests/test_packaging.py tools/release/tests/test_ue_build_tools.py tools/release/tests/test_runtime_metadata.py tools/release/tests/layout_preparer/test_launcher.py
           python tools/release/tests/layout_preparer/test_self_extractor.py
+      - name: Collector CLI and recording-validator entrypoints
+        env:
+          PYTHONPATH: server:server/backend
+        run: python -m pytest -q tools/release/tests/collector/test_collection_cli.py

@@ -13,6 +13,7 @@ from .collection_randomization import randomization_catalog
 from .collection_layouts import LayoutPool
 from .collection_inputs import requires_color_layout
 from .overview_camera import overview_camera_catalog
+from .task_catalog import TASK_ALIASES
 from .scene_runtime import SceneRuntimeManager
 from .sampling import DYNAMICS_HZ, DEFAULT_IK_HZ, DEFAULT_CAPTURE_HZ, WRENCH_HZ
 
@@ -58,6 +59,7 @@ def install_collection_routes(app, config, scenes, current_user):
                      requires_color_layout=requires_color_layout(key))
                 for key, task in TASKS.items()
             ],
+            task_aliases=dict(TASK_ALIASES),
             max_workers=4,
             rates=dict(
                 dynamics=DYNAMICS_HZ,

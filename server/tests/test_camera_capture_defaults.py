@@ -4,7 +4,7 @@ import math
 import pytest
 import xml.etree.ElementTree as ET
 from space_arm_platform.camera_defaults import CAPTURE_CAMERA_RESOLUTION
-from space_arm_platform.app import PlatformConfig
+from space_arm_platform.platform_config import PlatformConfig
 from bsk_render_adapter.mjcf_assets import parse_mjcf_scene_metadata
 
 ROOT = Path(__file__).resolve().parents[1]

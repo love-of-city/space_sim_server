@@ -6,6 +6,8 @@
 
 批任务交接见[全流程指南](../guides/simulation-data-workflow.md)，参数的覆盖优先级见[采集配置参考](collection-configuration.md)，模型与物理假设见[物理模型参考](physics-model-configuration.md)。
 
+插头真实运动的连续性测量、v19 旋转自由度处理和有界参数搜索见[插头运动优化](../../server/docs/plug-motion-optimization.md)。其 0.5 秒停顿门槛和各阶段载荷对照属于新增诊断验收，不把历史任务成功自动升级为连续性通过。
+
 ## 1. 三层“通过”必须分别判断
 
 | 层次 | 当前证据与入口 | 能说明什么 | 不能据此说明什么 |
@@ -16,22 +18,22 @@
 
 自动筛选至少排除待审核、失败、中断、取消和来源无法对应的记录。训练集还应记录适用任务、版本、布局/种子、视觉质量检查、划分规则及必要的接触验收范围。这是数据集发布要求，**不是现有采集器已经全部实现的自动门禁**。
 
-源码：[录制结束检查 `validate_episode`](../../server/collection/record_scripted_task.py)、[快速/完整审核与任务记录审核](../../server/collection/collect_scripted_tasks.py)、[compact 记录读取与数值摘要](../../server/backend/space_arm_platform/compact_storage.py)。
+源码：[录制结束检查 `validate_episode`](../../server/collection/record_scripted_task.py)、[快速/完整审核与任务记录审核](../../server/collection/recording_validation.py)、[compact 记录读取与数值摘要](../../server/backend/space_arm_platform/compact_storage.py)。
 
 ## 2. 当前十项任务及默认启用范围
 
 | 任务标识 | 实际控制器版本 | 默认批次启用 | 核心动作 |
 |---|---|---|---|
 | `drawer_cycle` | `drawer-cycle/7-closed-completion` | 是 | 打开抽屉、回推闭合、松爪、撤离 |
-| `aviation_plug_insert` | `plug-insert/17-smooth-insertion-gate` | 是 | 拔取航空插头，按键向插入对应孔 |
-| `guide_plug_insert` | `plug-insert/17-smooth-insertion-gate` | 是 | 拔取导向插头，按键向插入对应孔 |
-| `cylindrical_plug_insert` | `plug-insert/17-smooth-insertion-gate` | 是 | 拔取圆柱插头，插入对应圆孔 |
+| `aviation_plug_insert` | `plug-insert/19-axis-contact-continuity` | 是 | 拔取航空插头，按键向插入对应孔 |
+| `guide_plug_insert` | `plug-insert/19-axis-contact-continuity` | 是 | 拔取导向插头，按键向插入对应孔 |
+| `cylindrical_plug_insert` | `plug-insert/19-axis-contact-continuity` | 是 | 拔取圆柱插头，插入对应圆孔 |
 | `locking_rod_cycle` | `locking-rod-cycle/4-locked-completion` | 是 | 松紧固件、杆放入卡扣、扶起、重新锁紧 |
 | `aviation_bolt_insert` | `aviation-bolt/5-seated-completion` | 否 | 从源孔旋出航空螺栓，搬运并旋入目标孔 |
-| `drawer_open` | `drawer-open/1` | 否 | 从关闭拉起并释放，保持打开 |
-| `drawer_close` | `drawer-close/1` | 否 | 从打开状态放回、锁定并释放 |
-| `locking_rod_fold` | `locking-rod-fold/1-straight-approach` | 否 | 从竖起锁紧状态旋松、放倒入卡扣并释放 |
-| `locking_rod_restore` | `locking-rod-restore/1-straight-approach` | 否 | 从卡扣内扶起、旋紧并释放 |
+| `drawer_open` | `drawer-open/1` | 是 | 从关闭拉起并释放，保持打开 |
+| `drawer_close` | `drawer-close/1` | 是 | 从打开状态放回、锁定并释放 |
+| `locking_rod_fold` | `locking-rod-fold/1-straight-approach` | 是 | 从竖起锁紧状态旋松、放倒入卡扣并释放 |
+| `locking_rod_restore` | `locking-rod-restore/1-straight-approach` | 是 | 从卡扣内扶起、旋紧并释放 |
 
 
 启用状态来自 [collection.json](../../server/config/collection.json)。任务存在、能列在网页中，不等于当前默认批次会采集，也不等于它已完成本轮 UE 实采验收。
@@ -62,11 +64,11 @@
 
 完整采后审核还要求阶段序列匹配版本、`open_verified`、`seated_before_release_verified`、峰值打开量 `≥75 mm`、最终相对位移绝对值 `≤2 mm`、开度 `≥0.95`，当前 v7 的 `released_closed_seconds ≥ task_parameters.verify_hold_s`。这些审核阈值并非对任意改过 `lift_m` 的诊断任务自动适配。
 
-源码：[DrawerLiftConfig / DrawerLiftTask.step](../../server/simulation/scripted_tasks/drawer_lift.py)、[DrawerCycleConfig / _stage_reached](../../server/simulation/scripted_tasks/drawer_cycle.py)、[validate_recording 抽屉分支](../../server/collection/collect_scripted_tasks.py)。策略控制另有 [DrawerCycleSuccess](../../server/simulation/policy_task_success.py) 的 `drawer-policy-success/2` 监视器，不应拿其版本号代替脚本控制器版本。
+源码：[DrawerLiftConfig / DrawerLiftTask.step](../../server/simulation/scripted_tasks/drawer_lift.py)、[DrawerCycleConfig / _stage_reached](../../server/simulation/scripted_tasks/drawer_cycle.py)、[validate_recording 抽屉分支](../../server/collection/recording_validation.py)。策略控制另有 [DrawerCycleSuccess](../../server/simulation/policy_task_success.py) 的 `drawer-policy-success/2` 监视器，不应拿其版本号代替脚本控制器版本。
 
 ### 3.2 三种插头
 
-共同终态要求：实际拔起过、插入正确对象对应的目标 site、径向与轴线合格、法兰落座、松爪并完成撤离。当前 v17 默认连续几何确认 `0.2 s`。
+共同终态要求：实际拔起过、插入正确对象对应的目标 site、径向与轴线合格、法兰落座、松爪并完成撤离。当前 v19 默认连续几何确认 `0.2 s`。
 
 | 项目 | 航空 | 导向 | 圆柱 |
 |---|---|---|---|
@@ -85,16 +87,18 @@
 需要同时保留的阶段条件：
 
 - 抓取要求双指真实接触、抓取朝向误差 `<0.05 rad`、TCP 抓取位置误差 `<4 mm`、相对运动速度 `<0.015 m/s`，连续 `0.15 s`。搬运过程有滑脱检测；`ever_lifted` 依据实际零件抬高量 `>0.12 m`。
-- 插入推进对齐门槛是径向 `<0.4 mm` 且姿态误差 `<0.004 rad`。v17 在归一化误差 `0.75–1` 区间平滑降速，暂停后回到 `0.90` 内恢复；目标推进领先量限制为 `2 mm`。这些是推进控制条件，不能与最终 `0.01 rad` 轴线/键向判据混为一谈。
+- v19 插入推进要求径向 `<0.4 mm`；航空/导向检查含键向的姿态误差 `<0.004 rad`，无键圆柱只检查轴线倾角 `<0.008 rad`（`insert_orientation_tolerance_rad` 默认按插头类型解析）。归一化误差 `0.75–1` 区间平滑降速，暂停后回到 `0.90` 内恢复；每次暂停 `0.25 s` 后，对误差比不超过 `1.25` 且腕力/力矩不超过各自上限 `50%` 的轻微失配使用 `18%` 轴向爬行速度。明显失配或负载升高时禁止爬行，目标推进领先量限制为 `2 mm`。最终径向 `0.4 mm`、轴线/键向 `0.01 rad` 及深度/落座判据保持原值；v17 历史记录保留原先统一 `0.004 rad` 推进门槛。
+- v19 使用独立名义参考与有限摩擦预载，避免接触误差重复积分并扭曲下压方向；预载读取实际运行的关节刚度及保持力配置。生产控制参数和诊断验收见[优化方案](../../server/docs/plug-motion-optimization.md)。
+- `insertion_alignment_pause_s` 保留对齐暂停锁存的累计时间（包含爬行）；新增 `insertion_alignment_hold_s` 统计零目标推进时间，`insertion_alignment_creep_s` 统计爬行时间，两者之和等于暂停锁存时间。它们是控制状态时长，实际物体速度另由 `plug_velocity_body_m_s` 判断。
 - 圆柱在 insert→release 前额外要求法兰间隙 `<min(seat_tolerance_m, 0.1 mm)`。最终完成容差仍为上表的 `1 mm`。
-- release 阶段要求卸载、双指均无接触，实际左右开度达到 `min(release_open_rad−0.02, release_start_opening+0.08)`，连续 `0.1 s` 后才开始撤离；圆柱有额外原生净空检查。后续开爪与撤离可以重叠。
+- release 阶段要求卸载、双指均无接触，连续 `0.1 s`。有原生状态的圆柱随后直接查询实际净空与撤离路径，不额外等待固定开爪增量；其他分支仍要求实际左右开度达到 `min(release_open_rad−0.02, release_start_opening+0.08)`。净空不合格继续开爪，后续开爪与撤离可以重叠。
 - 最终 verify 的默认开度条件为 `>0.65−0.03=0.62`，TCP 在孔平面上的距离 `>0.09 m`，几何连续确认 `0.2 s`。采后审核的末帧开度比较为 `≥0.62`，严格比较符号与在线条件略有不同。
 
-**当前 v15/v16/v17 的末尾 verify 不要求速度衰减到 `<0.002 m/s`、`<0.03 rad/s`。** 释放前的 insert 条件仍有任务差异：航空和圆柱要求插头相对线速度范数 `<0.002 m/s`、相对角速度范数 `<0.03 rad/s`；导向分支不要求这两个低速阈值。其他抓取/持件条件按各分支判断，不能概括成“所有速度条件都已删除”或“三种插头释放前都必须达到相同低速”。旧版本录制由验证器保留原来的末态速度条件。
+**v15/v16/v17/v18/v19 的末尾 verify 不要求速度衰减到 `<0.002 m/s`、`<0.03 rad/s`。** 释放前的 insert 条件仍有任务差异：航空和圆柱要求插头相对线速度范数 `<0.002 m/s`；航空检查相对角速度范数 `<0.03 rad/s`，v19 圆柱只检查去掉绕自身轴自旋后的倾斜角速度 `<0.03 rad/s`。导向分支不要求这两个低速阈值。其他抓取/持件条件按各分支判断，不能概括成“所有速度条件都已删除”或“三种插头释放前都必须达到相同低速”。旧版本录制由验证器保留原来的末态速度条件。
 
 `validate_plug_recording` 检查阶段、版本对应的抓取证据、最终对象/site、几何、抬升标志和开度。它目前**没有独立从整段保存序列重算 0.2 s 完成窗口、TCP 撤离距离或全过程接触**；控制器 `success` 及保存指标仍承担部分证明责任。要求独立物理审计的数据集应另存/审核所需轨迹。
 
-源码：[PlugInsertConfig / task_version / step](../../server/simulation/scripted_tasks/plug_insert.py)、[几何 profile](../../server/simulation/scripted_tasks/plug_profiles.py)、[圆柱释放净空](../../server/simulation/scripted_tasks/plug_clearance.py)、[validate_plug_recording](../../server/collection/collect_scripted_tasks.py)。
+源码：[当前配置](../../server/simulation/scripted_tasks/plug_motion_config.py)、[task_version / step](../../server/simulation/scripted_tasks/plug_insert.py)、[几何 profile](../../server/simulation/scripted_tasks/plug_profiles.py)、[圆柱释放净空](../../server/simulation/scripted_tasks/plug_clearance.py)、[validate_plug_recording](../../server/collection/recording_validation.py)。
 
 ### 3.3 航空螺栓旋出并装配
 
@@ -112,7 +116,7 @@
 
 完整录制审核额外要求：carry 入口实际源向位移 `≥source_clearance_m−1.5 mm`，尖端越过源孔口 `≥0.1 mm`，源累计转角 `≥required−0.05 rad`；每个旋拧段重建双指卡扣接触。不能用一条最终落座截图替代源孔旋出证据。
 
-源码：[AviationBoltConfig / 转角计算 / step](../../server/simulation/scripted_tasks/aviation_bolt.py)、[validate_threaded_recording](../../server/collection/collect_scripted_tasks.py)。
+源码：[AviationBoltConfig / 转角计算 / step](../../server/simulation/scripted_tasks/aviation_bolt.py)、[validate_threaded_recording](../../server/collection/recording_validation.py)。
 
 ### 3.4 锁杆松开、放倒、复位和锁紧
 
@@ -130,7 +134,7 @@
 
 轨道环境下卸载后的挂钩反力可以变为零。当前要求的是“锁紧过程中确有正确的接触/反力，释放后保持已达成的就位状态”，不是“最后一帧必须仍有 1 N 预载”。当前 v4 的最终 verify 不再以末态线速度、角速度或铰链速度为门槛；旋拧阶段中的停稳/换抓条件仍存在。
 
-源码：[LockingRodConfig / _released_locked / step](../../server/simulation/scripted_tasks/locking_rod.py)、[validate_threaded_recording](../../server/collection/collect_scripted_tasks.py)。
+源码：[LockingRodConfig / _released_locked / step](../../server/simulation/scripted_tasks/locking_rod.py)、[validate_threaded_recording](../../server/collection/recording_validation.py)。
 
 ### 3.5 两种螺纹任务共同的采后质量检查
 
@@ -148,7 +152,7 @@
 
 独立抽屉 v1 默认释放保持 `2 s`，独立锁杆 v1 默认 `1 s`，不继承完整循环新版本的 `0.3 s`。独立锁杆 v1 的释放保持期仍检查机构速度（线速度 `<0.008 m/s`、角速度及铰链/旋转速度 `<0.05 rad/s`）；保持期间夹爪开度 `≥0.40 rad`，末帧达到配置自由开度减 `0.01 rad`。完整循环 v4 和航空螺栓 v5 的几何完成规则不自动套用到这两个独立版本。
 
-使用及初态见[单向操作采集](../../server/docs/single-direction-collection.md)，在线判定见[抽屉拉起](../../server/simulation/scripted_tasks/drawer_open.py)、[抽屉放回](../../server/simulation/scripted_tasks/drawer_close.py)、[锁杆任务](../../server/simulation/scripted_tasks/locking_rod.py)，录后判定见[采集验证器](../../server/collection/collect_scripted_tasks.py)。历史默认布局录像不代表本次合并版本或任意随机布局验收通过。
+使用及初态见[单向操作采集](../../server/docs/single-direction-collection.md)，在线判定见[抽屉拉起](../../server/simulation/scripted_tasks/drawer_open.py)、[抽屉放回](../../server/simulation/scripted_tasks/drawer_close.py)、[锁杆任务](../../server/simulation/scripted_tasks/locking_rod.py)，录后判定见[采集验证器](../../server/collection/recording_validation.py)。历史默认布局录像不代表本次合并版本或任意随机布局验收通过。
 
 ## 4. 预检几何、在线规划和失败
 
@@ -164,7 +168,7 @@
 
 以上均为**有限离散采样**，不是连续碰撞检测证明。正间隙不足也会被拒绝；例如 `start_in_collision` 不能一概翻译为“已经发生穿透”。搜索耗尽表示预算内没找到，不证明物理不可达；首个失败接触对也不是全模型最小间距。
 
-源码：[布局池](../../server/backend/space_arm_platform/collection_layouts.py)、[初态/接触分类](../../server/simulation/scripted_tasks/drawer_initialization.py)、[自由运动查询](../../server/simulation/scripted_tasks/collision_motion.py)、[搜索采样参数](../../server/simulation/scripted_tasks/obstacle_planner.py)、[受约束通道](../../server/simulation/scripted_tasks/operation_clearance.py)、[锁杆阶段规划与诊断候选路径](../../server/simulation/scripted_tasks/locking_rod.py)、[执行器](../../server/collection/run_scripted_task.py)。
+源码：[布局池](../../server/backend/space_arm_platform/collection_layouts.py)、[初态/接触分类](../../server/simulation/scripted_tasks/task_initialization.py)、[自由运动查询](../../server/simulation/scripted_tasks/collision_motion.py)、[搜索采样参数](../../server/simulation/scripted_tasks/obstacle_planner.py)、[受约束通道](../../server/simulation/scripted_tasks/operation_clearance.py)、[锁杆阶段规划与诊断候选路径](../../server/simulation/scripted_tasks/locking_rod.py)、[执行器](../../server/collection/run_scripted_task.py)。
 
 ### 4.2 不同任务不能共用一个“超载即失败”说法
 
@@ -276,9 +280,9 @@ python - /absolute/attempt-summary.json /absolute/episode /absolute/new-audit.js
 import json
 import sys
 from pathlib import Path
-from collection.collect_scripted_tasks import validate_recording
+from collection.recording_validation import validate_recording
 from space_arm_platform.collection_layouts import validate_episode_layout
-from space_arm_platform.overview_camera import validate_episode_overview_camera
+from space_arm_platform.overview_camera_records import validate_episode_overview_camera
 
 summary_path, episode, output = map(Path, sys.argv[1:])
 summary = json.loads(summary_path.read_text())

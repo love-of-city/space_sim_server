@@ -5,10 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from simulation.teleop_grasp_unreal import (
-    ARM_JOINT_NAMES, ARM_JOINT_VELOCITY_LIMIT, CartesianTeleopTarget,
-    IK_MODES, SerialChainKinematics,
-)
+from simulation.teleop_control import ARM_JOINT_NAMES, ARM_JOINT_VELOCITY_LIMIT, CartesianTeleopTarget, IK_MODES, SerialChainKinematics
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 from simulation.online_elbow_ik import OnlineElbowPreference
 

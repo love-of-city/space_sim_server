@@ -1,3 +1,4 @@
+import {createDatasetChart} from '../pages/dataset_charts.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -6,10 +7,8 @@ import {navigationUrl,routeForUrl} from '../platform_shell.js';
 import {filterRecords,chartCategory} from '../pages/dataset_filters.js';
 
 test('hidden chart groups retain their sampling clock without drawing a zero-size canvas',()=>{
-  const datasetSource=readFileSync(new URL('../pages/datasets.js',import.meta.url),'utf8');
-  const context=vm.createContext({state:{active:true,data:{times:[0,0.02]},degree:true}});
-  vm.runInContext(datasetSource.slice(datasetSource.indexOf('class Chart {'),datasetSource.indexOf('function exportCSV()'))+'\nthis.Chart=Chart;',context);
-  const chart=Object.create(context.Chart.prototype);
+  const Chart=createDatasetChart({state:{active:true,data:{times:[0,0.02]},degree:true}});
+  const chart=Object.create(Chart.prototype);
   Object.assign(chart,{group:{unit:'N',times:[0,0.005]},unit:{},w:320,h:200,
     wrap:{getBoundingClientRect:()=>({width:0,height:0})},
     canvas:{getContext(){throw new Error('hidden canvas must not be drawn');}}});

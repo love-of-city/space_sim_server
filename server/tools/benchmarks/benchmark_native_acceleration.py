@@ -40,7 +40,8 @@ SOURCE_FILES = (
     "native/posture.cpp", "native/mjscene_probe.cpp",
     "simulation/native_posture.py", "simulation/online_elbow_ik.py",
     "simulation/serial_chain_kinematics.py", "simulation/mjscene_threadpool.py",
-    "simulation/teleop_grasp_unreal.py", "simulation/native_integration.py",
+    "simulation/teleop_grasp_unreal.py", "simulation/teleop_control.py",
+    "simulation/teleop_scene.py", "simulation/teleop_session.py", "simulation/native_integration.py",
     "tools/benchmarks/profile_simulation_runtime.py",
 )
 

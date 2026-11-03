@@ -8,7 +8,8 @@ import pytest
 
 from simulation.plug_retention import model_retention_sockets
 from simulation.scripted_tasks.drawer_lift import DrawerLiftTask
-from simulation.scripted_tasks.plug_insert import PlugInsertConfig, PlugInsertTask, PlugSample
+from simulation.scripted_tasks.plug_insert import PlugInsertTask, PlugSample
+from simulation.scripted_tasks.plug_motion_config import PlugInsertConfig
 from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
 from simulation.serial_chain_kinematics import (
     axis_angle_to_matrix, matrix_to_quaternion_wxyz, quaternion_wxyz_to_matrix,

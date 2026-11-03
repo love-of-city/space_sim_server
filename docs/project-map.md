@@ -1,6 +1,8 @@
 # SpaceSim 项目结构地图
 
-结构核查日期：2026-10-31。工程改进已从 `chore/ue-engineering-20261031` 同步到主目录 `src/space-sim/`，并在主目录重新构建 UE/native 与核验来源。当时三个旧采集批次已停止；后续新批次及实时运行状态以仓库外 `WORKSPACE.md` 和各批次 `progress.json` 为准。改造前源码和运行产物保存在工作区快照中。实际验收与未覆盖范围见[实施报告](/home/spacesim-zmh/reports/ue-engineering-implementation-20261031/REPORT.md)，目录整合不等于所有平台已完成交付认证。
+结构核查日期：2026-11-03。当前已完成任务配置/记录契约、采集验收、后端/网页、遥操作、Python原生绑定、渲染适配器与资产工具的职责整理；下文模块表反映当前实现。源码继续在 `src/space-sim/` 的稳定文件中迭代，退役实现由 Git 和整理前工作区快照保留。此次修改及验证范围见[代码整理实施报告](/home/spacesim-zmh/reports/code-reorganization-20261103-153614/REPORT.md)。
+
+2026-10-31 的 UE 工程改进已从 `chore/ue-engineering-20261031` 集成主目录，并在主目录重建 UE/native。其历史验收见[工程改进实施报告](/home/spacesim-zmh/reports/ue-engineering-implementation-20261031/REPORT.md)。后续批次及实时运行状态以仓库外 `WORKSPACE.md` 和各批次 `progress.json` 为准；目录整合不等于所有平台已完成交付认证。
 
 这份地图按职责维护；本机本次逐文件清单和完整文件树位于 `/home/spacesim-zmh/reports/project-structure-20261031/`。该盘点是时间点快照，后续新增文件以 Git 和实际磁盘为准。
 
@@ -126,7 +128,8 @@ server/
 | `config/collection.json` | 启用任务、布局轮次、时间种子、初态范围和资源限制 |
 | `collection/sequence.py` | 冻结计划；布局洗牌；依次调度；取消、失败跳过、恢复和批末审核 |
 | `collection/runtime_provenance.py` | 冻结实际源码、原生库、Python 环境、UE 构建和输入指纹；恢复及逐条录制拒绝混用实现 |
-| `collection/collect_scripted_tasks.py` | 单任务批采、共享 UE/动力学会话、录后快速检查与完整审核 |
+| `collection/collect_scripted_tasks.py` | 单任务批采、共享 UE/动力学会话和审核调度 |
+| `collection/recording_validation.py`、`recorded_task_contracts.py` | 唯一录制验收入口；按保存任务版本解释阶段与历史完成规则 |
 | `collection/record_scripted_task.py` | 单条 UE 双相机 / LeRobot 录制、启停边界和最终封装；首帧前验证实际 UE 进程及模块来源 |
 | `collection/run_scripted_task.py` | 单条权威物理任务循环，装配/重置图、运行控制器并写动力学报告 |
 | `collection/dynamics_worker.py` | 常驻采集动力学入口，创建图缓存并设置优化默认值 |
@@ -153,12 +156,16 @@ tools/collect.py
 
 | 模块组 | 代码职责 |
 |---|---|
-| `main.py`、`app.py`、`models.py` | CLI 启动、FastAPI 应用、API/仿真数据模型 |
+| `main.py`、`app.py`、`models.py` | CLI 启动、FastAPI 装配/lifespan、API/仿真数据模型 |
+| `platform_config.py`、`operator_sessions.py` | 平台配置和操作者会话状态 |
+| `auth_api.py`、`scene_api.py`、`episode_api.py`、`operator_api.py`、`media_api.py` | 认证、场景、录制、操作权和媒体路由 |
+| `task_catalog.py` | 纯任务目录：规范ID、别名、家族与显示名；默认采集集合和发布产品子集分别声明 |
 | `auth.py`、`web_security.py`、`stream_access.py` | 用户会话、Web边界、视频访问令牌 |
 | `collection_api.py`、`collection_jobs.py` | 网页采集 API 和后台采集任务管理 |
 | `collection_inputs.py`、`collection_layouts.py`、`layout_trajectories.py` | 固定模型/布局池输入验证、轨迹验收与哈希绑定 |
 | `collection_processes.py`、`collection_runtime.py`、`dynamics_worker.py` | 进程所有权、UE会话与动力学worker生命周期 |
-| `collection_randomization.py`、`orbit_randomization.py`、`overview_camera.py` | 随机化配置、轨道相位和版本化相机采样 |
+| `collection_randomization.py`、`orbit_randomization.py`、`overview_camera.py` | 随机化配置、轨道相位和当前相机采样 |
+| `overview_camera_records.py`、`overview_camera_calibration.py` | 历史相机记录校验/恢复及纯标定几何；新建相机不切换历史算法 |
 | `scene_runtime.py`、`scene_targets.py`、`task_box.py` | 场景实例与目标初态 |
 | `simulation_hub.py`、`protocol.py` | API与仿真的双向网关和消息封装 |
 | `capture_lifecycle.py`、`capture_receiver.py`、`recorder.py` | 按需采集启停、图像接收、权威状态/图像配对 |
@@ -177,7 +184,7 @@ tools/collect.py
 | 模块/目录 | 职责 |
 |---|---|
 | `assembly.py`、`physics_ports.py`、`physics_clock.py` | 组件装配、类型化物理消息、确定性时钟 |
-| `local_mujoco_stepper.py` | 本地坐标 MuJoCo 步进、状态读写与原生接口 |
+| `local_mujoco_stepper.py`、`local_mujoco_bindings.py` | 分别负责BSK步进/状态发布、MuJoCo C ABI加载与ctypes绑定 |
 | `local_dynamics_config.py` | 不依赖 Basilisk 的物理步长/发布节拍配置，供原生步进和纯图兼容检查共用 |
 | `compiled_model_cache.py`、`publication_scene.py` | 编译模型内容指纹缓存、发布副本精简 |
 | `mujoco_runtime.py`、`mujoco_plugins.py`、`native_acceleration.py`、`native_integration.py` | 绑定Basilisk已加载的运行库、插件和源码匹配的原生库，配置积分 |
@@ -190,11 +197,13 @@ tools/collect.py
 | `serial_chain_kinematics.py`、`pose_ik.py`、`online_elbow_ik.py` | MJCF串联运动学、离线位姿IK与在线肘部偏好 |
 | `arm_preparation.py`、`preparation_planner.py`、`preparation_contract.py`、`prepare_elbow_posture.py` | 准备状态机、规划、保存契约与隔离初态工作进程 |
 | `gripper_control.py`、`joint_reference_publisher.py`、`reference_governor.py`、`reference_recovery.py` | 夹爪/关节参考发布、保护和受控恢复 |
-| `control_client.py`、`teleop_grasp_unreal.py`、`gamepad_control.py` | 仿真通信、实时遥操作场景、手柄输入组合 |
+| `control_client.py`、`teleop_grasp_unreal.py`、`gamepad_control.py` | 仿真通信、稳定遥操作CLI、手柄输入组合 |
+| `teleop_scene.py`、`teleop_control.py`、`teleop_session.py` | 保存场景/轨道初态、Cartesian控制/IK、装配/重置/运行与清理生命周期 |
 | `policy_control.py`、`policy_task_success.py` | 策略命令执行和物理任务成功判据 |
 | `observation_capture.py`、`wrench_sampling.py`、`wrench_sensors.py` | 同步观测、独立腕力采样和传感器适配 |
 | `plug_retention.py` | 插头接合、引导力和轴向干摩擦 |
-| `independent_task_box_layout.py`、`task_box_layout.py`、`collection_assets.py`、`socket_colors.py` | 独立布局、原布局原型、通用资产、每条颜色身份 |
+| `independent_task_box_layout.py`、`capture_layout.py`、`collection_assets.py`、`socket_colors.py` | 独立布局、统一保存布局/资产校验、通用资产、每条颜色身份 |
+| `task_box_layout.py` | 两板整体平移的离线诊断生成器；不是独立安装单元生产布局生成或采集校验入口 |
 | `layout_package.py` | MJCF 资产引用解析、完整模型语义摘要和原生验收报告的搬迁等价证明 |
 | `camera_lighting.py`、`sarm_model_profile.py` | 相机补光、模型关节/执行器命名映射 |
 | `motion_diagnostics.py`、`runtime_performance.py`、`runtime_progress.py` | 运动/性能/启动诊断，不改物理时钟 |
@@ -207,11 +216,13 @@ tools/collect.py
 | `drawer_cycle.py` | 抽屉打开、关闭、松开和完成确认 |
 | `drawer_lift.py` | 抽屉基础任务实现及历史诊断入口 |
 | `plug_insert.py`、`plug_profiles.py` | 航空/导向/圆柱插头共用控制器及不同部件参数 |
+| `plug_contact_feedback.py` | 将名义接触位姿与有限摩擦预载分离，绑定实际伺服刚度/保持力配置，输出整体限幅的执行器参考 |
+| `plug_motion_config.py` | 插头公共参数、运动限制和固定阶段规则，统一解析/校验及plug-motion-config/2完整快照；不依赖抽屉配置 |
 | `aviation_bolt.py` | 航空螺栓旋出和装配任务 |
 | `locking_rod.py` | 锁杆松开、折叠、复位和锁紧任务 |
 | `threaded_tasks.py`、`threaded_motion.py` | 螺纹任务公共组织与旋拧运动 |
 | `physics_graph.py` | 本次优化的物理图兼容性判断、保留、重置和释放 |
-| `drawer_initialization.py`、`gripper_preflight.py` | 初态、私有碰撞查询及夹爪几何预检；前者历史文件名不代表只供抽屉使用 |
+| `task_initialization.py`、`native_geometry_probe.py`、`gripper_preflight.py` | 分别负责多任务初态/配置冻结、隔离原生几何查询、夹爪几何预检 |
 | `planning_context.py`、`native_state.py` | 私有规划模型上下文、任务状态和接触读取 |
 | `capture_transport.py` | 权威观测与渲染/录制传输连接 |
 | `approach_path.py`、`carry_path.py`、`joint_path.py` | 接近、搬运、关节路径 |
@@ -219,6 +230,8 @@ tools/collect.py
 | `operation_clearance.py`、`plug_clearance.py` | 操作空间/插头通道净空检查 |
 | `motion.py`、`motion_options.py`、`motion_timing.py`、`pose_tracking.py` | 运动公共逻辑、选项、时间规律和位姿跟踪 |
 | `randomization.py`、`instructions.py`、`disturbances.py` | 初态/颜色等随机化、任务语言指令、可配置扰动 |
+
+插头连续性独立验证入口为 `server/tools/benchmarks/optimize_plug_motion.py`，以冻结案例和有界候选参数调用生产单任务执行链；同目录 `plug_motion_metrics.py` 只读测量实际停顿及拔出/插入各阶段载荷。输入、命令、日志及推荐保存在仓库外的新诊断目录，不自动改写生产脚本或恢复正式批次。格式、判据与无解迭代方式见[插头运动优化](../server/docs/plug-motion-optimization.md)。
 
 `model_preparation/bolt_storage_thread.py`、`captive_fastener.py`、`locking_cycle_contacts.py`、`threaded_task_initialization.py` 负责模型中螺纹、紧固件、锁杆接触及任务初态的结构准备。
 
@@ -232,7 +245,9 @@ tools/collect.py
 | `native/sarm_thread_sdf_check.cpp`、`mjscene_probe.cpp` | 插件与原生场景检查 |
 | `frontend/index.html`、`app.js`、`platform_shell.js`、`ui.js` | 网页入口、应用/导航与通用UI |
 | `frontend/pages/collection.*` | 采集控制页面；随机化和布局状态由同目录模块负责 |
-| `frontend/pages/datasets.*`、`dataset_filters.js`、`users.*` | 数据集浏览筛选与用户管理 |
+| `frontend/pages/datasets.*`、`dataset_filters.js`、`dataset_charts.js`、`dataset_playback.js`、`users.*` | 数据集页面、筛选、图表、双相机回放与用户管理 |
+| `frontend/api_client.js`、`operator_session.js`、`scene_session.js` | API与登录失效处理、控制权连接、场景启停/重置请求生命周期 |
+| `frontend/pixel_stream_session.js`、`video_diagnostics.js`、`task_catalog.js` | 视频连接/重连、诊断、共用后端任务标签/别名目录 |
 | `frontend/arm_preparation.js`、`control_status.js`、`free_camera.js`、`gamepad_input.js` | 准备、控制状态、自由相机和手柄 |
 | `frontend/initial_joint_angles.js`、`joint_angles.js`、`motion_diagnostics.js`、`wrist_wrench.js` | 初态/关节显示、运动诊断和腕力 |
 | `frontend/*.css`、`vite.config.js`、`package*.json` | 样式、构建、依赖与锁定版本 |
@@ -244,6 +259,8 @@ tools/collect.py
 | `scripts/ci_pytest.py`、`native-test-profile.json`、`ci-exclusions.json` | 基础/原生测试分层、显式平台节点排除；声明范围内出现 skip 即失败 |
 | `tools/assets/migrate_layout_pool.py` | 将 v1 布局池复制为 v2 完整包；拒绝覆盖原件、未声明资产根和路径逃逸 |
 | `tools/deployment/check_runtime_provenance.py` | 检查本机采集源码、原生库、环境与 UE 构建来源是否一致，不启动正式采集 |
+
+资产共享几何位于`tools/assets/task_box_geometry.py`与`plug_collision_geometry.py`，构建CLI与诊断工具共用；正式构建不再导入实验CLI。`task_box_proxy_experiment.py`保留为独立碰撞几何A/B诊断工具，生成候选而不替换正式模型。
 
 布局迁移用法、包内目录和交付边界见[可搬迁布局包](guides/portable-layout-pools.md)。运行时每次选样重新校验文件哈希，历史 native 报告保持原字节，不把路径迁移当成重新完成几何验收。
 
@@ -291,7 +308,7 @@ ue-adapter/
 │   │       │       └── *.cpp         帧解析、TCP、相机输入及模块初始化
 │   │       └── BskCameraShaders/      相机着色器模块
 │   ├── Source/                          UE主工程模块及Target构建定义
-│   ├── python/bsk_unreal_adapter/       历史UE专属名称兼容包装
+│   ├── python/bsk_unreal_adapter/       仍有外部示例/包调用的UE名称适配
 │   ├── examples/                        示例场景；原生场景加载器仍被正式采集导入
 │   ├── scripts/                         实际工程构建、资产导入、启动与测试
 │   ├── tests/                           协议、帧、设备与渲染能力测试
@@ -307,7 +324,8 @@ ue-adapter/
 
 | 关键文件 | 职责 |
 |---|---|
-| `Adapters/bsk_render_adapter/bridge.py` | 读取Basilisk对象，发布静态场景和当前状态 |
+| `Adapters/bsk_render_adapter/bridge.py` | 公开Bridge和状态发布生命周期 |
+| `scene_description.py`、`device_registration.py`、`command_dispatch.py` | MJScene静态描述、设备注册、命令分派；维持原Bridge API/协议 |
 | `frames.py`、`descriptors.py`、`device_adapters.py` | 坐标/姿态转换、静态描述和设备可视化 |
 | `protocol.py`、`capture.py`、`recording.py` | 网络协议、相机数据解码、渲染流记录/回放 |
 | `mjcf_assets.py`、`stl_conversion.py`、`native_plugins.py`、`ue_support.py` | MJCF渲染元数据、STL转换、共享运行库插件和便捷API |

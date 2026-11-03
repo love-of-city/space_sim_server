@@ -21,7 +21,7 @@ def test_required_paths_match_the_current_production_stage_enumerations():
     from simulation.scripted_tasks.drawer_lift import DrawerLiftTask
 
     for task in ("aviation_plug_insert", "guide_plug_insert", "cylindrical_plug_insert"):
-        assert REQUIRED_OPERATION_STAGES[task] == PlugInsertTask.latch_stages
+        assert REQUIRED_OPERATION_STAGES[task] == PlugInsertTask.stages
     assert REQUIRED_OPERATION_STAGES["drawer_cycle"] == DrawerCycleTask.stages
     assert REQUIRED_OPERATION_STAGES["drawer_lift"] == DrawerLiftTask.stages
 

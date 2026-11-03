@@ -1,3 +1,4 @@
+from collection.recorded_task_contracts import recorded_stages, validate_recorded_stages
 """Independent geometry, multi-turn and actuator-only threaded regressions."""
 
 from dataclasses import replace
@@ -106,9 +107,9 @@ def test_regrasp_arm_unload_does_not_repeat_the_independent_jaw_timer():
 def test_recording_rejects_missing_regrasp_or_missing_screw_in():
     good=['settle','approach','grip','unscrew','regrasp_release','regrasp_rewind',
           'regrasp_grip','unscrew','carry','screw_in','release','retract','verify']
-    assert AviationBoltTask.validate_recorded_stages(good)
-    assert not AviationBoltTask.validate_recorded_stages([s for s in good if s!='regrasp_rewind'])
-    assert not AviationBoltTask.validate_recorded_stages([s for s in good if s!='screw_in'])
+    assert validate_recorded_stages(AviationBoltTask.name, good, AviationBoltTask.version)
+    assert not validate_recorded_stages(AviationBoltTask.name, [s for s in good if s!='regrasp_rewind'], AviationBoltTask.version)
+    assert not validate_recorded_stages(AviationBoltTask.name, [s for s in good if s!='screw_in'], AviationBoltTask.version)
 
 
 def test_grasp_transform_is_not_reestimated_to_hide_slip():
@@ -246,7 +247,7 @@ def test_penultimate_turn_regrasp_leaves_a_substantial_final_held_stroke(stage,r
 
 def test_preflight_closes_stationary_before_turn_and_transforms_free_pose_to_world(tmp_path,monkeypatch):
     import xml.etree.ElementTree as ET
-    from simulation.scripted_tasks import drawer_initialization
+    from simulation.scripted_tasks import native_geometry_probe
     from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix,matrix_to_quaternion_wxyz
 
     calls=[]
@@ -258,7 +259,7 @@ def test_preflight_closes_stationary_before_turn_and_transforms_free_pose_to_wor
         def check_threaded_paths(self,name,paths):
             return dict(accepted=True,checked_poses=sum(len(row[1]) for row in paths))
         def close(self): pass
-    monkeypatch.setattr(drawer_initialization,"NativePoseProbe",GeometryProbe)
+    monkeypatch.setattr(native_geometry_probe,"NativePoseProbe",GeometryProbe)
     tree=ET.parse(MODEL)
     root=tree.getroot()
     world_rotation=axis_angle_to_matrix(np.array([0.,0.,1.]),.47)@axis_angle_to_matrix(np.array([1.,0.,0.]),.20)
@@ -301,11 +302,11 @@ def test_preflight_closes_stationary_before_turn_and_transforms_free_pose_to_wor
 
 
 def test_preflight_reports_missing_native_grasp_geometry(monkeypatch):
-    from simulation.scripted_tasks import drawer_initialization
+    from simulation.scripted_tasks import native_geometry_probe
 
     def unavailable(path):
         raise RuntimeError("Native contact geometry is unavailable")
-    monkeypatch.setattr(drawer_initialization,"NativePoseProbe",unavailable)
+    monkeypatch.setattr(native_geometry_probe,"NativePoseProbe",unavailable)
     task,sample=make_task()
     with pytest.raises(RuntimeError,match="Native contact geometry is unavailable"):
         task.preflight_paths(sample.joints)
@@ -342,7 +343,7 @@ def test_final_partial_turn_keeps_grasp_without_relaxing_rotation_success(stage)
 
 @pytest.mark.parametrize("failure",["ik","collision"])
 def test_carry_uses_equivalent_phase_when_first_branch_is_unreachable_or_collides(monkeypatch,failure):
-    from simulation.scripted_tasks import drawer_initialization
+    from simulation.scripted_tasks import native_geometry_probe
 
     task,sample=make_task()
     selected=[]
@@ -356,7 +357,7 @@ def test_carry_uses_equivalent_phase_when_first_branch_is_unreachable_or_collide
             inspected.append(phase)
             return dict(accepted=phase!=0.,reason="approach_collision")
         def close(self): pass
-    monkeypatch.setattr(drawer_initialization,"NativePoseProbe",GeometryProbe)
+    monkeypatch.setattr(native_geometry_probe,"NativePoseProbe",GeometryProbe)
     task._carry_candidate_paths=paths
     task._plan_carry_phase=lambda sample,phase:selected.append(phase)
     task._plan_carry(sample)
@@ -368,7 +369,7 @@ def test_carry_uses_equivalent_phase_when_first_branch_is_unreachable_or_collide
 
 
 def test_preflight_checks_both_carry_branches_and_keeps_reachable_branch(monkeypatch):
-    from simulation.scripted_tasks import drawer_initialization
+    from simulation.scripted_tasks import native_geometry_probe
 
     task,sample=make_task()
     inspected=[]
@@ -379,7 +380,7 @@ def test_preflight_checks_both_carry_branches_and_keeps_reachable_branch(monkeyp
             inspected.append(phase)
             return dict(accepted=phase==0.,reason="approach_collision")
         def close(self): pass
-    monkeypatch.setattr(drawer_initialization,"NativePoseProbe",GeometryProbe)
+    monkeypatch.setattr(native_geometry_probe,"NativePoseProbe",GeometryProbe)
     task._carry_candidate_paths=lambda sample,phase:phase
     task._plan_carry_phase=lambda sample,phase:selected.append(phase)
     task._plan_carry(sample,check_all=True)
@@ -389,7 +390,7 @@ def test_preflight_checks_both_carry_branches_and_keeps_reachable_branch(monkeyp
 
 
 def test_carry_rejects_all_unsafe_equivalent_branches(monkeypatch):
-    from simulation.scripted_tasks import drawer_initialization
+    from simulation.scripted_tasks import native_geometry_probe
 
     task,sample=make_task()
     class GeometryProbe:
@@ -397,7 +398,7 @@ def test_carry_rejects_all_unsafe_equivalent_branches(monkeypatch):
         def check_threaded_paths(self,name,paths):
             return dict(accepted=False,reason="mechanism_environment_collision")
         def close(self): pass
-    monkeypatch.setattr(drawer_initialization,"NativePoseProbe",GeometryProbe)
+    monkeypatch.setattr(native_geometry_probe,"NativePoseProbe",GeometryProbe)
     task._carry_candidate_paths=lambda sample,phase:phase
     with pytest.raises(ValueError,match="No collision-free reachable"):
         task._plan_carry(sample)
@@ -488,7 +489,7 @@ def test_target_finishes_actual_turn_before_release_to_preserve_final_unwind_mar
 
 @pytest.mark.parametrize("distance",[.10,.065])
 def test_retract_restores_measured_geometry_and_tries_only_upward_routes(monkeypatch,distance):
-    from simulation.scripted_tasks import drawer_initialization
+    from simulation.scripted_tasks import native_geometry_probe
 
     task,sample=make_task()
     task.config=replace(task.config,retreat_distance_m=distance)
@@ -507,7 +508,7 @@ def test_retract_restores_measured_geometry_and_tries_only_upward_routes(monkeyp
                         reason="approach_collision",
                         contact=dict(penetration_m=.00016))
         def close(self):pass
-    monkeypatch.setattr(drawer_initialization,"NativePoseProbe",GeometryProbe)
+    monkeypatch.setattr(native_geometry_probe,"NativePoseProbe",GeometryProbe)
     start,r=task.chain.forward(task.reference[:6])
     task._plan_retract(sample)
     end,_=task.chain.forward(task.planned_path_reference(task._duration)[:6])

@@ -124,17 +124,32 @@ def cylindrical_retract_candidates(task):
 
 def plan_cylindrical_retract(task, sample, candidates=None):
     """Select a swept, rising retreat using the current randomized scene."""
-    from .planning_context import acquire_probe
+    from types import SimpleNamespace
+    import xml.etree.ElementTree as ET
+    from .collision_motion import NativeMotionQuery
 
     candidates = cylindrical_retract_candidates(task) if candidates is None else candidates
-    probe = getattr(task,'_release_clearance_probe',None)
-    if probe is None:
-        probe = acquire_probe(task, clearance_m=0.)
-    else:
-        task._release_clearance_probe = None
+    # Use the same measured scene and free-motion gate as the subsequent
+    # environment check. A penetration-only template could accept the first
+    # direction, then hide a later direction with the required 2-mm clearance.
+    close_cylindrical_release_probe(task)
+    proxy = SimpleNamespace(**vars(task))
+    proxy.planning_part_body = task.config.plug_body
+    body = ET.parse(task.model_path).getroot().find(f'.//body[@name="{task.config.plug_body}"]')
+    joint = body.find('freejoint')
+    if joint is None:
+        joint = body.find('joint[@type="free"]')
+    proxy.planning_part_joint = joint.get('name')
+    proxy._planning_stage = 'retract'
+    proxy._planning_goal = np.asarray(candidates[0]['position'])
+    observed = SimpleNamespace(
+        native_qpos=sample.native_qpos, joints=sample.joints,
+        part_position_body_m=sample.plug_position_body_m,
+        part_rotation_body=sample.plug_rotation_body,
+    )
+    query = NativeMotionQuery(proxy, observed, clearance_m=.002)
     attempts = []
     try:
-        probe.use_measured_qpos(sample.native_qpos, sample.joints)
         # Prefer the short diagonal departure. Other headings/heights account
         # for neighboring plugs instead of always sweeping sideways at head level.
         for target in candidates:
@@ -148,25 +163,37 @@ def plan_cylindrical_retract(task, sample, candidates=None):
             slope = float(task._timing.path.derivative_bounds()[0].max())
             count = max(8, int(np.ceil(slope/.006)))
             checked = 0
-            # The fingers keep opening during retreat. Check both ends of
-            # that aperture range; neither permits touching the placed part.
-            for opening in (max(sample.joints[6], -sample.joints[7]),
-                            task.config.release_open_rad):
+            # Preserve the actual initial aperture, including servo lag. Do not
+            # hold that aperture over the whole retreat: the timed release
+            # opens the fingers while the arm departs.
+            measured_opening = float(min(sample.joints[6], -sample.joints[7]))
+            for arm in (sample.joints[:6], task.reference[:6]):
+                collision = query(np.r_[arm, measured_opening])
+                checked += 1
+                if collision:
+                    break
+            if collision is None:
                 for u in np.linspace(0., 1., count+1):
-                    candidate = np.r_[task._timing.path.at(u), opening, -opening]
-                    collision = probe.pose_collision(candidate, task.name,
-                                                     arm_penetration_m=.0002)
+                    candidate = task.path_reference(float(u))[:7]
+                    collision = query(candidate)
                     checked += 1
                     if collision:
                         break
-                if collision:
-                    break
+                    # The arm clock can pause while the jaws keep opening.
+                    # Also check the fully open envelope at every arm pose.
+                    opened = np.r_[candidate[:6], task.config.release_open_rad]
+                    collision = query(opened)
+                    checked += 1
+                    if collision:
+                        break
             attempts.append(dict(height_m=height, angle_rad=angle, collision=collision))
             if collision is None:
                 task.retract_plan = dict(height_m=height, direction_body=target['direction_body'],
-                                         swept_poses=checked, max_joint_step_rad=.006, attempts=attempts)
+                                         swept_poses=checked, max_joint_step_rad=.006,
+                                         clearance_m=.002, opening_law='timed_release',
+                                         start_opening_rad=measured_opening, attempts=attempts)
                 return
         task.retract_plan = dict(accepted=False, attempts=attempts)
         raise ValueError("No collision-free cylindrical connector retreat")
     finally:
-        probe.close()
+        query.close()

@@ -1,3 +1,4 @@
+import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -5,8 +6,7 @@ import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const catalogSource = source.slice(source.indexOf("async function loadSceneCatalog()"), source.indexOf("function applySceneRuntime("));
-const applySource = source.slice(source.indexOf("function applySceneRuntime("), source.indexOf("async function readApiResponse("));
-const startSource = source.slice(source.indexOf("async function startScene()"), source.indexOf("async function stopScene("));
+const applySource = source.slice(source.indexOf("function applySceneRuntime("), source.indexOf("function applyControlLimits("));
 const current = "sarm-ground-validation-self-collision-grasp";
 const coarse = "sarm-ground-validation-grasp";
 const mesh = "sarm-ground-validation-mesh-grasp";
@@ -32,7 +32,8 @@ function setup() {
         randomization_profiles: [{ id: "none", label: "固定" }], defaults: { template_id: current, randomization_profile: "none" } }) };
     },
   });
-  vm.runInContext(catalogSource + applySource + startSource, ctx);
+  vm.runInContext(catalogSource + applySource, ctx);
+  Object.assign(ctx, createSceneSession({...ctx, applySceneRuntime: (...args) => ctx.applySceneRuntime(...args)}));
   return { $, ctx, requests };
 }
 

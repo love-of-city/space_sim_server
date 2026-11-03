@@ -1,98 +1,14 @@
-"""Reproducible reset configuration and read-only native collision preflight."""
+"""Private native geometry probes for task preparation and collision planning.
 
-from copy import deepcopy
+Probe writes affect isolated model/data only, never the executing simulation.
+"""
 import ctypes
-import math
 import os
 import numpy as np
-from .drawer_tasks import DRAWER_TASKS, create_drawer_task, drawer_task_class
+from .drawer_tasks import DRAWER_TASKS, create_drawer_task
 from .drawer_lift import DrawerSample
-from .plug_insert import PlugInsertTask
 from .plug_profiles import is_plug_task, plug_profile
-from .threaded_tasks import THREADED_TASKS, LOCKING_ROD_TASKS, create_threaded_task, threaded_task_class
-
-NOISE_DISABLED = {
-    name: False
-    for name in (
-        "joint_observation_noise",
-        "joint_bias",
-        "action_noise",
-        "observation_delay",
-        "wrist_wrench_noise",
-        "external_disturbance",
-    )
-}
-
-
-def randomized_scene(source, seed, half_range_deg=30.0, task_name="drawer_cycle", *, color_assignment=None):
-    if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 50:
-        raise ValueError("initialization range must be finite and in [0,50] degrees")
-    if not source.get("initialization_enabled", True):
-        half_range_deg = 0.0
-    scene = deepcopy(source)
-    baseline = np.asarray(
-        source["randomization"]["arm_joint_position_rad"][:6], dtype=float
-    )
-    if baseline.shape != (6,) or not np.isfinite(baseline).all():
-        raise ValueError("source scene must supply six finite baseline joint angles")
-    rng = np.random.Generator(np.random.PCG64(seed))
-    offset = rng.uniform(-half_range_deg, half_range_deg, 6)
-    scene["seed"] = int(seed)
-    from space_arm_platform.overview_camera import initialize_overview_camera
-    camera = initialize_overview_camera(scene)
-    # Re-sample at the episode boundary; a copied scene otherwise retains the
-    # same saved orbital phase for every attempt. Replay never samples again.
-    orbit_randomized = scene.get("randomize_orbit_phase", False)
-    if not isinstance(orbit_randomized, bool):
-        raise ValueError("randomize_orbit_phase must be a boolean")
-    if orbit_randomized:
-        from space_arm_platform.orbit_randomization import sample_orbit_phase
-        orbit = scene.setdefault("environment", {}).setdefault("orbit", {})
-        orbit["true_anomaly_deg"] = sample_orbit_phase(int(seed))
-    scene["randomization"]["arm_joint_position_rad"] = [
-        *(baseline + np.deg2rad(offset)),
-        0.0,
-        0.0,
-    ]
-    scene["arm_preparation_required"] = False
-    scene["collection_config"] = dict(
-        schema="drawer-collection/1"
-        if task_name == "drawer_cycle"
-        else "scripted-collection/2",
-        task=task_name,
-        task_version=threaded_task_class(task_name).version
-        if task_name in THREADED_TASKS
-        else drawer_task_class(task_name).version
-        if task_name in DRAWER_TASKS
-        else (PlugInsertTask.task_version(task_name)
-              if is_plug_task(task_name)
-              else PlugInsertTask.version),
-        seed=int(seed),
-        generator="numpy.PCG64",
-        initialization=dict(
-            distribution="independent_uniform",
-            half_range_deg=half_range_deg,
-            baseline_arm_joint_deg=np.rad2deg(baseline).tolist(),
-            offset_deg=offset.tolist(),
-            initial_joint_velocity_rad_s=[0.0] * 8,
-            initial_gripper_opening=0.0,
-        ),
-        randomization_options=scene.get("collection_randomization", {}),
-        orbital_phase_randomization=(dict(
-            enabled=True, distribution="uniform_true_anomaly_deg", range_deg=[0.0, 360.0],
-            stream="space-arm-orbit-phase-v1", seed=int(seed),
-            true_anomaly_deg=scene["environment"]["orbit"]["true_anomaly_deg"],
-        ) if orbit_randomized else dict(enabled=False)),
-        disturbances=NOISE_DISABLED.copy(),
-        lighting_randomized=False,
-        dynamics_randomized=False,
-    )
-    if camera is not None:
-        scene["collection_config"]["overview_camera_randomization"] = camera
-    if color_assignment is not None:
-        scene["collection_config"]["episode_color_assignment"] = deepcopy(color_assignment)
-    from .randomization import prepare_episode
-    return prepare_episode(scene)
+from .threaded_tasks import THREADED_TASKS, LOCKING_ROD_TASKS, create_threaded_task
 
 
 class NativePoseProbe:
@@ -108,20 +24,14 @@ class NativePoseProbe:
         from .gripper_preflight import ParallelogramGripper
         self.gripper_kinematics = ParallelogramGripper(model_path)
         from simulation.mujoco_plugins import ensure_model_plugins
-        from simulation.local_mujoco_stepper import (
-            _library,
-            _basilisk_mujoco_runtime,
-            _pointer,
-            _INT64_P,
-        )
+        from simulation.local_mujoco_bindings import load_stepper_library, double_pointer, INT64_P
+        from simulation.mujoco_runtime import basilisk_mujoco_runtime
 
         ensure_model_plugins(model_path)
-        self.lib, self.ptr, self.i64 = _library(), _pointer, _INT64_P
+        self.lib, self.ptr, self.i64 = load_stepper_library(), double_pointer, INT64_P
         self._geometry_state = self.lib.lms_probe_set_state
-        self._geometry_state.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)]
-        self._geometry_state.restype = ctypes.c_int
         error = ctypes.create_string_buffer(1024)
-        runtime = str(_basilisk_mujoco_runtime())
+        runtime = str(basilisk_mujoco_runtime())
         runtime_arg = runtime if os.name == "nt" else os.fsencode(runtime)
         if cache_key is None:
             handle = self.lib.lms_create(runtime_arg, str(model_path.resolve()).encode(), error, len(error))
@@ -262,8 +172,6 @@ class NativePoseProbe:
         if lib is None or not hasattr(lib, 'lms_probe_relevance_begin'):
             return self.contacts(candidate)
         mask=np.ascontiguousarray(roles[:-1],dtype=np.uint8)
-        lib.lms_probe_relevance_begin.argtypes=[ctypes.c_void_p,ctypes.POINTER(ctypes.c_ubyte),ctypes.c_int]
-        lib.lms_probe_relevance_end.argtypes=[ctypes.c_void_p]
         self.check(lib.lms_probe_relevance_begin(self.handle,mask.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)),len(mask)))
         try:
             return self.contacts(candidate)
@@ -424,12 +332,13 @@ class NativePoseProbe:
                 task.enable_environment_planning()
                 task.chain.enable_native_geometry()
         elif is_plug:
-            from .plug_insert import PlugInsertTask, PlugInsertConfig, PlugSample
+            from .plug_insert import PlugInsertTask, PlugSample
+            from .plug_motion_config import plug_motion_config
             from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
             import xml.etree.ElementTree as ET
 
             profile = plug_profile(task_name)
-            task = type(task)(model,task.config) if task is not None else PlugInsertTask(model, PlugInsertConfig(plug_body=profile.body))
+            task = type(task)(model,task.config) if task is not None else PlugInsertTask(model, plug_motion_config(task_name, scene))
         else:
             task = type(task)(model,task.config) if task is not None else create_drawer_task(task_name, model)
         if hasattr(self,"handle") and task_name not in THREADED_TASKS:
@@ -532,8 +441,7 @@ class NativePoseProbe:
         task.step(sample)
         try:
             for stage in (
-                (("approach",) if task.coordinated_grasp
-                 else ("raise", "above_pickup", "align"))
+                ("approach",)
                 if is_plug
                 else task.approach_stages
             ):
@@ -549,7 +457,7 @@ class NativePoseProbe:
                         for u in np.linspace(0, 1, 2 * len(task._path) - 1)
                     ]
                 candidates = [np.r_[point, 0.0, 0.0] for point in path]
-                if is_plug and task.coordinated_grasp:
+                if is_plug:
                     candidates = [task.planned_path_reference(t)
                                   for t in np.linspace(0., task._duration, 2 * len(path) - 1)]
                 if not is_plug and stage == "approach":
@@ -568,13 +476,13 @@ class NativePoseProbe:
                             checked_poses=checked,
                         )
                 task.reference[:6] = task._path[-1][:6]
-                if is_plug and task.coordinated_grasp:
+                if is_plug:
                     task.reference[:] = candidates[-1]
                 if not is_plug and stage == "approach":
                     task.reference[:] = task.approach_reference(1.0)
             # Descend/lift/return IK must exist too. Contact intentionally starts here.
             for stage in (
-                (() if task.coordinated_grasp else ("descend",)) if is_plug
+                () if is_plug
                 else getattr(task, "required_operation_stages", ("lift", "return", "retract"))
             ):
                 if not is_plug and task_name in ("drawer_open", "drawer_close"):

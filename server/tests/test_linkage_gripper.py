@@ -28,7 +28,7 @@ def test_profile_keeps_passive_joints_out_of_control():
 
 def test_live_target_opposes_linkages_and_holds_on_release():
     import numpy as np
-    from simulation.teleop_grasp_unreal import CartesianTeleopTarget
+    from simulation.teleop_control import CartesianTeleopTarget
     from simulation.serial_chain_kinematics import SerialChainKinematics
     from space_arm_platform.joint_limits import load_joint_limits
     from types import SimpleNamespace

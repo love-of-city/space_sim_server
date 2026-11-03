@@ -1,6 +1,6 @@
 import asyncio
 
-from space_arm_platform.app import OperatorSessions
+from space_arm_platform.operator_sessions import OperatorSessions
 
 
 class FakeWebSocket:

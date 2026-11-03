@@ -1,4 +1,6 @@
 """Batch reuse must preserve per-episode identity and full-cycle timing."""
+
+from collection import recording_validation as validation
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -72,13 +74,13 @@ def test_batch_routes_two_validated_episodes_and_recycles_only_between_them(
     monkeypatch.setattr(collector, "PersistentDynamics", Worker)
     monkeypatch.setattr(collector, "randomized_scene", randomized)
     monkeypatch.setattr(collector, "check_port_available", lambda _: None)
-    monkeypatch.setattr(collector, "validate_recording_fast", lambda *a: {"quick": True})
-    monkeypatch.setattr(collector, "validate_recording", validate)
+    monkeypatch.setattr(validation, "validate_recording_fast", lambda *a: {"quick": True})
+    monkeypatch.setattr(validation, "validate_recording", validate)
     monkeypatch.setattr(collector.subprocess, "Popen", popen)
     monkeypatch.setattr(recorder, "recording_settings", lambda _: None)
     monkeypatch.setattr(randomization, "prepare_episode", lambda scene: scene)
     monkeypatch.setattr(randomization, "write_model_variant", lambda model, *_: model)
-    monkeypatch.setattr("simulation.task_box_layout.validated_capture_layout",
+    monkeypatch.setattr("simulation.capture_layout.validated_capture_layout",
                         lambda m, c: {"model_sha256": "layout-hash"})
     monkeypatch.setattr("sys.argv", [
         "collect", "--scene", str(source), "--output", str(tmp_path / "batch"),
@@ -104,9 +106,9 @@ def test_layout_acceptance_binds_each_observation_to_its_variant():
         "collection_config": {"model_randomization": {
             "source_sha256": "source", "variant_sha256": "coloured"}},
     }}
-    collector.validate_recorded_layout_model(meta, [{"model_sha256": "coloured"}])
+    validation.validate_recorded_layout_model(meta, [{"model_sha256": "coloured"}])
     with pytest.raises(ValueError, match="Authoritative model"):
-        collector.validate_recorded_layout_model(meta, [{"model_sha256": "source"}])
+        validation.validate_recorded_layout_model(meta, [{"model_sha256": "source"}])
 
 
 def test_fixed_layout_and_pool_are_mutually_exclusive(tmp_path, monkeypatch, capsys):

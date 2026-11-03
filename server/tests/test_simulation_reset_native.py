@@ -15,7 +15,8 @@ import numpy as np
 import pytest
 
 pytest.importorskip('Basilisk')
-from simulation import teleop_grasp_unreal as teleop
+from simulation import teleop_control as teleop
+from simulation import teleop_session as session
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 
@@ -35,7 +36,7 @@ def test_native_history_recording_can_be_disabled(monkeypatch, record_history):
 
 
 def control_action(generation=''):
-    return dict(protocol=teleop.CONTROL_PROTOCOL, type='action', reset_generation=generation,
+    return dict(protocol=session.CONTROL_PROTOCOL, type='action', reset_generation=generation,
                 server_sequence='9', deadman=True, end_effector_linear_velocity_body_m_s=[.03, 0, 0],
                 end_effector_angular_velocity_body_rad_s=[0, .02, 0], gripper_velocity_m_s=-.002,
                 gripper_velocity_rad_s=0)
@@ -45,7 +46,7 @@ def test_client_reset_barrier_and_duplicate_delivery():
     client = teleop.SimulationControlClient('127.0.0.1', 0, 'test')
     client._accept_message(control_action())
     assert client.latest_action()[0]['deadman']
-    reset = dict(protocol=teleop.CONTROL_PROTOCOL, type='reset', request_id='reset-1')
+    reset = dict(protocol=session.CONTROL_PROTOCOL, type='reset', request_id='reset-1')
     client._accept_message(reset)
     assert not client.latest_action()[0]['deadman']
     assert client.reset_generation == ''  # old observations must remain old until main-thread consumption
@@ -147,12 +148,12 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
                 hinge.setVelocity(.02)
                 scene.getBody('rw_x').getScalarJoint('rw_x_spin').setVelocity(12.)
             if step == 4 and len(bridges) < 3:
-                self._accept_message(dict(protocol=teleop.CONTROL_PROTOCOL, type='reset',
+                self._accept_message(dict(protocol=session.CONTROL_PROTOCOL, type='reset',
                                           request_id=f'reset-{len(bridges)}'))
             return True
 
     monkeypatch.setattr(bsk_render_adapter, 'BasiliskRenderBridge', ProbeBridge)
-    monkeypatch.setattr(teleop, 'SimulationControlClient', OfflineClient)
+    monkeypatch.setattr(session, 'SimulationControlClient', OfflineClient)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     extra = {'template_id': template_id, 'operating_arm_joint_position_deg': initial_angles} if template_id else {'initial_arm_joint_position_deg': initial_angles}
     profile = 'teleop-zero-prepare-v1' if template_id else ("teleop-balanced-v1" if initial_angles is not None else "teleop-zero-prepare-v1")
@@ -165,7 +166,7 @@ def test_real_run_rebuilds_identical_initial_state_twice(tmp_path, monkeypatch, 
                            duration=.2, simulation_rate=1., capture_rate=50., ik_rate=100.,
                            ik_mode=teleop.IK_MODE_IK_POSE,
                            disable_attitude_control=False)
-    teleop.run(args)
+    session.run(args)
     gc.collect()
     assert all(ref() is None for ref in scene_refs)
     assert config_path.read_bytes() == before

@@ -1,4 +1,9 @@
-"""Private persistent dynamics entry point; controlled by collect_scripted_tasks."""
+"""Assemble the private persistent dynamics process used by collection.
+
+The backend dynamics_worker owns requests, heartbeats and parent/process
+management. This executable owns physics graph creation, reuse and final close;
+its two names describe separate process boundaries rather than duplicate logic.
+"""
 import argparse
 import os
 from pathlib import Path

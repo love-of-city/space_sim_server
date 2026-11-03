@@ -14,7 +14,7 @@ def fixed_layout_input(model, catalog):
     """Validate real geometry/material bindings without changing any source file."""
     if not model or not catalog:
         raise ValueError("固定采集布局必须同时配置 model 和 catalog")
-    from simulation.task_box_layout import validated_capture_layout
+    from simulation.capture_layout import validated_capture_layout
     from simulation.socket_colors import apply_socket_colors, sample_color_assignment
 
     model, catalog = Path(model).expanduser().resolve(), Path(catalog).expanduser().resolve()

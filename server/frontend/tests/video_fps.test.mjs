@@ -1,9 +1,6 @@
+import { createVideoDiagnostics } from '../video_diagnostics.js';
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import vm from "node:vm";
-const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const code = source.slice(source.indexOf("function resetWebRtcStats("), source.indexOf("function disposePixelStream("));
 function setup() {
   const nodes = new Map();
   const state = {};
@@ -11,8 +8,7 @@ function setup() {
   const player = { getVideoPlaybackQuality: () => ({ totalVideoFrames: total, droppedVideoFrames: dropped }) };
   const $ = id => { if (!nodes.has(id)) nodes.set(id, { textContent: "", querySelector: () => player }); return nodes.get(id); };
   const document = { hidden: false };
-  const context = vm.createContext({ state, $, document, NumericParameters: { WebRTCFPS: "WebRTCFPS" }, performance: { now: () => time } });
-  vm.runInContext(code, context);
+  const context = createVideoDiagnostics({ state, $, document, NumericParameters: { WebRTCFPS: "WebRTCFPS" }, performance: { now: () => time } });
   context.resetWebRtcStats();
   return { $, state, context, player, document, sample(t, received, decoded, lost = 0, videoStats = {}) {
     time = t; total = decoded; dropped = lost;

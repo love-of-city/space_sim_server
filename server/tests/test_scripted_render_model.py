@@ -38,7 +38,7 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
     from simulation.scripted_tasks.drawer_lift import DrawerLiftConfig
     from simulation.scripted_tasks import native_state
     from bsk_render_adapter import mjcf_assets
-    from bsk_render_adapter.bridge import _mj_mesh_geometry
+    from bsk_render_adapter.scene_description import mesh_geometry
     from simulation.socket_colors import COLOR_PALETTE
 
     model = layout_model(tmp_path)
@@ -60,11 +60,18 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
     task._planning_context = SimpleNamespace(stats={}, acquire=lambda: SimpleNamespace(
         validate_initial=lambda *_: {'accepted': True}, close=lambda: None))
     monkeypatch.setattr('simulation.scripted_tasks.drawer_cycle.DrawerCycleTask', lambda *_: task)
-    monkeypatch.setattr('simulation.scripted_tasks.plug_insert.PlugInsertTask', lambda *_: task)
+    def plug_task(_model, config):
+        from simulation.scripted_tasks.plug_motion_config import CONFIG_SCHEMA, config_snapshot
+        task.config = config
+        task.config_schema = CONFIG_SCHEMA
+        task.configuration_snapshot = config_snapshot(config, task_name)
+        return task
+
+    monkeypatch.setattr('simulation.scripted_tasks.plug_insert.PlugInsertTask', plug_task)
     # This harness checks model/renderer identity. Geometry preflight has its own
     # native tests and must not try compiling this deliberately minimal fixture.
     monkeypatch.setattr('simulation.scripted_tasks.environment_motion.enable', lambda _: None)
-    monkeypatch.setattr('simulation.scripted_tasks.drawer_initialization.NativePoseProbe',
+    monkeypatch.setattr('simulation.scripted_tasks.native_geometry_probe.NativePoseProbe',
                         lambda _: SimpleNamespace(validate=lambda *_, **__: {"accepted": True}, close=lambda: None))
     monkeypatch.setattr('simulation.sarm_model_profile.load_model_profile', lambda _: SimpleNamespace(
         joints=[], joint_names=['joint']*6, arm_actuators=[]))
@@ -135,7 +142,7 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
         hole = metadata.body_name.removeprefix('layout_')
         if not metadata.mesh_name or hole not in colors['hole_colors']:
             continue
-        geometry = _mj_mesh_geometry(SimpleNamespace(rgba=[.3, .3, .3, 1]),
+        geometry = mesh_geometry(SimpleNamespace(rgba=[.3, .3, .3, 1]),
             f'teleop/{metadata.body_name}/geom/{index}', metadata, catalog, {})
         assert geometry.asset_path == catalog_asset
         assert geometry.geometry_id == f'teleop/{old[index].body_name}/geom/{index}'

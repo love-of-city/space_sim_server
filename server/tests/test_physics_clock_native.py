@@ -4,7 +4,7 @@ pytest.importorskip("Basilisk")
 from Basilisk.architecture import sysModel
 from Basilisk.utilities import SimulationBaseClass
 from simulation.physics_clock import RationalPhysicsClock
-from simulation.teleop_grasp_unreal import CartesianIkControlModel
+from simulation.teleop_control import CartesianIkControlModel
 from simulation.joint_reference_publisher import HeldJointReferencePublisher
 import numpy as np
 from space_arm_platform.sampling import tick_time_ns

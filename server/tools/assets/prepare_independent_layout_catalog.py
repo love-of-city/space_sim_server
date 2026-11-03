@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from simulation.independent_task_box_layout import PICKUPS, POSE_SCHEMA, SCHEMA, TARGETS, validate_layout_record
-from simulation.task_box_layout import validated_capture_layout
+from simulation.capture_layout import validated_capture_layout
 
 
 def prepare(args):

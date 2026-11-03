@@ -14,7 +14,7 @@ from simulation.independent_task_box_layout import (
     planar_transform, rotated_footprints, sample_placements, sample_pose_placements,
     validate_pose_placements, validate_placements, validate_operational_placements,
 )
-from simulation.task_box_layout import validated_capture_layout
+from simulation.capture_layout import validated_capture_layout
 
 
 @pytest.fixture

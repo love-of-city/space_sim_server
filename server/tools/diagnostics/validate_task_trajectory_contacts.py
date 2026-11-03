@@ -38,8 +38,8 @@ MODULES = tuple(name + "_pickup" for name in ("aviation", "guide", "cylindrical"
     name + "_insert_" + size for name in ("aviation", "guide", "cylindrical")
     for size in ("40p1", "40p5")) + ("bolt_storage_hole", "bolt_assembly_hole",
                                     "drawer", "locking_mechanism")
-# Production stage names: PlugInsertTask.latch_stages (v11),
-# DrawerCycleTask.stages (v5), DrawerLiftTask.stages. A short failed plan is
+# Current production stage names: PlugInsertTask.stages,
+# DrawerCycleTask.stages, DrawerLiftTask.stages. A short failed plan is
 # never evidence that the full extraction/insertion/retraction path is clear.
 REQUIRED_OPERATION_STAGES = {
     **{task: ("settle", "approach", "grip", "extract", "lift", "transfer", "above_hole",

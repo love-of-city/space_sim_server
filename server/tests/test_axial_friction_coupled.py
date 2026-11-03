@@ -37,14 +37,13 @@ class _NativeTriple:
     """Direct native stepping: state is set once, before any applied loads."""
 
     def __init__(self, path):
-        from simulation.local_mujoco_stepper import (
-            _basilisk_mujoco_runtime, _library, _pointer,
-        )
+        from simulation.local_mujoco_bindings import load_stepper_library, double_pointer
+        from simulation.mujoco_runtime import basilisk_mujoco_runtime
 
-        self.lib, self.ptr = _library(), _pointer
+        self.lib, self.ptr = load_stepper_library(), double_pointer
         error = ctypes.create_string_buffer(4096)
         self.handle = self.lib.lms_create(
-            str(_basilisk_mujoco_runtime()).encode(), str(path).encode(), error, len(error)
+            str(basilisk_mujoco_runtime()).encode(), str(path).encode(), error, len(error)
         )
         assert self.handle, error.value.decode()
         dims = np.zeros(6, dtype=np.int64)

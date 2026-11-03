@@ -236,7 +236,8 @@ def test_joint_layout_change_fails_recording(tmp_path):
 
 def test_api_finishes_native_dataset_and_schedules_only_valid_archive(tmp_path):
     from fastapi.testclient import TestClient
-    from space_arm_platform.app import PlatformConfig, create_app
+    from space_arm_platform.app import create_app
+    from space_arm_platform.platform_config import PlatformConfig
     project_root = tmp_path / 'project'
     (project_root / 'frontend').mkdir(parents=True)
     app = create_app(PlatformConfig(project_root=project_root,

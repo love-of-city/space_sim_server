@@ -71,7 +71,7 @@ def test_explicit_model_keeps_capture_layout_validation(tmp_path, monkeypatch):
         assert selected_catalog == catalog.resolve()
         raise LayoutValidated
 
-    monkeypatch.setattr("simulation.task_box_layout.validated_capture_layout", validate)
+    monkeypatch.setattr("simulation.capture_layout.validated_capture_layout", validate)
     with pytest.raises(LayoutValidated):
         asyncio.run(recorder.run(args))
 

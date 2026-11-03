@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 import pytest
 from pydantic import ValidationError
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.collection_jobs import (
     CollectionCreate,
     CollectionManager,
@@ -307,7 +308,9 @@ def test_api_ownership_media_ranges_and_auth(tmp_path, monkeypatch):
         assert client.get("/api/collections/catalog").json()["rates"] == dict(
             dynamics=400, ik=100, main=50, wrench=200
         )
-        camera_catalog = client.get("/api/collections/catalog").json()["overview_camera_randomization"]
+        catalog = client.get("/api/collections/catalog").json()
+        assert catalog["task_aliases"] == {"plug_insert": "cylindrical_plug_insert"}
+        camera_catalog = catalog["overview_camera_randomization"]
         assert {item["preset_id"] for item in camera_catalog["presets"]} == {"P0", "P1", "P2", "P3", "P4"}
         assert client.post("/api/collections", json=dict(workers=5)).status_code == 422
         client.post("/api/auth/logout")

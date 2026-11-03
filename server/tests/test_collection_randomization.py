@@ -15,7 +15,7 @@ from space_arm_platform.collection_jobs import CollectionCreate
 from space_arm_platform.models import WrenchObservation
 from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
 from simulation.scripted_tasks.disturbances import EpisodeDisturbances
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 
 
 def scene(**options):

@@ -4,7 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.auth import AuthStore, SESSION_COOKIE
 from space_arm_platform.web_security import LoginRateLimiter, validate_origins
 

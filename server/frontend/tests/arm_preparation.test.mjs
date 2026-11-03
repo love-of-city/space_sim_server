@@ -1,3 +1,5 @@
+import { createOperatorSession } from '../operator_session.js';
+import { createSceneSession } from '../scene_session.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
@@ -200,14 +202,14 @@ function setupApp(testContext,controlGranted) {
  });
  vm.runInContext([
   appSection('const armPreparation = createArmPreparation(', 'let initialJointCatalog'),
-  appSection('function connect() {','async function connectPixelStreaming()'),
   appSection('function transmitAction(', 'function sendNeutralAction('),
   appSection('function exitOperationMode(', 'function sendAction()'),
   appSection('document.addEventListener("visibilitychange"', 'document.addEventListener("focusin"'),
   appSection('$("estop").addEventListener("click"', '$("linearSpeed").addEventListener'),
-  appSection('async function resetScene()', 'async function stopScene()'),
  ].join('\n'),context);
  ui=vm.runInContext('armPreparation',context);
+ Object.assign(context,createOperatorSession({...context,armPreparation:ui}));
+ Object.assign(context,createSceneSession({...context,armPreparation:ui}));
  context.connect();
  ui.configure({arm_joint_limits_deg:limits});ui.setRuntime(instance,true);
  ui.update({status:'waiting',ready:false,strategy:'validated-waypoints-v1'},

@@ -12,7 +12,7 @@ from Basilisk.utilities import RigidBodyKinematics as rbk, simIncludeGravBody
 
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager, _DEFAULT_ORBIT
-from simulation.teleop_grasp_unreal import _apply_orbital_initial_state, _load_scene_instance
+from simulation.teleop_scene import apply_orbital_initial_state, load_scene_instance
 
 
 def make_instance(tmp_path, **kwargs):
@@ -32,7 +32,7 @@ def test_loader_replays_the_saved_angle_without_resampling(tmp_path, angle):
     instance = make_instance(tmp_path)
     instance["environment"]["orbit"]["true_anomaly_deg"] = angle
     instance["seed"] = 123  # Stored physical state is authoritative, not a new draw.
-    loaded = _load_scene_instance(save_instance(tmp_path, instance))
+    loaded = load_scene_instance(save_instance(tmp_path, instance))
     assert loaded["randomize_orbit_phase"] is True
     assert loaded["environment"]["orbit"]["true_anomaly_deg"] == angle
     assert loaded["randomization"] == instance["randomization"]
@@ -41,11 +41,11 @@ def test_loader_replays_the_saved_angle_without_resampling(tmp_path, angle):
 def test_legacy_instances_keep_explicit_angles_or_default_to_180(tmp_path):
     instance = make_instance(tmp_path)
     del instance["randomize_orbit_phase"]
-    loaded = _load_scene_instance(save_instance(tmp_path, instance))
+    loaded = load_scene_instance(save_instance(tmp_path, instance))
     assert loaded["randomize_orbit_phase"] is False
     assert loaded["environment"]["orbit"] == instance["environment"]["orbit"]
     del instance["environment"]
-    assert _load_scene_instance(save_instance(tmp_path, instance))["environment"]["orbit"] == _DEFAULT_ORBIT
+    assert load_scene_instance(save_instance(tmp_path, instance))["environment"]["orbit"] == _DEFAULT_ORBIT
 
 
 @pytest.mark.parametrize("bad", [None, 0, 1, "true", "false", [], {}])
@@ -53,7 +53,7 @@ def test_hand_edited_orbital_flags_are_validated(tmp_path, bad):
     instance = make_instance(tmp_path)
     instance["randomize_orbit_phase"] = bad
     with pytest.raises(ValueError, match="randomize_orbit_phase must be a boolean"):
-        _load_scene_instance(save_instance(tmp_path, instance))
+        load_scene_instance(save_instance(tmp_path, instance))
 
 
 @pytest.mark.parametrize("missing", ["environment", "orbit", "true_anomaly_deg"])
@@ -66,7 +66,7 @@ def test_randomized_replays_require_the_actual_sampled_angle(tmp_path, missing):
     else:
         del instance["environment"]["orbit"]["true_anomaly_deg"]
     with pytest.raises(ValueError, match="requires a saved environment.orbit.true_anomaly_deg"):
-        _load_scene_instance(save_instance(tmp_path, instance))
+        load_scene_instance(save_instance(tmp_path, instance))
 
 
 @pytest.mark.parametrize("bad", [None, "invalid", float("nan"), float("inf")])
@@ -74,7 +74,7 @@ def test_invalid_orbital_angles_are_rejected(tmp_path, bad):
     instance = make_instance(tmp_path)
     instance["environment"]["orbit"]["true_anomaly_deg"] = bad
     with pytest.raises(ValueError, match="true_anomaly_deg"):
-        _load_scene_instance(save_instance(tmp_path, instance))
+        load_scene_instance(save_instance(tmp_path, instance))
 
 
 class StateSink:
@@ -112,7 +112,7 @@ def test_body_and_joint_setters_receive_matching_phase_and_preserve_local_state(
     instance = make_instance(tmp_path)
     if angle is not None:
         instance["environment"]["orbit"]["true_anomaly_deg"] = angle
-    loaded = _load_scene_instance(save_instance(tmp_path, instance))
+    loaded = load_scene_instance(save_instance(tmp_path, instance))
     bodies = {name: StateSink() for name in ["cubesat_bus", "capture_target", *(f"joint_body{i}" for i in range(8))]}
     scene = SimpleNamespace(getBody=bodies.__getitem__, getBodyNames=lambda: list(bodies))
     native = SimpleNamespace(
@@ -125,7 +125,7 @@ def test_body_and_joint_setters_receive_matching_phase_and_preserve_local_state(
     earth = simIncludeGravBody.gravBodyFactory().createEarth()
     randomized = loaded["randomization"]
     joints = np.asarray(randomized["arm_joint_position_rad"])
-    summary = _apply_orbital_initial_state(scene, native, earth, loaded["environment"]["orbit"], randomized, joints)
+    summary = apply_orbital_initial_state(scene, native, earth, loaded["environment"]["orbit"], randomized, joints)
     expected_r, expected_v = expected_circular_state(earth, loaded["environment"]["orbit"]["true_anomaly_deg"])
     bus, target = bodies["cubesat_bus"], bodies["capture_target"]
     np.testing.assert_allclose(bus.position, expected_r, rtol=0, atol=1e-8)
@@ -169,7 +169,7 @@ def test_native_mjscene_publishes_the_selected_orbit_and_local_layout(tmp_path, 
     sim, scene, models, recorders = native._build_simulation()
     native._initialize_state(sim, scene)
     earth = simIncludeGravBody.gravBodyFactory().createEarth()
-    summary = _apply_orbital_initial_state(scene, native, earth, orbit, randomized, joints)
+    summary = apply_orbital_initial_state(scene, native, earth, orbit, randomized, joints)
     # A short native dynamics step refreshes the same origin messages read by UE's bridge.
     sim.ConfigureStopTime(native.macros.sec2nano(0.01))
     sim.ExecuteSimulation()

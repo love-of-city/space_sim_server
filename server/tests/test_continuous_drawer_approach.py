@@ -1,3 +1,4 @@
+from collection.recorded_task_contracts import recorded_stages, validate_recorded_stages
 """Continuous approach geometry, combined derivative limits and contact transitions."""
 from dataclasses import replace
 import numpy as np
@@ -103,9 +104,9 @@ def test_release_clearance_allows_retreat_while_opening_profile_continues():
 
 
 def test_old_recordings_retain_their_original_stage_sequence():
-    assert "align" in DrawerCycleTask.recorded_stages("drawer-cycle/3")
-    assert "above_drawer" in DrawerCycleTask.recorded_stages("drawer-cycle/4")
-    assert DrawerCycleTask.recorded_stages("drawer-cycle/5") == DrawerCycleTask.stages
+    assert "align" in recorded_stages(DrawerCycleTask.name, "drawer-cycle/3")
+    assert "above_drawer" in recorded_stages(DrawerCycleTask.name, "drawer-cycle/4")
+    assert recorded_stages(DrawerCycleTask.name, "drawer-cycle/5") == DrawerCycleTask.stages
 
 
 def test_preflight_gripper_closes_real_four_bar_loops_at_every_opening():

@@ -4,25 +4,7 @@ Controllers are imported lazily so listing the web collection catalog never
 loads a native dynamics library.
 """
 
-LOCKING_ROD_TASKS = ("locking_rod_cycle", "locking_rod_fold", "locking_rod_restore")
-THREADED_TASKS = ("aviation_bolt_insert", *LOCKING_ROD_TASKS)
-
-
-def task_default_duration_s(name):
-    return 900.0 if name in THREADED_TASKS else 360.0
-
-THREADED_INSTRUCTIONS = {
-    "aviation_bolt_insert": (
-        "Unscrew the aviation bolt from its holder, then screw it fully "
-        "into the corresponding hole."
-    ),
-    "locking_rod_cycle": (
-        "Loosen the locking rod's fastener, fold the rod into its clip, "
-        "then raise it and tighten the fastener."
-    ),
-    "locking_rod_fold": "Loosen the locking rod's fastener, then fold the rod into its clip and release it.",
-    "locking_rod_restore": "Raise the locking rod from its clip, tighten its fastener, then release it.",
-}
+from space_arm_platform.task_catalog import LOCKING_ROD_TASKS, THREADED_TASKS
 
 
 def threaded_task_class(name):

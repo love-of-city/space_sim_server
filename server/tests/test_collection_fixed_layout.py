@@ -7,7 +7,8 @@ import xml.etree.ElementTree as ET
 from fastapi.testclient import TestClient
 import pytest
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.collection_inputs import fixed_layout_input, validate_fixed_snapshot
 from space_arm_platform.collection_jobs import CollectionCreate, CollectionManager, CollectionTask, TASKS, TERMINAL
 from space_arm_platform.collection_layouts import digest

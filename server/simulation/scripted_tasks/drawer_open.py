@@ -22,11 +22,6 @@ class DrawerOpenTask(DrawerCycleTask):
         self._released_open_since = None
         super().__init__(model_path, config or DrawerOpenConfig())
 
-    @classmethod
-    def recorded_stages(cls, version):
-        if version != cls.version:
-            raise ValueError(f"Unsupported drawer task version: {version}")
-        return cls.stages
 
     def _record_verified_transition(self, name, sample):
         if name == "settle":

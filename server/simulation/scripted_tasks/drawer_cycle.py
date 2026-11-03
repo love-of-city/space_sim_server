@@ -92,21 +92,10 @@ class DrawerCycleConfig(DrawerLiftConfig):
 class DrawerCycleTask(DrawerLiftTask):
     name = "drawer_cycle"
     version = "drawer-cycle/7-closed-completion"
-    legacy_stages = DrawerLiftTask.stages + ("return", "seat", "release", "retract", "verify")
-    v4_stages = tuple(stage for stage in legacy_stages if stage != "align")
     stages = ("settle", "approach", "grip", "lift", "return", "release", "retract", "verify")
     approach_stages = ("approach",)
     required_operation_stages = ("lift", "return", "retract")
 
-    @classmethod
-    def recorded_stages(cls, version):
-        if version in (cls.version, "drawer-cycle/6-straight-approach", "drawer-cycle/5"):
-            return cls.stages
-        if version == "drawer-cycle/4":
-            return cls.v4_stages
-        if version in (None, "drawer-cycle/1", "drawer-cycle/2", "drawer-cycle/3"):
-            return cls.legacy_stages
-        raise ValueError(f"Unsupported drawer task version: {version}")
 
     def __init__(self, model_path, config=None):
         super().__init__(model_path, config or DrawerCycleConfig())

@@ -126,7 +126,8 @@ def test_stalled_writer_reports_writer_not_missing_images(tmp_path):
 def test_capture_error_watchdog_sends_off_without_stopping_simulator(tmp_path, monkeypatch):
     import json
     from fastapi.testclient import TestClient
-    from space_arm_platform.app import PlatformConfig, create_app
+    from space_arm_platform.app import create_app
+    from space_arm_platform.platform_config import PlatformConfig
 
     project = tmp_path / 'project'
     (project / 'frontend').mkdir(parents=True)

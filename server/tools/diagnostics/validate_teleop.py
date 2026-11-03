@@ -17,8 +17,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "backend")]
-from simulation.teleop_grasp_unreal import (CartesianTeleopTarget, CartesianIkControlModel,
-    ARM_JOINT_NAMES, SARM_JOINT_NAMES, TELEOP_ARM_KP, TELEOP_ARM_KD, TELEOP_ARM_TORQUE_LIMIT)
+from simulation.teleop_control import CartesianTeleopTarget, CartesianIkControlModel, ARM_JOINT_NAMES, SARM_JOINT_NAMES, TELEOP_ARM_KP, TELEOP_ARM_KD, TELEOP_ARM_TORQUE_LIMIT
 from simulation.serial_chain_kinematics import SerialChainKinematics
 from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 from space_arm_platform.joint_limits import load_joint_limits

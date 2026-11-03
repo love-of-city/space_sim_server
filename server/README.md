@@ -22,6 +22,8 @@
 
 Linux 原生一键启动/停止及网页场景管理见 [Linux 一键部署](docs/LINUX_DEPLOYMENT.md)。已有环境可在本目录执行 `./start_deployment.sh`，停止执行 `./stop_deployment.sh`。Linux 环境、原生库和真实采集验证步骤见 [Linux 基础迁移](docs/LINUX_BASIC_MIGRATION.md)。
 
+当前任务目录统一位于`backend/space_arm_platform/task_catalog.py`：支持10个规范任务，`config/collection.json`当前启用航空、导向、圆柱三个插头任务，并使用固定机械臂基准姿态。任务支持、默认启用和实机验收是不同范围；当前源码/配置职责见[项目结构地图](../docs/project-map.md)和[插头配置](docs/plug-configuration-consolidation.md)。
+
 脚本批量采集可通过 [多进程采集](docs/PARALLEL_COLLECTION.md) 配置两路隔离并发、每路 UE 复用、离线渲染与资源统计；该模式的配置位于 `config/collection-parallel.json`。
 
 自动采集可从已校验布局池逐条随机选择操作台各安装单元的位置和朝向，命令行及网页配置见[布局随机化采集](docs/COLLECTION_LAYOUT_RANDOMIZATION.md)。
@@ -289,7 +291,7 @@ pwsh -NoProfile -File .\scripts\stop_platform.ps1
 
 全流程任务交接、模型/采集配置、任务成功与数据验收标准统一从[仿真与数据采集指南](../docs/guides/simulation-data-workflow.md)进入。不同入口的随机种子、复用和录制配置默认值可能不同；专题文档中的历史实验不能替代当前参数与实际批次证据。
 
-日常采集使用 `tools/collect.py`，统一配置为 `config/collection.json`。默认从150个几何合格布局中不重复洗牌，每个布局依序尝试抽屉、航空/导向/圆柱插头和锁杆五种任务；航空螺栓保留为可启用的第六种任务。本布局颜色与机位固定，每条机械臂重新随机±30°并恢复物体状态。失败直接跳过，不补齐成功数。
+日常采集使用 `tools/collect.py`，统一配置为 `config/collection.json`。当前从150个几何合格布局中逐遍不重复洗牌，每个布局依序尝试航空、导向、圆柱三种插头任务，1000个布局轮次共3000次尝试。本布局颜色与机位固定，每条恢复物体状态；机械臂六轴初态固定为`[90,-60,60,0,-90,0]°`，`range_deg=0`，不增加关节随机偏移。失败直接跳过，不补齐成功数。
 
 ```bash
 python tools/collect.py --output /absolute/new-batch

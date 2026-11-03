@@ -1,3 +1,4 @@
+from collection.recorded_task_contracts import recorded_stages, validate_recorded_stages
 """Geometry and evidence regressions for the captive-rod collection controller."""
 
 from dataclasses import replace
@@ -273,12 +274,12 @@ def test_grip_confirmation_brakes_before_starting_a_swing_path(model, monkeypatc
 
 
 def test_stage_validation_rejects_skipped_fold_release_and_restore():
-    expected = LockingRodTask.recorded_stages()
-    assert LockingRodTask.validate_recorded_stages([stage for stage in expected for _ in range(2)])
-    assert not LockingRodTask.validate_recorded_stages([stage for stage in expected if stage != "release_down"])
-    assert not LockingRodTask.validate_recorded_stages(expected[:4]+expected[10:])
+    expected = recorded_stages(LockingRodTask.name, LockingRodTask.version)
+    assert validate_recorded_stages(LockingRodTask.name, [stage for stage in expected for _ in range(2)], LockingRodTask.version)
+    assert not validate_recorded_stages(LockingRodTask.name, [stage for stage in expected if stage != "release_down"], LockingRodTask.version)
+    assert not validate_recorded_stages(LockingRodTask.name, expected[:4]+expected[10:], LockingRodTask.version)
     with pytest.raises(ValueError, match="Unsupported"):
-        LockingRodTask.recorded_stages("imaginary-v2")
+        recorded_stages(LockingRodTask.name, "imaginary-v2")
 
 
 def test_invalid_hinge_endpoint_and_overload_abort_are_rejected():

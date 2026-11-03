@@ -283,7 +283,7 @@ def test_unexpected_render_boundary_is_failure_and_cannot_continue_chunk():
 
 
 def test_cartesian_target_uses_governor_and_rate_limits_without_ik_or_deadman_overwrite():
-    from simulation.teleop_grasp_unreal import CartesianTeleopTarget, ARM_JOINT_VELOCITY_LIMIT
+    from simulation.teleop_control import CartesianTeleopTarget, ARM_JOINT_VELOCITY_LIMIT
     from simulation.online_elbow_ik import OnlineElbowPreference
     class Chain:
         def forward(self, q):

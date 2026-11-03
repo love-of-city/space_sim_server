@@ -1,17 +1,17 @@
+import { createPixelStreamSession } from '../pixel_stream_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const lifecycle = source.slice(source.indexOf("function disposePixelStream()"), source.indexOf("function applyControlLimits("));
 
 function harness() {
   let nextId = 0;
   const timers = new Map();
   const players = [];
   const nodes = new Map();
-  const state = { pixelStreaming: null, streamReconnectTimer: null, streamLive: false };
+  const state = { pixelStreaming: null, streamReconnectTimer: null, streamLive: false, currentUser: {username: "admin"}, streamConfig: {pixel_streaming_player_port: 8080} };
   const $ = (id) => {
     if (!nodes.has(id)) nodes.set(id, { style: {}, replaceChildren() {}, textContent: "", hidden: false });
     return nodes.get(id);
@@ -24,20 +24,20 @@ function harness() {
   }
   let reconnects = 0;
   let statsUpdates = 0;
-  const context = vm.createContext({clearWristWrench() {},
+  const context = {clearWristWrench() {},
     state, $, window: {}, PixelStreaming: Player, Config: class {
       constructor(options) { this.initialSettings = options.initialSettings; }
       setNumericSetting(key, value) { this.initialSettings[key] = value; }
     }, queueMicrotask,
     TextParameters: {}, OptionParameters: {}, NumericParameters: { WebRTCFPS: "WebRTCFPS", MinQuality: "MinQuality" }, Flags: {},
-    signallingUrl: () => "ws://localhost/", setPixelStreamingInputEnabled() {},
-    resetWebRtcStats() {}, updateWebRtcStats() { statsUpdates++; },
-    connectPixelStreaming() { reconnects++; },
+    location: new URL("http://localhost/"), setPixelStreamingInputEnabled() {},
+    diagnostics: {resetWebRtcStats() {}, configureVideoFps() {}, updateWebRtcStats() { statsUpdates++; }},
+    apiRequest() { reconnects++; return new Promise(() => {}); },
     setFreeCameraMode(enabled) { state.freeCameraMode = enabled; },
     setTimeout(fn, delay) { const id = ++nextId; timers.set(id, { fn, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
-  });
-  vm.runInContext(lifecycle, context);
+  };
+  Object.assign(context, createPixelStreamSession(context));
   return { context, state, timers, players, $, get reconnects() { return reconnects; }, get statsUpdates() { return statsUpdates; } };
 }
 
@@ -156,10 +156,10 @@ test("a renderer becoming running does not tear down its waiting player", () => 
 
 test("frontend SDK uses the server FPS target rather than falling back to 60", () => {
   const h = harness();
-  h.state.streamConfig = { pixel_streaming_fps: 120 };
+  h.state.streamConfig = { pixel_streaming_player_port: 8080, pixel_streaming_fps: 120 };
   h.context.createPixelStream();
   assert.equal(h.state.pixelConfig.initialSettings.WebRTCFPS, 120);
-  h.state.streamConfig = {};
+  h.state.streamConfig = {pixel_streaming_player_port: 8080};
   h.context.createPixelStream();
   assert.equal(h.state.pixelConfig.initialSettings.WebRTCFPS, 90);
 });
@@ -168,12 +168,12 @@ test("frontend SDK uses the server FPS target rather than falling back to 60", (
 test("frontend SDK preserves the server quality floor including explicit zero", () => {
   const h = harness();
   for (const quality of [0, 60, 75, 100]) {
-    h.state.streamConfig = { pixel_streaming_encoder_min_quality: quality };
+    h.state.streamConfig = { pixel_streaming_player_port: 8080, pixel_streaming_encoder_min_quality: quality };
     h.context.createPixelStream();
     assert.equal(h.state.pixelConfig.initialSettings.MinQuality, quality);
   }
   for (const config of [undefined, {}, { pixel_streaming_encoder_min_quality: null }]) {
-    h.state.streamConfig = config;
+    h.state.streamConfig = {...config, pixel_streaming_player_port: 8080};
     h.context.createPixelStream();
     assert.equal(h.state.pixelConfig.initialSettings.MinQuality, 60);
   }

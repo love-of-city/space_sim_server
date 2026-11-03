@@ -7,7 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SceneInstanceCreate
 from space_arm_platform.control_defaults import BALANCED_TELEOP_PROFILE
 from space_arm_platform.recorder import EpisodeRecorder

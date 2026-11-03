@@ -133,8 +133,8 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
     monkeypatch.setitem(sys.modules, "bsk_render_adapter", SimpleNamespace(
         BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace,
         VisualElement=SimpleNamespace))
-    monkeypatch.setitem(sys.modules, "simulation.teleop_grasp_unreal", SimpleNamespace(
-        _register_celestial_bodies=lambda *a: None))
+    monkeypatch.setitem(sys.modules, "simulation.teleop_scene", SimpleNamespace(
+        register_celestial_bodies=lambda *a: None))
     ctx = SimpleNamespace(scene=object(), extra={"template_id": template},
                           add=lambda *a, **kw: None, keep_alive=lambda *a: None)
     RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,

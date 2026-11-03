@@ -19,7 +19,7 @@ class TeleopIkComponent:
     def install(self, ctx: AssemblyContext) -> None:
         from space_arm_platform.sampling import ik_step_stride
 
-        from simulation.teleop_grasp_unreal import CartesianIkControlModel
+        from simulation.teleop_control import CartesianIkControlModel
 
         controller = CartesianIkControlModel(
             self.target, clock=ctx.clock, stride=ik_step_stride(self.ik_rate_hz))

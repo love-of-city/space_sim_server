@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.models import AppliedAction, SimulationObservation
 from space_arm_platform.protocol import read_async, write_async
 from space_arm_platform.simulation_hub import SimulationHub

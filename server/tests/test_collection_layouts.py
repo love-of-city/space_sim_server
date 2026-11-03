@@ -1,4 +1,6 @@
 """Layout selection must bind preflight, capture and accepted episode metadata."""
+
+from collection import recording_validation as validation
 import copy
 import json
 import math
@@ -13,7 +15,7 @@ from space_arm_platform.collection_layouts import (
 from simulation.independent_task_box_layout import (
     MODULES, PICKUPS, TARGETS, make_operational_clearance, sample_placements,
 )
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from space_arm_platform.layout_trajectories import (
     INITIAL_JOINTS_DEG, OBSERVER, REQUIRED_OPERATION_STAGES, SERVER_ROOT, TASKS,
     bind_trajectory_acceptance, reference, validate_trajectory_acceptance,
@@ -363,7 +365,7 @@ def test_collector_passes_same_layout_to_worker_renderer_and_recording(layout_po
     monkeypatch.setattr(collector, "check_port_available", lambda _: None)
     monkeypatch.setattr(recorder, "recording_settings", lambda _: None)
     monkeypatch.setattr(collector.subprocess, "Popen", popen)
-    monkeypatch.setattr(collector, "validate_recording", lambda *_: dict(passed=True))
+    monkeypatch.setattr(validation, "validate_recording", lambda *_: dict(passed=True))
     monkeypatch.setattr("sys.argv", ["collect", "--scene", str(scene), "--output", str(output),
                                    "--episodes-root", str(episodes), "--layout-pool", str(layout_pool),
                                    "--count", "2", "--max-attempts", "2", "--seed", "1", "--validation-mode", "full"])

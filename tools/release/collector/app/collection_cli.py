@@ -14,14 +14,12 @@ BASE=Path(__file__).resolve().parents[1]
 ROOT=BASE/'repo/server'
 ADAPTER=BASE/'repo/ue-adapter'
 UE=BASE/'runtime/UE_5.6'
-TASKS={
-    'drawer_cycle':'Open and close the drawer',
-    'aviation_plug_insert':'Pick up and insert the aviation plug',
-    'guide_plug_insert':'Pick up and insert the guide plug',
-    'cylindrical_plug_insert':'Pick up and insert the cylindrical plug',
-    'aviation_bolt_insert':'Unscrew and reinstall the aviation bolt',
-    'locking_rod_cycle':'Loosen, fold, restore and tighten the locking rod',
-}
+
+def collector_tasks():
+    """Load this product's supported subset without requiring server on import."""
+    from space_arm_platform.task_catalog import COLLECTOR_TASK_CHOICES, TASK_LABELS
+
+    return {name: TASK_LABELS[name] for name in COLLECTOR_TASK_CHOICES}
 
 def atomic(path,doc):
     tmp=path.with_suffix('.tmp')
@@ -86,7 +84,7 @@ def run(args):
         from space_arm_platform.collection_layouts import LayoutPool
         LayoutPool(args.layout_pool.expanduser().resolve())
     else:
-        from simulation.task_box_layout import validated_capture_layout
+        from simulation.capture_layout import validated_capture_layout
         validated_capture_layout(args.model.expanduser().resolve(),args.catalog.expanduser().resolve())
     recording_path=(args.recording_config or ROOT/'config/recording-veryfast.json').expanduser().resolve()
     if not recording_path.is_file():
@@ -167,12 +165,13 @@ def run(args):
         for lease in leases:lease.close()
 
 def check():
+    from collection.recording_validation import validate_recording
+
     subprocess.run([sys.executable,str(BASE/'app/check.py')],check=True)
     import av
     import numpy as np
     import pyarrow
     from space_arm_platform.streaming_video import StrictStreamingVideoEncoder
-    from tools.collect_scripted_tasks import validate_recording
     with tempfile.TemporaryDirectory(prefix='spacesim-codec-') as temp:
         path=Path(temp)/'test.mp4'
         with av.open(str(path),'w') as container:
@@ -189,12 +188,13 @@ def check():
     return 0
 
 def main(argv=None):
+    tasks=collector_tasks()
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest='command',required=True)
-    sub.add_parser('tasks',help='List supported production task names')
+    sub.add_parser('tasks',help='List tasks supported by this collector product')
     sub.add_parser('check',help='Check bundled dependencies and H.264 encoding')
     p=sub.add_parser('run',help='Collect and validate episodes sequentially')
-    p.add_argument('--task',choices=TASKS,required=True)
+    p.add_argument('--task',choices=tasks,required=True)
     p.add_argument('--count',type=int,default=2)
     p.add_argument('--max-attempts',type=int)
     p.add_argument('--output',type=Path,required=True)
@@ -212,17 +212,17 @@ def main(argv=None):
     p.add_argument('--timeout-seconds',type=float,default=86400)
     for name in ('status','stop'):
         p=sub.add_parser(name);p.add_argument('--output',type=Path,required=True)
-    p=sub.add_parser('validate');p.add_argument('--episode',type=Path,required=True);p.add_argument('--task',choices=TASKS,required=True)
+    p=sub.add_parser('validate');p.add_argument('--episode',type=Path,required=True);p.add_argument('--task',choices=tasks,required=True)
     p=sub.add_parser('prepare-layouts',help='Run the bundled serial layout preparation/trajectory certification CLI')
     p.add_argument('arguments',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if args.command=='tasks':
-        print(json.dumps(TASKS,indent=2));return 0
+        print(json.dumps(tasks,ensure_ascii=False,indent=2));return 0
     if args.command=='check':return check()
     if args.command=='prepare-layouts':
         return subprocess.call([sys.executable,str(BASE/'app/main.py'),*args.arguments])
     if args.command=='validate':
-        from tools.collect_scripted_tasks import validate_recording
+        from collection.recording_validation import validate_recording
         print(json.dumps(validate_recording(args.episode.expanduser().resolve(),args.task),indent=2));return 0
     if args.command in ('status','stop'):
         out=args.output.expanduser().resolve()

@@ -23,11 +23,6 @@ class DrawerCloseTask(DrawerCycleTask):
         # compiled model's initial coordinate until the first measured sample.
         self._initial_drawer = self.drawer_initial_reference_m
 
-    @classmethod
-    def recorded_stages(cls, version):
-        if version != cls.version:
-            raise ValueError(f"Unsupported drawer task version: {version}")
-        return cls.stages
 
     def _initial_state_error(self, sample):
         if abs(sample.drawer_m - self.config.lift_m) > 0.005:

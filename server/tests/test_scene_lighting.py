@@ -7,11 +7,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.models import SceneInstanceCreate, EpisodeStart, EpisodeStop
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.scene_runtime import SceneRuntimeManager
-from simulation.teleop_grasp_unreal import _load_scene_instance, _register_celestial_bodies
+from simulation.teleop_scene import load_scene_instance, register_celestial_bodies
 
 
 @pytest.mark.parametrize('scale', [0, .5, 1, 2.5, 12_500, 20_000])
@@ -26,7 +27,7 @@ def test_scene_lighting_persists_without_changing_physics(tmp_path, scale):
     assert actual_environment.pop('lighting') == {'sunlight_intensity_scale': scale}
     assert actual_environment == baseline_environment
     stored = json.loads(Path(instance['config_path']).read_text(encoding='utf-8'))
-    loaded = _load_scene_instance(Path(instance['config_path']))
+    loaded = load_scene_instance(Path(instance['config_path']))
     assert stored['environment']['lighting'] == loaded['environment']['lighting'] == {'sunlight_intensity_scale': scale}
     recorder = EpisodeRecorder(tmp_path / 'episodes')
     episode = recorder.start(EpisodeStart(scene_instance=instance))
@@ -45,7 +46,7 @@ def test_invalid_api_and_hand_edited_scene_values_are_rejected(tmp_path, bad):
     path = tmp_path/'invalid.json'
     path.write_text(json.dumps(instance), encoding='utf-8')
     with pytest.raises(ValueError, match='sunlight_intensity_scale'):
-        _load_scene_instance(path)
+        load_scene_instance(path)
 
 
 def test_old_scene_defaults_to_one_and_malformed_lighting_is_rejected(tmp_path):
@@ -54,15 +55,15 @@ def test_old_scene_defaults_to_one_and_malformed_lighting_is_rejected(tmp_path):
     del instance['environment']['lighting']
     path = tmp_path/'legacy.json'
     path.write_text(json.dumps(instance), encoding='utf-8')
-    assert _load_scene_instance(path)['environment']['lighting']['sunlight_intensity_scale'] == 1
+    assert load_scene_instance(path)['environment']['lighting']['sunlight_intensity_scale'] == 1
     del instance['environment']
     path.write_text(json.dumps(instance), encoding='utf-8')
-    assert _load_scene_instance(path)['environment']['lighting']['sunlight_intensity_scale'] == 1
+    assert load_scene_instance(path)['environment']['lighting']['sunlight_intensity_scale'] == 1
     for malformed in (None, [], 1, True):
         instance['environment'] = {'lighting': malformed}
         path.write_text(json.dumps(instance), encoding='utf-8')
         with pytest.raises(ValueError, match='lighting must be an object'):
-            _load_scene_instance(path)
+            load_scene_instance(path)
 
 
 def test_scene_api_exposes_default_and_accepts_zero(tmp_path):
@@ -85,7 +86,7 @@ def test_reference_solar_illumination_and_body_readers_are_unchanged():
     calls = []
     earth, sun = object(), object()
     bridge = SimpleNamespace(add_celestial_bodies=lambda bodies, **kwargs: calls.append((bodies,kwargs)))
-    _register_celestial_bodies(bridge, earth, sun)
+    register_celestial_bodies(bridge, earth, sun)
     assert calls[0][0] == [earth, sun]
     assert calls[0][1]['visual_overrides']['sun']['light_illuminance_lux_at_reference_distance'] == 132821.5
     assert calls[0][1]['visual_overrides']['sun']['light_color_rgb'] == (1.0, 0.8876306, 0.8572326)

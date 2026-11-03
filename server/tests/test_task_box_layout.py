@@ -8,7 +8,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-from simulation.task_box_layout import MODULES, build_layout, sampled_offsets, validated_capture_layout
+from simulation.task_box_layout import MODULES, build_layout, sampled_offsets
+from simulation.capture_layout import validated_capture_layout
 from simulation.plug_retention import model_retention_sockets
 
 MODEL = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_20261012.xml"

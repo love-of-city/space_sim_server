@@ -30,7 +30,7 @@ class ScriptedCaptureTransport:
     ):
         from simulation.components.render import RenderComponent
         from simulation.components.observation import ObservationComponent
-        from space_arm_platform.overview_camera import validate_overview_camera
+        from space_arm_platform.overview_camera_records import validate_overview_camera
 
         overview_camera = validate_overview_camera(scene_instance)
 
@@ -177,6 +177,10 @@ class ScriptedCaptureTransport:
                 **self._task_metrics(q, v, stamp, wrist),
                 command_source="scripted_joint_reference",
                 task_parameters=vars(self.task.config),
+                **({
+                    "task_parameters_schema": self.task.config_schema,
+                    "task_parameters_sha256": self.task.configuration_snapshot["sha256"],
+                } if hasattr(self.task, "configuration_snapshot") else {}),
             ),
         )
 

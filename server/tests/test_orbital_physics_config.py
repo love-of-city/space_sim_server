@@ -17,16 +17,16 @@ def drag_parameters():
 
 def test_new_scene_persists_j2_and_old_scene_replays_point_mass(tmp_path):
     pytest.importorskip("Basilisk")
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     instance = manager.create_instance(SceneInstanceCreate(seed=123))
     path = tmp_path / "scene.json"
     path.write_text(json.dumps(instance), encoding="utf-8")
-    loaded = _load_scene_instance(path)
+    loaded = load_scene_instance(path)
     assert loaded["environment"]["physics"] == OrbitalPhysics().model_dump()
     del instance["environment"]["physics"]
     path.write_text(json.dumps(instance), encoding="utf-8")
-    assert _load_scene_instance(path)["environment"]["physics"]["earth_gravity"] == "point_mass"
+    assert load_scene_instance(path)["environment"]["physics"]["earth_gravity"] == "point_mass"
 
 
 def test_explicit_point_mass_and_drag_settings_survive_scene_creation(tmp_path):

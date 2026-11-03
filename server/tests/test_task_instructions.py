@@ -6,7 +6,7 @@ import pytest
 
 from simulation.scripted_tasks.instructions import BANK_PATH, STREAM, TASKS, load_bank
 from simulation.scripted_tasks.randomization import generator, prepare_episode
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from collection.record_scripted_task import task_instruction, task_metadata, task_target_site
 
 

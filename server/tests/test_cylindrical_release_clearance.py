@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from simulation.scripted_tasks import drawer_initialization
+from simulation.scripted_tasks import native_geometry_probe
 from simulation.scripted_tasks import plug_clearance
 
 
@@ -42,7 +42,7 @@ def geometry(monkeypatch):
         def close(self):
             self.closed = True
 
-    monkeypatch.setattr(drawer_initialization, "NativePoseProbe", Probe)
+    monkeypatch.setattr(native_geometry_probe, "NativePoseProbe", Probe)
     return Probe
 
 

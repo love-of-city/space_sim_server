@@ -40,6 +40,59 @@ def controller(tmp_path):
                                    wall_now_ns=lambda: NOW)
 
 
+def test_late_mission_activation_keeps_image_epochs_and_waits_for_new_history(tmp_path):
+    c = controller(tmp_path)
+    q = np.zeros(12)
+    own = (np.zeros(3), np.eye(3))
+    for tick in range(21):
+        t = 1500.+tick*.1
+        publish_packet(c.path, packet(t))
+        _, status = c.command(t, q, own, {}, reference_from_base=own)
+        if tick < 20:
+            assert status == 'predictive_waiting_stable_vision'
+            assert c.sequence.phase == 'wait'
+    assert c.sequence.phase == 'open'
+    assert c.activation_time_s == 1500.
+    assert c.source_t == 1502.  # Exposure timestamps stay on the mission clock.
+
+
+def test_formal_capture_client_activates_the_real_stereo_and_gyro_controller(tmp_path):
+    from types import SimpleNamespace
+
+    from simulation.capture26_near23 import Near23CaptureClient
+    from simulation.gyroscope import GyroConfig, Gyroscope
+    from simulation.own_motion import OwnMotionFeedback
+
+    sensor = Gyroscope(GyroConfig(), seed=7)
+    motion = OwnMotionFeedback()
+    sensor.sample(0, [0., 0., .001])
+    motion.update(0, sensor.latest, np.zeros(3), epoch=('s', 'continuous'))
+    client = Near23CaptureClient(tmp_path, CONFIG, 's', epoch_ns=0,
+        own_motion=motion, gyro_provider=lambda: sensor.latest, com_provider=lambda: np.zeros(3))
+    client.servo.wall_now_ns = lambda: NOW
+    component = SimpleNamespace(last_time=0.,
+        positions=[lambda: SimpleNamespace(state=0.) for _ in range(12)],
+        target=SimpleNamespace(kinematics=SimpleNamespace(forward=lambda q: (np.zeros(3), np.eye(3)))))
+    client.component = component
+    client.audit = SimpleNamespace(record=lambda *args: [], feedback={})
+    client.active = True
+    for tick in range(841):
+        nanos = tick*2_500_000
+        component.last_time = nanos*1e-9
+        if tick % 8 == 0:
+            sensor.sample(nanos, [0., 0., .001])
+        if tick % 40 == 0:
+            publish_packet(client.servo.path, packet(component.last_time, point=(0., 0., -.5)))
+        action, stale = client.latest_action()
+        assert not stale and client.failure is None
+        assert all(np.isfinite(action[key]).all() for key in (
+            'end_effector_linear_velocity_body_m_s', 'end_effector_angular_velocity_body_rad_s'))
+    # The supplied zero jaw encoders already satisfy the open position.
+    assert client.servo.sequence.phase == 'extend'
+    assert client.servo.source_t == 2.1
+    assert motion.unique_samples == 106
+
+
 def test_hand_eye_converts_model_origin_to_interface_not_tvec(tmp_path):
     p = packet(1)
     assert np.allclose(p['result']['alignment']['interface_position_grip_m'], [0, 0, -.1])

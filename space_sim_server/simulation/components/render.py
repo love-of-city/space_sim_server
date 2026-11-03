@@ -131,7 +131,8 @@ class RenderComponent:
 
         for camera in bridge._cameras:
             if (camera.camera_id == "teleop/camera/spacecraft_overview"
-                    and not (stereo and stereo.get('preserve_original_lighting', False))):
+                    and not ((stereo and stereo.get('preserve_original_lighting', False))
+                             or (self.vision_capture and self.vision_capture.get('preserve_original_lighting', False)))):
                 # Mount to the final camera, including sampled and demo poses.
                 # UE uses this same world light for preview and strict captures.
                 bridge.add_lights(overview_camera_lamp(camera.camera_id))

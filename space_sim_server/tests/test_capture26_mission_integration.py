@@ -75,8 +75,11 @@ def test_distant_fault_brakes_against_a_latched_reference_and_cancels_feedforwar
     assert flight.reason == 'telemetry connection lost'
 
 
-def test_shared_image_route_keeps_flight_identity_and_returns_to_teleop(tmp_path):
-    config = load_vision(ROOT)
+@pytest.mark.parametrize('profile',[None,'near23_vbar_v1'])
+def test_shared_image_route_keeps_flight_identity_and_returns_to_teleop(tmp_path,profile):
+    from simulation.capture26_mission import load_mission,vision_path
+    mission=load_mission(ROOT,profile)
+    config = load_vision(ROOT,mission)
     cal = calibration_id(config)
     runtime = SimpleNamespace(output_dir=tmp_path, status=lambda: dict(running=True))
     vision = StereoVisionService(tmp_path, config=config,
@@ -87,11 +90,16 @@ def test_shared_image_route_keeps_flight_identity_and_returns_to_teleop(tmp_path
     try:
         route = dict(schema='space-sim-vision-route/1', mission_id='mission', session_id='flight-session',
                      calibration_id=cal, result_port=receiver.port)
+        if profile:route['config_file']=vision_path(mission).as_posix()
         (tmp_path/'vision-route.json').write_text(json.dumps(route))
         router.update()
         assert (tmp_path/'vision-ready.json').is_file()
         assert router.accepts(dict(session_id='flight-session'))
         assert not router.accepts(dict(session_id='old-teleop'))
+        bad=dict(route,config_file='../unregistered-camera.json')
+        (tmp_path/'vision-route.json').write_text(json.dumps(bad))
+        with pytest.raises(ValueError,match='camera profile'):router.update()
+        (tmp_path/'vision-route.json').write_text(json.dumps(route))
         for eye in ('left', 'right'):
             packet = dict(session_id='flight-session', camera_id=config['camera_ids'][eye],
                           source_frame_id='3', sim_time_ns='100000000', stream_kind='vision', state_kind='authoritative')

@@ -38,6 +38,9 @@ def validate_asset_snapshot(release, asset):
 
 
 FLOATING_TASKS = {
+    "floating_task_box_capture": FloatingAsset(
+        "floating_task_box_base", "漂浮任务箱底座", "floating task box base", (-.003, .275, -.0125),
+        (0., 0., 1.), (1., 0., 0.), source_body="task_box_base"),
     "floating_hook_capture": FloatingAsset(
         "floating_hook", "漂浮挂钩", "floating hook", (.398, .500, .055),
         (0., 1., 0.), (-1., 0., 0.), source_body="hook"),

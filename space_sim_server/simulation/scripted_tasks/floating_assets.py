@@ -34,6 +34,9 @@ def validate_asset_snapshot(release, asset):
 
 
 FLOATING_TASKS = {
+    "floating_guide_plug_capture": FloatingAsset(
+        "guide_plug", "漂浮导向插头", "floating guide plug", (0., 0., -.003),
+        (0., 1., 0.), (0., 0., 1.)),
     "floating_aviation_plug_capture": FloatingAsset(
         "aviation_plug", "漂浮航空插头", "floating aviation plug", (0., 0., -.003),
         (0., 1., 0.), (0., 0., 1.)),

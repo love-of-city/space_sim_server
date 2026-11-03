@@ -13,6 +13,7 @@ import numpy as np
 
 SCHEMA = "task-box-layout/2"
 POSE_SCHEMA = "task-box-layout/3"
+NATIVE_CANDIDATE_SCHEMA = "task-box-layout/4-native-candidate"
 PICKUPS = ("aviation_pickup", "guide_pickup", "cylindrical_pickup")
 TARGETS = tuple(f"{kind}_insert_{size}" for kind in ("aviation", "guide", "cylindrical")
                 for size in ("40p1", "40p5")) + ("bolt_storage_hole", "bolt_assembly_hole")
@@ -119,13 +120,19 @@ def validate_pose_placements(footprints, placements, anchors, yaws, obstacles=()
                                obstacles, margin=margin, gap=gap)
 
 
-def validate_layout_record(record):
+def validate_layout_record(record, *, allow_native_candidate=False):
     """Validate translation/pose manifests against the current clearance policy."""
     schema = record.get("schema")
-    if (schema not in {SCHEMA, POSE_SCHEMA} or record.get("initial_states_randomized") is not False
+    native_candidate=schema==NATIVE_CANDIDATE_SCHEMA
+    if native_candidate and not allow_native_candidate:
+        raise ValueError('Layout is pending native three-dimensional trajectory validation')
+    if native_candidate and record.get('feasibility')!=dict(method='native-3d-trajectory',status='pending'):
+        raise ValueError('Invalid native candidate validation contract')
+    if (schema not in {SCHEMA, POSE_SCHEMA,NATIVE_CANDIDATE_SCHEMA} or record.get("initial_states_randomized") is not False
             or set(record.get("offsets_body_xy_m", {})) != set(MODULES)):
         raise ValueError("Invalid independent layout state/placement contract")
-    if schema == POSE_SCHEMA:
+    rotated=schema==POSE_SCHEMA or (native_candidate and record.get('orientations_randomized') is True)
+    if rotated:
         if (record.get("orientations_randomized") is not True
                 or record.get("rotation_axis") != "task_box_base/+Z"
                 or set(record.get("modules", {})) != set(MODULES)):
@@ -136,12 +143,13 @@ def validate_layout_record(record):
         raise ValueError("Layout requires at least 5 mm deck margin and 8 mm module clearance")
     footprints = record["original_footprints_body_xy_m"]
     anchors = {k: v["original_anchor_body_m"] for k, v in record.get("modules", {}).items()}
-    expected = make_operational_clearance(footprints, anchors, record["fixed_obstacles_body_xy_m"])
-    if record.get("operational_clearance") != expected:
-        raise ValueError("Layout lacks current operational clearance; regenerate the layout and pool")
-    validate_operational_placements(footprints, record["offsets_body_xy_m"], anchors,
-                                   record.get("installation_yaw_rad"), record["fixed_obstacles_body_xy_m"])
-    if schema == POSE_SCHEMA:
+    if not native_candidate:
+        expected = make_operational_clearance(footprints, anchors, record["fixed_obstacles_body_xy_m"])
+        if record.get("operational_clearance") != expected:
+            raise ValueError("Layout lacks current operational clearance; regenerate the layout and pool")
+        validate_operational_placements(footprints, record["offsets_body_xy_m"], anchors,
+                                       record.get("installation_yaw_rad"), record["fixed_obstacles_body_xy_m"])
+    if rotated:
         footprints = rotated_footprints(footprints, anchors, record["installation_yaw_rad"])
     return validate_placements(footprints, record["offsets_body_xy_m"],
                                record["fixed_obstacles_body_xy_m"],

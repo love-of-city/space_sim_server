@@ -61,6 +61,18 @@ class PathTiming:
     def at(self, seconds):
         return self.state(seconds)[0]
 
+    def seconds_at(self, progress):
+        """Invert the monotone progress law for coordinated collision checks."""
+        lo, hi = 0., self.duration
+        progress = float(np.clip(progress, 0., 1.))
+        for _ in range(32):
+            mid = (lo + hi) / 2
+            if self.at(mid) < progress:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2
+
     def joint_state(self, seconds):
         u, v, a, j = self.state(seconds)
         q, q1, q2, q3 = self.path.state(u)

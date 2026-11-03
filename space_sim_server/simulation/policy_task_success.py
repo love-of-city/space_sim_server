@@ -5,13 +5,13 @@ compute actuator commands, or infer progress from scripted phases.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import numpy as np
 
 from simulation.scripted_tasks.drawer_cycle import DrawerCycleConfig
-from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 from simulation.evaluation.task_specs import DrawerBenchmarkCriteria
 
 RENDER_PERIOD_NS = 20_000_000
@@ -35,26 +35,38 @@ class DrawerCycleSuccess:
                  *, sample_period_ns=RENDER_PERIOD_NS, mode="calibrated", retreat_distance_m=.09):
         self.config = DrawerBenchmarkCriteria() if mode == "benchmark" else (config or DrawerCycleConfig())
         root = ET.parse(model_path).getroot()
-        bus = root.find('.//body[@name="cubesat_bus"]')
-        drawer = bus.find('body[@name="drawer_base"]') if bus is not None else None
+        drawer = root.find('.//body[@name="drawer_base"]')
         buckle = drawer.find('.//body[@name="drawer_buckle"]') if drawer is not None else None
         slide = drawer.find('joint[@name="drawer_base_slide"]') if drawer is not None else None
         if drawer is None or buckle is None or slide is None or slide.get("type") != "slide":
             raise ValueError("success monitor requires the calibrated drawer, buckle and slide")
         if any(name in drawer.attrib for name in ("euler", "axisangle", "xyaxes", "zaxis")):
             raise ValueError("success monitor requires the calibrated drawer quaternion")
-        self.rotation = quaternion_wxyz_to_matrix(np.fromstring(drawer.get("quat", "1 0 0 0"), sep=" "))
+        from simulation.scene_library.frames import mounted_body_pose
+        origin, self.rotation = mounted_body_pose(root, "drawer_base", allow_preheld=True)
         self.axis = np.fromstring(slide.get("axis", ""), sep=" ")
-        origin = np.fromstring(drawer.get("pos", ""), sep=" ")
         if self.axis.shape != (3,) or origin.shape != (3,) or not np.isfinite(origin).all():
             raise ValueError("invalid drawer geometry")
         self.axis = self.rotation @ self.axis
-        if not np.allclose(self.rotation, np.diag([-1., 1., -1.])) or not np.allclose(self.axis, [0., 0., 1.]):
-            raise ValueError("drawer geometry differs from the calibrated upward slide")
+        self._validate_geometry(origin, self.rotation, self.axis)
         self.grip_origin = origin + self.rotation @ np.asarray(self.config.grip_offset_m)
+        self.moving_mount = (dict(grip_offset_m=list(self.config.grip_offset_m),
+                                  axis_local=(self.rotation.T @ self.axis).tolist())
+            if root.find('./worldbody/body[@name="capture_target"]//body[@name="drawer_base"]') is not None else None)
         self._configure_period(sample_period_ns)
         self._configure_mode(mode, retreat_distance_m)
         self.reset(None)
+
+    @staticmethod
+    def _validate_geometry(origin, rotation, axis):
+        # Mounting the delivered mechanism on another face is a rigid transform;
+        # changing its internal rail direction is a different calibration.
+        if (origin.shape != (3,) or rotation.shape != (3, 3) or axis.shape != (3,)
+                or not all(np.isfinite(value).all() for value in (origin, rotation, axis))
+                or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6)
+                or not np.isclose(np.linalg.det(rotation), 1., atol=1e-6)
+                or not np.allclose(axis, rotation @ np.array([0., 0., -1.]), atol=1e-6)):
+            raise ValueError("drawer criteria require a rigid mounting and calibrated local slide axis")
 
     def _configure_mode(self, mode, retreat_distance_m):
         if mode not in ("calibrated", "benchmark"):
@@ -99,17 +111,23 @@ class DrawerCycleSuccess:
             monitor.grip_origin = np.array(spec["grip_origin"], dtype=float)
             monitor.rotation = np.array(spec["rotation"], dtype=float)
             monitor.axis = np.array(spec["axis"], dtype=float)
-            if (monitor.grip_origin.shape != (3,) or not np.isfinite(monitor.grip_origin).all()
-                    or monitor.rotation.shape != (3, 3) or monitor.axis.shape != (3,)
-                    or not np.allclose(monitor.rotation, np.diag([-1., 1., -1.]))
-                    or not np.allclose(monitor.axis, [0., 0., 1.])):
-                raise ValueError("drawer criteria require the calibrated upward slide geometry")
+            monitor._validate_geometry(monitor.grip_origin, monitor.rotation, monitor.axis)
             monitor._configure_period(spec["sample_period_ns"])
+            monitor.moving_mount = deepcopy(spec.get('moving_mount'))
+            if monitor.moving_mount is not None:
+                offset = np.asarray(monitor.moving_mount['grip_offset_m'], dtype=float)
+                local_axis = np.asarray(monitor.moving_mount['axis_local'], dtype=float)
+                if (offset.shape != (3,) or not np.isfinite(offset).all()
+                        or local_axis.shape != (3,) or not np.allclose(local_axis, [0., 0., -1.])):
+                    raise ValueError('Invalid moving drawer calibration')
             monitor._configure_mode(spec["mode"], spec["retreat_distance_m"])
             if monitor.mode == "benchmark":
                 expected = DrawerBenchmarkCriteria()
                 if any(config[name] != getattr(expected,name) for name in _CRITERIA_FIELDS):
                     raise ValueError("thresholds differ from the versioned benchmark task")
+                if (monitor.moving_mount is not None
+                        and not np.allclose(monitor.moving_mount['grip_offset_m'], expected.grip_offset_m)):
+                    raise ValueError('Moving drawer grip offset differs from the versioned benchmark task')
             monitor.reset(None)
             return monitor
         except (KeyError, TypeError, OverflowError) as error:
@@ -122,7 +140,26 @@ class DrawerCycleSuccess:
                     config={name: float(getattr(self.config, name)) for name in _CRITERIA_FIELDS})
         if self.mode == "benchmark":
             spec.update(task_id=DrawerBenchmarkCriteria().task_id, instruction=DrawerBenchmarkCriteria().instruction)
+        if getattr(self, 'moving_mount', None):
+            spec['moving_mount'] = deepcopy(self.moving_mount)
         return spec
+
+    def _update_mount(self, sample):
+        if not getattr(self, 'moving_mount', None):
+            return
+        origin = np.asarray(sample['drawer_origin_body_m'], dtype=float)
+        rotation = np.asarray(sample['drawer_rotation_body'], dtype=float)
+        if (origin.shape != (3,) or rotation.shape != (3, 3) or not np.isfinite(origin).all()
+                or not np.isfinite(rotation).all() or not np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-6)
+                or not np.isclose(np.linalg.det(rotation), 1, atol=1e-6)):
+            raise ValueError('Invalid measured drawer mounting pose')
+        self.rotation = rotation
+        self.grip_origin = origin + rotation @ np.asarray(self.moving_mount['grip_offset_m'])
+        self.axis = rotation @ np.asarray(self.moving_mount['axis_local'])
+        if self.initial_drawer is not None:
+            self.hover = self.grip_origin + self.axis * (self.initial_drawer + self.config.clearance_m)
+            closing, down = rotation[:, 1], -self.axis
+            self.grasp_rotation = np.column_stack([closing, np.cross(down, closing), down])
 
     @staticmethod
     def _read(sample, *, optional_diagnostics=False):
@@ -163,6 +200,7 @@ class DrawerCycleSuccess:
         if initial is None:
             return
         try:
+            self._update_mount(initial)
             drawer, _, buckle, _, _, _, _, _ = self._read(initial, optional_diagnostics=self.mode=="benchmark")
             stamp = initial["sim_time_ns"]
             if type(stamp) is not int or stamp < 0 or abs(drawer) > .005:
@@ -197,6 +235,7 @@ class DrawerCycleSuccess:
                 return self.status()  # Duplicate snapshots never add dwell or new evidence.
             if dt_ns != self.sample_period_ns:
                 raise ValueError(f"physical task samples must be consecutive {1e9/self.sample_period_ns:g} Hz frames")
+            self._update_mount(sample)
             drawer, speed, buckle, opening, p, rotation, velocity, contacts = self._read(sample, optional_diagnostics=self.mode=="benchmark")
             self.last_time_ns = stamp
             displacement = float(drawer - self.initial_drawer)

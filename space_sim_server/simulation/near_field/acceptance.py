@@ -15,6 +15,14 @@ def audit_vbar(data, source_model, plan, *, link_age_limit=.5):
     Controller timestamps only select the claimed release windows. Their
     physical and observation conditions are independently recomputed at 20 Hz.
     """
+    # NpzFile members decompress on every access; list-backed telemetry also
+    # copies a whole column on np.asarray. Materialize each input exactly once
+    # before the per-sample FK audit. This changes no samples or predicates.
+    fields = ('truth', 'truth_rotations', 'truth_angular_rates', 'joints', 'joint_rates',
+              'elapsed_s', 'near_guidance_json', 'vision_updates_json', 'target_hinge_angle_rad',
+              'target_hinge_rate_rad_s', 'covariance', 'last_gnss_stamp_s', 'center_distance_m',
+              'truth_optical_depth_m', 'position_sigma_m', 'visual_ready', 'truth_tcp_gap_m')
+    data = {name: np.asarray(data[name]) for name in fields}
     root = ET.parse(source_model).getroot()
     fk = [CenterKinematics(root.find(f'./worldbody/body[@name="{name}"]'))
           for name in ('capture_target', 'cubesat_bus')]

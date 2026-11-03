@@ -3,6 +3,19 @@ import json
 from pathlib import Path
 
 
+def vision_trigger_ids(stereo, wrist_enabled, options):
+    """Keep registered camera optics while suppressing an invalid rig's solver input."""
+    valid = (options or {}).get('fiducial_calibration_valid', True)
+    if type(valid) is not bool:
+        raise ValueError('fiducial_calibration_valid must be a boolean')
+    if not valid:
+        return []
+    ids = list(stereo['camera_ids'].values()) if stereo else []
+    if wrist_enabled:
+        ids.append('teleop/camera/capture_wrist_cam_alignment')
+    return ids
+
+
 def load_stereo_setup(root: Path, spec: dict | None):
     if not spec or not spec.get('enabled') or not spec.get('stereo_enabled',True):
         return None

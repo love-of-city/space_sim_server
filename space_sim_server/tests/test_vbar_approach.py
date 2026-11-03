@@ -327,7 +327,17 @@ def test_physical_audit_rejects_fabricated_controller_completion_and_readiness()
         vision_updates_json=['[]']*101, visual_ready=np.ones(101, dtype=bool),
         truth_optical_depth_m=np.full(101, depth), truth_tcp_gap_m=np.full(101, .5))
     data['center_distance_m'] = np.full(101, center_distance)
-    result = audit_vbar(data, source, plan)
+    class SingleReadColumns:
+        def __init__(self, values):
+            self.values, self.reads = values, set()
+
+        def __getitem__(self, name):
+            assert name not in self.reads, 'compressed telemetry column read more than once'
+            self.reads.add(name)
+            return self.values[name]
+
+    result = audit_vbar(SingleReadColumns(data), source, plan)
+    assert result == audit_vbar(data, source, plan)
     assert not result['passed']
     assert not result['checks']['readiness_recomputed']
     assert all(not result['checks'][name+'_physical_joint_dwell'] for name in fake['nodes'])

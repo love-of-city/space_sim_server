@@ -169,6 +169,10 @@ def _library():
                              _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P]
     lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
     lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
+    lib.lms_probe_clearance.argtypes = [ctypes.c_void_p, ctypes.c_double]
+    lib.lms_probe_clearance.restype = ctypes.c_int
+    lib.lms_body_geometry_pose.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
+    lib.lms_body_geometry_pose.restype = ctypes.c_int
     lib.lms_contacts.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_contact_detail.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
     lib.lms_body_detail.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]

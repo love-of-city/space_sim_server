@@ -258,7 +258,8 @@ def _load_scene_instance(path: Path | None, model_root: Path | None = None) -> d
     if quaternion_norm <= 1.0e-12:
         raise ValueError("scene target quaternion must have non-zero norm")
     joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
-    scene_model = target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model
+    from space_arm_platform.imported_scene_library import model_for_instance
+    scene_model = model_for_instance(document) or (target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model)
     from simulation.sarm_model_profile import load_model_profile
     scene_limits = load_joint_limits(scene_model, load_model_profile(scene_model).joint_names)
     if np.any(joints < np.array(scene_limits.lower)) or np.any(joints > np.array(scene_limits.upper)):
@@ -944,6 +945,14 @@ def _apply_orbital_initial_state(
     if 'capture_arm_joint_position_rad' in randomized:
         for i, value in enumerate(randomized['capture_arm_joint_position_rad'], 1):
             scene.getBody(f'bottom_link{i}').getScalarJoint(f'bottom_joint{i}').setPosition(float(value))
+    if 'preheld_capture_joint_position' in randomized:
+        from simulation.components.preheld_capture import validate_preheld
+        from simulation.capture_arm_target import INITIAL_JOINTS
+        values = validate_preheld(native.MODEL_PATH, randomized['preheld_capture_joint_position'])
+        for (body_name, joint_name, _), value in zip(INITIAL_JOINTS, values, strict=True):
+            joint = scene.getBody(body_name).getScalarJoint(joint_name)
+            joint.setPosition(float(value))
+            joint.setVelocity(0.)
 
     orbit_state = {
         "semi_major_axis_m": float(elements.a),
@@ -1041,6 +1050,10 @@ def run(args: argparse.Namespace) -> None:
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     target_spec = capture_target(template_id)
     model_override = getattr(args, "model_path", None)
+    if scene_instance and scene_instance.get('library_scene'):
+        from space_arm_platform.imported_scene_library import model_for_instance
+        model_override = model_for_instance(scene_instance)
+        args.catalog = Path(scene_instance['library_scene']['catalog'])
     native.MODEL_PATH = (
         Path(model_override).resolve()
         if model_override is not None
@@ -1288,7 +1301,12 @@ def _run_session(
         ])
         capture_component = None
         formation_component = None
-        if template_id == 'sarm-dual-capture26':
+        if scene_instance and 'preheld_capture_joint_position' in scene_instance.get('randomization', {}):
+            from simulation.components.preheld_capture import PreheldCaptureComponent
+            assembly.install([PreheldCaptureComponent(native.MODEL_PATH,
+                scene_instance['randomization']['preheld_capture_joint_position'],
+                scene_instance.get('preheld_capture', {}).get('hold_gains'))])
+        elif template_id == 'sarm-dual-capture26':
             from simulation.components.capture26 import Capture26Component
             capture_component = Capture26Component(native.MODEL_PATH, client,
                 scene_instance.get('randomization', {}).get('capture_arm_joint_position_rad') if scene_instance else None,

@@ -227,3 +227,9 @@ def test_empty_raise_still_requires_measured_pose_tracking():
         task.step(replace(sample, time_s=tick * 0.005, joints=wrong))
     assert task.stage == "raise"
     assert task._stable == 0
+
+
+@pytest.mark.parametrize('stage,minimum',[('grip',1.),('lift',2.),('return',2.)])
+def test_expert_does_not_skip_required_physical_hold(stage,minimum):
+    task,_=setup_cycle();task.stage=stage
+    assert task._stable_time()>minimum

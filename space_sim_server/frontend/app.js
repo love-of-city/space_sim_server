@@ -1,4 +1,5 @@
 import { WorkLight } from "./work_light.js";
+import { groupSceneTemplates, libraryFamilyId, resolveSceneTask } from './library_templates.js';
 import { WristVisionOverlay } from "./wrist_vision.js";
 import { PreviewOrbit } from "./preview_orbit.js";
 import { armObservation, MainCompanion } from "./dual_arm.js";
@@ -141,18 +142,39 @@ const armPreparation = createArmPreparation({
   message: setMessage, changed: () => { updateOperationUI(); updateEpisodeUI(); },
 });
 let initialJointCatalog = null;
+let visibleSceneTemplates = [];
+function selectedSceneTemplate() {
+  return resolveSceneTask(initialJointCatalog?.templates || [], $('sceneTemplate').value, $('sceneTaskProfile').value);
+}
+function configureLibraryTasks(preferredId) {
+  const family = visibleSceneTemplates.find(item => item.id === $('sceneTemplate').value);
+  const selector = $('sceneTaskProfile');
+  $('sceneTaskProfileLabel').hidden = !family?.library_family;
+  if (!family?.library_family) return;
+  const previous = preferredId || selector.value;
+  if (selector.dataset.familyId !== family.id) {
+    selector.replaceChildren(...family.tasks.map(task => new Option(task.label.split(' / ').at(-1), task.id)));
+    selector.dataset.familyId = family.id;
+  }
+  selector.value = family.tasks.some(task => task.id === previous) ? previous : family.tasks[0].id;
+}
 function configureInitialJoints() {
   const zeroStart = [ZERO_START_PROFILE, "teleop-zero-prepare-v2"].includes($("randomizationProfile").value);
   $("legacyInitialJointSettings").hidden = zeroStart;
   if (zeroStart) $("sceneCustomInitialJoints").checked = false;
-  armPreparation.configure(initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value), $("randomizationProfile").value);
+  armPreparation.configure(selectedSceneTemplate(), $("randomizationProfile").value);
   initialJoints.configure(
-    initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value),
+    selectedSceneTemplate(),
     initialJointCatalog?.initial_arm_presets_deg?.[$("randomizationProfile").value],
   );
 }
 function configureSceneSelection() {
-  const template = initialJointCatalog?.templates.find(item => item.id === $("sceneTemplate").value);
+  configureLibraryTasks();
+  const template = selectedSceneTemplate();
+  if (template?.library_scene) {
+    $("randomizationProfile").value = template.default_randomization_profile;
+    $("sceneRandomizeOrbitPhase").checked = false;
+  }
   const overviewSupported = ["sarm-task-box-20261012", "sarm-task-box-20261012-sdf"].includes($("sceneTemplate").value);
   $("sceneRandomizeOverviewCamera").disabled = !overviewSupported;
   if (!overviewSupported) $("sceneRandomizeOverviewCamera").checked = false;
@@ -332,7 +354,8 @@ async function loadSceneCatalog() {
     const catalog = await response.json();
     if (!response.ok) throw new Error(catalog.detail || `catalog ${response.status}`);
     const template = $("sceneTemplate");
-    template.replaceChildren(...catalog.templates.map((item) => new Option(item.label, item.id)));
+    visibleSceneTemplates = groupSceneTemplates(catalog.templates);
+    template.replaceChildren(...visibleSceneTemplates.map((item) => new Option(item.label, item.id)));
     const profile = $("randomizationProfile");
     profile.replaceChildren(...catalog.randomization_profiles.map((item) => new Option(item.label, item.id)));
     const defaults = catalog.defaults || {};
@@ -384,6 +407,7 @@ function applySceneRuntime(runtime = {}, mission = state.mission) {
   $("scenePhase").classList.toggle("scene-failed", phase === "failed");
   $("startScene").disabled = active || !enabled;
   $("stopScene").disabled = !active || !state.canManageScene;
+  $('sceneTaskProfile').disabled = active || Boolean(mission?.active);
   $("resetScene").disabled = !state.sceneReady || !state.simulationConnected
     || !state.resetSupported || !state.canManageScene || Boolean(state.activeEpisode);
   $("resetScene").textContent = state.resetPending || state.simulationResetting ? "正在复原…" : "一键复原初始位置";
@@ -408,7 +432,11 @@ function applySceneRuntime(runtime = {}, mission = state.mission) {
   $("sceneInstanceOverviewCamera").textContent = !instance.instance_id ? "—"
     : instance.overview_camera ? `${instance.overview_camera.preset_id} · ${instance.overview_camera.label}` : "原始固定机位";
   if (active && instance.instance_id) {
-    if (instance.template_id) $("sceneTemplate").value = instance.template_id;
+    if (instance.template_id) {
+      const taskId = instance.library_scene?.id;
+      $("sceneTemplate").value = libraryFamilyId(taskId) || instance.template_id;
+      configureLibraryTasks(taskId);
+    }
     if (instance.capture_target?.runtime_warning) $("sceneCollisionWarning").textContent = instance.capture_target.runtime_warning;
     if (instance.randomization_profile) $("randomizationProfile").value = instance.randomization_profile;
     $("sceneSunlightIntensity").value = String(instanceSunlight);
@@ -458,7 +486,7 @@ async function startScene() {
   }
   const seedText = $("sceneSeed").value.trim();
   const request = {
-    template_id: $("sceneTemplate").value,
+    template_id: selectedSceneTemplate()?.id || $("sceneTemplate").value,
     randomization_profile: $("randomizationProfile").value,
     randomize_orbit_phase: $("sceneRandomizeOrbitPhase").checked,
     seed: seedText === "" ? null : Number(seedText),
@@ -482,6 +510,11 @@ async function startScene() {
     });
     const data = await readApiResponse(response);
     if (!response.ok) throw new Error(data.detail || `无法启动场景（HTTP ${response.status}）`);
+    if (initialJointCatalog?.templates.find(item => item.id === request.template_id)?.library_kind === "rendezvous") {
+      setMessage("场景库交会任务已启动，正在连接系统交会画面");
+      await refreshState();
+      return;
+    }
     applySceneRuntime({ ...data, active: true, instance: data });
     armPreparation.armAutoStart?.(data.instance_id);
     setMessage(`已生成场景 ${data.instance_id}，Seed ${data.seed}，正在启动 UE`);
@@ -1692,6 +1725,7 @@ $("linearSpeed").addEventListener("input", (event) => {
 });
 $("startScene").addEventListener("click", startScene);
 $("sceneTemplate").addEventListener("change", configureSceneSelection);
+$("sceneTaskProfile").addEventListener("change", configureSceneSelection);
 $("randomizationProfile").addEventListener("change", configureSceneSelection);
 $("stopScene").addEventListener("click", stopScene);
 $("resetScene").addEventListener("click", resetScene);

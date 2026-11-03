@@ -220,6 +220,13 @@ class MissionRuntime:
                 self._monitor = None
 
     async def start_scene(self, request, user, *, background=False):
+        from .imported_scene_library import lookup, verified_source
+        imported = lookup(self.scenes.project_root, request.template_id)
+        if imported and imported['kind'] == 'rendezvous':
+            verified_source(imported)
+            return await self.start_flight(user, scenario='team-in-orbit',
+                options=imported['flight_options'], live=True, mode='simulation',
+                background=background, continuous=False)
         request = request.model_copy(update={key: value for key, value in self.scene_defaults.items()
                                              if key not in request.model_fields_set})
         self.require_available()

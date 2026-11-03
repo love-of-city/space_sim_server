@@ -1,12 +1,15 @@
 """Reproducible reset configuration and read-only native collision preflight."""
 
 from copy import deepcopy
+from pathlib import Path
 import ctypes
 import math
 import os
 import numpy as np
 from .drawer_cycle import DrawerCycleTask
 from .drawer_lift import DrawerSample
+
+THREADED_TASKS = frozenset(("locking_rod_cycle", "aviation_bolt_insert"))
 
 NOISE_DISABLED = {
     name: False
@@ -93,7 +96,11 @@ class NativePoseProbe:
     is touched, and the Python mujoco package is never imported.
     """
 
-    def __init__(self, model_path):
+    def __init__(self, model_path, *, clearance_m=0.):
+        self.model_path=Path(model_path)
+        self._mount_ownership=None
+        if not np.isfinite(clearance_m) or not 0. <= clearance_m <= .02:
+            raise ValueError("Planning clearance must be between 0 and 0.02 m")
         from .gripper_preflight import ParallelogramGripper
         self.gripper_kinematics = ParallelogramGripper(model_path)
         from simulation.mujoco_plugins import ensure_model_plugins
@@ -117,6 +124,8 @@ class NativePoseProbe:
         if not handle:
             raise RuntimeError(error.value.decode(errors="replace"))
         self.handle = ctypes.c_void_p(handle)
+        if clearance_m:
+            self.check(self.lib.lms_probe_clearance(self.handle, float(clearance_m)))
         dims = np.zeros(6, dtype=np.int64)
         self.check(self.lib.lms_dims(self.handle, dims.ctypes.data_as(self.i64)))
         self.q = np.zeros(int(dims[0]))
@@ -143,6 +152,28 @@ class NativePoseProbe:
             buf = ctypes.create_string_buffer(256)
             self.lib.lms_id2name(self.handle, 1, body, buf, len(buf))
             self.names[body] = buf.value.decode()
+        self.geom_names = {}
+        self.passive_position_offsets = {}
+
+    def geom_name(self, geom):
+        """Resolve only encountered geoms; the native dimension API omits ngeom."""
+        geom = int(geom)
+        if geom not in self.geom_names:
+            buf = ctypes.create_string_buffer(256)
+            self.lib.lms_id2name(self.handle, 5, geom, buf, len(buf))
+            self.geom_names[geom] = buf.value.decode()
+        return self.geom_names[geom]
+
+    def apply_scene_initial(self, scene):
+        """Seed only this private geometry probe with the declared held arm."""
+        values = scene.get('randomization', {}).get('preheld_capture_joint_position')
+        if values is not None:
+            from simulation.components.preheld_capture import validate_preheld
+            from simulation.capture_arm_target import INITIAL_JOINTS
+            references = validate_preheld(self.model_path, values)
+            for (_, joint, _), value in zip(INITIAL_JOINTS, references, strict=True):
+                self.home[self.address(joint)] = value
+            self.q[:] = self.home
 
     @staticmethod
     def check(status):
@@ -160,7 +191,7 @@ class NativePoseProbe:
     def contacts(self, q):
         self.q[self.addresses] = q
         for name, value in self.gripper_kinematics.passive_positions(q[6:8]).items():
-            self.q[self.passive_addresses[name]] = value
+            self.q[self.passive_addresses[name]] = value + self.passive_position_offsets.get(name, 0.)
         self.check(
             self.lib.lms_set_state(self.handle, self.ptr(self.q), self.ptr(self.v))
         )
@@ -170,7 +201,168 @@ class NativePoseProbe:
         self.check(self.lib.lms_contacts(self.handle, self.ptr(rows), count))
         return rows
 
+    def use_measured_qpos(self, qpos, joints):
+        """Restore measured coordinates in this private geometry instance only.
+
+        Preserve each passive four-bar's measured deviation from the analytic
+        linkage while the candidate jaws open. The first candidate therefore
+        reproduces the actual articulated gripper, including contact preload.
+        """
+        qpos = np.asarray(qpos, dtype=float)
+        if qpos.shape != self.home.shape or not np.isfinite(qpos).all():
+            raise ValueError("Measured native qpos does not match this model")
+        self.home[:] = qpos
+        self.q[:] = qpos
+        self.passive_position_offsets = {
+            name: float(qpos[self.passive_addresses[name]] - value)
+            for name, value in self.gripper_kinematics.passive_positions(joints[6:8]).items()
+        }
+
+    def body_pose(self, name):
+        body = self.lib.lms_name2id(self.handle, 1, name.encode())
+        values = np.zeros(12)
+        self.check(self.lib.lms_body_geometry_pose(self.handle, body, self.ptr(values)))
+        return values[:3].copy(), values[3:].reshape(3, 3).copy()
+
+    def grasp_opening(self, candidate, part_body):
+        """Actual parallel-jaw surface contact in this private native model.
+
+        A closed-loop pose sweep locates the first bilateral contact instead
+        of using a commanded preload angle as the fingers' physical position.
+        The caller owns this separate probe; no runtime state is involved.
+        """
+        candidate = np.asarray(candidate, dtype=float).copy()
+        if candidate.shape != (8,) or not np.isfinite(candidate).all():
+            raise ValueError("Grasp opening requires eight finite joint coordinates")
+
+        def bilateral(opening):
+            candidate[6:] = [opening, -opening]
+            fingers = set()
+            for _, _, first, second, distance in self.contacts(candidate):
+                names = {self.names[int(first)], self.names[int(second)]}
+                if part_body in names and distance <= 0.0:
+                    fingers.update(names.intersection({"ee_finger1", "ee_finger2"}))
+            return len(fingers) == 2
+
+        if bilateral(1.0):
+            raise ValueError("Fully open fingers intersect the threaded part")
+        previous = 1.0
+        for opening in np.linspace(1.0, 0.0, 101)[1:]:
+            if bilateral(float(opening)):
+                closed, clear = float(opening), previous
+                for _ in range(18):
+                    middle = .5 * (closed + clear)
+                    if bilateral(middle):
+                        closed = middle
+                    else:
+                        clear = middle
+                return closed
+            previous = float(opening)
+        raise ValueError("No bilateral finger/part contact along the closing sweep")
+
+    def pose_collision(self, candidate, task_name, allowed_contact_bodies=(),
+                       joint_values=None, baseline=None, arm_penetration_m=.0005,
+                       clearance_m=0., mechanism_clearance_m=None, axial_socket=None):
+        """The same private contact gate for reset preflight and carry branches."""
+        moving_mechanism = ({"locking_rod", "fastener"} if task_name == "locking_rod_cycle"
+                            else {"bolt"} if task_name == "aviation_bolt_insert"
+                            else {task_name.removesuffix("_insert")} if task_name in ("aviation_plug_insert","guide_plug_insert","cylindrical_plug_insert")
+                            else {"cylindrical_plug"} if task_name == "plug_insert"
+                            else {"drawer_base", "drawer_buckle"} if task_name == "drawer_cycle" else set())
+        if task_name not in THREADED_TASKS and not allowed_contact_bodies and axial_socket is None:
+            # A released plug or drawer is static scene geometry. Its own seat
+            # contact must not reject an unrelated empty-gripper withdrawal.
+            moving_mechanism = set()
+        own_rod_contacts = {
+            frozenset(pair) for pair in (
+                ("locking_rod", "fastener"), ("fastener", "hook"),
+                ("locking_rod", "hook"), ("locking_rod", "limit_clip"),
+                ("fastener", "limit_clip"),
+            )
+        }
+        bolt_mating_geoms = {
+            frozenset(("bolt_thread_sdf", "board_thread_sdf")),
+            frozenset(("bolt_thread_sdf", "bolt_storage_thread_sdf")),
+        }
+
+        self.q[:] = self.home if baseline is None else baseline
+        for name, values in (joint_values or {}).items():
+            values = np.asarray(values, dtype=float).reshape(-1)
+            if len(values) not in (1, 7) or not np.isfinite(values).all():
+                raise ValueError(f"Invalid private preflight state for {name}")
+            address = self.address(name)
+            self.q[address:address + len(values)] = values
+        for geom1, geom2, first, second, distance in self.contacts(candidate):
+            a, b = self.names[int(first)], self.names[int(second)]
+            is_arm = lambda name: (
+                name.startswith(("ee", "wrist_ft")) or name in {f"link{i}" for i in range(1, 6)}
+            )
+            # Internal closed four-bar contacts belong to the gripper itself.
+            if a.startswith("ee") and b.startswith("ee"):
+                continue
+            # Planned grasp contact permits the fingers only. A declared
+            # grasped body never exempts a wrist or arm-link collision.
+            if ((a in {"ee_finger1", "ee_finger2"} and b in allowed_contact_bodies)
+                    or (b in {"ee_finger1", "ee_finger2"} and a in allowed_contact_bodies)):
+                continue
+            arm_threshold = clearance_m if clearance_m else -arm_penetration_m
+            if (is_arm(a) or is_arm(b)) and distance < arm_threshold:
+                return dict(body1=a, body2=b, penetration_m=float(-distance), separation_m=float(distance))
+            mechanism_threshold = (mechanism_clearance_m if mechanism_clearance_m is not None
+                                   else clearance_m if clearance_m else -0.0002)
+            if moving_mechanism.intersection((a, b)) and distance < mechanism_threshold:
+                if task_name == "drawer_cycle" and {a,b} <= {"drawer_base", "drawer_buckle"}:
+                    continue
+                if axial_socket is not None:
+                    # Only the active connector's own mating wall is intentional
+                    # during its constrained axial stroke; never exempt an arm.
+                    prefix, pickup = axial_socket[:2]
+                    target_site=axial_socket[2] if len(axial_socket)>2 else prefix+'_insert_40p5'
+                    other = b if a == prefix + "_plug" else a
+                    geom = self.geom_name(geom2 if a == prefix + "_plug" else geom1)
+                    if pickup:
+                        if self._mount_ownership is None:
+                            from .mount_ownership import source_mount_ownership
+                            self._mount_ownership,_=source_mount_ownership(self.model_path)
+                        if (other=='asm_board2' or other.startswith('layout_'+prefix+'_pickup')) and self._mount_ownership.get(geom)==prefix+'_pickup':continue
+                    elif geom.startswith(target_site.replace('_insert_','_bore_')+'_'):
+                        continue
+                if task_name == "locking_rod_cycle" and frozenset((a, b)) in own_rod_contacts:
+                    continue
+                if task_name == "aviation_bolt_insert":
+                    geoms = (self.geom_name(geom1), self.geom_name(geom2))
+                    if frozenset(geoms) in bolt_mating_geoms:
+                        continue
+                else:
+                    geoms = None
+                contact = dict(body1=a, body2=b, penetration_m=float(-distance),
+                               collision_kind="mechanism_environment_collision")
+                if geoms is not None:
+                    contact.update(geom1=geoms[0], geom2=geoms[1])
+                return contact
+        return None
+
+    def check_threaded_paths(self, task_name, paths, strict_stages=None):
+        """Read-only geometry check for an explicitly planned mechanism branch."""
+        if strict_stages is None:
+            strict_stages = (("target_release", "retract")
+                             if task_name == "aviation_bolt_insert" else ())
+        checked = 0
+        stages = []
+        for stage, candidates, allowed, overrides in paths:
+            stages.append(stage)
+            for index, candidate in enumerate(candidates):
+                checked += 1
+                hit = self.pose_collision(candidate, task_name, allowed,
+                    {joint: values[index] for joint, values in overrides.items()},
+                    arm_penetration_m=0. if stage in strict_stages else .0005)
+                if hit:
+                    return dict(accepted=False, reason=hit.get("collision_kind", "approach_collision"),
+                                stage=stage, contact=hit, checked_poses=checked)
+        return dict(accepted=True, checked_poses=checked, checked_stages=stages)
+
     def validate(self, model, scene, task_name="drawer_cycle"):
+        self.apply_scene_initial(scene)
         self.q[:] = self.home
         target = scene.get("randomization", {})
         if "target_position_m" in target:
@@ -249,7 +441,7 @@ class NativePoseProbe:
                 path = task._path
                 if path is None:
                     continue
-                if task._timing is not None:
+                if getattr(task, "_timing", None) is not None:
                     # Validate the executed spline, including former segment
                     # midpoints, rather than checking only its IK knots.
                     path = [

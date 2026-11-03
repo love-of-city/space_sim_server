@@ -120,6 +120,7 @@ def test_relative_part_state_cancels_common_translation_and_rigid_rotation():
     reader.stepper = SimpleNamespace(qpos=state, qvel=rate)
     reader.base = SimpleNamespace(getQposAdr=lambda: 0, getQvelAdr=lambda: 0)
     reader.plug = SimpleNamespace(getQposAdr=lambda: 7, getQvelAdr=lambda: 6)
+    reader.sites = {}  # This isolated relative-body test has no site readers.
     sample = reader.sample(
         0.0,
         np.zeros(8),

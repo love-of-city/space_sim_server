@@ -379,7 +379,7 @@ API int lms_add_axial_friction(void* handle, int plug, int base, double static_n
         if (s->m->body_jntnum[b] != 1 || s->m->jnt_type[s->m->body_jntadr[b]] != mjJNT_FREE)
             return ERR_ARGUMENT;
     }
-    for (const auto& f : s->friction) if (f.plug == plug) return ERR_ARGUMENT;
+    for (const auto& f : s->friction) if (f.plug == plug && f.base == base) return ERR_ARGUMENT;
     if (!s->friction_trial) s->friction_trial = s->api.makeData(s->m);
     if (!s->friction_trial) return ERR_RUNTIME;
     AxialFriction f{};
@@ -395,6 +395,13 @@ API int lms_set_axial_friction(void* handle, int id, int enabled, const double* 
     double length = std::sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
     if (std::abs(length - 1) > 1e-8) return ERR_ARGUMENT;
     auto& f = s->friction[id];
+    // Cross-spacecraft transfer may register donor and receiver interfaces,
+    // but a plug can only have one active dry-friction owner at a time.
+    if (enabled) {
+        for (int i = 0; i < static_cast<int>(s->friction.size()); ++i)
+            if (i != id && s->friction[i].plug == f.plug && s->friction[i].enabled)
+                return ERR_ARGUMENT;
+    }
     f.enabled = enabled != 0;
     std::copy(axis, axis+3, f.axis);
     std::copy(seat, seat+3, f.seat);
@@ -850,6 +857,28 @@ API int lms_momentum(void* handle, double* out) {
 
 // Read-only contact snapshot from the authoritative native model. Returns ncon.
 // Each row: geom1, geom2, body1, body2, signed separation [m]. No forward/step.
+API int lms_body_geometry_pose(void* handle, int body, double* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !out || body < 0 || body >= s->m->nbody) return ERR_ARGUMENT;
+    for (int i=0; i<3; ++i) out[i] = s->d->xpos[3*body+i];
+    for (int i=0; i<9; ++i) out[3+i] = s->d->xmat[9*body+i];
+    return OK;
+}
+
+API int lms_probe_clearance(void* handle, double clearance) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !std::isfinite(clearance) || clearance < 0 || clearance > .02) return ERR_ARGUMENT;
+    for (int g = 0; g < s->m->ngeom; ++g) {
+        s->m->geom_margin[g] = std::max(s->m->geom_margin[g], clearance);
+        s->m->geom_gap[g] = std::max(s->m->geom_gap[g], clearance);
+    }
+    for (int p = 0; p < s->m->npair; ++p) {
+        s->m->pair_margin[p] = std::max(s->m->pair_margin[p], clearance);
+        s->m->pair_gap[p] = std::max(s->m->pair_gap[p], clearance);
+    }
+    return OK;
+}
+
 API int lms_contacts(void* handle, double* out, int capacity) {
     auto* s = static_cast<Stepper*>(handle);
     if (!s || capacity < 0 || (capacity > 0 && !out)) return ERR_ARGUMENT;

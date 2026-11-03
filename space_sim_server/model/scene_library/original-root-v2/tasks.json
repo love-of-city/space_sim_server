@@ -1,0 +1,1024 @@
+[
+  {
+    "id": "library/02_docked_operation/drawer_cycle",
+    "scene_id": "02_docked_operation/drawer_cycle",
+    "label": "场景库 · 对接后操作靶星任务盒 / 抽屉拉起与放回",
+    "recipe": {
+      "id": "02_docked_operation/drawer_cycle",
+      "family": "02_docked_operation",
+      "family_number": 2,
+      "label": "对接后操作靶星任务盒",
+      "task_label": "抽屉拉起与放回",
+      "task": "drawer_cycle",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "target_task_box"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": null,
+      "seating_overtravel_m": 0.0016,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false
+    },
+    "source_instance_sha256": "c58a5b64a9ccc5c02644696176c1ac4391670bdbf1a02aeabb7049eda572265f",
+    "full_task_accepted": false
+  },
+  {
+    "id": "library/02_docked_operation/aviation_plug_insert",
+    "scene_id": "02_docked_operation/aviation_plug_insert",
+    "label": "场景库 · 对接后操作靶星任务盒 / 航空插头拔出与插入",
+    "recipe": {
+      "id": "02_docked_operation/aviation_plug_insert",
+      "family": "02_docked_operation",
+      "family_number": 2,
+      "label": "对接后操作靶星任务盒",
+      "task_label": "航空插头拔出与插入",
+      "task": "aviation_plug_insert",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "target_task_box"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": 0.16,
+      "seating_overtravel_m": null,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false,
+      "target_site": "aviation_insert_40p5"
+    },
+    "source_instance_sha256": "4563042129b7c001cc4460ce24bea4068d193e4aeb83fc1e90cf29dcc5fb1376",
+    "full_task_accepted": false
+  },
+  {
+    "id": "library/02_docked_operation/guide_plug_insert",
+    "scene_id": "02_docked_operation/guide_plug_insert",
+    "label": "场景库 · 对接后操作靶星任务盒 / 导向插头拔出与插入",
+    "recipe": {
+      "id": "02_docked_operation/guide_plug_insert",
+      "family": "02_docked_operation",
+      "family_number": 2,
+      "label": "对接后操作靶星任务盒",
+      "task_label": "导向插头拔出与插入",
+      "task": "guide_plug_insert",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "target_task_box"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": 0.16,
+      "seating_overtravel_m": null,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false,
+      "target_site": "guide_insert_40p5"
+    },
+    "source_instance_sha256": "eca3b294e134f7d5dd275439dd6aa4753917a811dc6234bb5f58f65d0b80aa24",
+    "full_task_accepted": false
+  },
+  {
+    "id": "library/02_docked_operation/cylindrical_plug_insert",
+    "scene_id": "02_docked_operation/cylindrical_plug_insert",
+    "label": "场景库 · 对接后操作靶星任务盒 / 圆柱插头拔出与插入",
+    "recipe": {
+      "id": "02_docked_operation/cylindrical_plug_insert",
+      "family": "02_docked_operation",
+      "family_number": 2,
+      "label": "对接后操作靶星任务盒",
+      "task_label": "圆柱插头拔出与插入",
+      "task": "cylindrical_plug_insert",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "target_task_box"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": 0.16,
+      "seating_overtravel_m": null,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false,
+      "release_speed_rad_s": 0.02,
+      "target_site": "cylindrical_insert_40p5"
+    },
+    "source_instance_sha256": "0133b9b8fc840bb871afd1ecdeca0b7789b8f0be68c3a28f51afc069530df834",
+    "full_task_accepted": false
+  },
+  {
+    "id": "library/02_docked_operation/locking_rod_cycle",
+    "scene_id": "02_docked_operation/locking_rod_cycle",
+    "label": "场景库 · 对接后操作靶星任务盒 / 杆状螺丝放倒、复位与锁紧",
+    "recipe": {
+      "id": "02_docked_operation/locking_rod_cycle",
+      "family": "02_docked_operation",
+      "family_number": 2,
+      "label": "对接后操作靶星任务盒",
+      "task_label": "杆状螺丝放倒、复位与锁紧",
+      "task": "locking_rod_cycle",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "target_task_box"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": null,
+      "seating_overtravel_m": null,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false
+    },
+    "source_instance_sha256": "69d54cab8e7220155029c8600dd126f4fd8a14ded39ce77bd26eefbd6fe7b0f4",
+    "full_task_accepted": false
+  },
+  {
+    "id": "library/04_cross_transfer/aviation_plug_insert",
+    "scene_id": "04_cross_transfer/aviation_plug_insert",
+    "label": "场景库 · 跨星转移安装 / 从靶星拔出航空插头并插入操作星",
+    "recipe": {
+      "id": "04_cross_transfer/aviation_plug_insert",
+      "family": "04_cross_transfer",
+      "family_number": 4,
+      "label": "跨星转移安装",
+      "task_label": "从靶星拔出航空插头并插入操作星",
+      "task": "aviation_plug_insert",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "donor_module",
+        "receiver_module"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules",
+        "cross_body_transfer_and_independent_scoring"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": 0.16,
+      "seating_overtravel_m": null,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false,
+      "target_site": "service_aviation_insert_40p5"
+    },
+    "source_instance_sha256": "4188905ac2e5928866f432a654aa13c92005c4941fb309915480a676dff0fe36",
+    "full_task_accepted": false
+  },
+  {
+    "id": "library/04_cross_transfer/guide_plug_insert",
+    "scene_id": "04_cross_transfer/guide_plug_insert",
+    "label": "场景库 · 跨星转移安装 / 从靶星拔出导向插头并插入操作星",
+    "recipe": {
+      "id": "04_cross_transfer/guide_plug_insert",
+      "family": "04_cross_transfer",
+      "family_number": 4,
+      "label": "跨星转移安装",
+      "task_label": "从靶星拔出导向插头并插入操作星",
+      "task": "guide_plug_insert",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "donor_module",
+        "receiver_module"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules",
+        "cross_body_transfer_and_independent_scoring"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": 0.16,
+      "seating_overtravel_m": null,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false,
+      "target_site": "service_guide_insert_40p5"
+    },
+    "source_instance_sha256": "af26a778ecb110be18c6375fc9c88ee7f9f5690de3826849a78630e7c527ac3b",
+    "full_task_accepted": false
+  },
+  {
+    "id": "library/04_cross_transfer/cylindrical_plug_insert",
+    "scene_id": "04_cross_transfer/cylindrical_plug_insert",
+    "label": "场景库 · 跨星转移安装 / 从靶星拔出圆柱插头并插入操作星",
+    "recipe": {
+      "id": "04_cross_transfer/cylindrical_plug_insert",
+      "family": "04_cross_transfer",
+      "family_number": 4,
+      "label": "跨星转移安装",
+      "task_label": "从靶星拔出圆柱插头并插入操作星",
+      "task": "cylindrical_plug_insert",
+      "roles": [
+        "service_bus",
+        "operating_arm",
+        "capture_arm",
+        "preheld_target",
+        "target_bus",
+        "donor_module",
+        "receiver_module"
+      ],
+      "phase": 1,
+      "adapter": null,
+      "source_model": "model/SARM/platform/sarm_dual_capture26.xml",
+      "readiness": "specified",
+      "missing_capabilities": [
+        "dual_arm_preheld_target_and_hold_validation",
+        "target_owned_task_modules",
+        "cross_body_transfer_and_independent_scoring"
+      ],
+      "accepted": false
+    },
+    "initial_scene": {
+      "template_id": "sarm-dual-capture26",
+      "seed": 42,
+      "initialization_enabled": false,
+      "randomize_orbit_phase": false,
+      "randomize_overview_camera": false,
+      "randomization": {
+        "arm_joint_position_rad": [
+          -0.4666327762528837,
+          -1.9936245495106832,
+          -0.8592201786109479,
+          1.2820740570186069,
+          -0.46663260171103865,
+          4.712408115320579,
+          0.0,
+          0.0
+        ],
+        "target_position_m": [
+          0.792849999999958,
+          0.010000000000000009,
+          0.311035
+        ],
+        "target_orientation_wxyz": [
+          0.5,
+          0.5,
+          0.5,
+          -0.5
+        ],
+        "target_linear_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_angular_velocity_rad_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target_relative_velocity_m_s": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "capture_arm_joint_position_rad": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637
+        ],
+        "preheld_capture_joint_position": [
+          -0.8528649348452638,
+          -1.6432285045404316,
+          -1.318057761833308,
+          -0.18033048492252488,
+          1.5709377260136252,
+          -0.8550349768221637,
+          0.002630407763114736,
+          1.029744258517333,
+          -0.011799961138489305,
+          -0.011800787089506177,
+          -0.011800069349358745,
+          -0.01179959838787752
+        ]
+      },
+      "preheld_capture": {
+        "mode": "ideal_locked_grasp",
+        "capture_body": "gripper",
+        "target_body": "capture_target",
+        "equality": "preheld_capture_lock",
+        "target_mount_on_service_bus": false
+      },
+      "render_profile": {
+        "visual_attachments": [
+          {
+            "parent_id": "teleop/capture_target",
+            "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+            "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+            "transform_mode": "fixed_body_geometry"
+          }
+        ],
+        "vision_capture": {
+          "fiducial_calibration_valid": false
+        }
+      }
+    },
+    "operation_fixture": {
+      "transport_clearance_m": 0.16,
+      "seating_overtravel_m": null,
+      "scope": "dual_arm_preheld_operation",
+      "physical_docking_accepted": false,
+      "friction_only_capture_accepted": false,
+      "release_speed_rad_s": 0.02,
+      "target_site": "service_cylindrical_insert_40p5"
+    },
+    "source_instance_sha256": "cb315608f9106e9e1ec5a08c13a91a6c0d6fe1fabb8e66bafb31d9070e8f2716",
+    "full_task_accepted": false
+  }
+]

@@ -8,12 +8,18 @@ from simulation.policy_task_success import DrawerCycleSuccess, EVALUATION_PERIOD
 class PhysicalScorer:
     version='space-arm-physical-score/1'
 
-    def __init__(self, task, final_tool_position, *, hole=None, hole_rotation=None, tip=.095, flange=.025, keyed=False, drawer_spec=None):
+    def __init__(self, task, final_tool_position, *, hole=None, hole_rotation=None, tip=.095, flange=.025, keyed=False, drawer_spec=None, moving_hole=False,
+                 pickup=None, pickup_rotation=None, moving_pickup=False):
         if task not in TASKS:raise ValueError('Unsupported evaluation task')
         self.task=task;self.final=np.array(final_tool_position,dtype=float)
         self.hole=None if hole is None else np.array(hole,dtype=float)
         self.hole_rotation=np.eye(3) if hole_rotation is None else np.array(hole_rotation,dtype=float)
         self.tip,self.flange,self.keyed=tip,flange,keyed
+        self.moving_hole = bool(moving_hole)
+        self.pickup = None if pickup is None else np.array(pickup, dtype=float)
+        self.pickup_rotation = None if pickup_rotation is None else np.array(pickup_rotation, dtype=float)
+        self.moving_pickup = bool(moving_pickup)
+        self.initial_pickup_clearance = None
         self.drawer_monitor=None
         self.drawer_state={}
         if task=='drawer_cycle':
@@ -24,11 +30,30 @@ class PhysicalScorer:
                 raise ValueError('Drawer evaluation requires a 200 Hz drawer_spec')
             if self.drawer_monitor.mode!='benchmark':
                 raise ValueError('Drawer evaluation requires benchmark task criteria, not calibrated expert-pose checks')
-        if task!='drawer_cycle' and (self.hole is None or self.hole.shape!=(3,)):raise ValueError('Plug scorer requires its fixed interface pose')
+        if task!='drawer_cycle':
+            self._validate_pose(self.hole, self.hole_rotation, 'interface')
+            if (self.pickup is None) != (self.pickup_rotation is None):
+                raise ValueError('Plug scorer requires both pickup position and rotation')
+            if self.pickup is None:
+                # Preserve old fixed horizontal recordings exactly. A moving or
+                # rotated donor cannot be reconstructed from the receiver alone.
+                if self.moving_pickup or self.moving_hole or not np.allclose(self.hole_rotation[:, 2], [0., 0., 1.]):
+                    raise ValueError('Non-horizontal or moving interfaces require an explicit pickup pose')
+            else:
+                self._validate_pose(self.pickup, self.pickup_rotation, 'pickup')
+                self.version='space-arm-physical-score/3'
         self.initial=None;self.last=None;self.hold=None;self.overload=None
         self.milestones=[False]*3;self.success=False;self.error=None;self.safety_failure=None
         self.max_force=0.;self.max_torque=0.;self.samples=0;self.final_metrics={}
         self.tracking_sum=0.;self.tracking_count=0;self.peak_displacement=0.
+
+    @staticmethod
+    def _validate_pose(position, rotation, label):
+        if (position is None or position.shape != (3,) or rotation.shape != (3, 3)
+                or not np.isfinite(position).all() or not np.isfinite(rotation).all()
+                or not np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-5)
+                or not np.isclose(np.linalg.det(rotation), 1., atol=1e-5)):
+            raise ValueError(f'Invalid {label} pose')
 
     def update(self, row):
         try:
@@ -42,7 +67,7 @@ class PhysicalScorer:
             if self.last is None and t>.000001:raise ValueError('Missing initial evidence')
             force=float(np.linalg.norm(wrench[:3]));torque=float(np.linalg.norm(wrench[3:]))
             self.max_force=max(self.max_force,force);self.max_torque=max(self.max_torque,torque)
-            limit=(80.,8.,.1) if self.task=='drawer_cycle' else (40.,4.,.15)
+            limit=(40.,4.,.1) if self.task=='drawer_cycle' else (40.,4.,.15)
             if force>limit[0] or torque>limit[1]:
                 if self.overload is None:self.overload=t
                 if t-self.overload>=limit[2]-1e-9:self.safety_failure='wrist_overload'
@@ -62,6 +87,9 @@ class PhysicalScorer:
                             gripper_drive_position_rad=float(q[6]),finger_drawer_contacts=row['contacts'],
                             end_effector_position_body_m=p.tolist(),end_effector_rotation_body=row.get('tool_rotation'),
                             arm_joint_velocity_rad_s=None if velocity is None else velocity[:6].tolist())
+                if self.drawer_monitor.moving_mount:
+                    sample.update(drawer_origin_body_m=row['drawer_origin_body_m'],
+                                  drawer_rotation_body=row['drawer_rotation_body'])
                 if self.samples==0:self.drawer_monitor.reset(sample)
                 self.drawer_state=self.drawer_monitor.update(sample)
                 if not self.drawer_state['success_available']:
@@ -72,22 +100,39 @@ class PhysicalScorer:
                 self.final_metrics=dict(drawer_displacement_m=float(row['drawer_m']-self.initial['drawer_m']),
                                         buckle_error_rad=float(row['buckle_rad']-self.initial['buckle_rad']))
             else:
+                if self.moving_hole:
+                    self.hole = np.asarray(row['hole_position_m'], dtype=float)
+                    self.hole_rotation = np.asarray(row['hole_rotation'], dtype=float)
+                    self._validate_pose(self.hole, self.hole_rotation, 'measured interface')
+                if self.moving_pickup:
+                    self.pickup = np.asarray(row['pickup_position_m'], dtype=float)
+                    self.pickup_rotation = np.asarray(row['pickup_rotation'], dtype=float)
+                    self._validate_pose(self.pickup, self.pickup_rotation, 'measured pickup')
                 pos=np.asarray(row['plug_position_m'],dtype=float);rot=np.asarray(row['plug_rotation'],dtype=float)
                 vel=np.asarray(row['plug_velocity_m_s'],dtype=float);omega=np.asarray(row['plug_angular_velocity_rad_s'],dtype=float)
                 if pos.shape!=(3,) or rot.shape!=(3,3) or vel.shape!=(3,) or omega.shape!=(3,) or not all(np.isfinite(a).all() for a in [pos,rot,vel,omega]):raise ValueError('Invalid plug state')
                 if not np.allclose(rot@rot.T,np.eye(3),atol=1e-5) or not np.isclose(np.linalg.det(rot),1,atol=1e-5):raise ValueError('Invalid plug rotation')
                 axis=rot[:,2];tip=pos+axis*self.tip;flange=pos+axis*self.flange
-                if abs(axis[2])<1e-9:radial=1e9
-                else:radial=float(np.linalg.norm((tip+axis*((self.hole[2]-tip[2])/axis[2])-self.hole)[:2]))
-                angle=float(np.arccos(np.clip(-axis[2],-1,1)));depth=float(self.hole[2]-tip[2]);gap=float(flange[2]-self.hole[2])
+                normal = self.hole_rotation[:, 2]
+                axial = float(axis @ normal)
+                if abs(axial)<1e-9:radial=1e9
+                else:radial=float(np.linalg.norm(tip+axis*((self.hole-tip) @ normal/axial)-self.hole))
+                angle=float(np.arccos(np.clip(-axial,-1,1)));depth=float((self.hole-tip) @ normal);gap=float((flange-self.hole) @ normal)
                 expected=self.hole_rotation@np.diag([1.,-1.,-1.])
                 orient=float(np.arccos(np.clip((np.trace(expected@rot.T)-1)/2,-1,1)))
-                lift=float(pos[2]-np.array(self.initial['plug_position_m'])[2]);self.peak_displacement=max(self.peak_displacement,lift)
+                if self.pickup is None:
+                    lift=float(pos[2]-np.array(self.initial['plug_position_m'])[2])
+                else:
+                    clearance=float((pos-self.pickup) @ self.pickup_rotation[:, 2])
+                    if self.initial_pickup_clearance is None:self.initial_pickup_clearance=clearance
+                    lift=clearance-self.initial_pickup_clearance
+                self.peak_displacement=max(self.peak_displacement,lift)
                 seated=radial<.0004 and angle<.01 and depth>self.tip-self.flange-.002 and abs(gap)<.001 and (not self.keyed or orient<.01)
                 if lift>=.04 and np.all(contacts>0):self.milestones[0]=True
                 if self.milestones[0] and seated:self.milestones[1]=True
                 if self.milestones[1] and seated and q[6]>=.62 and np.all(contacts==0):self.milestones[2]=True
-                ready=self.milestones[2] and seated and q[6]>=.62 and np.all(contacts==0) and np.linalg.norm(vel)<.002 and np.linalg.norm(omega)<.03 and np.linalg.norm(p[:2]-self.hole[:2])>=.09
+                retreat=float(np.linalg.norm(self.hole_rotation[:, :2].T @ (p-self.hole)))
+                ready=self.milestones[2] and seated and q[6]>=.62 and np.all(contacts==0) and np.linalg.norm(vel)<.002 and np.linalg.norm(omega)<.03 and retreat>=.09
                 self.final_metrics=dict(radial_error_m=radial,axis_error_rad=angle,orientation_error_rad=orient,insertion_depth_m=depth,seat_gap_m=gap)
             if self.task!='drawer_cycle':
                 if ready:

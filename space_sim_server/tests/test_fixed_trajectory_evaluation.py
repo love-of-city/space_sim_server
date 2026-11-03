@@ -14,6 +14,18 @@ def document():
                          dict(time_s=1.,joint_reference=[.1]*6+[.7,-.7],joint_reference_velocity=[0.]*8,position_m=[.1,0.,0.],rotation=np.eye(3).tolist())])
 
 
+def test_legacy_replay_accepts_only_disabled_new_scene_options():
+    from simulation.evaluation.replay import same_task_configuration
+    frozen = dict(force_limit_n=40., torque_limit_nm=4.)
+    current = dict(frozen, transport_clearance_m=None, part_velocity_damping=None,
+                   transfer_offset_xy_m=[0., 0.])
+    assert same_task_configuration(frozen, current)
+    assert len(current) == 5 and len(frozen) == 2
+    for change in [dict(part_velocity_damping=2.), dict(transfer_offset_xy_m=[.1, 0.]),
+                   dict(transport_clearance_m=.16), dict(force_limit_n=80.)]:
+        assert not same_task_configuration(frozen, dict(current, **change))
+
+
 def row(t, **kw):
     return dict(time_s=t,tool_position_m=[0.,0.,.2],joint_position=[0.]*6+[1.,-1.],
                 wrench=[0.]*6,wrench_valid=True,contacts=[0,0],drawer_m=0.,

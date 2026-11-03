@@ -188,6 +188,53 @@ def test_api_defaults_to_team_models_and_rejects_unknown_scenario():
         RendezvousStart(scenario="arbitrary-command")
 
 
+def test_live_flight_uses_catalog_from_configured_runtime_adapter(tmp_path, monkeypatch):
+    entry=tmp_path/'team/simulation/orbital_rendezvous/run.py'
+    entry.parent.mkdir(parents=True)
+    entry.write_text('')
+    adapter=tmp_path/'external-runtime'
+    catalog=adapter/'Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_platform.catalog.json'
+    catalog.parent.mkdir(parents=True)
+    catalog.write_text('{}')
+    monkeypatch.delenv('SPACE_SIM_TEAM_CATALOG',raising=False)
+    launched=[]
+    class Process:
+        pid=42
+        def __init__(self, command, **kwargs): launched.append(command)
+        def poll(self): return None
+        def terminate(self): pass
+        def wait(self, **kwargs): return 0
+    monkeypatch.setattr('space_arm_platform.rendezvous_runtime.subprocess.Popen',Process)
+    runtime=RendezvousRuntime(None,Path(sys.executable),28768,tmp_path/'logs',tmp_path/'team',
+        launch_config=SimpleNamespace(runtime_adapter_root=adapter))
+    monkeypatch.setattr(runtime,'_ensure_renderer',lambda:None)
+    assert runtime.start(live=True,scenario='team-in-orbit')['running']
+    command=launched[0]
+    assert command[command.index('--catalog')+1]==str(catalog)
+    runtime.close()
+
+
+@pytest.mark.parametrize('foreign',[False,True])
+def test_renderer_ownership_uses_resolved_project_paths(tmp_path, monkeypatch, foreign):
+    import psutil
+    project=tmp_path/'Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject'
+    saved=project.parent/'Saved'
+    saved.mkdir(parents=True)
+    project.write_text('{}')
+    (saved/'BskRenderer.pid').write_text('42')
+    alias=project.parent/'../BskUnrealRenderer'/('Foreign.uproject' if foreign else project.name)
+    process=SimpleNamespace(pid=42,cmdline=lambda:['UnrealEditor',str(alias),'-game'],create_time=lambda:7.0)
+    monkeypatch.setattr(psutil,'Process',lambda pid:process)
+    runtime=RendezvousRuntime(None,Path(sys.executable),28768,tmp_path/'logs',tmp_path)
+    if foreign:
+        with pytest.raises(RuntimeError,match='不属于'):
+            runtime._remember_renderer(tmp_path,require_listening=False)
+        assert runtime._renderer_identity is None
+    else:
+        runtime._remember_renderer(tmp_path,require_listening=False)
+        assert runtime._renderer_identity==(42,7.0)
+
+
 def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tmp_path, monkeypatch):
     scripts = tmp_path / "scripts"
     scripts.mkdir()

@@ -91,7 +91,7 @@ class DrawerCycleConfig(DrawerLiftConfig):
 
 class DrawerCycleTask(DrawerLiftTask):
     name = "drawer_cycle"
-    version = "drawer-cycle/5"
+    version = "drawer-cycle/6-straight-approach"
     legacy_stages = DrawerLiftTask.stages + ("return", "seat", "release", "retract", "verify")
     v4_stages = tuple(stage for stage in legacy_stages if stage != "align")
     stages = ("settle", "approach", "grip", "lift", "return", "release", "retract", "verify")
@@ -99,7 +99,7 @@ class DrawerCycleTask(DrawerLiftTask):
 
     @classmethod
     def recorded_stages(cls, version):
-        if version == cls.version:
+        if version in (cls.version, "drawer-cycle/5"):
             return cls.stages
         if version == "drawer-cycle/4":
             return cls.v4_stages
@@ -121,7 +121,7 @@ class DrawerCycleTask(DrawerLiftTask):
     def _stage_goal(self, name, p, r):
         if name == "approach":
             return self.grasp.copy(), self.grasp_rotation
-        if name == "raise" and p[2] >= self.hover[2] - 1e-9:
+        if name == "raise" and float((p-self.hover) @ self.axis) >= -1e-9:
             # Already at safe height: there is no trajectory to time.
             return None, r
         if name == "above_drawer":
@@ -141,13 +141,43 @@ class DrawerCycleTask(DrawerLiftTask):
     def _enter(self, name, sample):
         continuing_open = self.stage == "release" and name == "retract"
         previous_gripper = self._gripper_timing, self._gripper_motion_s
+        if name == 'retract':self._retract_gripper_entry_s = self._gripper_motion_s
         if name == "settle":
             self.initial_buckle_rad = sample.buckle_rad
         if name == "return":
             self.open_verified = True
         if name == "release":
             self.closed_verified = True
-        super()._enter(name, sample)
+        error=None
+        try:
+            super()._enter(name, sample)
+        except ValueError as exc:
+            if not self.environment_planning or name not in ("approach","retract"):raise
+            error=str(exc)
+        if self.environment_planning and name in ("approach","retract"):
+            from .environment_motion import plan
+            if name=='retract' and sample.native_qpos is not None and error is None and self._timing is not None:
+                from .drawer_initialization import NativePoseProbe
+                probe=NativePoseProbe(self.model_path,clearance_m=.002)
+                try:
+                    probe.use_measured_qpos(sample.native_qpos,sample.joints)
+                    candidate=self.path_reference(1.)
+                    # Verify any opening remaining after the arm stops too.
+                    for opening in np.linspace(candidate[6],1.,33):
+                        candidate[6:]=[opening,-opening]
+                        hit=probe.pose_collision(candidate,'free_motion',arm_penetration_m=0.,clearance_m=.002)
+                        if hit:
+                            error='retract_endpoint_opening_blocked: '+str(hit)
+                            break
+                finally:probe.close()
+            # A failed template still has the intended goal set by the base.
+            self._timeout=max(20.,2.5*self._duration+10.)
+            plan(self,sample,self._goal,self._rotation,self.axis if name=="approach" else -self.axis,
+                 error=error,opening=1.,clearance=self.config.approach_clearance_m,
+                 path_reference=self.path_reference)
+        if self.environment_planning and sample.native_qpos is not None and name in ("lift", "return"):
+            from .operation_clearance import check_operation
+            check_operation(self, sample)
         if name == "raise" and self._path is None:
             # Skip only the empty trajectory, not the measured pose check.
             self._goal, self._rotation = self.chain.forward(self.reference[:6])
@@ -195,10 +225,18 @@ class DrawerCycleTask(DrawerLiftTask):
         linear, angular, _ = self._approach_profile.derivative_bounds()
         return self._solve_path(self._approach_profile.pose, count=161), linear[0], angular[0]
 
+    def path_reference(self, progress):
+        q=self._timing.path.at(progress)
+        if len(q)==7:return np.r_[q[:6],q[6],-q[6]]
+        opening=self._approach_profile.opening(progress) if self.stage=="approach" else float(self.reference[6])
+        if self.stage == "retract" and self._gripper_timing is not None:
+            elapsed = self._retract_gripper_entry_s + self._timing.seconds_at(progress)
+            opening = self._gripper_timing.joint_state(elapsed)[0][0]
+        return np.r_[q,opening,-opening]
+
     def approach_reference(self, progress):
         """Same arm and finger configuration used by execution and collision preflight."""
-        opening = self._approach_profile.opening(progress)
-        return np.r_[self._timing.path.at(progress), opening, -opening]
+        return self.path_reference(progress)
 
     def _time_path(self, name, distance, angle):
         cfg = self.config
@@ -212,9 +250,6 @@ class DrawerCycleTask(DrawerLiftTask):
         elif name == "seat":
             speed = min(speed, cfg.seating_speed_m_s)
         slow_distance = cfg.slow_distance_m if slow_speed is not None else 0.0
-        if name == "approach":
-            # Progress has an exact axial distance scale even on the curved section.
-            slow_distance *= distance / self._approach_profile.height
         timing = time_joint_path(
             self._path,
             distance,
@@ -243,10 +278,15 @@ class DrawerCycleTask(DrawerLiftTask):
         return timing
 
     def _step_gripper(self, target, dt):
-        if self.stage == "approach":
+        if self._timing is not None and self._timing.path.coefficients.shape[-1]==7:
+            self.reference[6]=self._timing.path.at(self._timing.at(self._motion_s))[6]
+        elif self.stage == "approach":
             self.reference[6] = self._approach_profile.opening(self._timing.at(self._motion_s))
         elif self._gripper_timing is None:
             self.reference[6] = target
+        elif self.stage=='retract' and self.environment_planning:
+            self._gripper_motion_s=min(self._retract_gripper_entry_s+self._motion_s,self._gripper_timing.duration)
+            self.reference[6]=self._gripper_timing.joint_state(self._gripper_motion_s)[0][0]
         else:
             self._gripper_motion_s = min(
                 self._gripper_motion_s + dt, self._gripper_timing.duration
@@ -268,10 +308,12 @@ class DrawerCycleTask(DrawerLiftTask):
         if self.stage == "settle":
             return self.config.initial_settle_s
         if self.stage == "grip":
-            return self.config.grip_confirm_s
+            return max(self.config.grip_confirm_s,1.)+.05
         if self.stage == "return":
-            return self.config.seat_confirm_s
-        if self.stage in ("approach", "raise", "above_drawer", "descend", "lift", "release", "retract"):
+            return max(self.config.seat_confirm_s,self.config.verify_hold_s)+.05
+        if self.stage == 'lift':
+            return self.config.hold_s+.05
+        if self.stage in ("approach", "raise", "above_drawer", "descend", "release", "retract"):
             return self.config.transit_confirm_s
         if self.stage == "seat":
             return self.config.verify_hold_s

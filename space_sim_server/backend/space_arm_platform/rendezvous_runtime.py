@@ -250,12 +250,14 @@ class RendezvousRuntime:
             raise RuntimeError("Team flight entry point is unavailable")
         catalog = None
         if scenario != "legacy":
+            adapter_root = (getattr(self.launch_config, 'runtime_adapter_root', None)
+                            or self.team_repository.parent / 'space_sim_UE_Adapter')
             catalog = Path(
                 os.environ.get(
                     "SPACE_SIM_TEAM_CATALOG",
                     str(
-                        self.team_repository.parent
-                        / "space_sim_UE_Adapter/Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_platform.catalog.json"
+                        adapter_root
+                        / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_platform.catalog.json"
                     ),
                 )
             )
@@ -405,9 +407,10 @@ class RendezvousRuntime:
         pid_file = adapter / "Unreal/BskUnrealRenderer/Saved/BskRenderer.pid"
         try:
             process = psutil.Process(int(pid_file.read_text().strip()))
-            project = str((adapter / "Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject").resolve()).replace("\\", "/").lower()
-            command = " ".join(process.cmdline()).replace("\\", "/").lower()
-            if project not in command:
+            project = (adapter / "Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject").resolve()
+            command_projects = [Path(argument.strip('"')).resolve() for argument in process.cmdline()
+                                if argument.strip('"').lower().endswith('.uproject')]
+            if project not in command_projects:
                 raise RuntimeError("渲染端口的进程不属于本平台工作区")
             if require_listening:
                 owners = {connection.pid for connection in psutil.net_connections(kind="tcp")

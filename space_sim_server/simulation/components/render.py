@@ -17,7 +17,7 @@ class RenderComponent:
                  capture_state_provider: Any,
                  sunlight_intensity_scale: float = 1.0,
                  camera_display_names: dict[str, str] | None = None,
-                 visual_attachments: list[dict[str, str]] | None = None,
+                 visual_attachments: list[dict[str, Any]] | None = None,
                  vision_capture: dict | None = None,
                  wrist_camera_mode: str = "rgb",
                  overview_camera: dict | None = None) -> None:
@@ -43,12 +43,11 @@ class RenderComponent:
 
         from simulation.teleop_grasp_unreal import _register_celestial_bodies
         from pathlib import Path
-        from simulation.stereo_cameras import load_stereo_setup, register_stereo_cameras, configure_wrist_capture
+        from simulation.stereo_cameras import load_stereo_setup, register_stereo_cameras, configure_wrist_capture, vision_trigger_ids
 
         stereo = load_stereo_setup(Path(__file__).resolve().parents[2], self.vision_capture)
         wrist_enabled=bool(self.vision_capture and self.vision_capture.get('wrist_alignment_enabled') and ctx.extra.get('template_id')=='sarm-dual-capture26')
-        vision_ids=list(stereo['camera_ids'].values()) if stereo else []
-        if wrist_enabled:vision_ids.append('teleop/camera/capture_wrist_cam_alignment')
+        vision_ids=vision_trigger_ids(stereo, wrist_enabled, self.vision_capture)
 
         bridge = BasiliskRenderBridge(
             reliable_frames=False,
@@ -82,10 +81,14 @@ class RenderComponent:
             from pathlib import Path
             from simulation.visual_attachments import attach_visual_geometries
 
+            contracts = []
             count = attach_visual_geometries(bridge._objects, self.visual_attachments,
-                                            Path(__file__).resolve().parents[2])
+                                            Path(__file__).resolve().parents[2],
+                                            model_path=self.model_path, contracts=contracts)
             print(json.dumps({'type': 'visual_attachments_configuration',
                               'geometry_count': count, 'attachments': self.visual_attachments,
+                              'resolved_contracts': contracts,
+                              'fiducial_calibration_valid': (self.vision_capture or {}).get('fiducial_calibration_valid', True),
                               'scope': 'rendering_only'}), flush=True)
 
         for camera in bridge._cameras:
@@ -121,6 +124,11 @@ class RenderComponent:
                 if body.object_id in {'teleop/rw_x', 'teleop/rw_y', 'teleop/rw_z'}:
                     body.geometries = []
             # Preview work lights are attached to optical components in UE.
+        # Persist the final platform camera contract, after its normal overrides.
+        import json
+        print(json.dumps({'type': 'platform_camera_configuration',
+                          'model': str(self.model_path),
+                          'cameras': [camera.to_payload() for camera in bridge._cameras]}), flush=True)
         celestial = ctx.extra.get("celestial")
         if celestial is not None:
             _register_celestial_bodies(bridge, *celestial)

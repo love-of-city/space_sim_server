@@ -13,6 +13,7 @@ class PlugProfile:
     flange_m: float = 0.025
     keyed: bool = False
     feedback_extraction: bool = False
+    seat_clearance_m: float = .00025
 
     @property
     def target_site(self):
@@ -40,6 +41,8 @@ PLUG_PROFILES = {
         "aviation",
         0.080,
         keyed=True,
+        feedback_extraction=True,
+        seat_clearance_m=.00075,
     ),
     "guide_plug_insert": PlugProfile(
         "guide_plug_insert",
@@ -48,6 +51,7 @@ PLUG_PROFILES = {
         "guide",
         keyed=True,
         feedback_extraction=True,
+        seat_clearance_m=.00075,
     ),
     "cylindrical_plug_insert": PlugProfile(
         "cylindrical_plug_insert",

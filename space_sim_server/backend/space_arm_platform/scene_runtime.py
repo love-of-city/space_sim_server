@@ -384,6 +384,13 @@ class SceneRuntimeManager:
                 # A missing optional template must not break the whole catalog.
                 item["initial_arm_error"] = str(error)
             templates.append(item)
+        from .imported_scene_library import entries
+        for entry in entries(self.project_root):
+            base = next(item for item in templates if item['id'] == entry['base_template_id'])
+            templates.append({**base, 'id': entry['id'], 'label': entry['label'],
+                              'description': entry['description'], 'library_scene': True,
+                              'library_kind': entry['kind'],
+                              'default_randomization_profile': ZERO_START_TELEOP_PROFILE})
         return {
             "templates": templates,
             "initial_arm_presets_deg": {
@@ -408,6 +415,20 @@ class SceneRuntimeManager:
         }
 
     def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
+        from .imported_scene_library import lookup, verified_source, apply_instance
+        imported = lookup(self.project_root, request.template_id)
+        if imported:
+            if imported['kind'] != 'operation':
+                raise ValueError('The imported rendezvous scene uses the platform flight executor')
+            source = verified_source(imported)
+            initial = source['initial_scene']
+            request = request.model_copy(update={
+                'template_id': imported['base_template_id'],
+                'randomization_profile': ZERO_START_TELEOP_PROFILE,
+                'seed': initial.get('seed', 42), 'initial_arm_joint_position_deg': None,
+                'operating_arm_joint_position_deg': [math.degrees(v) for v in initial['randomization']['arm_joint_position_rad'][:6]],
+                'randomize_orbit_phase': False, 'randomize_overview_camera': False,
+            })
         if request.template_id not in {item["id"] for item in SCENE_TEMPLATES}:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:
@@ -481,6 +502,8 @@ class SceneRuntimeManager:
             instance["rendezvous_handoff"] = handoff
             instance["randomization"]["arm_joint_position_rad"] = [0.0] * 8
             instance["arm_preparation_required"] = False
+        if imported:
+            apply_instance(instance, imported)
         path = self.scene_root / f"{instance['instance_id']}.json"
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -521,7 +544,7 @@ class SceneRuntimeManager:
                 "-PixelStreamingId", self.launch.pixel_streaming_id,
                 "-PixelStreamingCameraIds", ",".join(dict.fromkeys([
                     *self.launch.pixel_streaming_camera_ids,
-                    *SCENE_RENDER_PROFILES.get(request.template_id, {}).get('camera_ids', []),
+                    *SCENE_RENDER_PROFILES.get(instance['template_id'], {}).get('camera_ids', []),
                 ])),
                 "-PixelStreamingCameraWidth", str(self.launch.pixel_streaming_camera_width),
                 "-PixelStreamingCameraHeight", str(self.launch.pixel_streaming_camera_height),

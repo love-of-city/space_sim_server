@@ -142,6 +142,7 @@
             <select id="sceneTemplate" aria-describedby="sceneCollisionWarning"><option value="sarm-ground-validation-self-collision-grasp">SARM + 地面验证星（粗碰撞体·内部碰撞）</option></select>
           </label>
           <small id="sceneCollisionWarning">默认粗碰撞体版已启用目标内部碰撞；铰链附近采用近似间隙，接触角度不代表真实限位。旧粗盒版不计算目标内部碰撞；高精度三角网格版仅供实验，运行速度显著低于实时。</small>
+          <label id="sceneTaskProfileLabel" hidden>任务 / 初始化配置<select id="sceneTaskProfile"></select><small>加载该任务保存的模型布局和初始姿态，沿用系统原有相机。</small></label>
           <p id="teleopSettingsNote" class="mission-note">以下初始配置用于从末端操作开始。</p>
           <fieldset id="teleopSettings" class="scene-form" disabled>
           <legend>末端操作初始参数</legend>

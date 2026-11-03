@@ -17,6 +17,24 @@ from simulation.independent_task_box_layout import (
 from simulation.task_box_layout import validated_capture_layout
 
 
+def test_native_candidate_contract_keeps_physical_checks_and_cannot_enter_capture():
+    from simulation.independent_task_box_layout import NATIVE_CANDIDATE_SCHEMA, validate_layout_record
+    footprints={name:[[.01,.01],[.02,.02]] for name in MODULES}
+    offsets,_=sample_placements(footprints,20261029)
+    anchors={name:[.015,.015,.005] for name in MODULES}
+    record=dict(schema=NATIVE_CANDIDATE_SCHEMA,initial_states_randomized=False,
+        orientations_randomized=False,offsets_body_xy_m=offsets,
+        original_footprints_body_xy_m=footprints,fixed_obstacles_body_xy_m=[],
+        deck_edge_margin_m=.005,minimum_module_gap_m=.008,
+        modules={name:dict(original_anchor_body_m=anchors[name]) for name in MODULES},
+        feasibility=dict(method='native-3d-trajectory',status='pending'))
+    with pytest.raises(ValueError,match='pending native'):validate_layout_record(record)
+    validate_layout_record(record,allow_native_candidate=True)
+    broken=copy.deepcopy(record)
+    broken['offsets_body_xy_m']['guide_pickup']=offsets['aviation_pickup']
+    with pytest.raises(ValueError):validate_layout_record(broken,allow_native_candidate=True)
+
+
 @pytest.fixture
 def deck():
     # Conservative sizes of the delivered split plates and swept mechanisms.

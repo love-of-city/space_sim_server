@@ -14,6 +14,15 @@ def scorer():
     m=monitor()
     return PhysicalScorer('drawer_cycle',[0,0,0],drawer_spec=m.specification())
 
+
+def test_drawer_independent_score_also_enforces_40N_4Nm():
+    s=scorer()
+    for i,sample in enumerate(cycle()):
+        sample['wrench']=[45.,0.,0.,0.,0.,0.]
+        s.update(sample)
+        if i>=30:break
+    assert s.safety_failure=='wrist_overload'
+
 def cycle(period_ns=EVALUATION_PERIOD_NS,open_s=2.2):
     m=monitor();end_open=1.1+open_s;end_seat=end_open+2.2;end_release=end_seat+.1;end=end_release+2.2
     for stamp in range(0,round(end*1e9)+1,period_ns):

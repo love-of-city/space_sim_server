@@ -170,7 +170,13 @@ def test_saved_v6_records_replay_all_five_original_calibrations(tmp_path):
     assert {r["preset_id"] for r in saved} == set(PRESETS)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     for record in saved:
-        assert sample_overview_camera(record["selection_seed"], schema=V6_SCHEMA) == record
+        sampled = sample_overview_camera(record["selection_seed"], schema=V6_SCHEMA)
+        # Trigonometric recomputation differs by a few ULPs across platforms.
+        # Only that quaternion gets a tolerance; replay below must keep the
+        # original saved calibration exactly, including its floating values.
+        orientation = "orientation_body_from_camera_wxyz"
+        np.testing.assert_allclose(sampled.pop(orientation), record[orientation], atol=1e-14, rtol=0)
+        assert sampled == {key: value for key, value in record.items() if key != orientation}
         scene = manager.create_instance(SceneInstanceCreate(
             template_id="sarm-task-box-20261012", seed=record["selection_seed"],
             randomize_overview_camera=True))

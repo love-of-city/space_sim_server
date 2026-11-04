@@ -87,12 +87,16 @@ def test_stereo_sampling_requires_actual_continuous_frames_after_qualified_dwell
     assert result['passed'] == (damage is None)
 
 
+@pytest.mark.parametrize('kind', ['pointing', 'visual'])
 @pytest.mark.parametrize('damage', [None, 'position', 'velocity', 'missing_sample', 'unqualified',
     'missing_event', 'unpaired_event'])
-def test_realign_release_requires_independent_stationary_five_seconds(tmp_path, damage):
+def test_realign_release_requires_independent_stationary_five_seconds(tmp_path, damage, kind):
     stop = np.array([16., 0., 0.])
     events = [dict(time_s=10.,event='brake_for_target_realign',node='GNSS5p5m',stop_com_m=stop.tolist()),
         dict(time_s=20.,event='resume_after_target_realign',node='GNSS5p5m',dwell=dict(samples=101,dwell_s=5.))]
+    if kind == 'visual':
+        events[0]['event'] = 'brake_for_visual_recovery'
+        events[1]['event'] = 'resume_after_visual_recovery'
     if damage == 'missing_event':
         events = []
     elif damage == 'unpaired_event':
@@ -113,9 +117,32 @@ def test_realign_release_requires_independent_stationary_five_seconds(tmp_path, 
             vs += frame@np.array([.011,0.,0.])
         rows.append(dict(time_s=t,truth_com_position_n_m=[ps.tolist(),pt.tolist()],
             truth_com_velocity_n_m_s=[vs.tolist(),vt.tolist()],
-            guidance=dict(phase='TargetRealignment',vbar=dict(prealigned=not (k == 150 and damage == 'unqualified')))))
+            guidance=dict(phase='VisualRecovery' if kind == 'visual' else 'TargetRealignment',
+                vbar=dict(prealigned=not (k == 150 and damage == 'unqualified'))),
+            visual=dict(ready=True,count=10,exposure_age_s=.2)))
     (tmp_path/'score.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows), encoding='utf-8')
     near=dict(control=dict(approach=dict(epoch_ns=1_000_000_000_000,
         telemetry=dict(target_realignment=dict(events=events)))))
     result = score_alignment_recovery(tmp_path,near)
     assert result['passed'] == (damage is None)
+
+
+@pytest.mark.parametrize('damage', ['stale', 'not_ready', 'too_few', 'late_resume', 'mismatched_event'])
+def test_visual_recovery_audit_rejects_unqualified_images_or_invalid_deadlines(tmp_path, damage):
+    test_realign_release_requires_independent_stationary_five_seconds(tmp_path, None, 'visual')
+    path = tmp_path/'score.jsonl'
+    rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
+    if damage == 'stale':
+        rows[150]['visual']['exposure_age_s'] = .36
+    elif damage == 'not_ready':
+        rows[150]['visual']['ready'] = False
+    elif damage == 'too_few':
+        rows[150]['visual']['count'] = 9
+    path.write_text(''.join(json.dumps(row)+'\n' for row in rows), encoding='utf-8')
+    events = [dict(time_s=10., event='brake_for_visual_recovery', node='GNSS5p5m', stop_com_m=[16.,0.,0.]),
+        dict(time_s=70.1 if damage == 'late_resume' else 20., event='resume_after_target_realign'
+            if damage == 'mismatched_event' else 'resume_after_visual_recovery',
+            node='GNSS5p5m', dwell=dict(samples=101,dwell_s=5.))]
+    near = dict(control=dict(approach=dict(epoch_ns=1_000_000_000_000,
+        telemetry=dict(target_realignment=dict(events=events)))))
+    assert not score_alignment_recovery(tmp_path, near)['passed']

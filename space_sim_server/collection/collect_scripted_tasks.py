@@ -39,6 +39,7 @@ from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_ta
 from simulation.scripted_tasks.floating_assets import FLOATING_TASKS, validate_asset_snapshot
 from simulation.scripted_tasks.floating_capture import FloatingCaptureTask
 from simulation.scripted_tasks.floating_profiles import FLOATING_PROFILES, apply_floating_profile
+from simulation.scripted_tasks.floating_options import add_floating_options, apply_floating_options
 
 
 from space_arm_platform.compact_storage import is_compact, read_chunks, read_observations, read_wrench, wrench_bytes
@@ -504,6 +505,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
     parser.add_argument("--render-port", type=int, default=16558)
     parser.add_argument("--signalling-port", type=int, default=19888)
     add_motion_options(parser)
+    add_floating_options(parser)
     args = parser.parse_args(argv)
     if prepared_scene is not None and (args.count != 1 or args.max_attempts != 1):
         parser.error("a prepared scene requires exactly one attempt")
@@ -533,6 +535,10 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
         if args.task not in FLOATING_TASKS:
             parser.error("--floating-profile requires a floating capture task")
         source = apply_floating_profile(source, args.floating_profile)
+    try:
+        source = apply_floating_options(source, args, prepared=prepared_scene is not None)
+    except ValueError as error:
+        parser.error(str(error))
     selected_layout = source.get("collection_config", {}).get("layout_randomization", {})
     if (source.get("collection_layout_randomization") or source.get("task_box_layout")
             or selected_layout.get("enabled")) and not (args.layout_pool or args.model):

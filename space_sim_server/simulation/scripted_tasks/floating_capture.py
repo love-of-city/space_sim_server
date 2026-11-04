@@ -25,6 +25,7 @@ class FloatingCaptureConfig:
     task: str = "floating_bolt_capture"
     arm_speed_rad_s: float = .35
     linear_speed_m_s: float = .04
+    angular_speed_rad_s: float = .3
     gripper_speed_rad_s: float = .25
     hold_s: float = 3.
     force_limit_n: float = 80.
@@ -37,8 +38,6 @@ class FloatingCaptureConfig:
         for key, value in vars(self).items():
             if key != "task" and (not math.isfinite(value) or value <= 0):
                 raise ValueError(f"{key} must be finite and positive")
-        if self.arm_speed_rad_s > .35 or self.linear_speed_m_s > .04:
-            raise ValueError("Floating capture exceeds configured motion limits")
 
     @property
     def plug_body(self):
@@ -47,7 +46,7 @@ class FloatingCaptureConfig:
 
 
 class FloatingCaptureTask:
-    version = "floating-capture/1"
+    version = "floating-capture/2"
     stages = ("open", "intercept", "grip", "hold")
 
     def __init__(self, model_path, config=None):
@@ -133,7 +132,7 @@ class FloatingCaptureTask:
         translation = speed + 2.5*error
         translation *= min(1., self.config.linear_speed_m_s/max(np.linalg.norm(translation), 1e-12))
         angular = sample.plug_angular_velocity_body_rad_s + 2.*rotation_matrix_to_vector(desired@r.T)
-        angular *= min(1., .3/max(np.linalg.norm(angular), 1e-12))
+        angular *= min(1., self.config.angular_speed_rad_s/max(np.linalg.norm(angular), 1e-12))
         if dt <= 0:
             return
         dq = self.chain.inverse_velocity_ik_pose(
@@ -236,5 +235,13 @@ class FloatingCaptureTask:
         return self.reference.copy(), self.velocity.copy()
 
 
-def create_floating_task(name, model):
-    return FloatingCaptureTask(model, FloatingCaptureConfig(task=name))
+def floating_controller_config(name, scene):
+    options = scene.get("floating_controller", {})
+    allowed = {"linear_speed_m_s", "angular_speed_rad_s", "arm_speed_rad_s"}
+    if set(options) - allowed:
+        raise ValueError("floating_controller accepts only tracking linear, angular and joint speeds")
+    return FloatingCaptureConfig(task=name, **options)
+
+
+def create_floating_task(name, model, scene=None):
+    return FloatingCaptureTask(model, floating_controller_config(name, scene or {}))

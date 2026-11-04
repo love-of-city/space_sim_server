@@ -81,7 +81,7 @@ def test_configuration_and_saved_identity_reject_invalid_inputs(tmp_path):
     with pytest.raises(ValueError, match="does not match"):
         write_model_variant(MODEL, tmp_path/"invalid.xml", scene)
     with pytest.raises(ValueError):
-        FloatingCaptureConfig(arm_speed_rad_s=1.)
+        FloatingCaptureConfig(arm_speed_rad_s=float("inf"))
 
 
 @pytest.mark.parametrize("key,value", [("position_body_m", [1., 2., 3.]),

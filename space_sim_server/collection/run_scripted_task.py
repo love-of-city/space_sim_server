@@ -135,7 +135,7 @@ def run(args):
     if args.linear_speed is not None:
         drawer_options["linear_speed_m_s"] = args.linear_speed
     if args.task in FLOATING_TASKS:
-        task = create_floating_task(args.task, model)
+        task = create_floating_task(args.task, model, scene_instance)
         config = task.config
     elif args.task in THREADED_TASKS:
         options = {}
@@ -235,6 +235,7 @@ def run(args):
                          *([ROOT / "simulation/scripted_tasks/floating_initialization.py",
                             ROOT / "simulation/scripted_tasks/floating_variations.py",
                             ROOT / "simulation/scripted_tasks/floating_profiles.py",
+                            ROOT / "simulation/scripted_tasks/floating_options.py",
                             ROOT / "simulation/scripted_tasks/floating_assets.py"]
                            if args.task in FLOATING_TASKS else []))
         },

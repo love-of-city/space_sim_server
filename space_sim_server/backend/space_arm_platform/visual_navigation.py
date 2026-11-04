@@ -61,6 +61,28 @@ def principal_sigma(matrix):
     return math.sqrt(max(0., float(np.linalg.eigvalsh(matrix)[-1])))
 
 
+def visual_pose_covariance(result, profile):
+    """Use the same per-image uncertainty limit for fusion and readiness.
+
+    A decoded, geometrically valid distant marker may still give an uncertain
+    pose. Such an image must not contract the navigation prior before the
+    readiness gate rejects it. Near23 body Z is not optical camera depth.
+    """
+    if profile not in (FIXED_STEREO_PROFILE, NEAR23_BODY_PROFILE):
+        raise ValueError('unknown visual measurement profile')
+    c = result['pose_covariance']
+    frame = 'service_body' if profile == NEAR23_BODY_PROFILE else 'left_optical'
+    if (c['frame'] != frame or c['rotation_error'] != 'left_multiplicative'
+            or c.get('order') != POSE_ERROR_ORDER):
+        raise ValueError('unsupported pose covariance convention')
+    measured = covariance(c['matrix'], 6)
+    depth_sigma = (float(result['optical_depth_sigma_m'])
+                   if profile == NEAR23_BODY_PROFILE else math.sqrt(measured[2, 2]))
+    if not np.isfinite(depth_sigma) or depth_sigma < 0 or depth_sigma >= .03:
+        raise ValueError('visual measurement uncertainty exceeded')
+    return measured
+
+
 def image_clock(result, now_ns, received_wall_time_ns=None):
     """Physical exposure age; optional wall clocks are diagnostics only."""
     exposure = int(result['sim_time_ns'])
@@ -170,18 +192,10 @@ class VisualReadiness:
                     stereo_quality(result, self.visual_profile)
                 except ValueError as exc:
                     failures.append(str(exc))
-                c = result['pose_covariance']
-                covariance_frame = 'service_body' if self.visual_profile == NEAR23_BODY_PROFILE else 'left_optical'
-                if (c['frame'] != covariance_frame or c['rotation_error'] != 'left_multiplicative'
-                        or c.get('order') != POSE_ERROR_ORDER):
-                    failures.append('unsupported pose covariance convention')
-                measured = covariance(c['matrix'], 6)
-                # After rotating an eye-in-hand observation, service-body Z is
-                # not camera depth. Retain the exported optical depth sigma.
-                depth_sigma = (float(result['optical_depth_sigma_m'])
-                               if self.visual_profile == NEAR23_BODY_PROFILE else math.sqrt(measured[2, 2]))
-                if not np.isfinite(depth_sigma) or depth_sigma < 0 or depth_sigma >= .03:
-                    failures.append('visual measurement uncertainty exceeded')
+                try:
+                    visual_pose_covariance(result, self.visual_profile)
+                except ValueError as exc:
+                    failures.append(str(exc))
             p = covariance(relative_position_covariance, 3)
             covariance(relative_attitude_covariance, 3)
             if principal_sigma(p) >= .04:

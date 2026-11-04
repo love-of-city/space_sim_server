@@ -77,7 +77,10 @@ class VbarApproach:
         self.alignment_wait = None
         self.alignment_stop = None
         self.alignment_recovery_gate = None
+        self.recovery_cause = 'pointing'
         self.alignment_events = []
+        self.recovery_start_position = None
+        self.leg_origin = self.leg_direction = None
         self.platform_hold_gate = DwellGate(timeout_s=P.node_timeout_s)
 
     def fail(self, reason, state):
@@ -107,13 +110,18 @@ class VbarApproach:
         pointing_pause = bool(policy and self.gates['Optical17p4m'].completed_at_s is not None
                               and self.pointing_gate.completed_at_s is None)
         recoverable_pointing = bool(policy and policy.mission_profile == 'near23_vbar_v1')
+        visual_released = self.gates[self.node_ids[self.visual_index]].completed_at_s is not None
+        visual_interrupted = visual_released and not visual_ready
         if (recoverable_pointing and self.pointing_gate.completed_at_s is not None
-                and not prealigned and not capture_active and self.failure_reason is None
+                and (not prealigned or visual_interrupted) and not capture_active and self.failure_reason is None
                 and self.alignment_wait is None):
             self.alignment_wait = now
             self.alignment_stop = StopReference(state)
-            self.alignment_recovery_gate = DwellGate(timeout_s=policy.pointing_timeout_s)
-            self.alignment_events.append(dict(time_s=now, event='brake_for_target_realign',
+            self.recovery_cause = 'visual' if visual_interrupted else 'pointing'
+            timeout = P.visual_timeout_s if visual_interrupted else policy.pointing_timeout_s
+            self.alignment_recovery_gate = DwellGate(timeout_s=timeout)
+            event = 'brake_for_visual_recovery' if visual_interrupted else 'brake_for_target_realign'
+            self.alignment_events.append(dict(time_s=now, event=event,
                 node=node, stop_com_m=self.alignment_stop.endpoint.tolist()))
         if self.boundary_wait is not None:
             recovered = visual_valid if self.boundary_kind == P.vision_boundary_m else visual_ready
@@ -153,7 +161,8 @@ class VbarApproach:
             elapsed = now-self.alignment_wait
             reference, velocity, acceleration = self.alignment_stop.sample(elapsed)
             holding = elapsed >= self.alignment_stop.duration
-            subsegment = 'AlignmentRecoveryHold' if holding else 'AlignmentRecoveryBrake'
+            prefix = 'VisualRecovery' if self.recovery_cause == 'visual' else 'AlignmentRecovery'
+            subsegment = prefix+('Hold' if holding else 'Brake')
             conditions = dict(position=np.linalg.norm(state[:3]-self.alignment_stop.endpoint) < policy.position_tolerance_m,
                 speed=speed < speed_limit, sigma=sigma < sigma_limit, common=common,
                 cooperative_geometry=geometry_ready, target_aligned=prealigned,
@@ -166,12 +175,19 @@ class VbarApproach:
                 # Finish braking and acquire a fresh five-second stable window
                 # before planning a new leg. Original completed nodes remain.
                 self.next_start = reference[0]
+                if self.index == self.offset_index:
+                    # The interrupted offset has a transverse component. Resume
+                    # from this actual stop, with a bounded rest-to-rest 3D leg.
+                    self.recovery_start_position = reference.copy()
                 self.leg = None
-                self.alignment_events.append(dict(time_s=now, event='resume_after_target_realign',
+                event = ('resume_after_visual_recovery' if self.recovery_cause == 'visual'
+                         else 'resume_after_target_realign')
+                self.alignment_events.append(dict(time_s=now, event=event,
                     node=node, dwell=self.alignment_recovery_gate.telemetry(now)))
                 self.alignment_wait = None
-            elif elapsed >= policy.pointing_timeout_s:
-                self.fail('target_realignment_timeout', state)
+            elif elapsed >= self.alignment_recovery_gate.timeout_s:
+                self.fail('visual_recovery_timeout' if self.recovery_cause == 'visual'
+                          else 'target_realignment_timeout', state)
         elif pointing_pause:
             reference = self.targets[1].copy()
             subsegment = 'TargetPointing'
@@ -189,14 +205,27 @@ class VbarApproach:
             if self.leg is None:
                 vmax = (P.cruise_speed_m_s if self.index < 2 else P.offset_speed_m_s
                         if self.index == self.offset_index else P.close_speed_m_s)
-                self.leg = RestLeg(self.next_start, target[0], vmax,
-                                   amax=P.offset_acceleration_m_s2 if self.index == self.offset_index else P.acceleration_m_s2)
+                amax = P.offset_acceleration_m_s2 if self.index == self.offset_index else P.acceleration_m_s2
+                if self.index == self.offset_index and self.recovery_start_position is not None:
+                    self.leg_origin = self.recovery_start_position.copy()
+                    delta = target-self.leg_origin
+                    distance = np.linalg.norm(delta)
+                    self.leg_direction = delta/max(distance, 1e-15)
+                    self.leg = RestLeg(0., distance, vmax, amax=amax)
+                else:
+                    self.leg_origin = self.leg_direction = None
+                    self.leg = RestLeg(self.next_start, target[0], vmax, amax=amax)
                 self.leg_start = now
             elapsed = now-self.leg_start
             progress = self.leg.sample(elapsed)
             reference = np.array([progress[0], 0., 0.])
             velocity[0], acceleration[0] = progress[1:]
-            if self.index == self.offset_index:
+            if self.leg_direction is not None:
+                reference = self.leg_origin+self.leg_direction*progress[0]
+                velocity, acceleration = self.leg_direction*progress[1], self.leg_direction*progress[2]
+                start = self.targets[self.visual_index][0]
+                self.offset_progress = float(np.clip((start-reference[0])/(start-self.offset_end_s), 0., 1.))
+            elif self.index == self.offset_index:
                 reference, velocity, acceleration, self.offset_progress = offset_path(
                     progress, self.targets[self.visual_index][0], self.offset_end_s,
                     self.targets[self.offset_index][1:])
@@ -251,7 +280,7 @@ class VbarApproach:
                 self.fail('transverse_corridor', state)
             if braking_accel <= 0:
                 self.fail('braking_authority_unverified', state)
-            if self.gates[self.node_ids[self.visual_index]].completed_at_s is not None and not visual_ready and not capture_active:
+            if visual_interrupted and not capture_active and not recoverable_pointing:
                 self.fail('visual_readiness_lost_after_release', state)
             if policy:
                 if not common or not np.isfinite(sigma) or not 0 <= sigma < sigma_limit:
@@ -308,6 +337,7 @@ class VbarApproach:
                 mission_profile=policy.mission_profile,
                 target_pointing=self.pointing_gate.telemetry(now),
                 target_realignment=dict(active=self.alignment_wait is not None,
+                    cause=self.recovery_cause,
                     events=list(self.alignment_events),
                     dwell=self.alignment_recovery_gate.telemetry(now) if self.alignment_recovery_gate else None),
                 platform_hold=self.platform_hold_gate.telemetry(now))

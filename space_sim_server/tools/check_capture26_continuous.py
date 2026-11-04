@@ -121,15 +121,21 @@ def score_alignment_recovery(folder, near):
     intervals = []
     pending = None
     valid_events = True
+    starts = {
+        'brake_for_target_realign': ('resume_after_target_realign', 'TargetRealignment', 180.),
+        'brake_for_visual_recovery': ('resume_after_visual_recovery', 'VisualRecovery', 60.),
+    }
     for event in events:
-        if event['event'] == 'brake_for_target_realign' and pending is None:
+        if event['event'] in starts and pending is None:
             pending = event
-        elif event['event'] == 'resume_after_target_realign' and pending is not None:
+        elif pending is not None and event['event'] == starts[pending['event']][0]:
             end = epoch+event['time_s']
             dwell = event['dwell']
+            _, phase, timeout = starts[pending['event']]
             valid_events &= (event['node']==pending['node'] and dwell['samples']>=101 and dwell['dwell_s']>=5.-1e-7
-                and pending['time_s'] < event['time_s'] <= pending['time_s']+180.+1e-7)
-            intervals.append(dict(start_s=epoch+pending['time_s'],end_s=end,reference_com_m=pending['stop_com_m'],
+                and pending['time_s'] < event['time_s'] <= pending['time_s']+timeout+1e-7)
+            intervals.append(dict(start_s=epoch+pending['time_s'],end_s=end,phase=phase,
+                reference_com_m=pending['stop_com_m'],
                 samples=0,first_s=None,last_s=None,continuous=True,qualified=True,max_position_m=0.,max_velocity_m_s=0.))
             pending = None
         else:
@@ -141,8 +147,8 @@ def score_alignment_recovery(folder, near):
         for line in stream:
             row = json.loads(line)
             t, phase = row['time_s'], row['guidance']['phase']
-            if phase == 'TargetRealignment' and previous_phase != phase:
-                observed_starts.append(t)
+            if phase in ('TargetRealignment', 'VisualRecovery') and previous_phase != phase:
+                observed_starts.append((t, phase))
             previous_phase = phase
             for interval in intervals:
                 if not interval['end_s']-5.-1e-7 <= t <= interval['end_s']+1e-7:
@@ -152,6 +158,11 @@ def score_alignment_recovery(folder, near):
                 interval['max_position_m'] = max(interval['max_position_m'],float(np.linalg.norm(state[:3]-interval['reference_com_m'])))
                 interval['max_velocity_m_s'] = max(interval['max_velocity_m_s'],float(np.linalg.norm(state[3:])))
                 interval['qualified'] &= row['guidance']['vbar']['prealigned'] is True
+                if interval['phase'] == 'VisualRecovery':
+                    visual = row.get('visual') or {}
+                    age = visual.get('exposure_age_s')
+                    interval['qualified'] &= (visual.get('ready') is True and visual.get('count', 0) >= 10
+                        and isinstance(age, (int, float)) and 0 <= age <= .35+1e-9)
                 if interval['last_s'] is not None and not 0 < t-interval['last_s'] <= .050001:
                     interval['continuous'] = False
                 if interval['first_s'] is None:
@@ -159,7 +170,8 @@ def score_alignment_recovery(folder, near):
                 interval['last_s'] = t
                 interval['samples'] += 1
     observed = (len(observed_starts)==len(intervals)
-        and all(abs(t-i['start_s'])<1e-7 for t,i in zip(observed_starts,intervals)))
+        and all(abs(t-i['start_s'])<1e-7 and phase==i['phase']
+                for (t,phase),i in zip(observed_starts,intervals)))
     for interval in intervals:
         interval['passed'] = bool(interval['samples']>=101 and interval['last_s']-interval['first_s']>=5.-1e-7
             and interval['continuous'] and interval['qualified'] and interval['max_position_m']<=.05

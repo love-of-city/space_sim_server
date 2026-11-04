@@ -17,6 +17,7 @@ PHASES = {
     'VbarAcquire': 'GNSS入口归线与停稳', 'NearAcquire': 'GNSS入口归线与停稳',
     'TargetPointing': '17.4 m停泊调姿',
     'TargetRealignment': '已制动，重新确认目标稳姿',
+    'VisualRecovery': '已制动，等待双目恢复并连续停稳',
     'GNSSBridge5p5Approach': 'GNSS引导，接近5.5 m停泊点',
     'GNSSBridge5p5Hold': '5.5 m停泊检查',
     'GNSSBridgeNearApproach': '继续沿V-bar接近，尝试识别靶标',

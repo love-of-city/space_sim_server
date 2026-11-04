@@ -135,6 +135,8 @@ class VbarStereoSequence:
             phase = 'SafeHold'
         elif segment.startswith('AlignmentRecovery'):
             phase = 'TargetRealignment'
+        elif segment.startswith('VisualRecovery'):
+            phase = 'VisualRecovery'
         elif self.platform_completed_s is not None:
             phase = 'Complete' if self.with_grasp and grasp_complete else 'Grasp' if self.with_grasp else 'TerminalHold'
         elif self.platform_entered_s is not None:

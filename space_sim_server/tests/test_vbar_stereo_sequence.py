@@ -252,3 +252,105 @@ def test_realign_on_gnss_leg_to_first_image_does_not_require_unavailable_vision(
     assert seq.image_release_s is not None and seq.platform_completed_s is not None
     tick(seq,now,state,grasp_complete=True)
     assert seq.phase=='Complete' and not seq.failure
+
+
+def formal_visual_leg():
+    seq = VbarStereoSequence([50.02, 0., 0.], [17.4, 0., 0.], [5.5, 0., 0.],
+        [1.5, 0., 0.], [.6, .01, 0.], mission_profile='near23_vbar_v1', with_grasp=True)
+    now, state = fly(seq, 'VisualApproach', images=True)
+    for _ in range(200):
+        ref, vel, _ = tick(seq, now, state, prealigned=True,
+            visual_ready=True, visual_stamp_s=now, estimated_tool_center_gripper_m=[0., 0., -.5])
+        state = np.r_[ref, vel]
+        now += .05
+    return seq, now, state
+
+
+def test_formal_visual_interruption_brakes_reacquires_and_resumes_from_full_stop():
+    seq, now, state = formal_visual_leg()
+    completed = {k: g.completed_at_s for k, g in seq.vbar.gates.items()}
+    original = state.copy()
+    ref, vel, _ = tick(seq, now, state, prealigned=True)
+    np.testing.assert_array_equal(state, original)
+    np.testing.assert_allclose(ref, state[:3])
+    np.testing.assert_allclose(vel, state[3:])
+    assert seq.phase == 'VisualRecovery' and not seq.failure
+    stop, start = seq.vbar.alignment_stop, now
+    assert stop.endpoint[0] < state[0]
+    assert stop.endpoint[1] > 0.  # interruption occurs inside the transverse offset
+    state = np.r_[ref, vel]
+    for _ in range(400):
+        now += .05
+        fresh = now-start >= 2.
+        previous_velocity = state[3:].copy()
+        ref, vel, acc = tick(seq, now, state, prealigned=True,
+            visual_ready=fresh, visual_stamp_s=now if fresh else None,
+            estimated_tool_center_gripper_m=[0., 0., -.5])
+        assert np.linalg.norm(acc) <= .005+1e-12
+        assert np.linalg.norm(vel-previous_velocity) <= .005*.05+1e-10
+        state = np.r_[ref, vel]
+        assert not seq.failure
+        if seq.vbar.alignment_wait is None:
+            break
+        assert seq.phase == 'VisualRecovery' and seq.platform_completed_s is None
+    else:
+        raise AssertionError('qualified images and five-second dwell did not release the stop')
+    gate = seq.vbar.alignment_recovery_gate
+    assert gate.dwell_s >= 5.-1e-9 and gate.samples >= 101
+    assert now-start >= max(2., stop.duration)+5.-1e-9
+    assert {k: g.completed_at_s for k, g in seq.vbar.gates.items()} == completed
+    resume, velocity, acceleration = tick(seq, now+.05, state, prealigned=True,
+        visual_ready=True, visual_stamp_s=now+.05, estimated_tool_center_gripper_m=[0., 0., -.5])
+    np.testing.assert_allclose(resume, stop.endpoint, atol=1e-12)
+    np.testing.assert_allclose(velocity, 0., atol=1e-12)
+    np.testing.assert_allclose(acceleration, 0., atol=1e-12)
+    assert seq.phase == 'VisualApproach' and seq.owner == 'vbar'
+    now, state = fly(seq, 'Grasp', images=True, state=state, now=now+.1)
+    assert seq.platform_completed_s-seq.platform_entered_s >= 5.-1e-9
+    tick(seq, now, state, grasp_complete=True)
+    assert seq.phase == 'Complete' and not seq.failure
+
+
+@pytest.mark.parametrize('fault,expected', [
+    ('persistent_images', 'visual_recovery_timeout'),
+    ('navigation', 'navigation_health_lost'),
+    ('braking', 'braking_authority_unverified'),
+    ('boundary', 'optical_braking_margin'),
+])
+def test_visual_recovery_retains_deadline_navigation_and_braking_protection(fault, expected):
+    seq, now, state = formal_visual_leg()
+    kwargs = dict(prealigned=True)
+    if fault == 'navigation':
+        kwargs['inputs_valid'] = False
+    elif fault == 'braking':
+        kwargs['available_acceleration_m_s2'] = 0.
+    elif fault == 'boundary':
+        kwargs['optical_depth_m'] = 1.
+    start = now
+    for _ in range(1300):
+        ref, vel, _ = tick(seq, now, state, **kwargs)
+        state = np.r_[ref, vel]
+        if seq.failure:
+            break
+        assert seq.phase == 'VisualRecovery' and seq.platform_completed_s is None
+        now += .05
+    assert seq.phase == 'SafeHold' and seq.failure == expected
+    if fault == 'persistent_images':
+        assert 60.-1e-9 <= now-start < 60.1
+
+
+def test_repeated_image_loss_resets_recovery_dwell_without_resetting_deadline():
+    seq, now, state = formal_visual_leg()
+    ref, vel, _ = tick(seq, now, state, prealigned=True)
+    state = np.r_[ref, vel]
+    started = seq.vbar.alignment_wait
+    for i in range(240):
+        now += .05
+        fresh = i % 40 != 0  # never sustains the original five-second dwell
+        ref, vel, _ = tick(seq, now, state, prealigned=True,
+            visual_ready=fresh, visual_stamp_s=now if fresh else None)
+        state = np.r_[ref, vel]
+        assert not seq.failure and seq.phase == 'VisualRecovery'
+        assert seq.vbar.alignment_wait == started
+        assert seq.vbar.alignment_recovery_gate.dwell_s < 2.
+        assert seq.platform_completed_s is None

@@ -82,3 +82,10 @@
 配置在 `floating_scene`；实现集中于 `simulation/scripted_tasks/floating_objects.py`，复用资产注册表和释放采样器。各实例有独立 body/freejoint/material。`collection_config.floating_objects` 保存类型、颜色、释放状态与目标 ID；逐帧 `scripted_task.floating_objects` 保存真实状态。有效接触涉及干扰物时任务失败。初始可达性、碰撞和摆放间隔检查会拒绝无法放置的组合；数量上限不代表任意大尺寸资产组合均可摆放。
 
 指令按实际目标生成：`Catch the {color} {object_name}, hold it securely for two seconds, then bring it back above the workbench.`，写入原有 LeRobot task/instruction 通道。
+
+## 私有配置批次与网页分组
+
+`space_sim_server/batch_collect/`整体忽略Git，私有入口与YAML由使用者直接同步；通用采集器仍负责完整验收。
+源scene可携带`collection_batch`，字段为`batch_id/group_id/cell_id/attempt_id/config_sha256`，录制保存至metadata的scene_instance。
+数据页显示该批次与分组，并通过多选框或重复的`collection_batch`查询参数筛选；历史数据继续可见。
+这与网页管理器原有`batch`查询参数分别处理，不将私有批次误当网页采集任务。

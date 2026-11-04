@@ -234,6 +234,7 @@ class Store:
                             created=meta.get("created_wall_time_ns"),
                             source="auto" if "scripted" in (meta.get("tags") or []) or str(meta.get("task", "")).startswith("scripted ") else "manual",
                             owner=meta.get("operator_username") or meta.get("operator", ""),
+                            collection_batch=(meta.get("scene_instance") or {}).get("collection_batch", {}),
                             readable=(path / "steps.jsonl").is_file() or is_compact(path),
                         )
                     )

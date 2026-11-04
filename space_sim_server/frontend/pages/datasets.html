@@ -10,6 +10,7 @@
    <label class="field">结果<select id="outcome-filter"><option value="all">全部结果</option><option value="success">成功</option><option value="failure">失败</option><option value="aborted">已中止</option></select></label>
    <button id="refresh" class="button" type="button">刷新</button>
   </div>
+  <details style="padding:0 18px 16px"><summary>采集批次筛选（可多选）</summary><div id="collection-batches" class="table-controls"></div><button id="clear-batches" class="button text-button" type="button">显示全部批次</button></details>
   <details style="padding:0 18px 16px"><summary>任务与时间筛选</summary><div class="table-controls" style="padding:14px 0 0"><label class="field">任务<select id="task-filter"><option value="all">全部任务</option></select></label><label class="field">开始日期<input id="date-from" type="date"></label><label class="field">结束日期<input id="date-to" type="date"></label></div></details>
   <div class="table-scroll"><table class="platform-table"><thead><tr><th scope="col">任务 / 时间</th><th scope="col">来源 / 用户</th><th scope="col">结果</th><th scope="col">时长 / 帧数</th><th scope="col">操作</th></tr></thead><tbody id="episodes"></tbody></table></div>
   <p id="list-empty" class="empty" hidden>没有匹配的采集记录</p>

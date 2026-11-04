@@ -12,3 +12,6 @@ venv/
 
 # Local verification outputs and helper environments.
 **/.local/
+
+# Personal batch entry and concrete YAML collection recipes; sync directly.
+/space_sim_server/batch_collect/

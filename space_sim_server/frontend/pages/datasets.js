@@ -3,7 +3,7 @@ import {mountView} from '../ui.js';
 import {filterRecords,chartCategory} from './dataset_filters.js';
 export function createDatasetPage(root,{api,navigate}) {
 const $=mountView(root,template);
-let viewGeneration=0,listingRequest=0,batchId='',batchIds=null;
+let viewGeneration=0,listingRequest=0,batchId='',batchIds=null,selectedBatches=[];
 const state = {
   active: false,
   group: "joints",
@@ -91,13 +91,14 @@ function dateLabel(r) {
     ? `${match[1]}.${match[2]}.${match[3]}  ${match[4]}:${match[5]}:${match[6]}`
     : r.id;
 }
-function listUrl(){return '/datasets'+(batchId?'?batch='+encodeURIComponent(batchId):'');}
-function episodeUrl(id){return '/datasets?episode='+encodeURIComponent(id)+(batchId?'&batch='+encodeURIComponent(batchId):'');}
+function datasetUrl(id){const params=new URLSearchParams();if(id)params.set('episode',id);if(batchId)params.set('batch',batchId);for(const b of selectedBatches)params.append('collection_batch',b);return '/datasets'+(params.size?'?'+params:'');}
+function listUrl(){return datasetUrl();}
+function episodeUrl(id){return datasetUrl(id);}
 function showList(){pause();$('list-page').hidden=false;$('workspace').hidden=true;}
 function renderList(){
- const matches=filterRecords(state.list,{query:$('search').value,source:$('source').value,outcome:$('outcome-filter').value,task:$('task-filter').value,from:$('date-from').value,to:$('date-to').value,ids:batchIds});
+ const matches=filterRecords(state.list,{query:$('search').value,source:$('source').value,outcome:$('outcome-filter').value,task:$('task-filter').value,from:$('date-from').value,to:$('date-to').value,ids:batchIds,batches:selectedBatches});
  $('episodes').replaceChildren(...matches.map(record=>{
-  const row=el('tr'),identity=el('td');identity.append(el('strong','',taskName(record)),el('small','',dateLabel(record)),el('small','',record.id));
+  const row=el('tr'),identity=el('td');identity.append(el('strong','',taskName(record)),el('small','',dateLabel(record)),el('small','',record.id));if(record.collection_batch?.batch_id)identity.append(el('small','',record.collection_batch.batch_id+' / '+record.collection_batch.group_id));
   const source=el('td');source.append(el('span','',record.source==='auto'?'自动采集':'手动录制'),el('small','',record.owner||'未记录采集用户'));
   const result=el('td');result.append(el('span','badge '+(record.outcome==='success'?'success':'neutral'),outcomeName(record.outcome)));
   const duration=el('td');duration.append(el('span','',Number.isFinite(record.frames)&&record.fps>0?fmt(record.frames/record.fps,2)+' s':'—'),el('small','',record.frames==null?'帧数未记录':record.frames.toLocaleString()+' 帧'));
@@ -106,11 +107,17 @@ function renderList(){
  }));
  $('episode-count').textContent=matches.length+' / '+state.list.length+' 条记录';$('list-empty').hidden=matches.length>0;
 }
+function renderBatches(){
+ const names=[...new Set([...state.list.map(r=>r.collection_batch?.batch_id).filter(Boolean),...selectedBatches])].sort();
+ $('collection-batches').replaceChildren(...names.map(name=>{const label=el('label','field');const input=el('input');input.type='checkbox';input.checked=selectedBatches.includes(name);input.addEventListener('change',()=>{selectedBatches=input.checked?[...selectedBatches,name]:selectedBatches.filter(b=>b!==name);renderList();});label.append(input,document.createTextNode(name));return label;}));
+}
+$('clear-batches').addEventListener('click',()=>{selectedBatches=[];renderBatches();renderList();});
 async function refresh(){
  const version=viewGeneration,request=++listingRequest;$('refresh').disabled=true;
  try{
   const result=await api('/api/datasets');if(!state.active||version!==viewGeneration||request!==listingRequest)return;
   state.list=result.episodes;
+  renderBatches();
   const selected=$('task-filter').value;
   $('task-filter').replaceChildren(new Option('全部任务','all'),...[...new Set(state.list.map(record=>record.task).filter(Boolean))].map(task=>new Option(taskName({task}),task)));
   if([...$('task-filter').options].some(option=>option.value===selected))$('task-filter').value=selected;
@@ -837,6 +844,7 @@ function clearData(){
 return {
  async activate(params){
   state.active=true;const version=++viewGeneration;notice();
+  selectedBatches=[...new Set(params.getAll('collection_batch'))];
   const requestedBatch=params.get('batch')||'';batchId=requestedBatch;batchIds=null;
   $('batch-scope').hidden=!requestedBatch;$('batch-label').textContent=requestedBatch?'批次：'+requestedBatch:'';
   showList();
@@ -846,6 +854,6 @@ return {
   if(desired){if(state.data?.id===desired){$('list-page').hidden=true;$('workspace').hidden=false;filterCharts();}else await loadEpisode(desired);}
  },
  deactivate(){state.active=false;viewGeneration++;state.request++;pause();},
- reset(){this.deactivate();clearData();state.list=[];batchId='';batchIds=null;state.group='joints';$('search').value='';$('source').value='all';$('outcome-filter').value='all';$('task-filter').replaceChildren(new Option('全部任务','all'));$('date-from').value='';$('date-to').value='';notice();showList();renderList();},
+ reset(){this.deactivate();clearData();state.list=[];batchId='';batchIds=null;selectedBatches=[];state.group='joints';$('search').value='';$('source').value='all';$('outcome-filter').value='all';$('task-filter').replaceChildren(new Option('全部任务','all'));$('date-from').value='';$('date-to').value='';notice();showList();renderList();},
 };
 }

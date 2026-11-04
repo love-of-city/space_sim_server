@@ -4,7 +4,7 @@ export function recordTime(record) {
   return parts ? new Date(+parts[1], +parts[2] - 1, +parts[3], +parts[4], +parts[5], +parts[6]).getTime() : NaN;
 }
 
-export function filterRecords(records, {query = '', source = 'all', outcome = 'all', task = 'all', from = '', to = '', ids = null} = {}) {
+export function filterRecords(records, {query = '', source = 'all', outcome = 'all', task = 'all', from = '', to = '', ids = null, batches = []} = {}) {
   const term = query.trim().toLowerCase();
   const start = from ? new Date(`${from}T00:00:00`).getTime() : -Infinity;
   const end = to ? new Date(`${to}T00:00:00`) : null;
@@ -16,7 +16,8 @@ export function filterRecords(records, {query = '', source = 'all', outcome = 'a
       && (outcome === 'all' || record.outcome === outcome)
       && (task === 'all' || record.task === task)
       && (!from || time >= start) && (!end || time < end.getTime())
-      && (!ids || ids.has(record.id));
+      && (!ids || ids.has(record.id))
+      && (!batches.length || batches.includes(record.collection_batch?.batch_id));
   });
 }
 

@@ -2,10 +2,13 @@
 export function createSceneSession({ state, $, ZERO_START_PROFILE, initialJoints, armPreparation,
   apiRequest, readApiResponse, applySceneRuntime, setMessage, exitOperationMode, updateEpisodeUI,
   clearWristWrench, jointAngles, setOnline, refreshState: refreshOverride,
+  missionPanel, selectedSceneTemplate = () => null, getInitialJointCatalog = () => null,
+  clearSimulationTelemetry = clearWristWrench, updateOperationUI = () => {},
 }) {
   const refresh = refreshOverride || refreshState;
   async function startScene() {
     if (state.sceneTransitionPending) return;
+    if (state.missionMode && state.missionMode !== "teleop") return missionPanel.startFlight();
     let initialAngles;
     let operatingAngles;
     const operatingProfile = [ZERO_START_PROFILE, "teleop-zero-prepare-v2"].includes($("randomizationProfile").value);
@@ -20,7 +23,7 @@ export function createSceneSession({ state, $, ZERO_START_PROFILE, initialJoints
     }
     const seedText = $("sceneSeed").value.trim();
     const request = {
-      template_id: $("sceneTemplate").value,
+      template_id: selectedSceneTemplate()?.id || $("sceneTemplate").value,
       randomization_profile: $("randomizationProfile").value,
       randomize_orbit_phase: $("sceneRandomizeOrbitPhase").checked,
       seed: seedText === "" ? null : Number(seedText),
@@ -44,6 +47,11 @@ export function createSceneSession({ state, $, ZERO_START_PROFILE, initialJoints
       });
       const data = await readApiResponse(response);
       if (!response.ok) throw new Error(data.detail || `无法启动场景（HTTP ${response.status}）`);
+      if (getInitialJointCatalog()?.templates.find(item => item.id === request.template_id)?.library_kind === "rendezvous") {
+        setMessage("场景库交会任务已启动，正在连接系统交会画面");
+        await refresh();
+        return;
+      }
       applySceneRuntime({ ...data, active: true, instance: data });
       armPreparation.armAutoStart?.(data.instance_id);
       setMessage(`已生成场景 ${data.instance_id}，Seed ${data.seed}，正在启动 UE`);
@@ -106,9 +114,11 @@ export function createSceneSession({ state, $, ZERO_START_PROFILE, initialJoints
   async function refreshState() {
     if (state.sceneTransitionPending) return;
     const sequence = ++state.stateRequestSequence;
+    state.stateReadPending = sequence;
     try {
-      const response = await apiRequest("/api/state", { cache: "no-store" });
+      const response = await apiRequest("/api/state", { cache: "no-store", signal: globalThis.AbortSignal?.timeout(10000) });
       const data = await response.json();
+      if (response.ok === false) throw new Error(data.detail || "无法读取任务状态");
       if (sequence !== state.stateRequestSequence) return;
       if (!response.ok) throw new Error(`state ${response.status}`);
       if (state.activePage !== 'operate') {
@@ -116,15 +126,25 @@ export function createSceneSession({ state, $, ZERO_START_PROFILE, initialJoints
         $('backendState').textContent = '平台已连接';
       }
       state.simulationConnected = data.simulation.connected;
+      state.observationSceneId = data.simulation.latest_observation?.scene_instance_id || null;
       state.simulationResetting = data.simulation.resetting === true;
       state.resetSupported = data.simulation.reset_supported === true;
       setOnline("simDot", data.simulation.connected);
       $("simState").textContent = data.simulation.connected ? "仿真在线" : "仿真未连接";
       state.activeEpisode = data.active_episode;
       $("episodePath").textContent = data.episode_directory || "—";
-      applySceneRuntime(data.scene_runtime || {});
+      applySceneRuntime(data.scene_runtime || {}, data.mission);
+      if (data.mission) {
+        setOnline("backendDot", true);
+        $("backendState").textContent = "后端在线";
+        missionPanel.render(data.mission);
+        const flightOnline = data.mission.stage === "flight" && data.mission.telemetry?.connected;
+        setOnline("simDot", data.simulation.connected || flightOnline);
+        $("simState").textContent = flightOnline ? "交会仿真在线" : data.simulation.connected ? "仿真在线" : "仿真未连接";
+        updateOperationUI();
+      }
       if (!state.simulationConnected || state.simulationResetting || !state.sceneReady) {
-        clearWristWrench();
+        clearSimulationTelemetry(data.mission);
         jointAngles.clear(state.simulationResetting ? "场景重置中" : "等待运行场景的遥测");
       }
       if (data.simulation.reset_error) setMessage(data.simulation.reset_error);
@@ -135,8 +155,13 @@ export function createSceneSession({ state, $, ZERO_START_PROFILE, initialJoints
       }
     } catch (_) {
       if (sequence !== state.stateRequestSequence) return;
+      clearSimulationTelemetry();
+      jointAngles.clear("连接中断，等待新遥测");
       setOnline("backendDot", false);
       if (state.activePage !== 'operate') $('backendState').textContent = '平台连接异常';
+      if (state.mission) missionPanel.failed();
+    } finally {
+      if (state.stateReadPending === sequence) state.stateReadPending = false;
     }
   }
 

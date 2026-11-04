@@ -34,7 +34,7 @@ def recording_request(payload: EpisodeStart, instance: dict | None, *, recording
 
 
 def install_episode_routes(app, *, policy, hub, scenes, recorder, safety, capture_lifecycle,
-                           jobs, tasks, recording_request):
+                           jobs, tasks, recording_request, missions=None):
     @app.post("/api/episodes/start")
     async def start_episode(payload: EpisodeStart, request: Request) -> dict[str, Any]:
         policy.require_free()
@@ -59,7 +59,12 @@ def install_episode_routes(app, *, policy, hub, scenes, recorder, safety, captur
                 }
             )
         try:
-            return await capture_lifecycle.start(recording_request(payload, scene_instance))
+            if missions:
+                missions.require_stable()
+            result = await capture_lifecycle.start(recording_request(payload, scene_instance))
+            if missions:
+                missions.add_episode(result["episode_id"])
+            return result
         except ValidationError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except RuntimeError as error:
@@ -117,6 +122,8 @@ def install_episode_routes(app, *, policy, hub, scenes, recorder, safety, captur
         if task["status"] != "queued":
             raise HTTPException(status_code=409, detail=f"task {task_id} is {task['status']}, expected queued")
         try:
+            if missions:
+                missions.require_stable()
             episode = await capture_lifecycle.start(recording_request(EpisodeStart(
                 task_id=task_id,
                 task="scheduled space manipulator task",
@@ -125,6 +132,8 @@ def install_episode_routes(app, *, policy, hub, scenes, recorder, safety, captur
                 tags=task["tags"],
                 scene_instance=scenes.status().get("instance"),
             ), scenes.status().get("instance")))
+            if missions:
+                missions.add_episode(episode["episode_id"])
             return tasks.transition(task_id, {"queued"}, "running", episode_id=episode["episode_id"])
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

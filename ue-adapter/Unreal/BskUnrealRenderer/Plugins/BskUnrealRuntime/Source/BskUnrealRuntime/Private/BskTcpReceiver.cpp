@@ -151,7 +151,8 @@ bool FBskTcpReceiver::ConsumeEvent(FBskRenderEvent& OutEvent)
 
 void FBskTcpReceiver::PublishLatest(FBskRenderFrame&& Frame)
 {
-    const bool bStrict = Frame.bCaptureOnDemand ? !Frame.CaptureEpisodeId.IsEmpty() : bReliableFrames;
+    const bool bStrict = Frame.bVisionCaptureRequested
+        || (Frame.bCaptureOnDemand ? !Frame.CaptureEpisodeId.IsEmpty() : bReliableFrames);
     if (bStrict)
     {
         // Bounded FIFO applies TCP backpressure instead of overwriting unseen

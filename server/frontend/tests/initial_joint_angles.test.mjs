@@ -1,3 +1,4 @@
+import { installSceneSelection } from './helpers/scene_context.mjs';
 import { createSceneSession } from '../scene_session.js';
 import {readFileSync} from "node:fs";
 import vm from "node:vm";

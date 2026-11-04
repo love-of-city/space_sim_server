@@ -28,6 +28,7 @@ public:
 
 private:
     class ABskSceneController* FindSceneController() const;
+    bool DrawRelativeView(const class ABskSceneController* Scene);
     bool bMissionUiVisible = false;
     bool bMissionUiInteractive = false;
     int32 ArmedCommandIndex = INDEX_NONE;

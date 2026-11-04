@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="capture26_import">
+  <asset>
+    <mesh name="capture26_grip_10_round_pressure_plate_D138" file="meshes/capture26_10_round_pressure_plate_D138.stl" inertia="shell" />
+    <mesh name="capture26_grip_11_fixed_ring_D90_ID48_slotted" file="meshes/capture26_11_fixed_ring_D90_ID48_slotted.stl" inertia="shell" />
+    <mesh name="capture26_grip_12_column_0" file="meshes/capture26_12_column_0.stl" inertia="shell" />
+    <mesh name="capture26_grip_12_column_1" file="meshes/capture26_12_column_1.stl" inertia="shell" />
+    <mesh name="capture26_grip_12_column_2" file="meshes/capture26_12_column_2.stl" inertia="shell" />
+    <mesh name="capture26_grip_12_column_3" file="meshes/capture26_12_column_3.stl" inertia="shell" />
+    <mesh name="capture26_grip_13_round_rear_plate_D138" file="meshes/capture26_13_round_rear_plate_D138.stl" inertia="shell" />
+    <mesh name="capture26_grip_14_short_flange_NO_HOLE_PATTERN" file="meshes/capture26_14_short_flange_NO_HOLE_PATTERN.stl" inertia="shell" />
+    <mesh name="capture26_grip_16_hollow_shell_D138_ID132" file="meshes/capture26_16_hollow_shell_D138_ID132.stl" inertia="shell" />
+    <mesh name="capture26_grip_20_axial_carrier" file="meshes/capture26_20_axial_carrier.stl" inertia="shell" />
+    <mesh name="capture26_grip_21_L_jaw_0" file="meshes/capture26_grip_21_L_jaw_0.stl" inertia="shell" />
+    <mesh name="capture26_grip_21_L_jaw_1" file="meshes/capture26_grip_21_L_jaw_1.stl" inertia="shell" />
+    <mesh name="capture26_grip_21_L_jaw_2" file="meshes/capture26_grip_21_L_jaw_2.stl" inertia="shell" />
+    <mesh name="capture26_grip_21_L_jaw_3" file="meshes/capture26_grip_21_L_jaw_3.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_0_0" file="meshes/capture26_22_rail_0_0.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_0_1" file="meshes/capture26_22_rail_0_1.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_1_0" file="meshes/capture26_22_rail_1_0.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_1_1" file="meshes/capture26_22_rail_1_1.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_2_0" file="meshes/capture26_22_rail_2_0.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_2_1" file="meshes/capture26_22_rail_2_1.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_3_0" file="meshes/capture26_22_rail_3_0.stl" inertia="shell" />
+    <mesh name="capture26_grip_22_rail_3_1" file="meshes/capture26_22_rail_3_1.stl" inertia="shell" />
+    <mesh name="capture26_grip_23_follower_0" file="meshes/capture26_grip_23_follower_0.stl" inertia="shell" />
+    <mesh name="capture26_grip_23_follower_1" file="meshes/capture26_grip_23_follower_1.stl" inertia="shell" />
+    <mesh name="capture26_grip_23_follower_2" file="meshes/capture26_grip_23_follower_2.stl" inertia="shell" />
+    <mesh name="capture26_grip_23_follower_3" file="meshes/capture26_grip_23_follower_3.stl" inertia="shell" />
+    <mesh name="capture26_grip_30_cam_D116" file="meshes/capture26_30_cam_D116.stl" inertia="shell" />
+    <mesh name="capture26_grip_31_axis_visual" file="meshes/capture26_31_axis_visual.stl" inertia="shell" />
+    <mesh name="capture26_link1" file="meshes/capture26_link1.STL" inertia="shell" />
+    <mesh name="capture26_link2" file="meshes/capture26_link2.STL" inertia="shell" />
+    <mesh name="capture26_link3" file="meshes/capture26_link3.STL" inertia="shell" />
+    <mesh name="capture26_link4" file="meshes/capture26_link4.STL" inertia="shell" />
+    <mesh name="capture26_link5" file="meshes/capture26_link5.STL" inertia="shell" />
+    <mesh name="capture26_link6" file="meshes/capture26_link6.STL" inertia="shell" />
+  </asset>
+  <worldbody>
+    <body name="capture_assets">
+      <geom type="mesh" mesh="capture26_grip_10_round_pressure_plate_D138" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_11_fixed_ring_D90_ID48_slotted" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_12_column_0" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_12_column_1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_12_column_2" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_12_column_3" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_13_round_rear_plate_D138" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_14_short_flange_NO_HOLE_PATTERN" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_16_hollow_shell_D138_ID132" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_20_axial_carrier" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_21_L_jaw_0" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_21_L_jaw_1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_21_L_jaw_2" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_21_L_jaw_3" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_0_0" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_0_1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_1_0" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_1_1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_2_0" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_2_1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_3_0" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_22_rail_3_1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_23_follower_0" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_23_follower_1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_23_follower_2" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_23_follower_3" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_30_cam_D116" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_grip_31_axis_visual" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_link1" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_link2" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_link3" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_link4" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_link5" contype="0" conaffinity="0" />
+      <geom type="mesh" mesh="capture26_link6" contype="0" conaffinity="0" />
+    </body>
+  </worldbody>
+</mujoco>

@@ -14,6 +14,8 @@ class PlatformConfig:
     data_root: Path
     simulation_host: str = "127.0.0.1"
     simulation_port: int = 8766
+    rendezvous_port: int = 0
+    rendezvous_python: Path | None = None
     capture_host: str = "127.0.0.1"
     capture_port: int = 8767
     deadman_timeout_s: float = 0.25

@@ -13,11 +13,12 @@ function harness() {
   const nodes = new Map();
   const state = { pixelStreaming: null, streamReconnectTimer: null, streamLive: false, currentUser: {username: "admin"}, streamConfig: {pixel_streaming_player_port: 8080} };
   const $ = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { style: {}, replaceChildren() {}, textContent: "", hidden: false });
+    if (!nodes.has(id)) nodes.set(id, { style: {}, querySelector: () => ({readyState: 2, videoWidth: 1024, paused: false, currentTime: 1}), replaceChildren() {}, textContent: "", hidden: false });
     return nodes.get(id);
   };
   class Player {
     constructor() { this.handlers = new Map(); players.push(this); }
+    addResponseEventListener() {}
     addEventListener(name, fn) { this.handlers.set(name, fn); }
     emit(name, data = {}) { this.handlers.get(name)?.(data); }
     disconnect() { this.emit("webRtcDisconnected"); }
@@ -25,6 +26,7 @@ function harness() {
   let reconnects = 0;
   let statsUpdates = 0;
   const context = {clearWristWrench() {},
+    observeAvailability: () => ({close() {}}),
     state, $, window: {}, PixelStreaming: Player, Config: class {
       constructor(options) { this.initialSettings = options.initialSettings; }
       setNumericSetting(key, value) { this.initialSettings[key] = value; }
@@ -46,10 +48,11 @@ test("disconnecting a retired player cannot create an orphan reconnect timer", (
   h.context.createPixelStream();
   h.context.createPixelStream();
   assert.equal(h.players.length, 2);
-  assert.equal(h.timers.size, 1, "only the current player's startup watchdog remains");
-  assert.equal([...h.timers.values()][0].delay, 60000);
+  assert.equal(h.timers.size, 2, "only the current player setup and media timers remain");
+  assert.equal(h.timers.get(h.state.streamReconnectTimer).delay, 60000);
   h.players[1].emit("webRtcConnected");
-  assert.equal(h.timers.size, 0);
+  assert.equal(h.timers.size, 1, "media watchdog stays active after connection");
+  assert.equal(h.state.streamReconnectTimer, null);
 });
 
 test("selected FPS is reapplied after server settings and survives reconnection", async () => {
@@ -85,7 +88,8 @@ test("late events from an old player cannot clear LIVE state or schedule reconne
   for (const event of ["webRtcConnecting", "webRtcConnected", "videoInitialized", "playStreamRejected", "webRtcDisconnected", "webRtcFailed", "subscribeFailed", "statsReceived"]) old.emit(event);
   assert.equal(h.$("frameState").textContent, "LIVE WEBRTC");
   assert.equal(h.state.streamLive, true);
-  assert.equal(h.timers.size, 0);
+  assert.equal(h.timers.size, 1, "only current media watchdog remains");
+  assert.equal(h.state.streamReconnectTimer, null);
   assert.equal(h.statsUpdates, 0);
 });
 
@@ -95,9 +99,9 @@ test("a genuine disconnect schedules exactly one managed retry", () => {
   h.players[0].emit("webRtcConnected");
   h.players[0].emit("webRtcDisconnected");
   h.players[0].emit("webRtcFailed");
-  assert.equal(h.timers.size, 1);
+  assert.equal(h.timers.size, 2);
   assert.equal(h.state.streamLive, false);
-  [...h.timers.values()][0].fn();
+  h.timers.get(h.state.streamReconnectTimer).fn();
   assert.equal(h.reconnects, 1);
 });
 
@@ -131,12 +135,13 @@ test("stream discovery and RTC negotiation replace the old startup deadline", ()
   const discoveryTimer = h.state.streamReconnectTimer;
   stream.emit("webRtcConnecting");
   assert.equal(h.timers.has(discoveryTimer), false);
-  assert.equal(h.timers.size, 1);
-  assert.equal([...h.timers.values()][0].delay, 60000);
+  assert.equal(h.timers.size, 2);
+  assert.equal(h.timers.get(h.state.streamReconnectTimer).delay, 60000);
   assert.equal(h.players.length, 1, "a newly joining player must not be replaced");
   stream.emit("webRtcConnected");
   stream.emit("streamerListMessage");
-  assert.equal(h.timers.size, 0, "discovery cannot rearm a LIVE player's watchdog");
+  assert.equal(h.state.streamReconnectTimer, null, "discovery cannot rearm a LIVE player's watchdog");
+  assert.equal(h.timers.size, 1);
 });
 
 test("a renderer becoming running does not tear down its waiting player", () => {

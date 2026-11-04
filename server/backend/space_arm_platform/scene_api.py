@@ -12,7 +12,7 @@ from .models import EpisodeStop, SceneInstanceCreate
 
 
 def install_scene_routes(app, *, scenes, capture_defaults, recording_config, policy, recorder,
-                         capture_lifecycle, sessions, hub, safety, jobs):
+                         capture_lifecycle, sessions, hub, safety, jobs, missions=None):
     @app.get("/api/scenes/catalog")
     async def scene_catalog() -> dict[str, Any]:
         catalog = scenes.catalog()
@@ -48,6 +48,8 @@ def install_scene_routes(app, *, scenes, capture_defaults, recording_config, pol
             raise HTTPException(status_code=409, detail="stop the active episode before starting another scene")
         creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
         try:
+            if missions:
+                return await missions.start_scene(scene_recording_defaults(payload), creator)
             return await asyncio.to_thread(scenes.start, scene_recording_defaults(payload), creator)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -58,6 +60,13 @@ def install_scene_routes(app, *, scenes, capture_defaults, recording_config, pol
     async def reset_scene(request: Request) -> dict[str, Any]:
         policy.require_free()
         user = current_user(request)
+        if missions:
+            try:
+                missions.require_stable()
+                if missions.status(user).get("stage") == "flight" and missions.status(user).get("active"):
+                    raise RuntimeError("请先停止交会任务")
+            except RuntimeError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
         status = scenes.status()
         if not can_manage_scene(user, status):
             raise HTTPException(status_code=403, detail="只能重置自己创建的场景")
@@ -78,6 +87,16 @@ def install_scene_routes(app, *, scenes, capture_defaults, recording_config, pol
 
     @app.post("/api/scenes/stop")
     async def stop_scene(request: Request) -> dict[str, Any]:
+        if missions:
+            try:
+                return await missions.stop(current_user(request), lambda: stop_scene_executor(request))
+            except PermissionError as error:
+                raise HTTPException(status_code=403, detail=str(error)) from error
+            except RuntimeError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
+        return await stop_scene_executor(request)
+
+    async def stop_scene_executor(request: Request) -> dict[str, Any]:
         user = current_user(request)
         status = scenes.status()
         if status.get("instance") and not can_manage_scene(user, status):
@@ -107,3 +126,5 @@ def install_scene_routes(app, *, scenes, capture_defaults, recording_config, pol
             return result
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    return stop_scene_executor

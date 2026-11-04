@@ -49,10 +49,11 @@ class PolicyStep(BaseModel):
 
 class PolicySessions:
     def __init__(self, *, hub, cache, recorder, capture_lifecycle, sessions, safety,
-                 scenes, recording_request):
+                 scenes, recording_request, require_stable=None, episode_started=None):
         self.hub, self.cache, self.recorder = hub, cache, recorder
         self.capture_lifecycle, self.sessions = capture_lifecycle, sessions
         self.safety, self.scenes, self.recording_request = safety, scenes, recording_request
+        self.require_stable, self.episode_started = require_stable, episode_started
         self._session = None
         self._lock = asyncio.Lock()
         self._closed_sessions = OrderedDict()
@@ -83,6 +84,8 @@ class PolicySessions:
 
     async def start(self, payload: PolicyStart, user):
         self.require_free()
+        if self.require_stable is not None:
+            self.require_stable()
         if self._lock.locked() or self.recorder.episode_id or self.capture_lifecycle.busy:
             raise HTTPException(409, "请先结束当前录制或控制切换")
         if not self.hub.connected or not self.hub.joint_policy_supported:
@@ -130,6 +133,8 @@ class PolicySessions:
             request = self.recording_request(request, session["instance"])
             metadata = await self.capture_lifecycle.start(request, before_enable=self.cache.begin)
             session["episode_id"] = metadata["episode_id"]
+            if self.episode_started is not None:
+                self.episode_started(metadata["episode_id"])
         else:
             self.cache.begin("policy-" + session["id"])
             await self.hub.set_capture_episode("policy-" + session["id"])

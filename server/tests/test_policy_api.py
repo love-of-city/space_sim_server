@@ -49,6 +49,7 @@ def api(tmp_path, monkeypatch):
     cache = Mock()
     scenes = Mock()
     scenes.enabled = True
+    scenes.status.return_value = {"active": False, "phase": "idle"}
     monkeypatch.setattr(app_module, "SimulationHub", lambda: hub)
     monkeypatch.setattr(app_module, "PolicyObservationCache", lambda: cache)
     monkeypatch.setattr(app_module, "SceneRuntimeManager", lambda *args, **kwargs: scenes)

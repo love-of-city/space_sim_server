@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .protocol import FramedSocketReader
+from .vision_capture_dispatch import VisionCaptureDispatch
 
 
 HEADER = struct.Struct("!I")
@@ -30,12 +31,15 @@ class PreviewFrame:
 
 class CaptureReceiver:
     def __init__(self, host: str, port: int, on_authoritative_capture: Callable[[dict[str, Any], dict[str, bytes]], None],
-                 on_authoritative_error: Callable[[str], None] | None = None) -> None:
+                 on_authoritative_error: Callable[[str], None] | None = None,
+                 *, on_vision_capture=None) -> None:
         self.host = host
         self.port = int(port)
         self.on_authoritative_capture = on_authoritative_capture
         self.on_authoritative_error = on_authoritative_error
         self._accepted_packets = OrderedDict()
+        self._vision_packets = OrderedDict()
+        self.vision_dispatch = VisionCaptureDispatch(on_vision_capture)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._authoritative_thread: threading.Thread | None = None
@@ -56,6 +60,7 @@ class CaptureReceiver:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self.vision_dispatch.start()
         self._authoritative_thread = threading.Thread(
             target=self._authoritative_worker,
             name="bsk-authoritative-capture-writer",
@@ -90,6 +95,7 @@ class CaptureReceiver:
                         break
             writer.join(timeout=max(0.0, deadline - time.monotonic()))
         self._authoritative_thread = None
+        self.vision_dispatch.close()
 
     def camera_ids(self) -> list[str]:
         with self._condition:
@@ -125,12 +131,27 @@ class CaptureReceiver:
                 "pending_authoritative_packets": self._authoritative_queue.qsize(),
                 "unfinished_authoritative_packets": self._authoritative_queue.unfinished_tasks,
                 "pipeline": dict(self._pipeline_status),
+                "vision": self.vision_dispatch.status(),
             }
 
     def route_capture(self, metadata: dict[str, Any], products: dict[str, bytes]) -> None:
         """Route one decoded packet; preview bytes never enter the episode recorder."""
         stream_kind = str(metadata.get("stream_kind", ""))
         state_kind = str(metadata.get("state_kind", ""))
+        if stream_kind == "vision" and state_kind == "authoritative":
+            key = None
+            if metadata.get("ack_required"):
+                key = tuple(str(metadata.get(k, "")) for k in ("session_id", "camera_id", "capture_sequence"))
+                if not all(key):
+                    raise ValueError("acknowledged vision capture needs session, camera and sequence")
+                if key in self._vision_packets:
+                    return
+            self.vision_dispatch.offer(metadata, products)
+            if key is not None:
+                self._vision_packets[key] = None
+                while len(self._vision_packets) > 1024:
+                    self._vision_packets.popitem(last=False)
+            return
         if stream_kind == "preview":
             rgb = products.get("rgb")
             if not rgb:
@@ -191,7 +212,7 @@ class CaptureReceiver:
                     self._accepted_packets.popitem(last=False)
             return
         raise ValueError(
-            f"capture must declare preview or authoritative state, got stream={stream_kind!r}, state={state_kind!r}"
+            f"capture must declare preview, vision or authoritative state, got stream={stream_kind!r}, state={state_kind!r}"
         )
 
     def wait_for_authoritative_idle(self, timeout_s: float = 10.0) -> bool:

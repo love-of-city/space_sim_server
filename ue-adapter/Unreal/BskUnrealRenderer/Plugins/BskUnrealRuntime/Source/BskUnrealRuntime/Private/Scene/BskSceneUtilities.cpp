@@ -91,6 +91,10 @@ FName SafeActorName(const FString& Value)
 
 const TCHAR* PrimitiveMeshPath(const FString& Shape)
 {
+    if (Shape.Equals(TEXT("plane"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("/Engine/BasicShapes/Plane.Plane");
+    }
     if (Shape.Equals(TEXT("sphere"), ESearchCase::IgnoreCase) || Shape.Equals(TEXT("ellipsoid"), ESearchCase::IgnoreCase))
     {
         return TEXT("/Engine/BasicShapes/Sphere.Sphere");

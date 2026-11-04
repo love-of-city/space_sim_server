@@ -93,7 +93,7 @@ def default_target_state(model):
     )
 
 
-def run(args, *, graph_cache=None):
+def run(args, *, graph_cache=None, task_adapter=None):
     initialization_started = time.perf_counter()
     initialization_seconds = {}
     # Establish the production DLL load order. Never import Python mujoco here.
@@ -133,18 +133,31 @@ def run(args, *, graph_cache=None):
     model = (args.model or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
     from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
     from simulation.scripted_tasks.disturbances import EpisodeDisturbances
+    replay_path = getattr(args, "replay_trajectory", None)
+    frozen = None
+    if replay_path:
+        from simulation.evaluation.fixed_trajectory import FrozenTrajectory
+        frozen = FrozenTrajectory(json.loads(replay_path.read_text()))
+        model = Path(frozen.document["model_path"]).resolve()
+        if args.model is not None and hashlib.sha256(args.model.read_bytes()).hexdigest() != frozen.document["model_sha256"]:
+            raise ValueError("Replay model differs from frozen model")
+        graph_cache = None
     source_model = model
     scene_instance = json.loads(args.scene.read_text(encoding="utf-8-sig")) if args.scene else {}
+    if frozen is not None:
+        from copy import deepcopy
+        scene_instance = deepcopy(frozen.document["resolved_scene"])
     scene_instance["scripted_task_name"] = args.task
     scene_instance.setdefault("collection_config", {})["task"] = args.task
     if args.task == "drawer_close":
         scene_instance["collection_config"]["drawer_initial_opening_m"] = args.lift_m
     if args.task in THREADED_TASKS:
         scene_instance["collection_config"]["threaded_speed_profile"] = args.threaded_speed_profile
-    prepare_episode(scene_instance)
+    if frozen is None:
+        prepare_episode(scene_instance)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    model = write_model_variant(source_model, output / "model.xml", scene_instance)
+    model = source_model if frozen is not None else write_model_variant(source_model, output / "model.xml", scene_instance)
     disturbances = EpisodeDisturbances(scene_instance)
     native.MODEL_PATH = model
     profile = load_model_profile(model)
@@ -165,7 +178,14 @@ def run(args, *, graph_cache=None):
         initial = np.asarray(
             scene_instance["randomization"]["arm_joint_position_rad"], dtype=float
         )
+    if frozen is not None:
+        initial = np.asarray(frozen.document["initial_joints"], dtype=float)
+        from simulation.scripted_tasks.randomization import options_for_scene
+        if any(isinstance(value, dict) and value.get("enabled") for value in options_for_scene(scene_instance).model_dump().values()):
+            raise ValueError("Fixed replay requires disabled runtime disturbances")
     task = create_task(args, model, scene_instance)
+    if task_adapter is not None:
+        task = task_adapter(task, model, initial, ROOT)
     config = task.config
     if getattr(args, "native_geometry", False):
         task.chain.enable_native_geometry()
@@ -195,6 +215,8 @@ def run(args, *, graph_cache=None):
     sim = stepper = orbit = capture = None
     report = dict(
         task_name=args.task,
+        controller_family="fixed_replay" if frozen is not None else "current_collection_expert",
+        resolved_scene=scene_instance,
         result="failed",
         reason="initialization_incomplete",
         model=str(model),
@@ -245,11 +267,12 @@ def run(args, *, graph_cache=None):
             path = ROOT / "simulation/scripted_tasks" / filename
             report["runtime_provenance"]["sources_sha256"][str(path.relative_to(ROOT))] = (
                 hashlib.sha256(path.read_bytes()).hexdigest())
+    evidence_stream = None
     sample = None
     simulation_wall_seconds = 0.0
     loop_started = None
     try:
-        if args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS:
+        if task_adapter is None and (args.task in THREADED_TASKS or is_plug_task(args.task) or args.task in DRAWER_TASKS):
             phase_started = time.perf_counter()
             from copy import deepcopy
             from simulation.scripted_tasks.environment_motion import enable
@@ -374,6 +397,10 @@ def run(args, *, graph_cache=None):
         if is_plug_task(args.task):
             report["contact_feedback"] = task.configure_contact_feedback(
                 native.KP, plug_retention.parameters if plug_retention else None)
+        if frozen is not None:
+            frozen.validate_physics(dict(substeps=stepper.substeps, plug_retention=report["plug_retention"], orbital_physics=report["orbital_physics"]))
+            (output / "scorer_spec.json").write_text(json.dumps(task.scorer_spec(), indent=2))
+            evidence_stream = (output / "evaluation_rows.jsonl").open("w")
         report["asset_compilation_cache"] = configure_asset_cache()
         phase_started = time.perf_counter()
         report["orbit"] = apply_orbital_initial_state(
@@ -479,6 +506,8 @@ def run(args, *, graph_cache=None):
                         # can finish and the dataset records a rejected episode.
                         task.fail(f"planning_failed: {error}", sample)
                         nominal_command, nominal_velocity = task.reference.copy(), np.zeros(8)
+                    if evidence_stream is not None and task.last_physical_row is not None:
+                        evidence_stream.write(json.dumps(task.last_physical_row) + "\n")
                     if task.result is None:
                         command[:], velocity[:] = disturbances.action(nominal_command, nominal_velocity, elapsed, task.lower, task.upper)
                     else:
@@ -577,7 +606,7 @@ def run(args, *, graph_cache=None):
         _ = models, recorders, ctx
     except (Exception, KeyboardInterrupt) as exc:
         report.update(
-            result="failed", reason=f"{type(exc).__name__}: {exc}", events=task.events
+            result="failed", reason=f"{type(exc).__name__}: {exc}", events=task.events, runtime_error=True
         )
         if graph_cache is not None:
             graph_cache.close()
@@ -597,6 +626,9 @@ def run(args, *, graph_cache=None):
             report["runtime_provenance_error"] = f"{type(error).__name__}: {error}"
             if not unwinding:
                 report.update(result="failed", reason="native_runtime_identity_mismatch")
+        if evidence_stream is not None:
+            evidence_stream.close()
+            report["independent_evaluation"] = task.scorer.report()
         finished = time.perf_counter()
         report["wall_seconds"] = finished - started
         report["task_loop_wall_seconds"] = (
@@ -641,6 +673,7 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
         type=Path,
         help="Diagnostic model override; recording requires a validated layout manifest and matching catalog",
     )
+    parser.add_argument("--replay-trajectory", type=Path, help="Replay a frozen current-expert actuator trace without online planning")
     parser.add_argument("--target-site", default=None)
     parser.add_argument(
         "--plug-grasp-offset", type=float, nargs=3, default=None
@@ -671,6 +704,8 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--capture-stop-file", type=Path)
     args = parser.parse_args(argv)
+    if args.replay_trajectory and (args.scene or args.capture_control_port or args.warmup_sim_seconds):
+        parser.error("Replay uses its frozen scene and supports headless execution only")
     if args.max_sim_seconds is None:
         args.max_sim_seconds = task_default_duration_s(args.task)
     try:
@@ -712,7 +747,11 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
         parser.error("--max-sim-seconds must be finite and positive")
     if not 0.001 <= args.capture_backpressure_poll_s <= 0.1:
         parser.error("--capture-backpressure-poll-s must be in [0.001, 0.1]")
-    return run(args, graph_cache=graph_cache)
+    adapter = None
+    if args.replay_trajectory:
+        from simulation.evaluation.replay import FixedReplayTask
+        adapter = lambda task, model, initial, root: FixedReplayTask(task, args.replay_trajectory, model, initial, root)
+    return run(args, graph_cache=graph_cache, task_adapter=adapter)
 
 
 if __name__ == "__main__":

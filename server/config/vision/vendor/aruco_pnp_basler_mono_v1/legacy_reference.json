@@ -1,0 +1,45 @@
+{
+  "point_target_m": [
+    0.1755,
+    0.073,
+    0.042078700129999994
+  ],
+  "bounds_target_m": [
+    [
+      0.12499999999999999,
+      0.06275,
+      -0.008421299870000003
+    ],
+    [
+      0.22599999999999998,
+      0.08324999999999999,
+      0.09257870013
+    ]
+  ],
+  "rotation_gripper_from_optical": [
+    [
+      0.0,
+      -0.771930235577134,
+      -0.6357072529095689
+    ],
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      -0.6357072529095689,
+      0.771930235577134
+    ]
+  ],
+  "camera_in_gripper_m": [
+    0.22,
+    0.0,
+    -0.13
+  ],
+  "mesh": "model/ground_validation_satellite/meshes/part_015_color_00.obj (original repository only)",
+  "target_reference": "fixed WF10 separation assembly AABB center, not a grasp contact",
+  "gripper_reference": "current sarm_ee site; provisional tool center, not future arm calibration",
+  "scope": "legacy SARM only; replace calibration for a new arm"
+}

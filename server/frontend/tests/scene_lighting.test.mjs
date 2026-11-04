@@ -1,3 +1,4 @@
+import { installSceneSelection } from './helpers/scene_context.mjs';
 import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -20,12 +21,13 @@ function setup(value = "1") {
   $("randomizationProfile").value = "none";
   const requests=[], messages=[];
   const state={stateRequestSequence:0,sceneDefaults:{simulation_rate:1,capture_rate_hz:30,ik_rate_hz:120}, currentUser:{role:"admin",user_id:"admin"}, scenePhase:"idle"};
-  const ctx=vm.createContext({clearWristWrench() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+  const ctx=vm.createContext({clearWristWrench() {}, clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
     initialJoints: { read: () => null, setRuntime() {} },$,state,console,Option:function(){}, scenePhaseLabels:{running:"运行中"},
     setMessage:m=>messages.push(m), updateOperationUI(){},updateEpisodeUI(){},connectPixelStreaming(){},exitOperationMode(){},refreshState:async()=>{},
     apiRequest:async (path, options={})=>{requests.push({path,options});return {ok:true,json:async()=>({templates:[],randomization_profiles:[],defaults:{}})};},
     readApiResponse:async()=>({instance_id:"s1",seed:42}),applySceneRuntime(){}
   });
+  installSceneSelection(ctx, source);
   Object.assign(ctx, createSceneSession({...ctx, applySceneRuntime: (...args) => ctx.applySceneRuntime(...args)}));
   return {$,ctx,requests,messages,state};
 }
@@ -48,7 +50,8 @@ test("invalid or empty sunlight prevents launch",async()=>{
 });
 
 test("active scene displays its persisted lighting and locks initialization",()=>{
-  const h=setup("2");vm.runInContext(applySource,h.ctx);
+  const h=setup("2");
+vm.runInContext(applySource,h.ctx);
   h.ctx.applySceneRuntime({phase:"running",active:true,instance:{instance_id:"s1",seed:42,
     randomization:{},environment:{lighting:{sunlight_intensity_scale:0}}}});
   assert.equal(h.$("sceneSunlightIntensity").value,"0");

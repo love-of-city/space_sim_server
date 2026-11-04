@@ -81,6 +81,8 @@ def supervise(config_path: Path, instance_path: Path):
         for port in (config["render_port"],):
             check_port_available(port)
         runtime = instance["runtime"]
+        config["pixel_streaming_camera_ids"] = list(dict.fromkeys([
+            *config["pixel_streaming_camera_ids"], *instance.get("render_profile", {}).get("camera_ids", [])]))
         prepare = [sys.executable, str(root / "tools/assets/prepare_sarm_assets.py"),
                    "--adapter", str(adapter), "--model-root", config["model_root"],
                    "--unreal", config["unreal_root"], "--template-id", instance["template_id"],
@@ -126,6 +128,8 @@ def supervise(config_path: Path, instance_path: Path):
         wait_port(config["render_port"], config["renderer_ready_timeout"])
         catalog_names = {"sarm-task-box-contacts": "sarm_task_box", "sarm-task-box-free-plugs": "sarm_task_box_plugs"}
         template = instance["template_id"]
+        if instance.get("render_profile", {}).get("asset_catalog"):
+            catalog_names[template] = Path(instance["render_profile"]["asset_catalog"]).stem.removesuffix(".catalog")
         catalog = "sarm_20261012" if template.startswith("sarm-task-box-20261012") else catalog_names.get(template, "sarm_platform")
         children.start("simulation", [sys.executable, "-u", str(root / "simulation/teleop_grasp_unreal.py"),
             "--adapter-root", str(adapter), "--model-root", config["model_root"],

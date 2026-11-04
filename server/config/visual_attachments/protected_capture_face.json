@@ -1,0 +1,13 @@
+{
+  "visual_attachments": [
+    {
+      "parent_id": "teleop/capture_target",
+      "geometry_file": "config/visual_attachments/target_aruco_5cm/geometry_metres.json",
+      "sha256": "d3c1a2f39320d3124bba89b85717cd211fdba1d0ae255dd5cdecdf51f5f02d9c",
+      "transform_mode": "fixed_body_geometry"
+    }
+  ],
+  "vision_capture": {
+    "fiducial_calibration_valid": false
+  }
+}

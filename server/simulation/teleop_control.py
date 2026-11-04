@@ -298,6 +298,8 @@ class CartesianTeleopTarget:
             return self.position.copy(), self.velocity.copy()
 
         action, stale = self.client.latest_action()
+        if action.get('active_arm', 'operating') != 'operating':
+            action = dict(action, deadman=False, arm_preparation=None, allow_reference_recovery=False)
         if self.preparation.required:
             try:
                 measured = self._actual_arm_position() if self._joint_state_provider is not None else np.full(6, np.nan)

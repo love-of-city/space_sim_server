@@ -104,7 +104,7 @@ def test_api_catalog_create_and_start_accept_the_new_option(tmp_path, monkeypatc
     (tmp_path / "frontend/index.html").write_text("<!doctype html><title>test</title>", encoding="utf-8")
     # Exercise the start request boundary without launching user processes.
     starts = []
-    def start_without_processes(manager, request, creator):
+    def start_without_processes(manager, request, creator, **kwargs):
         starts.append(request)
         return manager.create_instance(request, creator)
     monkeypatch.setattr(SceneRuntimeManager, "start", start_without_processes)

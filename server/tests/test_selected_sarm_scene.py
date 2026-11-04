@@ -50,7 +50,7 @@ def test_default_changes_collision_only_not_seeded_layout_or_saved_compatibility
     catalog = manager.catalog()
     assert catalog["defaults"]["template_id"] == DEFAULT_TEMPLATE == SELF_COLLISION_TEMPLATE
     assert catalog["templates"][0]["id"] == DEFAULT_TEMPLATE
-    assert {t["id"] for t in catalog["templates"]} == {SELF_COLLISION_TEMPLATE, MESH_TARGET_TEMPLATE, GROUND_TARGET_TEMPLATE, LEGACY_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, 'sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo'}
+    assert {t["id"] for t in catalog["templates"]} == {SELF_COLLISION_TEMPLATE, MESH_TARGET_TEMPLATE, GROUND_TARGET_TEMPLATE, LEGACY_TEMPLATE, TASK_BOX_TEMPLATE, FREE_PLUG_TEMPLATE, 'sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo', 'sarm-dual-capture26'}
     assert "内部碰撞" in catalog["templates"][0]["label"]
     for randomization_profile in ("none", "training-v1", BALANCED_TELEOP_PROFILE):
         args = dict(seed=42, randomize_orbit_phase=True, randomization_profile=randomization_profile)

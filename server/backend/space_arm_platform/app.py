@@ -23,6 +23,13 @@ from .capture_receiver import CaptureReceiver
 from .collection_api import install_collection_routes
 from .episode_api import install_episode_routes, recording_request
 from .jobs import JobManager
+from .mission_api import install_mission_routes
+from .mission_runtime import MissionRuntime
+from .rendezvous_hub import RendezvousHub
+from .rendezvous_runtime import RendezvousRuntime
+from .vision_api import install_vision_routes
+from .vision_service import StereoVisionService
+from .wrist_vision_service import WristVisionService
 from .media_api import install_media_routes
 from .models import EpisodeStop, SimulationObservation
 from .operator_api import install_operator_routes
@@ -75,6 +82,12 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     tasks = TaskStore(config.data_root.parent / "tasks")
     safety = SafetyController(config.deadman_timeout_s)
     hub = SimulationHub()
+    rendezvous = RendezvousHub()
+    rendezvous_runtime = RendezvousRuntime(
+        config.rendezvous_python, config.rendezvous_port, config.project_root / "logs/rendezvous",
+        team_repository=config.project_root, render_port=config.runtime_render_port, launch_config=config)
+    vision = StereoVisionService(config.project_root)
+    wrist_vision = WristVisionService(config.project_root)
     capture_lifecycle = CaptureLifecycle(hub, recorder)
     sessions = OperatorSessions()
     policy_cache = PolicyObservationCache()
@@ -95,11 +108,25 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         policy_cache.fail(reason)
         recorder.fail(reason)
 
+    def accept_vision_capture(metadata, products):
+        observation = hub.latest_observation
+        if hub.resetting or not observation or not observation.render_session_id:
+            return
+        if metadata.get("session_id") != observation.render_session_id:
+            return
+        # Each consumer has its own estimator queue; errors remain diagnostics.
+        for service in (vision, wrist_vision):
+            try:
+                service.on_capture(metadata, products)
+            except Exception:
+                logging.getLogger(__name__).exception("Vision capture rejected")
+
     captures = CaptureReceiver(
         config.capture_host,
         config.capture_port,
         record_current_capture,
         capture_failed,
+        on_vision_capture=accept_vision_capture,
     )
     launch_config = None
     if all((config.runtime_adapter_root, config.runtime_model_root, config.runtime_unreal_root)) and (
@@ -123,6 +150,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             python_exe=Path(sys.executable) if sys.platform.startswith("linux") else None,
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
+    missions = MissionRuntime(config.data_root / ".missions", scenes, rendezvous_runtime, rendezvous,
+        lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active), scene_defaults=capture_defaults)
     timeout_task: asyncio.Task[None] | None = None
     capture_failure_task: asyncio.Task | None = None
     policy_watchdog_task: asyncio.Task | None = None
@@ -189,6 +218,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         except Exception:
             logging.getLogger(__name__).exception("Dataset writer preparation failed; recording remains unavailable until preparation succeeds")
         await hub.start(config.simulation_host, config.simulation_port)
+        if config.rendezvous_port:
+            await rendezvous.start("127.0.0.1", config.rendezvous_port)
+        vision.start()
+        wrist_vision.start()
         captures.start()
         timeout_task = asyncio.create_task(watchdog(), name="deadman-watchdog")
         policy_watchdog_task = asyncio.create_task(policy_watchdog(), name="policy-watchdog")
@@ -217,9 +250,14 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
             await asyncio.to_thread(collections.close)
+            await missions.close()
+            await asyncio.to_thread(rendezvous_runtime.close)
+            await rendezvous.close()
             await asyncio.to_thread(scenes.close)
             policy.scene_stopped()
             await asyncio.to_thread(captures.close)
+            await asyncio.to_thread(vision.close)
+            await asyncio.to_thread(wrist_vision.close)
             await asyncio.to_thread(recorder.close)
             await hub.close()
             jobs.close()
@@ -238,6 +276,11 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     app.state.jobs = jobs
     app.state.tasks = tasks
     app.state.scenes = scenes
+    app.state.missions = missions
+    app.state.rendezvous = rendezvous
+    app.state.rendezvous_runtime = rendezvous_runtime
+    app.state.vision = vision
+    app.state.wrist_vision = wrist_vision
 
     frontend_source = config.project_root / "frontend"
     frontend_dist = frontend_source / "dist"
@@ -249,20 +292,25 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                                         capture_defaults=capture_defaults, hub=hub)
     policy = PolicySessions(hub=hub, cache=policy_cache, recorder=recorder,
         capture_lifecycle=capture_lifecycle, sessions=sessions, safety=safety, scenes=scenes,
-        recording_request=prepare_recording_request)
+        recording_request=prepare_recording_request, require_stable=missions.require_stable,
+        episode_started=missions.add_episode)
     app.state.policy_sessions = policy
     install_auth_routes(app, config=config, auth=auth, allowed_origins=allowed_origins,
                         login_limiter=login_limiter)
     install_policy_routes(app, policy, current_user)
-    install_scene_routes(app, scenes=scenes, capture_defaults=capture_defaults, recording_config=recording_config,
+    stop_scene_executor = install_scene_routes(app, scenes=scenes, capture_defaults=capture_defaults, recording_config=recording_config,
                          policy=policy, recorder=recorder, capture_lifecycle=capture_lifecycle,
-                         sessions=sessions, hub=hub, safety=safety, jobs=jobs)
+                         sessions=sessions, hub=hub, safety=safety, jobs=jobs, missions=missions)
     install_episode_routes(app, policy=policy, hub=hub, scenes=scenes, recorder=recorder, safety=safety,
                            capture_lifecycle=capture_lifecycle, jobs=jobs, tasks=tasks,
-                           recording_request=prepare_recording_request)
-    install_media_routes(app, config=config, safety=safety, hub=hub, recorder=recorder, captures=captures, scenes=scenes)
+                           recording_request=prepare_recording_request, missions=missions)
+    install_media_routes(app, config=config, safety=safety, hub=hub, recorder=recorder, captures=captures, scenes=scenes, missions=missions, rendezvous=rendezvous)
     install_operator_routes(app, config=config, allowed_origins=allowed_origins, auth=auth, sessions=sessions,
-                            policy=policy, hub=hub, scenes=scenes, recorder=recorder, safety=safety)
+                            policy=policy, hub=hub, scenes=scenes, recorder=recorder, safety=safety, missions=missions)
+
+    install_mission_routes(app, missions=missions, rendezvous=rendezvous,
+        rendezvous_runtime=rendezvous_runtime, policy=policy, stop_scene_executor=stop_scene_executor)
+    install_vision_routes(app, vision=vision, wrist_vision=wrist_vision, hub=hub, scenes=scenes)
 
     @app.get("/")
     @app.get("/collection")

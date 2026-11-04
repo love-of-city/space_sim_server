@@ -42,7 +42,11 @@ jobs:
         if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python -m venv ../.venv-ci
-          ../.venv-ci/Scripts/python -m pip install -e "../ue-adapter[test]" -e ".[test,simulation,posture]" "ruff==0.15.7"
+          ../.venv-ci/Scripts/python -m pip install -e "../ue-adapter[test]" -e ".[test,simulation,posture,vision]" "ruff==0.15.7"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Refresh editable checkout paths
+        run: |
+          ../.venv-ci/Scripts/python -m pip install --no-deps -e "../ue-adapter" -e .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Save right after installing so a failing test run still warms the cache.
       - name: Save Python environment

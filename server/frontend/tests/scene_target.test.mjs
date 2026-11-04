@@ -1,3 +1,4 @@
+import { installSceneSelection } from './helpers/scene_context.mjs';
 import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -20,7 +21,7 @@ function setup() {
     return nodes.get(id);
   };
   const requests = [];
-  const ctx = vm.createContext({clearWristWrench() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+  const ctx = vm.createContext({clearWristWrench() {}, clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
     initialJoints: { read: () => null, setRuntime() {} }, $, console, state: { stateRequestSequence: 0, currentUser: { role: "admin" } },
     Option: function(label, value) { this.label = label; this.value = value; }, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},
@@ -32,6 +33,8 @@ function setup() {
         randomization_profiles: [{ id: "none", label: "固定" }], defaults: { template_id: current, randomization_profile: "none" } }) };
     },
   });
+  installSceneSelection(ctx, source);
+
   vm.runInContext(catalogSource + applySource, ctx);
   Object.assign(ctx, createSceneSession({...ctx, applySceneRuntime: (...args) => ctx.applySceneRuntime(...args)}));
   return { $, ctx, requests };

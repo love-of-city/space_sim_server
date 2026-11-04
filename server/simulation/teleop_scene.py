@@ -154,6 +154,8 @@ def load_scene_instance(path: Path | None, model_root: Path | None = None) -> di
         "target_angular_velocity_rad_s": 3,
         "arm_joint_position_rad": 8,
     }
+    if "target_relative_velocity_m_s" in randomization:
+        expected_lengths["target_relative_velocity_m_s"] = 3
     for field, length in expected_lengths.items():
         values = randomization.get(field)
         if not isinstance(values, list) or len(values) != length:
@@ -168,8 +170,12 @@ def load_scene_instance(path: Path | None, model_root: Path | None = None) -> di
     quaternion_norm = float(np.linalg.norm(randomization["target_orientation_wxyz"]))
     if quaternion_norm <= 1.0e-12:
         raise ValueError("scene target quaternion must have non-zero norm")
+    if (randomization.get('capture_window_trial') or randomization.get('capture_visual_test', {}).get('enabled')
+            or randomization.get('formation_hold', {}).get('enabled')):
+        raise ValueError('Experimental autonomous capture/formation controllers are not enabled in this runtime')
     joints = np.asarray(randomization["arm_joint_position_rad"], dtype=float)
-    scene_model = target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model
+    from space_arm_platform.imported_scene_library import model_for_instance
+    scene_model = model_for_instance(document) or (target.resolve_model(model_root) if model_root is not None else PROJECT_ROOT / target.runtime_model)
     from simulation.sarm_model_profile import load_model_profile
     scene_limits = load_joint_limits(scene_model, load_model_profile(scene_model).joint_names)
     if np.any(joints < np.array(scene_limits.lower)) or np.any(joints > np.array(scene_limits.upper)):
@@ -237,6 +243,7 @@ def apply_orbital_initial_state(
     randomized: dict[str, Any],
     initial_joints: np.ndarray,
     orbit_origin: Any | None = None,
+    local_stepper: Any | None = None,
 ) -> dict[str, Any]:
     """Apply one saved orbital phase to the authoritative MJScene bodies.
 
@@ -266,14 +273,21 @@ def apply_orbital_initial_state(
     target = scene.getBody("capture_target")
     bus.setPosition(orbital_position)
     bus.setVelocity(bus_velocity)
+    if 'target_relative_velocity_m_s' in randomized:
+        bus.setAttitudeRate(np.zeros(3))
     from space_arm_platform.task_box import initialize_free_plugs
     initialize_free_plugs(scene, native.MODEL_PATH, orbital_position, bus_velocity)
     target.setPosition(orbital_position + np.asarray(randomized["target_position_m"], dtype=float))
     # Both free bodies use the same inertial frame.  The randomized
     # target velocity is only a local offset, not its full orbital speed.
-    target.setVelocity(
-        orbital_velocity + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float)
-    )
+    target_velocity = (bus_velocity + np.asarray(randomized["target_relative_velocity_m_s"], dtype=float)
+                       if "target_relative_velocity_m_s" in randomized else
+                       orbital_velocity + np.asarray(randomized["target_linear_velocity_m_s"], dtype=float))
+    target.setVelocity(target_velocity)
+    if "target_relative_velocity_m_s" in randomized:
+        print(json.dumps({"type": "target_relative_initial_state",
+                          "position_m": randomized["target_position_m"],
+                          "relative_velocity_m_s": (target_velocity-bus_velocity).tolist()}, sort_keys=True), flush=True)
     target.setAttitude(
         native._quaternion_to_mrp(
             np.asarray(randomized["target_orientation_wxyz"], dtype=float)
@@ -290,11 +304,31 @@ def apply_orbital_initial_state(
         joint.setPosition(float(position))
         joint.setVelocity(0.0)
 
+    if native.MODEL_PATH.name == 'sarm_dual_capture26.xml':
+        from simulation.components.capture26 import INITIAL_JOINTS
+        for body_name, joint_name, value in INITIAL_JOINTS:
+            joint = scene.getBody(body_name).getScalarJoint(joint_name)
+            joint.setPosition(value)
+            joint.setVelocity(0.0)
+
     # Extra target DOFs never enter the SARM arm/IK/actuator arrays.
     if "target_hinge_position_rad" in randomized:
         hinge = scene.getBody("satellite_outer_panel").getScalarJoint("outer_panel_hinge")
         hinge.setPosition(float(randomized["target_hinge_position_rad"]))
         hinge.setVelocity(0.0)
+
+    # Whole-spacecraft COM depends on the arm pose: assign it before measuring.
+    if 'capture_arm_joint_position_rad' in randomized:
+        for i, value in enumerate(randomized['capture_arm_joint_position_rad'], 1):
+            scene.getBody(f'bottom_link{i}').getScalarJoint(f'bottom_joint{i}').setPosition(float(value))
+    if 'preheld_capture_joint_position' in randomized:
+        from simulation.components.preheld_capture import validate_preheld
+        from simulation.capture_arm_target import INITIAL_JOINTS
+        values = validate_preheld(native.MODEL_PATH, randomized['preheld_capture_joint_position'])
+        for (body_name, joint_name, _), value in zip(INITIAL_JOINTS, values, strict=True):
+            joint = scene.getBody(body_name).getScalarJoint(joint_name)
+            joint.setPosition(float(value))
+            joint.setVelocity(0.)
 
     orbit_state = {
         "semi_major_axis_m": float(elements.a),
@@ -303,4 +337,65 @@ def apply_orbital_initial_state(
         "initial_altitude_m": float(np.linalg.norm(orbital_position) - float(earth.radEquator)),
         "initial_speed_m_s": float(np.linalg.norm(bus_velocity)),
     }
+    formation = randomized.get('coorbital_initialization', {})
+    if formation.get('enabled'):
+        if float(orbit['eccentricity']) != 0 or not math.isfinite(float(formation['separation_m'])) or float(formation['separation_m']) <= 0:
+            raise ValueError('coorbital initialization requires a circular orbit and positive finite separation')
+        from Basilisk.utilities import RigidBodyKinematics as rbk
+        from simulation.coorbital_initialization import reference
+        import xml.etree.ElementTree as ET
+        point = formation.get('reference_point', 'body_origin')
+        if point not in ('body_origin', 'assembly_com'):
+            raise ValueError('coorbital reference_point must be body_origin or assembly_com')
+        com_args = {}
+        if point == 'assembly_com':
+            if local_stepper is None:
+                raise ValueError('assembly_com initialization requires the authoritative local backend')
+            properties = local_stepper.initial_assembly_properties(
+                native.MODEL_PATH, ['cubesat_bus', 'capture_target'])
+            com_args = dict(service_com_body_m=properties['cubesat_bus']['com_body_m'],
+                            target_com_body_m=properties['capture_target']['com_body_m'])
+            orbit_state['assembly_com_properties'] = properties
+        ref = reference(orbital_position, orbital_velocity, formation['separation_m'],
+                        service_body_rotation_wxyz=formation.get('service_body_rotation_wxyz'), **com_args)
+        rs, rt, omega = ref['service_rotation'], ref['target_rotation'], ref['omega']
+        bus.setPosition(ref['service_position'])
+        bus.setAttitude(rbk.C2MRP(rs.T)); bus.setVelocity(ref['service_velocity'])
+        bus.setAttitudeRate(rs.T @ omega)
+        target.setPosition(ref['target_position']); target.setVelocity(ref['target_velocity'])
+        target.setAttitude(rbk.C2MRP(rt.T)); target.setAttitudeRate(rt.T @ omega)
+        # Free task-box plugs must follow the new bus initial transform too.
+        root = ET.parse(native.MODEL_PATH).getroot()
+        for element in root.findall('./worldbody/body'):
+            name = element.get('name')
+            if name in ('cubesat_bus','capture_target'): continue
+            if element.find('freejoint') is None and element.find('joint[@type="free"]') is None: continue
+            local = np.fromstring(element.get('pos','0 0 0'),sep=' ')
+            quat = np.fromstring(element.get('quat','1 0 0 0'),sep=' ')
+            body = scene.getBody(name); offset = rs @ local
+            body.setPosition(ref['service_position']+offset)
+            body.setVelocity(ref['service_velocity']+np.cross(omega,offset))
+            rotation = rs @ np.asarray(rbk.EP2C(quat)).T
+            body.setAttitude(rbk.C2MRP(rotation.T)); body.setAttitudeRate(rotation.T @ omega)
+        orbit_state['initial_position_m'] = ref['service_position'].tolist()
+        orbit_state['initial_velocity_m_s'] = ref['service_velocity'].tolist()
+        orbit_state['initial_altitude_m'] = float(np.linalg.norm(ref['service_position'])-earth.radEquator)
+        orbit_state['initial_speed_m_s'] = float(np.linalg.norm(ref['service_velocity']))
+        orbit_state['coorbital_initialization'] = formation
+        if point == 'assembly_com':
+            orbit_state['initial_com_states'] = {
+                name: dict(position_m=ref[prefix+'_com_position'].tolist(),
+                           velocity_m_s=ref[prefix+'_com_velocity'].tolist())
+                for name, prefix in [('cubesat_bus', 'service'), ('capture_target', 'target')]}
+        if 'grip_frame_standoff_m' in formation:
+            from simulation.capture_arm_target import CaptureArmTarget
+            arm = CaptureArmTarget(native.MODEL_PATH)
+            p, rotation = arm.kinematics.forward(randomized['capture_arm_joint_position_rad'])
+            interface = rs.T @ (ref['target_position']-ref['service_position']
+                                + rt @ np.array([.1755, .05475, .0420787001299893]))
+            gap = float(np.linalg.norm(interface-p))
+            expected_gap = float(formation['grip_frame_standoff_m'])
+            if not math.isfinite(expected_gap) or expected_gap <= 0 or abs(gap-expected_gap) > .001:
+                raise ValueError(f'initial capture standoff mismatch: {gap:.6f} m versus {expected_gap} m')
+            orbit_state['initial_grip_to_interface_m'] = gap
     return orbit_state

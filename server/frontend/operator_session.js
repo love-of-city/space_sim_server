@@ -1,8 +1,10 @@
+import { armObservation } from './dual_arm.js';
 // Authenticated operator WebSocket lifecycle, control handoff and live telemetry.
 export function createOperatorSession({ state, $, clearWristWrench, setOnline, jointAngles,
   updateOperationUI, updateEpisodeUI, setMessage, exitOperationMode, applyAuthenticatedUser,
   applyControlLimits, completeEnterOperationMode, armPreparation, updateMotionOutputs,
   formatMotionSpeedDiagnostics, formatWristWrench, referenceProtectionLabel, dynamicsTimingLabel,
+  clearSimulationTelemetry = clearWristWrench,
   location = globalThis.location, WebSocket = globalThis.WebSocket,
   performance = globalThis.performance, setTimeout = globalThis.setTimeout,
 }) {
@@ -22,7 +24,7 @@ export function createOperatorSession({ state, $, clearWristWrench, setOnline, j
       setMessage("操作链路已连接；场景运行后点击画面进入操作模式");
     };
     state.ws.onclose = () => {
-      clearWristWrench();
+      clearSimulationTelemetry();
       state.connected = false;
       state.controlGranted = false;
       setOnline("backendDot", false);
@@ -77,7 +79,23 @@ export function createOperatorSession({ state, $, clearWristWrench, setOnline, j
     };
   }
 
-  function handleObservation(obs) {
+  function handleObservation(raw) {
+    if (state.mission?.stage === "flight") return;
+    if (state.sceneInstanceId && raw.scene_instance_id !== state.sceneInstanceId) return;
+    state.renderSessionId = raw.render_session_id;
+    const relative = raw.target_relative_state;
+    $('relativeDistance').textContent = relative ? `${Math.hypot(...relative.position_inertial_m).toFixed(4)} m` : '—';
+    $('relativeVelocity').textContent = relative ? relative.velocity_inertial_m_s.map(x=>(x*1000).toFixed(3)).join(', ')+' mm/s' : '—';
+    $('relativeAngularVelocity').textContent = relative ? relative.angular_velocity_inertial_rad_s.map(x=>x.toFixed(6)).join(', ')+' rad/s' : '—';
+    state.hasCaptureArm = !!raw.capture_arm;
+    state.visualProbe = raw.capture_arm?.visual_probe_enabled===true;
+    $('captureArmOption').disabled = !state.hasCaptureArm;
+    if (!state.hasCaptureArm && state.controlledArm === 'capture') {
+      exitOperationMode('当前场景没有抓取臂');state.controlledArm='operating';$('controlledArm').value='operating';
+    }
+    $('captureToolControls').hidden = state.controlledArm !== 'capture';
+    if(raw.capture_arm) $('captureToolStatus').textContent = `轴向 ${(raw.capture_arm.axial_position_m*1000).toFixed(1)} mm · 径向 ${(raw.capture_arm.radial_position_m*1000).toFixed(1)} mm · ${raw.capture_arm.controller_status}`;
+    const obs = armObservation(raw,state.controlledArm);
     const demo = obs.fastener_demo;
     $("fastenerDemoStatus").hidden = !demo;
     if (demo) {
@@ -85,7 +103,7 @@ export function createOperatorSession({ state, $, clearWristWrench, setOnline, j
       $("fastenerDemoStatus").textContent = `防脱演示 · ${phase} · 行程 ${Number(demo.travel_mm).toFixed(2)} mm · 转角 ${Number(demo.angle_deg).toFixed(1)}°`;
     }
     jointAngles.update(obs);
-    armPreparation.update(obs.arm_preparation, obs);
+    armPreparation.update(raw.arm_preparation, raw);
     setOnline("simDot", true);
     $("simState").textContent = "仿真在线";
     $("simTime").textContent = `${(Number(obs.sim_time_ns) / 1e9).toFixed(3)} s`;
@@ -108,10 +126,14 @@ export function createOperatorSession({ state, $, clearWristWrench, setOnline, j
     $("wristWrenchDetail").textContent = wrench.detail;
     const attitude = obs.attitude_control;
     $("referenceProtection").textContent = referenceProtectionLabel(obs);
+    if(state.controlledArm==='capture') {
+      $('ikSolver').textContent=`抓取臂阻尼 IK · ${obs.ik_status || '等待遥测'}`;
+      $('referenceProtection').textContent='关节限速 0.25 rad/s · 参考超前限制 0.05 rad · 松键保持实测位置';
+    }
     $("dynamicsTiming").textContent = dynamicsTimingLabel(obs);
     const wheels = obs.reaction_wheels;
     $("attitudeMode").textContent = !attitude ? "—" : !attitude.enabled ? "控制关闭" :
-      !attitude.reference_initialized ? "初始化" : attitude.saturated ? "惯性保持 · 饱和" : "惯性保持";
+      !attitude.reference_initialized ? "初始化" : (raw.coorbital_initialization ? "轨道定向保持" : "惯性保持") + (attitude.saturated ? " · 饱和" : "");
     $("attitudeError").textContent = attitude ? `${(attitude.attitude_error_angle_rad * 180 / Math.PI).toFixed(3)} °` : "—";
     $("bodyRate").textContent = attitude ? attitude.angular_velocity_body_rad_s.map(v => Number(v).toFixed(4)).join(", ") + " rad/s" : "—";
     $("wheelSpeeds").textContent = wheels ? wheels.speed_rad_s.map(v => (v * 60 / (2 * Math.PI)).toFixed(1)).join(", ") + " rpm" : "—";

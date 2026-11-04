@@ -67,6 +67,10 @@ def run(args: argparse.Namespace) -> None:
     template_id = scene_instance["template_id"] if scene_instance else DEFAULT_TEMPLATE
     target_spec = capture_target(template_id)
     model_override = getattr(args, "model_path", None)
+    if scene_instance and scene_instance.get('library_scene'):
+        from space_arm_platform.imported_scene_library import model_for_instance
+        model_override = model_for_instance(scene_instance)
+        args.catalog = Path(scene_instance['library_scene']['catalog'])
     native.MODEL_PATH = (
         Path(model_override).resolve()
         if model_override is not None
@@ -234,6 +238,10 @@ def _run_session(
         print(json.dumps({"type": "native_integration_configuration", **integration,
                           "dynamics_rate_hz": DYNAMICS_HZ}, sort_keys=True), flush=True)
         ephemeris_environment = scene_instance.get("environment", {}) if scene_instance else {}
+        flight_handoff = scene_instance.get("rendezvous_handoff") if scene_instance else None
+        handoff_continuity = []
+        if flight_handoff and not local_backend:
+            raise ValueError("rendezvous handoff requires the shared local dynamics backend")
         ephemeris_epoch = str(
             ephemeris_environment.get("ephemeris_epoch_utc", DEFAULT_EPHEMERIS_EPOCH_UTC)
         )
@@ -282,7 +290,12 @@ def _run_session(
             camera_display_names={
                 "spacecraft_overview": "Spacecraft Overview",
                 "sarm_wrist_cam": "SARM Wrist Camera",
-            })
+                "capture_wrist_cam": "Capture Wrist Camera",
+            },
+            visual_attachments=(scene_instance.get('render_profile', {}).get('visual_attachments', [])
+                                if scene_instance else []),
+            vision_capture=(scene_instance.get('render_profile', {}).get('vision_capture')
+                            if scene_instance else None))
         assembly.install([
             ClockComponent(),
             orbit_component,
@@ -302,12 +315,38 @@ def _run_session(
                 enabled=False if getattr(args, "disable_attitude_control", False) else None),
             render,
         ])
+        capture_component = None
+        if scene_instance and 'preheld_capture_joint_position' in scene_instance.get('randomization', {}):
+            from simulation.components.preheld_capture import PreheldCaptureComponent
+            assembly.install([PreheldCaptureComponent(native.MODEL_PATH,
+                scene_instance['randomization']['preheld_capture_joint_position'],
+                scene_instance.get('preheld_capture', {}).get('hold_gains'))])
+        elif template_id == 'sarm-dual-capture26':
+            from simulation.components.capture26 import Capture26Component
+            capture_component = Capture26Component(native.MODEL_PATH, client,
+                scene_instance.get('randomization', {}).get('capture_arm_joint_position_rad') if scene_instance else None)
+            assembly.install([capture_component])
+            if scene_instance.get('randomization', {}).get('coorbital_initialization', {}).get('enabled'):
+                from simulation.components.orbit_attitude_reference import OrbitAttitudeReferenceComponent
+                assembly.install([OrbitAttitudeReferenceComponent(
+                    scene_instance['randomization']['coorbital_initialization'].get('service_body_rotation_wxyz'))])
+
         from simulation.components.plug_retention import install_configured_plug_retention
         plug_retention = install_configured_plug_retention(assembly)
         retention_configuration = (plug_retention.configuration() if plug_retention else {"enabled": False})
         if template_id == 'sarm-task-box-20261012-demo':
             from simulation.components.fastener_demo import FastenerDemoComponent
             assembly.install([FastenerDemoComponent()])
+        flight_environment = None
+        if flight_handoff:
+            from simulation.components.flight_environment import FlightEnvironmentComponent
+            from space_arm_platform.rendezvous_config import FlightOptions
+            flight_options = FlightOptions.from_dict(flight_handoff["mission_options"])
+            flight_environment = FlightEnvironmentComponent(flight_options, [
+                ("capture_target", None, flight_handoff["body_properties"]["capture_target"]["mass_kg"], flight_options.target_area_m2),
+                ("cubesat_bus", None, flight_handoff["body_properties"]["cubesat_bus"]["mass_kg"], flight_options.chaser_area_m2),
+            ])
+            assembly.install([flight_environment])
         drag_components = []
         if orbital_physics.drag is not None:
             from simulation.components.drag import configured_drag_components
@@ -319,6 +358,18 @@ def _run_session(
         orbital_metadata = environment_metadata(orbital_physics, earth, epoch_utc=ephemeris_epoch)
         print(json.dumps({"type": "orbital_physics_configuration", **orbital_metadata}, sort_keys=True), flush=True)
         bridge = render.bridge
+        from dataclasses import asdict
+        from simulation.components.gyroscope import GyroscopeComponent
+
+        sensor_options = scene_instance.get("sensors", {}) if scene_instance else {}
+        if not isinstance(sensor_options, dict):
+            raise ValueError("scene sensors must be an object")
+        gyro = GyroscopeComponent(sensor_options.get("service_gyro", {}),
+                                  seed=scene_instance["seed"] if scene_instance else 0)
+        assembly.install([gyro])
+        print(json.dumps({"type": "service_gyro_configuration", "seed": gyro.sensor.seed,
+                          "sample_rate_hz": 50, "settings": asdict(gyro.sensor.config),
+                          "scope": "passive_rate_feedback"}), flush=True)
         ephemeris = orbit_component.ephemeris
         orbit_origin = orbit_component.origin
         gravity_target_names = orbit_component.gravity_targets
@@ -338,6 +389,9 @@ def _run_session(
         # authoritative native state at its original scheduled timestamp.
         position_readers = [joint.stateOutMsg.addSubscriber() for joint in joints]
         velocity_readers = [joint.stateDotOutMsg.addSubscriber() for joint in joints]
+        relative_readers = ([scene.getBody(name).getOrigin().stateOutMsg.addSubscriber()
+                             for name in ('cubesat_bus', 'capture_target')] if capture_component else [])
+        relative_state_logged = False
         hinge_reader = (
             scene.getBody(target_spec.hinge_body).getScalarJoint(target_spec.hinge_joint)
             .stateOutMsg.addSubscriber() if target_spec.hinge_joint else None
@@ -379,6 +433,26 @@ def _run_session(
         )
 
         def snapshot_observation(render_frame_id: int, render_sim_time_ns: int) -> dict[str, Any]:
+            nonlocal relative_state_logged
+            relative_state = None
+            if relative_readers:
+                from Basilisk.utilities import RigidBodyKinematics as rbk
+                bus_state, target_state = [reader() for reader in relative_readers]
+                bus_rotation = np.asarray(rbk.MRP2C(bus_state.sigma_BN)).T
+                target_rotation = np.asarray(rbk.MRP2C(target_state.sigma_BN)).T
+                relative_state = {
+                    'position_inertial_m': (np.asarray(target_state.r_BN_N)-bus_state.r_BN_N).tolist(),
+                    'velocity_inertial_m_s': (np.asarray(target_state.v_BN_N)-bus_state.v_BN_N).tolist(),
+                    'angular_velocity_inertial_rad_s': (target_rotation@np.asarray(target_state.omega_BN_B)-bus_rotation@np.asarray(bus_state.omega_BN_B)).tolist(),
+                }
+                r=np.asarray(bus_state.r_BN_N); v=np.asarray(bus_state.v_BN_N)
+                omega=np.cross(r,v)/np.dot(r,r)
+                relative_state['velocity_rotating_m_s']=(np.asarray(relative_state['velocity_inertial_m_s'])-np.cross(omega,relative_state['position_inertial_m'])).tolist()
+                if scene_instance and scene_instance.get('randomization', {}).get('coorbital_initialization', {}).get('enabled') and render_frame_id % 500 == 0:
+                    print(json.dumps({'type':'coorbital_free_motion','sim_time_ns':render_sim_time_ns,**relative_state}),flush=True)
+                if not relative_state_logged:
+                    print(json.dumps({'type':'dual_arm_first_measured_state','sim_time_ns':render_sim_time_ns,**relative_state}),flush=True)
+                    relative_state_logged = True
             joint_position = [float(read().state) for read in position_readers]
             joint_velocity = [float(read().state) for read in velocity_readers]
             end_effector_position, end_effector_rotation = kinematics.forward(
@@ -406,6 +480,12 @@ def _run_session(
                     "orbital_dynamics": (
                         simulation.local_stepper.telemetry()["orbital_environment"]
                         if local_backend else {"mode": "basilisk"}),
+                    "rendezvous_handoff": ({"source_run_id": flight_handoff["state"]["metadata"]["run_id"],
+                                            "initial_state_errors_m_m_s": handoff_continuity,
+                                            "epoch_s": flight_handoff["state"]["sim_time_s"],
+                                            "navigation_estimates_eci": flight_handoff["gnss_estimates_eci"],
+                                            "navigation_covariances": flight_handoff["covariances"]} if flight_handoff else None),
+                    "flight_environment": flight_environment.telemetry() if flight_environment else None,
                     "orbital_physics": orbital_metadata,
                     "plug_retention": {
                         **retention_configuration,
@@ -427,6 +507,9 @@ def _run_session(
                         "hinge_position_rad": float(hinge_reader().state) if hinge_reader is not None else None,
                     },
                     "scene_template_id": template_id,
+                    "capture_arm": capture_component.telemetry() if capture_component else None,
+                    "target_relative_state": relative_state,
+                    "coorbital_initialization": bool(scene_instance and scene_instance.get('randomization', {}).get('coorbital_initialization', {}).get('enabled')),
                     "step_id": str(render_frame_id + 1),
                     "observation_source": "authoritative_render_snapshot",
                     "render_frame_id": str(render_frame_id),
@@ -450,6 +533,7 @@ def _run_session(
                         "gripper_velocity_m_s": joint_velocity[6:],
                         "target_gripper_position_m": targets.position[6:].tolist()}),
                     **simulation.attitude_control.telemetry(),
+                    "service_gyro": gyro.observation(),
                     "joint_position_rad": joint_position,
                     "joint_velocity_rad_s": joint_velocity,
                     "target_joint_position_rad": targets.position.tolist(),
@@ -565,8 +649,45 @@ def _run_session(
         if target_spec.hinge_joint:
             randomized.setdefault("target_hinge_position_rad", 0.0)
         orbit_state = apply_orbital_initial_state(
-            scene, native, earth, orbit, randomized, initial_joints, orbit_origin
+            scene, native, earth, orbit, randomized, initial_joints, orbit_origin,
+            local_stepper=getattr(simulation, 'local_stepper', None)
         )
+        if flight_handoff:
+            from simulation.orbital_rendezvous.handoff import apply_handoff, validate_handoff
+            validate_handoff(flight_handoff, native.MODEL_PATH)
+            apply_handoff(scene, flight_handoff)
+            scene.postIntegration(0)
+            # postIntegration refreshes body/site kinematics only. Publish the
+            # scalar joints before seeding hold references or the first IK tick
+            # would consume the zero-position messages from initialization.
+            # With the required local backend this call only publishes states.
+            scene.UpdateState(0)
+            # A near-field handoff may contain a deployed arm and closed
+            # fingers. Seed the operator's hold references from those joints.
+            targets.initial_position = np.array([
+                float(scene.getBody(body).getScalarJoint(joint).stateOutMsg.read().state)
+                for body, joint in native.JOINTS])
+            targets.reset(0.0)
+            restored_joints = {(item["body"], item["joint"]["name"]): item["position"]
+                               for item in flight_handoff["stowed_joints"]}
+            reference_error = max(abs(value - restored_joints[key])
+                                  for key, value in zip(native.JOINTS, targets.position, strict=True))
+            if reference_error >= 1e-8:
+                raise ValueError("handoff joint hold reference continuity failed")
+            print(json.dumps({"type": "handoff_joint_reference", "max_error_rad_or_m": reference_error,
+                              "position": targets.position.tolist()}), flush=True)
+            for saved in flight_handoff["state"]["bodies"]:
+                body_name = "capture_target" if saved["body_id"] == "rendezvous/target" else "cubesat_bus"
+                actual = scene.getBody(body_name).getOrigin().stateOutMsg.read()
+                handoff_continuity.extend([float(np.linalg.norm(np.asarray(actual.r_BN_N)-saved["position_m"])),
+                                           float(np.linalg.norm(np.asarray(actual.v_BN_N)-saved["velocity_m_s"]))])
+            if max(handoff_continuity) >= 1e-8:
+                raise ValueError("handoff initial state continuity failed")
+            target_state = next(body for body in flight_handoff["state"]["bodies"] if body["body_id"] == "rendezvous/target")
+            orbit_origin.set_state(np.asarray(target_state["position_m"]), np.asarray(target_state["velocity_m_s"]))
+            for module, saved in zip(flight_environment.models, flight_handoff.get("environment_state", []), strict=True):
+                module.restore(saved)
+            orbit_state["rendezvous_handoff_applied"] = True
         print(
             json.dumps(
                 {

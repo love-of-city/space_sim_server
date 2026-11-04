@@ -9,10 +9,11 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
+from .auth_api import current_user
 from .stream_access import issue_stream_access_token
 
 
-def install_media_routes(app, *, config, safety, hub, recorder, captures, scenes):
+def install_media_routes(app, *, config, safety, hub, recorder, captures, scenes, missions=None, rendezvous=None):
     def authorize_access_key(candidate: str | None) -> None:
         if config.stream_access_key and not hmac.compare_digest(candidate or "", config.stream_access_key):
             raise HTTPException(status_code=401, detail="a valid stream access key is required")
@@ -27,6 +28,10 @@ def install_media_routes(app, *, config, safety, hub, recorder, captures, scenes
                 for streamer_id, label in config.pixel_streaming_camera_streamers
             ),
         ]
+        prefix = config.pixel_streaming_streamer_id + "__teleop_camera_"
+        for item in streamers:
+            if item["id"].startswith(prefix):
+                item["aliases"] = [item["id"].replace(prefix, config.pixel_streaming_streamer_id + "__team_camera_", 1)]
         response = {
             "preview_transport": "pixel_streaming_2",
             "pixel_streaming_player_port": config.pixel_streaming_player_port,
@@ -39,13 +44,13 @@ def install_media_routes(app, *, config, safety, hub, recorder, captures, scenes
         if config.stream_access_jwt_secret:
             response["pixel_streaming_access_token"] = issue_stream_access_token(
                 config.stream_access_jwt_secret,
-                (item["id"] for item in streamers),
+                (stream_id for item in streamers for stream_id in [item["id"], *item.get("aliases", [])]),
                 ttl_seconds=config.stream_access_token_ttl_seconds,
             )
         return response
 
     @app.get("/api/state")
-    async def state() -> dict[str, Any]:
+    async def state(request: Request) -> dict[str, Any]:
         action = safety.last_action
         return {
             "simulation": hub.status(),
@@ -56,6 +61,8 @@ def install_media_routes(app, *, config, safety, hub, recorder, captures, scenes
             "capture_channels": captures.status(),
             "capture_sync": recorder.sync_status(),
             "scene_runtime": scenes.status(),
+            "mission": await asyncio.to_thread(missions.status, current_user(request)) if missions else None,
+            "rendezvous": rendezvous.status() if rendezvous else None,
         }
 
     @app.get("/api/cameras")

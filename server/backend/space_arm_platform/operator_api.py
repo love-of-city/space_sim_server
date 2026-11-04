@@ -16,7 +16,7 @@ from .safety import ActionRejected
 
 
 def install_operator_routes(app, *, config, allowed_origins, auth, sessions, policy, hub,
-                            scenes, recorder, safety):
+                            scenes, recorder, safety, missions=None):
     @app.websocket("/ws/operator")
     async def operator_socket(websocket: WebSocket) -> None:
         if allowed_origins and websocket.headers.get("origin") not in allowed_origins:
@@ -83,6 +83,12 @@ def install_operator_routes(app, *, config, allowed_origins, auth, sessions, pol
                 if message_type == "ping":
                     await websocket.send_json({"type": "pong", "server_time_ns": str(time.time_ns())})
                     continue
+                if missions:
+                    try:
+                        missions.require_stable()
+                    except RuntimeError:
+                        await websocket.send_json({"type": "action_rejected", "reason": "mission_transition_or_flight"})
+                        continue
                 if policy.active:
                     await websocket.send_json({"type": "action_rejected", "reason": "policy_control_active"})
                     continue

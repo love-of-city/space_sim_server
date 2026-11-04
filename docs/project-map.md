@@ -88,7 +88,11 @@ server/
 ├── simulation/                     Python 仿真装配、控制、规划、状态读取
 │   ├── components/                Basilisk 功能组件
 │   ├── model_preparation/         任务模型的物理结构准备
-│   └── scripted_tasks/            自动任务状态机、路径规划与图复用
+│   ├── scripted_tasks/            唯一当前专家、路径规划与图复用
+│   ├── evaluation/                原始动作冻结、固定回放和独立物理评分
+│   ├── scene_library/             场景目录、装配、坐标和证据验收
+│   ├── orbital_rendezvous/        远距交会与交接
+│   └── near_field/                近距导航与执行
 ├── native/                         C++ 动力学与计算加速源文件
 ├── frontend/                       网页控制台与页面逻辑
 │   ├── pages/                     采集、数据集、用户管理页面
@@ -450,3 +454,5 @@ NullRHI Automation、packaged 资源加载、GPU 图像、五任务完整录制�
 `server/simulation/scripted_tasks/drawer_tasks.py` 注册抽屉完整循环及拉起/放回；`threaded_tasks.py` 注册航空螺栓、锁杆完整循环及放倒/复位。
 `server/simulation/model_preparation/drawer_task_initialization.py` 与 `threaded_task_initialization.py` 在录制前建立对应机构初态。
 四项入口与默认启用规则见[单向操作采集](../server/docs/single-direction-collection.md)，所有十项的验收见[任务与数据验收](reference/task-and-data-acceptance.md)。
+
+新增能力继续使用现有拆分结构：后端 `mission_api.py` / `vision_api.py` 只注册领域路由，`app.py` 保持装配；网页仍只有一个控制台、一个 API 客户端及既有会话模块。功能边界与验证口径见[仿真扩展](../server/docs/simulation-capabilities.md)。

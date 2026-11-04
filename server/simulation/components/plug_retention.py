@@ -52,7 +52,8 @@ class RetentionKinematics:
 
 
 class PlugRetentionModel(sysModel.SysModel):
-    def __init__(self, state, base_layout, plug_layout, detent, friction, *, name, kinematics=None):
+    def __init__(self, state, base_layout, plug_layout, detent, friction, *, name,
+                 kinematics=None, claims=None, plug=None, owner=None):
         super().__init__()
         self.ModelTag = f"plugRetention_{name}"
         self.kinematics = kinematics if kinematics is not None else RetentionKinematics(state)
@@ -67,9 +68,12 @@ class PlugRetentionModel(sysModel.SysModel):
         self.last_force_n = np.zeros(3)
         self.last_sample_ns = None
         self._configured_socket = None
+        self.claims, self.plug, self.owner = claims, plug, owner
 
     def Reset(self, nanos):
         self.kinematics.reset()
+        if self.claims is not None and self.claims.get(self.plug) == self.owner:
+            self.claims.pop(self.plug)
         self.detent.reset()
         self.friction.configure()
         self._configured_socket = None
@@ -91,6 +95,13 @@ class PlugRetentionModel(sysModel.SysModel):
         # still contain the XML pose and would consume the one initial capture.
         if not self.friction.stepper.state_initialized or not self.reader.isWritten():
             return
+        if self.claims is not None and self.claims.get(self.plug) not in (None, self.owner):
+            self.friction.configure()
+            self._configured_socket = None
+            self.last_force_n = np.zeros(3)
+            self.last_sample_ns = int(nanos)
+            self._write([np.zeros(3)] * 4, nanos)
+            return
         if isinstance(self.detent, NativePlugFriction):
             q, v = self.kinematics.sample(nanos)
             values = self.detent.paired_wrenches(q, v, self.base_layout, self.plug_layout)
@@ -104,9 +115,14 @@ class PlugRetentionModel(sysModel.SysModel):
             force, torque = br @ force, br @ torque
             values = paired_com_wrenches(force, torque, pp, pc, bc, pr, br)
         socket = self.detent.active
-        # Socket frames are fixed in the base body. The native core transforms
-        # them each substep, so an unchanged enabled socket needs no rewrite.
-        # Keep every disabled call: it also clears free-state force telemetry.
+        if self.claims is not None:
+            if socket is not None:
+                self.claims[self.plug] = self.owner
+            elif self.claims.get(self.plug) == self.owner:
+                self.claims.pop(self.plug)
+        # Socket frames are fixed in their owning body. The native core moves
+        # them each substep, so unchanged enabled sockets need no rewrite.
+        # Keep disabled calls to clear free-state force telemetry.
         if socket is None or socket is not self._configured_socket:
             self.friction.configure(enabled=socket is not None,
                                     axis=(0., 0., 1.) if socket is None else socket.rotation_body[:, 2],
@@ -145,36 +161,54 @@ class PlugRetentionComponent:
             raise ValueError("plug retention parameters must be supplied explicitly")
         if ctx.ports.stepper is None:
             raise RuntimeError("plug retention requires the local dynamics backend")
-        sockets = self.sockets if self.sockets is not None else model_retention_sockets(self.model_path)
+        sockets = self.sockets if self.sockets is not None else retention_sockets(self.model_path)
         if not sockets:
             return
-        base_layout = ctx.ports.free_body_layout(self.base)
+        self.moving_owners = any(s.owner_body not in (None, self.base) for seats in sockets.values() for s in seats)
+        claims, groups = {}, []
+        self.model_bodies = {}
         kinematics = RetentionKinematics(ctx.ports.scene_state())
         guidance = NativePlugFriction if self.guidance_backend == "native" else PlugFriction
-        for body, seats in sockets.items():
-            friction = ctx.ports.axial_friction(body, self.base, static_n=self.parameters.static_friction_n,
+        for body, all_seats in sockets.items():
+            owners = list(dict.fromkeys(s.owner_body or self.base for s in all_seats))
+            for owner in owners:
+                seats = tuple(s for s in all_seats if (s.owner_body or self.base) == owner)
+                key = body if len(owners) == 1 else body + '@' + owner
+                groups.append((body, owner, seats, key))
+        for body, owner, seats, key in groups:
+            base_layout = ctx.ports.free_body_layout(owner)
+            friction = ctx.ports.axial_friction(body, owner, static_n=self.parameters.static_friction_n,
                                                 kinetic_n=self.parameters.sliding_friction_n,
                                                 travel_m=self.parameters.friction_travel_m)
             model = PlugRetentionModel(ctx.ports.scene_state(), base_layout,
                                        ctx.ports.free_body_layout(body), guidance(seats, self.parameters),
-                                       friction, name=body, kinematics=kinematics)
-            ctx.ports.add_body_wrench(body, source=f"{self.name}_{body}",
+                                       friction, name=key, kinematics=kinematics,
+                                       claims=claims, plug=body, owner=owner)
+            ctx.ports.add_body_wrench(body, source=f"{self.name}_{key}",
                                      force_inertial=model.outputs[0], torque_body=model.outputs[1])
-            ctx.ports.add_body_wrench(self.base, source=f"{self.name}_{body}_reaction",
+            ctx.ports.add_body_wrench(owner, source=f"{self.name}_{key}_reaction",
                                      force_inertial=model.outputs[2], torque_body=model.outputs[3])
             ctx.add(model, Slot.ACTUATOR)
             ctx.keep_alive(model)
-            self.models[body] = model
+            self.models[key] = model
+            self.model_bodies[key] = body
         ctx.extra[self.name] = self
 
     def telemetry(self):
-        return {body: model.telemetry() for body, model in self.models.items()}
+        result = {}
+        for key, model in self.models.items():
+            body = self.model_bodies[key]
+            if body not in result or model.detent.active is not None:
+                result[body] = dict(model.telemetry())
+                if self.moving_owners:
+                    result[body]["owner_body"] = model.owner
+        return result
 
     def configuration(self):
-        return dict(enabled=True, version="plug-retention/2-dry-friction", guidance_backend=self.guidance_backend,
+        return dict(enabled=True, version="plug-retention/3-moving-owner" if self.moving_owners else "plug-retention/2-dry-friction", guidance_backend=self.guidance_backend,
                     parameters=asdict(self.parameters),
                     sockets={body: [dict(name=s.name, initial=s.initial, keyed=s.keyed,
-                                         position_body_m=s.position_body_m.tolist(),
+                                         **({"owner_body": model.owner} if self.moving_owners else {}), position_body_m=s.position_body_m.tolist(),
                                          rotation_body=s.rotation_body.tolist(),
                                          plug_rotation_body=s.plug_rotation_body.tolist())
                                     for s in model.detent.sockets]
@@ -185,7 +219,7 @@ def install_configured_plug_retention(ctx):
     parameters = load_retention_parameters()
     if parameters is None:
         return None
-    sockets = model_retention_sockets(ctx.config.model_path)
+    sockets = retention_sockets(ctx.config.model_path)
     if not sockets:
         return None
     component = PlugRetentionComponent(model_path=ctx.config.model_path, parameters=parameters, sockets=sockets)
@@ -193,3 +227,14 @@ def install_configured_plug_retention(ctx):
     print(json.dumps(dict(type="plug_retention_configuration", model=str(ctx.config.model_path),
                          **component.configuration()), sort_keys=True), flush=True)
     return component
+
+
+def retention_sockets(model_path):
+    """Resolve moving ownership only for models with target-owned seats."""
+    import xml.etree.ElementTree as ET
+    from simulation.scene_library.frames import site_attachment
+    root = ET.parse(model_path).getroot()
+    names = [site.get("name", "") for site in root.iter("site")]
+    moving = any(site_attachment(root, name)[0] != "cubesat_bus" for name in names
+                 if name.endswith(("_pickup", "_insert_40p1", "_insert_40p5")))
+    return model_retention_sockets(model_path, owned=moving)

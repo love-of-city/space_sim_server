@@ -12,7 +12,8 @@ pytestmark = pytest.mark.skipif(os.environ.get("SPACE_SIM_UE_CAPTURE_SMOKE") != 
     reason="set SPACE_SIM_UE_CAPTURE_SMOKE=1 to launch an isolated offscreen UE renderer")
 
 
-def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
+@pytest.mark.parametrize("vision_enabled", [False, True])
+def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path, vision_enabled):
     from space_arm_platform.capture_receiver import CaptureReceiver
     from space_arm_platform.unreal_runtime import unreal_editor
     from PIL import Image
@@ -33,8 +34,9 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         render_port = reservation.getsockname()[1]
-    received, errors = [], []
-    captures = CaptureReceiver("127.0.0.1", 0, lambda m, p: received.append((m, p)), errors.append)
+    received, errors, vision = [], [], []
+    captures = CaptureReceiver("127.0.0.1", 0, lambda m, p: received.append((m, p)), errors.append,
+                               on_vision_capture=lambda m, p: vision.append((m, p)))
     captures.start()
     process = bridge = None
     try:
@@ -71,7 +73,9 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
                 assert time.monotonic() < deadline, "UE did not open its isolated render port"
                 time.sleep(.1)
         mode = {"capture_episode_id": "", "capture_request_id": "idle"}
-        bridge = BasiliskRenderBridge(port=render_port, origin_object="smoke/body", capture_state_provider=lambda: dict(mode))
+        bridge = BasiliskRenderBridge(port=render_port, origin_object="smoke/body", capture_state_provider=lambda: dict(mode),
+            frame_rate_hz=30, vision_capture_camera_ids=("vision/left", "vision/right") if vision_enabled else (),
+            vision_capture_rate_hz=10)
         message = messaging.SCStatesMsg().write(messaging.SCStatesMsgPayload())
         # An empty geometry list intentionally creates a large UE placeholder;
         # use a tiny explicit origin marker so it cannot occlude the test box.
@@ -84,6 +88,10 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
         for camera in ("overview", "wrist"):
             bridge.add_camera(CameraVisual(camera_id=camera, parent_id="smoke/body", position_body_m=(-2, 0, 0),
                 resolution=(160, 90), capture_rate_hz=30, capture_products=("rgb",)))
+        if vision_enabled:
+            for camera in ('vision/left', 'vision/right'):
+                bridge.add_camera(CameraVisual(camera_id=camera, parent_id='smoke/body', position_body_m=(-2, 0, 0),
+                    resolution=(160, 90), capture_rate_hz=10, capture_products=('rgb',), capture_consumer='vision'))
         bridge.Reset(0)
         frame = 0
         def publish(count, delay=.04):
@@ -98,6 +106,14 @@ def test_real_ue_only_emits_rgb_between_tagged_start_and_stop(tmp_path):
         publish(30)
         time.sleep(.5)
         assert not received, "capture-capable idle scene unexpectedly produced dataset RGB"
+        if vision_enabled:
+            assert vision, 'idle scene did not produce independent vision images'
+            assert {m['camera_id'] for m, _ in vision} == {'vision/left', 'vision/right'}
+            assert all(m['stream_kind'] == 'vision' and m['state_kind'] == 'authoritative' for m, _ in vision)
+            for metadata, products in vision:
+                assert Image.open(io.BytesIO(products['rgb'])).size == (160, 90)
+        else:
+            assert not vision
         expected = {}
         for episode, count in (("episode-A", 6), ("episode-B", 3)):
             mode.update(capture_episode_id=episode, capture_request_id=episode)

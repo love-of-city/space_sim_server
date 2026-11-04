@@ -1,3 +1,4 @@
+import { installSceneSelection } from './helpers/scene_context.mjs';
 import { createOperatorSession } from '../operator_session.js';
 import { createSceneSession } from '../scene_session.js';
 import test from 'node:test';
@@ -184,7 +185,7 @@ function setupApp(testContext,controlGranted) {
   send(packet){packets.push(JSON.parse(packet));}
  }
  let ui;
- const context=vm.createContext({clearWristWrench() {},state,$,document:doc,createArmPreparation,WebSocket:Socket,URL,URLSearchParams,
+ const context=vm.createContext({clearWristWrench() {}, clearSimulationTelemetry() {},state,$,document:doc,createArmPreparation,WebSocket:Socket,URL,URLSearchParams,
   location:{protocol:'http:',host:'test.invalid',search:''},
   setOnline(){},setMessage(){},updateOperationUI(){},updateEpisodeUI(){},highlightKeys(){},setTimeout(){},
   jointAngles:{clear(){}},

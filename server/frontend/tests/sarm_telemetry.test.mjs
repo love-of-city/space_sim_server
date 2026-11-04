@@ -13,7 +13,7 @@ function observe(payload) {
     if (!nodes.has(id)) nodes.set(id, { textContent: "" });
     return nodes.get(id);
   };
-  createOperatorSession({
+  createOperatorSession({state: {controlledArm: "operating"},
     armPreparation: { update() {} },
     referenceProtectionLabel, dynamicsTimingLabel, formatWristWrench,
     $, setOnline() {}, formatMotionSpeedDiagnostics,

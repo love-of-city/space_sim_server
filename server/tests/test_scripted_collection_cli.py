@@ -49,6 +49,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         "--cancel-file": tmp_path / "cancel.request",
         "--episodes-root": tmp_path / "episodes",
         "--recording-config": Path.home() / "recording.json",
+        "--renderer-log": tmp_path / "batch" / "renderer.log",
     }
     seen = []
 
@@ -69,6 +70,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
             assert args.cancel_file == expected["--cancel-file"]
             assert output == tmp_path / "batch"
             self.process = SimpleNamespace(pid=123)
+            self.log_path = output / "renderer.log"
             seen.append("renderer")
 
         def check(self):

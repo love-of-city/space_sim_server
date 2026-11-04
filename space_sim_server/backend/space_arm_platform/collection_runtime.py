@@ -30,6 +30,9 @@ def renderer_command(args, output: Path):
     command = [
         str(unreal_editor(args.unreal)), str(project / "BskUnrealRenderer.uproject"),
         "-game", "-RenderOffscreen", "-ForceRes", "-unattended", "-nosplash",
+        # Capture needs no Insights daemon; its global shared memory conflicts
+        # with other users on shared Linux hosts.
+        "-notraceserver",
         f"-ResX={CAPTURE_CAMERA_WIDTH}", f"-ResY={CAPTURE_CAMERA_HEIGHT}",
         "-BskListen=127.0.0.1", f"-BskPort={args.render_port}",
         "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={args.capture_port}",

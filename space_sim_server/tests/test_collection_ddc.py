@@ -15,6 +15,7 @@ def test_collection_ddc_matches_platform_and_reuses_project_cache(tmp_path, monk
     graph = "InstalledDerivedDataBackendGraph" if os.name == "nt" else "InstalledNoZenLocalFallback"
     command = renderer_command(args, tmp_path)
     assert f"-DDC={graph}" in command
+    assert "-notraceserver" in command
     env = renderer_environment(args)
     cache = Path(env["UE-LocalDataCachePath"])
     if os.name == "nt":

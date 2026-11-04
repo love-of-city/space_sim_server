@@ -12,7 +12,7 @@ from simulation.socket_colors import COLOR_KEYS
 
 class FloatingSceneConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    object_count: int = Field(default=1, ge=1, strict=True)
+    object_count: int = Field(default=1, ge=1, le=len(COLOR_KEYS), strict=True)
     composition: Literal["different-types", "same-type-colors"] = "different-types"
     distractor_types: tuple[str, ...] = ()
 
@@ -23,10 +23,6 @@ class FloatingSceneConfig(BaseModel):
         if self.composition == "same-type-colors":
             if self.distractor_types:
                 raise ValueError("same-type-colors uses the target type, not a distractor type pool")
-            if self.object_count > len(COLOR_KEYS):
-                raise ValueError("same-type-colors requires one distinct palette color per object")
-        elif self.object_count > len(FLOATING_TASKS):
-            raise ValueError("different-types requires one distinct registered type per object")
         return self
 
 
@@ -65,11 +61,10 @@ def apply_floating_objects(root, source, scene):
         if options.object_count-1 > len(pool):
             raise ValueError("Not enough distinct non-target types in the requested pool")
         types = [str(t) for t in rng.choice(pool, size=options.object_count-1, replace=False)]
-        colors = [variation["color"]] * len(types)
     else:
         types = [task] * (options.object_count-1)
-        palette = [c for c in COLOR_KEYS if c != variation["color"]]
-        colors = [str(c) for c in rng.choice(palette, size=len(types), replace=False)]
+    palette = [c for c in COLOR_KEYS if c != variation["color"]]
+    colors = [str(c) for c in rng.choice(palette, size=len(types), replace=False)]
     if types:
         original = ET.parse(source).getroot()
         chain = SerialChainKinematics.from_mjcf(source, base_body="cubesat_bus",
@@ -137,10 +132,12 @@ def validate_floating_object_recording(cfg, steps, instruction):
     assert target["variation"] == cfg["floating_target_variation"]
     types = [obj["type_task"] for obj in instances]
     colors = [obj["variation"]["color"] for obj in instances]
+    if len(instances) > 1:
+        assert all(color in COLOR_KEYS for color in colors) and len(set(colors)) == len(instances)
     if options.composition == "different-types":
         assert len(set(types)) == len(instances)
     else:
-        assert len(set(types)) == 1 and len(set(colors)) == len(instances)
+        assert len(set(types)) == 1
     kind, color = target["type_task"], target["variation"]["color"]
     matches = [obj for obj in instances if obj["type_task"] == kind and obj["variation"]["color"] == color]
     assert len(matches) == 1

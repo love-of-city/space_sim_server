@@ -77,7 +77,7 @@
 --object-count 2 --object-composition same-type-colors
 ```
 
-数量包含目标；不同类型不重复，同类型使用不同颜色。多物体未指定速度时初始速度与角速度为零，显式 `--object-speed`（m/s）和 `--object-spin`（rad/s）作用于所有实例。零初态后仍按自由动力学演化。目标颜色沿用 `floating_target.color_choices`，多物体缺省从已有调色板选择。单物体原有释放参数保持可用。
+数量包含目标；不同类型模式不重复类型，两种模式均保证全部漂浮物颜色互不重复，避免相近形状同色造成歧义。当前调色板有7色，数量上限为7。多物体未指定速度时初始速度与角速度为零，显式 `--object-speed`（m/s）和 `--object-spin`（rad/s）作用于所有实例。零初态后仍按自由动力学演化。目标颜色沿用 `floating_target.color_choices`，多物体缺省从已有调色板选择。单物体原有释放参数保持可用。
 
 配置在 `floating_scene`；实现集中于 `simulation/scripted_tasks/floating_objects.py`，复用资产注册表和释放采样器。各实例有独立 body/freejoint/material。`collection_config.floating_objects` 保存类型、颜色、释放状态与目标 ID；逐帧 `scripted_task.floating_objects` 保存真实状态。有效接触涉及干扰物时任务失败。初始可达性、碰撞和摆放间隔检查会拒绝无法放置的组合；数量上限不代表任意大尺寸资产组合均可摆放。
 

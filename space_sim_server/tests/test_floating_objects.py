@@ -29,15 +29,15 @@ def realize(tmp_path, count=2, composition='same-type-colors'):
     return source,scene,model
 
 
-@pytest.mark.parametrize('count,composition',[(1,'different-types'),(2,'different-types'),(2,'same-type-colors'),(3,'same-type-colors')])
+@pytest.mark.parametrize('count,composition',[(1,'different-types'),(2,'different-types'),(3,'different-types'),(2,'same-type-colors'),(3,'same-type-colors')])
 def test_count_unique_free_bodies_and_replay(tmp_path,count,composition):
     source,scene,model=realize(tmp_path,count,composition)
     cfg=scene['collection_config'];record=cfg['floating_objects'];instances=record['instances']
     assert len(instances)==count and sum(i['is_target'] for i in instances)==1
     assert record['target_instance_id']=='cylindrical_plug'
     assert len({i['instance_id'] for i in instances})==count
-    if composition=='same-type-colors':assert len({i['variation']['color'] for i in instances})==count
-    else:assert len({i['type_task'] for i in instances})==count
+    assert len({i['variation']['color'] for i in instances})==count
+    if composition=='different-types':assert len({i['type_task'] for i in instances})==count
     xml=ET.parse(model).getroot();original=ET.parse(MODEL).getroot()
     for obj in instances:
         body=xml.find(f'./worldbody/body[@name="{obj["instance_id"]}"]')
@@ -107,7 +107,7 @@ def test_default_zero_only_when_no_explicit_velocity():
     assert floating_release_options(configured).max_spin_rad_s==.3
 
 
-@pytest.mark.parametrize('options',[dict(object_count=0),dict(object_count=2.5),dict(object_count=True),dict(object_count=8,composition='same-type-colors'),dict(distractor_types=['fake']),dict(composition='same-type-colors',distractor_types=['floating_plug_capture'])])
+@pytest.mark.parametrize('options',[dict(object_count=0),dict(object_count=2.5),dict(object_count=True),dict(object_count=8,composition='same-type-colors'),dict(object_count=8,composition='different-types'),dict(distractor_types=['fake']),dict(composition='same-type-colors',distractor_types=['floating_plug_capture'])])
 def test_invalid_compositions(options):
     with pytest.raises(ValueError):FloatingSceneConfig.model_validate(options)
 
@@ -167,5 +167,16 @@ def test_recording_composition_tamper_rejected(tmp_path, composition):
         objects[1]["variation"]["color"]="red"
     else:
         objects[1]["type_task"]="floating_aviation_plug_capture"
+    with pytest.raises(AssertionError):
+        validate_floating_object_recording(cfg,[],instruction)
+
+
+@pytest.mark.parametrize("composition", ["different-types", "same-type-colors"])
+@pytest.mark.parametrize("color", ["blue", None])
+def test_recording_rejects_repeated_or_missing_multi_object_color(tmp_path, composition, color):
+    _,scene,_=realize(tmp_path,2,composition)
+    cfg=scene["collection_config"]
+    instruction=task_instruction(scene,"floating_plug_capture",None)
+    cfg["floating_objects"]["instances"][1]["variation"]["color"]=color
     with pytest.raises(AssertionError):
         validate_floating_object_recording(cfg,[],instruction)

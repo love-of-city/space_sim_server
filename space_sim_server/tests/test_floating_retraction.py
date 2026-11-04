@@ -34,8 +34,15 @@ def follow(task, sample, i):
 def test_hold_retract_settle_moves_measurements_without_resetting_grasp(tmp_path):
     task, sample = controlled_task(tmp_path)
     held = None
+    entered_settle = False
     for i in range(2000):
+        previous = sample.joints.copy()
         sample = follow(task,sample,i)
+        if task.stage == 'settle' and not entered_settle:
+            # The position servo continues smoothly rather than snapping its
+            # reference back to the measured joint pose at the stage boundary.
+            assert 0 < np.linalg.norm(sample.joints[:3]-previous[:3])/.005 < .003
+            entered_settle = True
         if task.stage == 'retract' and held is None:
             held = (task._held_local.copy(),task._held_rotation.copy())
             assert task.result is None and task._hold_completed >= 2.

@@ -218,10 +218,10 @@ class FloatingCaptureTask:
             self._enter("open", sample)
         if self.stage == "intercept" or (self.stage == "grip" and self._hold_joints is None):
             self._track(sample, dt)
-        elif self.stage == "retract":
+        elif self.stage in ("retract", "settle"):
             self._drive_pose(sample, dt, np.asarray(self.config.retract_position_body_m),
                              self._retract_rotation, self.config.retract_speed_m_s)
-        elif self.stage in ("grip", "hold", "settle") and self._hold_joints is not None:
+        elif self.stage in ("grip", "hold") and self._hold_joints is not None:
             self.reference[:6] = self._hold_joints
         opening = (1. if self.stage in ("open", "intercept") else
                    self._hold_opening if self._hold_joints is not None else 0.)
@@ -275,8 +275,8 @@ class FloatingCaptureTask:
                            and m["measured_tool_linear_speed_m_s"] < .003
                            and m["measured_tool_angular_speed_rad_s"] < .02)
                 if self.stage == "retract" and arrived and m["retraction_error_m"] < .001:
-                    self._hold_joints = sample.joints[:6].copy()
-                    self.reference[:6] = self._hold_joints
+                    # Keep the same Cartesian servo through arrival; resetting
+                    # its reference to measured joints would introduce a step.
                     self._enter("settle", sample)
                 elif self.stage == "settle":
                     if not arrived:

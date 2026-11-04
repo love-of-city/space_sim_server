@@ -1,4 +1,6 @@
 #include "BskSceneController.h"
+#include "BskEnvironment.h"
+#include "BskEnvironmentBody.h"
 #include "IPixelStreaming2Streamer.h"
 #include "IPixelStreaming2Module.h"
 #include "Components/SceneCaptureComponent2D.h"
@@ -50,10 +52,17 @@ void ABskSceneController::BeginPlay()
     Super::BeginPlay();
     if (BskValidateCookAssetsIfRequested()) return;
     LoadConfiguration();
-    ConfigureCaptureOutput();
-    ConfigurePixelStreamingOutput();
     CreateEnvironment();
     ConfigureOfflineSkyLighting();
+    bEnvironmentPreviewOnly |= FParse::Param(FCommandLine::Get(), TEXT("BskEnvironmentPreview"))
+        || (SavedEnvironment && !SavedEnvironment->bAllowBackendControl);
+    if (bEnvironmentPreviewOnly)
+    {
+        UE_LOG(LogBskUnreal, Display, TEXT("BSK environment: independent preview; backend receiver disabled"));
+        return;
+    }
+    ConfigureCaptureOutput();
+    ConfigurePixelStreamingOutput();
     // Do not start accepting authoritative simulation frames until configured
     // visual overlays have finished async static-mesh compilation. Otherwise
     // the first manifest/frame can stall the game thread while the Basilisk
@@ -98,12 +107,29 @@ void ABskSceneController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     }
     if (bManagesViewportRendering && GEngine && GEngine->GameViewport)
         GEngine->GameViewport->bDisableWorldRendering = bPreviousDisableWorldRendering;
+    if (SavedEnvironment) SavedEnvironment->SetBackendControlled(false);
     Super::EndPlay(EndPlayReason);
 }
 
 void ABskSceneController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (SavedEnvironment && !SavedEnvironment->bAllowBackendControl && !bEnvironmentPreviewOnly)
+    {
+        CancelCaptureJobs();
+        if (Receiver) { Receiver->StopSource(); Receiver.Reset(); }
+        RestoreSavedEnvironmentPreview();
+        bEnvironmentPreviewOnly = true;
+        if (APlayerController* Player = GetWorld()->GetFirstPlayerController())
+            if (SavedEnvironment->PreviewCamera) Player->SetViewTarget(SavedEnvironment->PreviewCamera);
+        UE_LOG(LogBskUnreal, Display, TEXT("BSK environment returned to independent preview; restart Play to enable backend control again"));
+    }
+    if (bEnvironmentPreviewOnly)
+    {
+        PollCaptureJobs();
+        PollCaptureDiskResults();
+        return;
+    }
     if (IPixelStreaming2Module::IsAvailable() && IPixelStreaming2Module::Get().IsReady())
     {
         auto& Module = IPixelStreaming2Module::Get();
@@ -214,7 +240,7 @@ void ABskSceneController::Tick(float DeltaSeconds)
             }
         }
     }
-    UpdateDecorativeSunPlacement();
+    if (!SavedEnvironment || SavedEnvironment->IsBackendControlled) UpdateDecorativeSunPlacement();
     UpdatePreviewViewportRendering();
     UpdatePictureInPictureCaptures();
     UpdatePixelStreamingCameraCaptures();
@@ -263,7 +289,11 @@ void ABskSceneController::Tick(float DeltaSeconds)
 
 FString ABskSceneController::GetReceiverStatus() const
 {
-    return Receiver ? Receiver->GetStatus() : TEXT("not started");
+    if (bEnvironmentPreviewOnly) return TEXT("Environment preview (backend disabled)");
+    const FString Source = Receiver ? Receiver->GetStatus() : TEXT("not started");
+    if (!SavedEnvironment) return Source;
+    return FString(SavedEnvironment->IsBackendControlled
+        ? TEXT("Backend driven | ") : TEXT("Saved environment preview | ")) + Source;
 }
 
 bool ABskSceneController::SetReplayPaused(bool bPaused)
@@ -692,6 +722,7 @@ void ABskSceneController::ApplyEvent(const FBskRenderEvent& Event)
 void ABskSceneController::ApplyFrame(const FBskRenderFrame& Frame, bool bPresentationFrame)
 {
     check(IsInGameThread());
+    if (bEnvironmentPreviewOnly || (SavedEnvironment && !SavedEnvironment->bAllowBackendControl)) return;
     if (LastFrameId < 0)
     {
         UE_LOG(LogBskUnreal, Display, TEXT("Applying first BSK frame %lld with %d objects on the Game Thread"), Frame.FrameId, Frame.Objects.Num());
@@ -895,4 +926,10 @@ bool ABskSceneController::GetRelativeViewState(FBskRelativeViewState& Out) const
     Out.PrimarySunlight = SolarVisibilityAt(LocalMeters(Out.PrimaryCentimeters));
     Out.SecondarySunlight = SolarVisibilityAt(LocalMeters(Out.SecondaryCentimeters));
     return true;
+}
+
+
+ACameraActor* ABskSceneController::GetSavedPreviewCamera() const
+{
+    return SavedEnvironment ? SavedEnvironment->PreviewCamera.Get() : nullptr;
 }

@@ -29,6 +29,7 @@ def test_prepare_uses_existing_moved_tools_and_checks_incremental_ue_build(tmp_p
     monkeypatch.setattr(deployment, "unreal_editor", lambda root: root / "editor")
     monkeypatch.setattr(deployment.shutil, "which", lambda value: sys.executable)
     calls = []
+    monkeypatch.setattr(deployment, "ensure_environment_level", lambda *a, **k: None)
     monkeypatch.setattr(deployment.subprocess, "run", lambda command, **kwargs: calls.append(command))
     deployment.preflight(config, prepare=True)
     scripts = [Path(command[1]) for command in calls if len(command) > 1 and str(command[1]).endswith(".py")]

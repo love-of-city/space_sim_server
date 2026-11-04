@@ -21,6 +21,8 @@ Linux UE 5.6.1 的编译、资产缓存和双相机脚本采集已完成实机�
 
 主分支的相对运动视图、连续呈现时钟、独立视觉采集和预览工作灯已接入同一套分模块 Runtime。视觉相机通过 `capture_consumer: vision` 和逐帧请求独立触发，使用 PNG；数据集相机继续使用既有 JPEG、采样网格、确认和异步落盘流程。彩色、鱼眼、黑白及黑白鱼眼模式共用协议，视觉采集的曝光参数仅控制渲染光度，不模拟曝光期间的运动积分。
 
+默认环境使用保存的 `BskEnvironment` 关卡。首次运行前，除 `git lfs pull` 外，还需单独[恢复 IncredibleEarth 资源包](../docs/guides/external-environment-assets.md)；编辑入口见[可编辑环境](docs/editable-environment.md)。
+
 ## 1. 环境与安装
 
 Windows x64、PowerShell 7、Git LFS、UE 5.6、Visual Studio 2022 C++ 游戏开发工具及 Windows SDK。图形运行需要支持 UE 的 GPU/驱动。Python 3.11+；真实仿真需匹配解释器且具备所需 API 的 Basilisk/MJScene。可用 `uv pip install --python $env:SPACE_SIM_PYTHON "bsk[all]"` 安装，源码编译只是可选方式，不限定源码版本。安装后运行 `& $env:SPACE_SIM_PYTHON scripts/check_basilisk.py`。mock 与基础线协议测试不依赖 Basilisk，桥接及真实设备协议测试仍需 Basilisk。

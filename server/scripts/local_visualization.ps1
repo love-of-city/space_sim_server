@@ -187,7 +187,8 @@ try {
         }
         return
     }
-    $renderer = Start-Component 'renderer' $editor @($project,'-game','-RenderOffscreen','-ForceRes','-ResX=1280','-ResY=720','-unattended','-BskListen=127.0.0.1','-BskPort=5558','-PixelStreamingConnectionURL=ws://127.0.0.1:8888','-PixelStreamingID=BskRenderer','-PixelStreamingEncoderCodec=H264','-PixelStreamingWebRTCFps=30') $projectRoot
+    & (Join-Path $projectRoot 'scripts/prepare_environment_level.ps1') -UnrealRoot $UnrealRoot
+    $renderer = Start-Component 'renderer' $editor @($project,'/Game/BSK/Maps/BskEnvironment','-game','-RenderOffscreen','-ForceRes','-ResX=1280','-ResY=720','-unattended','-BskListen=127.0.0.1','-BskPort=5558','-PixelStreamingConnectionURL=ws://127.0.0.1:8888','-PixelStreamingID=BskRenderer','-PixelStreamingEncoderCodec=H264','-PixelStreamingWebRTCFps=30') $projectRoot
     Wait-Port 5558 $renderer 180
     $env:PYTHONPATH = (Join-Path $AdapterRoot 'Adapters') + ';' + (Join-Path $AdapterRoot 'python')
     $env:PYTHONUNBUFFERED = '1'

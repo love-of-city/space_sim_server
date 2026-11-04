@@ -34,9 +34,11 @@ param(
     [switch]$Foreground
 )
 
+$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1') -RequestedDerivedDataCachePath $DerivedDataCachePath
 $ue = Resolve-UnrealRoot $UnrealRoot
 $editor = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor.exe'
+& (Join-Path $PSScriptRoot 'prepare_environment_level.ps1') -UnrealRoot $ue
 # The installed graph normally relies on Zen and marks its filesystem node
 # DeleteOnly. Our project config makes Local writable as a persistent fallback.
 # Keep Zen enabled so existing cached shaders/assets do not need recompilation.
@@ -52,7 +54,7 @@ try {
     if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Force }
 }
 $arguments = @(
-    $ProjectFile, '-game', '-windowed', "-ResX=$Width", "-ResY=$Height",
+    $ProjectFile, '/Game/BSK/Maps/BskEnvironment', '-game', '-windowed', "-ResX=$Width", "-ResY=$Height",
     "-BskListen=$ListenAddress", "-BskPort=$Port", '-log', '-DDC=InstalledDerivedDataBackendGraph'
 )
 $normalizedCaptureProducts = @()

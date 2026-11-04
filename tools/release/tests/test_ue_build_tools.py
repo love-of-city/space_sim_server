@@ -35,7 +35,7 @@ def fixture_project(tmp_path):
     subprocess.run(["git", "-C", str(project), "add", "Source", "Config", "BskUnrealRenderer.uproject"], check=True)
     manifest = tmp_path / "assets.json"
     manifest.write_text(json.dumps({"schema": "ue-cook-inputs/1", "files": {
-        str(asset.relative_to(project)): hashlib.sha256(asset.read_bytes()).hexdigest()},
+        asset.relative_to(project).as_posix(): hashlib.sha256(asset.read_bytes()).hexdigest()},
         "cook_directories": ["/Game/BSK/Generated/Base"], "runtime_assets": []}))
     return project, manifest, asset
 
@@ -66,11 +66,11 @@ def test_cook_staging_is_content_identical_after_input_relocation(tmp_path):
 def test_cook_runtime_objects_can_select_compiled_blueprint_class(tmp_path):
     project, manifest, asset = fixture_project(tmp_path)
     value = json.loads(manifest.read_text())
-    value["runtime_objects"] = {str(asset.relative_to(project)): "/Game/BSK/Generated/Base/mesh.mesh_C"}
+    value["runtime_objects"] = {asset.relative_to(project).as_posix(): "/Game/BSK/Generated/Base/mesh.mesh_C"}
     manifest.write_text(json.dumps(value))
     _, _, runtime = cook.load_assets([manifest], project)
     assert runtime == ["/Game/BSK/Generated/Base/mesh.mesh_C"]
-    value["runtime_objects"][str(asset.relative_to(project))] = "/Game/Other.Other_C"
+    value["runtime_objects"][asset.relative_to(project).as_posix()] = "/Game/Other.Other_C"
     manifest.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="stay in its asset package"):
         cook.load_assets([manifest], project)
@@ -81,6 +81,16 @@ def test_cook_rejects_mutated_asset_before_writing_staging(tmp_path):
     asset.write_bytes(b"changed")
     output = tmp_path / "staging"
     with pytest.raises(ValueError, match="hash mismatch"):
+        cook.prepare(project, output, [manifest])
+    assert not output.exists()
+
+
+def test_cook_rejects_manifest_selection_that_omits_the_default_map(tmp_path):
+    project, manifest, _ = fixture_project(tmp_path)
+    (project / "Config/DefaultEngine.ini").write_text(
+        '[/Script/EngineSettings.GameMapsSettings]\nGameDefaultMap=/Game/BSK/Maps/BskEnvironment\n')
+    output = tmp_path / "staging"
+    with pytest.raises(ValueError, match="omit the configured default map"):
         cook.prepare(project, output, [manifest])
     assert not output.exists()
 

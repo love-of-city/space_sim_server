@@ -1,6 +1,6 @@
 # 独立发布重建与资产验证
 
-发布从声明输入生成新的 staging，不能直接打包开发工程中全部 `Content/BSK`。基础输入清单位于 `manifests/assets/ue-cook-base-assets.json`，包含 565 个基础资产文件及 SHA-256、明确 Cook 根、动态加载资源。新布局必须以同 schema 的额外 manifest 显式声明；未声明的 Random150/Collection 本地资产不会进入 staging。
+发布从声明输入生成新的 staging，不能直接打包开发工程中全部 `Content/BSK`。基础输入清单位于 `manifests/assets/ue-cook-base-assets.json`，包含 565 个基础资产文件及 SHA-256、明确 Cook 根、动态加载资源。默认还加载 `manifests/assets/ue-cook-environment-assets.json` 的 127 个环境资产（其中 108 个需先[单独恢复](external-environment-assets.md)）。新布局必须以同 schema 的额外 manifest 显式声明；未声明的 Random150/Collection 本地资产不会进入 staging。
 
 ## Cook 与独立运行验证
 
@@ -13,9 +13,9 @@
   --output /absolute/artifacts/verification/build-id/package
 ```
 
-Windows 可使用 `ue-adapter/scripts/package.ps1 -UnrealRoot ... -StagingDirectory ... -OutputDirectory ...`；底层使用同一 Python 工具。自定义 `--manifest` 时必须同时显式传基础清单及布局清单，不能只传增量清单而意外省略基础资产。
+Windows 可使用 `ue-adapter/scripts/package.ps1 -UnrealRoot ... -StagingDirectory ... -OutputDirectory ...`；底层使用同一 Python 工具。自定义 `--manifest` 时必须同时显式传基础清单、环境清单及布局清单，不能只传增量清单而意外省略基础资产。
 
-工具按哈希校验输入及 Git LFS 内容，复制当前候选源码/配置；Git 忽略的生成目录不复制。所有未忽略的新源码以及工作区删除均反映进 staging 的源码指纹。目录越界、软链接逃逸、非空输出或损坏资产会失败。相同输入重复 staging 的资产集合与文件指纹应一致；并不保证 UE Cook 包逐字节完全相同。
+工具按哈希校验输入及 Git LFS 内容，复制当前候选源码/配置；未声明的 Git 忽略生成目录不复制；清单中明确声明的外部环境资产按文件系统读取并核对哈希，即使被 `.gitignore` 忽略也会复制。所有未忽略的新源码以及工作区删除均反映进 staging 的源码指纹。目录越界、软链接逃逸、非空输出或损坏资产会失败。相同输入重复 staging 的资产集合与文件指纹应一致；并不保证 UE Cook 包逐字节完全相同。
 
 BuildCookRun 在隔离 staging 使用 `-cookall`，完成后生成 Game 构建身份，启动 packaged Development 程序，使用 `-BskValidateCookAssets` 对全部声明 `.uasset` 的运行时对象及 CelestialVault 动态资源逐项 LoadObject；Blueprint 显式映射到打包后保留的生成类。结果在 `runtime-validation/runtime-asset-validation.json`，必须 `passed=true` 且完整覆盖预期对象；完整 package 证据另记录构建清单、实际 Game 二进制、Pak/IoStore 容器和运行报告哈希。此步使用 `-NullRHI -nosound`，仅证明包内资源可加载。GPU 图像、完整任务、跨机启动和长稳结果仍须分别验收。
 

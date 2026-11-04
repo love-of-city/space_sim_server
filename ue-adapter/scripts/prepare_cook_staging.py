@@ -5,11 +5,14 @@ import argparse
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import subprocess
 
 ADAPTER = Path(__file__).resolve().parents[1]
 REPO = ADAPTER.parent
+DEFAULT_MANIFESTS = [REPO / "manifests/assets/ue-cook-base-assets.json",
+                     REPO / "manifests/assets/ue-cook-environment-assets.json"]
 
 
 def digest(path: Path) -> str:
@@ -100,6 +103,15 @@ def prepare(project: Path, output: Path, manifests: list[Path]) -> dict:
     if output.exists() and any(output.iterdir()):
         raise ValueError("Cook staging must be empty; refusing to mix build inputs")
     assets, cook_roots, runtime_assets = load_assets(manifests, project)
+    engine_ini = project / "Config/DefaultEngine.ini"
+    if engine_ini.is_file():
+        default_map = re.search(r'^GameDefaultMap="?(/Game/[^"\r\n]+)"?\s*$',
+                                engine_ini.read_text(encoding="utf-8-sig"), re.MULTILINE)
+        if default_map:
+            map_file = "Content/" + default_map[1].removeprefix("/Game/").split(".")[0] + ".umap"
+            if map_file not in assets:
+                raise ValueError(f"Cook manifests omit the configured default map: {map_file}; "
+                                 "include manifests/assets/ue-cook-environment-assets.json with base and layout manifests")
     sources = tracked_project_inputs(project)
     output.mkdir(parents=True, exist_ok=True)
     for source in sources + [project / rel for rel in assets]:
@@ -134,7 +146,7 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, action="append")
     args = parser.parse_args(argv)
-    manifests = args.manifest or [REPO / "manifests/assets/ue-cook-base-assets.json"]
+    manifests = args.manifest or DEFAULT_MANIFESTS
     result = prepare(args.project, args.output, manifests)
     print(json.dumps({"staging": str(args.output.resolve()), "assets": len(result["asset_files"])}))
     return 0

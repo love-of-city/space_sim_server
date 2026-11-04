@@ -3,6 +3,9 @@
 #include "BskCameraPawn.h"
 #include "BskRendererHUD.h"
 #include "BskSceneController.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+#include "EngineUtils.h"
 #include "BskUnrealRuntime.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -16,11 +19,24 @@ ABskRendererGameMode::ABskRendererGameMode()
 void ABskRendererGameMode::StartPlay()
 {
     Super::StartPlay();
-    ABskSceneController* Scene = GetWorld()->SpawnActor<ABskSceneController>();
+    ABskSceneController* Scene = nullptr;
+    for (TActorIterator<ABskSceneController> It(GetWorld()); It; ++It) { Scene = *It; break; }
+    if (!Scene) Scene = GetWorld()->SpawnActor<ABskSceneController>();
     APlayerController* Player = GetWorld()->GetFirstPlayerController();
     APawn* Pawn = Player ? Player->GetPawn() : nullptr;
     if (Scene && Pawn && Player)
     {
+        if (ACameraActor* Preview = Scene->GetSavedPreviewCamera())
+        {
+            Pawn->SetActorTransform(Preview->GetActorTransform());
+            Player->SetControlRotation(Preview->GetActorRotation());
+            if (ABskCameraPawn* BskPawn = Cast<ABskCameraPawn>(Pawn))
+                BskPawn->SetMainViewTransform(Preview->GetActorLocation(), Preview->GetActorRotation());
+            Player->SetViewTarget(Preview);
+            Player->bShowMouseCursor = false;
+            UE_LOG(LogBskUnreal, Display, TEXT("BSK standalone preview uses saved camera %s"), *Preview->GetName());
+            return;
+        }
         const FVector Eye = Scene->GetConfiguredCameraPositionCentimeters();
         const FVector Target = Scene->GetConfiguredCameraLookAtCentimeters();
         Pawn->SetActorLocation(Eye);

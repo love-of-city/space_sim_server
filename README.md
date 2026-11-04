@@ -16,6 +16,8 @@
 
 双臂捕获场景、便携初始化快照、视觉标记与相机配置见[场景库](server/docs/SCENE_LIBRARY.md)；原操作场景的模拟陀螺观测见[服务星陀螺反馈](server/docs/SERVICE_GYROSCOPE.md)。原有十项自动采集任务（含四个单向任务）继续使用[采集功能基线](server/docs/COLLECTION_BASELINE.md)。动画预览时钟与物理推进分别计时，画面帧率不等同于动力学实时倍率。
 
+UE 默认使用可保存的项目环境关卡 `BskEnvironment`。地球资源约 17.9 GB，单独分发，`git lfs pull` 不会获取该资源包；首次启动前按[外部环境资产恢复](docs/guides/external-environment-assets.md)还原。参见[本机环境编辑](ue-adapter/docs/editable-environment.md)与[构建及部署同步](server/docs/environment-deployment.md)。
+
 ## 开发入口
 
 ```bash

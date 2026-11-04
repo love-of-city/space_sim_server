@@ -357,6 +357,12 @@ UE 的 `Binaries/`、`Intermediate/`、`DerivedDataCache/`、`Saved/` 若存在�
 
 NullRHI Automation、packaged 资源加载、GPU 图像、五任务完整录制和跨平台发布分别形成证据；其中一种通过不代表其他验证已通过。
 
+## 外部环境资源
+
+`manifests/external-assets/incredible-earth.json` 固定外部地球包的版本、108 个文件大小与 SHA256；UE 项目 `Config/ExternalAssets` 保留同版本清单，供独立部署副本启动检查。`Content/IncredibleEarth` 还原在原资源路径但不进入 Git，`Content/BSK/Environment` 与 `BSK/Maps` 继续使用 LFS。
+
+`tools/release/external_environment_assets.py` 负责校验、ZIP64 打包与还原，输出必须位于仓库外。`server/tools/deployment/sync_unreal_runtime.py` 按文件系统同步已恢复资源到部署 UE 副本。使用方式见[外部环境资产](guides/external-environment-assets.md)。
+
 ## 发布工具
 
 | 路径 | 职责 |

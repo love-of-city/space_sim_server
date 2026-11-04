@@ -86,6 +86,16 @@ jobs:
               - 'server/show_deployment_access.sh'
               - 'server/scripts/linux_platform.sh'
               - 'server/backend/space_arm_platform/linux_*.py'
+              - 'server/backend/space_arm_platform/unreal_runtime.py'
+              - 'server/backend/space_arm_platform/collection_runtime.py'
+              - 'server/tools/deployment/sync_unreal_runtime.py'
+              - 'server/tests/test_environment_deployment.py'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/Config/**'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/Content/BSK/Maps/**'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject'
+              - 'manifests/external-assets/**'
+              - 'manifests/assets/**'
+              - 'tools/release/external_environment_assets.py'
               - 'server/backend/space_arm_platform/scene_runtime.py'
               - 'server/backend/space_arm_platform/app.py'
               - 'server/backend/space_arm_platform/main.py'
@@ -236,5 +246,5 @@ jobs:
         run: python -m pytest -q -p ci_pytest --ci-basic --ci-skip-group windows-runtime
       - name: Portable packaging and launcher checks
         run: |
-          python -m pytest -q tools/release/tests/test_packaging.py tools/release/tests/test_ue_build_tools.py tools/release/tests/test_runtime_metadata.py tools/release/tests/layout_preparer/test_launcher.py
+          python -m pytest -q tools/release/tests/test_packaging.py tools/release/tests/test_ue_build_tools.py tools/release/tests/test_external_environment_assets.py tools/release/tests/test_runtime_metadata.py tools/release/tests/layout_preparer/test_launcher.py
           python tools/release/tests/layout_preparer/test_self_extractor.py

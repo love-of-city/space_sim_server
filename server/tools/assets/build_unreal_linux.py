@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
-from space_arm_platform.unreal_runtime import default_unreal_root
+from space_arm_platform.unreal_runtime import default_unreal_root, ensure_environment_level
 
 
 def main():
@@ -18,9 +18,13 @@ def main():
     if not sys.platform.startswith("linux"):
         parser.error("Run this helper on Linux; Windows uses build.ps1")
     adapter = args.adapter.resolve()
-    subprocess.run([sys.executable, str(adapter / "scripts/build_ue_project.py"),
+    # The target may be a deployed UE-only copy. Use the source checkout
+    # for the build helper, engine policy and identity implementation.
+    build_tool = ROOT.parent / "ue-adapter/scripts/build_ue_project.py"
+    subprocess.run([sys.executable, str(build_tool),
                     "--engine", str(args.unreal.expanduser().resolve()),
                     "--project", str(adapter / "Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject")], check=True)
+    ensure_environment_level(adapter, args.unreal.expanduser().resolve())
 
 
 if __name__ == "__main__":

@@ -38,9 +38,14 @@ def test_throughput_counts_only_validated_episodes_in_whole_batch_time():
 
 def test_offline_keeps_authoritative_capture_and_binds_gpu(tmp_path, monkeypatch):
     monkeypatch.setattr("space_arm_platform.collection_runtime.unreal_editor", lambda root: root / "UnrealEditor")
+    monkeypatch.setattr("space_arm_platform.unreal_runtime.check_external_environment_assets", lambda adapter: None)
+    environment = tmp_path / "Unreal/BskUnrealRenderer/Content/BSK/Maps/BskEnvironment.umap"
+    environment.parent.mkdir(parents=True)
+    environment.write_bytes(bytes.fromhex("c1832a9e") + b"saved environment map" * 20)
     args = SimpleNamespace(adapter=tmp_path, unreal=tmp_path, offline=True, gpu_index=1,
                            control_port=21000, capture_port=21001, render_port=21002, signalling_port=21003)
     command = renderer_command(args, tmp_path)
+    assert "/Game/BSK/Maps/BskEnvironment" in command
     assert "-BskOfflineCapture" in command
     assert "-BskCaptureRate=50" in command
     assert "-BskCapturePort=21001" in command

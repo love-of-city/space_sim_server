@@ -9,6 +9,8 @@
 #include "BskSceneController.generated.h"
 
 class ADirectionalLight;
+class ABskEnvironment;
+class ACameraActor;
 class APostProcessVolume;
 class ASpotLight;
 class ASkyAtmosphere;
@@ -17,6 +19,7 @@ class USceneComponent;
 class USceneCaptureComponent2D;
 class UStaticMeshComponent;
 class UTextureRenderTarget2D;
+class UMaterialInstanceDynamic;
 class IPixelStreaming2Streamer;
 class IPixelStreaming2InputHandler;
 class ULightComponent;
@@ -115,6 +118,7 @@ public:
 
     FVector GetConfiguredCameraPositionCentimeters() const;
     FVector GetConfiguredCameraLookAtCentimeters() const;
+    ACameraActor* GetSavedPreviewCamera() const;
 
     /** Hook for future recorders, sensor capture, multi-camera, and time synchronization. */
     FOnBskFrameApplied& OnFrameApplied() { return FrameAppliedEvent; }
@@ -132,6 +136,13 @@ private:
     friend class FBskLocalFrameExtrapolationTest;
     friend class FBskSceneResetTest;
     friend class FBskSceneSunlightIntensityTest;
+    friend class FBskSavedEnvironmentBindingTest;
+    friend class FBskSavedEnvironmentFrameTest;
+    friend class FBskEnvironmentPreviewTest;
+    friend class FBskSavedMoonBindingTest;
+    friend class FBskAuroraMaterialScaleTest;
+    friend class FBskSunVisualDiskTest;
+    friend class FBskSavedAtmosphereScaleTest;
     struct FObjectSpec
     {
         FString AssetType = TEXT("placeholder");
@@ -157,12 +168,15 @@ private:
     AActor* SpawnPlaceholder(const FString& ObjectName, const FObjectSpec& Spec);
     AActor* SpawnManifestObject(const FBskObjectDefinition& Definition);
     AActor* SpawnCelestialBody(const FBskCelestialBodyDefinition& Definition);
+    AActor* FindSavedMoonActor() const;
     AActor* SpawnTexturedEarth(const FString& ActorName, double RadiusMeters);
     bool CreateTexturedStarSphere();
     void CreateDecorativeSun();
     void CreateDecorativeSunEffects(USceneComponent* Root);
     void UpdateDecorativeSunScale();
     void UpdateDecorativeSunPlacement();
+    void ConfigureSunDiskMaterial();
+    void UpdateSunDiskMaterial();
     void CreateDecorativeEarth();
     AActor* SpawnVisual(const FBskVisualDefinition& Definition);
     AActor* SpawnCamera(const FBskCameraDefinition& Definition);
@@ -208,10 +222,27 @@ private:
     void DrawOrbitLines(const FBskRenderFrame& Frame) const;
     AActor* SpawnUsdStage(const FString& ObjectName, const FObjectSpec& Spec);
     void CreateEnvironment();
+    bool AdoptSavedEnvironment();
+    void RestoreSavedEnvironmentPreview();
     FObjectSpec ResolveSpec(const FBskRenderObjectState& State) const;
 
     TUniquePtr<IBskFrameSource> Receiver;
     FBskRelativeView RelativeView;
+    UPROPERTY(Transient)
+    TObjectPtr<ABskEnvironment> SavedEnvironment;
+    UPROPERTY(Transient)
+    TObjectPtr<AActor> SavedMoonActor;
+    FTransform SavedMoonPreviewTransform;
+    bool bHasSavedMoonPreview = false;
+    bool bSavedMoonPreviewHidden = false;
+    bool bEnvironmentPreviewOnly = false;
+    FTransform SunSurfacePreviewTransform;
+    TArray<FTransform> SunParticlePreviewTransforms;
+    UPROPERTY(Transient)
+    TObjectPtr<UMaterialInstanceDynamic> SunDiskMaterial;
+    double AtmospherePreviewBottomRadiusKilometers = 6371.0;
+    double AtmospherePreviewHeightKilometers = 100.0;
+    double AtmospherePreviewAerialPerspectiveStartKilometers = 0.1;
     FOnBskFrameApplied FrameAppliedEvent;
     TMap<FString, TObjectPtr<AActor>> BoundActors;
     // Only runtime-created objects may be retired on a manifest change.

@@ -19,7 +19,7 @@ from .collection_processes import ManagerLease
 from .collection_runtime import check_port_available
 from .linux_processes import Children, identity, owned_process, terminate, write_json
 from . import linux_public as public
-from .unreal_runtime import unreal_editor
+from .unreal_runtime import ensure_environment_level, unreal_editor
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = ROOT / "deploy/linux.local.json"
@@ -131,6 +131,9 @@ def preflight(config, prepare=False):
         # does not prove that it matches the current source or shader inputs.
         subprocess.run([config["python"], str(ROOT / "tools/assets/build_unreal_linux.py"),
                         "--adapter", config["adapter"], "--unreal", config["unreal"]], cwd=ROOT, env=env, check=True)
+        ensure_environment_level(Path(config["adapter"]), Path(config["unreal"]))
+    else:
+        ensure_environment_level(Path(config["adapter"]), Path(config["unreal"]), prepare=False)
     return env
 
 

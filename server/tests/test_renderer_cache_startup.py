@@ -39,6 +39,9 @@ def test_launcher_checks_persistent_cache_passes_child_environment_and_hides_win
     scripts=project/'scripts';scripts.mkdir(parents=True)
     for name in ['start_renderer.ps1','common.ps1','python_runtime.ps1']:
         shutil.copy2(UE_PROJECT/'scripts'/name,scripts/name)
+    (scripts/'prepare_environment_level.ps1').write_text('param($UnrealRoot)\n', encoding='utf-8')
+    level=project/'Content/BSK/Maps/BskEnvironment.umap'
+    level.parent.mkdir(parents=True);level.write_bytes(bytes.fromhex('c1832a9e') + b'saved environment map' * 20)
     ue=tmp_path/'UE';editor=ue/'Engine/Binaries/Win64/UnrealEditor.exe'
     editor.parent.mkdir(parents=True);editor.touch()
     wrapper=tmp_path/'launch.ps1'
@@ -101,6 +104,10 @@ def test_ssh_renderer_launch_is_detached_and_preserves_cache_arguments(tmp_path,
     scripts.mkdir(parents=True)
     for name in ['start_renderer.ps1', 'common.ps1', 'python_runtime.ps1']:
         shutil.copy2(UE_PROJECT / 'scripts' / name, scripts / name)
+    (scripts/'prepare_environment_level.ps1').write_text('param($UnrealRoot)\n', encoding='utf-8')
+    level = project / 'Content/BSK/Maps/BskEnvironment.umap'
+    level.parent.mkdir(parents=True)
+    level.write_bytes(bytes.fromhex('c1832a9e') + b'saved environment map' * 20)
     engine = tmp_path / 'Unreal Engine'
     editor = engine / 'Engine/Binaries/Win64/UnrealEditor.exe'
     editor.parent.mkdir(parents=True)

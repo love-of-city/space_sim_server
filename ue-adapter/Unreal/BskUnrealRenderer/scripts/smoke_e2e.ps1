@@ -11,9 +11,10 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $ue = Resolve-UnrealRoot $UnrealRoot
 $editor = Join-Path $ue 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
+& (Join-Path $PSScriptRoot 'prepare_environment_level.ps1') -UnrealRoot $ue
 $logName = 'E2E-{0}.log' -f [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
 $logPath = Join-Path $ProjectRoot (Join-Path 'Saved\Logs' $logName)
-$arguments = @($ProjectFile, '-game', '-unattended', '-nosplash', "-BskPort=$Port", "-abslog=$logPath")
+$arguments = @($ProjectFile, '/Game/BSK/Maps/BskEnvironment', '-game', '-unattended', '-nosplash', "-BskPort=$Port", "-abslog=$logPath")
 if ($WithRendering) {
     $arguments += @('-RenderOffscreen', '-ResX=640', '-ResY=360')
 } else {

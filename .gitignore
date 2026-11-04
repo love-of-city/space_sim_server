@@ -16,3 +16,7 @@ venv/
 # Reproducible release/build output belongs outside this checkout.
 /artifacts/
 /release-output/
+
+# External Earth package: restore from its versioned manifest, not from Git LFS.
+# Project-owned materials and maps under Content/BSK remain version-controlled.
+/ue-adapter/Unreal/BskUnrealRenderer/Content/IncredibleEarth/

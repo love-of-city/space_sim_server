@@ -1,4 +1,6 @@
 #include "BskSceneController.h"
+#include "BskEnvironment.h"
+#include "BskEnvironmentBody.h"
 #include "IPixelStreaming2Streamer.h"
 #include "IPixelStreaming2Module.h"
 #include "BskUnrealRuntime.h"
@@ -19,6 +21,7 @@
 #include "Components/SpotLightComponent.h"
 #include "Components/LightComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
@@ -208,19 +211,45 @@ AActor* ABskSceneController::SpawnPlaceholder(const FString& ObjectName, const F
 
 void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
 {
+    if (bEnvironmentPreviewOnly || (SavedEnvironment && !SavedEnvironment->bAllowBackendControl)) return;
     RelativeView = Manifest.RelativeView;
     const bool bSessionChanged = ActiveSessionId != Manifest.SessionId;
+    if (SavedEnvironment && bSessionChanged)
+    {
+        // A new description starts from the saved art configuration, never
+        // from the previous session's physical radius or solar lighting. A
+        // repeated manifest for the same session must retain the live state.
+        RestoreSavedEnvironmentPreview();
+        SavedEnvironment->SetBackendControlled(true);
+        ConfigureSunDiskMaterial();
+        if (DecorativeSunComponent && DecorativeSunComponent->GetMaterial(0))
+        {
+            UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(
+                DecorativeSunComponent->GetMaterial(0), SavedEnvironment);
+            DecorativeSunComponent->SetMaterial(0, Material);
+        }
+        UE_LOG(LogBskUnreal, Display, TEXT("BSK environment: backend takeover session=%s; saved materials, exposure and star field retained"), *Manifest.SessionId);
+    }
     if (bSessionChanged) CancelCaptureJobs();
     check(IsInGameThread());
     // A manifest is a complete scene, not an additive object update. Without
     // pruning, switching from a docking demo to SARM leaves old spacecraft at
     // the floating origin and displays them alongside the new physical model.
-    auto PruneActors = [](auto& Actors, const TSet<FString>& Keep)
+    auto PruneActors = [this](auto& Actors, const TSet<FString>& Keep)
     {
         for (auto It = Actors.CreateIterator(); It; ++It)
         {
             if (Keep.Contains(It.Key())) continue;
-            if (IsValid(It.Value()))
+            // Authored environment actors survive manifest revisions. Their
+            // saved preview state is restored when the body leaves the scene.
+            const bool bSavedEarth = SavedEnvironment && It.Value() == SavedEnvironment->Earth;
+            const bool bSavedMoon = bHasSavedMoonPreview && It.Value() == SavedMoonActor;
+            if (bSavedMoon && IsValid(SavedMoonActor))
+            {
+                SavedMoonActor->SetActorTransform(SavedMoonPreviewTransform);
+                SavedMoonActor->SetActorHiddenInGame(bSavedMoonPreviewHidden);
+            }
+            if (!bSavedEarth && !bSavedMoon && IsValid(It.Value()))
             {
                 It.Value()->SetActorHiddenInGame(true);
                 It.Value()->Destroy();
@@ -288,9 +317,9 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
             if (Incoming && !bSessionChanged) ReplacedObjectTransforms.Add(ObjectId, Actor->GetActorTransform());
             // Preserve camera/visual and unchanged child actors until their
             // new manifest mounts are configured and attached below.
-            TArray<AActor*> Children;
-            Actor->GetAttachedActors(Children);
-            for (AActor* Child : Children) Child->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+            TArray<AActor*> AttachedChildren;
+            Actor->GetAttachedActors(AttachedChildren);
+            for (AActor* Child : AttachedChildren) Child->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
             Actor->Tags.Remove(FName(*BindingTag(ObjectId)));
             Actor->SetActorHiddenInGame(true);
             Actor->Destroy();
@@ -358,6 +387,24 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
         return Definition.BodyId.Equals(TEXT("earth"), ESearchCase::IgnoreCase) ||
             Definition.DisplayName.Equals(TEXT("earth"), ESearchCase::IgnoreCase);
     });
+    if (SavedEnvironment && SavedEnvironment->Earth && !bManifestHasEarth)
+    {
+        // A revised manifest can drop Earth without starting a new session.
+        // Release its live binding and return just this body to the saved view.
+        ABskEnvironmentBody* Earth = SavedEnvironment->Earth;
+        Earth->SetActorTransform(SavedEnvironment->GetPreviewTransform(Earth));
+        Earth->SetActorHiddenInGame(false);
+        Earth->RefreshVisualScale();
+        for (auto It = CelestialActors.CreateIterator(); It; ++It)
+            if (It.Value() == Earth) It.RemoveCurrent();
+        if (EarthAtmosphere)
+        {
+            EarthAtmosphere->SetActorTransform(SavedEnvironment->GetPreviewTransform(EarthAtmosphere));
+            EarthAtmosphere->GetComponent()->SetBottomRadius(static_cast<float>(AtmospherePreviewBottomRadiusKilometers));
+            EarthAtmosphere->GetComponent()->SetAtmosphereHeight(AtmospherePreviewHeightKilometers);
+            EarthAtmosphere->GetComponent()->SetAerialPerspectiveStartDepth(static_cast<float>(AtmospherePreviewAerialPerspectiveStartKilometers));
+        }
+    }
     if (DecorativeEarthActor)
     {
         DecorativeEarthActor->SetActorHiddenInGame(bManifestHasEarth);
@@ -375,6 +422,32 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
     for (const FBskCelestialBodyDefinition& Definition : Manifest.CelestialBodies)
     {
         ManifestCelestialBodies.Add(Definition.BodyId, Definition);
+        if (SavedEnvironment && SavedEnvironment->Earth && Definition.BodyId.Equals(TEXT("earth"), ESearchCase::IgnoreCase))
+        {
+            ABskEnvironmentBody* Earth = SavedEnvironment->Earth;
+            const double RadiusRatio = FMath::Max(Definition.EquatorialRadiusMeters, 1.0)
+                / FMath::Max(SavedEnvironment->EarthRadiusMeters, 1.0)
+                * Converter.GetCentimetersPerMeter() / FMath::Max(SavedEnvironment->GeometryCentimetersPerMeter, UE_DOUBLE_SMALL_NUMBER);
+            // The backend owns physical size as well as pose. An artist's
+            // standalone actor scale must not multiply the simulated radius.
+            Earth->SetActorScale3D(FVector(RadiusRatio));
+            Earth->RefreshVisualScale();
+            CelestialActors.Add(Definition.BodyId, Earth);
+            if (EarthAtmosphere)
+            {
+                // Preserve the saved atmosphere's inset and thickness relative
+                // to the mesh, including backend changes to radius or units.
+                EarthAtmosphere->GetComponent()->SetBottomRadius(static_cast<float>(
+                    AtmospherePreviewBottomRadiusKilometers * RadiusRatio));
+                EarthAtmosphere->GetComponent()->SetAtmosphereHeight(static_cast<float>(
+                    AtmospherePreviewHeightKilometers * RadiusRatio));
+                EarthAtmosphere->GetComponent()->SetAerialPerspectiveStartDepth(static_cast<float>(
+                    AtmospherePreviewAerialPerspectiveStartKilometers * RadiusRatio));
+            }
+            // The saved Earth is also the standalone default. It must never be
+            // treated as a second decorative planet and hidden on takeover.
+            continue;
+        }
         if (Definition.bDrivesDirectionalLight)
         {
             if (PrimaryDirectionalLightBodyId.IsEmpty())
@@ -475,6 +548,12 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
     {
         if (ABskCameraPawn* Pawn = Cast<ABskCameraPawn>(Player->GetPawn()))
         {
+            if (SavedEnvironment && bSessionChanged)
+            {
+                const FVector Eye = GetConfiguredCameraPositionCentimeters();
+                Pawn->SetMainViewTransform(Eye, (GetConfiguredCameraLookAtCentimeters() - Eye).Rotation());
+                Player->SetViewTarget(Pawn);
+            }
             Pawn->SetOrbitDistanceMeters(Manifest.DefaultCameraDistanceMeters);
             Pawn->ConfigureRelativeView(RelativeView.IsConfigured());
         }

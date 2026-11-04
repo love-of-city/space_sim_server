@@ -1,0 +1,554 @@
+{
+  "schema": "space-sim-external-assets/1",
+  "package_id": "incredible-earth80k",
+  "package_version": "8a3d9dfc9564",
+  "source_commit": "8a3d9dfc95643efad72adf78bc9cb45ee85193e5",
+  "source": "IncredibleEarth80K source project supplied for the environment migration.",
+  "license_note": "Original asset license applies; distribute only to recipients entitled to use the source assets.",
+  "content_root": "ue-adapter/Unreal/BskUnrealRenderer/Content/IncredibleEarth",
+  "required_for_map": "/Game/BSK/Maps/BskEnvironment",
+  "file_count": 108,
+  "total_size_bytes": 17901852851,
+  "files": [
+    {
+      "path": "Blueprints/BP_Earth80K.uasset",
+      "size_bytes": 2140568,
+      "sha256": "7355be832fb744c29152b35d3830e44a564828919b4ace8281d7d9790c0b2dc8"
+    },
+    {
+      "path": "Blueprints/BP_GalaxyRoot.uasset",
+      "size_bytes": 23089,
+      "sha256": "65a5f344ef8dc35c60104d56465b9c32b49248e5f25d1e09a79d32950fec0f91"
+    },
+    {
+      "path": "Blueprints/BP_MoonRoot.uasset",
+      "size_bytes": 93296,
+      "sha256": "0722f5338c587c600b4c042bfb5026820a4852112fb6189937e245af92e51e09"
+    },
+    {
+      "path": "Blueprints/BP_Stars.uasset",
+      "size_bytes": 97289,
+      "sha256": "f065b1248633301e691d5852fe48b5b9e3e53f5399028dfb13cc8d1597046d1b"
+    },
+    {
+      "path": "Blueprints/BP_WorldOrbiter.uasset",
+      "size_bytes": 22931,
+      "sha256": "9c7e9d750cde971a8400c6be27fe69e68ae939ceeaf81f7f22ac40fd7a4940ee"
+    },
+    {
+      "path": "Blueprints/ENUM_GroundTextureResolution.uasset",
+      "size_bytes": 3124,
+      "sha256": "bda848718b0fccf045753e0e6c5dfd8fbdab0bdf25b065a78b8867778fadde69"
+    },
+    {
+      "path": "Cinematics/EarthFeatureCinematics.umap",
+      "size_bytes": 166403,
+      "sha256": "294ce012ef86aa46cdd73ac9f6851649af35bdbbe1d089ce4b01457942b86583"
+    },
+    {
+      "path": "Cinematics/FeatureCinematics.uasset",
+      "size_bytes": 360633,
+      "sha256": "109dce32b29b138eb4112f8c237d5ede079b3b6c91ca83d86698db0c8fd64d9e"
+    },
+    {
+      "path": "Cinematics/Orbit/AfricaEurope_AND_Caribean.umap",
+      "size_bytes": 166559,
+      "sha256": "ea478d408ec7ea7abf86a86a8711b7c62b6e9eea6ba73f2108e070b4046714e4"
+    },
+    {
+      "path": "Cinematics/Orbit/AmazonCanada.umap",
+      "size_bytes": 157590,
+      "sha256": "76a61a15ae0157025e9a4376a6bcee0b902aa960ba3047bdbaeb4ad5b91d6cd9"
+    },
+    {
+      "path": "Cinematics/Orbit/AsiaAfrica.umap",
+      "size_bytes": 142205,
+      "sha256": "8aa2c0cccea0a6bc1f09d787294624212abba473443a6ce7624953b2764071b1"
+    },
+    {
+      "path": "Cinematics/Orbit/AsiaEuropeSunrise.umap",
+      "size_bytes": 143970,
+      "sha256": "13171790bf5f94555f293520970bece025eaef5fe690c86c10a6e260edf983b1"
+    },
+    {
+      "path": "Cinematics/Orbit/CaucasusAmerica.umap",
+      "size_bytes": 155409,
+      "sha256": "d11206058c499dc80b118e8a3cf45d76406de43401f3483098af3a37ad4a235b"
+    },
+    {
+      "path": "Cinematics/Orbit/Oceania.umap",
+      "size_bytes": 144988,
+      "sha256": "d28926ff1dd26ea2820f1c1453c870913f1e8f937e59b8061bf209b857d8c4a8"
+    },
+    {
+      "path": "Cinematics/Orbit/OrbitCinematicsAfricaEurope.uasset",
+      "size_bytes": 133815,
+      "sha256": "d50f0d74c9cbe7fb9373b0112ecdd488ae3471b7d333d7be3088daf12832dcda"
+    },
+    {
+      "path": "Cinematics/Orbit/OrbitCinematicsAmazonCanada.uasset",
+      "size_bytes": 123635,
+      "sha256": "24bad821cfcc0968221c707d207ebb5668fc0a68dc64305ab3ebcb34edd6248d"
+    },
+    {
+      "path": "Cinematics/Orbit/OrbitCinematicsAsiaAfrica.uasset",
+      "size_bytes": 257278,
+      "sha256": "b004faf677c670d11e0960cabe6763cd28710676df26d5e924f4a24f8f5045f7"
+    },
+    {
+      "path": "Cinematics/Orbit/OrbitCinematicsAsiaEuropeSunrise.uasset",
+      "size_bytes": 90155,
+      "sha256": "cc0f947651610d0e246a5668cb82d8abb21cb62c6b3d7f0b2002e6ef0ab3a9b4"
+    },
+    {
+      "path": "Cinematics/Orbit/OrbitCinematicsCaribean.uasset",
+      "size_bytes": 141534,
+      "sha256": "99042f9b8671681b5c25ac35581cdea38ba16eb6de91f55a2753b031bf685b65"
+    },
+    {
+      "path": "Cinematics/Orbit/OrbitCinematicsCaucasusAmerica.uasset",
+      "size_bytes": 139928,
+      "sha256": "5b4c00152ed4bc833f1bb9f787d67da4929dc7bfb1e97955f82c97c702fb93f7"
+    },
+    {
+      "path": "Cinematics/Orbit/OrbitCinematicsOceania.uasset",
+      "size_bytes": 97805,
+      "sha256": "62b8608b3beff346827cd5a5d7205aa13273e2958744ba4ce74e2cb0b8826179"
+    },
+    {
+      "path": "EarthThunderAreaChecker.umap",
+      "size_bytes": 140605,
+      "sha256": "e6de4162440188679630aeec3252b533c6bc6f42a2616263cb4cf47f3a20768e"
+    },
+    {
+      "path": "IncredibleEarth80K.umap",
+      "size_bytes": 149085,
+      "sha256": "a7b9193a8d44c3bd4119352fbc57b88f19ede342c37dc914d8dc6376b994afed"
+    },
+    {
+      "path": "Introduction.umap",
+      "size_bytes": 44911,
+      "sha256": "0c8c81c60f2fd5d6cad48b1b8405a1c358dba62af124ec18ee574b66b1e66af2"
+    },
+    {
+      "path": "MaterialFunctions/MF_AddMany.uasset",
+      "size_bytes": 50777,
+      "sha256": "2c592f215d5d65f07c0efe7cbc3e9d12625d2685fc7fec1f7ff86413a8871c8e"
+    },
+    {
+      "path": "MaterialFunctions/MF_CombineLayers.uasset",
+      "size_bytes": 174633,
+      "sha256": "3e37f5680acc67258c36360590baac4619ff333502947f6989aa2f7a3b5601b0"
+    },
+    {
+      "path": "MaterialFunctions/MF_FlashFader.uasset",
+      "size_bytes": 104697,
+      "sha256": "0e344a697c2d848b1a0b96e39f23530a24ab7b323ca606be1ebfb77d7532efe3"
+    },
+    {
+      "path": "MaterialFunctions/MF_FlashesFromRandoms.uasset",
+      "size_bytes": 169717,
+      "sha256": "c78c008373115801786fb54a2f7ecefcb05d70409868a0ca68363059e7d0d342"
+    },
+    {
+      "path": "MaterialFunctions/MF_Make64KTexture.uasset",
+      "size_bytes": 158320,
+      "sha256": "a7fd79f0d8ad458f88975578ed81a7d00fb8a0200201fff39a89d255d3ee637d"
+    },
+    {
+      "path": "MaterialFunctions/MF_MakeFlashes.uasset",
+      "size_bytes": 130206,
+      "sha256": "7fab153cbeba7055588c45b6c7664f29291b8d1fbccb160377de8b2d00247579"
+    },
+    {
+      "path": "MaterialFunctions/MF_MakeMask.uasset",
+      "size_bytes": 67523,
+      "sha256": "b2dc3dc0e41aa87b273789d939ace84683954280a5655336fd378ef93f88cae3"
+    },
+    {
+      "path": "MaterialFunctions/MF_MakeUVs.uasset",
+      "size_bytes": 87502,
+      "sha256": "2ea5c58c41d11c0832c3f5cdb099fbb232c7cdbed497ecfecf32030d8a3079be"
+    },
+    {
+      "path": "MaterialFunctions/MF_RandomFloats.uasset",
+      "size_bytes": 151895,
+      "sha256": "7e1ef6ae49fa1a54d214e7c5e4fe955122337f3986965746a682545d06063180"
+    },
+    {
+      "path": "MaterialFunctions/MF_RandomNumbers.uasset",
+      "size_bytes": 207358,
+      "sha256": "841e8f803048ef49b7d971f4a065b0a4e247dfbe6ae0e8ceb4b6a394b8fb2b84"
+    },
+    {
+      "path": "MaterialFunctions/MF_RandomTransformUVs.uasset",
+      "size_bytes": 75480,
+      "sha256": "66e3680c2d94b0c789fc78e33ad9b5d4ae605a74ff9f83d5830f9b3c1720ab57"
+    },
+    {
+      "path": "MaterialFunctions/MF_RemapVectorsRange.uasset",
+      "size_bytes": 48823,
+      "sha256": "684f1d986a822acb89cc238b6e95887bdfa1ab578a02a137c1c28b3622f6bb23"
+    },
+    {
+      "path": "MaterialFunctions/MF_SingleFlash.uasset",
+      "size_bytes": 66027,
+      "sha256": "541c8ad9a2188fbb3cd1ff15732a32aab733c12ce90daa2116c4529e48672c29"
+    },
+    {
+      "path": "MaterialFunctions/MF_TransformUVs.uasset",
+      "size_bytes": 90310,
+      "sha256": "8bb4411cf27fc73ad5030f269a26c7c78bf746176d109115a0d6145e7bf3881b"
+    },
+    {
+      "path": "Materials/MI_Clouds.uasset",
+      "size_bytes": 8834,
+      "sha256": "bef397678591aac9eee1d0c6f0f30d92b3927a5c1a06a7b287aba9040bcdeeaf"
+    },
+    {
+      "path": "Materials/MI_CloudsFlash.uasset",
+      "size_bytes": 11479,
+      "sha256": "5be727658b69308971f5613b40176daf235d420a0e630d0f2e73a313b6c1e855"
+    },
+    {
+      "path": "Materials/MI_EarthGround32K.uasset",
+      "size_bytes": 10650,
+      "sha256": "a5432a0f66666b98efca52be48753552f27052608542ab3d9457397f4d4573fb"
+    },
+    {
+      "path": "Materials/MI_EarthGround64K.uasset",
+      "size_bytes": 11879,
+      "sha256": "d44e5fcc31e1268499d80e20dc60fd3d856202565256acd880aa1f711abbbb33"
+    },
+    {
+      "path": "Materials/MI_EarthGround_VT80K.uasset",
+      "size_bytes": 14728,
+      "sha256": "d7bc0872cce92f44899c7ae60c5bf716fc78ed0b9c0e3105ae5da005b5b4b8d9"
+    },
+    {
+      "path": "Materials/MI_MoonFarAway.uasset",
+      "size_bytes": 8657,
+      "sha256": "b4d7b6b7086533bcf31379e04947c7f61e2655d3d18f96ab2d3cf75e2cae7630"
+    },
+    {
+      "path": "Materials/MI_Stars_Cinematics.uasset",
+      "size_bytes": 8049,
+      "sha256": "1a57416697baab3112ac2b96dfc9a4458cb6077c0095ee07b7aa9e1ccacb5a0f"
+    },
+    {
+      "path": "Materials/Masters/M_Atmosphere.uasset",
+      "size_bytes": 94991,
+      "sha256": "d73ff3241b272a3a4cf9cf988239902e575e2180537d95487a41d702e6da7c3f"
+    },
+    {
+      "path": "Materials/Masters/M_AuroraMaterialOnly.uasset",
+      "size_bytes": 136517,
+      "sha256": "589574a33a165023ae51a5f6db18f8671665ff49bccc9b1c47e56c35531b29fe"
+    },
+    {
+      "path": "Materials/Masters/M_AuroraNiagaraBase.uasset",
+      "size_bytes": 70237,
+      "sha256": "fc050374c26f79568a8e9e717fcb46a42d609904f09c2933708688f49124b3bd"
+    },
+    {
+      "path": "Materials/Masters/M_Clouds.uasset",
+      "size_bytes": 452289,
+      "sha256": "5879acecc62c50c68f50c390a1dba443afc23a07d933764c00d885624a196d39"
+    },
+    {
+      "path": "Materials/Masters/M_EarthGround32K.uasset",
+      "size_bytes": 373283,
+      "sha256": "328c0e80d799149e8bc9c80b7225668484272c93f3f9def3b50e3ee8cf10dd95"
+    },
+    {
+      "path": "Materials/Masters/M_EarthGround64K.uasset",
+      "size_bytes": 382022,
+      "sha256": "ce067d4783283662ca12946859260b7b5985b7a63b5e9e35fed921388223088c"
+    },
+    {
+      "path": "Materials/Masters/M_EarthGround80K.uasset",
+      "size_bytes": 382828,
+      "sha256": "f6eaab188cd02b0387a5aa1f5f01c5705414acdcb59dfae8f6aa711df4818785"
+    },
+    {
+      "path": "Materials/Masters/M_EarthGroundAll.uasset",
+      "size_bytes": 423120,
+      "sha256": "329f9f29ee8ea841047ea39b962334694184f6e462079d43555c3966dccaa987"
+    },
+    {
+      "path": "Materials/Masters/M_MoonFarAway.uasset",
+      "size_bytes": 20290,
+      "sha256": "cb57d92a3bc899e452979de22772fd39b1a865445cce81fb3e9dc86e6a019714"
+    },
+    {
+      "path": "Materials/Masters/M_Stars.uasset",
+      "size_bytes": 21822,
+      "sha256": "b15a88a67ad4e1175e4f18e1448b8d4cbd453d61e4282b0b3b1168b9baf688a5"
+    },
+    {
+      "path": "Materials/Masters/M_TextMaterialEmmissive.uasset",
+      "size_bytes": 23839,
+      "sha256": "c6cdf0e9844f4e915b7ebd06e78ad4499ac3c1ce05e928d8de304a7c426c833c"
+    },
+    {
+      "path": "Meshes/SM_AuroraSphere.uasset",
+      "size_bytes": 489973,
+      "sha256": "e6f3ea937669f0f78b6199db78b589757f77e1550d437bf7feb10ec7a9c19867"
+    },
+    {
+      "path": "Meshes/SM_InvertedSphere.uasset",
+      "size_bytes": 228805,
+      "sha256": "e49f0e7560f44e8296f506c74cd1919f7e597384360bde00fd0c1a5d6ba2423d"
+    },
+    {
+      "path": "Meshes/SM_SphereHigh.uasset",
+      "size_bytes": 146791732,
+      "sha256": "818d048195768d8fc1d59a4010781f32f7365a92206cf81462947902f35de953"
+    },
+    {
+      "path": "Meshes/SM_SphereLow.uasset",
+      "size_bytes": 6140170,
+      "sha256": "616f2b2cd09dbba149460f6b1f1f5a74557b2497543b428862c9d2c4921a6175"
+    },
+    {
+      "path": "Meshes/SM_SphereMid.uasset",
+      "size_bytes": 37249417,
+      "sha256": "0e3e178e75b2fd036da9bdac5b23304aefed412af951e160fd7b9c0dec59abdb"
+    },
+    {
+      "path": "Meshes/SM_SphereVeryHigh.uasset",
+      "size_bytes": 226063797,
+      "sha256": "f51fdcff4c95ae2b612121c0cbba20572e1235390867f0d30c81ded593670b63"
+    },
+    {
+      "path": "Meshes/SM_SphereVeryLow.uasset",
+      "size_bytes": 2530428,
+      "sha256": "30f96ffc638e35dc916da1af65e1b9ad002fb9a83f9ff3c1b6cc2131f30367f4"
+    },
+    {
+      "path": "Textures/Clouds/T_Clouds_DetailNormal_Left_32K.uasset",
+      "size_bytes": 772411929,
+      "sha256": "0c38535cb4582aec7dc21a62ff94b14809148906426bd231e9f9aefef5e2cb51"
+    },
+    {
+      "path": "Textures/Clouds/T_Clouds_DetailNormal_Right_32K.uasset",
+      "size_bytes": 774546895,
+      "sha256": "5e38120ed54273647fa82a513410f4a93c97caf352966d6d917dfd23cc30c7f0"
+    },
+    {
+      "path": "Textures/Clouds/T_Clouds_ShapeNormal_16K.uasset",
+      "size_bytes": 524733990,
+      "sha256": "41256ac256ebe77eb8bab3a2bbd7b60ad586ce52e82d5406b977a3ac782910b9"
+    },
+    {
+      "path": "Textures/Clouds/T_PoleClouds_Normal_16K.uasset",
+      "size_bytes": 605714709,
+      "sha256": "47a73067dadfe7154534ccd29c7f061188322662465b7274539385175448cfa3"
+    },
+    {
+      "path": "Textures/Clouds/T_RGB_Clouds_A_PoleClouds_16K.uasset",
+      "size_bytes": 510028071,
+      "sha256": "647f8bf7954f8e57581f1dadfd1089cc0666485ed83fb6c6e7510f2ebe497b95"
+    },
+    {
+      "path": "Textures/Clouds/T_RG_Clouds_BA_PoleClouds_32K.uasset",
+      "size_bytes": 616248602,
+      "sha256": "262ffa5a697678ba01d23ab0ae7d0c5488fa659a793ff840152b842e492858d8"
+    },
+    {
+      "path": "Textures/Earth32K/T_ColorWaterMask_East_32K.uasset",
+      "size_bytes": 402463681,
+      "sha256": "29d180d32a5f2115af67ecc73a2cba1a92b8c23a4fa98568507cc1ffe7cc74ad"
+    },
+    {
+      "path": "Textures/Earth32K/T_ColorWaterMask_West_32K.uasset",
+      "size_bytes": 350906193,
+      "sha256": "54f9d8d98d4a22a75cea893c4ef118b0babf641dfb29ec19f386a9239ea8ca47"
+    },
+    {
+      "path": "Textures/Earth32K/T_Earth_Normal_East_32K.uasset",
+      "size_bytes": 404764761,
+      "sha256": "a4b5840c2c74343161cfdb7107b81ff2519d5d05cd0d4e46baf25959b379470e"
+    },
+    {
+      "path": "Textures/Earth32K/T_Earth_Normal_West_32K.uasset",
+      "size_bytes": 342675042,
+      "sha256": "670a3e2577943c15afae26bb396f81368f51bc28519050c1345926f485fc9510"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_A1_64K.uasset",
+      "size_bytes": 385554594,
+      "sha256": "af3bdab59c3aaf96b62311aa33a37e5cab3e10e8158e1c1e2eeafc824caf00be"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_A2_64K.uasset",
+      "size_bytes": 277847807,
+      "sha256": "0dc82ca154e245134f89684e84c80d28169c5b798a65030d1c9034b9ca43cc61"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_B1_64K.uasset",
+      "size_bytes": 386126534,
+      "sha256": "9722a88af87e9e4e0c28bcf52ef0802bc4c993d82027865f7269853409a2d2f5"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_B2_64K.uasset",
+      "size_bytes": 363213214,
+      "sha256": "301c2eee0cbc6e9285e6e1e92e160d42102bddfd7fa03527ffce282ca427e5ad"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_C1_64K.uasset",
+      "size_bytes": 468782835,
+      "sha256": "46b5d617e98f7c4635ce1b9b02280bbc0f89162eb29e41ddad11772ba263c9b7"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_C2_64K.uasset",
+      "size_bytes": 332721150,
+      "sha256": "e32b9e52fc69a87ae791f208ecf2683338c01ef5246b180f2512b22441681da8"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_D1_64K.uasset",
+      "size_bytes": 412716786,
+      "sha256": "52e9589da87ad0b8e3096ed2cd7f0935a137518930178935bd719ce94750c4f8"
+    },
+    {
+      "path": "Textures/Earth64K/T_ColorWater_D2_64K.uasset",
+      "size_bytes": 349624862,
+      "sha256": "d0621c07d48ef5850ee7e9a26cf896288e08bab055f5fe56e5b57980bf9d3d50"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_A1_64K.uasset",
+      "size_bytes": 401043118,
+      "sha256": "5d641b0123e1c1884f8eb6d98f174dbaf7d4d36f1a95786b5aa47f7972a53058"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_A2_64K.uasset",
+      "size_bytes": 279347300,
+      "sha256": "347f027a0a36baa84e023a46dddd8bf4f010db10f95cba7261544449e029c838"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_B1_64K.uasset",
+      "size_bytes": 407474828,
+      "sha256": "bb94062898a9905d0d22f06baebb931f31f1a808740e5c87a2f4d60b54d028bb"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_B2_64K.uasset",
+      "size_bytes": 382806012,
+      "sha256": "a6845b361d62ee5817bb612617db6473be33ae1b97a26f77273f51d24927d86b"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_C1_64K.uasset",
+      "size_bytes": 540450449,
+      "sha256": "43363e3a0ec1b5e654927bdde667fc23e5188c4ff42ed86092cebf42ddc60c75"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_C2_64K.uasset",
+      "size_bytes": 331841954,
+      "sha256": "955e2847faff36f3281975a1d82a3288a52816b941f136f2c1cc1da3540f5a7f"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_D1_64K.uasset",
+      "size_bytes": 478013302,
+      "sha256": "31acd3af1bd943e685403f060060e305a7dd2cef77bfb1126fb3e251738f80ab"
+    },
+    {
+      "path": "Textures/Earth64K/T_Normal_D2_64K.uasset",
+      "size_bytes": 338594100,
+      "sha256": "262fe39939f830a4854558509b4b9092bca45c17275396e0c54ae0c9265f9d5d"
+    },
+    {
+      "path": "Textures/Earth80K_VT/T_Color_80K_EAST.uasset",
+      "size_bytes": 1649165303,
+      "sha256": "20511915183070aa81c178b1309142987586a6574657fc5b1be0a9f99fa02f30"
+    },
+    {
+      "path": "Textures/Earth80K_VT/T_Color_80K_WEST.uasset",
+      "size_bytes": 1207024697,
+      "sha256": "96fc221a9ce44cce6db476f18d54d29763f1d8b61d6d756538596a80008be78e"
+    },
+    {
+      "path": "Textures/Earth80K_VT/T_Normal_EAST_80K.uasset",
+      "size_bytes": 1305368344,
+      "sha256": "e64552509966486da1d82598ffe16e76faffa7b6844abe6a7dbc0be372988475"
+    },
+    {
+      "path": "Textures/Earth80K_VT/T_Normal_WEST_80K.uasset",
+      "size_bytes": 840529607,
+      "sha256": "643636b04f935c899d2056f4efb2f615251360921c041e141dab09b1dafae043"
+    },
+    {
+      "path": "Textures/EarthShared/T_CityCloudGlowMask_16K.uasset",
+      "size_bytes": 138040436,
+      "sha256": "8d522fc303036ca02062d52fc96a8cc55c03e158bf54e7c3a0170c962767a990"
+    },
+    {
+      "path": "Textures/EarthShared/T_DesertCloudDistributionMask_16K.uasset",
+      "size_bytes": 76723687,
+      "sha256": "01b4eba44317c978d39111a8e7a2d03cdab709b3c3cdbb4075125d93624e7c63"
+    },
+    {
+      "path": "Textures/EarthShared/T_Earth_RG_Height_32K.uasset",
+      "size_bytes": 334325481,
+      "sha256": "065cb50fb6612929663c90d86c324f188a8aa835534ab2647c91947dd3503587"
+    },
+    {
+      "path": "Textures/EarthShared/T_Earth_RG_NightColor_32K.uasset",
+      "size_bytes": 102501744,
+      "sha256": "b297175e6a8784dd02c6682ab4a05da2c2d37deebdd15d2fb3bf45b4e454755e"
+    },
+    {
+      "path": "Textures/EarthShared/T_StreetOverlayProjection.uasset",
+      "size_bytes": 1562394,
+      "sha256": "5bc24c4b823088e397940612aa7ed6d3f912995eadf5c618c3cf2c9a7613f479"
+    },
+    {
+      "path": "Textures/Moon/T_Moon4K.uasset",
+      "size_bytes": 14620561,
+      "sha256": "c881178600c3c9e5d355172259e06a51e0dfa59856790a49e62e71a07a3dbed6"
+    },
+    {
+      "path": "Textures/Moon/T_MoonNormal4K.uasset",
+      "size_bytes": 17483321,
+      "sha256": "2480bbb1dc778d961b4ac88356d05e4c68e092e4c52f4d9056b64c0ce3c930dc"
+    },
+    {
+      "path": "Textures/Stars/T_StarDome_BetterForDLSS_16k.uasset",
+      "size_bytes": 166557330,
+      "sha256": "69bc515c8fe722cee5459ee979614af73b70167e3dddf02dbbf7bfafa714e03a"
+    },
+    {
+      "path": "Textures/Stars/T_StarDome_smallerStars_16k.uasset",
+      "size_bytes": 168036916,
+      "sha256": "e4ec7b54265e06162cfa4f71c66eac2cd14ae180227e08e06f5666a59415adca"
+    },
+    {
+      "path": "Textures/VFX/T_Fibers02B_Blur_1K.uasset",
+      "size_bytes": 2658981,
+      "sha256": "194270f80db2b920158f86af30f56ae618c0ca52783849a9126ec6fef50cca69"
+    },
+    {
+      "path": "Textures/VFX/T_Lighting2.uasset",
+      "size_bytes": 119365,
+      "sha256": "b84507edd220f000a8cca20711b67ab758716a8f9debccf4e8b8392b05176e44"
+    },
+    {
+      "path": "Textures/VFX/T_RandomGrid64.uasset",
+      "size_bytes": 44181,
+      "sha256": "30dbc5006886dc72813ad9fd78a190996f6d838e711d478e1242fd6316746653"
+    },
+    {
+      "path": "Textures/VFX/T_SilkyLines_Blur_2K.uasset",
+      "size_bytes": 6669130,
+      "sha256": "cc4f390ed15145a2b122cbb313717a60ce3341cae613f1ac03c125fa17929286"
+    },
+    {
+      "path": "VFX/NMS_AuroraColor.uasset",
+      "size_bytes": 62164,
+      "sha256": "e4a06a21409512d57023ae71792a0be2ea526723ab344f3b49563587826067e4"
+    },
+    {
+      "path": "VFX/NS_AuroraFromTexture.uasset",
+      "size_bytes": 1036582,
+      "sha256": "f668ca08cd3286eae17706eb4bb4e6076a6119fecd2a97ccdbce43323014614e"
+    }
+  ]
+}

@@ -62,3 +62,5 @@ PYTHONPATH=server:server/backend python -m pytest tools/release/tests -q
 UE 的显式资产 staging、Cook 及 packaged 资源加载使用 `ue-adapter/scripts/package_ue_project.py`；操作流程见 [发布重建](../../docs/guides/release-reproduction.md)。基础Python/native/UE/GPU检查的边界见 [UE分层验证](../../docs/guides/ue-validation.md)。
 
 `runtime_metadata.py` 实际读取Python/Engine/插件与ELF符号依赖；`copy-runtime.py` 在复制前验证解释器ABI，并写入 `RUNTIME-INPUTS.json`，BUILD信息不再硬编码版本。`resolve_environment.py` 只在新目录解析/安装候选锁，不改现有环境。元数据读取、单元测试和哈希通过均不等于新运行包已完成跨机或GPU验收。
+
+外部地球资源由 `external_environment_assets.py` 校验、打包和恢复，使用[外部环境资产指南](../../docs/guides/external-environment-assets.md)。它不自动上传资源。

@@ -1,4 +1,6 @@
 #include "BskSceneController.h"
+#include "BskEnvironment.h"
+#include "BskEnvironmentBody.h"
 #include "Engine/StaticMeshActor.h"
 #include "BskCameraPawn.h"
 #include "BskUnrealRuntime.h"
@@ -116,6 +118,48 @@ AActor* ABskSceneController::SpawnTexturedEarth(const FString& ActorName, double
 
 AActor* ABskSceneController::SpawnCelestialBody(const FBskCelestialBodyDefinition& Definition)
 {
+    // A tagged, project-owned Moon is part of the saved environment. Resolve
+    // it before render extensions or the Celestial Vault fallback get a chance
+    // to create a second runtime actor.
+    if (Definition.BodyId.Equals(TEXT("moon"), ESearchCase::IgnoreCase))
+    {
+        if (AActor* SavedMoon = FindSavedMoonActor())
+        {
+            UStaticMeshComponent* Component = nullptr;
+            if (AStaticMeshActor* StaticMeshActor = Cast<AStaticMeshActor>(SavedMoon))
+            {
+                Component = StaticMeshActor->GetStaticMeshComponent();
+            }
+            else
+            {
+                Component = Cast<UStaticMeshComponent>(SavedMoon->GetRootComponent());
+            }
+            if (Component)
+            {
+                if (UStaticMesh* Mesh = Component->GetStaticMesh())
+                {
+                    const double LocalRadius = Mesh->GetBounds().SphereRadius;
+                    const double TargetRadiusCentimeters = FMath::Max(Definition.EquatorialRadiusMeters, 1.0)
+                        * Converter.GetCentimetersPerMeter();
+                    if (LocalRadius > UE_DOUBLE_SMALL_NUMBER && FMath::IsFinite(TargetRadiusCentimeters))
+                    {
+                        // The saved actor's authored scale is a preview default.
+                        // Backend takeover owns the physical radius, while the
+                        // mesh and material remain the artist-authored assets.
+                        SavedMoon->SetActorScale3D(FVector(TargetRadiusCentimeters / LocalRadius));
+                    }
+                }
+            }
+            SavedMoon->Tags.AddUnique(FName(TEXT("BSK.Celestial.moon")));
+            CelestialBillboardIds.Remove(Definition.BodyId);
+            UE_LOG(LogBskUnreal, Display,
+                TEXT("Reusing saved Moon actor %s for backend ephemeris (mesh=%s)"),
+                *SavedMoon->GetName(),
+                SavedMoon->GetRootComponent() ? *SavedMoon->GetRootComponent()->GetName() : TEXT("none"));
+            return SavedMoon;
+        }
+    }
+
     if (UBskRenderWorldSubsystem* RenderSubsystem = GetWorld()->GetSubsystem<UBskRenderWorldSubsystem>())
     {
         const FBskRenderSpawnContext Context{GetWorld(), this, &Converter};
@@ -261,6 +305,12 @@ void ABskSceneController::ConfigureManifestLighting(const FBskSceneManifest& Man
         }
     }
     if (!Headlight) return;
+    if (SavedEnvironment)
+    {
+        if (APlayerController* Player = GetWorld()->GetFirstPlayerController())
+            if (ABskCameraPawn* Pawn = Cast<ABskCameraPawn>(Player->GetPawn()))
+                Headlight->AttachToComponent(Pawn->GetBskCameraComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+    }
     Headlight->SetActorHiddenInGame(false);
     const double Peak = FMath::Max3(Manifest.HeadlightDiffuseRgb.X, Manifest.HeadlightDiffuseRgb.Y, Manifest.HeadlightDiffuseRgb.Z);
     const FVector3d Normalized = Peak > UE_DOUBLE_SMALL_NUMBER ? Manifest.HeadlightDiffuseRgb / Peak : FVector3d::OneVector;
@@ -273,7 +323,7 @@ void ABskSceneController::ConfigureManifestLighting(const FBskSceneManifest& Man
     Spot->SetInnerConeAngle(50.0f);
     Spot->SetOuterConeAngle(80.0f);
     Spot->SetCastShadows(false);
-    if (ExposureVolume)
+    if (ExposureVolume && !SavedEnvironment)
     {
         ExposureVolume->Settings.AutoExposureBias = static_cast<float>(MaterialExposureBias);
     }
@@ -419,6 +469,8 @@ void ABskSceneController::UpdateCelestialBodies(const FBskRenderFrame& Frame)
                         if (CelestialSunLight)
                         {
                             CelestialSunLight->SetActorRotation(LightRayDirection.Rotation());
+                            if (UDirectionalLightComponent* Directional = Cast<UDirectionalLightComponent>(CelestialSunLight->GetLightComponent()))
+                                Directional->SetLightSourceAngle(static_cast<float>(CurrentSunAngularDiameterDegrees));
                             CelestialSunLight->GetLightComponent()->SetLightColor(
                                 SunLight->GetLightComponent()->GetLightColor());
                             CelestialSunLight->GetLightComponent()->SetIntensity(UnoccludedLux);
@@ -427,9 +479,10 @@ void ABskSceneController::UpdateCelestialBodies(const FBskRenderFrame& Frame)
                         if (!bWasEphemerisActive)
                         {
                             UE_LOG(LogBskUnreal, Display,
-                                TEXT("Ephemeris Sun active distance=%.6f AU angular_diameter=%.4f deg direction=%s unoccluded_lux=%.4f local_lux=%.4f visibility=%.6f"),
+                                TEXT("Ephemeris Sun active distance=%.6f AU angular_diameter=%.4f deg visual_disk_diameter=%.4f deg direction=%s unoccluded_lux=%.4f local_lux=%.4f visibility=%.6f"),
                                 SourceDistanceMeters / 149597870700.0,
                                 CurrentSunAngularDiameterDegrees,
+                                SunDiskMaterial ? SavedEnvironment->SunVisualAngularDiameterDegrees : CurrentSunAngularDiameterDegrees,
                                 *CurrentSunSourceDirection.ToCompactString(),
                                 static_cast<double>(UnoccludedLux),
                                 static_cast<double>(UnoccludedLux) * CurrentSolarVisibility,
@@ -437,6 +490,7 @@ void ABskSceneController::UpdateCelestialBodies(const FBskRenderFrame& Frame)
                         }
                     }
                 }
+                UpdateSunDiskMaterial();
             }
         }
     }
@@ -664,6 +718,26 @@ void ABskSceneController::CreateDecorativeSunEffects(USceneComponent* Root)
 
 void ABskSceneController::UpdateDecorativeSunScale()
 {
+    if (SavedEnvironment)
+    {
+        if (!SavedEnvironment->IsBackendControlled || !DecorativeSunComponent) return;
+        const double BaseTangent = FMath::Tan(FMath::DegreesToRadians(
+            FMath::Max(0.001, SavedEnvironment->SunVisualAngularDiameterDegrees) * 0.5));
+        const double Ratio = FMath::Tan(FMath::DegreesToRadians(CurrentSunAngularDiameterDegrees * 0.5)) / BaseTangent
+            * Converter.GetCentimetersPerMeter() / FMath::Max(SavedEnvironment->GeometryCentimetersPerMeter, UE_DOUBLE_SMALL_NUMBER);
+        FTransform Surface = SunSurfacePreviewTransform;
+        Surface.SetScale3D(Surface.GetScale3D() * Ratio);
+        Surface.SetLocation(Surface.GetLocation() * Ratio);
+        DecorativeSunComponent->SetRelativeTransform(Surface);
+        for (int32 Index = 0; Index < DecorativeSunParticleComponents.Num(); ++Index)
+        {
+            if (!DecorativeSunParticleComponents[Index] || !SunParticlePreviewTransforms.IsValidIndex(Index)) continue;
+            FTransform Effect = SunParticlePreviewTransforms[Index];
+            Effect.SetScale3D(Effect.GetScale3D() * Ratio * SunVisualEffectScale);
+            DecorativeSunParticleComponents[Index]->SetRelativeTransform(Effect);
+        }
+        return;
+    }
     if (!DecorativeSunComponent || DecorativeSunSourceRadiusCentimeters <= UE_DOUBLE_SMALL_NUMBER) return;
     const double MaximumDistanceMeters = FMath::Max(1000.0, CelestialVaultRadiusKilometers * 1000.0 * 0.92);
     const double EffectiveDistanceMeters = FMath::Min(SunVisualDistanceMeters, MaximumDistanceMeters);
@@ -682,6 +756,7 @@ void ABskSceneController::UpdateDecorativeSunScale()
 
 void ABskSceneController::UpdateDecorativeSunPlacement()
 {
+    if (SavedEnvironment && !SavedEnvironment->IsBackendControlled) return;
     if (!DecorativeSunActor || !SunLight) return;
     FVector ViewLocation = FVector::ZeroVector;
     FRotator ViewRotation = FRotator::ZeroRotator;
@@ -748,6 +823,7 @@ void ABskSceneController::CreateDecorativeEarth()
 
 void ABskSceneController::CreateEnvironment()
 {
+    if (AdoptSavedEnvironment()) return;
     CurrentSunSourceDirection = -SunRotation.Vector().GetSafeNormal();
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -954,4 +1030,172 @@ FString ABskSceneController::GetLightingStatus() const
         : FString::Printf(TEXT("PHYSICAL SUNLIGHT | visibility %.3f"), CurrentSolarVisibility);
     Status += bAuxiliary ? TEXT(" | auxiliary lighting enabled") : TEXT(" | no auxiliary lighting");
     return Status;
+}
+
+
+AActor* ABskSceneController::FindSavedMoonActor() const
+{
+    if (!GetWorld()) return nullptr;
+
+    const FName PreviewTag(TEXT("BSK.Preview.StaticAsset"));
+    const FName MoonTag(TEXT("BSK.Semantic.moon"));
+    AActor* TaggedFallback = nullptr;
+    for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
+    {
+        AStaticMeshActor* Candidate = *It;
+        if (!Candidate || !Candidate->ActorHasTag(PreviewTag) || !Candidate->ActorHasTag(MoonTag)) continue;
+
+        UStaticMeshComponent* Component = Candidate->GetStaticMeshComponent();
+        UStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
+        if (!Mesh) continue;
+
+        // Prefer the project-owned Moon asset when more than one deliberately
+        // tagged preview actor is present. The tag-only fallback keeps older
+        // editable maps compatible with this runtime binding.
+        if (Mesh->GetPathName().StartsWith(TEXT("/Game/Planets/Moon/"))) return Candidate;
+        TaggedFallback = Candidate;
+    }
+    return TaggedFallback;
+}
+
+void ABskSceneController::ConfigureSunDiskMaterial()
+{
+    SunDiskMaterial = nullptr;
+    if (!SavedEnvironment || !SavedEnvironment->IsBackendControlled || !DeepSkyComponent) return;
+    UMaterialInterface* Material = DeepSkyComponent->GetMaterial(0);
+    float Value = 0.0f;
+    // This opt-in keeps legacy star materials and decorative Sun meshes on
+    // their existing path. Never write to a saved material instance in place.
+    if (!Material ||
+        !Material->GetScalarParameterValue(FMaterialParameterInfo(TEXT("BSKSunVisualAngularDiameter")), Value) ||
+        !Material->GetScalarParameterValue(FMaterialParameterInfo(TEXT("BSKSunDiskRadianceScale")), Value)) return;
+    SunDiskMaterial = UMaterialInstanceDynamic::Create(Material, this);
+    DeepSkyComponent->SetMaterial(0, SunDiskMaterial);
+    UpdateSunDiskMaterial();
+}
+
+void ABskSceneController::UpdateSunDiskMaterial()
+{
+    if (!SavedEnvironment || !SavedEnvironment->IsBackendControlled || !SunDiskMaterial ||
+        !DeepSkyComponent || DeepSkyComponent->GetMaterial(0) != SunDiskMaterial) return;
+    const UDirectionalLightComponent* Directional = SunLight
+        ? Cast<UDirectionalLightComponent>(SunLight->GetLightComponent()) : nullptr;
+    if (!Directional) return;
+    const double VisualAngle = SavedEnvironment->SunVisualAngularDiameterDegrees;
+    const double PhysicalAngle = Directional->LightSourceAngle;
+    if (!FMath::IsFinite(VisualAngle) || VisualAngle <= 0.0 || VisualAngle >= 180.0 ||
+        !FMath::IsFinite(PhysicalAngle) || PhysicalAngle <= 0.0 || PhysicalAngle >= 180.0) return;
+
+    // SkyAtmosphereLightDiskLuminance's angle override changes only its mask.
+    // Its radiance still uses illuminance / the physical light's solid angle.
+    // Rescale only the disk branch so widening the visual does not increase
+    // its total energy. 4*pi*sin(angle/4)^2 avoids cancellation at small angles.
+    const double PhysicalSine = FMath::Sin(FMath::DegreesToRadians(PhysicalAngle * 0.25));
+    const double VisualSine = FMath::Sin(FMath::DegreesToRadians(VisualAngle * 0.25));
+    const double RadianceScale = FMath::Square(PhysicalSine / VisualSine);
+    SunDiskMaterial->SetScalarParameterValue(TEXT("BSKSunVisualAngularDiameter"), static_cast<float>(VisualAngle));
+    SunDiskMaterial->SetScalarParameterValue(TEXT("BSKSunDiskRadianceScale"), static_cast<float>(RadianceScale));
+}
+
+bool ABskSceneController::AdoptSavedEnvironment()
+{
+    if (!GetWorld()) return false;
+    int32 Count = 0;
+    for (TActorIterator<ABskEnvironment> It(GetWorld()); It; ++It)
+    {
+        if (Count++ == 0) SavedEnvironment = *It;
+    }
+    if (!SavedEnvironment) return false; // Legacy/custom maps retain their old factory.
+    if (Count > 1)
+    {
+        bEnvironmentPreviewOnly = true;
+        UE_LOG(LogBskUnreal, Error, TEXT("Only one BskEnvironment is allowed per world; backend disabled"));
+    }
+    SavedEnvironment->CapturePreviewState();
+    SunDiskMaterial = nullptr;
+    SunLight = SavedEnvironment->SunLight;
+    CelestialSunLight = SavedEnvironment->CelestialSunLight;
+    FillLight = SavedEnvironment->FillLight;
+    // A deliberately omitted saved headlight may use the legacy runtime
+    // fallback. Keep that single instance across subsequent manifests.
+    if (SavedEnvironment->Headlight || !Headlight) Headlight = SavedEnvironment->Headlight;
+    EarthAtmosphere = SavedEnvironment->EarthAtmosphere;
+    if (EarthAtmosphere)
+    {
+        AtmospherePreviewBottomRadiusKilometers = EarthAtmosphere->GetComponent()->BottomRadius;
+        AtmospherePreviewHeightKilometers = EarthAtmosphere->GetComponent()->AtmosphereHeight;
+        AtmospherePreviewAerialPerspectiveStartKilometers = EarthAtmosphere->GetComponent()->AerialPerspectiveStartDepth;
+    }
+    ExposureVolume = SavedEnvironment->ExposureVolume;
+    DecorativeSunActor = SavedEnvironment->SunVisual;
+    DecorativeSunComponent = SavedEnvironment->SunVisual ? SavedEnvironment->SunVisual->Surface.Get() : nullptr;
+    DeepSkyComponent = SavedEnvironment->StarSphere ? SavedEnvironment->StarSphere->GetStaticMeshComponent() : nullptr;
+    DecorativeEarthActor = nullptr; // The saved Earth has a single identity.
+    SunVisualDistanceMeters = SavedEnvironment->SunVisualDistanceMeters;
+    SunVisualAngularDiameterDegrees = SavedEnvironment->SunVisualAngularDiameterDegrees;
+    CurrentSunAngularDiameterDegrees = SunVisualAngularDiameterDegrees;
+    SunVisualEmissiveStrength = SavedEnvironment->SunVisualEmissiveStrength;
+    SunVisualEffectScale = SavedEnvironment->SunVisualEffectScale;
+    SunIlluminanceScale = SavedEnvironment->SunIlluminanceScale;
+    if (SunLight)
+    {
+        SunRotation = SunLight->GetActorRotation();
+        SunIntensityLux = SunLight->GetLightComponent()->Intensity;
+    }
+    if (FillLight) FillLightIntensityLux = FillLight->GetLightComponent()->Intensity;
+    CurrentSunSourceDirection = -SunRotation.Vector().GetSafeNormal();
+    DecorativeSunParticleComponents.Reset();
+    SunParticlePreviewTransforms.Reset();
+    if (SavedEnvironment->SunVisual)
+    {
+        if (DecorativeSunComponent) SunSurfacePreviewTransform = DecorativeSunComponent->GetRelativeTransform();
+        for (UParticleSystemComponent* Particle : {SavedEnvironment->SunVisual->SunBursts.Get(),
+            SavedEnvironment->SunVisual->SunHalo.Get(), SavedEnvironment->SunVisual->SunLines.Get()})
+        {
+            if (!Particle) continue;
+            DecorativeSunParticleComponents.Add(Particle);
+            SunParticlePreviewTransforms.Add(Particle->GetRelativeTransform());
+        }
+    }
+    if (!SavedEnvironment->Earth || !SunLight || !CelestialSunLight || !DecorativeSunComponent || !DeepSkyComponent)
+    {
+        bEnvironmentPreviewOnly = true;
+        UE_LOG(LogBskUnreal, Error, TEXT("Saved BskEnvironment has missing Earth, star, Sun visual or sunlight references; repair the level before backend takeover"));
+    }
+    if (AActor* Moon = FindSavedMoonActor())
+    {
+        SavedMoonActor = Moon;
+        SavedMoonPreviewTransform = Moon->GetActorTransform();
+        bHasSavedMoonPreview = true;
+        bSavedMoonPreviewHidden = Moon->IsHidden();
+    }
+    UE_LOG(LogBskUnreal, Display, TEXT("Reusing saved BSK environment %s; no runtime environment actors spawned"), *SavedEnvironment->GetName());
+    return true;
+}
+
+void ABskSceneController::RestoreSavedEnvironmentPreview()
+{
+    if (!SavedEnvironment) return;
+    SavedEnvironment->RestorePreviewState();
+    if (bHasSavedMoonPreview && IsValid(SavedMoonActor))
+    {
+        SavedMoonActor->SetActorTransform(SavedMoonPreviewTransform);
+        SavedMoonActor->SetActorHiddenInGame(bSavedMoonPreviewHidden);
+    }
+    const AActor* SavedMoon = FindSavedMoonActor();
+    for (auto It = CelestialActors.CreateIterator(); It; ++It)
+    {
+        const bool bSavedEarth = It.Value() == SavedEnvironment->Earth;
+        const bool bMoonEntry = It.Key().Equals(TEXT("moon"), ESearchCase::IgnoreCase);
+        if (bSavedEarth || bMoonEntry)
+        {
+            // A previous manifest may have left a runtime Moon in the map.
+            // Remove that actor before the next manifest can bind the saved
+            // level Moon, while preserving the authored actor itself.
+            if (bMoonEntry && It.Value() && It.Value() != SavedMoon && IsValid(It.Value()))
+                It.Value()->Destroy();
+            It.RemoveCurrent();
+        }
+    }
+    AdoptSavedEnvironment();
 }

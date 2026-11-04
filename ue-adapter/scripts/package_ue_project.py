@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 from build_ue_project import ADAPTER, ENGINE_POLICY, host_platform, toolchain_identity, validate_engine
-from prepare_cook_staging import REPO, digest, prepare
+from prepare_cook_staging import DEFAULT_MANIFESTS, digest, prepare
 
 
 def assert_runtime_report(report: Path, manifest: Path) -> dict:
@@ -63,7 +63,7 @@ def main(argv=None) -> int:
     if output.is_relative_to(staging) or staging.is_relative_to(output):
         parser.error("Staging and package output must be separate directories")
     engine_version = validate_engine(engine, args.engine_policy)
-    manifests = args.manifest or [REPO / "manifests/assets/ue-cook-base-assets.json"]
+    manifests = args.manifest or DEFAULT_MANIFESTS
     prepare(args.project, staging, manifests)
     platform = host_platform()
     output.mkdir(parents=True, exist_ok=True)

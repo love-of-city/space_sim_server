@@ -9,7 +9,7 @@ public class BskUnrealRuntime : ModuleRules
         PublicDependencyModuleNames.AddRange(new[]
         {
             "Core", "CoreUObject", "Engine", "InputCore", "Json", "Networking", "Sockets", "ImageWrapper", "RenderCore", "RHI",
-            "PixelStreaming2", "PixelStreaming2Core", "PixelStreaming2Input", "PixelCapture"
+            "PixelStreaming2", "PixelStreaming2Core", "PixelStreaming2Input", "PixelCapture", "Niagara"
         });
         PrivateDependencyModuleNames.AddRange(new[] {"PixelStreaming2RTC", "BskCameraShaders"});
         PrivateIncludePaths.Add(System.IO.Path.Combine(

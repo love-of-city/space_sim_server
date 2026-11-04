@@ -123,6 +123,10 @@ def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality, mon
     if not source.is_file():
         pytest.skip("Paired UE adapter checkout not present")
     (tmp_path / "start_renderer.ps1").write_text(source.read_text(encoding="utf-8-sig"), encoding="utf-8")
+    (tmp_path / "prepare_environment_level.ps1").write_text("param($UnrealRoot)\n", encoding="utf-8")
+    level = tmp_path / "Content/BSK/Maps/BskEnvironment.umap"
+    level.parent.mkdir(parents=True)
+    level.write_bytes(bytes.fromhex("c1832a9e") + b"saved environment map" * 20)
     (tmp_path / "common.ps1").write_text("param([string]$RequestedDerivedDataCachePath='')\n"
         "$ProjectFile=Join-Path $PSScriptRoot 'fake.uproject'\n"
         "$ProjectRoot=$PSScriptRoot\n$script:BskDerivedDataCachePath=$PSScriptRoot\n"

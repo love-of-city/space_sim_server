@@ -9,7 +9,7 @@ import uuid
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .recording_config import DEFAULT_CAMERA_IDS
 from .sampling import DEFAULT_CAPTURE_HZ
-from .unreal_runtime import unreal_editor
+from .unreal_runtime import ENVIRONMENT_MAP, ensure_environment_level, unreal_editor
 
 
 def check_port_available(port):
@@ -23,13 +23,14 @@ def check_port_available(port):
 
 def renderer_command(args, output: Path):
     project = args.adapter / "Unreal/BskUnrealRenderer"
+    ensure_environment_level(args.adapter, args.unreal)
     # Linux capture hosts use the same persistent filesystem cache directly;
     # a broken Zen autolaunch otherwise adds ~21 s before falling back to it.
     ddc_graph = ("InstalledNoZenLocalFallback" if os.name != "nt"
                  else "InstalledDerivedDataBackendGraph")
     command = [
         str(unreal_editor(args.unreal)), str(project / "BskUnrealRenderer.uproject"),
-        "-game", "-RenderOffscreen", "-ForceRes", "-unattended", "-nosplash",
+        ENVIRONMENT_MAP, "-game", "-RenderOffscreen", "-ForceRes", "-unattended", "-nosplash",
         f"-ResX={CAPTURE_CAMERA_WIDTH}", f"-ResY={CAPTURE_CAMERA_HEIGHT}",
         "-BskListen=127.0.0.1", f"-BskPort={args.render_port}",
         "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={args.capture_port}",

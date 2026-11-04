@@ -17,7 +17,11 @@ Python 发送端通过 `bsk-render/2` 提供 manifest、最新动态帧和有界
 
 ## 配置与资产
 
-配置文件为 `Config/bsk_unreal_scene.json`。Earth/星空主要使用 `Content/Planets` 的纹理和材质；有 Earth/Sun manifest 时位置、姿态与照明方向由仿真星历驱动。Celestial Vault 是回退资产，不负责动力学星历。
+默认项目关卡为 `/Game/BSK/Maps/BskEnvironment`，环境对象和独立预览视角直接保存到源码工程，后端连接后复用这些对象。编辑、接管属性与验证方法见[可编辑环境关卡](../../docs/editable-environment.md)，运行副本的同步与构建见[部署说明](../../../server/docs/environment-deployment.md)。
+
+配置文件为 `Config/bsk_unreal_scene.json`。默认关卡的地球、云层、极光、星空、月球和大气太阳圆盘已接入 IncredibleEarth80K，地球半径为 6371 km；资源位置、尺度适配和回退方式见 [IncredibleEarth 迁移说明](docs/incredible-earth-migration.md)。有 Earth/Sun manifest 时位置、姿态与照明方向由仿真星历驱动。`Content/Planets` 和 Celestial Vault 保留为旧/自定义关卡回退资产，不负责动力学星历。
+
+地球地表与云层的材质实例、可调参数、云影近似和验证范围见[地球视觉编辑](../../docs/earth-visuals.md)。
 
 本地资产映射优先于 manifest；随后尝试 UE 资产、可选 USD、MJ primitive 和占位体。外部磁盘资产默认禁用。模型路径改变后应重新生成 `Saved/AssetImport`，不能复用原机器的绝对路径。
 

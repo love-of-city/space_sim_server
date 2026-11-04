@@ -3,6 +3,8 @@
 #include "BskCaptureEncoding.h"
 #include "BskPreviewCadence.h"
 #include "BskSceneController.h"
+#include "BskEnvironment.h"
+#include "BskEnvironmentBody.h"
 #include "BskUnrealRuntime.h"
 #include "BskRenderWorldSubsystem.h"
 #include "Scene/BskSceneUtilities.h"
@@ -91,24 +93,46 @@ void ABskSceneController::ConfigureFixedRgbExposure(USceneCaptureComponent2D* Ca
     Capture->ShowFlags.SetEyeAdaptation(true);
     Capture->ShowFlags.SetTonemapper(true);
     Capture->PostProcessBlendWeight = 1.0f;
-    Capture->PostProcessSettings.bOverride_AutoExposureMethod = true;
-    Capture->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
-    Capture->PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
-    Capture->PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = true;
-    Capture->PostProcessSettings.bOverride_CameraISO = true;
-    Capture->PostProcessSettings.CameraISO = 100.0f;
-    Capture->PostProcessSettings.bOverride_CameraShutterSpeed = true;
-    Capture->PostProcessSettings.CameraShutterSpeed = 125.0f;
-    Capture->PostProcessSettings.bOverride_DepthOfFieldFstop = true;
-    Capture->PostProcessSettings.DepthOfFieldFstop = 16.0f;
-    Capture->PostProcessSettings.bOverride_AutoExposureBias = true;
-    Capture->PostProcessSettings.AutoExposureBias = static_cast<float>(MaterialExposureBias);
+    if (SavedEnvironment)
+    {
+        // Let the saved unbound volumes control dataset and preview exposure
+        // together. Explicit per-camera exposure remains supported below.
+        Capture->PostProcessSettings = FPostProcessSettings();
+    }
+    else
+    {
+        Capture->PostProcessSettings.bOverride_AutoExposureMethod = true;
+        Capture->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+        Capture->PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+        Capture->PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = true;
+        Capture->PostProcessSettings.bOverride_CameraISO = true;
+        Capture->PostProcessSettings.CameraISO = 100.0f;
+        Capture->PostProcessSettings.bOverride_CameraShutterSpeed = true;
+        Capture->PostProcessSettings.CameraShutterSpeed = 125.0f;
+        Capture->PostProcessSettings.bOverride_DepthOfFieldFstop = true;
+        Capture->PostProcessSettings.DepthOfFieldFstop = 16.0f;
+        Capture->PostProcessSettings.bOverride_AutoExposureBias = true;
+        Capture->PostProcessSettings.AutoExposureBias = static_cast<float>(MaterialExposureBias);
+    }
     // Photometric exposure only: this does not integrate moving geometry over
     // the exposure interval or model physical sensor shutter timing.
+    if (Definition && (Definition->ExposureTimeSeconds > 0.0 || Definition->ApertureFNumber > 0.0))
+    {
+        Capture->PostProcessSettings.bOverride_AutoExposureMethod = true;
+        Capture->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+        Capture->PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+        Capture->PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = true;
+    }
     if (Definition && Definition->ExposureTimeSeconds > 0.0)
+    {
+        Capture->PostProcessSettings.bOverride_CameraShutterSpeed = true;
         Capture->PostProcessSettings.CameraShutterSpeed = static_cast<float>(1.0 / Definition->ExposureTimeSeconds);
+    }
     if (Definition && Definition->ApertureFNumber > 0.0)
+    {
+        Capture->PostProcessSettings.bOverride_DepthOfFieldFstop = true;
         Capture->PostProcessSettings.DepthOfFieldFstop = static_cast<float>(Definition->ApertureFNumber);
+    }
 }
 
 void ABskSceneController::CaptureRgbCamera(const FString& CameraId, USceneCaptureComponent2D* Capture)
@@ -293,6 +317,7 @@ void ABskSceneController::UpdatePictureInPictureCaptures()
 
 void ABskSceneController::UpdateAuthoritativeDataProductCaptures(const FBskRenderFrame& AuthoritativeFrame)
 {
+    if (bEnvironmentPreviewOnly || (SavedEnvironment && !SavedEnvironment->bAllowBackendControl)) return;
     // Capability alone never triggers dataset readback; only tagged active frames do.
     if (!AuthoritativeFrame.bVisionCaptureRequested
         && AuthoritativeFrame.bCaptureOnDemand && AuthoritativeFrame.CaptureEpisodeId.IsEmpty()) return;
@@ -403,6 +428,11 @@ void ABskSceneController::UpdateAuthoritativeDataProductCaptures(const FBskRende
 
 bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Request, FString& OutError)
 {
+    if (bEnvironmentPreviewOnly || (SavedEnvironment && !SavedEnvironment->bAllowBackendControl))
+    {
+        OutError = TEXT("authoritative capture is disabled in independent environment preview");
+        return false;
+    }
     check(IsInGameThread());
     const bool bVision = Request.Purpose == EBskCapturePurpose::AuthoritativeVision;
     const bool bAuthoritative = Request.Purpose != EBskCapturePurpose::Preview;
@@ -516,10 +546,10 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                     OutError = TEXT("async capture admission was not reserved");
                     return false;
                 }
-                FTextureRHIRef Texture = Capture->TextureTarget->GameThread_GetRenderTargetResource()->GetRenderTargetTexture();
-                if (!Texture || (Texture->GetFormat() != PF_B8G8R8A8 && Texture->GetFormat() != PF_R8G8B8A8))
+                FTextureRenderTargetResource* Resource = Capture->TextureTarget->GameThread_GetRenderTargetResource();
+                if (!Resource)
                 {
-                    OutError = TEXT("async RGB readback requires an 8-bit BGRA/RGBA render target");
+                    OutError = TEXT("async RGB readback requires a render-target resource");
                     return false;
                 }
                 AsyncJob = MakeShared<FBskAsyncCaptureJob, ESPMode::ThreadSafe>();
@@ -527,14 +557,25 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
                 AsyncJob->Resolution = Resolution;
                 AsyncJob->ReservedBytes = Bytes;
                 AsyncJob->SubmittedSeconds = FPlatformTime::Seconds();
-                AsyncJob->bRgba = Texture->GetFormat() == PF_R8G8B8A8;
                 AsyncJob->Readback = MakeShared<FRHIGPUTextureReadback, ESPMode::ThreadSafe>(TEXT("BskStrictRgb"));
                 // Load the module/create the wrapper here, never from a worker.
                 AsyncJob->Wrapper = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper")).CreateImageWrapper(
                     bVision ? EImageFormat::PNG : EImageFormat::JPEG);
-                ENQUEUE_RENDER_COMMAND(BskEnqueueRgbReadback)([Job = AsyncJob, Texture](FRHICommandListImmediate& RHICmdList)
+                // Resolve the RHI texture after the queued initialization and
+                // scene capture. Reading it on the game thread races frame 0.
+                // Resource release is also ordered through the render queue.
+                ENQUEUE_RENDER_COMMAND(BskEnqueueRgbReadback)([Job = AsyncJob, Resource](FRHICommandListImmediate& RHICmdList)
                 {
-                    Job->Readback->EnqueueCopy(RHICmdList, Texture);
+                    FTextureRHIRef Texture = Resource->GetRenderTargetTexture();
+                    if (!Texture || (Texture->GetFormat() != PF_B8G8R8A8 && Texture->GetFormat() != PF_R8G8B8A8))
+                    {
+                        Job->Error = TEXT("async RGB readback requires an initialized 8-bit BGRA/RGBA render target");
+                    }
+                    else
+                    {
+                        Job->bRgba = Texture->GetFormat() == PF_R8G8B8A8;
+                        Job->Readback->EnqueueCopy(RHICmdList, Texture);
+                    }
                     Job->bCopySubmitted.Store(true);
                 });
                 continue;
@@ -792,7 +833,15 @@ void ABskSceneController::PollCaptureJobs()
     check(IsInGameThread());
     for (const auto& Job : PendingCaptureJobs)
     {
-        if (!Job->Readback || !Job->bCopySubmitted.Load() || !Job->Readback->IsReady()) continue;
+        if (!Job->Readback || !Job->bCopySubmitted.Load()) continue;
+        // The submission flag publishes the render-thread result, including
+        // failures that have no GPU fence to poll.
+        if (!Job->Error.IsEmpty())
+        {
+            Job->Readback.Reset();
+            continue;
+        }
+        if (!Job->Readback->IsReady()) continue;
         int32 Pitch = 0, Height = 0;
         const FColor* Source = static_cast<const FColor*>(Job->Readback->Lock(Pitch, &Height));
         TArray<FColor> Pixels;

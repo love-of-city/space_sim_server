@@ -27,7 +27,10 @@ class FloatingCaptureConfig:
     linear_speed_m_s: float = .04
     angular_speed_rad_s: float = .3
     gripper_speed_rad_s: float = .25
-    hold_s: float = 3.
+    hold_s: float = 2.
+    settle_s: float = 1.
+    retract_position_body_m: tuple = (.30, .35, .36)
+    retract_speed_m_s: float = .025
     force_limit_n: float = 80.
     torque_limit_nm: float = 8.
     timeout_s: float = 150.
@@ -36,8 +39,17 @@ class FloatingCaptureConfig:
         if self.task not in FLOATING_TASKS:
             raise ValueError("Unknown floating capture task")
         for key, value in vars(self).items():
-            if key != "task" and (not math.isfinite(value) or value <= 0):
+            if key not in ("task", "retract_position_body_m") and (not math.isfinite(value) or value <= 0):
                 raise ValueError(f"{key} must be finite and positive")
+
+        position = np.asarray(self.retract_position_body_m, dtype=float)
+        if position.shape != (3,) or not np.isfinite(position).all():
+            raise ValueError("Retraction position must contain three finite coordinates")
+        if self.hold_s < 2. or self.settle_s < 1.:
+            raise ValueError("Capture requires at least 2 s before retraction and 1 s at destination")
+
+    def snapshot(self):
+        return {**vars(self), "retract_position_body_m": list(self.retract_position_body_m)}
 
     @property
     def plug_body(self):
@@ -46,8 +58,8 @@ class FloatingCaptureConfig:
 
 
 class FloatingCaptureTask:
-    version = "floating-capture/2"
-    stages = ("open", "intercept", "grip", "hold")
+    version = "floating-capture/3"
+    stages = ("open", "intercept", "grip", "hold", "retract", "settle")
 
     def __init__(self, model_path, config=None):
         self.model_path = Path(model_path)
@@ -74,6 +86,8 @@ class FloatingCaptureTask:
         self._held_rotation = None
         self._hold_opening = 0.
         self._contact_loss = 0.
+        self._hold_completed = 0.
+        self._retract_start = self._retract_rotation = None
 
     def grasp_pose(self, sample):
         rotation = sample.plug_rotation_body
@@ -102,7 +116,17 @@ class FloatingCaptureTask:
             relative_speed_m_s=float(np.linalg.norm(relative)),
             finger_target_contacts=list(sample.finger_plug_contacts or (0, 0)),
             finger_normal_force_n=list(sample.finger_normal_force_n),
-            held_seconds=self._stable if self.stage == "hold" else 0.,
+            held_seconds=self._stable if self.stage == "hold" else self._hold_completed,
+            settled_seconds=self._stable if self.stage == "settle" else 0.,
+            measured_tool_position_body_m=p.tolist(), measured_tool_rotation_body=r.tolist(),
+            measured_tool_linear_speed_m_s=float(np.linalg.norm(j[:3]@sample.joint_velocities[:6])),
+            measured_tool_angular_speed_rad_s=float(np.linalg.norm(j[3:]@sample.joint_velocities[:6])),
+            retraction_target_position_body_m=list(self.config.retract_position_body_m),
+            retraction_start_position_body_m=None if self._retract_start is None else self._retract_start.tolist(),
+            retraction_target_rotation_body=None if self._retract_rotation is None else self._retract_rotation.tolist(),
+            retraction_error_m=float(np.linalg.norm(np.asarray(self.config.retract_position_body_m)-p)),
+            retraction_orientation_error_rad=0. if self._retract_rotation is None else float(np.linalg.norm(
+                rotation_matrix_to_vector(self._retract_rotation@r.T))),
             slip_m=0. if self._held_local is None else float(np.linalg.norm(local-self._held_local)),
             angular_slip_rad=0. if self._held_rotation is None else float(np.linalg.norm(
                 rotation_matrix_to_vector((r.T@sample.plug_rotation_body)@self._held_rotation.T))),
@@ -124,14 +148,17 @@ class FloatingCaptureTask:
 
     def _track(self, sample, dt):
         point, desired = self.grasp_pose(sample)
-        p, r = self.chain.forward(sample.joints[:6])
-        error = point-p
         speed = sample.plug_velocity_body_m_s + np.cross(
             sample.plug_angular_velocity_body_rad_s,
             sample.plug_rotation_body @ np.asarray(self.asset.grip_point))
-        translation = speed + 2.5*error
-        translation *= min(1., self.config.linear_speed_m_s/max(np.linalg.norm(translation), 1e-12))
-        angular = sample.plug_angular_velocity_body_rad_s + 2.*rotation_matrix_to_vector(desired@r.T)
+        self._drive_pose(sample, dt, point, desired, self.config.linear_speed_m_s,
+                         speed, sample.plug_angular_velocity_body_rad_s)
+
+    def _drive_pose(self, sample, dt, point, desired, linear_limit, speed=None, spin=None):
+        p, r = self.chain.forward(sample.joints[:6])
+        translation = (np.zeros(3) if speed is None else speed) + 2.5*(point-p)
+        translation *= min(1., linear_limit/max(np.linalg.norm(translation), 1e-12))
+        angular = (np.zeros(3) if spin is None else spin) + 2.*rotation_matrix_to_vector(desired@r.T)
         angular *= min(1., self.config.angular_speed_rad_s/max(np.linalg.norm(angular), 1e-12))
         if dt <= 0:
             return
@@ -191,7 +218,10 @@ class FloatingCaptureTask:
             self._enter("open", sample)
         if self.stage == "intercept" or (self.stage == "grip" and self._hold_joints is None):
             self._track(sample, dt)
-        elif self.stage in ("grip", "hold") and self._hold_joints is not None:
+        elif self.stage == "retract":
+            self._drive_pose(sample, dt, np.asarray(self.config.retract_position_body_m),
+                             self._retract_rotation, self.config.retract_speed_m_s)
+        elif self.stage in ("grip", "hold", "settle") and self._hold_joints is not None:
             self.reference[:6] = self._hold_joints
         opening = (1. if self.stage in ("open", "intercept") else
                    self._hold_opening if self._hold_joints is not None else 0.)
@@ -229,8 +259,36 @@ class FloatingCaptureTask:
             if self._contact_loss > .5:
                 self.fail("target_lost", sample)
             elif self._stable >= self.config.hold_s:
-                self.result, self.reason = "success", "bilateral_contact_and_stable_hold"
-                self.events.append(dict(stage="success", sim_time_s=float(sample.time_s)))
+                self._hold_completed = self._stable
+                self._retract_start, self._retract_rotation = self.chain.forward(sample.joints[:6])
+                self._retract_start, self._retract_rotation = self._retract_start.copy(), self._retract_rotation.copy()
+                if np.linalg.norm(self._retract_start-np.asarray(self.config.retract_position_body_m)) < .05:
+                    self.fail("retraction_distance_too_short", sample)
+                else:
+                    self._enter("retract", sample)
+        elif self.stage in ("retract", "settle"):
+            retained = bilateral and m["slip_m"] < .003 and m["angular_slip_rad"] < .05 and m["relative_speed_m_s"] < .005
+            if not retained:
+                self.fail("grasp_lost_during_retraction", sample)
+            else:
+                arrived = (m["retraction_error_m"] < .003 and m["retraction_orientation_error_rad"] < .025
+                           and m["measured_tool_linear_speed_m_s"] < .003
+                           and m["measured_tool_angular_speed_rad_s"] < .02)
+                if self.stage == "retract" and arrived and m["retraction_error_m"] < .001:
+                    self._hold_joints = sample.joints[:6].copy()
+                    self.reference[:6] = self._hold_joints
+                    self._enter("settle", sample)
+                elif self.stage == "settle":
+                    if not arrived:
+                        self.fail("retraction_destination_lost", sample)
+                    else:
+                        self._stable += dt
+                    if self.result is None and self._stable >= self.config.settle_s:
+                        if np.linalg.norm(np.asarray(m["measured_tool_position_body_m"])-self._retract_start) < .05:
+                            self.fail("retraction_distance_too_short", sample)
+                        else:
+                            self.result, self.reason = "success", "retained_object_retracted_and_settled"
+                            self.events.append(dict(stage="success", sim_time_s=float(sample.time_s)))
         self.velocity[:] = (self.reference-old)/dt if dt > 0 else 0.
         return self.reference.copy(), self.velocity.copy()
 
@@ -240,7 +298,11 @@ def floating_controller_config(name, scene):
     allowed = {"linear_speed_m_s", "angular_speed_rad_s", "arm_speed_rad_s"}
     if set(options) - allowed:
         raise ValueError("floating_controller accepts only tracking linear, angular and joint speeds")
-    return FloatingCaptureConfig(task=name, **options)
+    retraction = scene.get("floating_retraction", {})
+    if set(retraction) - {"position_body_m", "speed_m_s"}:
+        raise ValueError("floating_retraction accepts only position_body_m and speed_m_s")
+    mapped = {"retract_"+key: value for key, value in retraction.items()}
+    return FloatingCaptureConfig(task=name, **options, **mapped)
 
 
 def create_floating_task(name, model, scene=None):

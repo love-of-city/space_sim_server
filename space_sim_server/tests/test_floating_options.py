@@ -37,7 +37,7 @@ def test_fixed_release_and_controller_replay(tmp_path):
     assert task.config.angular_speed_rad_s == .6
     assert task.config.arm_speed_rad_s == .7
     assert task.config.linear_speed_m_s == .08
-    assert task.config.hold_s == 3 and task.config.force_limit_n == 80
+    assert task.config.hold_s == 2 and task.config.force_limit_n == 80
     serialized = json.loads(json.dumps(scene))
     assert write_model_variant(MODEL, tmp_path/'replay.xml', serialized).read_bytes() == model.read_bytes()
     assert source == before

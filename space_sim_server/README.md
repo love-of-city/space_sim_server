@@ -353,3 +353,19 @@ python collection/collect_scripted_tasks.py \
 条件定义见 `simulation/scripted_tasks/floating_profiles.py`，包括 `left-static-red`、`right-incoming-blue`、`left-receding-green`、`right-lateral-orange`、`upper-drift-purple`、`lower-drift-yellow`、`noisy-observations`、`action-perturbation`、`external-wrench`。它们覆盖释放位置、朝向、平移/旋转、起姿、目标质量/惯量/摩擦、纯色、光照、轨道相位与观测/动作/末端外力扰动。可直接在原生scene JSON中设置 `floating_capture`、`floating_target`、`collection_randomization` 和 `environment` 自定义条件。profile会覆盖这些维度的配置，保留其他源场景设置；`initialization_enabled=false`仍关闭起姿扰动。
 
 物体定义、场景变化、控制器分开维护，不为条件组合增加task ID。相机安装和成功标准保持固定，所有条件仍经过原生碰撞预检。`floating-release/3`使用独立position/tilt/speed/spin随机流，新的seed初态与旧版本不同；历史数据可阅读，新代码重放要求当前schema。每条scene保存profile定义、实际释放、目标变体及随机扰动；平移速度表示目标body原点的运动。摩擦记录目标geom/pair参数，实际接触仍遵循MuJoCo混合规则。
+
+### 漂浮抓取后的携物回收
+
+`floating-capture/3`在双指稳定夹持2秒后，保持夹爪预紧并携物移动到指定末端位置，到位稳定1秒才成功。位置以卫星本体坐标系表示，默认`[0.30, 0.35, 0.36] m`，最大回收线速度默认`0.025 m/s`。回收保持开始时的末端姿态；全程使用真实接触，不修改物体位姿。非计划碰撞、失去接触或滑移超过门槛会失败。
+
+在`collect_scripted_tasks.py`原有命令后添加：
+
+```bash
+--object-speed 0.03 --object-direction lateral_right --object-spin 0 \
+--tracking-linear-speed 0.08 --tracking-angular-speed 0.6 --tracking-joint-speed 0.7 \
+--retract-position 0.30 0.35 0.36 --retract-speed 0.025
+```
+
+速度／转速也可用`--object-speed-range MIN MAX`、`--object-spin-range MIN MAX`逐条采样，固定值与区间互斥。释放条件保存在`floating_capture`，追踪速度在`floating_controller`，回收位置与速度在`floating_retraction`。CLI在profile之后覆盖对应字段；保存过的prepared scene不能再加覆盖参数。目的地需可达且携物路径无碰撞，当前在线检查覆盖回收段，接近路径的静态预检不代表已检查回收路径。
+
+录制验收要求完整`open/intercept/grip/hold/retract/settle`序列、回收前2秒和到位后1秒稳定窗口、全回收段夹持有效，以及实际末端移动至少5cm、物体随手移动和实际到位。历史只有3秒保持的轨迹仍保留原版本和结果。

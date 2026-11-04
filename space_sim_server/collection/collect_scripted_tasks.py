@@ -230,38 +230,82 @@ def validate_recorded_layout_model(meta, observations):
 
 
 def validate_floating_recording(steps, stages, task_name):
-    """Independently check the saved 50 Hz hold window, not just a success flag."""
+    """Check observed retention, transport and arrival, independently of success."""
     import numpy as np
+    from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix, rotation_matrix_to_vector
+    from itertools import groupby
+
     final = steps[-1]["scripted_task"]
     assert stages == list(FloatingCaptureTask.stages), stages
+    assert [key for key, _ in groupby(obs["scripted_task"]["stage"] for obs in steps)] == stages
     assert final["task_version"] == FloatingCaptureTask.version
     assert final["target_body"] == FLOATING_TASKS[task_name].body
     assert final["result"] == "success"
-    duration = final["task_parameters"]["hold_s"]
-    assert np.isfinite(duration) and duration >= 3.
-    assert final["held_seconds"] >= duration
-    end = int(steps[-1]["sim_time_ns"])
-    window = [obs for obs in steps if int(obs["sim_time_ns"]) >= end-int((duration-.02)*1e9)]
-    assert len(window) >= 150
-    assert end-int(window[0]["sim_time_ns"]) >= int((duration-.021)*1e9)
+    params = final["task_parameters"]
+    hold_s, settle_s = params["hold_s"], params["settle_s"]
+    assert np.isfinite([hold_s, settle_s]).all() and hold_s >= 2. and settle_s >= 1.
+    assert final["held_seconds"] >= hold_s and final["settled_seconds"] >= settle_s
+    destination = np.asarray(params["retract_position_body_m"], dtype=float)
+    assert destination.shape == (3,) and np.isfinite(destination).all()
+    stamps = np.array([int(obs["sim_time_ns"]) for obs in steps], dtype=np.int64)
+    assert np.all((np.diff(stamps) > 0) & (np.diff(stamps) <= 20_000_001))
     for obs in steps:
         task = obs["scripted_task"]
+        assert task["task_parameters"] == params
+        assert task["task_version"] == FloatingCaptureTask.version and task["target_body"] == FLOATING_TASKS[task_name].body
         assert not task.get("unexpected_contacts")
         assert task["feedback_source"] == "authoritative_simulation_state"
-        contacts = np.asarray(task["finger_target_contacts"])
-        forces = np.asarray(task["finger_normal_force_n"])
+        contacts, forces = np.asarray(task["finger_target_contacts"]), np.asarray(task["finger_normal_force_n"])
         assert contacts.shape == forces.shape == (2,)
         assert np.isfinite(contacts).all() and np.isfinite(forces).all()
-        assert np.all(contacts >= 0) and np.all(contacts == np.floor(contacts))
-        assert np.all(forces >= 0)
+        assert np.all(contacts >= 0) and np.all(contacts == np.floor(contacts)) and np.all(forces >= 0)
         assert np.isfinite([task["slip_m"], task["angular_slip_rad"], task["relative_speed_m_s"],
-                            *task["finger_normal_force_n"]]).all()
-    for obs in window:
+                            *task["target_position_body_m"], *obs["end_effector_position_body_m"],
+                            *obs["end_effector_twist_body"]]).all()
+
+    def retained(obs):
         task = obs["scripted_task"]
-        assert task["stage"] == "hold" and all(count > 0 for count in task["finger_target_contacts"])
+        assert all(count > 0 for count in task["finger_target_contacts"])
         assert min(task["finger_normal_force_n"]) >= .02
-        assert task["slip_m"] < .003 and task["angular_slip_rad"] < .05
-        assert task["relative_speed_m_s"] < .005
+        assert task["slip_m"] < .003 and task["angular_slip_rad"] < .05 and task["relative_speed_m_s"] < .005
+
+    def stable_window(rows, duration):
+        end = int(rows[-1]["sim_time_ns"])
+        window = [obs for obs in rows if int(obs["sim_time_ns"]) >= end-int((duration-.02)*1e9)]
+        assert len(window) >= int(round(duration*50))-1
+        assert end-int(window[0]["sim_time_ns"]) >= int((duration-.021)*1e9)
+        for obs in window:
+            retained(obs)
+        return window
+
+    hold = [obs for obs in steps if obs["scripted_task"]["stage"] == "hold"]
+    stable_window(hold, hold_s)
+    moving = [obs for obs in steps if obs["scripted_task"]["stage"] in ("retract", "settle")]
+    start = np.asarray(moving[0]["scripted_task"]["retraction_start_position_body_m"])
+    rotation = np.asarray(moving[0]["scripted_task"]["retraction_target_rotation_body"])
+    assert start.shape == (3,) and rotation.shape == (3, 3)
+    assert np.isfinite(start).all() and np.isfinite(rotation).all()
+    assert np.allclose(rotation.T@rotation, np.eye(3), atol=1e-6) and np.linalg.det(rotation) > .999999
+    assert np.linalg.norm(start-np.asarray(moving[0]["end_effector_position_body_m"])) < .003
+    for obs in moving:
+        retained(obs)
+        task = obs["scripted_task"]
+        assert np.array_equal(task["retraction_start_position_body_m"], start)
+        assert np.array_equal(task["retraction_target_position_body_m"], destination)
+        assert np.array_equal(task["retraction_target_rotation_body"], rotation)
+        if task["stage"] == "settle":
+            position = np.asarray(obs["end_effector_position_body_m"])
+            actual_rotation = quaternion_wxyz_to_matrix(np.asarray(obs["end_effector_orientation_body_wxyz"]))
+            twist = np.asarray(obs["end_effector_twist_body"])
+            assert np.linalg.norm(position-destination) < .003
+            assert np.linalg.norm(rotation_matrix_to_vector(rotation@actual_rotation.T)) < .025
+            assert np.linalg.norm(twist[:3]) < .003 and np.linalg.norm(twist[3:]) < .02
+    settle = [obs for obs in moving if obs["scripted_task"]["stage"] == "settle"]
+    stable_window(settle, settle_s)
+    tool_delta = np.asarray(steps[-1]["end_effector_position_body_m"])-moving[0]["end_effector_position_body_m"]
+    object_delta = np.asarray(final["target_position_body_m"])-moving[0]["scripted_task"]["target_position_body_m"]
+    assert np.linalg.norm(tool_delta) >= .05 and np.linalg.norm(object_delta) >= .045
+    assert np.linalg.norm(tool_delta-object_delta) < .01
 
 
 def validate_recording(episode, task_name="drawer_cycle"):
@@ -339,6 +383,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
         variant = cfg["model_randomization"]
         assert release["source_sha256"] == variant["source_sha256"]
         assert all(obs["model_sha256"] == variant["variant_sha256"] for obs in steps)
+        assert cfg["floating_controller"] == final["task_parameters"]
         validate_floating_recording(steps, stages, task_name)
     elif task_name in THREADED_TASKS:
         validate_threaded_recording(steps, stages, task_name)

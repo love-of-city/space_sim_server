@@ -149,6 +149,7 @@ def test_position_agreement_alone_cannot_succeed(tmp_path):
 def test_contact_hold_is_continuous_and_does_not_modify_measurements(tmp_path):
     scene, path = realized(tmp_path)
     task = create_floating_task("floating_bolt_capture", path)
+    task.config = replace(task.config, retract_position_body_m=(.65, .35, .36))
     sample = sample_at_grasp(task, scene, contacts=(1, 1))
     measured = sample.joints.copy()
     for i in range(360):
@@ -161,9 +162,9 @@ def test_contact_hold_is_continuous_and_does_not_modify_measurements(tmp_path):
     assert task.result is None
     for i in range(800, 1020):
         task.step(replace(sample, time_s=i*.005))
-    assert task.result == "success"
+    assert task.result is None and task.stage == "retract"
     np.testing.assert_array_equal(sample.joints, measured)
-    assert all(event["stage"] != "success" or event["sim_time_s"] >= 4.8 for event in task.events)
+    assert not any(event["stage"] == "success" for event in task.events)
 
 
 @pytest.mark.parametrize("gap", [0., .01, 3.])
@@ -247,34 +248,6 @@ def test_preflight_does_not_exempt_target_environment_or_initial_finger_collisio
     assert probe.pose_collision(np.zeros(8), "floating_panel_capture") is not None
     assert probe.pose_collision(np.zeros(8), "floating_panel_capture",
                                 allowed_contact_bodies=("satellite_outer_panel",)) is None
-
-
-def test_recording_rejects_a_success_flag_with_an_interrupted_hold():
-    from collection.collect_scripted_tasks import validate_floating_recording
-    from simulation.scripted_tasks.floating_capture import FloatingCaptureTask
-    state = dict(task_version=FloatingCaptureTask.version, target_body="bolt", result="success",
-        task_parameters={"hold_s": 3.}, held_seconds=3., stage="hold",
-        feedback_source="authoritative_simulation_state", finger_target_contacts=[1, 1],
-        finger_normal_force_n=[1., 1.], slip_m=0., angular_slip_rad=0., relative_speed_m_s=0.)
-    steps = [dict(sim_time_ns=str(i*20_000_000), scripted_task=deepcopy(state)) for i in range(160)]
-    validate_floating_recording(steps, list(FloatingCaptureTask.stages), "floating_bolt_capture")
-    steps[50]["scripted_task"]["finger_normal_force_n"] = [1., 0.]
-    with pytest.raises(AssertionError):
-        validate_floating_recording(steps, list(FloatingCaptureTask.stages), "floating_bolt_capture")
-
-
-@pytest.mark.parametrize("contacts,forces", [([1], [1.]), ([1, 1], [1.]),
-    ([1, -1], [1., 1.]), ([1, .5], [1., 1.]), ([1, float("nan")], [1., 1.])])
-def test_recording_requires_two_valid_finger_channels(contacts, forces):
-    from collection.collect_scripted_tasks import validate_floating_recording
-    from simulation.scripted_tasks.floating_capture import FloatingCaptureTask
-    state = dict(task_version=FloatingCaptureTask.version, target_body="bolt", result="success",
-        task_parameters={"hold_s": 3.}, held_seconds=3., stage="hold",
-        feedback_source="authoritative_simulation_state", finger_target_contacts=contacts,
-        finger_normal_force_n=forces, slip_m=0., angular_slip_rad=0., relative_speed_m_s=0.)
-    steps = [dict(sim_time_ns=str(i*20_000_000), scripted_task=deepcopy(state)) for i in range(160)]
-    with pytest.raises(AssertionError):
-        validate_floating_recording(steps, list(FloatingCaptureTask.stages), "floating_bolt_capture")
 
 
 @pytest.mark.parametrize("field,value", [

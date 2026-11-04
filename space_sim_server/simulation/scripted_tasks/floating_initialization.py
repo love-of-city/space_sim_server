@@ -259,7 +259,7 @@ def apply_floating_model(root, source, scene):
     for key, values in (("pos", saved["position_body_m"]), ("quat", saved["orientation_wxyz"])):
         body.set(key, " ".join(format(float(v), ".17g") for v in values))
     cfg["task_version"] = FloatingCaptureTask.version
-    controller = vars(floating_controller_config(name, scene))
+    controller = floating_controller_config(name, scene).snapshot()
     if "floating_controller" in cfg and cfg["floating_controller"] != controller:
         raise ValueError("Saved floating controller does not match scene configuration")
     cfg["floating_controller"] = controller

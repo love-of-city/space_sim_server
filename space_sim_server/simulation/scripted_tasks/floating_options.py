@@ -12,6 +12,9 @@ def add_floating_options(parser):
         group.add_argument(f"--object-{quantity}", type=float, help=f"Fixed initial magnitude ({unit})")
         group.add_argument(f"--object-{quantity}-range", type=float, nargs=2,
                            metavar=("MIN", "MAX"), help=f"Uniform initial magnitude interval ({unit})")
+    parser.add_argument("--retract-position", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                        help="Final end-effector position in satellite body frame (m)")
+    parser.add_argument("--retract-speed", type=float, help="Retraction linear speed limit (m/s)")
     parser.add_argument("--object-direction", choices=("random", "stationary", "approaching", "receding", "lateral_left", "lateral_right", "up", "down"))
     parser.add_argument("--spin-axis", choices=("random", "camera_x", "camera_y", "camera_z", "grasp_z"))
     parser.add_argument("--spin-sign", type=int, choices=(-1, 1))
@@ -20,7 +23,7 @@ def add_floating_options(parser):
 
 
 def apply_floating_options(source, args, *, prepared=False):
-    release, controller = {}, {}
+    release, controller, retraction = {}, {}, {}
     for quantity, field in (("speed", "speed_m_s"), ("spin", "spin_rad_s")):
         fixed = getattr(args, f"object_{quantity}")
         interval = getattr(args, f"object_{quantity}_range")
@@ -36,7 +39,11 @@ def apply_floating_options(source, args, *, prepared=False):
         value = getattr(args, f"tracking_{quantity}_speed")
         if value is not None:
             controller[field] = value
-    if release or controller:
+    for argument, field in (("retract_position", "position_body_m"), ("retract_speed", "speed_m_s")):
+        value = getattr(args, argument)
+        if value is not None:
+            retraction[field] = value
+    if release or controller or retraction:
         if prepared:
             raise ValueError("Floating overrides cannot be combined with a prepared scene")
         if args.task not in FLOATING_TASKS:
@@ -45,6 +52,7 @@ def apply_floating_options(source, args, *, prepared=False):
     if args.task in FLOATING_TASKS:
         result["floating_capture"] = {**result.get("floating_capture", {}), **release}
         result["floating_controller"] = {**result.get("floating_controller", {}), **controller}
+        result["floating_retraction"] = {**result.get("floating_retraction", {}), **retraction}
         FloatingInitialConfig(**result["floating_capture"])
         floating_controller_config(args.task, result)
     return result

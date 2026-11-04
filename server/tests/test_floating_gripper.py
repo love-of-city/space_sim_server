@@ -56,9 +56,17 @@ def test_retained_grasp_adjusts_preload_without_changing_measurements(tmp_path, 
         task._drive_gripper(weak, .005, task.metrics(weak))
     assert .298-1e-12 <= task.reference[6] < .3
     before = task.reference[6]
-    high = replace(sample, finger_normal_force_n=(9., .2))
+    high = replace(sample, finger_normal_force_n=(13., .2))
     task._drive_gripper(high, .005, task.metrics(high))
     assert task.reference[6] > before
-    assert task.reference[6]-before <= .01*.005+1e-12
+    assert task.reference[6]-before <= .02*.005+1e-12
     np.testing.assert_array_equal(sample.joints, measured)
     assert task.result is None
+
+
+def test_free_closing_limits_first_contact_impact(tmp_path):
+    task, sample = gripping(tmp_path)
+    sample = replace(sample, finger_plug_contacts=(0, 0), finger_normal_force_n=(0., 0.))
+    before = task.reference[6]
+    task._drive_gripper(sample, .005, task.metrics(sample))
+    assert before-task.reference[6] == pytest.approx(.06*.005)

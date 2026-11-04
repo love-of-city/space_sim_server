@@ -179,7 +179,8 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     allowed_origins = validate_origins(config.allowed_origins)
     login_limiter = LoginRateLimiter(config.login_attempts_per_minute)
     recording_config = load_recording_config(config.project_root / "config" / "recording.json")
-    recorder = EpisodeRecorder(config.data_root, save_raw_camera_images=recording_config.save_raw_camera_images,
+    recorder = EpisodeRecorder(config.data_root, capture_progress_timeout_s=recording_config.capture_progress_timeout_s,
+                               save_raw_camera_images=recording_config.save_raw_camera_images,
                                video_encoding=recording_config.video, storage_profile=recording_config.storage_profile)
     # Explicit file settings take precedence over legacy launcher defaults.
     # Explicit scene requests and saved instances retain their own sampling grid.

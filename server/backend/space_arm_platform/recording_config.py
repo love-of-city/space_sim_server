@@ -61,6 +61,7 @@ class RecordingConfig(BaseModel):
     save_dynamics_trace: bool = False
     scripted_native_geometry: bool = False
     capture_backpressure_poll_s: float = Field(default=0.002, ge=0.001, le=0.1)
+    capture_progress_timeout_s: float = Field(default=60., gt=0., le=60.)
     dataset_capture: bool = True
     capture_rate_hz: Literal[1, 2, 5, 10, 25, 50] = DEFAULT_CAPTURE_HZ
     camera_ids: list[str] = Field(default_factory=lambda: list(DEFAULT_CAMERA_IDS))

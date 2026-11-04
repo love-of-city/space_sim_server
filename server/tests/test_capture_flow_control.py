@@ -80,7 +80,7 @@ def test_stop_unblocks_credit_waiter_but_preserves_accepted_sample(tmp_path):
 
 
 def test_missing_image_fails_recording_without_raising_to_simulation(tmp_path):
-    r = EpisodeRecorder(tmp_path, writer_factory=Writer, drain_timeout_s=.03)
+    r = EpisodeRecorder(tmp_path, writer_factory=Writer, capture_progress_timeout_s=.03)
     ep = r.start(EpisodeStart(camera_ids=['a']), capture_on_demand=True)['episode_id']
     try:
         obs = observation(0, ep)
@@ -106,7 +106,7 @@ def test_explicit_ue_error_fails_only_matching_episode(tmp_path):
 
 
 def test_stalled_writer_reports_writer_not_missing_images(tmp_path):
-    r = EpisodeRecorder(tmp_path, writer_factory=Writer, drain_timeout_s=.05)
+    r = EpisodeRecorder(tmp_path, writer_factory=Writer, capture_progress_timeout_s=.05)
     ep = r.start(EpisodeStart(camera_ids=['a']), capture_on_demand=True)['episode_id']
     try:
         r._dataset.release.clear()
@@ -223,3 +223,28 @@ def test_real_control_connection_is_responsive_while_capture_ack_waits(tmp_path)
             await hub.close()
             r.close()
     asyncio.run(run())
+
+
+def test_active_capture_can_outwait_stop_drain_without_early_ack(tmp_path):
+    r = EpisodeRecorder(tmp_path, writer_factory=Writer, drain_timeout_s=.01,
+                        capture_progress_timeout_s=1.)
+    ep = r.start(EpisodeStart(camera_ids=['a']), capture_on_demand=True)['episode_id']
+    done = threading.Event()
+    try:
+        obs = observation(0, ep)
+        r.record_observation(obs, None)
+        thread = threading.Thread(target=lambda: (r.wait_for_capture_pair(obs), done.set()))
+        thread.start()
+        assert not done.wait(.05)
+        assert r.sync_status()['dataset_error'] is None
+        r._dataset.release.clear()
+        r.record_authoritative_capture(capture(0, ep, 'a'), {'rgb': b'a'})
+        assert not done.wait(.05)
+        assert r.sync_status()['dataset_error'] is None
+        r._dataset.release.set()
+        assert done.wait(1.)
+        thread.join(1.)
+        assert r.stop(EpisodeStop())['dataset_frame_count'] == 1
+    finally:
+        if r._dataset: r._dataset.release.set()
+        r.close()

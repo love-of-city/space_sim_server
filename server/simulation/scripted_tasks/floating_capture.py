@@ -58,7 +58,7 @@ class FloatingCaptureConfig:
 
 
 class FloatingCaptureTask:
-    version = "floating-capture/6"
+    version = "floating-capture/7"
     stages = ("open", "intercept", "grip", "hold", "retract", "settle")
 
     def __init__(self, model_path, config=None):
@@ -191,18 +191,18 @@ class FloatingCaptureTask:
         elif self._hold_joints is not None:
             # Position servos remain the only actuators. Weak contact can be
             # preloaded slowly; excessive one-sided force must open the jaw.
-            rate = (.01 if max(forces) > 8. else
-                    float(np.clip(.005*(min(forces)-3.), -.01, .01)))
+            rate = (.02 if max(forces) > 12. else
+                    float(np.clip(.02*(min(forces)-5.), -.02, .02)))
             goal = self.reference[6] + dt*rate
-            speed = .01
+            speed = .02
         elif self._jaw_contact_seen:
             # Do not keep squeezing a target pushed off the grasp frame.
             # The Cartesian tracker continues to align before closing again.
-            goal = (measured+.002 if max(forces) > 8. else
+            goal = (measured+.002 if max(forces) > 12. else
                     measured if metrics["grasp_error_m"] > .0015 else 0.)
-            speed = .01
+            speed = .02
         else:
-            goal, speed = 0., min(.12, self.config.gripper_speed_rad_s)
+            goal, speed = 0., min(.06, self.config.gripper_speed_rad_s)
         command = self.reference[6] + np.clip(goal-self.reference[6], -dt*speed, dt*speed)
         if self._jaw_contact_seen or self._hold_joints is not None:
             # The original 0.002 rad preload is now a per-step error bound,

@@ -89,3 +89,9 @@
 源scene可携带`collection_batch`，字段为`batch_id/group_id/cell_id/attempt_id/config_sha256`，录制保存至metadata的scene_instance。
 数据页显示该批次与分组，并通过多选框或重复的`collection_batch`查询参数筛选；历史数据继续可见。
 这与网页管理器原有`batch`查询参数分别处理，不将私有批次误当网页采集任务。
+
+## glx：批量失败后的抓点与录制等待修复（2026-11-04）
+
+`floating-capture/7`减缓无接触闭爪并增强接触力反馈，修正安装板2/3的对向夹持位置；保留原接触、滑移、载荷和完整回收判据。航空插头及两块安装板的原生保持、回收和到位诊断通过。版本变更后使用新采集批次，旧准备场景的asset snapshot仍严格校验。
+
+`RecordingConfig.capture_progress_timeout_s`独立控制运行中等待图像、配对、排队和实际写入的时限，默认60秒（可配置正值，最大60秒，与编码器停滞时限一致）。停止收尾沿用原drain时限。该设置延长短时资源竞争的等待，不改变缓存上限、帧配对或写入后ACK要求。

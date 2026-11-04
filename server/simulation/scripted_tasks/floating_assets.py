@@ -63,10 +63,10 @@ FLOATING_TASKS = {
         "floating_asm_board1", "漂浮安装板1", "floating mounting board 1", (.317, .250, .0025),
         (0., 0., 1.), (1., 0., 0.), source_body="asm_board1"),
     "floating_board2_capture": FloatingAsset(
-        "floating_asm_board2", "漂浮安装板2", "floating mounting board 2", (.0955, .210, -.005),
+        "floating_asm_board2", "漂浮安装板2", "floating mounting board 2", (.115, .210, -.005),
         (0., 0., 1.), (1., 0., 0.), source_body="asm_board2"),
     "floating_board3_capture": FloatingAsset(
-        "floating_asm_board3", "漂浮安装板3", "floating mounting board 3", (.207, .040, .0025),
+        "floating_asm_board3", "漂浮安装板3", "floating mounting board 3", (.212, .040, -.0075),
         (0., 0., 1.), (1., 0., 0.), source_body="asm_board3"),
     "floating_inner_panel_capture": FloatingAsset(
         "floating_satellite_inner_panel", "漂浮卫星内侧板", "floating satellite inner panel",

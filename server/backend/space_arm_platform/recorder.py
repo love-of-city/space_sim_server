@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import deque
 import json
+import math
 import threading
 import time
 import uuid
@@ -19,7 +20,7 @@ class EpisodeRecorder:
     MAX_WRITE_JOBS = 512
     MAX_WRITE_BYTES = 128 * 1024 * 1024
 
-    def __init__(self, root: str | Path, *, drain_timeout_s: float = 10., writer_factory=None,
+    def __init__(self, root: str | Path, *, drain_timeout_s: float = 10., capture_progress_timeout_s: float = 60., writer_factory=None,
                  save_raw_camera_images: bool = False, video_encoding: VideoEncodingConfig | None = None,
                  storage_profile: str = "diagnostic") -> None:
         self.root = Path(root).resolve()
@@ -28,6 +29,9 @@ class EpisodeRecorder:
         self._storage_profile = storage_profile
         self._save_raw_camera_images = save_raw_camera_images
         self._video_encoding = video_encoding or VideoEncodingConfig()
+        if not math.isfinite(capture_progress_timeout_s) or capture_progress_timeout_s <= 0:
+            raise ValueError("capture_progress_timeout_s must be finite and positive")
+        self._capture_progress_timeout_s = capture_progress_timeout_s
         self._drain_timeout_s = drain_timeout_s
         # Injection supports focused tests; production always uses the isolated process.
         self._writer_factory = writer_factory
@@ -174,7 +178,7 @@ class EpisodeRecorder:
         ready = self._write_condition.wait_for(
             lambda: self._sealing or self._episode_id != recording_id
             or (len(self._jobs) < self.MAX_WRITE_JOBS and self._queued_bytes + size <= self.MAX_WRITE_BYTES),
-            timeout=self._drain_timeout_s)
+            timeout=self._capture_progress_timeout_s)
         if self._sealing or self._episode_id != recording_id:
             return False
         if not ready:
@@ -347,7 +351,7 @@ class EpisodeRecorder:
             ready = self._write_condition.wait_for(
                 lambda: self._episode_id != episode or self._dataset_error
                 or self._capture_cutoff or self._stopping or self._last_written_frame_id >= int(frame),
-                timeout=self._drain_timeout_s)
+                timeout=self._capture_progress_timeout_s)
             if not ready:
                 cameras = self._dataset_captures.get(frame, {})
                 waiting_for_images = frame in self._dataset_observations
@@ -381,7 +385,7 @@ class EpisodeRecorder:
             recording_id = self._episode_id
             ready = self._write_condition.wait_for(lambda: self._episode_id != recording_id or self._stopping or self._capture_cutoff
                 or self._dataset_error or len(self._dataset_observations) < self.MAX_PENDING_SAMPLES,
-                timeout=self._drain_timeout_s)
+                timeout=self._capture_progress_timeout_s)
             if self._episode_id != recording_id or self._stopping or self._capture_cutoff:
                 return
             if not ready:
@@ -457,7 +461,7 @@ class EpisodeRecorder:
             recording_id = self._episode_id
             ready = self._write_condition.wait_for(lambda: self._episode_id != recording_id or self._stopping or self._capture_cutoff
                 or self._dataset_error or frame_id in self._steps_by_frame or self._pending_capture_count < 128,
-                timeout=self._drain_timeout_s)
+                timeout=self._capture_progress_timeout_s)
             if self._episode_id != recording_id or self._stopping or self._capture_cutoff or self._dataset_error:
                 return
             if not ready:

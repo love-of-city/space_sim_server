@@ -423,6 +423,7 @@ async def run(args):
     stop_file = out / "stop.request"
     recorder = EpisodeRecorder(
         args.episodes_root.resolve(),
+        capture_progress_timeout_s=settings.capture_progress_timeout_s,
         save_raw_camera_images=settings.save_raw_camera_images,
         video_encoding=settings.video,
         storage_profile=settings.storage_profile,

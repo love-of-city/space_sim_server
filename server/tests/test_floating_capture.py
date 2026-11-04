@@ -315,3 +315,33 @@ def test_floating_release_rejects_shallow_target_background_penetration(tmp_path
     assert result["contact"]["penetration_m"] == pytest.approx(.000148)
     probe.contacts = lambda q: np.empty((0, 5))
     assert validate_floating_preflight(probe, model, scene, name)["accepted"]
+
+
+@pytest.mark.parametrize('name', ['floating_board2_capture', 'floating_board3_capture'])
+def test_board_grasp_contacts_both_fingers_before_deep_one_sided_penetration(tmp_path, name, monkeypatch):
+    pytest.importorskip('Basilisk')
+    adapter = Path(__file__).resolve().parents[2] / 'ue-adapter'
+    monkeypatch.syspath_prepend(str(adapter / 'Adapters'))
+    monkeypatch.syspath_prepend(str(adapter / 'Unreal/BskUnrealRenderer/examples'))
+    from scenario_spacecraft_arm_grasp_unreal import load_native_grasp_module
+    load_native_grasp_module(MODEL.parent)
+    from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+    scene, model = realized(tmp_path, name, seed=75)
+    q = np.r_[scene['collection_config']['floating_initial_state']['ik_joint_position_rad'], 1., -1.]
+    probe = NativePoseProbe(model)
+    try:
+        for opening in np.linspace(1., 0., 501):
+            q[6:] = [opening, -opening]
+            depths = {}
+            for _, _, a, b, distance in probe.contacts(q):
+                names = {probe.names[int(a)], probe.names[int(b)]}
+                if FLOATING_TASKS[name].body in names:
+                    for finger in names.intersection({'ee_finger1', 'ee_finger2'}):
+                        depths[finger] = min(depths.get(finger, 0.), distance)
+            if len(depths) == 2:
+                assert min(depths.values()) > -.0005
+                break
+        else:
+            pytest.fail('No opposed grasp surfaces within the physical jaw travel')
+    finally:
+        probe.close()

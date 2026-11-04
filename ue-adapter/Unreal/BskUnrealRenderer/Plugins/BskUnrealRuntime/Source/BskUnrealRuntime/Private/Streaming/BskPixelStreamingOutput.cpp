@@ -1,6 +1,6 @@
+#include "BskSceneController.h"
 #include "BskCameraProjection.h"
 #include "BskVisionPng.h"
-#include "BskSceneController.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonReader.h"
 #include "Async/Async.h"

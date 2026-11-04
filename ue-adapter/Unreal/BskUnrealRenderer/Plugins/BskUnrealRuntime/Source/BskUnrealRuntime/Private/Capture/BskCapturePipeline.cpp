@@ -1,6 +1,6 @@
+#include "BskCapturePipeline.h"
 #include "BskCameraProjection.h"
 #include "BskVisionPng.h"
-#include "BskCapturePipeline.h"
 #include "BskCaptureRouting.h"
 #include "BskCaptureEncoding.h"
 #include "BskPreviewCadence.h"

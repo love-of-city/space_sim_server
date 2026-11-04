@@ -16,7 +16,7 @@ import math
 import numpy as np
 
 from space_arm_platform.visual_navigation import (
-    covariance, image_clock, POSE_ERROR_ORDER, stereo_quality,
+    covariance, image_clock, stereo_quality, visual_pose_covariance,
     FIXED_STEREO_PROFILE, NEAR23_BODY_PROFILE,
 )
 from simulation.navigation_gravity import ReplayGravity
@@ -379,11 +379,7 @@ class PoseNavigation:
                     raise ValueError('image/encoder epoch or calibration mismatch')
             pose = result['pose_target_to_service' if body_pose else 'pose_target_to_left']
             t, r = np.asarray(pose['t_m'], float), rotation(pose['R'])
-            c = result['pose_covariance']
-            if (c['frame'] != frame or c['rotation_error'] != 'left_multiplicative'
-                    or c.get('order') != POSE_ERROR_ORDER):
-                raise ValueError('unsupported pose covariance convention')
-            noise = covariance(c['matrix'], 6)
+            noise = visual_pose_covariance(result, self.visual_profile)
             if t.shape != (3,) or not np.isfinite(t).all():
                 raise ValueError('invalid image position')
             self.last_visual_epoch = epoch

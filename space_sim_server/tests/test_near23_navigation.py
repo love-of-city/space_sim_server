@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
-def setup(tmp_path):
+def setup(tmp_path, request):
     model = tmp_path/'arm.xml'
     chain = ''.join(f'<body name="b{i}" pos=".03 0 .1"><joint name="bottom_joint{i}" axis="0 0 1"/>'
                     for i in range(1, 7))
@@ -27,7 +27,7 @@ def setup(tmp_path):
         mount_covariance=np.diag([1e-8]*3+[1e-6]*3), uncertainty_source='test engineering prior')
     estimator = MultiCameraPoseEstimator(config['calibration'], config['layout'])
     r = exp([np.pi/2+.1, .02, .03])
-    t = np.array([-.1755, .04, 1.0])
+    t = np.array([-.1755, .04, getattr(request, 'param', 1.0)])
     observations = []
     for eye, ids in enumerate(((0,), (1,))):
         rr = r if eye == 0 else estimator.geometry.rig_r@r
@@ -132,6 +132,7 @@ def test_bad_frames_export_invalid_without_reusing_a_pose(setup, fault):
     assert 'pose_covariance' not in result
 
 
+@pytest.mark.parametrize('setup', [.5], indirect=True)
 def test_opt_in_fuses_body_measurement_with_com_levers_and_default_rejects(setup):
     nav = navigation(setup)
     result = packet(setup)
@@ -144,6 +145,34 @@ def test_opt_in_fuses_body_measurement_with_com_levers_and_default_rejects(setup
     default = PoseNavigation(nav.state['p'], nav.state['v'], nav.state['r'], np.eye(24)*1e-5)
     assert not default.visual(result)
     assert 'insufficient' in default.last_reason
+
+
+@pytest.mark.parametrize('depth_sigma', [.03, .08, -.01, float('nan'), float('inf')])
+def test_navigation_and_readiness_reject_uncertain_optical_depth_after_body_conversion(setup, depth_sigma):
+    nav = navigation(setup)
+    result = packet(setup)
+    # A small service-body Z variance must not hide poor optical depth.
+    result['pose_covariance']['matrix'] = (np.eye(6)*1e-6).tolist()
+    result['optical_depth_sigma_m'] = depth_sigma
+    before = nav.snapshot()
+    assert not nav.visual(result)
+    assert nav.last_reason == 'visual measurement uncertainty exceeded'
+    assert nav.snapshot() == before
+    gate = VisualReadiness('mission', 'session', setup[0].calibration_id,
+                           visual_profile=NEAR23_BODY_PROFILE)
+    assert not gate.observe(result, 0, accepted=True,
+        relative_position_covariance=np.eye(3)*1e-6,
+        relative_attitude_covariance=np.eye(3)*1e-6)
+    assert gate.reason == nav.last_reason
+    assert gate.count == 0
+
+
+def test_navigation_uses_qualified_optical_depth_not_rotated_body_z_variance(setup):
+    nav = navigation(setup)
+    result = packet(setup)
+    result['pose_covariance']['matrix'][2][2] += .08**2
+    result['optical_depth_sigma_m'] = .029999
+    assert nav.visual(result), nav.last_reason
 
 
 def test_body_measurement_jacobian_includes_both_assembly_com_levers(setup):
@@ -163,6 +192,7 @@ def test_body_measurement_jacobian_includes_both_assembly_com_levers(setup):
         np.testing.assert_allclose(np.r_[(pp-p)/1e-6, log(rr@r.T)/1e-6], h[:, column], atol=2e-6)
 
 
+@pytest.mark.parametrize('setup', [.5], indirect=True)
 def test_delayed_image_replay_and_restart_keep_exposure_fk_and_com_geometry(setup):
     chronological, delayed = navigation(setup), navigation(setup)
     images = []

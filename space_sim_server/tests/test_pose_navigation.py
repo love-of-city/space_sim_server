@@ -170,6 +170,38 @@ def test_delayed_gnss_and_pose_replay_equal_chronological_filter():
     assert not delayed.visual(image(200_000_000))
 
 
+@pytest.mark.parametrize('sigma', [.03, .08, float('inf'), float('nan')])
+def test_uncertain_decoded_image_cannot_change_navigation_before_readiness(sigma):
+    nav = navigation()
+    packet = image(0)
+    packet['pose_covariance']['matrix'][2][2] = sigma**2
+    packet['pose_target_to_left']['t_m'] = [.02, -.03, 2.05]
+    before = nav.snapshot()
+    assert not nav.visual(packet)
+    assert nav.snapshot() == before
+    gate = VisualReadiness('m', 's', 'c')
+    observe(gate, packet)
+    assert gate.count == 0
+
+
+def test_uncertain_acquisition_does_not_poison_later_precise_visual_updates():
+    nav, reference = navigation(), navigation()
+    for epoch in range(0, 301_000_000, 100_000_000):
+        for estimator in (nav, reference):
+            estimator.advance(epoch)
+        weak = image(epoch)
+        weak['pose_target_to_left'] = dict(t_m=[.02, -.03, 2.05], R=exp([.15, -.1, .08]).tolist())
+        weak['pose_covariance']['matrix'] = np.diag([.02**2]*3+[.15**2]*3).tolist()
+        weak['pose_covariance']['matrix'][2][2] = .08**2
+        assert not nav.visual(weak)
+        assert nav.last_reason == 'visual measurement uncertainty exceeded'
+    for epoch in range(400_000_000, 1_401_000_000, 100_000_000):
+        for estimator in (nav, reference):
+            estimator.advance(epoch)
+            assert estimator.visual(image(epoch)), estimator.last_reason
+        assert nav.snapshot() == reference.snapshot()
+
+
 def test_bias_is_estimated_but_common_attitude_is_not_artificially_observed():
     nav = navigation()
     initial_common = np.eye(3)*.02

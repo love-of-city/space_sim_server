@@ -58,6 +58,24 @@ def test_hold_retract_settle_moves_measurements_without_resetting_grasp(tmp_path
     assert events['success']-events['settle'] >= 1.
 
 
+def test_transport_accelerates_from_rest_instead_of_applying_full_speed(tmp_path):
+    task, sample = controlled_task(tmp_path)
+    for i in range(1000):
+        sample = follow(task, sample, i)
+        if task.stage == 'retract':
+            break
+    assert task.stage == 'retract'
+    speeds = []
+    for j in range(i+1, i+21):
+        sample = follow(task, sample, j)
+        speeds.append(float(np.linalg.norm(sample.joint_velocities[:3])))
+    # Fixture transport limit is 0.2 m/s; after 100 ms the smooth envelope is
+    # only 2.8% of that value, and its first increment starts near zero.
+    assert 0 < speeds[0] < .00002
+    assert np.all(np.diff(speeds) > 0)
+    assert speeds[-1] <= .2*.028+1e-9
+
+
 @pytest.mark.parametrize('defect',['contact','slip','rotation'])
 def test_retraction_immediately_rejects_lost_grasp(tmp_path,defect):
     task,sample=controlled_task(tmp_path)

@@ -58,7 +58,7 @@ class FloatingCaptureConfig:
 
 
 class FloatingCaptureTask:
-    version = "floating-capture/5"
+    version = "floating-capture/6"
     stages = ("open", "intercept", "grip", "hold", "retract", "settle")
 
     def __init__(self, model_path, config=None):
@@ -159,12 +159,15 @@ class FloatingCaptureTask:
         self._drive_pose(sample, dt, point, desired, self.config.linear_speed_m_s,
                          speed, sample.plug_angular_velocity_body_rad_s)
 
-    def _drive_pose(self, sample, dt, point, desired, linear_limit, speed=None, spin=None):
+    def _drive_pose(self, sample, dt, point, desired, linear_limit, speed=None, spin=None,
+                    motion_scale=1.):
         p, r = self.chain.forward(sample.joints[:6])
         translation = (np.zeros(3) if speed is None else speed) + 2.5*(point-p)
         translation *= min(1., linear_limit/max(np.linalg.norm(translation), 1e-12))
         angular = (np.zeros(3) if spin is None else spin) + 2.*rotation_matrix_to_vector(desired@r.T)
         angular *= min(1., self.config.angular_speed_rad_s/max(np.linalg.norm(angular), 1e-12))
+        translation *= motion_scale
+        angular *= motion_scale
         if dt <= 0:
             return
         dq = self.chain.inverse_velocity_ik_pose(
@@ -260,8 +263,13 @@ class FloatingCaptureTask:
         if self.stage == "intercept" or (self.stage == "grip" and self._hold_joints is None):
             self._track(sample, dt)
         elif self.stage in ("retract", "settle"):
+            # Start transport from rest without a Cartesian velocity step.
+            # Smoothstep reaches the unchanged speed envelope after one second.
+            phase = min(1., max(0., sample.time_s-self._entered)) if self.stage == "retract" else 1.
+            ramp = phase*phase*(3.-2.*phase)
             self._drive_pose(sample, dt, np.asarray(self.config.retract_position_body_m),
-                             self._retract_rotation, self.config.retract_speed_m_s)
+                             self._retract_rotation, self.config.retract_speed_m_s,
+                             motion_scale=ramp)
         elif self.stage in ("grip", "hold") and self._hold_joints is not None:
             self.reference[:6] = self._hold_joints
         m = self.metrics(sample)

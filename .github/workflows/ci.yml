@@ -21,7 +21,7 @@ jobs:
         python: ['3.11', '3.13']
     defaults:
       run:
-        working-directory: space_sim_server
+        working-directory: server
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,7 +38,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-processes-${{ matrix.python }}
-          path: space_sim_server/reports/linux-processes.xml
+          path: server/reports/linux-processes.xml
           if-no-files-found: warn
   python:
     name: server-python
@@ -47,7 +47,7 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: space_sim_server
+        working-directory: server
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,12 +66,12 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .venv-ci
-          key: monorepo-venv-v1-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('space_sim_server/pyproject.toml', 'space_sim_UE_Adapter/pyproject.toml') }}-${{ steps.week.outputs.value }}
+          key: monorepo-venv-v1-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('server/pyproject.toml', 'ue-adapter/pyproject.toml') }}-${{ steps.week.outputs.value }}
       - name: Install declared dependencies
         if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python -m venv ../.venv-ci
-          ../.venv-ci/Scripts/python -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation,posture,vision]" "ruff==0.15.7"
+          ../.venv-ci/Scripts/python -m pip install -e "../ue-adapter[test]" -e ".[test,simulation,posture,vision]" "ruff==0.15.7"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Save right after installing so a failing test run still warms the cache.
       - name: Save Python environment
@@ -99,87 +99,87 @@ jobs:
         with:
           filters: |
             deploy:
-              - 'space_sim_server/scripts/deploy*.ps1'
-              - 'space_sim_server/scripts/public_deployment*.ps1'
-              - 'space_sim_server/scripts/fixed_deployment_helpers.ps1'
-              - 'space_sim_server/scripts/show_public_access.ps1'
-              - 'space_sim_server/scripts/run_platform.ps1'
-              - 'space_sim_server/scripts/start_secure_pixel_streaming.ps1'
-              - 'space_sim_server/signalling/**'
-              - 'space_sim_server/backend/space_arm_platform/rendezvous_runtime.py'
-              - 'space_sim_server/backend/space_arm_platform/near_field_config.py'
-              - 'space_sim_server/simulation/near_field/**'
-              - 'space_sim_server/simulation/capture26*.py'
-              - 'space_sim_server/simulation/sensor_delivery.py'
-              - 'space_sim_server/simulation/platform_stability.py'
-              - 'space_sim_server/simulation/assembly_geometry.py'
-              - 'space_sim_server/simulation/pose_navigation.py'
-              - 'space_sim_server/backend/space_arm_platform/vision*.py'
-              - 'space_sim_server/backend/space_arm_platform/visual_navigation.py'
-              - 'space_sim_server/backend/space_arm_platform/mission_vision.py'
-              - 'space_sim_server/config/missions/**'
-              - 'space_sim_UE_Adapter/Adapters/bsk_render_adapter/bridge.py'
-              - 'space_sim_UE_Adapter/Adapters/bsk_render_adapter/protocol.py'
-              - 'space_sim_server/simulation/components/render.py'
-              - 'space_sim_server/backend/space_arm_platform/mission_runtime.py'
-              - 'space_sim_UE_Adapter/Adapters/bsk_render_adapter/near_field.py'
-              - 'space_sim_UE_Adapter/Unreal/BskUnrealRenderer/Plugins/BskUnrealRuntime/Source/**'
-              - 'space_sim_server/*_deployment.sh'
-              - 'space_sim_server/show_deployment_access.sh'
-              - 'space_sim_server/scripts/linux_platform.sh'
-              - 'space_sim_server/backend/space_arm_platform/linux_*.py'
-              - 'space_sim_server/backend/space_arm_platform/scene_runtime.py'
-              - 'space_sim_server/backend/space_arm_platform/collection_runtime.py'
-              - 'space_sim_server/backend/space_arm_platform/app.py'
-              - 'space_sim_server/backend/space_arm_platform/main.py'
-              - 'space_sim_server/tests/test_linux_deployment.py'
-              - 'space_sim_server/scripts/run_backend.ps1'
-              - 'space_sim_server/scripts/start_scene_instance.ps1'
-              - 'space_sim_UE_Adapter/Unreal/BskUnrealRenderer/scripts/start_renderer.ps1'
-              - 'space_sim_server/scripts/run_simulation.ps1'
-              - 'space_sim_server/scripts/run_visual_gyro_capture.ps1'
-              - 'space_sim_server/tools/run_visual_gyro_capture.py'
-              - 'space_sim_server/tools/capture_free_reference.py'
-              - 'space_sim_server/tools/score_visual_gyro_capture.py'
-              - 'space_sim_server/backend/space_arm_platform/capture_regression*.py'
-              - 'space_sim_server/config/experiments/visual_gyro_capture/**'
-              - 'space_sim_server/scripts/prepare_sarm_scene.ps1'
-              - 'space_sim_server/tools/assets/select_sarm_scene.py'
-              - 'space_sim_server/tools/assets/prepare_sarm_assets.py'
-              - 'space_sim_server/tools/assets/build_unreal_linux.py'
-              - 'space_sim_server/scripts/stop_platform.ps1'
-              - 'space_sim_server/scripts/*scene*.ps1'
-              - 'space_sim_server/scripts/python_runtime.ps1'
-              - 'space_sim_server/scripts/platform_paths.ps1'
-              - 'space_sim_server/scripts/posture_runtime.ps1'
-              - 'space_sim_server/scripts/native_acceleration_runtime.ps1'
-              - 'space_sim_server/scripts/prepare_sarm_scene.ps1'
-              - 'space_sim_UE_Adapter/Unreal/BskUnrealRenderer/scripts/prepare_mjcf_assets.ps1'
-              - 'space_sim_UE_Adapter/Unreal/BskUnrealRenderer/scripts/generate_mjcf_asset_catalog.py'
-              - 'space_sim_server/scripts/ci*'
-              - 'space_sim_server/scripts/verify_ci_guards.py'
-              - 'space_sim_server/deploy/**'
-              - 'space_sim_server/tools/deployment/check_deployment_auth.py'
-              - 'space_sim_server/tools/deployment/prepare_public_auth.py'
-              - 'space_sim_server/*_deployment.cmd'
-              - 'space_sim_server/tests/test_deployment_launcher.py'
-              - 'space_sim_server/tests/test_public_deployment.py'
-              - 'space_sim_server/tests/test_fixed_deployment.py'
-              - 'space_sim_server/tests/test_deployment_scripts.py'
+              - 'server/scripts/deploy*.ps1'
+              - 'server/scripts/public_deployment*.ps1'
+              - 'server/scripts/fixed_deployment_helpers.ps1'
+              - 'server/scripts/show_public_access.ps1'
+              - 'server/scripts/run_platform.ps1'
+              - 'server/scripts/start_secure_pixel_streaming.ps1'
+              - 'server/signalling/**'
+              - 'server/backend/space_arm_platform/rendezvous_runtime.py'
+              - 'server/backend/space_arm_platform/near_field_config.py'
+              - 'server/simulation/near_field/**'
+              - 'server/simulation/capture26*.py'
+              - 'server/simulation/sensor_delivery.py'
+              - 'server/simulation/platform_stability.py'
+              - 'server/simulation/assembly_geometry.py'
+              - 'server/simulation/pose_navigation.py'
+              - 'server/backend/space_arm_platform/vision*.py'
+              - 'server/backend/space_arm_platform/visual_navigation.py'
+              - 'server/backend/space_arm_platform/mission_vision.py'
+              - 'server/config/missions/**'
+              - 'ue-adapter/Adapters/bsk_render_adapter/bridge.py'
+              - 'ue-adapter/Adapters/bsk_render_adapter/protocol.py'
+              - 'server/simulation/components/render.py'
+              - 'server/backend/space_arm_platform/mission_runtime.py'
+              - 'ue-adapter/Adapters/bsk_render_adapter/near_field.py'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/Plugins/BskUnrealRuntime/Source/**'
+              - 'server/*_deployment.sh'
+              - 'server/show_deployment_access.sh'
+              - 'server/scripts/linux_platform.sh'
+              - 'server/backend/space_arm_platform/linux_*.py'
+              - 'server/backend/space_arm_platform/scene_runtime.py'
+              - 'server/backend/space_arm_platform/collection_runtime.py'
+              - 'server/backend/space_arm_platform/app.py'
+              - 'server/backend/space_arm_platform/main.py'
+              - 'server/tests/test_linux_deployment.py'
+              - 'server/scripts/run_backend.ps1'
+              - 'server/scripts/start_scene_instance.ps1'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/start_renderer.ps1'
+              - 'server/scripts/run_simulation.ps1'
+              - 'server/scripts/run_visual_gyro_capture.ps1'
+              - 'server/tools/run_visual_gyro_capture.py'
+              - 'server/tools/capture_free_reference.py'
+              - 'server/tools/score_visual_gyro_capture.py'
+              - 'server/backend/space_arm_platform/capture_regression*.py'
+              - 'server/config/experiments/visual_gyro_capture/**'
+              - 'server/scripts/prepare_sarm_scene.ps1'
+              - 'server/tools/assets/select_sarm_scene.py'
+              - 'server/tools/assets/prepare_sarm_assets.py'
+              - 'server/tools/assets/build_unreal_linux.py'
+              - 'server/scripts/stop_platform.ps1'
+              - 'server/scripts/*scene*.ps1'
+              - 'server/scripts/python_runtime.ps1'
+              - 'server/scripts/platform_paths.ps1'
+              - 'server/scripts/posture_runtime.ps1'
+              - 'server/scripts/native_acceleration_runtime.ps1'
+              - 'server/scripts/prepare_sarm_scene.ps1'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/prepare_mjcf_assets.ps1'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/generate_mjcf_asset_catalog.py'
+              - 'server/scripts/ci*'
+              - 'server/scripts/verify_ci_guards.py'
+              - 'server/deploy/**'
+              - 'server/tools/deployment/check_deployment_auth.py'
+              - 'server/tools/deployment/prepare_public_auth.py'
+              - 'server/*_deployment.cmd'
+              - 'server/tests/test_deployment_launcher.py'
+              - 'server/tests/test_public_deployment.py'
+              - 'server/tests/test_fixed_deployment.py'
+              - 'server/tests/test_deployment_scripts.py'
               - '.github/**'
-              - 'space_sim_server/pyproject.toml'
+              - 'server/pyproject.toml'
               - '.gitattributes'
-              - 'space_sim_server/.gitattributes'
-              - 'space_sim_UE_Adapter/.gitattributes'
-              - 'space_sim_UE_Adapter/pyproject.toml'
-              - 'space_sim_UE_Adapter/scripts/**'
-              - 'space_sim_UE_Adapter/Unreal/BskUnrealRenderer/scripts/**'
+              - 'server/.gitattributes'
+              - 'ue-adapter/.gitattributes'
+              - 'ue-adapter/pyproject.toml'
+              - 'ue-adapter/scripts/**'
+              - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/**'
       - name: Basic Python tests
         env:
           SKIP_DEPLOY: ${{ github.event_name == 'pull_request' && steps.changes.outputs.deploy != 'true' }}
         run: |
           $env:PYTHONPATH = "$PWD/scripts;$PWD"
-          $env:SPACE_SIM_RESET_ADAPTER = (Resolve-Path ../space_sim_UE_Adapter).Path
+          $env:SPACE_SIM_RESET_ADAPTER = (Resolve-Path ../ue-adapter).Path
           $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic -n 4 --junitxml=reports/python.xml'
           if ($env:SKIP_DEPLOY -eq 'true') {
             Write-Host '::notice::Deployment tests skipped: this pull request changes no deployment paths. Pushes to main run them.'
@@ -191,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: server-python-report
-          path: space_sim_server/reports/
+          path: server/reports/
           if-no-files-found: warn
   web:
     name: server-web
@@ -200,7 +200,7 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: space_sim_server
+        working-directory: server
     steps:
       - uses: actions/checkout@v4
         with:
@@ -210,8 +210,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: |
-            space_sim_server/frontend/package-lock.json
-            space_sim_server/signalling/package-lock.json
+            server/frontend/package-lock.json
+            server/signalling/package-lock.json
       - run: npm --prefix frontend ci --no-audit --no-fund
       - run: npm --prefix frontend test
       - run: npm --prefix frontend run build
@@ -225,7 +225,7 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: space_sim_UE_Adapter
+        working-directory: ue-adapter
     steps:
       - uses: actions/checkout@v4
         with:
@@ -255,5 +255,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: adapter-python-report
-          path: space_sim_UE_Adapter/reports/
+          path: ue-adapter/reports/
           if-no-files-found: warn

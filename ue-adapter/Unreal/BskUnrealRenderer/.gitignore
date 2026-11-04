@@ -1,0 +1,13 @@
+.vs/
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+Dist/
+__pycache__/
+*.py[cod]
+
+# Rebuilt from the current dual-arm model by prepare_sarm_assets.py.
+/Content/BSK/Generated/Capture26/

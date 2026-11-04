@@ -1,0 +1,42 @@
+{
+  "schema": "spacesim-runtime-policy/1",
+  "engine": {
+    "MajorVersion": 5,
+    "MinorVersion": 6,
+    "PatchVersion": 1,
+    "Changelist": 44394996,
+    "CompatibleChangelist": 43139311,
+    "IsLicenseeVersion": 0,
+    "IsPromotedBuild": 1,
+    "BranchName": "++UE5+Release-5.6"
+  },
+  "python": {
+    "major_minor": "3.13",
+    "implementation": "CPython"
+  },
+  "required_engine_plugins": [
+    "CelestialVault",
+    "PixelStreaming2"
+  ],
+  "dependency_inputs": [
+    "server/pyproject.toml",
+    "ue-adapter/pyproject.toml"
+  ],
+  "clean_install_certification": "not-run",
+  "gpu_certification": "not-run",
+  "platform": "linux-x86_64",
+  "observed_python": {
+    "version": "3.13.16",
+    "implementation": "CPython",
+    "abi": "cpython-313-x86_64-linux-gnu",
+    "platform": "linux",
+    "machine": "x86_64",
+    "executable_sha256": "6e9b7d27499f26dbec3c8687728f3a0500b9b61688664f03678242744567c461"
+  },
+  "engine_plugin_descriptor_sha256": {
+    "CelestialVault": "9a51cad5ae3aa54931378e6cc9a4b82f86bac8304cdc7a93f4dcb810fedf7c70",
+    "PixelStreaming2": "2ed5c78235dce98ceabfe584b7b4fd524338647209f62649fc6281394d951180"
+  },
+  "lock_status": "unavailable: offline cache incomplete; online resolver did not complete; use resolve_environment.py to generate and certify",
+  "evidence": "Observed installed runtime identity only; not a clean installation certificate"
+}

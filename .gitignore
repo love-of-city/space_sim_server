@@ -14,4 +14,7 @@ venv/
 **/.local/
 
 # Personal batch entry and concrete YAML collection recipes; sync directly.
-/space_sim_server/batch_collect/
+/server/batch_collect/
+
+# Versioned external Earth sources are restored only on the capture host.
+/ue-adapter/Unreal/BskUnrealRenderer/Content/IncredibleEarth/

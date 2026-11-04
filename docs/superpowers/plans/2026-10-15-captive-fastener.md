@@ -34,5 +34,5 @@ conservation and soft-limit penetration at the 240 Hz platform time step.
 Friction/damping/compliance are explicit simulation parameters, not real hardware
 calibration. No auto restart or replacement of the currently running main checkout.
 
-Final correction: real seating occurs near 5.1 mm. Use 54 mm thread-runout safety range; never clamp at the projected 2.87 mm envelope gap. See space_sim_server/docs/CAPTIVE_FASTENER.md for measured results and scope.
+Final correction: real seating occurs near 5.1 mm. Use 54 mm thread-runout safety range; never clamp at the projected 2.87 mm envelope gap. See server/docs/CAPTIVE_FASTENER.md for measured results and scope.
 

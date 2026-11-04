@@ -37,7 +37,7 @@
 
 ## Task 1: 平台运行库的螺纹插件
 
-**Files:** 新建 space_sim_server/simulation/mujoco_plugins.py、space_sim_server/tests/test_mujoco_plugins.py；修改 space_sim_server/tools/assets/build_native_acceleration.py。源码引用 model/SARM_mjcf_20261012/thread_sdf.cpp。
+**Files:** 新建 server/simulation/mujoco_plugins.py、server/tests/test_mujoco_plugins.py；修改 server/tools/assets/build_native_acceleration.py。源码引用 model/SARM_mjcf_20261012/thread_sdf.cpp。
 
 **Interfaces:** `ensure_sarm_plugin(runtime_path: Path, plugin_path: Path, manifest_path: Path) -> dict`，返回源码哈希和已确认的运行库版本；失败抛出带路径与版本信息的异常。
 
@@ -48,7 +48,7 @@
 
 ## Task 2: 可复现的平台装配与模型描述
 
-**Files:** 新建 space_sim_server/tools/assets/build_sarm_20261012.py、simulation/sarm_model_profile.py、tests/test_sarm_20261012_model.py；输出至 model/SARM/platform/sarm_20261012.xml 及同名 manifest.json。
+**Files:** 新建 server/tools/assets/build_sarm_20261012.py、simulation/sarm_model_profile.py、tests/test_sarm_20261012_model.py；输出至 model/SARM/platform/sarm_20261012.xml 及同名 manifest.json。
 
 **Interfaces:** `compose_platform_model(source: Path, platform_reference: Path, output: Path) -> dict`；`load_model_profile(model_path: Path) -> SarmModelProfile`，描述基座名、六轴关节、工具 site、抓夹类型/驱动/被动关节和自由件，不依赖数组固定索引。
 

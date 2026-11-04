@@ -4,54 +4,56 @@
 
 | 目录 | 功能与文档 |
 | --- | --- |
-| [space_sim_server/](space_sim_server/README.md) | FastAPI 后端、网页、Pixel Streaming 信令、仿真、模型与数据采集 |
-| [space_sim_UE_Adapter/](space_sim_UE_Adapter/README.md) | Basilisk/MJScene 发送端、UE 5.6 渲染与相机采集 |
+| [server/](server/README.md) | FastAPI 后端、网页、Pixel Streaming 信令、仿真、模型与数据采集 |
+| [ue-adapter/](ue-adapter/README.md) | Basilisk/MJScene 发送端、UE 5.6 渲染与相机采集 |
 
-团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](space_sim_server/README.md)。
+团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](server/README.md)。
 
-原工作台提供机械臂操作、7 km交会、300 km入轨后三种起始条件。连续任务保留同一任务编号，远距通过后接续近距，再以实际关节终态进入标准操作场景；两阶段共享GNSS配置和导航不确定性。原 SARM 模型的近距采用参数化视觉与逻辑捕获，未验证真实图像闭环或物理锁定。详细流程见[连续任务说明](archive/2026_10_17_连续任务与共享导航.md)和[远距物理参数](space_sim_server/docs/TEAM_RENDEZVOUS.md)。
+原工作台提供机械臂操作、7 km交会、300 km入轨后三种起始条件。连续任务保留同一任务编号，远距通过后接续近距，再以实际关节终态进入标准操作场景；两阶段共享GNSS配置和导航不确定性。原 SARM 模型的近距采用参数化视觉与逻辑捕获，未验证真实图像闭环或物理锁定。详细流程见[连续任务说明](archive/2026_10_17_连续任务与共享导航.md)和[远距物理参数](server/docs/TEAM_RENDEZVOUS.md)。
 
 capture26 正式配置采用 `simulation_state_demo_v1`：读取权威仿真状态，经原制导、PD、关节与飞轮控制产生动力学运动。约 110 m 远距停留 5 s 后，沿质心 V-bar 依次在 50 m、光学深度 17.4 m、5.50 m 和收拢 TCP 轴向间隙 0.5 m 的作业参考处实际连续停留 5 s，最终持续保持并接续原操作工作台。位置/速度按当前参考判断，超限清零；停泊最高 1 倍节拍，航行允许加速。
 
-GNSS、双目、双星陀螺及导航滤波继续运行与记录，图像计数、协方差、传感器健康、姿态精度、角速度阈值和几何证书不限制本轮运动演示。服务星保留角速度阻尼，目标星被动演化；推力、关节和轮系保护及非计划碰撞处理保留。新版 `/3` 交接绑定演示规则、冻结几何和有序停泊记录，旧结果不能自动通过。实际连续任务验收进度和几何定义见[仿真状态停泊演示](space_sim_server/docs/CAPTURE26_MOTION_DEMO.md)；[图像导航验证](space_sim_server/docs/CAPTURE26_IMAGE_NAVIGATION.md)继续单独记录，`integration_complete=false`。
+GNSS、双目、双星陀螺及导航滤波继续运行与记录，图像计数、协方差、传感器健康、姿态精度、角速度阈值和几何证书不限制本轮运动演示。服务星保留角速度阻尼，目标星被动演化；推力、关节和轮系保护及非计划碰撞处理保留。新版 `/3` 交接绑定演示规则、冻结几何和有序停泊记录，旧结果不能自动通过。实际连续任务验收进度和几何定义见[仿真状态停泊演示](server/docs/CAPTURE26_MOTION_DEMO.md)；[图像导航验证](server/docs/CAPTURE26_IMAGE_NAVIGATION.md)继续单独记录，`integration_complete=false`。
 
-交会使用原控制台与原 UE 主视口，可在真实尺度的双星总览、追踪星近景、目标星近景间切换；总览显示身份、质心距离、比例尺与地影状态。团队最新 SARM 实验模型仍在直接遥操作的场景选择器中，保留其独立模型身份和夹爪角度单位，见[新模型说明](space_sim_server/docs/SARM_20261012_PLATFORM.md)。
+交会使用原控制台与原 UE 主视口，可在真实尺度的双星总览、追踪星近景、目标星近景间切换；总览显示身份、质心距离、比例尺与地影状态。团队最新 SARM 实验模型仍在直接遥操作的场景选择器中，保留其独立模型身份和夹爪角度单位，见[新模型说明](server/docs/SARM_20261012_PLATFORM.md)。
 
-整合跟随团队 main，沿用原导航、自动采集、数据集回放和用户管理页面，包含团队 Linux 基础迁移、原生轨道物理、紧凑存储、插头采集和策略控制。当前交互场景的策略会话与任务切换互斥，策略录制保留同一任务来源；批量自动采集继续使用独立场景和进程，详见[策略接入](space_sim_server/docs/ENACTIVE_SARM_INTEGRATION.md)。
+整合跟随团队 main，沿用原导航、自动采集、数据集回放和用户管理页面，包含团队 Linux 基础迁移、原生轨道物理、紧凑存储、插头采集和策略控制。当前交互场景的策略会话与任务切换互斥，策略录制保留同一任务来源；批量自动采集继续使用独立场景和进程，详见[策略接入](server/docs/ENACTIVE_SARM_INTEGRATION.md)。
 
-新连续任务完整继承团队 J2 配置；导航及制导查询同一原生引力场，GNSS 时延与在途包跨阶段保留。近距在光学深度17.4 m检查点驻留，随后在收拢TCP距抓取面0.5 m处稳姿，再展开机械臂。距离定义、模型假设及验证边界见[近距接口](space_sim_server/docs/NEAR_FIELD_RENDEZVOUS.md)。
+新连续任务完整继承团队 J2 配置；导航及制导查询同一原生引力场，GNSS 时延与在途包跨阶段保留。近距在光学深度17.4 m检查点驻留，随后在收拢TCP距抓取面0.5 m处稳姿，再展开机械臂。距离定义、模型假设及验证边界见[近距接口](server/docs/NEAR_FIELD_RENDEZVOUS.md)。
 
 动画预览使用连续播放时钟；当前主线启动脚本默认目标90 FPS，网页可选择30/60/90 FPS，实际帧率取决于运行负载。同轨迹对照、权威采集兼容性和此前实测结果见[动画性能优化](archive/2026_10_13_交会动画播放时钟与预览性能优化.md)。
 
 平台碰撞、预览时钟与短录制编码的性能改进及验证方法见[性能优化记录](archive/2026_10_14_平台碰撞与预览采集性能优化.md)。更新后需重新构建 SARM 原生插件与 UE 运行时。
 
-当前采集功能、代码入口及合并后的验收状态统一记录在[采集功能基线](space_sim_server/docs/COLLECTION_BASELINE.md)。`archive/` 是历史实验，不应直接作为当前功能或性能结论。
+当前采集功能、代码入口及合并后的验收状态统一记录在[采集功能基线](server/docs/COLLECTION_BASELINE.md)。`archive/` 是历史实验，不应直接作为当前功能或性能结论。
+
+UE默认环境为可编辑的IncredibleEarth地球场景，首次构建前须按[外部环境资产说明](docs/guides/external-environment-assets.md)恢复独立资产包。渲染器按场景、光照、图像采集与串流拆分；任务控制与采集输出继续由服务端管理。
 
 ## 首次获取与安装
 
-Windows 完整网页平台使用 PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。Linux 已提供原生一键启动、停止和网页场景管理，见 [Linux 一键部署](space_sim_server/docs/LINUX_DEPLOYMENT.md)；环境安装与真实采集见 [Linux 基础迁移](space_sim_server/docs/LINUX_BASIC_MIGRATION.md)。
+Windows 完整网页平台使用 PowerShell 7、Node.js 22、UE 5.6、Visual Studio C++ 工具、GPU，以及与 Python 版本匹配且具备所需 API 的 Basilisk/MJScene。Linux 已提供原生一键启动、停止和网页场景管理，见 [Linux 一键部署](server/docs/LINUX_DEPLOYMENT.md)；环境安装与真实采集见 [Linux 基础迁移](server/docs/LINUX_BASIC_MIGRATION.md)。
 
 默认 local 动力学还要求 Basilisk 所带 MuJoCo 与项目内置的 3.7.0 头文件匹配。本次完整验收使用 Python 3.13 + bsk 2.11.1；安装该已验证环境时可选择 bsk[all]==2.11.1。使用其他发行版或自编译版本时也需满足这一原生 ABI 要求，单独通过 API 导入检查不足以证明兼容。
 
 只获取一个仓库；不要在两个子目录中再次 clone：
 
 ```powershell
-git clone https://github.com/love-of-city/space_sim_server.git
-Set-Location .\space_sim_server
+git clone https://github.com/mingti-org/SpaceSim.git
+Set-Location .\SpaceSim
 git lfs install --local
 git lfs pull
-Set-Location .\space_sim_server
+Set-Location .\server
 ```
 
 最后一步进入**服务端子目录**。下面使用已经选定的仿真解释器；配置方法及 uv、Conda、venv 安装方式见服务端指南：
 
 ```powershell
-& $env:SPACE_SIM_PYTHON -m pip install -e "../space_sim_UE_Adapter[test]" -e ".[test,simulation]"
+& $env:SPACE_SIM_PYTHON -m pip install -e "../ue-adapter[test]" -e ".[test,simulation]"
 npm.cmd --prefix frontend ci --no-audit --no-fund
 npm.cmd --prefix signalling ci --no-audit --no-fund
 & $env:SPACE_SIM_PYTHON scripts/check_basilisk.py
 $env:UE56_ROOT = 'D:\UE\UE_5.6' # 替换为本机路径
-pwsh -NoProfile -File ..\space_sim_UE_Adapter\scripts\build.ps1 -UnrealRoot $env:UE56_ROOT
+pwsh -NoProfile -File ..\ue-adapter\scripts\build.ps1 -UnrealRoot $env:UE56_ROOT
 pwsh -NoProfile -File .\scripts\run_platform.ps1 -ApiPort 18000
 ```
 

@@ -58,7 +58,7 @@ class FloatingCaptureConfig:
 
 
 class FloatingCaptureTask:
-    version = "floating-capture/4"
+    version = "floating-capture/5"
     stages = ("open", "intercept", "grip", "hold", "retract", "settle")
 
     def __init__(self, model_path, config=None):
@@ -86,6 +86,7 @@ class FloatingCaptureTask:
         self._held_local = self._hold_joints = None
         self._held_rotation = None
         self._hold_opening = 0.
+        self._jaw_contact_seen = False
         self._contact_loss = 0.
         self._hold_completed = 0.
         self._retract_start = self._retract_rotation = None
@@ -175,6 +176,40 @@ class FloatingCaptureTask:
             np.clip(self.reference[:6]+dt*dq, sample.joints[:6]-.04, sample.joints[:6]+.04),
             self.lower, self.upper)
 
+    def _drive_gripper(self, sample, dt, metrics):
+        """Bound servo compression and maintain a light bilateral preload."""
+        measured = float(sample.joints[6])
+        forces = np.asarray(sample.finger_normal_force_n)
+        contact = any(sample.finger_plug_contacts)
+        if self.stage == "grip" and contact:
+            self._jaw_contact_seen = True
+        if self.stage in ("open", "intercept"):
+            goal, speed = 1., self.config.gripper_speed_rad_s
+        elif self._hold_joints is not None:
+            # Position servos remain the only actuators. Weak contact can be
+            # preloaded slowly; excessive one-sided force must open the jaw.
+            rate = (.01 if max(forces) > 8. else
+                    float(np.clip(.005*(min(forces)-3.), -.01, .01)))
+            goal = self.reference[6] + dt*rate
+            speed = .01
+        elif self._jaw_contact_seen:
+            # Do not keep squeezing a target pushed off the grasp frame.
+            # The Cartesian tracker continues to align before closing again.
+            goal = (measured+.002 if max(forces) > 8. else
+                    measured if metrics["grasp_error_m"] > .0015 else 0.)
+            speed = .01
+        else:
+            goal, speed = 0., min(.12, self.config.gripper_speed_rad_s)
+        command = self.reference[6] + np.clip(goal-self.reference[6], -dt*speed, dt*speed)
+        if self._jaw_contact_seen or self._hold_joints is not None:
+            # The original 0.002 rad preload is now a per-step error bound,
+            # preventing a blocked jaw from accumulating a full-close target.
+            command = np.clip(command, measured-.002, measured+.002)
+        self.reference[6] = np.clip(command, 0., 1.)
+        self.reference[7] = -self.reference[6]
+        if self._hold_joints is not None:
+            self._hold_opening = float(self.reference[6])
+
     def step(self, sample):
         if not math.isfinite(sample.time_s) or (self._last_time is not None and sample.time_s < self._last_time):
             raise ValueError("Task time must be finite and monotonic")
@@ -229,12 +264,8 @@ class FloatingCaptureTask:
                              self._retract_rotation, self.config.retract_speed_m_s)
         elif self.stage in ("grip", "hold") and self._hold_joints is not None:
             self.reference[:6] = self._hold_joints
-        opening = (1. if self.stage in ("open", "intercept") else
-                   self._hold_opening if self._hold_joints is not None else 0.)
-        jaw_speed = min(.12, self.config.gripper_speed_rad_s) if self.stage == "grip" else self.config.gripper_speed_rad_s
-        self.reference[6] += np.clip(opening-self.reference[6], -dt*jaw_speed, dt*jaw_speed)
-        self.reference[7] = -self.reference[6]
         m = self.metrics(sample)
+        self._drive_gripper(sample, dt, m)
         bilateral = all(count > 0 for count in m["finger_target_contacts"]) and min(m["finger_normal_force_n"]) >= .02
         if self.stage == "open" and sample.joints[6] >= .95:
             self._enter("intercept", sample)

@@ -73,6 +73,7 @@ void ABskSceneController::BeginPlay()
     // sender fills its reliable dataset queue and aborts capture.
     PreloadRuntimeStaticMeshes();
     PreloadConfiguredVisualOverlays();
+    FinishSceneAssetCompilation();
     if (UBskRenderWorldSubsystem* RenderSubsystem = GetWorld()->GetSubsystem<UBskRenderWorldSubsystem>())
     {
         BuiltinCaptureProvider = MakeShared<FBskBuiltinCaptureProvider>(this);

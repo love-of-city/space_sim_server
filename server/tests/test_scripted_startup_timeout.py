@@ -127,3 +127,44 @@ def test_recording_cli_uses_default_or_explicit_startup_budget(tmp_path, monkeyp
 
 def test_parallel_startup_timeout_uses_current_600_second_budget():
     assert CollectionConfig(workers=[{}]).simulation_startup_timeout_seconds == 600.
+
+
+def test_renderer_waits_for_current_session_after_asset_compilation(tmp_path, monkeypatch):
+    log = tmp_path / "renderer.log"
+    log.write_text("Applied BSK scene manifest session=old revision=1\n")
+    clock = SimpleNamespace(now=0., checks=0)
+    emitted = []
+
+    def check():
+        clock.checks += 1
+
+    async def sleep(seconds):
+        clock.now += seconds
+        with log.open("ab") as stream:
+            if clock.checks == 1:
+                # A partial log write must not prematurely release warmup.
+                stream.write(b"Applied BSK scene manifest session=current rev")
+            elif clock.checks == 2:
+                stream.write(b"ision=1 objects=3\n")
+
+    monkeypatch.setattr(recorder, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    monkeypatch.setattr(recorder, "asyncio", SimpleNamespace(sleep=sleep))
+    finish_immediate(recorder.wait_for_renderer_manifest(
+        log, "current", 1., check, lambda stage, **kw: emitted.append((stage, kw))))
+    assert clock.checks == 3
+    assert emitted == [("renderer_manifest_ready", {"session_id": "current"})]
+
+
+def test_renderer_stale_session_does_not_start_recording(tmp_path, monkeypatch):
+    log = tmp_path / "renderer.log"
+    log.write_text("Applied BSK scene manifest session=old revision=1\n")
+    clock = SimpleNamespace(now=0.)
+
+    async def sleep(seconds):
+        clock.now += seconds
+
+    monkeypatch.setattr(recorder, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    monkeypatch.setattr(recorder, "asyncio", SimpleNamespace(sleep=sleep))
+    with pytest.raises(TimeoutError, match="scene assets not ready for session current"):
+        finish_immediate(recorder.wait_for_renderer_manifest(
+            log, "current", .2, lambda: None, lambda *a, **k: pytest.fail("Not ready")))

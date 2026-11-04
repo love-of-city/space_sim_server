@@ -142,6 +142,7 @@ def test_shared_batch_session_reuses_renderer_dynamics_and_identical_probe(tmp_p
     class Renderer:
         def __init__(self, *args):
             created.append('renderer'); self.process=SimpleNamespace(pid=101)
+            self.log_path = args[1] / 'renderer.log'
         def check(self): pass
         def close(self): closed.append('renderer')
     class Dynamics:

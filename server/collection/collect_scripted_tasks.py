@@ -793,7 +793,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                     renderer = PersistentRenderer(args, session.output)
                 report["renderer_pid"] = renderer.process.pid
                 renderer.check()
-                command.append("--external-renderer")
+                command += ["--external-renderer", "--renderer-log", str(renderer.log_path)]
             if args.reuse_dynamics:
                 if dynamics is not None and not dynamics.reusable():
                     dynamics.close()

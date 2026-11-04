@@ -90,6 +90,7 @@ class PersistentRenderer:
     """One renderer per batch worker; dynamics still starts fresh each episode."""
     def __init__(self, args, output):
         self.process = None
+        self.log_path = (output / "renderer.log").resolve()
         self.log = (output / "renderer-process.log").open("w", encoding="utf-8")
         try:
             self.process = subprocess.Popen(renderer_command(args, output),

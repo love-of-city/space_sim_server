@@ -112,6 +112,32 @@ async def wait_for_simulation_startup(hub, preroll_ns, timeout, check_processes,
         await asyncio.sleep(0.1)
 
 
+async def wait_for_renderer_manifest(log_path, session_id, timeout, check_processes, emit):
+    """Wait for this session's post-compilation marker before camera warmup."""
+    if not session_id:
+        raise RuntimeError("Simulation did not identify its render session")
+    marker = f"Applied BSK scene manifest session={session_id} revision=".encode()
+    deadline = time.monotonic() + timeout
+    offset, tail = 0, b""
+    while True:
+        check_processes()
+        if log_path.is_file():
+            with log_path.open("rb") as stream:
+                stream.seek(offset)
+                chunk = stream.read(65536)
+                offset = stream.tell()
+            data = tail + chunk
+            if marker in data:
+                emit("renderer_manifest_ready", session_id=session_id)
+                return
+            tail = data[-len(marker):]
+            if len(chunk) == 65536:
+                continue
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"UE scene assets not ready for session {session_id} within {timeout:g} seconds")
+        await asyncio.sleep(0.1)
+
+
 def submit_dynamics(command, mailbox, stop_file, launch, env):
     """Use identical episode arguments for a child or an isolated worker request."""
     if mailbox is None:
@@ -521,7 +547,8 @@ async def run(args):
         # Dynamics initialization and UE startup are independent. The render
         # publisher already reconnects and retains the manifest/latest idle
         # frame; require both peers ready before the capture boundary below.
-        deadline = time.monotonic() + 240
+        startup_timeout = getattr(args, "simulation_startup_timeout_seconds", 600.0)
+        deadline = time.monotonic() + startup_timeout
         while True:
             check_processes()
             try:
@@ -531,12 +558,15 @@ async def run(args):
                     break
             except OSError:
                 if time.monotonic() > deadline:
-                    raise TimeoutError("UE renderer did not start within 240 seconds")
+                    raise TimeoutError(f"UE renderer did not start within {startup_timeout:g} seconds")
                 await asyncio.sleep(0.25)
-        startup_timeout = getattr(args, "simulation_startup_timeout_seconds", 600.0)
         emit("renderer_listening")
         await wait_for_simulation_startup(
             hub, capture_preroll_ns(args.warmup_sim_seconds), startup_timeout, check_processes, emit)
+        renderer_log = getattr(args, "renderer_log", None) or out / "renderer.log"
+        await wait_for_renderer_manifest(
+            renderer_log, hub.latest_observation.render_session_id,
+            startup_timeout, check_processes, emit)
         # Asset registration and exposure settle with the policy held at its initial pose.
         emit("warming_renderer")
         warm_until = time.monotonic() + args.warmup_seconds
@@ -725,6 +755,7 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--offline", action="store_true", help="Disable WebRTC and the unused offscreen viewport")
     parser.add_argument("--gpu-index", type=int)
     parser.add_argument("--external-renderer", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--renderer-log", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--dynamics-worker", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--profile-dynamics", action="store_true", help="Diagnostic CPU profile; adds timing overhead")
     parser.add_argument("--control-port", type=int, default=18766)

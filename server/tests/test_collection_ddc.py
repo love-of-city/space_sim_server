@@ -9,6 +9,7 @@ from space_arm_platform.collection_runtime import renderer_command, renderer_env
 
 def test_collection_ddc_matches_platform_and_reuses_project_cache(tmp_path, monkeypatch):
     monkeypatch.delenv("UE-LocalDataCachePath", raising=False)
+    monkeypatch.setattr("space_arm_platform.collection_runtime.ensure_environment_level", lambda *args: None)
     monkeypatch.setattr("space_arm_platform.collection_runtime.unreal_editor", lambda root: root / "UE")
     args = SimpleNamespace(adapter=tmp_path, unreal=tmp_path, offline=True,
                            render_port=21002, capture_port=21001)

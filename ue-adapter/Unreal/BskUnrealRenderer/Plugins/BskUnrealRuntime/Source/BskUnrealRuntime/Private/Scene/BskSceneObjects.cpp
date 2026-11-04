@@ -579,6 +579,8 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
             bAutoCommandSent = true;
         }
     }
+    // Manifest objects can load additional materials after the level barrier.
+    FinishSceneAssetCompilation();
     int32 GeometryCount = 0;
     for (const FBskObjectDefinition& Definition : Manifest.Objects) GeometryCount += Definition.Geometries.Num();
     UE_LOG(LogBskUnreal, Display, TEXT("Applied BSK scene manifest session=%s revision=%lld objects=%d geoms/visuals=%d/%d celestial=%d cameras=%d"),

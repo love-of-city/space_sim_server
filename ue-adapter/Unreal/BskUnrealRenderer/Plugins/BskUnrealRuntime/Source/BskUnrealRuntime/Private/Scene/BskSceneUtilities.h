@@ -18,6 +18,7 @@ const TCHAR* PrimitiveMeshPath(const FString& Shape);
 bool PrepareStaticMeshForRuntime(UStaticMesh* Mesh, const FString& AssetPath);
 void PreloadConfiguredVisualOverlays();
 void PreloadRuntimeStaticMeshes();
+void FinishSceneAssetCompilation();
 void ApplyUnlitColor(UStaticMeshComponent* Component, UObject* Owner, const FLinearColor& Color);
 bool ApplyConfiguredMaterialOverride(UStaticMeshComponent* Component, const FBskGeometryDefinition& Geometry);
 void AttachConfiguredVisualOverlay(UStaticMeshComponent* Parent, const FBskGeometryDefinition& Geometry);

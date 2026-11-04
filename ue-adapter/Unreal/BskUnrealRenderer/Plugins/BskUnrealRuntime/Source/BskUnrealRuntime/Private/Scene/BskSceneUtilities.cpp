@@ -6,6 +6,7 @@
 #include "Engine/World.h"
 #include "Components/StaticMeshComponent.h"
 #include "AssetCompilingManager.h"
+#include "RenderingThread.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "HAL/FileManager.h"
 #include "Misc/ConfigCacheIni.h"
@@ -108,6 +109,18 @@ const TCHAR* PrimitiveMeshPath(const FString& Shape)
         return TEXT("/Engine/BasicShapes/Cone.Cone");
     }
     return TEXT("/Engine/BasicShapes/Cube.Cube");
+}
+
+void FinishSceneAssetCompilation()
+{
+    // Editor -game builds texture DDC and shaders asynchronously, including
+    // the 80K virtual textures. Never record their temporary default materials.
+    FAssetCompilingManager& Manager = FAssetCompilingManager::Get();
+    UE_LOG(LogBskUnreal, Display, TEXT("Waiting for scene asset compilation: %d pending"),
+        Manager.GetNumRemainingAssets());
+    Manager.FinishAllCompilation();
+    FlushRenderingCommands();
+    UE_LOG(LogBskUnreal, Display, TEXT("Scene asset compilation complete"));
 }
 
 bool PrepareStaticMeshForRuntime(UStaticMesh* Mesh, const FString& AssetPath)

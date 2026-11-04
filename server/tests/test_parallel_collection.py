@@ -37,6 +37,7 @@ def test_throughput_counts_only_validated_episodes_in_whole_batch_time():
 
 
 def test_offline_keeps_authoritative_capture_and_binds_gpu(tmp_path, monkeypatch):
+    monkeypatch.setattr("space_arm_platform.collection_runtime.ensure_environment_level", lambda *args: None)
     monkeypatch.setattr("space_arm_platform.collection_runtime.unreal_editor", lambda root: root / "UnrealEditor")
     args = SimpleNamespace(adapter=tmp_path, unreal=tmp_path, offline=True, gpu_index=1,
                            control_port=21000, capture_port=21001, render_port=21002, signalling_port=21003)

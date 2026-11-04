@@ -52,14 +52,16 @@ def prepare(args):
     scripts = project / "scripts"
     plugin_args = []
     catalog_name, destination = "sarm_platform", "/Game/BSK/Generated/SARM"
-    if args.template_id in SARM_TEMPLATES:
-        if not getattr(args, "use_existing_model", False):
+    if args.template_id in SARM_TEMPLATES or args.template_id == "sarm-dual-capture26":
+        if args.template_id != "sarm-dual-capture26" and not getattr(args, "use_existing_model", False):
             subprocess.run([sys.executable, str(ROOT / "tools/assets/build_sarm_20261012.py"),
                             "--fastener-model", "sdf" if args.template_id.endswith("-sdf") else "captive"], check=True)
         subprocess.run([sys.executable, str(ROOT / "tools/assets/build_sarm_plugin.py")], check=True)
         manifest = json.loads((ROOT / "run/native_acceleration/sarm_thread.json").read_text())
         plugin_args = ["--mujoco-plugin", str(ROOT / manifest["library"])]
         catalog_name, destination = "sarm_20261012", "/Game/BSK/Generated/Sarm20261012"
+        if args.template_id == "sarm-dual-capture26":
+            catalog_name, destination = "sarm_dual_capture26", "/Game/BSK/Generated/Capture26"
     elif args.template_id == "sarm-task-box-contacts":
         catalog_name, destination = "sarm_task_box", "/Game/BSK/Generated/TaskBox"
     elif args.template_id == "sarm-task-box-free-plugs":

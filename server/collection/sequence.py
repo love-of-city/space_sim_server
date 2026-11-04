@@ -20,14 +20,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from collection.collect_scripted_tasks import CollectionSession, ROOT, main as collect_task
 from space_arm_platform.collection_layouts import LayoutPool
 from space_arm_platform.collection_processes import ManagerLease
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from simulation.scripted_tasks.randomization import generator
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS
 
-TaskName = Literal['drawer_cycle', 'aviation_plug_insert', 'guide_plug_insert',
-                   'cylindrical_plug_insert', 'locking_rod_cycle', 'aviation_bolt_insert',
-                   'drawer_open', 'drawer_close', 'locking_rod_fold', 'locking_rod_restore']
-TASK_NAMES = tuple(TaskName.__args__)
+from space_arm_platform.task_catalog import TaskName, TASK_CHOICES
+
+TASK_NAMES = TASK_CHOICES
 ORDER_STREAM = 'layout-sequence-without-replacement-v1'
 TERMINAL = {'accepted', 'pending_audit', 'skipped', 'interrupted'}
 

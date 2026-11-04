@@ -1,12 +1,12 @@
-import { installSceneSelection } from "./helpers/scene_context.mjs";
+import { installSceneSelection } from './helpers/scene_context.mjs';
+import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const startSource = source.slice(source.indexOf("async function startScene()"), source.indexOf("async function stopScene()"));
-const applySource = source.slice(source.indexOf("function applySceneRuntime("), source.indexOf("async function readApiResponse("));
+const applySource = source.slice(source.indexOf("function applySceneRuntime("), source.indexOf("function applyControlLimits("));
 const catalogSource = source.slice(source.indexOf("async function loadSceneCatalog()"), source.indexOf("function applySceneRuntime("));
 
 function setup() {
@@ -22,7 +22,7 @@ function setup() {
   const requests = [];
   const state = { stateRequestSequence: 0, sceneDefaults: { simulation_rate: 1, capture_rate_hz: 30, ik_rate_hz: 120 },
     currentUser: { role: "admin" }, scenePhase: "idle" };
-  const ctx = vm.createContext({clearWristWrench() {},clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
+  const ctx = vm.createContext({clearWristWrench() {}, clearSimulationTelemetry() {}, ZERO_START_PROFILE: "teleop-zero-prepare-v1", armPreparation: {read: () => [0,-67.6,-86.6,143.2,-85.5,0], ready: () => true, tick: () => false, cancel() {}, setRuntime() {}},  initialJointCatalog: null, configureInitialJoints() {}, configureSceneSelection() {},
     initialJoints: { read: () => null, setRuntime() {} }, $, state, console, Option: function() {}, scenePhaseLabels: {},
     setMessage() {}, updateOperationUI() {}, updateEpisodeUI() {}, connectPixelStreaming() {},
     exitOperationMode() {}, refreshState: async () => {}, applySceneRuntime() {},
@@ -54,7 +54,7 @@ test("start transmits the independent orbital flag and preserves seed semantics"
         h.$("sceneRandomizeOrbitPhase").checked = enabled;
         h.$("sceneSeed").value = seed;
         h.$("randomizationProfile").value = profile;
-        vm.runInContext(startSource, h.ctx);
+        Object.assign(h.ctx, createSceneSession({...h.ctx, applySceneRuntime: (...args) => h.ctx.applySceneRuntime(...args)}));
         await h.ctx.startScene();
         assert.equal(h.requests[0].path, "/api/scenes/start");
         const body = JSON.parse(h.requests[0].options.body);
@@ -72,6 +72,7 @@ test("catalog defaults and older backends leave the orbital option off", async (
     h.$("sceneRandomizeOrbitPhase").checked = true;
     h.ctx.apiRequest = async () => ({ ok: true, json: async () => ({ templates: [], randomization_profiles: [],
       defaults: { randomize_orbit_phase: value } }) });
+
     vm.runInContext(catalogSource, h.ctx);
     await h.ctx.loadSceneCatalog();
     assert.equal(h.$("sceneRandomizeOrbitPhase").checked, value === true);

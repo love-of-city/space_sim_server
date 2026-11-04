@@ -50,7 +50,7 @@ from typing import Any, Callable
 import numpy as np
 from Basilisk.architecture import messaging, sysModel
 
-from simulation.native_acceleration import load_native_library
+from simulation import local_mujoco_bindings as bindings
 from simulation.mujoco_runtime import basilisk_mujoco_runtime
 from simulation.orbital_frames import OrbitalForceProvider, interpolate_origin
 
@@ -103,8 +103,6 @@ _OBJ_BODY = 1
 _OBJ_ACTUATOR = 19
 _OBJ_JOINT = 3
 _JOINT_FREE = 0
-_DOUBLE_P = ctypes.POINTER(ctypes.c_double)
-_INT64_P = ctypes.POINTER(ctypes.c_int64)
 
 
 def dynamics_backend(value: str | None = None) -> str:
@@ -129,70 +127,6 @@ def orbital_force_stride(value: int | None = None) -> int:
     return count
 
 
-def _library():
-    lib = load_native_library("local_mujoco_stepper")
-    if getattr(lib, "_lms_bound", False):
-        return lib
-    lib.lms_abi.restype = ctypes.c_int
-    lib.lms_header_version.restype = ctypes.c_int
-    lib.lms_create.restype = ctypes.c_void_p
-    runtime_path_type = ctypes.c_wchar_p if os.name == "nt" else ctypes.c_char_p
-    lib.lms_create.argtypes = [runtime_path_type, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
-    lib.lms_create_cached.restype = ctypes.c_void_p
-    lib.lms_create_cached.argtypes = [runtime_path_type, ctypes.c_char_p, ctypes.c_char_p,
-                                     _INT64_P, ctypes.c_char_p, ctypes.c_int]
-    lib.lms_destroy.argtypes = [ctypes.c_void_p]
-    lib.lms_dims.argtypes = [ctypes.c_void_p, _INT64_P]
-    lib.lms_name2id.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
-    lib.lms_id2name.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
-    lib.lms_joint.argtypes = [ctypes.c_void_p, ctypes.c_int, _INT64_P]
-    lib.lms_body_inertial.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
-    lib.lms_free_joints.argtypes = [ctypes.c_void_p, _INT64_P, ctypes.c_int]
-    lib.lms_set_servo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_double, ctypes.c_double, ctypes.c_double]
-    lib.lms_set_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
-    lib.lms_get_state.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
-    lib.lms_step.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_double, ctypes.c_int, _DOUBLE_P, ctypes.c_double,
-                             _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P, _DOUBLE_P]
-    lib.lms_body_coms.argtypes = [ctypes.c_void_p, _DOUBLE_P, _DOUBLE_P]
-    lib.lms_set_orbital_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P]
-    lib.lms_probe_clearance.argtypes = [ctypes.c_void_p, ctypes.c_double]
-    lib.lms_probe_clearance.restype = ctypes.c_int
-    lib.lms_body_geometry_pose.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
-    lib.lms_body_geometry_pose.restype = ctypes.c_int
-    lib.lms_contacts.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
-    lib.lms_contact_forces.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
-    lib.lms_contact_materials.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
-    lib.lms_contact_geometry.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
-    lib.lms_contact_detail.argtypes = [ctypes.c_void_p, _DOUBLE_P, ctypes.c_int]
-    lib.lms_body_detail.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
-    lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, _DOUBLE_P]
-    lib.lms_momentum.argtypes = [ctypes.c_void_p, _DOUBLE_P]
-    lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
-    lib.lms_add_axial_friction.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
-                                          ctypes.c_double, ctypes.c_double, ctypes.c_double]
-    lib.lms_set_axial_friction.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, _DOUBLE_P, _DOUBLE_P]
-    lib.lms_axial_friction_state.argtypes = [ctypes.c_void_p, ctypes.c_int, _DOUBLE_P]
-    lib.lms_friction_diagnostics.argtypes = [ctypes.c_void_p, _INT64_P]
-    lib.lms_friction_copy_diagnostics.argtypes = [ctypes.c_void_p, _INT64_P]
-    lib.lms_reset_episode.argtypes = [ctypes.c_void_p]
-    lib.lms_reset_episode.restype = ctypes.c_int
-    lib.lms_finger_contact_counts.argtypes = [ctypes.c_void_p, *([ctypes.c_int] * 4), ctypes.c_double, ctypes.POINTER(ctypes.c_int)]
-    lib.lms_finger_contact_counts.restype = ctypes.c_int
-    lib.lms_sum_body_wrenches.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), *([ctypes.POINTER(_DOUBLE_P)] * 4)]
-    lib.lms_sum_body_wrenches.restype = ctypes.c_int
-    if lib.lms_abi() != 1 or lib.lms_header_version() != 3007000:
-        raise RuntimeError("local MuJoCo stepper ABI/header mismatch; rebuild it")
-    lib._lms_bound = True
-    return lib
-
-
-def _basilisk_mujoco_runtime() -> Path:
-    """The runtime Basilisk loaded; the stepper must share that runtime."""
-    return basilisk_mujoco_runtime()
-
-
-def _pointer(array: np.ndarray):
-    return array.ctypes.data_as(_DOUBLE_P)
 
 
 class AxialFrictionChannel:
@@ -207,12 +141,12 @@ class AxialFrictionChannel:
             raise ValueError("axial friction axis and seat must have three components")
         core = self.stepper
         core._check(core._lib.lms_set_axial_friction(core._handle, self.index, int(enabled),
-                                                   _pointer(axis), _pointer(seat)), "axial friction configuration")
+                                                   bindings.double_pointer(axis), bindings.double_pointer(seat)), "axial friction configuration")
 
     def telemetry(self):
         values = np.zeros(6)
         core = self.stepper
-        core._check(core._lib.lms_axial_friction_state(core._handle, self.index, _pointer(values)),
+        core._check(core._lib.lms_axial_friction_state(core._handle, self.index, bindings.double_pointer(values)),
                     "axial friction sample")
         return dict(force_inertial_n=values[:3].tolist(), axial_force_n=float(values[3]),
                     axial_velocity_m_s=float(values[4]), friction_mode=("free", "static", "sliding")[int(values[5])])
@@ -324,9 +258,9 @@ class LocalMujocoStepper(sysModel.SysModel):
         self.substeps = local_substeps(substeps)
         self.publish_every = publish_stride(publish_every)
         self.rebase_distance_m = float(rebase_distance_m)
-        self._lib = _library()
+        self._lib = bindings.load_stepper_library()
         error = ctypes.create_string_buffer(1024)
-        runtime = str(_basilisk_mujoco_runtime())
+        runtime = str(basilisk_mujoco_runtime())
         from simulation.compiled_model_cache import model_cache_key
         started = time.perf_counter()
         cache_key = model_cache_key(model_path, Path(runtime))
@@ -335,7 +269,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         started = time.perf_counter()
         handle = self._lib.lms_create_cached(
             runtime if os.name == "nt" else os.fsencode(runtime), str(Path(model_path).resolve()).encode(),
-            cache_key.encode() if cache_key else None, cache_info.ctypes.data_as(_INT64_P), error, len(error))
+            cache_key.encode() if cache_key else None, cache_info.ctypes.data_as(bindings.INT64_P), error, len(error))
         self.model_compilation = dict(cache_hit=bool(cache_info[0]), cache_key=cache_key,
                                       cache_bytes=int(cache_info[1]), fingerprint_seconds=fingerprint_seconds,
                                       compiled_bytes=int(cache_info[2]),
@@ -344,10 +278,10 @@ class LocalMujocoStepper(sysModel.SysModel):
             raise RuntimeError(f"local MuJoCo stepper failed to load {model_path}: {error.value.decode(errors='replace')}")
         self._handle = ctypes.c_void_p(handle)
         dims = np.zeros(6, dtype=np.int64)
-        self._check(self._lib.lms_dims(self._handle, dims.ctypes.data_as(_INT64_P)), "dims")
+        self._check(self._lib.lms_dims(self._handle, dims.ctypes.data_as(bindings.INT64_P)), "dims")
         self.nq, self.nv, self.nu, self.nbody, self.njnt, nfree = (int(v) for v in dims)
         free = np.zeros(2 * max(nfree, 1), dtype=np.int64)
-        count = self._lib.lms_free_joints(self._handle, free.ctypes.data_as(_INT64_P), max(nfree, 1))
+        count = self._lib.lms_free_joints(self._handle, free.ctypes.data_as(bindings.INT64_P), max(nfree, 1))
         self._check(min(count, 0), "free joints")
         self.free_qpos = free[0:2 * count:2].astype(int)
         self.free_dof = free[1:2 * count:2].astype(int)
@@ -390,7 +324,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._origin_buffer = np.zeros(3)
         self._body_coms = np.zeros((self.nbody, 3))
         self._body_masses = np.zeros(self.nbody)
-        self._pointers = tuple(_pointer(a) for a in (self.ctrl, self._origin_buffer, self.qpos, self.qvel,
+        self._pointers = tuple(bindings.double_pointer(a) for a in (self.ctrl, self._origin_buffer, self.qpos, self.qvel,
                                                      self.qacc, self.actuator_force, self.stats))
         self._last_nanos: int | None = None
         self._published_q: np.ndarray | None = None
@@ -434,7 +368,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         count = self._lib.lms_contacts(self._handle, None, 0)
         self._check(count, "contact count")
         rows = np.empty((count, 5), dtype=np.float64)
-        self._check(self._lib.lms_contacts(self._handle, _pointer(rows), count), "contacts")
+        self._check(self._lib.lms_contacts(self._handle, bindings.double_pointer(rows), count), "contacts")
         return rows
 
     def contact_force_snapshot(self) -> np.ndarray:
@@ -446,7 +380,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         count = self._lib.lms_contact_forces(self._handle, None, 0)
         self._check(count, "contact-force count")
         rows = np.empty((count, 11), dtype=np.float64)
-        self._check(self._lib.lms_contact_forces(self._handle, _pointer(rows), count), "contact forces")
+        self._check(self._lib.lms_contact_forces(self._handle, bindings.double_pointer(rows), count), "contact forces")
         return rows
 
     def contact_material_snapshot(self) -> np.ndarray:
@@ -454,7 +388,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         count = self._lib.lms_contact_materials(self._handle, None, 0)
         self._check(count, "contact-material count")
         rows = np.empty((count, 8), dtype=np.float64)
-        self._check(self._lib.lms_contact_materials(self._handle, _pointer(rows), count), "contact materials")
+        self._check(self._lib.lms_contact_materials(self._handle, bindings.double_pointer(rows), count), "contact materials")
         return rows
 
     def contact_geometry_snapshot(self) -> np.ndarray:
@@ -462,7 +396,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         count = self._lib.lms_contact_geometry(self._handle, None, 0)
         self._check(count, "contact-geometry count")
         rows = np.empty((count, 11), dtype=np.float64)
-        self._check(self._lib.lms_contact_geometry(self._handle, _pointer(rows), count), "contact geometry")
+        self._check(self._lib.lms_contact_geometry(self._handle, bindings.double_pointer(rows), count), "contact geometry")
         return rows
 
     def body_geometry_pose(self, body: str) -> tuple[np.ndarray, np.ndarray]:
@@ -473,21 +407,8 @@ class LocalMujocoStepper(sysModel.SysModel):
         """
         body_id = self._lib.lms_name2id(self._handle, _OBJ_BODY, body.encode())
         values = np.empty(12, dtype=np.float64)
-        self._check(self._lib.lms_body_geometry_pose(self._handle, body_id, _pointer(values)), "body geometry pose")
+        self._check(self._lib.lms_body_geometry_pose(self._handle, body_id, bindings.double_pointer(values)), "body geometry pose")
         return values[:3], values[3:].reshape(3, 3)
-
-    def contact_detail(self):
-        count = self._lib.lms_contact_detail(self._handle, None, 0)
-        self._check(count, 'contact detail count')
-        rows = np.empty((count, 23), dtype=np.float64)
-        self._check(self._lib.lms_contact_detail(self._handle, _pointer(rows), count), 'contact detail')
-        return rows
-
-    def body_detail(self, name):
-        bid = self._lib.lms_name2id(self._handle, 1, name.encode())
-        row = np.empty(14, dtype=np.float64)
-        self._check(self._lib.lms_body_detail(self._handle, bid, _pointer(row)), 'body detail')
-        return row
 
     @property
     def state_initialized(self) -> bool:
@@ -529,13 +450,13 @@ class LocalMujocoStepper(sysModel.SysModel):
             if every_substep or (refresh and substep == 0):
                 origin = interpolate_origin(r0, v0, r_o, v_o, dt,
                                             (nanos - self._last_nanos) / (now - self._last_nanos))
-                self._check(self._lib.lms_body_coms(self._handle, _pointer(self._body_coms),
-                                                   _pointer(self._body_masses)), "fresh COM kinematics")
+                self._check(self._lib.lms_body_coms(self._handle, bindings.double_pointer(self._body_coms),
+                                                   bindings.double_pointer(self._body_masses)), "fresh COM kinematics")
                 forces = np.ascontiguousarray(
                     environment.forces(self._body_coms, self._body_masses, origin, nanos), dtype=np.float64)
                 if forces.shape != (self.nbody, 3) or not np.isfinite(forces).all():
                     raise ValueError("orbital provider must return finite (nbody, 3) COM forces")
-                self._check(self._lib.lms_set_orbital_forces(self._handle, _pointer(forces)), "BSK orbital force")
+                self._check(self._lib.lms_set_orbital_forces(self._handle, bindings.double_pointer(forces)), "BSK orbital force")
                 self._orbital_forces_current = True
                 self.orbital_force_evaluations += 1
             # mu=0 disables the old analytic tide: never apply gravity twice.
@@ -572,7 +493,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         for spec in self._servo_specs:
             joint = self._lib.lms_name2id(self._handle, _OBJ_JOINT, spec.joint.encode())
             self._check(joint, f"servo joint {spec.joint}")
-            self._check(self._lib.lms_joint(self._handle, joint, address.ctypes.data_as(_INT64_P)), spec.joint)
+            self._check(self._lib.lms_joint(self._handle, joint, address.ctypes.data_as(bindings.INT64_P)), spec.joint)
             qpos_addresses.append(int(address[0]))
             dof_addresses.append(int(address[1]))
         self.servo_qpos = np.array(qpos_addresses, dtype=int)
@@ -648,7 +569,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         for body in sorted({item.body_id for item in self._wrench_channels}):
             force, torque = np.zeros(3), np.zeros(3)
             self._wrench_groups.append((body, [item for item in self._wrench_channels if item.body_id == body],
-                                        force, torque, _pointer(force), _pointer(torque)))
+                                        force, torque, bindings.double_pointer(force), bindings.double_pointer(torque)))
         return channel
 
     def _apply_wrench_inputs(self) -> None:
@@ -667,8 +588,8 @@ class LocalMujocoStepper(sysModel.SysModel):
             self._batch_wrench_args = (
                 len(groups), (ctypes.c_int * len(groups))(*(g[0] for g in groups)),
                 (ctypes.c_int * len(offsets))(*offsets),
-                (pointer_array * len(channels))(*(_pointer(c.force) for c in channels)),
-                (pointer_array * len(channels))(*(_pointer(c.torque) for c in channels)),
+                (pointer_array * len(channels))(*(bindings.double_pointer(c.force) for c in channels)),
+                (pointer_array * len(channels))(*(bindings.double_pointer(c.torque) for c in channels)),
                 (pointer_array * len(groups))(*(g[4] for g in groups)),
                 (pointer_array * len(groups))(*(g[5] for g in groups)),
             )
@@ -710,7 +631,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         address = np.zeros(3, dtype=np.int64)
         for joint in range(self.njnt):
             name = self._name(_OBJ_JOINT, joint)
-            self._check(self._lib.lms_joint(self._handle, joint, address.ctypes.data_as(_INT64_P)), name)
+            self._check(self._lib.lms_joint(self._handle, joint, address.ctypes.data_as(bindings.INT64_P)), name)
             if int(address[2]) == _JOINT_FREE:
                 continue  # Free joints are checked through their bodies below.
             owner = self._joint_owner(name)
@@ -741,7 +662,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         if joint_id < 0:
             raise ValueError(f"free joint for {name!r} must have a name in the compiled model")
         address = np.zeros(3, dtype=np.int64)
-        self._check(self._lib.lms_joint(self._handle, joint_id, address.ctypes.data_as(_INT64_P)), name)
+        self._check(self._lib.lms_joint(self._handle, joint_id, address.ctypes.data_as(bindings.INT64_P)), name)
         if int(address[2]) != _JOINT_FREE:
             raise ValueError(f"body {name!r} does not have a compiled free joint")
         return int(address[0]), int(address[1]), self.body_inertial(name)[1:4].copy()
@@ -750,58 +671,9 @@ class LocalMujocoStepper(sysModel.SysModel):
         for index in range(self.nbody):
             if self._name(_OBJ_BODY, index) == name:
                 values = np.zeros(11)
-                self._check(self._lib.lms_body_inertial(self._handle, index, _pointer(values)), 'body inertia')
+                self._check(self._lib.lms_body_inertial(self._handle, index, bindings.double_pointer(values)), 'body inertia')
                 return values
         raise ValueError(f'Unknown model body: {name}')
-
-    def initial_assembly_properties(self, model_path: Path, root_names) -> dict:
-        """Read compiled whole-assembly mass/COM at the assigned initial pose.
-
-        No integration, mass edits or published-state writes. Detached free
-        children belong to their own spacecraft. The native scratch state is
-        restored afterwards. Call only before the first physics step.
-        """
-        import xml.etree.ElementTree as ET
-        from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
-
-        if self.step_count:
-            raise RuntimeError('assembly initial properties require unstepped physics')
-        if self._qpos_state is None:
-            self._bind_scene()
-        root = ET.parse(model_path).getroot()
-        ids = {self._name(_OBJ_BODY, i): i for i in range(self.nbody)}
-        saved_q, saved_v = np.empty(self.nq), np.empty(self.nv)
-        self._check(self._lib.lms_get_state(self._handle, _pointer(saved_q), _pointer(saved_v)), 'save initial state')
-        q, v = self._scene_state()
-        # Translate to small coordinates before subtracting COMs; axes stay inertial.
-        qa, da = self.free_qpos[0], self.free_dof[0]
-        q, v = self._to_local(q, v, q[qa:qa+3], v[da:da+3])
-        result = {}
-        try:
-            self._check(self._lib.lms_set_state(self._handle, _pointer(q), _pointer(v)), 'initial COM pose')
-            positions, masses = np.zeros((self.nbody, 3)), np.zeros(self.nbody)
-            self._check(self._lib.lms_body_coms(self._handle, _pointer(positions), _pointer(masses)), 'initial COMs')
-            for name in root_names:
-                element = root.find(f"./worldbody/body[@name='{name}']")
-                if element is None or name not in ids or not self.scene.getBody(name).isFree():
-                    raise ValueError(f'assembly root must be a world-level free body: {name}')
-                def attached(body):
-                    if body.get('name') in ids:
-                        yield ids[body.get('name')]
-                    for child in body.findall('body'):
-                        if child.find('freejoint') is None and child.find('joint[@type="free"]') is None:
-                            yield from attached(child)
-                selected = list(attached(element))
-                mass = float(masses[selected].sum())
-                if mass <= 0:
-                    raise ValueError(f'assembly has no positive compiled mass: {name}')
-                centre = np.sum(positions[selected]*masses[selected, None], axis=0)/mass
-                pose = self.body_detail(name)
-                rotation = quaternion_wxyz_to_matrix(pose[3:7])
-                result[name] = dict(mass_kg=mass, com_body_m=(rotation.T@(centre-pose[:3])).tolist())
-        finally:
-            self._check(self._lib.lms_set_state(self._handle, _pointer(saved_q), _pointer(saved_v)), 'restore initial state')
-        return result
 
     def _verify_mass_properties(self) -> None:
         """The publish-only copy must describe the same masses as this model.
@@ -820,7 +692,7 @@ class LocalMujocoStepper(sysModel.SysModel):
             name = self._name(_OBJ_BODY, index)
             if index == 0 or name == "world":
                 continue  # MuJoCo's world body carries no mass and has no state.
-            self._check(self._lib.lms_body_mass(self._handle, index, values.ctypes.data_as(_DOUBLE_P)),
+            self._check(self._lib.lms_body_mass(self._handle, index, values.ctypes.data_as(bindings.DOUBLE_P)),
                         f"body mass {name}")
             mass = float(values[0])
             if name in scene_names:
@@ -867,7 +739,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._invalidate_orbital_forces()
         q, v = self._scene_state()
         q, v = self._to_local(q, v, r_o, v_o)
-        self._check(self._lib.lms_set_state(self._handle, _pointer(q), _pointer(v)), "set_state")
+        self._check(self._lib.lms_set_state(self._handle, bindings.double_pointer(q), bindings.double_pointer(v)), "set_state")
         self.qpos[:], self.qvel[:] = q, v
 
     def _publish(self, current_sim_nanos: int, r_o: np.ndarray, v_o: np.ndarray, kinematics: bool = True) -> None:
@@ -978,7 +850,7 @@ class LocalMujocoStepper(sysModel.SysModel):
             return False
         dr, dv = com, momentum["com_velocity_m_s"]
         q, v = self._to_local(self.qpos, self.qvel, dr, dv)
-        self._check(self._lib.lms_set_state(self._handle, _pointer(q), _pointer(v)), "rebase")
+        self._check(self._lib.lms_set_state(self._handle, bindings.double_pointer(q), bindings.double_pointer(v)), "rebase")
         self.qpos[:], self.qvel[:] = q, v
         self.origin.shift(dr, dv, now_s)
         self._invalidate_orbital_forces()
@@ -988,7 +860,7 @@ class LocalMujocoStepper(sysModel.SysModel):
     # --- diagnostics ----------------------------------------------------------------------
     def momentum(self) -> dict[str, np.ndarray]:
         out = np.zeros(12)
-        self._check(self._lib.lms_momentum(self._handle, _pointer(out)), "momentum")
+        self._check(self._lib.lms_momentum(self._handle, bindings.double_pointer(out)), "momentum")
         return {"linear_kg_m_s": out[0:3], "angular_about_com_kg_m2_s": out[3:6],
                 "com_m": out[6:9], "com_velocity_m_s": out[9:12]}
 
@@ -999,7 +871,7 @@ class LocalMujocoStepper(sysModel.SysModel):
         MJScene's publication-only copy to manufacture an endpoint reading.
         """
         values = np.empty(6, dtype=np.float64)
-        status = self._lib.lms_read_wrench(self._handle, force_sensor.encode(), torque_sensor.encode(), _pointer(values))
+        status = self._lib.lms_read_wrench(self._handle, force_sensor.encode(), torque_sensor.encode(), bindings.double_pointer(values))
         self._check(status, "force/torque sensor pair")
         if status == 0:
             return None
@@ -1010,10 +882,10 @@ class LocalMujocoStepper(sysModel.SysModel):
     def telemetry(self) -> dict[str, Any]:
         friction_counts = np.zeros(4, dtype=np.int64)
         self._check(self._lib.lms_friction_diagnostics(
-            self._handle, friction_counts.ctypes.data_as(_INT64_P)), "friction diagnostics")
+            self._handle, friction_counts.ctypes.data_as(bindings.INT64_P)), "friction diagnostics")
         copy_counts = np.zeros(2, dtype=np.int64)
         self._check(self._lib.lms_friction_copy_diagnostics(
-            self._handle, copy_counts.ctypes.data_as(_INT64_P)), "friction copy diagnostics")
+            self._handle, copy_counts.ctypes.data_as(bindings.INT64_P)), "friction copy diagnostics")
         return {"dynamics_backend": BACKEND_LOCAL, "integrator": "mujoco_implicitfast_fixed_step",
                 "friction_solver": dict(zip(
                     ("prediction_steps", "accepted_steps_reused", "steps_without_retention", "precision_retries"),
@@ -1046,6 +918,72 @@ class LocalMujocoStepper(sysModel.SysModel):
             self.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+    def contact_detail(self):
+        count = self._lib.lms_contact_detail(self._handle, None, 0)
+        self._check(count, 'contact detail count')
+        rows = np.empty((count, 23), dtype=np.float64)
+        self._check(self._lib.lms_contact_detail(self._handle, bindings.double_pointer(rows), count), 'contact detail')
+        return rows
+
+
+    def body_detail(self, name):
+        bid = self._lib.lms_name2id(self._handle, 1, name.encode())
+        row = np.empty(14, dtype=np.float64)
+        self._check(self._lib.lms_body_detail(self._handle, bid, bindings.double_pointer(row)), 'body detail')
+        return row
+
+
+    def initial_assembly_properties(self, model_path: Path, root_names) -> dict:
+        """Read compiled whole-assembly mass/COM at the assigned initial pose.
+
+        No integration, mass edits or published-state writes. Detached free
+        children belong to their own spacecraft. The native scratch state is
+        restored afterwards. Call only before the first physics step.
+        """
+        import xml.etree.ElementTree as ET
+        from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+
+        if self.step_count:
+            raise RuntimeError('assembly initial properties require unstepped physics')
+        if self._qpos_state is None:
+            self._bind_scene()
+        root = ET.parse(model_path).getroot()
+        ids = {self._name(_OBJ_BODY, i): i for i in range(self.nbody)}
+        saved_q, saved_v = np.empty(self.nq), np.empty(self.nv)
+        self._check(self._lib.lms_get_state(self._handle, bindings.double_pointer(saved_q), bindings.double_pointer(saved_v)), 'save initial state')
+        q, v = self._scene_state()
+        # Translate to small coordinates before subtracting COMs; axes stay inertial.
+        qa, da = self.free_qpos[0], self.free_dof[0]
+        q, v = self._to_local(q, v, q[qa:qa+3], v[da:da+3])
+        result = {}
+        try:
+            self._check(self._lib.lms_set_state(self._handle, bindings.double_pointer(q), bindings.double_pointer(v)), 'initial COM pose')
+            positions, masses = np.zeros((self.nbody, 3)), np.zeros(self.nbody)
+            self._check(self._lib.lms_body_coms(self._handle, bindings.double_pointer(positions), bindings.double_pointer(masses)), 'initial COMs')
+            for name in root_names:
+                element = root.find(f"./worldbody/body[@name='{name}']")
+                if element is None or name not in ids or not self.scene.getBody(name).isFree():
+                    raise ValueError(f'assembly root must be a world-level free body: {name}')
+                def attached(body):
+                    if body.get('name') in ids:
+                        yield ids[body.get('name')]
+                    for child in body.findall('body'):
+                        if child.find('freejoint') is None and child.find('joint[@type="free"]') is None:
+                            yield from attached(child)
+                selected = list(attached(element))
+                mass = float(masses[selected].sum())
+                if mass <= 0:
+                    raise ValueError(f'assembly has no positive compiled mass: {name}')
+                centre = np.sum(positions[selected]*masses[selected, None], axis=0)/mass
+                pose = self.body_detail(name)
+                rotation = quaternion_wxyz_to_matrix(pose[3:7])
+                result[name] = dict(mass_kg=mass, com_body_m=(rotation.T@(centre-pose[:3])).tolist())
+        finally:
+            self._check(self._lib.lms_set_state(self._handle, bindings.double_pointer(saved_q), bindings.double_pointer(saved_v)), 'restore initial state')
+        return result
+
 
 
 def servo_specs(actuators, joints, kp, kd, limits, reference) -> list[ServoSpec]:

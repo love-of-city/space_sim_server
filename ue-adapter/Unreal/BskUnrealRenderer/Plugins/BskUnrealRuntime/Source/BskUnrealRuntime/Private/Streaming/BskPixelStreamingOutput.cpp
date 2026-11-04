@@ -323,6 +323,7 @@ ULightComponent* ABskSceneController::ResolveCameraWorkLight(const FString& Stre
     Light->SetInnerConeAngle(35.0f);
     Light->SetOuterConeAngle(65.0f);
     Light->SetCastShadows(false);
+    Light->SetVisibility(false);
     Light->RegisterComponent();
     CameraWorkLights.Add(StreamerId, Light);
     UE_LOG(LogBskUnreal, Display, TEXT("Camera work light mounted streamer=%s parent=%s relative_location=%s relative_rotation=%s"),

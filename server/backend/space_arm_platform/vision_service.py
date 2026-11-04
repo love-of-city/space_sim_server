@@ -115,6 +115,7 @@ class StereoVisionService:
         self._result_metadata = {}
         self._last_metadata = {}
         self._session = ''
+        self._generation = 0
         self._last_received = None
         self._last_result = None
         self._last_error = None
@@ -153,6 +154,26 @@ class StereoVisionService:
         if self._estimator is None:
             self._estimator = _Worker(self.root, self.config_path)
 
+    def invalidate(self):
+        """Discard old scene images, including any estimator result still in flight."""
+        with self._lock:
+            self._generation += 1
+            self._session = ''
+            self._pending.clear()
+            self._images.clear()
+            self._result_images.clear()
+            self._result_metadata.clear()
+            self._last_metadata.clear()
+            self._last_result = None
+            self._last_received = None
+            self._last_error = None
+            while True:
+                try:
+                    self._queue.get_nowait()
+                    self._queue.task_done()
+                except queue.Empty:
+                    break
+
     def on_capture(self, metadata, products):
         with self._lock:
             session = str(metadata.get('session_id', ''))
@@ -166,19 +187,8 @@ class StereoVisionService:
                 raise ValueError('vision capture requires session and source frame')
             sim_time = int(metadata['sim_time_ns'])
             if session != self._session:
-                self._pending.clear()
-                self._images.clear()
-                self._result_images.clear()
-                self._result_metadata.clear()
-                self._last_metadata.clear()
-                self._last_result = None
+                self.invalidate()
                 self._session = session
-                while True:
-                    try:
-                        self._queue.get_nowait()
-                        self._queue.task_done()
-                    except queue.Empty:
-                        break
             self._last_received = time.monotonic()
             key = (session, frame)
             if metadata.get('type') == 'capture_error' or not products.get('rgb'):
@@ -204,7 +214,7 @@ class StereoVisionService:
                 self._last_error = f'stereo timestamp skew {skew} ns exceeds configured tolerance'
                 return
             self._counts['matched_pairs'] += 1
-            item = (session, frame, pair['left'][0], skew, pair['left'][1], pair['right'][1],
+            item = (self._generation, session, frame, pair['left'][0], skew, pair['left'][1], pair['right'][1],
                     {'left': pair['left'][2], 'right': pair['right'][2]})
             try:
                 self._queue.put_nowait(item)
@@ -220,7 +230,7 @@ class StereoVisionService:
     def _work(self):
         while not self._stop.is_set():
             try:
-                session, frame, timestamp, skew, left, right, diagnostic_metadata = self._queue.get(timeout=.1)
+                generation, session, frame, timestamp, skew, left, right, diagnostic_metadata = self._queue.get(timeout=.1)
             except queue.Empty:
                 continue
             started = time.perf_counter()
@@ -230,7 +240,7 @@ class StereoVisionService:
                               stereo_skew_ns=skew, processing_ms=(time.perf_counter()-started)*1000,
                               input_contract='RGB only + static calibration + known marker corners')
                 with self._lock:
-                    if session == self._session:
+                    if generation == self._generation:
                         self._last_result = result
                         self._result_images = {'left': left, 'right': right}
                         self._result_metadata = diagnostic_metadata
@@ -239,7 +249,8 @@ class StereoVisionService:
                 self._save_evidence(result, left, right, diagnostic_metadata)
             except Exception as error:
                 with self._lock:
-                    self._last_error = str(error)
+                    if generation == self._generation:
+                        self._last_error = str(error)
             finally:
                 self._queue.task_done()
 

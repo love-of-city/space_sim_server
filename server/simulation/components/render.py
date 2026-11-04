@@ -41,7 +41,7 @@ class RenderComponent:
     def install(self, ctx: AssemblyContext) -> None:
         from bsk_render_adapter import BasiliskRenderBridge, SceneSettings
 
-        from simulation.teleop_grasp_unreal import _register_celestial_bodies
+        from simulation.teleop_scene import register_celestial_bodies
         from pathlib import Path
         from simulation.stereo_cameras import load_stereo_setup, register_stereo_cameras, configure_wrist_capture, vision_trigger_ids
 
@@ -133,14 +133,15 @@ class RenderComponent:
                 if body.object_id in {'teleop/rw_x', 'teleop/rw_y', 'teleop/rw_z'}:
                     body.geometries = []
             # Preview work lights are attached to optical components in UE.
-        # Persist the final platform camera contract, after its normal overrides.
-        import json
-        print(json.dumps({'type': 'platform_camera_configuration',
-                          'model': str(self.model_path),
-                          'cameras': [camera.to_payload() for camera in bridge._cameras]}), flush=True)
+        if self.vision_capture or self.visual_attachments:
+            # Persist the final platform camera contract, after its normal overrides.
+            import json
+            print(json.dumps({'type': 'platform_camera_configuration',
+                              'model': str(self.model_path),
+                              'cameras': [camera.to_payload() for camera in bridge._cameras]}), flush=True)
         celestial = ctx.extra.get("celestial")
         if celestial is not None:
-            _register_celestial_bodies(bridge, *celestial)
+            register_celestial_bodies(bridge, *celestial)
         bridge.set_scene_settings(
             SceneSettings(
                 sunlight_intensity_scale=self.sunlight_intensity_scale,

@@ -121,7 +121,7 @@ def test_sensor_reading_is_passive_for_identical_model(tmp_path):
 
 
 def test_completed_sample_survives_state_rebase(tmp_path):
-    from simulation.local_mujoco_stepper import _pointer
+    from simulation.local_mujoco_bindings import double_pointer
 
     path = load_model(tmp_path)
     path.write_text(
@@ -137,7 +137,7 @@ def test_completed_sample_survives_state_rebase(tmp_path):
     v = stepper.qvel.copy()
     q[-7:-4] = [0.2, 0, 3.065]
     stepper._check(
-        stepper._lib.lms_set_state(stepper._handle, _pointer(q), _pointer(v)),
+        stepper._lib.lms_set_state(stepper._handle, double_pointer(q), double_pointer(v)),
         "test rebase",
     )
     after = stepper.read_wrench("load_force", "load_torque")

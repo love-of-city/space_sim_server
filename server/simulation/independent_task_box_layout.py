@@ -13,7 +13,6 @@ import numpy as np
 
 SCHEMA = "task-box-layout/2"
 POSE_SCHEMA = "task-box-layout/3"
-NATIVE_CANDIDATE_SCHEMA = "task-box-layout/4-native-candidate"
 PICKUPS = ("aviation_pickup", "guide_pickup", "cylindrical_pickup")
 TARGETS = tuple(f"{kind}_insert_{size}" for kind in ("aviation", "guide", "cylindrical")
                 for size in ("40p1", "40p5")) + ("bolt_storage_hole", "bolt_assembly_hole")
@@ -21,29 +20,19 @@ MODULES = (*PICKUPS, *TARGETS, "drawer", "locking_mechanism")
 FREE_BODY_MODULES = {f"{kind}_plug": f"{kind}_pickup"
                      for kind in ("aviation", "guide", "cylindrical")} | {"bolt": "bolt_storage_hole"}
 OPERATION_CLEARANCE_SCHEMA = "task-box-operation-clearance/1"
-SCENE_OPERATION_CLEARANCE_SCHEMA = "task-box-operation-clearance/2"
 OPERATION_MODULES = (*PICKUPS, *(f"{kind}_insert_40p5" for kind in ("aviation", "guide", "cylindrical")))
 
 
-def _operation_schema(task_family):
-    if task_family == "collection":
-        return OPERATION_CLEARANCE_SCHEMA
-    if task_family == "scene":
-        return SCENE_OPERATION_CLEARANCE_SCHEMA
-    raise ValueError("Operation clearance task family must be collection or scene")
-
-
-def operation_footprints(anchors, yaws=None, *, task_family="collection"):
+def operation_footprints(anchors, yaws=None):
     """Reserve the tool, open fingers and 120 mm tangential withdrawal.
 
-    These are conservative XY projections, including the measured 70 mm tool
+    These are conservative XY projections, including the measured 66 mm tool
     width and 170 mm fully open linkage span, with extra room for tracking.
     Operations are sequential: their reservations may overlap each other but
     must never contain another physical installation or fixed deck feature.
     The 40.1 mm alternatives remain obstacles, not scripted destinations.
     Full arm reachability and dynamic contacts require separate native checks.
     """
-    _operation_schema(task_family)
     if set(anchors) != set(MODULES):
         raise ValueError("All installation anchors are required for tool clearance")
     yaws = dict.fromkeys(MODULES, 0.) if yaws is None else yaws
@@ -53,46 +42,33 @@ def operation_footprints(anchors, yaws=None, *, task_family="collection"):
     for name in OPERATION_MODULES:
         anchor = np.asarray(anchors[name], dtype=float)
         matrix = planar_transform(anchor, [0., 0.], yaws[name])
-        # Collection v17 aligns tool X with the plug latch axis (installation Y).
-        # The separate scene expert retains its tool-X/installation-X heading.
-        x_extent, y_extent = ((.04, .095) if task_family == "collection" else (.095, .04))
         corners = np.array([[anchor[0]+x, anchor[1]+y, 0.]
-                            for x in (-x_extent, x_extent) for y in (-y_extent, y_extent)])
+                            for x in (-.04, .04) for y in (-.095, .095)])
         points = (corners @ matrix[:3, :3].T + matrix[:3, 3])[:, :2]
         if name not in PICKUPS:
-            if task_family == "collection":
-                direction = matrix[:2, 0].copy()
-                # Match v17's positive-deck-X tangential withdrawal exactly.
-                if direction[0] < 0:
-                    direction = -direction
-                points = np.vstack((points, points + .12*direction))
-            else:
-                # The scene expert's alternative jaw heading can reverse local Y.
-                direction = matrix[:2, 1].copy()
-                points = np.vstack((points, points + .12*direction, points - .12*direction))
+            direction = matrix[:2, 0].copy()
+            # Match PlugInsertTask's positive-deck-X tangential withdrawal.
+            if direction[0] < 0:
+                direction = -direction
+            points = np.vstack((points, points + .12*direction))
         result[name] = np.array([points.min(0), points.max(0)])
     return result
 
 
-def make_operational_clearance(footprints, anchors, obstacles=(), *, task_family="collection"):
+def make_operational_clearance(footprints, anchors, obstacles=()):
     """Canonical, recomputable contract; old footprint-only layouts fail closed."""
     if set(footprints) != set(MODULES):
         raise ValueError("All installation footprints are required")
-    operation_footprints(anchors, task_family=task_family)
-    record = dict(schema=_operation_schema(task_family), minimum_tool_gap_m=.005,
+    operation_footprints(anchors)
+    return dict(schema=OPERATION_CLEARANCE_SCHEMA, minimum_tool_gap_m=.005,
                 tool_half_width_m=.04, open_linkage_half_span_m=.095,
                 retract_distance_m=.12, scripted_target_diameter_mm=40.5,
                 operational_modules=list(OPERATION_MODULES),
                 scope="Sequential pickup/insertion/opening/withdrawal XY reservations versus all physical modules and fixed obstacles; full arm dynamics checked separately")
-    if task_family == "scene":
-        record.update(open_linkage_axis="installation_local_x", tool_width_axis="installation_local_y",
-                      retract_axis="installation_local_y_bidirectional")
-    return record
 
 
-def validate_operational_placements(footprints, placements, anchors, yaws=None, obstacles=(), *,
-                                    task_family="collection"):
-    reservations = operation_footprints(anchors, yaws, task_family=task_family)
+def validate_operational_placements(footprints, placements, anchors, yaws=None, obstacles=()):
+    reservations = operation_footprints(anchors, yaws)
     yaws = dict.fromkeys(MODULES, 0.) if yaws is None else yaws
     physical = rotated_footprints(footprints, anchors, yaws)
     physical = {n: np.asarray(b)+placements[n] for n,b in physical.items()}
@@ -142,19 +118,13 @@ def validate_pose_placements(footprints, placements, anchors, yaws, obstacles=()
                                obstacles, margin=margin, gap=gap)
 
 
-def validate_layout_record(record, *, allow_native_candidate=False):
+def validate_layout_record(record):
     """Validate translation/pose manifests against the current clearance policy."""
     schema = record.get("schema")
-    native_candidate=schema==NATIVE_CANDIDATE_SCHEMA
-    if native_candidate and not allow_native_candidate:
-        raise ValueError('Layout is pending native three-dimensional trajectory validation')
-    if native_candidate and record.get('feasibility')!=dict(method='native-3d-trajectory',status='pending'):
-        raise ValueError('Invalid native candidate validation contract')
-    if (schema not in {SCHEMA, POSE_SCHEMA,NATIVE_CANDIDATE_SCHEMA} or record.get("initial_states_randomized") is not False
+    if (schema not in {SCHEMA, POSE_SCHEMA} or record.get("initial_states_randomized") is not False
             or set(record.get("offsets_body_xy_m", {})) != set(MODULES)):
         raise ValueError("Invalid independent layout state/placement contract")
-    rotated=schema==POSE_SCHEMA or (native_candidate and record.get('orientations_randomized') is True)
-    if rotated:
+    if schema == POSE_SCHEMA:
         if (record.get("orientations_randomized") is not True
                 or record.get("rotation_axis") != "task_box_base/+Z"
                 or set(record.get("modules", {})) != set(MODULES)):
@@ -165,18 +135,12 @@ def validate_layout_record(record, *, allow_native_candidate=False):
         raise ValueError("Layout requires at least 5 mm deck margin and 8 mm module clearance")
     footprints = record["original_footprints_body_xy_m"]
     anchors = {k: v["original_anchor_body_m"] for k, v in record.get("modules", {}).items()}
-    if not native_candidate:
-        saved = record.get("operational_clearance")
-        clearance_schema = saved.get("schema") if isinstance(saved, dict) else None
-        task_family = "scene" if clearance_schema == SCENE_OPERATION_CLEARANCE_SCHEMA else "collection"
-        expected = make_operational_clearance(footprints, anchors, record["fixed_obstacles_body_xy_m"],
-                                              task_family=task_family)
-        if record.get("operational_clearance") != expected:
-            raise ValueError("Layout lacks current operational clearance; regenerate the layout and pool")
-        validate_operational_placements(footprints, record["offsets_body_xy_m"], anchors,
-                                       record.get("installation_yaw_rad"), record["fixed_obstacles_body_xy_m"],
-                                       task_family=task_family)
-    if rotated:
+    expected = make_operational_clearance(footprints, anchors, record["fixed_obstacles_body_xy_m"])
+    if record.get("operational_clearance") != expected:
+        raise ValueError("Layout lacks current operational clearance; regenerate the layout and pool")
+    validate_operational_placements(footprints, record["offsets_body_xy_m"], anchors,
+                                   record.get("installation_yaw_rad"), record["fixed_obstacles_body_xy_m"])
+    if schema == POSE_SCHEMA:
         footprints = rotated_footprints(footprints, anchors, record["installation_yaw_rad"])
     return validate_placements(footprints, record["offsets_body_xy_m"],
                                record["fixed_obstacles_body_xy_m"],
@@ -185,7 +149,7 @@ def validate_layout_record(record, *, allow_native_candidate=False):
 
 def sample_pose_placements(footprints, anchors, seed, obstacles=(), *, yaw_range_deg=180.,
                            margin=.005, gap=.008, max_restarts=100, max_attempts=400,
-                           operational_clearance=False, task_family="collection"):
+                           operational_clearance=False):
     """Bounded continuous XY/yaw rejection sampling; not a task-feasibility test.
 
     Large units go first. Each rotation uses an enclosing axis-aligned swept
@@ -227,7 +191,7 @@ def sample_pose_placements(footprints, anchors, seed, obstacles=(), *, yaw_range
             try:
                 positions, _ = _sample_operational_placements(
                     footprints, anchors, rng.randrange(2**63), obstacles,
-                    margin=margin, gap=gap, max_restarts=24, yaws=yaws, task_family=task_family)
+                    margin=margin, gap=gap, max_restarts=24, yaws=yaws)
             except ValueError:
                 continue
             return positions, yaws, restart+1
@@ -311,7 +275,7 @@ def validate_placements(footprints, placements, obstacles=(), *, margin=.005, ga
 
 
 def sample_placements(footprints, seed, obstacles=(), *, margin=.005, gap=.008,
-                      max_restarts=300, operation_anchors=None, task_family="collection"):
+                      max_restarts=300, operation_anchors=None):
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("Seed must be a nonnegative integer")
     if not all(math.isfinite(value) and value >= 0 for value in (margin, gap)):
@@ -332,7 +296,7 @@ def sample_placements(footprints, seed, obstacles=(), *, margin=.005, gap=.008,
         raise ValueError("Invalid fixed deck obstacle")
     if operation_anchors is not None:
         return _sample_operational_placements(bounds, operation_anchors, seed, obstacles,
-                                               margin=margin, gap=gap, max_restarts=max_restarts, task_family=task_family)
+                                               margin=margin, gap=gap, max_restarts=max_restarts)
     rng = random.Random(f"{SCHEMA}:{seed}")
     ordered = sorted(MODULES, key=lambda name: -float(np.prod(bounds[name][1]-bounds[name][0])))
 
@@ -386,14 +350,13 @@ def sample_placements(footprints, seed, obstacles=(), *, margin=.005, gap=.008,
     raise ValueError("No disjoint layout found within the sampling budget; adjust footprints or gap")
 
 
-def _sample_operational_placements(bounds, anchors, seed, obstacles, *, margin, gap, max_restarts, yaws=None,
-                                   task_family="collection"):
+def _sample_operational_placements(bounds, anchors, seed, obstacles, *, margin, gap, max_restarts, yaws=None):
     """Vectorised bounded rejection, preserving continuous position diversity."""
     originals = bounds
     if yaws is not None:
         bounds = {n: np.asarray(b) for n,b in rotated_footprints(bounds, anchors, yaws).items()}
-    operations = operation_footprints(anchors, yaws, task_family=task_family)
-    rng = random.Random(f"{SCHEMA}:{_operation_schema(task_family)}:{seed}")
+    operations = operation_footprints(anchors, yaws)
+    rng = random.Random(f"{SCHEMA}:{OPERATION_CLEARANCE_SCHEMA}:{seed}")
 
     def free(boxes, other, clearance):
         return (np.any(boxes[:, 1]+clearance <= other[0]+1e-10, axis=1)
@@ -438,6 +401,6 @@ def _sample_operational_placements(bounds, anchors, seed, obstacles, *, margin, 
                 reserved[name] = zones[chosen]
         if len(offsets) == len(MODULES):
             validate_placements(bounds, offsets, obstacles, margin=margin, gap=gap)
-            validate_operational_placements(originals, offsets, anchors, yaws, obstacles, task_family=task_family)
+            validate_operational_placements(originals, offsets, anchors, yaws, obstacles)
             return {name: offsets[name] for name in MODULES}, restart+1
     raise ValueError("No layout with tool operation clearance found within the sampling budget")

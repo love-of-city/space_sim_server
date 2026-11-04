@@ -45,7 +45,7 @@ def test_action_model_and_safety_preparation_heartbeat():
 
 def test_live_target_waits_and_resets_with_real_chain():
     pytest.importorskip('Basilisk')
-    from simulation import teleop_grasp_unreal as teleop
+    from simulation import teleop_control as teleop
     root=Path(__file__).resolve().parents[1]
     chain=teleop.SerialChainKinematics.from_mjcf(root/'model/SARM/platform/sarm_platform.xml',base_body='cubesat_bus',joint_names=teleop.ARM_JOINT_NAMES,tool_site='sarm_ee')
     class Client:

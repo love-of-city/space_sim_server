@@ -1,4 +1,5 @@
-import { installSceneSelection } from "./helpers/scene_context.mjs";
+import { installSceneSelection } from './helpers/scene_context.mjs';
+import { createSceneSession } from '../scene_session.js';
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -71,7 +72,6 @@ test("missing template limits cannot submit a previously enabled custom pose", (
 });
 
 const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const startSource = appSource.slice(appSource.indexOf("async function startScene()"), appSource.indexOf("async function resetScene()"));
 test("actual scene-start handler submits custom degrees, supports opt-out and blocks bad values", async () => {
   const p = panel();
   p.ui.configure({arm_joint_limits_deg: limits}, angles);
@@ -86,8 +86,7 @@ test("actual scene-start handler submits custom degrees, supports opt-out and bl
     apiRequest: async (path, options) => {requests.push(JSON.parse(options.body)); return {ok: true};},
     readApiResponse: async () => ({instance_id: "test", seed: 1}),
   });
-  installSceneSelection(ctx, appSource);
-  vm.runInContext(startSource, ctx);
+  Object.assign(ctx, createSceneSession({...ctx, applySceneRuntime: (...args) => ctx.applySceneRuntime(...args)}));
   await ctx.startScene();
   assert.equal(requests.at(-1).initial_arm_joint_position_deg, null);
   p.toggle.checked = true; p.toggle.fire("change");

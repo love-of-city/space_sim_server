@@ -1,4 +1,3 @@
-import { requestJson } from './api_client.js';
 
 const phases = {idle: '平台空闲', starting: '正在启动任务', flight: '交会运行中', ready: '交会已完成 · 可接续',
   transitioning: '正在连续接入近距阶段',
@@ -32,7 +31,7 @@ export function missionPresentation(mission = {}) {
     showHandoff: !!mission.can_handoff};
 }
 
-export function createMissionPanel({$, state, apiRequest, refresh, message, configureScene, reconnect}) {
+export function createMissionPanel({$, state, platformApi, refresh, message, configureScene, reconnect}) {
   let catalog = {modes: [], flight_defaults: {}};
   let snapshot = {};
   let observedId;
@@ -192,7 +191,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
     state.stateRequestSequence += 1;
     configure();
     try {
-      const data = await requestJson(path, {method: 'POST', ...(body ? {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {})}, apiRequest);
+      const data = await platformApi(path, {method: 'POST', ...(body ? {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {})});
       render(data);
       message(phases[data.phase] || '任务请求已接收');
       // An idle player may have exhausted its initial attempts before cold UE startup.
@@ -205,7 +204,7 @@ export function createMissionPanel({$, state, apiRequest, refresh, message, conf
   $('continueMission').addEventListener('click', () => act('/api/mission/handoff'));
   return {
     async load() {
-      catalog = await requestJson('/api/mission/catalog', {}, apiRequest);
+      catalog = await platformApi('/api/mission/catalog', {});
       $('missionMode').replaceChildren(...catalog.modes.map(m => new Option(m.label, m.id)));
       // Replacing the options selects the first entry. A stopped task may
       // already have arrived, so later polls will not restore its mode again.

@@ -8,14 +8,7 @@ from simulation.policy_task_success import DrawerCycleSuccess, EVALUATION_PERIOD
 
 
 def same_task_configuration(frozen, current):
-    """Older fixed traces may omit newly added options only at legacy defaults."""
-    current = deepcopy(current)
-    for key, default in [('transport_clearance_m', None), ('part_velocity_damping', None),
-                         ('transfer_offset_xy_m', [0., 0.])]:
-        if key in current and key not in frozen:
-            if current[key] != default:
-                return False
-            current.pop(key)
+    """Current artifacts must identify the exact effective configuration."""
     return frozen == current
 
 
@@ -26,7 +19,7 @@ def scorer_for(task, trajectory, *, model=None):
                     tip=task.config.shaft_tip_local_m,flange=task.config.flange_local_m,keyed=task.profile.keyed,
                     moving_hole=getattr(task, 'hole_owner', 'cubesat_bus') != 'cubesat_bus',
                     pickup=task.pickup,pickup_rotation=task.pickup_rotation,
-                    moving_pickup=task.pickup_owner != 'cubesat_bus')
+                    moving_pickup=getattr(task, 'pickup_owner', 'cubesat_bus') != 'cubesat_bus')
     final=trajectory.document['samples'][-1]['position_m']
     if trajectory.document['task']=='drawer_cycle':
         # Share the policy monitor's full geometry/dwell criteria; no script flags.
@@ -61,7 +54,7 @@ def physical_row(sample, task, reference):
 
 
 class FixedReplayTask:
-    version='fixed-replay/1'
+    version='fixed-replay/2-local-expert'
     terminal_hold_s=2.5
 
     def __init__(self, donor, path, model, initial, server_root):
@@ -81,12 +74,16 @@ class FixedReplayTask:
         self.stage='fixed_playback';self.result=None;self.reason='';self.events=[]
         self.max_force_n=0.;self.max_torque_nm=0.;self.last_physical_row=None
         self.trajectory_sha256=sha256(path)
+        self._initial_drawer = 0.
+        self._initial_position = None
 
     def __getattr__(self,name):
         return getattr(self.donor,name)
 
     def step(self,sample):
         if self.result is not None:return self.reference.copy(),np.zeros(8)
+        if self._initial_position is None and hasattr(sample, 'plug_position_body_m'):
+            self._initial_position = sample.plug_position_body_m.copy()
         self.reference,self.velocity=self.trajectory.reference(sample.time_s)
         self.last_physical_row=physical_row(sample,self,self.reference)
         self.scorer.update(self.last_physical_row)
@@ -106,7 +103,7 @@ class FixedReplayTask:
 
     def metrics(self,sample):
         # Keep raw compatibility telemetry, but evaluation never reads these flags.
-        metrics=self.donor.metrics(sample)
+        metrics = {}
         metrics.update(task_version=self.version,fixed_trajectory_sha256=self.trajectory_sha256,
                        independent_evaluation=self.scorer.report())
         return metrics

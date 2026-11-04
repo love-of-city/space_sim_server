@@ -59,7 +59,7 @@ def test_closed_probe_cannot_dereference_released_scene():
 
 def test_thread_pool_not_enabled_by_live_teleop_entrypoint():
     root=Path(__file__).resolve().parents[1]
-    for name in ("simulation/teleop_grasp_unreal.py","scripts/run_simulation.ps1"):
+    for name in ("simulation/teleop_session.py","scripts/run_simulation.ps1"):
         source=(root/name).read_text(encoding="utf-8")
         assert "MJSceneThreadPoolProbe" not in source
     source=(root/"tools/benchmarks/profile_simulation_runtime.py").read_text(encoding="utf-8")

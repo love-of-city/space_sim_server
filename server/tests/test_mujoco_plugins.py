@@ -16,15 +16,15 @@ def test_plugin_version_and_hash_checked(tmp_path):
  with pytest.raises(ValueError,match='hash'):validate_plugin_manifest(dll,manifest,3007000)
 
 def test_platform_thread_source_changes_only_equivalent_arithmetic():
- # The build checker compares both tooth_radius and finite-difference gradient;
- # native contact tests verify the conservative collision-dispatch wrapper.
+ # Geometry constants, distance branches and plugin wiring remain delivered.
+ # The build checker compares both tooth_radius and finite-difference gradient.
  import re
  from pathlib import Path
  from simulation.mujoco_plugins import DELIVERED_SOURCE, PLATFORM_SOURCE
  root=Path(__file__).resolve().parents[1]
  def body(name):
   text=(root/name).read_text(encoding='utf-8').replace('\r\n','\n')
-  text=text[text.index('namespace {'):text.index('const char* const kAttributes[]')]
+  text=text[text.index('// Two-start SDF thread pair'):]
   text=re.sub(r'double tooth_radius\(.*?\n}\n','',text,count=1,flags=re.S)
   return re.sub(r'void gradient\(.*?\n}\n','',text,count=1,flags=re.S)
  assert body(PLATFORM_SOURCE)==body(DELIVERED_SOURCE)

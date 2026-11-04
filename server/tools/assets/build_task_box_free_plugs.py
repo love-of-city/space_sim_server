@@ -19,7 +19,7 @@ import trimesh
 
 from tools.assets.build_task_box_module import digest, fmt, save_json
 from tools.assets.select_sarm_scene import verified_source_tree
-from tools.assets.task_box_proxy_experiment import simplify_plugs
+from tools.assets.plug_collision_geometry import simplify_plugs
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'model/SARM/platform/sarm_task_box_module.xml'

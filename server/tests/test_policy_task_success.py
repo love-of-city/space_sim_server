@@ -31,27 +31,6 @@ def initialized():
     return monitor
 
 
-def test_monitor_spec_roundtrip_and_200hz_uses_same_open_dwell():
-    original=DrawerCycleSuccess(MODEL, sample_period_ns=5_000_000)
-    monitor=DrawerCycleSuccess.from_spec(original.specification())
-    monitor.reset(physical(monitor))
-    for i in range(1,202):monitor.update(physical(monitor,i*5_000_000))
-    assert monitor.status()['grasp_verified']
-    for i in range(202,602):monitor.update(physical(monitor,i*5_000_000,drawer=.08))
-    assert not monitor.status()['open_verified']
-    monitor.update(physical(monitor,602*5_000_000,drawer=.08))
-    assert monitor.status()['open_verified']
-    assert monitor.status()['max_open_hold_s']==pytest.approx(2.)
-
-
-def test_release_and_final_require_no_remaining_finger_contact():
-    monitor=initialized();grasp_and_lift(monitor)
-    assert feed(monitor,101)['seated_before_release_verified']
-    assert not feed(monitor,1,opening=.96,contacts=(1,0))['release_verified']
-    assert feed(monitor,1,opening=.96,contacts=(0,0))['release_verified']
-    assert not feed(monitor,110,opening=1.,contacts=(1,0),hover=True)['success']
-
-
 def feed(monitor, count, **values):
     for _ in range(count):
         sample = physical(monitor, monitor.last_time_ns + RENDER_PERIOD_NS,

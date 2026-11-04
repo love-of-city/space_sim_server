@@ -45,7 +45,7 @@ class PoolDocument(BaseModel):
 
 
 def validate_entry(entry, *, root=None, verified_hashes=None):
-    from simulation.task_box_layout import validated_capture_layout
+    from simulation.capture_layout import validated_capture_layout
 
     accepted_model_sha = entry["model_sha256"]
     if root is not None:

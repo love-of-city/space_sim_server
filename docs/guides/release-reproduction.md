@@ -1,6 +1,6 @@
 # 独立发布重建与资产验证
 
-发布从声明输入生成新的 staging，不能直接打包开发工程中全部 `Content/BSK`。基础输入清单位于 `manifests/assets/ue-cook-base-assets.json`，包含 565 个基础资产文件及 SHA-256、明确 Cook 根、动态加载资源。默认还加载 `manifests/assets/ue-cook-environment-assets.json` 的 127 个环境资产（其中 108 个需先[单独恢复](external-environment-assets.md)）。新布局必须以同 schema 的额外 manifest 显式声明；未声明的 Random150/Collection 本地资产不会进入 staging。
+发布从声明输入生成新的 staging，不能直接打包开发工程中全部 `Content/BSK`。基础输入清单位于 `manifests/assets/ue-cook-base-assets.json`，包含 527 个基础资产文件及 SHA-256、明确 Cook 根、动态加载资源。默认还加载 `manifests/assets/ue-cook-environment-assets.json` 的 127 个环境资产（其中 108 个需先[单独恢复](external-environment-assets.md)）。新布局必须以同 schema 的额外 manifest 显式声明；未声明的 Random150/Collection 本地资产不会进入 staging。
 
 ## Cook 与独立运行验证
 

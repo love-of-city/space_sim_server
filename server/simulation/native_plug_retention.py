@@ -1,12 +1,11 @@
 """Native arithmetic for the unchanged, message-connected plug guidance law."""
 from __future__ import annotations
 
-import ctypes
 import math
 
 import numpy as np
 
-from simulation.native_acceleration import load_native_library
+from simulation.local_mujoco_bindings import DOUBLE_P, load_stepper_library
 from simulation.plug_retention import PlugFriction
 
 
@@ -32,11 +31,9 @@ class NativePlugFriction(PlugFriction):
         ], dtype=np.float64)
         self._input = np.empty(18, dtype=np.float64)
         self._output = np.empty(6, dtype=np.float64)
-        self._library = load_native_library("local_mujoco_stepper")
+        self._library = load_stepper_library()
         self._evaluate = self._library.lms_plug_guidance
-        pointer = ctypes.POINTER(ctypes.c_double)
-        self._evaluate.argtypes = [pointer, pointer, ctypes.c_int, pointer, pointer, pointer]
-        self._evaluate.restype = ctypes.c_int
+        pointer = DOUBLE_P
         self._arguments = (self._input.ctypes.data_as(pointer), self._sockets.ctypes.data_as(pointer),
                            len(sockets), self._parameters.ctypes.data_as(pointer),
                            self._state.ctypes.data_as(pointer), self._output.ctypes.data_as(pointer))
@@ -44,8 +41,6 @@ class NativePlugFriction(PlugFriction):
         self._coms = np.empty(6, dtype=np.float64)
         self._wrenches = np.empty((4, 3), dtype=np.float64)
         self._evaluate_wrenches = self._library.lms_plug_guidance_wrenches
-        self._evaluate_wrenches.argtypes = [pointer, pointer, pointer, ctypes.c_int, pointer, pointer, pointer]
-        self._evaluate_wrenches.restype = ctypes.c_int
         self._wrench_arguments = (self._sample.ctypes.data_as(pointer), self._coms.ctypes.data_as(pointer),
                                   *self._arguments[1:5], self._wrenches.ctypes.data_as(pointer))
 

@@ -1,10 +1,10 @@
+import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const resetSource = source.slice(source.indexOf("async function resetScene()"), source.indexOf("async function stopScene()"));
 
 function harness(response) {
   const state = {sceneReady: true, resetPending: false, simulationResetting: false,
@@ -24,7 +24,7 @@ function harness(response) {
     setMessage(message) {messages.push(message);},
     async refreshState() {refreshed++;},
   });
-  vm.runInContext(resetSource, ctx);
+  Object.assign(ctx, createSceneSession(ctx));
   return {ctx, state, button, messages, get calls() {return calls;}, get refreshed() {return refreshed;}};
 }
 

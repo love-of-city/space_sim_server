@@ -111,7 +111,7 @@ def model_retention_sockets(model_path: Path, *, owned=False) -> dict[str, tuple
         # provides additional compatible recipients without inventing a second
         # initial plug or assigning its reaction to the donor spacecraft.
         for name in (namespace + profile.prefix + suffix
-                     for namespace in ('', 'service_')
+                     for namespace in (('', 'service_') if owned else ('',))
                      for suffix in ('_insert_40p1', '_insert_40p5')):
             if root.find(f'.//site[@name="{name}"]') is None:
                 continue

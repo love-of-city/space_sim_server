@@ -1,3 +1,4 @@
+from collection.recorded_task_contracts import recorded_stages, validate_recorded_stages
 """Full-cycle acceptance must require release, retreat and a stable closed drawer."""
 
 from dataclasses import replace
@@ -6,7 +7,7 @@ import numpy as np
 import pytest
 from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask, DrawerCycleConfig
 from simulation.scripted_tasks.drawer_lift import DrawerSample
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
 
 MODEL = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_20261012.xml"
@@ -236,10 +237,10 @@ def test_retreat_counts_towards_closure_window_but_contact_or_displacement_reset
 
 
 def test_recorded_stage_versions_preserve_existing_episode_validation():
-    assert "align" in DrawerCycleTask.recorded_stages("drawer-cycle/3")
-    assert "align" not in DrawerCycleTask.recorded_stages("drawer-cycle/4")
-    with pytest.raises(ValueError, match="Unsupported drawer task version"):
-        DrawerCycleTask.recorded_stages("drawer-cycle/unknown")
+    assert "align" in recorded_stages(DrawerCycleTask.name, "drawer-cycle/3")
+    assert "align" not in recorded_stages(DrawerCycleTask.name, "drawer-cycle/4")
+    with pytest.raises(ValueError, match="Unsupported recorded task/version"):
+        recorded_stages(DrawerCycleTask.name, "drawer-cycle/unknown")
 
 
 def test_empty_raise_still_requires_measured_pose_tracking():

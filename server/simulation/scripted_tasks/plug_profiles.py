@@ -1,6 +1,6 @@
 """Independent plug tasks and geometry measured from the delivered MJCF."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -12,12 +12,14 @@ class PlugProfile:
     tip_m: float = 0.095
     flange_m: float = 0.025
     keyed: bool = False
-    feedback_extraction: bool = False
-    seat_clearance_m: float = .00025
     # Object-local closing axis through the two modeled head latch features.
-    # Explicit axes opt into coordinated approach/extract/carry/release motion.
-    grasp_closing_axis: tuple[float, float, float] | None = None
+    grasp_closing_axis: tuple[float, float, float] = (0.0, 1.0, 0.0)
     grasp_offset_m: tuple[float, float, float] = (0., 0., -.003)
+    insert_orientation_tolerance_rad: float = .004
+    extraction_lateral_gain_s_inv: float = 3.
+    extraction_velocity_gain: float = 8.
+    release_seat_tolerance_m: float | None = None
+    require_seated_velocity: bool = True
 
     @property
     def target_site(self):
@@ -40,6 +42,7 @@ PLUG_PROFILES = {
         "aviation_plug",
         "aviation",
         0.080,
+        extraction_lateral_gain_s_inv=4.,
         keyed=True,
         grasp_closing_axis=(0.0, 1.0, 0.0),
     ),
@@ -48,6 +51,7 @@ PLUG_PROFILES = {
         "导向插头",
         "guide_plug",
         "guide",
+        require_seated_velocity=False,
         keyed=True,
         grasp_closing_axis=(0.0, 1.0, 0.0),
     ),
@@ -58,6 +62,9 @@ PLUG_PROFILES = {
         "cylindrical",
         grasp_closing_axis=(0.0, 1.0, 0.0),
         grasp_offset_m=(0., 0., -.006),
+        insert_orientation_tolerance_rad=.008,
+        extraction_velocity_gain=6.,
+        release_seat_tolerance_m=.0001,
     ),
 }
 
@@ -68,11 +75,3 @@ def plug_profile(task):
 
 def is_plug_task(task):
     return task == "plug_insert" or task in PLUG_PROFILES
-
-
-# Scene-library experiments retain their axial extraction and seating contract.
-SCENE_PLUG_PROFILES = {
-    name: replace(profile, feedback_extraction=True,
-                  seat_clearance_m=.00075 if profile.keyed else .00025)
-    for name, profile in PLUG_PROFILES.items()
-}

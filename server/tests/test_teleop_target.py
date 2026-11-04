@@ -1,4 +1,3 @@
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,11 +10,10 @@ from simulation.serial_chain_kinematics import rotation_matrix_to_vector
 from simulation.online_elbow_ik import OnlineElbowPreference
 
 
-SCENARIO = Path(__file__).resolve().parents[1] / "simulation" / "teleop_grasp_unreal.py"
-SPEC = importlib.util.spec_from_file_location("teleop_grasp_unreal_test", SCENARIO)
-assert SPEC and SPEC.loader
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+from simulation import teleop_control as MODULE
+from simulation import teleop_grasp_unreal as CLI
+SCENARIO = Path(CLI.__file__)
+from simulation.teleop_scene import validate_dynamics_step
 
 
 def task_only_target(*args, **kwargs):
@@ -231,10 +229,10 @@ def test_cli_resolves_catalog_from_selected_adapter_and_model(tmp_path, monkeypa
     if model_relative is not None:
         arguments.extend(["--model-root", str(model)])
     monkeypatch.setattr("sys.argv", arguments)
-    monkeypatch.setattr(MODULE, "PROJECT_ROOT", project)
+    monkeypatch.setattr(CLI, "PROJECT_ROOT", project)
     calls = []
-    monkeypatch.setattr(MODULE, "run", calls.append)
-    MODULE.main()
+    monkeypatch.setattr(CLI, "run", calls.append)
+    CLI.main()
     assert len(calls) == 1
     assert calls[0].model_root == model
     assert calls[0].catalog == catalog
@@ -245,11 +243,11 @@ def test_cli_keeps_explicit_catalog_override(tmp_path, monkeypatch):
     model.mkdir(parents=True)
     catalog = tmp_path / "custom.catalog.json"
     catalog.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(MODULE, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(CLI, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr("sys.argv", [str(SCENARIO), "--adapter-root", str(tmp_path), "--catalog", str(catalog)])
     calls = []
-    monkeypatch.setattr(MODULE, "run", calls.append)
-    MODULE.main()
+    monkeypatch.setattr(CLI, "run", calls.append)
+    CLI.main()
     assert calls[0].catalog == catalog
 
 
@@ -343,12 +341,12 @@ def test_large_tracking_error_stops_outward_motion_but_allows_reversal() -> None
 @pytest.mark.parametrize("step", [0, -0.001, 0.00025, 0.0005, 0.001, 0.002, float("nan"), float("inf")])
 def test_unsafe_dynamics_steps_are_rejected(step):
     with pytest.raises(ValueError):
-        MODULE.validate_dynamics_step(step)
+        validate_dynamics_step(step)
 
 
 @pytest.mark.parametrize("step", [1.0 / 400])
 def test_validated_dynamics_steps_are_accepted(step):
-    assert MODULE.validate_dynamics_step(step) == step
+    assert validate_dynamics_step(step) == step
 
 
 def test_ik_mode_selects_the_solver_kernel() -> None:

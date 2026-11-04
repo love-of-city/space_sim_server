@@ -25,7 +25,7 @@ import trimesh
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from simulation.independent_task_box_layout import PICKUPS, TARGETS, planar_transform, validate_layout_record
-from tools.assets.build_independent_task_box_layout import aperture, cell, mesh_of, solid, vector
+from tools.assets.task_box_geometry import aperture, cell, mesh_of, solid, vector
 
 
 def top_opening(value, center):

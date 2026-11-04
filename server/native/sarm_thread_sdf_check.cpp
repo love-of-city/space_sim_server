@@ -6,7 +6,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <limits>
 #include <random>
 #define MJ_STATIC
 #include <mujoco/mujoco.h>
@@ -16,7 +15,6 @@
 #undef mjPLUGIN_LIB_INIT
 #define mjPLUGIN_LIB_INIT(name) [[maybe_unused]] static void unused_##name()
 extern "C" {
-mjfCollision mjCOLLISIONFUNC[mjNGEOMTYPES][mjNGEOMTYPES] = {};
 void mjp_defaultPlugin(mjpPlugin*) {}
 int mjp_registerPlugin(const mjpPlugin*) { return 0; }
 const char* mj_getPluginConfig(const mjModel*, int, const char*) { return nullptr; }

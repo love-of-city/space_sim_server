@@ -153,7 +153,7 @@ def test_authenticated_rendezvous_endpoint(tmp_path):
 
 
 def test_completed_report_survives_backend_restart(tmp_path):
-    report_dir = tmp_path / "repo" / "output" / "spacesim_platform" / "run-1"
+    report_dir = tmp_path / "repo" / "run" / "team_rendezvous" / "run-1"
     report_dir.mkdir(parents=True)
     (report_dir / "mission_report.json").write_text(
         json.dumps(
@@ -167,7 +167,7 @@ def test_completed_report_survives_backend_restart(tmp_path):
         ),
         encoding="utf-8",
     )
-    runtime = RendezvousRuntime(tmp_path / "repo", None, 8768, tmp_path / "logs")
+    runtime = RendezvousRuntime(None, 8768, tmp_path / "logs", tmp_path / "repo")
     assert runtime.status()["report"]["latch_time_s"] == 6460.086
 
 

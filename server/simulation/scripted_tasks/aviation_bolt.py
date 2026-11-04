@@ -64,7 +64,6 @@ class AviationBoltConfig(ThreadedMotionConfig):
 
 class AviationBoltTask(ThreadedTaskBase):
     name = "aviation_bolt_insert"
-    previous_version = "aviation-bolt/4-straight-approach"
     version = "aviation-bolt/5-seated-completion"
     stages = (
         "settle", "approach", "grip", "unscrew", "regrasp_release",
@@ -72,26 +71,7 @@ class AviationBoltTask(ThreadedTaskBase):
         "release", "retract", "verify",
     )
 
-    @classmethod
-    def recorded_stages(cls, version):
-        if version not in (cls.version, "aviation-bolt/3-environment-planning", "aviation-bolt/2-latch-smooth-regrasp"):
-            raise ValueError(f"Unsupported aviation bolt version {version}")
-        return cls.stages
 
-    @classmethod
-    def validate_recorded_stages(cls, stages):
-        edges = {
-            "settle": {"approach"}, "approach": {"grip"}, "grip": {"unscrew"},
-            "unscrew": {"regrasp_release", "carry"},
-            "regrasp_release": {"regrasp_rewind"},
-            "regrasp_rewind": {"regrasp_grip"},
-            "regrasp_grip": {"unscrew", "screw_in"},
-            "carry": {"screw_in"}, "screw_in": {"regrasp_release", "release"},
-            "release": {"retract"}, "retract": {"verify"}, "verify": set(),
-        }
-        return bool(stages and stages[0] == "settle" and stages[-1] == "verify"
-                    and all(b in edges.get(a,set()) for a,b in zip(stages,stages[1:]))
-                    and all(s in stages for s in ("unscrew","carry","screw_in","release")))
 
     def __init__(self, model_path, config=None):
         super().__init__(model_path,config or AviationBoltConfig())
@@ -553,7 +533,7 @@ class AviationBoltTask(ThreadedTaskBase):
 
     def _plan_retract(self,sample):
         """Withdraw upward, checking the complete open-jaw sweep privately."""
-        from .drawer_initialization import NativePoseProbe
+        from .native_geometry_probe import NativePoseProbe
 
         p,r=self.chain.forward(self.reference[:6])
         side=r[:,1]-self.target_outward*(r[:,1]@self.target_outward)
@@ -634,7 +614,7 @@ class AviationBoltTask(ThreadedTaskBase):
         return [release,retract]
 
     def _plan_carry(self,sample,check_all=False):
-        from .drawer_initialization import NativePoseProbe
+        from .native_geometry_probe import NativePoseProbe
 
         self._capture_grasp(sample)
         self.carry_branch_checks=[]
@@ -667,7 +647,7 @@ class AviationBoltTask(ThreadedTaskBase):
         self.carry_thread_symmetry_rad=selected
 
     def preflight_paths(self,initial_q):
-        from .drawer_initialization import NativePoseProbe
+        from .native_geometry_probe import NativePoseProbe
 
         probe=type(self)(self.model_path,self.config)
         self.preflight_motion_plans=probe.motion_plans

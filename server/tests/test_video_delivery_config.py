@@ -84,7 +84,7 @@ def test_rate_plumbed_through_both_deployment_modes():
 
 
 def test_no_change_to_physics_or_camera_resolution():
-    runtime = (ROOT / "simulation/teleop_grasp_unreal.py").read_text(encoding="utf-8")
+    runtime = (ROOT / "simulation/teleop_session.py").read_text(encoding="utf-8")
     # The render bridge is created by the render component now; the rates and the
     # camera resolution are still plumbed through unchanged.
     render = (ROOT / "simulation/components/render.py").read_text(encoding="utf-8")
@@ -116,8 +116,7 @@ def test_project_caps_adaptive_video_bitrate_without_forcing_a_high_floor():
 @pytest.mark.skipif(os.name != "nt" or not PWSH, reason="Windows PowerShell required")
 # Default, both bounds and both out-of-range sides; each case costs a cold pwsh start.
 @pytest.mark.parametrize("quality", [None, 0, 100, -1, 101])
-def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality, monkeypatch):
-    monkeypatch.delenv('SSH_CONNECTION', raising=False)
+def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality):
     adapter = ROOT.parent / "ue-adapter"
     source = adapter / "Unreal/BskUnrealRenderer/scripts/start_renderer.ps1"
     if not source.is_file():
@@ -127,10 +126,8 @@ def test_renderer_arguments_are_valid_and_do_not_start_ue(tmp_path, quality, mon
     level = tmp_path / "Content/BSK/Maps/BskEnvironment.umap"
     level.parent.mkdir(parents=True)
     level.write_bytes(bytes.fromhex("c1832a9e") + b"saved environment map" * 20)
-    (tmp_path / "common.ps1").write_text("param([string]$RequestedDerivedDataCachePath='')\n"
-        "$ProjectFile=Join-Path $PSScriptRoot 'fake.uproject'\n"
-        "$ProjectRoot=$PSScriptRoot\n$script:BskDerivedDataCachePath=$PSScriptRoot\n"
-        "function Resolve-UnrealRoot($Requested){ return $PSScriptRoot }\n", encoding="utf-8")
+    (tmp_path / "common.ps1").write_text("$ProjectFile=Join-Path $PSScriptRoot 'fake.uproject'\n"
+        "$ProjectRoot=$PSScriptRoot\nfunction Resolve-UnrealRoot($Requested){ return $PSScriptRoot }\n", encoding="utf-8")
     quality_arg = "" if quality is None else f" -EncoderMinQuality {quality}"
     wrapper = tmp_path / "wrapper.ps1"
     wrapper.write_text("$ErrorActionPreference='Stop'\n"
@@ -193,7 +190,8 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
     import sys
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
-    from space_arm_platform.app import PlatformConfig, create_app
+    from space_arm_platform.app import create_app
+    from space_arm_platform.platform_config import PlatformConfig
     from space_arm_platform.models import SceneInstanceCreate
 
     project = tmp_path / "project"
@@ -239,7 +237,7 @@ def test_quality_flows_from_api_to_scene_launcher(tmp_path, monkeypatch, quality
 
 @pytest.mark.parametrize("quality", [-1, 101, True, "60", 60.5, None])
 def test_platform_config_rejects_invalid_quality(tmp_path, quality):
-    from space_arm_platform.app import PlatformConfig
+    from space_arm_platform.platform_config import PlatformConfig
     with pytest.raises(ValueError, match="runtime_encoder_min_quality"):
         PlatformConfig(project_root=tmp_path, data_root=tmp_path, runtime_encoder_min_quality=quality)
 

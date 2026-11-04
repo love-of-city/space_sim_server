@@ -8,7 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager, SCENE_TEMPLATES
 from space_arm_platform.control_defaults import ZERO_START_TELEOP_PROFILE
@@ -35,8 +36,8 @@ def test_only_six_arm_axes_overridden_and_persisted(tmp_path, profile, template)
     assert stored["initial_arm_joint_position_deg"] == ANGLES
     # The existing loader/reset path consumes the saved eight-DOF SI vector.
     pytest.importorskip("Basilisk")
-    from simulation.teleop_grasp_unreal import _load_scene_instance
-    loaded = _load_scene_instance(Path(instance["config_path"]))
+    from simulation.teleop_scene import load_scene_instance
+    loaded = load_scene_instance(Path(instance["config_path"]))
     assert loaded["randomization"]["arm_joint_position_rad"] == expected["arm_joint_position_rad"]
 
 
@@ -73,8 +74,8 @@ def test_task_box_operating_pose_overrides_only_six_axes_and_is_persisted(tmp_pa
     assert stored["randomization"] == expected
     assert stored["operating_arm_joint_position_deg"] == ANGLES
     pytest.importorskip("Basilisk")
-    from simulation.teleop_grasp_unreal import _load_scene_instance
-    loaded = _load_scene_instance(Path(instance["config_path"]))
+    from simulation.teleop_scene import load_scene_instance
+    loaded = load_scene_instance(Path(instance["config_path"]))
     assert loaded["randomization"]["arm_joint_position_rad"] == expected["arm_joint_position_rad"]
 
 
@@ -112,8 +113,8 @@ def test_catalog_bounds_are_enforced_before_writing(tmp_path):
                     randomization_profile=profile, template_id=template["id"], **{angle_field: angles},
                 ))
                 assert instance[angle_field][i] == bound
-                from simulation.teleop_grasp_unreal import _load_scene_instance
-                _load_scene_instance(Path(instance["config_path"]))
+                from simulation.teleop_scene import load_scene_instance
+                load_scene_instance(Path(instance["config_path"]))
                 before = set(manager.scene_root.iterdir())
                 angles[i] += sign * 0.001
                 with pytest.raises(ValueError, match=f"J{i+1}"):

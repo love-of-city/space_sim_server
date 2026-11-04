@@ -1,173 +1,50 @@
-"""FastAPI application joining operators, simulator, captures and episodes."""
-
+"""Assemble backend services, transports, lifecycle and business route modules."""
 from __future__ import annotations
 
 import asyncio
-import logging
 import contextlib
-import hmac
+import logging
 import sys
 import time
-import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
-from .collection_api import install_collection_routes
+from .auth import AuthStore
+from .auth_api import current_user, install_auth_routes
 from .capture_lifecycle import CaptureLifecycle
-from .auth import SESSION_COOKIE, AuthError, AuthStore
-from .policy_api import PolicySessions, install_policy_routes
-from .policy_observation import PolicyObservationCache
 from .capture_receiver import CaptureReceiver
-from .vision_service import StereoVisionService
-from .wrist_vision_service import WristVisionService
+from .collection_api import install_collection_routes
+from .episode_api import install_episode_routes, recording_request
 from .jobs import JobManager
-from .models import (
-    EpisodeStart, EpisodeStop, LoginRequest, OperatorAction, OperatorCreate,
-    PasswordChange, PasswordReset, SceneInstanceCreate, SimulationObservation, TaskComplete, TaskCreate,
-    UserCreate, UserUpdate,
-)
-from .mission_runtime import MISSION_MODES, MissionRuntime
-from .recorder import EpisodeRecorder
+from .mission_api import install_mission_routes
+from .mission_runtime import MissionRuntime
 from .rendezvous_hub import RendezvousHub
 from .rendezvous_runtime import RendezvousRuntime
-from .rendezvous_config import FlightOptions
-from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
+from .vision_api import install_vision_routes
+from .vision_service import StereoVisionService
+from .wrist_vision_service import WristVisionService
+from .media_api import install_media_routes
+from .models import EpisodeStop, SimulationObservation
+from .operator_api import install_operator_routes
+from .operator_sessions import OperatorSessions
+from .platform_config import PlatformConfig
+from .policy_api import PolicySessions, install_policy_routes
+from .policy_observation import PolicyObservationCache
+from .recorder import EpisodeRecorder
 from .recording_config import load_recording_config
-from .safety import ActionRejected, SafetyController
-from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ, LIVE_CAPTURE_FPS, ik_step_stride
+from .safety import SafetyController
+from .scene_api import install_scene_routes
 from .scene_runtime import SceneLaunchConfig, SceneRuntimeManager
 from .simulation_hub import SimulationHub
-from .stream_access import issue_stream_access_token
 from .tasks import TaskStore
 from .web_security import LoginRateLimiter, validate_origins
-
-
-@dataclass(frozen=True)
-class PlatformConfig:
-    project_root: Path
-    data_root: Path
-    simulation_host: str = "127.0.0.1"
-    simulation_port: int = 8766
-    rendezvous_port: int = 0
-    rendezvous_repo: Path | None = None
-    rendezvous_python: Path | None = None
-    capture_host: str = "127.0.0.1"
-    capture_port: int = 8767
-    deadman_timeout_s: float = 0.25
-    pixel_streaming_player_port: int = 8080
-    pixel_streaming_streamer_id: str = "BskRenderer"
-    pixel_streaming_signalling_url: str = ""
-    pixel_streaming_camera_streamers: tuple[tuple[str, str], ...] = ()
-    stream_access_jwt_secret: str = ""
-    stream_access_key: str = ""
-    stream_access_token_ttl_seconds: int = 900
-    runtime_adapter_root: Path | None = None
-    runtime_model_root: Path | None = None
-    runtime_unreal_root: Path | None = None
-    runtime_powershell_exe: Path | None = None
-    runtime_render_port: int = 5558
-    runtime_pixel_streamer_port: int = 8888
-    runtime_pixel_streaming_camera_ids: tuple[str, ...] = ()
-    runtime_pixel_streaming_camera_width: int = CAPTURE_CAMERA_WIDTH
-    runtime_pixel_streaming_camera_height: int = CAPTURE_CAMERA_HEIGHT
-    runtime_preview_rate: float = 90.0
-    runtime_encoder_min_quality: int = 60
-    runtime_renderer_ready_timeout: int = 240
-    runtime_ik_rate: float = DEFAULT_IK_HZ
-    runtime_simulation_rate: float = 1.0
-    runtime_capture_rate: float = DEFAULT_CAPTURE_HZ
-    runtime_default_dataset_capture: bool = True
-    auth_database: Path | None = None
-    bootstrap_admin_username: str = "admin"
-    bootstrap_admin_password: str = "ChangeMe123!"
-    secure_cookies: bool = False
-    allowed_origins: tuple[str, ...] = ()
-    login_attempts_per_minute: int = 10
-
-    def __post_init__(self) -> None:
-        ik_step_stride(self.runtime_ik_rate)
-        if self.runtime_default_dataset_capture and self.runtime_capture_rate not in LIVE_CAPTURE_FPS:
-            raise ValueError(f"dataset capture rate must be one of {LIVE_CAPTURE_FPS}")
-        if type(self.runtime_encoder_min_quality) is not int or not 0 <= self.runtime_encoder_min_quality <= 100:
-            raise ValueError("runtime_encoder_min_quality must be an integer in [0, 100]")
-
-
-class RendezvousStart(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    live: StrictBool = False
-    mode: Literal['simulation', 'demo'] = 'simulation'
-    scenario: Literal['legacy', 'team-in-orbit', 'team-orbit-raise', 'near-field', 'near-field-resume'] = 'team-in-orbit'
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-class MissionStart(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    mode: Literal["teleop", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"] = "teleop"
-    scene: SceneInstanceCreate = Field(default_factory=SceneInstanceCreate)
-    options: dict[str, Any] = Field(default_factory=dict)
-    live: StrictBool = True
-    continuous: StrictBool = False
-
-
-class OperatorSessions:
-    """Track authenticated browser tabs; one tab at a time emits commands."""
-
-    def __init__(self) -> None:
-        self.clients: dict[str, WebSocket] = {}
-        self.users: dict[str, dict[str, Any]] = {}
-        self.active_operator: str | None = None
-        self._lock = asyncio.Lock()
-
-    async def connect(self, websocket: WebSocket, user: dict[str, Any]) -> tuple[str, bool]:
-        await websocket.accept()
-        identifier = f"operator-{uuid.uuid4().hex[:8]}"
-        async with self._lock:
-            self.clients[identifier] = websocket
-            self.users[identifier] = user
-            granted = self.active_operator is None
-            if granted:
-                self.active_operator = identifier
-        return identifier, granted
-
-    async def activate(self, identifier: str) -> tuple[str, WebSocket] | None:
-        async with self._lock:
-            if identifier not in self.clients:
-                return None
-            previous = self.active_operator
-            self.active_operator = identifier
-            if previous and previous != identifier and previous in self.clients:
-                return previous, self.clients[previous]
-            return None
-
-    async def disconnect(self, identifier: str) -> bool:
-        async with self._lock:
-            self.clients.pop(identifier, None)
-            self.users.pop(identifier, None)
-            released = self.active_operator == identifier
-            if released:
-                self.active_operator = None
-            return released
-
-    async def suspend_control(self) -> None:
-        async with self._lock:
-            self.active_operator = None
-            clients = list(self.clients.values())
-        for websocket in clients:
-            with contextlib.suppress(RuntimeError, WebSocketDisconnect, TimeoutError, OSError):
-                await asyncio.wait_for(
-                    websocket.send_json({"type": "control_revoked", "reason": "scene_reset"}), timeout=2.0
-                )
-
-    def is_owner(self, identifier: str) -> bool:
-        return self.active_operator == identifier
 
 
 def create_app(config: PlatformConfig | None = None) -> FastAPI:
@@ -207,16 +84,12 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     hub = SimulationHub()
     rendezvous = RendezvousHub()
     rendezvous_runtime = RendezvousRuntime(
-        config.rendezvous_repo, config.rendezvous_python, config.rendezvous_port,
-        config.project_root / "logs" / "rendezvous",
-        team_repository=config.project_root,
-        render_port=config.runtime_render_port,
-        launch_config=config,
-    )
-    capture_lifecycle = CaptureLifecycle(hub, recorder)
-    sessions = OperatorSessions()
+        config.rendezvous_python, config.rendezvous_port, config.project_root / "logs/rendezvous",
+        team_repository=config.project_root, render_port=config.runtime_render_port, launch_config=config)
     vision = StereoVisionService(config.project_root)
     wrist_vision = WristVisionService(config.project_root)
+    capture_lifecycle = CaptureLifecycle(hub, recorder)
+    sessions = OperatorSessions()
     policy_cache = PolicyObservationCache()
 
     def record_current_capture(metadata: dict[str, Any], products: dict[str, bytes]) -> None:
@@ -231,19 +104,22 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         policy_cache.record_capture(metadata, products)
         recorder.record_authoritative_capture(metadata, products)
 
-    def accept_vision_capture(metadata, products):
-        if hub.resetting:
-            return
-        observation = hub.latest_observation
-        if (observation and observation.render_session_id
-                and metadata.get('session_id') != observation.render_session_id):
-            return
-        vision.on_capture(metadata, products)
-        wrist_vision.on_capture(metadata, products)
-
     def capture_failed(reason: str) -> None:
         policy_cache.fail(reason)
         recorder.fail(reason)
+
+    def accept_vision_capture(metadata, products):
+        observation = hub.latest_observation
+        if hub.resetting or not observation or not observation.render_session_id:
+            return
+        if metadata.get("session_id") != observation.render_session_id:
+            return
+        # Each consumer has its own estimator queue; errors remain diagnostics.
+        for service in (vision, wrist_vision):
+            try:
+                service.on_capture(metadata, products)
+            except Exception:
+                logging.getLogger(__name__).exception("Vision capture rejected")
 
     captures = CaptureReceiver(
         config.capture_host,
@@ -275,8 +151,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         )
     scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
     missions = MissionRuntime(config.data_root / ".missions", scenes, rendezvous_runtime, rendezvous,
-                              lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active),
-                              scene_defaults=capture_defaults)
+        lambda: bool(recorder.episode_id or capture_lifecycle.busy or policy.active), scene_defaults=capture_defaults)
     timeout_task: asyncio.Task[None] | None = None
     capture_failure_task: asyncio.Task | None = None
     policy_watchdog_task: asyncio.Task | None = None
@@ -374,8 +249,10 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 closed = await capture_lifecycle.stop(EpisodeStop(outcome="aborted", note="backend shutdown"))
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
-            await missions.close()
             await asyncio.to_thread(collections.close)
+            await missions.close()
+            await asyncio.to_thread(rendezvous_runtime.close)
+            await rendezvous.close()
             await asyncio.to_thread(scenes.close)
             policy.scene_stopped()
             await asyncio.to_thread(captures.close)
@@ -383,8 +260,6 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             await asyncio.to_thread(wrist_vision.close)
             await asyncio.to_thread(recorder.close)
             await hub.close()
-            await rendezvous.close()
-            await asyncio.to_thread(rendezvous_runtime.close)
             jobs.close()
             auth.close()
 
@@ -396,166 +271,46 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     app.state.policy_cache = policy_cache
     app.state.safety = safety
     app.state.hub = hub
-    app.state.rendezvous = rendezvous
-    app.state.rendezvous_runtime = rendezvous_runtime
     app.state.captures = captures
-    app.state.vision = vision
     app.state.sessions = sessions
     app.state.jobs = jobs
     app.state.tasks = tasks
     app.state.scenes = scenes
     app.state.missions = missions
+    app.state.rendezvous = rendezvous
+    app.state.rendezvous_runtime = rendezvous_runtime
+    app.state.vision = vision
+    app.state.wrist_vision = wrist_vision
 
     frontend_source = config.project_root / "frontend"
     frontend_dist = frontend_source / "dist"
     frontend = frontend_dist if (frontend_dist / "index.html").is_file() else frontend_source
-    @app.get("/static/rendezvous.html", include_in_schema=False)
-    @app.get("/rendezvous.html", include_in_schema=False)
-    async def old_rendezvous_page(request: Request):
-        # Preserve access parameters from old bookmarks without keeping a second UI.
-        query = str(request.url.query)
-        return RedirectResponse("/" + ("?" + query if query else "") + "#mission", status_code=307)
-
     app.mount("/static", StaticFiles(directory=frontend), name="static")
 
-    def current_user(request: Request) -> dict[str, Any]:
-        user = getattr(request.state, "user", None)
-        if not user:
-            raise HTTPException(status_code=401, detail="请先登录")
-        return user
-
-    def require_admin(request: Request) -> dict[str, Any]:
-        user = current_user(request)
-        if user["role"] != "admin":
-            raise HTTPException(status_code=403, detail="仅管理员可以管理操作员")
-        return user
-
-    def can_manage_scene(user: dict[str, Any], status: dict[str, Any]) -> bool:
-        owner = (status.get("instance") or {}).get("created_by") or {}
-        return user["role"] == "admin" or owner.get("user_id") == user["user_id"]
-
     collections = install_collection_routes(app, config, scenes, current_user)
+    prepare_recording_request = partial(recording_request, recording_config=recording_config,
+                                        capture_defaults=capture_defaults, hub=hub)
+    policy = PolicySessions(hub=hub, cache=policy_cache, recorder=recorder,
+        capture_lifecycle=capture_lifecycle, sessions=sessions, safety=safety, scenes=scenes,
+        recording_request=prepare_recording_request, require_stable=missions.require_stable,
+        episode_started=missions.add_episode)
+    app.state.policy_sessions = policy
+    install_auth_routes(app, config=config, auth=auth, allowed_origins=allowed_origins,
+                        login_limiter=login_limiter)
+    install_policy_routes(app, policy, current_user)
+    stop_scene_executor = install_scene_routes(app, scenes=scenes, capture_defaults=capture_defaults, recording_config=recording_config,
+                         policy=policy, recorder=recorder, capture_lifecycle=capture_lifecycle,
+                         sessions=sessions, hub=hub, safety=safety, jobs=jobs, missions=missions)
+    install_episode_routes(app, policy=policy, hub=hub, scenes=scenes, recorder=recorder, safety=safety,
+                           capture_lifecycle=capture_lifecycle, jobs=jobs, tasks=tasks,
+                           recording_request=prepare_recording_request, missions=missions)
+    install_media_routes(app, config=config, safety=safety, hub=hub, recorder=recorder, captures=captures, scenes=scenes, missions=missions, rendezvous=rendezvous)
+    install_operator_routes(app, config=config, allowed_origins=allowed_origins, auth=auth, sessions=sessions,
+                            policy=policy, hub=hub, scenes=scenes, recorder=recorder, safety=safety, missions=missions)
 
-    @app.middleware("http")
-    async def authenticated_api(request: Request, call_next):
-        origin = request.headers.get("origin")
-        if allowed_origins and (
-            (origin is not None and origin not in allowed_origins)
-            or (request.method not in {"GET", "HEAD", "OPTIONS"} and origin is None)
-        ):
-            return JSONResponse({"detail": "origin not allowed"}, status_code=403, headers={"Cache-Control": "no-store"})
-        path = request.url.path
-        if path.startswith("/api/") and path not in {"/api/health", "/api/auth/login"}:
-            user = auth.session_user(request.cookies.get(SESSION_COOKIE))
-            if not user:
-                return JSONResponse({"detail": "请先登录"}, status_code=401, headers={"Cache-Control": "no-store"})
-            request.state.user = user
-        response = await call_next(request)
-        if path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store"
-        return response
-
-    @app.post("/api/auth/login")
-    async def login(payload: LoginRequest, request: Request) -> JSONResponse:
-        retry_after = login_limiter.retry_after(request.client.host if request.client else "unknown")
-        if retry_after:
-            return JSONResponse(
-                {"detail": "登录尝试过于频繁，请稍后重试"}, status_code=429,
-                headers={"Retry-After": str(retry_after)},
-            )
-        user = await asyncio.to_thread(auth.authenticate, payload.username, payload.password)
-        if not user:
-            raise HTTPException(status_code=401, detail="用户名或密码错误")
-        try:
-            token, max_age = await asyncio.to_thread(auth.create_session, user["user_id"])
-        except AuthError as error:
-            raise HTTPException(status_code=401, detail="账号不可用") from error
-        response = JSONResponse({"user": user})
-        response.set_cookie(
-            SESSION_COOKIE, token, max_age=max_age, httponly=True, samesite="strict",
-            secure=config.secure_cookies, path="/",
-        )
-        return response
-
-    @app.get("/api/auth/me")
-    async def auth_me(request: Request) -> dict[str, Any]:
-        return {"user": current_user(request)}
-
-    @app.post("/api/auth/logout")
-    async def logout(request: Request) -> JSONResponse:
-        await asyncio.to_thread(auth.delete_session, request.cookies.get(SESSION_COOKIE))
-        response = JSONResponse({"ok": True})
-        response.delete_cookie(SESSION_COOKIE, path="/", secure=config.secure_cookies, httponly=True, samesite="strict")
-        return response
-
-    @app.post("/api/auth/change-password")
-    async def change_password(payload: PasswordChange, request: Request) -> JSONResponse:
-        user = current_user(request)
-        try:
-            await asyncio.to_thread(
-                auth.change_password, user["user_id"], payload.current_password, payload.new_password
-            )
-        except AuthError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        response = JSONResponse({"ok": True})
-        response.delete_cookie(SESSION_COOKIE, path="/", secure=config.secure_cookies, httponly=True, samesite="strict")
-        return response
-
-    @app.get("/api/users")
-    async def list_users(request: Request) -> dict[str, Any]:
-        require_admin(request)
-        return {"users": await asyncio.to_thread(auth.list_users)}
-
-    @app.post("/api/users/operators")
-    async def create_operator(payload: OperatorCreate, request: Request) -> dict[str, Any]:
-        require_admin(request)
-        try:
-            return await asyncio.to_thread(auth.create_operator, payload.username, payload.password)
-        except AuthError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/users", status_code=201)
-    async def create_user(payload: UserCreate, request: Request) -> dict[str, Any]:
-        require_admin(request)
-        try:
-            return await asyncio.to_thread(auth.create_user, **payload.model_dump())
-        except AuthError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.patch("/api/users/{user_id}")
-    async def update_user(user_id: str, payload: UserUpdate, request: Request) -> dict[str, Any]:
-        actor = require_admin(request)
-        try:
-            return await asyncio.to_thread(auth.update_user, actor["user_id"], user_id, **payload.model_dump())
-        except AuthError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/users/{user_id}/reset-password")
-    async def reset_user_password(user_id: str, payload: PasswordReset, request: Request) -> dict[str, Any]:
-        actor = require_admin(request)
-        try:
-            await asyncio.to_thread(auth.reset_user_password, actor["user_id"], user_id, payload.password)
-            return {"ok": True}
-        except AuthError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.delete("/api/users/operators/{user_id}")
-    async def delete_operator(user_id: str, request: Request) -> dict[str, Any]:
-        require_admin(request)
-        try:
-            await asyncio.to_thread(auth.delete_operator, user_id)
-            return {"ok": True}
-        except AuthError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/users/operators/{user_id}/reset-password")
-    async def reset_operator_password(user_id: str, payload: PasswordReset, request: Request) -> dict[str, Any]:
-        require_admin(request)
-        try:
-            await asyncio.to_thread(auth.reset_operator_password, user_id, payload.password)
-            return {"ok": True}
-        except AuthError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+    install_mission_routes(app, missions=missions, rendezvous=rendezvous,
+        rendezvous_runtime=rendezvous_runtime, policy=policy, stop_scene_executor=stop_scene_executor)
+    install_vision_routes(app, vision=vision, wrist_vision=wrist_vision, hub=hub, scenes=scenes)
 
     @app.get("/")
     @app.get("/collection")
@@ -571,619 +326,5 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         from .protocol import RUNTIME_CAPABILITIES
         return {"ok": True, "server_time_ns": str(time.time_ns()), "authentication": "required",
                 "runtime_capabilities": list(RUNTIME_CAPABILITIES)}
-
-    def authorize_access_key(candidate: str | None) -> None:
-        if config.stream_access_key and not hmac.compare_digest(candidate or "", config.stream_access_key):
-            raise HTTPException(status_code=401, detail="a valid stream access key is required")
-
-    @app.get("/api/client-config")
-    async def client_config(request: Request) -> dict[str, Any]:
-        authorize_access_key(request.headers.get("x-space-arm-access-key") or request.query_params.get("access_key"))
-        streamers = [
-            {"id": config.pixel_streaming_streamer_id, "label": "主视口"},
-            *(
-                {"id": streamer_id, "label": label}
-                for streamer_id, label in config.pixel_streaming_camera_streamers
-            ),
-        ]
-        prefix = config.pixel_streaming_streamer_id + "__teleop_camera_"
-        for item in streamers[1:]:
-            if item["id"].startswith(prefix):
-                item["aliases"] = [config.pixel_streaming_streamer_id + "__team_camera_" + item["id"].removeprefix(prefix)]
-        response = {
-            "preview_transport": "pixel_streaming_2",
-            "pixel_streaming_player_port": config.pixel_streaming_player_port,
-            "pixel_streaming_streamer_id": config.pixel_streaming_streamer_id,
-            "pixel_streaming_signalling_url": config.pixel_streaming_signalling_url,
-            "pixel_streaming_streamers": streamers,
-            "pixel_streaming_fps": round(config.runtime_preview_rate),
-            "pixel_streaming_encoder_min_quality": config.runtime_encoder_min_quality,
-        }
-        if config.stream_access_jwt_secret:
-            response["pixel_streaming_access_token"] = issue_stream_access_token(
-                config.stream_access_jwt_secret,
-                (identifier for item in streamers for identifier in [item["id"], *item.get("aliases", [])]),
-                ttl_seconds=config.stream_access_token_ttl_seconds,
-            )
-        return response
-
-    @app.get("/api/state")
-    async def state(request: Request) -> dict[str, Any]:
-        action = safety.last_action
-        mission = await asyncio.to_thread(missions.status, current_user(request))
-        return {
-            "simulation": hub.status(),
-            "active_episode": recorder.episode_id,
-            "episode_directory": str(recorder.episode_directory) if recorder.episode_directory else None,
-            "latest_action": action.model_dump(mode="json") if action else None,
-            "cameras": captures.camera_ids(),
-            "capture_channels": captures.status(),
-            "capture_sync": recorder.sync_status(),
-            "scene_runtime": mission["scene"],
-            "mission": mission,
-            "rendezvous": rendezvous.status(),
-        }
-
-    @app.get("/api/rendezvous/state")
-    async def rendezvous_state() -> dict[str, Any]:
-        return {**rendezvous.status(), "runtime": rendezvous_runtime.status()}
-
-    @app.get("/api/rendezvous/figure/{name}")
-    async def rendezvous_figure(name: str) -> FileResponse:
-        allowed = {
-            "rendezvous_summary.png",
-            "rendezvous_contact.png",
-            "full_mission_diagnostics.png",
-        }
-        if name not in allowed or rendezvous_runtime.output_dir is None:
-            raise HTTPException(status_code=404, detail="figure unavailable")
-        path = rendezvous_runtime.output_dir / name
-        if not path.is_file():
-            raise HTTPException(status_code=404, detail="figure unavailable")
-        return FileResponse(path, media_type="image/png")
-
-    @app.get("/api/rendezvous/artifact/{name}")
-    async def rendezvous_artifact(name: str, mission_id: str | None = None, phase: str | None = None) -> FileResponse:
-        if name not in {"mission_report.json", "handoff.json", "input_handoff.json", "model_manifest.json", "mission_options.json", "team_telemetry.npz", "gnss_measurements.npz"}:
-            raise HTTPException(status_code=404, detail="Unknown rendezvous artifact")
-        if mission_id:
-            try:
-                path = missions.artifact(mission_id, name, phase=phase)
-            except (ValueError, OSError) as error:
-                raise HTTPException(status_code=404, detail="任务结果不可用") from error
-        else:
-            if phase is not None:
-                raise HTTPException(status_code=404, detail="阶段下载需要任务编号")
-            if rendezvous_runtime.output_dir is None:
-                raise HTTPException(status_code=404, detail="No rendezvous output")
-            path = rendezvous_runtime.output_dir / name
-        if not path.is_file():
-            raise HTTPException(status_code=404, detail="Artifact is not ready")
-        return FileResponse(path, filename=name)
-
-    @app.post("/api/rendezvous/start")
-    async def rendezvous_start(request: Request, payload: RendezvousStart | None = None) -> dict[str, Any]:
-        policy.require_free()
-        user = current_user(request)
-        payload = payload or RendezvousStart()
-        try:
-            return await missions.start_flight(user, scenario=payload.scenario, options=payload.options,
-                                                live=payload.live, mode=payload.mode)
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.get("/api/rendezvous/options")
-    async def rendezvous_options() -> dict[str, Any]:
-        return FlightOptions().to_dict()
-
-    @app.post("/api/rendezvous/handoff")
-    async def rendezvous_handoff(request: Request) -> dict[str, Any]:
-        policy.require_free()
-        try:
-            return await missions.handoff(current_user(request))
-        except PermissionError as error:
-            raise HTTPException(status_code=403, detail=str(error)) from error
-        except (ValueError, OSError, RuntimeError) as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post("/api/rendezvous/stop")
-    async def rendezvous_stop(request: Request) -> dict[str, Any]:
-        return await stop_mission(request)
-
-    @app.get("/api/mission/catalog")
-    async def mission_catalog():
-        from .gnss_config import GNSSConfig
-        receiver = GNSSConfig()
-        defaults = FlightOptions().to_dict()
-        from .orbital_physics import OrbitalPhysics
-        defaults["orbital_physics"] = OrbitalPhysics().model_dump(mode="json")
-        defaults.update(differential_gnss=receiver.to_dict(), gnss_position_sigma_m=receiver.absolute_position_sigma_m,
-                        gnss_velocity_sigma_m_s=receiver.absolute_velocity_sigma_m_s)
-        return {"modes": MISSION_MODES, "flight_defaults": defaults, "continuous_default": True}
-
-    @app.get("/api/mission/state")
-    async def mission_state(request: Request):
-        return await asyncio.to_thread(missions.status, current_user(request))
-
-    @app.post("/api/mission/start", status_code=202)
-    async def start_mission(payload: MissionStart, request: Request):
-        policy.require_free()
-        user = current_user(request)
-        try:
-            if payload.mode == "teleop":
-                return await missions.start_scene(scene_recording_defaults(payload.scene), user, background=True)
-            from .scene_targets import SELF_COLLISION_TEMPLATE
-            if payload.scene.template_id != SELF_COLLISION_TEMPLATE:
-                raise ValueError("交会任务仅支持团队 SARM + 地面验证星默认模型")
-            return await missions.start_flight(user, scenario=payload.mode, options=payload.options,
-                                                live=payload.live, background=True, continuous=payload.continuous)
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post("/api/mission/handoff", status_code=202)
-    async def handoff_mission(request: Request):
-        policy.require_free()
-        try:
-            return await missions.handoff(current_user(request), background=True)
-        except PermissionError as error:
-            raise HTTPException(status_code=403, detail=str(error)) from error
-        except (ValueError, OSError, RuntimeError) as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post("/api/mission/stop")
-    async def stop_mission(request: Request):
-        try:
-            return await missions.stop(current_user(request), lambda: stop_scene_executor(request))
-        except PermissionError as error:
-            raise HTTPException(status_code=403, detail=str(error)) from error
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.get("/api/scenes/catalog")
-    async def scene_catalog() -> dict[str, Any]:
-        catalog = scenes.catalog()
-        catalog["defaults"].update(capture_defaults)
-        return catalog
-
-    @app.get("/api/recording/config")
-    async def recording_settings() -> dict[str, Any]:
-        return {**recording_config.model_dump(mode="json"), **capture_defaults}
-
-    def scene_recording_defaults(payload: SceneInstanceCreate) -> SceneInstanceCreate:
-        return payload.model_copy(update={key: value for key, value in capture_defaults.items()
-                                          if key not in payload.model_fields_set})
-
-    @app.get("/api/scenes/runtime")
-    async def scene_runtime() -> dict[str, Any]:
-        return await asyncio.to_thread(scenes.status)
-
-    @app.post("/api/scenes/instances")
-    async def create_scene_instance(payload: SceneInstanceCreate, request: Request) -> dict[str, Any]:
-        user = current_user(request)
-        creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
-        try:
-            return await asyncio.to_thread(scenes.create_instance, scene_recording_defaults(payload), creator)
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-
-    @app.post("/api/scenes/start")
-    async def start_scene(payload: SceneInstanceCreate, request: Request) -> dict[str, Any]:
-        policy.require_free()
-        user = current_user(request)
-        if recorder.episode_id or capture_lifecycle.busy:
-            raise HTTPException(status_code=409, detail="stop the active episode before starting another scene")
-        creator = {"user_id": user["user_id"], "username": user["username"], "role": user["role"]}
-        try:
-            return await missions.start_scene(scene_recording_defaults(payload), creator)
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post("/api/scenes/reset")
-    async def reset_scene(request: Request) -> dict[str, Any]:
-        policy.require_free()
-        user = current_user(request)
-        try:
-            missions.require_stable()
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        mission = await asyncio.to_thread(missions.status, user)
-        if mission["active"] and mission.get("stage") == "flight":
-            raise HTTPException(status_code=409, detail="交会期间不能重置机械臂场景")
-        status = scenes.status()
-        if not can_manage_scene(user, status):
-            raise HTTPException(status_code=403, detail="只能重置自己创建的场景")
-        if status.get("phase") != "running":
-            raise HTTPException(status_code=409, detail="场景尚未运行")
-        if recorder.episode_id or capture_lifecycle.busy:
-            raise HTTPException(status_code=409, detail="请先结束当前采集，再重置状态")
-        try:
-            request_id = hub.begin_reset()
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        safety.neutral(None, "scene_reset")
-        await sessions.suspend_control()
-        try:
-            return await hub.finish_reset(request_id)
-        except RuntimeError as error:
-            raise HTTPException(status_code=503, detail=str(error)) from error
-
-    @app.post("/api/scenes/stop")
-    async def stop_scene(request: Request) -> dict[str, Any]:
-        return await stop_mission(request)
-
-    async def stop_scene_executor(request: Request) -> dict[str, Any]:
-        user = current_user(request)
-        status = scenes.status()
-        if status.get("instance") and not can_manage_scene(user, status):
-            raise HTTPException(status_code=403, detail="只能关闭自己创建的场景")
-        if capture_lifecycle.busy:
-            raise HTTPException(status_code=409, detail="采集正在启动或收尾，请稍后停止场景")
-        try:
-            await policy.shutdown()
-        except RuntimeError:
-            # Explicit scene STOP must remain available after an uncertain
-            # policy release. Ownership is cleared only after process stop.
-            logging.getLogger(__name__).exception("Stopping scene with unconfirmed policy release")
-        hub.cancel_reset()
-        episode_result = None
-        if recorder.episode_id:
-            neutral = safety.neutral(recorder.episode_id, "scene_stopped")
-            await asyncio.to_thread(recorder.record_action, neutral)
-            await hub.publish_action(neutral)
-            episode_result = await capture_lifecycle.stop(EpisodeStop(outcome="aborted", note="scene stopped"))
-            if episode_result["dataset_status"] == "complete":
-                episode_result["archive_job"] = jobs.submit_archive(episode_result["episode_id"])
-        try:
-            result = await asyncio.to_thread(scenes.stop)
-            policy.scene_stopped()
-            if episode_result:
-                result["aborted_episode"] = episode_result
-            return result
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    def recording_request(payload: EpisodeStart, instance: dict | None) -> EpisodeStart:
-        explicit_fps = "fps" in payload.model_fields_set
-        defaults = {**recording_config.episode_defaults(), "fps": int(capture_defaults["capture_rate_hz"])}
-        payload = EpisodeStart.model_validate({**defaults, **payload.model_dump(exclude_unset=True)})
-        if instance is None:
-            return payload
-        if instance.get("arm_preparation_required"):
-            from .preparation_planning import preparation_ready_for_recording
-            if not preparation_ready_for_recording(instance, hub.status()):
-                raise RuntimeError("机械臂尚未实测稳定到达操作姿态，不能开始任务采集")
-        runtime = instance.get("runtime", {})
-        if payload.camera_ids and not runtime.get("dataset_capture", False):
-            raise RuntimeError("当前场景未启用权威相机采集，请启用数据集采集后重新创建场景")
-        fps = runtime.get("capture_rate_hz", DEFAULT_CAPTURE_HZ)
-        if fps not in LIVE_CAPTURE_FPS:
-            raise RuntimeError(f"LeRobot 采样率必须同时对齐动力学和渲染采样：{LIVE_CAPTURE_FPS}")
-        if explicit_fps and payload.fps != fps:
-            raise RuntimeError("录制 FPS 必须与场景权威采样率一致")
-        return EpisodeStart.model_validate({**payload.model_dump(), "fps": int(fps), "scene_instance": instance})
-
-    policy = PolicySessions(hub=hub, cache=policy_cache, recorder=recorder,
-        capture_lifecycle=capture_lifecycle, sessions=sessions, safety=safety, scenes=scenes,
-        recording_request=recording_request, require_stable=missions.require_stable,
-        episode_started=missions.add_episode)
-    app.state.policy_sessions = policy
-    install_policy_routes(app, policy, current_user)
-
-    @app.post("/api/episodes/start")
-    async def start_episode(payload: EpisodeStart, request: Request) -> dict[str, Any]:
-        policy.require_free()
-        if hub.resetting:
-            raise HTTPException(status_code=409, detail="场景正在重置，暂不能开始采集")
-        user = current_user(request)
-        scene_status = scenes.status()
-        if scenes.enabled and scene_status.get("phase") != "running":
-            raise HTTPException(status_code=409, detail="a running scene is required before data collection")
-        if scene_status.get("instance") and not can_manage_scene(user, scene_status):
-            raise HTTPException(status_code=403, detail="只能采集自己创建的场景")
-        scene_instance = scene_status.get("instance")
-        if scene_instance:
-            payload = payload.model_copy(
-                update={
-                    "seed": payload.seed if payload.seed is not None else scene_instance.get("seed"),
-                    "scene_instance": scene_instance,
-                    "operator": user["username"],
-                    "operator_user_id": user["user_id"],
-                    "operator_username": user["username"],
-                    "operator_role": user["role"],
-                }
-            )
-        try:
-            missions.require_stable()
-            result = await capture_lifecycle.start(recording_request(payload, scene_instance))
-            missions.add_episode(result["episode_id"])
-            return result
-        except ValidationError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post("/api/episodes/stop")
-    async def stop_episode(payload: EpisodeStop, request: Request) -> dict[str, Any]:
-        policy.require_free()
-        user = current_user(request)
-        scene_status = scenes.status()
-        if scene_status.get("instance") and not can_manage_scene(user, scene_status):
-            raise HTTPException(status_code=403, detail="只能结束自己场景的数据采集")
-        neutral = safety.neutral(recorder.episode_id, "episode_stopped")
-        await asyncio.to_thread(recorder.record_action, neutral)
-        await hub.publish_action(neutral)
-        try:
-            result = await capture_lifecycle.stop(payload)
-            if result["dataset_status"] == "complete":
-                result["archive_job"] = jobs.submit_archive(result["episode_id"])
-            return result
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.get("/api/jobs")
-    async def list_jobs() -> dict[str, Any]:
-        return {"jobs": jobs.list()}
-
-    @app.get("/api/jobs/{job_id}")
-    async def get_job(job_id: str) -> dict[str, Any]:
-        job = jobs.get(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="job not found")
-        return job
-
-    @app.post("/api/episodes/{episode_id}/archive")
-    async def archive_episode(episode_id: str) -> dict[str, Any]:
-        return jobs.submit_archive(episode_id)
-
-    @app.post("/api/tasks")
-    async def create_task(request: TaskCreate) -> dict[str, Any]:
-        return tasks.create(request)
-
-    @app.get("/api/tasks")
-    async def list_tasks() -> dict[str, Any]:
-        return {"tasks": tasks.list()}
-
-    @app.post("/api/tasks/{task_id}/start")
-    async def start_task(task_id: str) -> dict[str, Any]:
-        policy.require_free()
-        if hub.resetting:
-            raise HTTPException(status_code=409, detail="场景正在重置，暂不能开始任务")
-        task = tasks.get(task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail="task not found")
-        if task["status"] != "queued":
-            raise HTTPException(status_code=409, detail=f"task {task_id} is {task['status']}, expected queued")
-        try:
-            episode = await capture_lifecycle.start(recording_request(EpisodeStart(
-                task_id=task_id,
-                task="scheduled space manipulator task",
-                instruction=task["instruction"],
-                seed=task["seed"],
-                tags=task["tags"],
-                scene_instance=scenes.status().get("instance"),
-            ), scenes.status().get("instance")))
-            return tasks.transition(task_id, {"queued"}, "running", episode_id=episode["episode_id"])
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post("/api/tasks/{task_id}/complete")
-    async def complete_task(task_id: str, request: TaskComplete) -> dict[str, Any]:
-        task = tasks.get(task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail="task not found")
-        if recorder.episode_id != task.get("episode_id"):
-            raise HTTPException(status_code=409, detail="task does not own the active episode")
-        neutral = safety.neutral(recorder.episode_id, "task_completed")
-        await asyncio.to_thread(recorder.record_action, neutral)
-        await hub.publish_action(neutral)
-        try:
-            closed = await capture_lifecycle.stop(EpisodeStop(outcome=request.outcome, note=request.note))
-            if closed["dataset_status"] != "complete":
-                return tasks.transition(task_id, {"running"}, "failed", outcome=request.outcome,
-                                        dataset_status=closed["dataset_status"], dataset_error=closed["dataset_error"])
-            archive_job = jobs.submit_archive(closed["episode_id"])
-            return tasks.transition(
-                task_id, {"running"}, "completed", outcome=request.outcome, archive_job_id=archive_job["job_id"]
-            )
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.get("/api/cameras")
-    async def cameras() -> dict[str, Any]:
-        return {"cameras": captures.camera_ids()}
-
-    @app.get('/api/vision/status')
-    async def vision_status():
-        return vision.status()
-
-    @app.get('/api/vision/wrist/status')
-    async def wrist_vision_status():
-        if hub.resetting or not hub.connected or scenes.status().get('phase')!='running':
-            wrist_vision.invalidate('waiting','场景未就绪或正在复位')
-        observation=hub.latest_observation
-        state=wrist_vision.status()
-        if (observation and observation.render_session_id and state['session_id']
-                and state['session_id']!=observation.render_session_id):
-            wrist_vision.invalidate('waiting','等待新场景图像')
-            state=wrist_vision.status()
-        return state
-
-    @app.get('/api/vision/view')
-    async def vision_view():
-        return FileResponse(config.project_root / 'frontend' / 'stereo_vision.html')
-
-    @app.get('/api/vision/diagnostics')
-    async def vision_diagnostics():
-        return vision.diagnostics()
-
-    @app.get('/api/vision/image/{eye}')
-    async def vision_image(eye: str):
-        if eye not in {'left', 'right'}:
-            raise HTTPException(status_code=404, detail='unknown stereo eye')
-        image = vision.latest_image(eye)
-        if image is None:
-            raise HTTPException(status_code=404, detail='stereo camera has not produced an image')
-        return Response(image, media_type='image/png', headers={'Cache-Control': 'no-store'})
-
-    @app.get("/api/preview/{camera_id:path}")
-    async def preview(camera_id: str) -> Response:
-        frame = captures.latest(camera_id)
-        if frame is None:
-            raise HTTPException(status_code=404, detail="camera has not produced an RGB frame")
-        return Response(frame.data, media_type=frame.content_type, headers={"Cache-Control": "no-store"})
-
-    @app.get("/api/preview-stream")
-    async def preview_stream(camera: str | None = None) -> StreamingResponse:
-        async def frames() -> AsyncIterator[bytes]:
-            revision = 0
-            while True:
-                frame = await asyncio.to_thread(captures.wait_for_frame, camera, revision, 2.0)
-                if frame is None:
-                    await asyncio.sleep(0.02)
-                    continue
-                revision = frame.revision
-                yield (
-                    b"--frame\r\n"
-                    + f"Content-Type: {frame.content_type}\r\nContent-Length: {len(frame.data)}\r\n\r\n".encode("ascii")
-                    + frame.data
-                    + b"\r\n"
-                )
-
-        return StreamingResponse(
-            frames(),
-            media_type="multipart/x-mixed-replace; boundary=frame",
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.websocket("/ws/operator")
-    async def operator_socket(websocket: WebSocket) -> None:
-        if allowed_origins and websocket.headers.get("origin") not in allowed_origins:
-            await websocket.close(code=4403, reason="origin not allowed")
-            return
-        session_token = websocket.cookies.get(SESSION_COOKIE)
-        user = auth.session_user(session_token)
-        if not user:
-            await websocket.close(code=4401, reason="login required")
-            return
-        if config.stream_access_key and not hmac.compare_digest(
-            websocket.query_params.get("access_key", ""), config.stream_access_key
-        ):
-            await websocket.close(code=4401, reason="invalid access key")
-            return
-        identifier, granted = await sessions.connect(websocket, user)
-        if policy.active:
-            granted = False
-            await sessions.suspend_control()
-        send_task: asyncio.Task[None] | None = None
-        auth_task: asyncio.Task[None] | None = None
-
-        async def validate_session() -> None:
-            while True:
-                await asyncio.sleep(2.0)
-                if not auth.session_user(session_token):
-                    await websocket.close(code=4401, reason="session expired")
-                    return
-
-        async def send_observations() -> None:
-            revision = 0
-            while True:
-                revision, observation = await hub.wait_for_observation(revision)
-                if observation:
-                    await websocket.send_json(
-                        {"type": "observation", "payload": observation.model_dump(mode="json")}
-                    )
-
-        def user_controls_current_scene() -> bool:
-            status = scenes.status()
-            return status.get("phase") == "running" and can_manage_scene(user, status)
-
-        try:
-            await websocket.send_json(
-                {
-                    "type": "session",
-                    "operator_id": identifier,
-                    "control_granted": granted,
-                    "user": user,
-                    "simulation_connected": hub.connected,
-                    "active_episode": recorder.episode_id,
-                    "control_limits": {
-                        "linear_speed_min_m_s": safety.LINEAR_SPEED_MIN_M_S,
-                        "linear_speed_default_m_s": safety.LINEAR_SPEED_DEFAULT_M_S,
-                        "linear_speed_max_m_s": safety.LINEAR_SPEED_MAX_M_S,
-                    },
-                }
-            )
-            send_task = asyncio.create_task(send_observations())
-            auth_task = asyncio.create_task(validate_session())
-            while True:
-                raw = await websocket.receive_json()
-                message_type = raw.get("type")
-                if message_type == "ping":
-                    await websocket.send_json({"type": "pong", "server_time_ns": str(time.time_ns())})
-                    continue
-                if policy.active:
-                    await websocket.send_json({"type": "action_rejected", "reason": "policy_control_active"})
-                    continue
-                if hub.resetting:
-                    await websocket.send_json({"type": "action_rejected", "reason": "scene_resetting"})
-                    continue
-                if message_type == "activate_control":
-                    if not user_controls_current_scene():
-                        await websocket.send_json({"type": "action_rejected", "reason": "not_scene_owner"})
-                        continue
-                    previous = await sessions.activate(identifier)
-                    if previous:
-                        neutral = safety.neutral(recorder.episode_id, "control_page_changed")
-                        await asyncio.to_thread(recorder.record_action, neutral)
-                        await hub.publish_action(neutral)
-                        _, previous_socket = previous
-                        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
-                            await previous_socket.send_json(
-                                {"type": "control_revoked", "reason": "another_page_activated"}
-                            )
-                    await websocket.send_json(
-                        {"type": "control_granted", "operator_id": identifier, "control_granted": True}
-                    )
-                    continue
-                if not sessions.is_owner(identifier):
-                    await websocket.send_json({"type": "action_rejected", "reason": "inactive_page"})
-                    continue
-                if not user_controls_current_scene():
-                    await websocket.send_json({"type": "action_rejected", "reason": "not_scene_owner"})
-                    continue
-                try:
-                    action_request = OperatorAction.model_validate(raw)
-                    action = safety.process(identifier, action_request, recorder.episode_id)
-                except (ValidationError, ActionRejected) as error:
-                    await websocket.send_json({"type": "action_rejected", "reason": str(error)})
-                    continue
-                await asyncio.to_thread(recorder.record_action, action)
-                delivered = await hub.publish_action(action)
-                await websocket.send_json(
-                    {
-                        "type": "action_ack",
-                        "server_sequence": action.server_sequence,
-                        "delivered_to_simulation": delivered,
-                        "limited": action.limited,
-                    }
-                )
-        except WebSocketDisconnect:
-            pass
-        finally:
-            if send_task:
-                send_task.cancel()
-            if auth_task:
-                auth_task.cancel()
-            released = await sessions.disconnect(identifier)
-            if released:
-                neutral = safety.neutral(recorder.episode_id, "operator_disconnected")
-                await asyncio.to_thread(recorder.record_action, neutral)
-                await hub.publish_action(neutral)
 
     return app

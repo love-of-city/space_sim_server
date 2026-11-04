@@ -82,7 +82,7 @@ def test_scene_metadata_records_physics_clock(tmp_path):
 
 
 def test_backend_defaults_and_legacy_rate_validation(tmp_path):
-    from space_arm_platform.app import PlatformConfig
+    from space_arm_platform.platform_config import PlatformConfig
     config = PlatformConfig(project_root=tmp_path, data_root=tmp_path / "episodes")
     assert config.runtime_ik_rate == 100
     assert config.runtime_capture_rate == 50

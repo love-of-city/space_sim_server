@@ -8,7 +8,8 @@ import pytest
 from simulation.evaluation.scoring import PhysicalScorer
 from simulation.policy_task_success import DrawerCycleSuccess, EVALUATION_PERIOD_NS
 from simulation.serial_chain_kinematics import axis_angle_to_matrix
-from test_drawer_task_faces import rotated_drawer
+import xml.etree.ElementTree as ET
+from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix, matrix_to_quaternion_wxyz
 from test_unified_drawer_scoring import MODEL, cycle, monitor, policy_sample
 
 
@@ -134,6 +135,10 @@ def test_rotated_legacy_spec_cannot_silently_assume_world_z_donor():
 @pytest.mark.parametrize('mode', ['calibrated', 'benchmark'])
 def test_drawer_model_and_frozen_spec_rotate_without_changing_predicates(tmp_path, rotation, mode):
     original=DrawerCycleSuccess(MODEL, sample_period_ns=EVALUATION_PERIOD_NS, mode=mode)
+    if mode == "calibrated" and not np.allclose(rotation, np.eye(3)):
+        with pytest.raises(ValueError, match="calibrated upward"):
+            DrawerCycleSuccess(rotated_drawer(tmp_path, rotation), sample_period_ns=EVALUATION_PERIOD_NS, mode=mode)
+        return
     mounted=DrawerCycleSuccess(rotated_drawer(tmp_path, rotation), sample_period_ns=EVALUATION_PERIOD_NS, mode=mode)
     frozen=DrawerCycleSuccess.from_spec(mounted.specification())
     for row in cycle():
@@ -238,3 +243,14 @@ def test_l_shape_moving_donor_spec_json_round_trip_scores_identically():
         online.update(row);offline.update(json.loads(json.dumps(row)))
     assert online.report()==offline.report()
     assert online.report()['success']
+
+def rotated_drawer(tmp_path, rotation, local_axis='0 0 -1'):
+    root=ET.parse(MODEL).getroot()
+    drawer=root.find('.//body[@name="drawer_base"]')
+    position=np.fromstring(drawer.get('pos'),sep=' ')
+    original=quaternion_wxyz_to_matrix(np.fromstring(drawer.get('quat'),sep=' '))
+    drawer.set('pos',' '.join(map(str,rotation@position)))
+    drawer.set('quat',' '.join(map(str,matrix_to_quaternion_wxyz(rotation@original))))
+    drawer.find('joint[@name="drawer_base_slide"]').set('axis',local_axis)
+    path=tmp_path/'drawer.xml';ET.ElementTree(root).write(path)
+    return path

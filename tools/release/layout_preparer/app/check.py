@@ -9,10 +9,10 @@ root = base/'repo/server'
 import numpy, bsk_render_adapter
 from Basilisk.simulation import mujoco
 from simulation.mujoco_plugins import ensure_model_plugins
-from simulation.local_mujoco_stepper import _library
+from simulation.local_mujoco_bindings import load_stepper_library
 from simulation.collection_assets import prepare_base_catalog
 ensure_model_plugins(root/'model/SARM/platform/sarm_20261012.xml')
-_library()
+load_stepper_library()
 with tempfile.TemporaryDirectory(prefix='layout-bundle-check-') as temp:
     catalog = prepare_base_catalog(Path(temp)/'base.catalog.json')
     count = len(json.loads(catalog.read_text())['assets'])

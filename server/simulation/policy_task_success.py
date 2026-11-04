@@ -55,6 +55,8 @@ class DrawerCycleSuccess:
             if root.find('./worldbody/body[@name="capture_target"]//body[@name="drawer_base"]') is not None else None)
         self._configure_period(sample_period_ns)
         self._configure_mode(mode, retreat_distance_m)
+        if mode == "calibrated" and (not np.allclose(self.rotation, np.diag([-1., 1., -1.])) or not np.allclose(self.axis, [0., 0., 1.])):
+            raise ValueError("drawer geometry differs from the calibrated upward slide")
         self.reset(None)
 
     @staticmethod
@@ -269,7 +271,7 @@ class DrawerCycleSuccess:
                                   (grasp if self.mode == "calibrated" else opening < .95 and any(contacts)))
             seat_stable = self._stable("seat", seat_condition, dt_ns, self.config.verify_hold_s)
             self.seated_verified |= seat_stable if self.mode == "calibrated" else seat_condition
-            no_contact = not any(contacts)
+            no_contact = not any(contacts) if self.mode == "benchmark" else True
             if self.seated_verified and seated and opening > .95 and no_contact and (still or self.mode == "benchmark"):
                 self.released = True
             self._hover_error = float(np.linalg.norm(p - self.hover))
@@ -288,7 +290,7 @@ class DrawerCycleSuccess:
 
     def status(self) -> dict:
         available = self.active and self.error is None
-        return dict(task_name="drawer_cycle", task_version="drawer-benchmark-success/1" if self.mode=="benchmark" else "drawer-policy-success/3",
+        return dict(task_name="drawer_cycle", task_version="drawer-benchmark-success/1" if self.mode=="benchmark" else "drawer-policy-success/2",
                     criteria_mode=self.mode,
                     success_available=bool(available), success=bool(available and self._success),
                     success_unavailable_reason=self.error or (None if self.active else "no active drawer policy session"),
@@ -318,7 +320,7 @@ class PolicyTaskSuccessProvider:
         self.error = "model geometry unavailable"
         if model_path is not None:
             try:
-                self.monitor = TASK_SUCCESS_MONITORS["drawer_cycle"](model_path, mode="benchmark")
+                self.monitor = TASK_SUCCESS_MONITORS["drawer_cycle"](model_path)
                 self.error = None
             except (ValueError, KeyError, OSError, ET.ParseError) as error:
                 self.error = str(error)

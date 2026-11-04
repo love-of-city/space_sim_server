@@ -41,7 +41,7 @@ class OrbitComponent:
         from Basilisk.simulation import NBodyGravity, pointMassGravityModel, spacecraft
         from Basilisk.utilities import simIncludeGravBody
 
-        from simulation.teleop_grasp_unreal import _create_ephemeris_interface
+        from simulation.teleop_scene import create_ephemeris_interface
 
         if self.physics is not None and self.physics.earth_gravity != "point_mass" and ctx.config.dynamics_backend != "local":
             raise ValueError("configured J2 gravity requires the local BSK orbital adapter")
@@ -53,7 +53,7 @@ class OrbitComponent:
         if self.physics is not None:
             from simulation.orbital_configuration import configure_earth_gravity
             self.earth_model = configure_earth_gravity(earth, self.physics)
-        ephemeris = _create_ephemeris_interface(gravity_factory, self.epoch_utc)
+        ephemeris = create_ephemeris_interface(gravity_factory, self.epoch_utc)
         self.gravity_factory, self.earth, self.sun, self.ephemeris = (
             gravity_factory, earth, sun, ephemeris)
         ctx.ports.set_ephemeris(ephemeris)

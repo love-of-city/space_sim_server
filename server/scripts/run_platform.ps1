@@ -6,13 +6,9 @@ param(
     [int]$ApiPort = 8000,
     [int]$ControlPort = 8766,
     [int]$CapturePort = 8767,
-    [int]$RendezvousPort = 8768,
     [int]$RenderPort = 5558,
     [int]$PixelStreamerPort = 8888,
     [int]$PixelPlayerPort = 8080,
-    [int]$PixelSfuPort = 8889,
-    [ValidateRange(1, 64)]
-    [int]$PixelStreamingMaxSubscribers = 4,
     [string]$PixelStreamingId = 'BskRenderer',
     [string[]]$PixelStreamingCameraIds = @(
         'teleop/camera/spacecraft_overview',
@@ -36,7 +32,6 @@ param(
     [ValidateRange(30, 600)]
     [int]$RendererReadyTimeout = 240,
     [switch]$RemoteAccess,
-    [switch]$SshStreaming,
     [string]$PublicHost = '127.0.0.1',
     [string]$PublicOperatorUrl = '',
     [string]$ApiHost = '',
@@ -87,21 +82,7 @@ if ($RemoteAccess -and (!$AdminPassword -or $AdminPassword -eq 'ChangeMe123!')) 
     throw 'RemoteAccess requires a non-default administrator password.'
 }
 if (!$ApiHost) { $ApiHost = if ($RemoteAccess) { '0.0.0.0' } else { '127.0.0.1' } }
-if (!$PixelPlayerHost) { $PixelPlayerHost = if ($SshStreaming) { '127.0.0.1' } else { '0.0.0.0' } }
-if ($SshStreaming) {
-    if ($RemoteAccess -or $ApiHost -ne '127.0.0.1' -or $PixelPlayerHost -ne '127.0.0.1') {
-        throw 'SshStreaming requires loopback API/player bindings and cannot be combined with RemoteAccess.'
-    }
-    . (Join-Path $PSScriptRoot 'fixed_deployment_helpers.ps1')
-    $turn = Get-FixedDeploymentCandidate -ProjectRoot (Split-Path -Parent $PSScriptRoot) -NoNetwork
-    if (!$turn) { throw 'SshStreaming requires the existing running eturnal service and its public relay configuration.' }
-    $IceServersJson = ConvertTo-Json -InputObject @(@{ urls = $turn.StunUrl }) -Compress
-    $TurnUrlsJson = ConvertTo-Json -InputObject @($turn.TurnUrls) -Compress
-    $TurnAuthSecret = $turn.TurnSecret
-    if ($AllowedOriginsJson -eq '[]') {
-        $AllowedOriginsJson = ConvertTo-Json -InputObject @("http://127.0.0.1:$ApiPort", "http://localhost:$ApiPort") -Compress
-    }
-}
+if (!$PixelPlayerHost) { $PixelPlayerHost = '0.0.0.0' }
 $origins = ConvertFrom-Json -InputObject $AllowedOriginsJson -NoEnumerate
 if ($origins -isnot [array]) { throw 'AllowedOriginsJson must be a JSON array.' }
 if ($PublicOperatorUrl) {
@@ -234,7 +215,6 @@ foreach ($portCheck in @(
     @{ Port = $ApiPort; Purpose = 'Backend API' },
     @{ Port = $ControlPort; Purpose = 'Simulation control' },
     @{ Port = $CapturePort; Purpose = 'Authoritative capture' },
-    @{ Port = $RendezvousPort; Purpose = 'Rendezvous state' },
     @{ Port = $RenderPort; Purpose = 'UE render receiver' }
 )) {
     Assert-TcpPortAvailable ([int]$portCheck.Port) ([string]$portCheck.Purpose)
@@ -263,19 +243,11 @@ if ($RemoteAccess) {
     & (Join-Path $PSScriptRoot 'start_secure_pixel_streaming.ps1') `
         -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort -JwtSecret $StreamJwtSecret `
         -PlayerHost $PixelPlayerHost -AllowedOriginsJson $AllowedOriginsJson `
-        -IceServersJson $IceServersJson -TurnUrlsJson $TurnUrlsJson -TurnAuthSecret $TurnAuthSecret `
-        -MaxSubscribers $PixelStreamingMaxSubscribers
-} elseif ($SshStreaming) {
-    Write-Output 'Starting session-authenticated Pixel Streaming over SSH with TURN ...'
-    & (Join-Path $PSScriptRoot 'start_secure_pixel_streaming.ps1') `
-        -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort -PlayerHost $PixelPlayerHost `
-        -SessionAuthUrl "http://127.0.0.1:$ApiPort/api/client-config" -AllowedOriginsJson $AllowedOriginsJson `
-        -IceServersJson $IceServersJson -TurnUrlsJson $TurnUrlsJson -TurnAuthSecret $TurnAuthSecret `
-        -MaxSubscribers $PixelStreamingMaxSubscribers
+        -IceServersJson $IceServersJson -TurnUrlsJson $TurnUrlsJson -TurnAuthSecret $TurnAuthSecret
 } else {
     Write-Output 'Starting the local Pixel Streaming 2 signalling server ...'
     & (Join-Path $PSScriptRoot 'start_pixel_streaming.ps1') -UnrealRoot $UnrealRoot `
-        -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort -SfuPort $PixelSfuPort
+        -StreamerPort $PixelStreamerPort -PlayerPort $PixelPlayerPort
 }
 
 Write-Output 'Checking the existing UE modules and assets ...'
@@ -304,11 +276,6 @@ if ((Split-Path -Leaf $ModelRoot) -eq 'platform') {
 & (Join-Path $ueScripts 'prepare_runtime_materials.ps1') -UnrealRoot $UnrealRoot
 
 $cameraStreamers = @()
-# Register every supported scene camera even when callers omit optional arguments.
-. (Join-Path $PSScriptRoot 'scene_render_profiles.ps1')
-foreach ($profile in (Get-SceneRenderProfiles).PSObject.Properties) {
-    $PixelStreamingCameraIds = @(Resolve-SceneCameraIds $profile.Name $PixelStreamingCameraIds)
-}
 foreach ($cameraId in $PixelStreamingCameraIds) {
     $safeId = $cameraId -replace '[^A-Za-z0-9_-]', '_'
     $label = if ($cameraId -match 'wrist') { 'WristCamera' } elseif ($cameraId -match 'overview') { 'SpacecraftOverview' } else { $cameraId }
@@ -334,7 +301,6 @@ $backendArgs = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $PSScriptRoot 'run_backend.ps1') + '"'),
     '-ApiHost', $ApiHost,
     '-ApiPort', $ApiPort, '-ControlPort', $ControlPort, '-CapturePort', $CapturePort,
-    '-RendezvousPort', $RendezvousPort,
     '-PixelStreamingPlayerPort', $PixelPlayerPort, '-PixelStreamingId', $PixelStreamingId,
     '-PixelStreamingCameraStreamers', ($cameraStreamers -join ';'),
     '-RenderPort', $RenderPort,

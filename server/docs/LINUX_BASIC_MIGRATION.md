@@ -166,6 +166,7 @@ SPACE_SIM_UE_CAPTURE_SMOKE=1 SPACE_SIM_UE_STARTUP_TIMEOUT=600 \
   --episodes-root "$HOME/data/spacesim/episodes"
 ```
 
-原始 Linux 验收证据曾位于执行该次验收的目标机 `~/migration/ue-linux-20261019/`；更新后的运行方式和未覆盖范围以本文为准。
+本次详细记录见根目录 `archive/2026_10_19_Linux_UE部署与采集验收.md`，原始验收证据在目标机 `~/migration/ue-linux-20261019/`。
+
 
 > 维护说明（2026-10-30）：本文引用的旧 migration 实验输出已按用户要求清理；以上历史数据不是当前版本重新验收结果。见[历史清理说明](../../docs/history.md)。

@@ -4,8 +4,6 @@
 
 Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真端推进，UE 负责渲染与相机采集，协议为 `bsk-render/2`。
 
-近距交会通过现有事件HUD显示阶段、导航质量与逻辑捕获状态，使用 `Adapters/bsk_render_adapter/near_field.py`；配套动力学、入口和限制见 [近距交会方案](../server/docs/NEAR_FIELD_RENDEZVOUS.md)。UE只渲染，双目图像没有参与当前参数化导航算法。
-
 | 目录 | 用途 |
 | --- | --- |
 | `Adapters/bsk_render_adapter/` | 通用 Python 发送端 |
@@ -18,8 +16,6 @@ Basilisk/MJScene 状态发送端与 UE 5.6 渲染接收端。动力学由仿真�
 Linux UE 5.6.1 的编译、资产缓存和双相机脚本采集已完成实机验收，步骤见[Linux 基础迁移](../server/docs/LINUX_BASIC_MIGRATION.md)。Linux 网页部署与场景进程管理见[Linux 一键部署](../server/docs/LINUX_DEPLOYMENT.md)；下文 PowerShell 命令对应 Windows。
 
 离线脚本采集支持 `-BskOfflineCapture`：关闭 WebRTC 和隐藏相机预览，在 `-RenderOffscreen` 下跳过主视口渲染与屏幕 HUD 绘制，仍保留权威 RGB 采集。Linux UE 5.6 离线模式使用原有太阳光照，关闭会触发渲染停顿的捕获式天光。每路常驻 UE 可接受连续的新动力学会话，配置与验收方式见[多进程采集](../server/docs/PARALLEL_COLLECTION.md)。
-
-主分支的相对运动视图、连续呈现时钟、独立视觉采集和预览工作灯已接入同一套分模块 Runtime。视觉相机通过 `capture_consumer: vision` 和逐帧请求独立触发，使用 PNG；数据集相机继续使用既有 JPEG、采样网格、确认和异步落盘流程。彩色、鱼眼、黑白及黑白鱼眼模式共用协议，视觉采集的曝光参数仅控制渲染光度，不模拟曝光期间的运动积分。
 
 默认环境使用保存的 `BskEnvironment` 关卡。首次运行前，除 `git lfs pull` 外，还需单独[恢复 IncredibleEarth 资源包](../docs/guides/external-environment-assets.md)；编辑入口见[可编辑环境](docs/editable-environment.md)。
 

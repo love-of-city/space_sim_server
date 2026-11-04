@@ -1,4 +1,6 @@
 """Regression guards for shared planning state and deferred episode acceptance."""
+
+from collection import recording_validation as validation
 import json
 from types import SimpleNamespace
 
@@ -8,7 +10,7 @@ import pytest
 from collection import collect_scripted_tasks as collector
 from collection.record_scripted_task import InitializationRejected, check_initialization_rejection
 from simulation.scripted_tasks import planning_context
-from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+from simulation.scripted_tasks.native_geometry_probe import NativePoseProbe
 
 
 def test_planning_cache_restores_query_state_and_invalidates_changed_content(tmp_path, monkeypatch):
@@ -28,7 +30,7 @@ def test_planning_cache_restores_query_state_and_invalidates_changed_content(tmp
             closed.append(self)
 
     planning_context.clear_cache()
-    monkeypatch.setattr('simulation.scripted_tasks.drawer_initialization.NativePoseProbe', Probe)
+    monkeypatch.setattr('simulation.scripted_tasks.native_geometry_probe.NativePoseProbe', Probe)
     monkeypatch.setattr(mujoco_plugins, 'ensure_model_plugins', lambda p: None)
     monkeypatch.setattr(compiled_model_cache, 'configure_asset_cache', lambda: None)
     monkeypatch.setattr(compiled_model_cache, 'model_cache_key', lambda p, r: p.read_text())
@@ -92,7 +94,7 @@ def test_deferred_decode_failure_removes_quick_accepted_episode(tmp_path, monkey
     def corrupt(*args):
         raise ValueError('video truncated')
 
-    monkeypatch.setattr(collector, 'validate_recording', corrupt)
+    monkeypatch.setattr(validation, 'validate_recording', corrupt)
     results = session.audit_pending()
     saved = json.loads(summary.read_text())
     assert results[0]['passed'] is False and not session.pending_validations

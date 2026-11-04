@@ -163,7 +163,7 @@ local 每 `400` 步检查一次系统质心偏移，默认超过 `50 m` 时重�
 
 ## 初态、随机化与图复用
 
-平台操作初态默认六轴为 `[90,-60,60,0,-90,0]°`，顺序批采配置类默认独立扰动半范围 `30°`。模型关节限位和初态几何预检仍必须通过，随机值落在抽样范围不代表其可执行。依据：[control_defaults.py](../../server/backend/space_arm_platform/control_defaults.py)、[sequence.py](../../server/collection/sequence.py)、[drawer_initialization.py](../../server/simulation/scripted_tasks/drawer_initialization.py)。
+平台操作初态默认六轴为 `[90,-60,60,0,-90,0]°`，顺序批采配置类默认独立扰动半范围 `30°`。模型关节限位和初态几何预检仍必须通过，随机值落在抽样范围不代表其可执行。依据：[control_defaults.py](../../server/backend/space_arm_platform/control_defaults.py)、[sequence.py](../../server/collection/sequence.py)、[task_initialization.py](../../server/simulation/scripted_tasks/task_initialization.py)。
 
 初态应用还包含显式归一化：六轴关节初速度置零；目标角速度向量的范数若大于 `1e-12 rad/s`，当前实现会将其归零，以避免已知 MJScene 初始姿态/自旋组合问题。配置里出现非零 `target_angular_velocity_rad_s` 因此不等于实际已加载非零自旋；该能力仍需专门验证与实现。应以 `initial_state.qvel` 和实际报告核对，见 [_apply_orbital_initial_state](../../server/simulation/teleop_grasp_unreal.py)。
 
@@ -229,7 +229,7 @@ local 每 `400` 步检查一次系统质心偏移，默认超过 `50 m` 时重�
 | 积分、轨道与控制 | [test_local_mujoco_stepper.py](../../server/tests/test_local_mujoco_stepper.py)、[test_orbital_physics_acceptance.py](../../server/tests/test_orbital_physics_acceptance.py)、[test_attitude_control.py](../../server/tests/test_attitude_control.py) | 特定夹具下积分/守恒/参考对照、轨道场和姿态链路 |
 | 接触、保持与力传感 | [test_native_contact_force_snapshot.py](../../server/tests/test_native_contact_force_snapshot.py)、[test_native_plug_retention.py](../../server/tests/test_native_plug_retention.py)、[test_wrist_wrench_native.py](../../server/tests/test_wrist_wrench_native.py) | 特定几何/状态的接触、摩擦及力采样契约 |
 | 重置与复用 | [test_native_episode_reset.py](../../server/tests/test_native_episode_reset.py)、[test_collection_physics_graph.py](../../server/tests/test_collection_physics_graph.py) | 重置状态/初始接触与兼容判断；不能保证任意模型永远可复用 |
-| 完整物理任务与录制 | [run_scripted_task.py](../../server/collection/run_scripted_task.py)、[record_scripted_task.py](../../server/collection/record_scripted_task.py)、[collect_scripted_tasks.validate_recording](../../server/collection/collect_scripted_tasks.py) | 明确布局/初态/任务下的控制完成、帧配对及数据封装；须保存本次运行证据 |
+| 完整物理任务与录制 | [run_scripted_task.py](../../server/collection/run_scripted_task.py)、[record_scripted_task.py](../../server/collection/record_scripted_task.py)、[recording_validation.validate_recording](../../server/collection/recording_validation.py) | 明确布局/初态/任务下的控制完成、帧配对及数据封装；须保存本次运行证据 |
 
 执行条件与分层命令见[UE 与原生分层验证](../guides/ue-validation.md)。本页只核查实现和现有验证入口，没有重新执行上表测试；存在测试文件、历史测试通过或条件 skip 都不能作为当前版本已验收的结论。
 

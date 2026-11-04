@@ -10,17 +10,14 @@ import pytest
 from pydantic import ValidationError
 
 from bsk_render_adapter.mjcf_assets import parse_mjcf_scene_metadata
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from simulation.scripted_tasks.randomization import prepare_episode
 from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 from space_arm_platform.collection_jobs import CollectionCreate
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SceneInstanceCreate
-from space_arm_platform.overview_camera import (
-    CAMERA_ID, LEGACY_SCHEMA, PRESETS, SCHEMA,
-    V2_PRESETS, V2_SCHEMA, V3_PRESETS, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, camera_pose, sample_overview_camera,
-    validate_episode_overview_camera, validate_overview_camera,
-    validate_overview_capture,
-)
+from space_arm_platform.overview_camera import (CAMERA_ID, PRESETS, SCHEMA, initialize_overview_camera, sample_overview_camera)
+from space_arm_platform.overview_camera_calibration import (LEGACY_SCHEMA, V2_PRESETS, V2_SCHEMA, V3_PRESETS, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA)
+from space_arm_platform.overview_camera_records import (record_camera_pose as camera_pose, restore_overview_camera, validate_episode_overview_camera, validate_overview_camera, validate_overview_capture)
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 
@@ -166,17 +163,11 @@ def test_current_mounts_form_a_regular_side_rail_with_consistent_calibration():
 
 
 def test_saved_v6_records_replay_all_five_original_calibrations(tmp_path):
-    saved = json.loads((ROOT / "tests/fixtures/overview_camera_v6.json").read_text(encoding="utf-8"))
+    saved = json.loads((ROOT / "tests/fixtures/overview_camera_v6.json").read_text())
     assert {r["preset_id"] for r in saved} == set(PRESETS)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     for record in saved:
-        sampled = sample_overview_camera(record["selection_seed"], schema=V6_SCHEMA)
-        # Trigonometric recomputation differs by a few ULPs across platforms.
-        # Only that quaternion gets a tolerance; replay below must keep the
-        # original saved calibration exactly, including its floating values.
-        orientation = "orientation_body_from_camera_wxyz"
-        np.testing.assert_allclose(sampled.pop(orientation), record[orientation], atol=1e-14, rtol=0)
-        assert sampled == {key: value for key, value in record.items() if key != orientation}
+        assert restore_overview_camera(record["selection_seed"], schema=V6_SCHEMA) == record
         scene = manager.create_instance(SceneInstanceCreate(
             template_id="sarm-task-box-20261012", seed=record["selection_seed"],
             randomize_overview_camera=True))
@@ -225,10 +216,10 @@ def test_saved_v3_p3_replays_its_real_recording_calibration(tmp_path):
     assert validate_overview_camera(scene) == saved
     prepare_episode(scene)
     assert scene["overview_camera"] == saved
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
     path = tmp_path / "v3.json"
     path.write_text(json.dumps(scene))
-    assert _load_scene_instance(path)["overview_camera"] == saved
+    assert load_scene_instance(path)["overview_camera"] == saved
     new = randomized_scene(scene, 2, 0)["overview_camera"]
     assert new["schema"] == SCHEMA
     assert new == sample_overview_camera(2)
@@ -251,7 +242,7 @@ def test_saved_v4_p3_replays_its_real_recording_calibration(tmp_path):
         mount_position_body_m=[-.18000000000000005, .42000000000000004, 0.],
         height_above_mount_m=.3, mounting_footprint_radius_m=.015,
     )
-    assert sample_overview_camera(2026104100, schema=V4_SCHEMA) == saved
+    assert restore_overview_camera(2026104100, schema=V4_SCHEMA) == saved
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     scene = manager.create_instance(SceneInstanceCreate(
         template_id="sarm-task-box-20261012", seed=2026104100, randomize_overview_camera=True))
@@ -259,10 +250,10 @@ def test_saved_v4_p3_replays_its_real_recording_calibration(tmp_path):
     assert validate_overview_camera(scene) == saved
     prepare_episode(scene)
     assert scene["overview_camera"] == saved
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
     path = tmp_path / "v4.json"
     path.write_text(json.dumps(scene), encoding="utf-8")
-    assert _load_scene_instance(path)["overview_camera"] == saved
+    assert load_scene_instance(path)["overview_camera"] == saved
     new = randomized_scene(scene, 2026104100, 0)["overview_camera"]
     assert new["schema"] == SCHEMA
     assert new == sample_overview_camera(2026104100)
@@ -273,7 +264,7 @@ def test_saved_v2_replays_while_new_scenes_use_mounted_presets(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     scene = manager.create_instance(SceneInstanceCreate(
         template_id="sarm-task-box-20261012", seed=1, randomize_overview_camera=True))
-    scene["overview_camera"] = sample_overview_camera(1, schema=V2_SCHEMA)
+    scene["overview_camera"] = restore_overview_camera(1, schema=V2_SCHEMA)
     assert scene["overview_camera"]["preset_id"] == "P4"
     np.testing.assert_allclose(scene["overview_camera"]["position_body_m"], [.05, .86, .30])
     assert validate_overview_camera(scene) == scene["overview_camera"]
@@ -303,10 +294,10 @@ def test_saved_v1_record_replays_without_switching_to_30cm(tmp_path):
     assert validate_overview_camera(scene) == legacy
     prepare_episode(scene)
     assert scene["overview_camera"] == legacy
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
     path = tmp_path / "legacy.json"
     path.write_text(json.dumps(scene))
-    assert _load_scene_instance(path)["overview_camera"] == legacy
+    assert load_scene_instance(path)["overview_camera"] == legacy
     # An explicit new collection attempt upgrades to the current preset version.
     assert randomized_scene(scene, 9, 0)["overview_camera"] == sample_overview_camera(9)
     for invalid in (None, "space-arm-overview-camera/99", SCHEMA):
@@ -335,10 +326,10 @@ def test_attempt_resamples_but_recording_preparation_and_reload_preserve_pose(tm
     reloaded = json.loads(json.dumps(first))
     prepare_episode(reloaded)
     assert reloaded == first
-    from simulation.teleop_grasp_unreal import _load_scene_instance
+    from simulation.teleop_scene import load_scene_instance
     path = tmp_path / "saved.json"
     path.write_text(json.dumps(first))
-    assert _load_scene_instance(path)["overview_camera"] == first["overview_camera"]
+    assert load_scene_instance(path)["overview_camera"] == first["overview_camera"]
     recorder = EpisodeRecorder(tmp_path / "episodes")
     episode = recorder.start(EpisodeStart(scene_instance=first))
     recorder.stop(EpisodeStop())
@@ -358,8 +349,7 @@ def test_randomization_switch_requires_a_boolean(value):
         CollectionCreate(randomize_overview_camera=value)
 
 
-@pytest.mark.parametrize("position_delta", [.1, 1e-8])
-def test_invalid_or_unsupported_saved_poses_fail_closed(tmp_path, position_delta):
+def test_invalid_or_unsupported_saved_poses_fail_closed(tmp_path):
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     with pytest.raises(ValidationError):
         SceneInstanceCreate(template_id="sarm-task-box-20261012-demo", randomize_overview_camera=True)
@@ -370,7 +360,7 @@ def test_invalid_or_unsupported_saved_poses_fail_closed(tmp_path, position_delta
         changed[field] = value
         with pytest.raises(ValueError):
             validate_overview_camera(changed)
-    instance["overview_camera"]["position_body_m"][0] += position_delta
+    instance["overview_camera"]["position_body_m"][0] += .1
     with pytest.raises(ValueError):
         validate_overview_camera(instance)
 

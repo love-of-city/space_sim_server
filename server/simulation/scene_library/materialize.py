@@ -1,111 +1,36 @@
-"""Materialize portable presets into locally fingerprinted runnable instances."""
+"""Create current-controller scene candidates without historical expert presets."""
 import json
 from pathlib import Path
-import subprocess
-import sys
-
 from .catalog import catalog, phase_one_scope
-from .manifest import compose, compose_preheld_operation, digest, write_json
+from .manifest import compose, digest, write_json
 
 
 def phase_one_presets():
-    """Configurations are explicit candidates; runtime receipts prove acceptance."""
-    entries = []
-    for item in catalog()['scenes']:
-        if item['phase'] != 1 or item['id'] in phase_one_scope()['deferred_scene_ids']:
-            continue
-        family, task = item['family_number'], item['task']
-        variant = 'target-preheld' if family == 2 else ('cross-preheld' if family == 4 else None)
-        options = {}
-        if family in (2, 4) and task.endswith('_plug_insert'):
-            options['transport_clearance_m'] = .16
-        if family in (2, 4) and task == 'cylindrical_plug_insert':
-            options['release_speed_rad_s'] = .02
-        if family == 2 and task == 'drawer_cycle':
-            options['seating_overtravel_m'] = .0016
-        entry = dict(scene_id=item['id'], variant=variant, options=options)
-        if family == 2 and task in ('aviation_plug_insert', 'guide_plug_insert'):
-            entry['hold_gains'] = dict(kp=2500., kd=80., torque_limit_nm=80.)
-        entries.append(entry)
-    return entries
+    return [dict(scene_id=item['id'], variant=None, options={})
+            for item in catalog()['scenes'] if item['adapter'] is not None]
 
 
-def materialize(repository, output, *, geometry_python, native_python=None, scene_ids=None,
-                capture_reference=None, arm_mount_offset=(.2, -.2, .25)):
-    """No network, package installation, shell syntax, or mutation of source assets."""
-    repository, output = Path(repository).resolve(), Path(output).resolve()
-    entries = phase_one_presets()
+def materialize(repository, output, *, geometry_python=None, native_python=None, scene_ids=None):
+    repository, output=Path(repository).resolve(), Path(output).resolve()
+    entries=phase_one_presets()
     if scene_ids is not None:
-        selected = set(scene_ids)
-        unknown = selected - {e['scene_id'] for e in entries}
-        if unknown:
-            raise ValueError(f'Scene outside current phase-one scope: {sorted(unknown)}')
-        entries = [e for e in entries if e['scene_id'] in selected]
-        if not entries:
-            raise ValueError('At least one scene is required')
-    if any(e['variant'] for e in entries) and capture_reference is None:
-        raise ValueError('A capture-arm-held target requires an explicit capture reference calibration.')
-    output.mkdir(parents=True, exist_ok=False)
-    (output / 'instances').mkdir()
-    record = dict(schema='space-arm-materialized-library/1', scope=phase_one_scope(),
-                  repository=str(repository), entries=[], commands=[], accepted=False,
-                  status='preparing', builder_sha256=digest(__file__),
-                  presets=entries, validation='build_and_initial_pose_only')
-
-    def prepare(argv, log_name):
-        record['commands'].append(argv)
-        with (output / log_name).open('x', encoding='utf-8') as log:
-            result = subprocess.run(argv, cwd=repository, stdout=log, stderr=subprocess.STDOUT, check=False)
-        if result.returncode:
-            raise RuntimeError(f'Preparation failed ({result.returncode}); see {log_name}')
-
-    native_python = str(native_python or sys.executable)
-    geometry_python = str(geometry_python)
-    try:
-        for variant in sorted({e['variant'] for e in entries if e['variant']}):
-            folder = output / variant
-            command = [geometry_python, str(repository / 'tools/diagnostics/build_preheld_dual_scene.py'),
-                '--source', str(repository / 'model/SARM/platform/sarm_dual_capture26.xml'),
-                '--reference', str(Path(capture_reference).resolve()), '--output', str(folder),
-                '--arm-mount-offset', *map(str, arm_mount_offset)]
-            if variant == 'cross-preheld':
-                command.append('--cross')
-            prepare(command, f'{variant}-build.log')
-        for entry in entries:
-            variant = entry['variant']
-            if variant:
-                folder = output / variant
-                initial = folder / 'initial-scene.json'
-                if entry.get('hold_gains'):
-                    initial_data = json.loads(initial.read_text(encoding='utf-8-sig'))
-                    initial_data.setdefault('preheld_capture', {})['hold_gains'] = entry['hold_gains']
-                    initial = folder / (entry['scene_id'].split('/')[1] + '-initial-scene.json')
-                    write_json(initial, initial_data)
-                if entry['scene_id'].endswith('/drawer_cycle'):
-                    prepare([native_python, str(repository / 'tools/diagnostics/prepare_scene_initial_pose.py'),
-                        '--model', str(folder / 'preheld-dual.xml'), '--scene', str(initial),
-                        '--output', str(folder / 'drawer-initial-pose')], f'{variant}-drawer-initial-pose.log')
-                    initial = folder / 'drawer-initial-pose/initial-scene.json'
-                inspection = folder / (entry['scene_id'].split('/')[1] + '-inspection.json')
-                prepare([geometry_python, str(repository / 'tools/diagnostics/audit_preheld_scene.py'),
-                    '--model', str(folder / 'preheld-dual.xml'), '--scene', str(initial),
-                    '--output', str(inspection)], variant + '-' + inspection.stem + '.log')
-                instance = compose_preheld_operation(entry['scene_id'], repository,
-                    folder / 'assembly.json', initial,
-                    mount_inspection=inspection, **entry['options'])
-            else:
-                instance = compose(entry['scene_id'], repository, seed=7 if entry['scene_id'].startswith('03_') else 42)
-            relative = Path('instances') / (entry['scene_id'].replace('/', '--') + '.json')
-            write_json(output / relative, instance)
-            record['entries'].append(dict(scene_id=entry['scene_id'], instance=relative.as_posix(),
-                                          instance_sha256=digest(output / relative), accepted=False))
-        record['status'] = 'ready_to_run'
-    except Exception as exc:
-        record.update(status='preparation_failed', error=f'{type(exc).__name__}: {exc}')
-        write_json(output / 'library.json', record)
-        raise
-    write_json(output / 'library.json', record)
-    return record
+        requested=set(scene_ids)
+        unknown=requested-{entry['scene_id'] for entry in entries}
+        if unknown or not requested:
+            raise ValueError(f'No validated current-controller preparation adapter for: {sorted(unknown)}')
+        entries=[entry for entry in entries if entry['scene_id'] in requested]
+    output.mkdir(parents=True,exist_ok=False);(output/'instances').mkdir()
+    records=[]
+    for entry in entries:
+        instance=compose(entry['scene_id'],repository,seed=7 if entry['scene_id'].startswith('03_') else 42)
+        relative=Path('instances')/(entry['scene_id'].replace('/','--')+'.json')
+        write_json(output/relative,instance)
+        records.append(dict(scene_id=entry['scene_id'],instance=relative.as_posix(),
+                            instance_sha256=digest(output/relative),accepted=False))
+    result=dict(schema='space-arm-materialized-library/1',repository=str(repository),scope=phase_one_scope(),
+                entries=records,accepted=False,status='ready_to_run',validation='manifest_only')
+    write_json(output/'library.json',result)
+    return result
 
 
 def library_instances(library):

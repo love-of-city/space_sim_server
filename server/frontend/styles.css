@@ -294,3 +294,9 @@ fieldset.scene-form > legend { padding: 0; margin-bottom: 8px; font-size: 12px; 
 #captureToolControls button { margin:4px 2px;touch-action:none; }
 #captureToolStatus { display:block; }
 #controlledArm { width:100%;padding:8px;margin-top:6px;border:1px solid #aab6c4;border-radius:6px; }
+
+.stereo-vision-panel { padding: 12px; max-height: 50vh; overflow: auto; background: var(--panel); }
+.stereo-vision-panel[hidden] { display: none; }
+.stereo-vision-images { display: flex; gap: 8px; }
+.stereo-vision-images img { width: calc(50% - 4px); object-fit: contain; }
+.stereo-vision-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; }

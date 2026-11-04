@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.stream_access import verify_stream_access_token
 
 
@@ -70,13 +71,12 @@ def test_client_config_selects_pixel_streaming_without_changing_capture_channel(
             "preview_cameras": [],
             "preview_count": 0,
             "authoritative_count": 0,
-            "vision_count": 0,
             "last_error": None,
             "last_authoritative_error": None,
-            "last_vision_error": None,
             "pending_authoritative_packets": 0,
             "unfinished_authoritative_packets": 0,
             "pipeline": {},
+            "vision": {"received": 0, "processed": 0, "dropped": 0, "pending": 0, "last_error": None},
         }
         index = client.get("/").text
         frontend = (project_root / "frontend" / "app.js").read_text(encoding="utf-8")

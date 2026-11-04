@@ -2,7 +2,7 @@ from copy import deepcopy
 import json
 import random
 
-from simulation.scripted_tasks.drawer_initialization import randomized_scene
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from simulation.scripted_tasks.randomization import prepare_episode
 
 

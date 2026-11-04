@@ -3,7 +3,7 @@ import numpy as np
 from Basilisk.architecture import sysModel, messaging
 from Basilisk.utilities import RigidBodyKinematics as rbk
 from simulation.assembly import Slot
-from simulation.formation_hold import service_body_rotation
+from simulation.coorbital_initialization import service_body_rotation
 
 class OrbitAttitudeReference(sysModel.SysModel):
     def __init__(self, ctx, service_body_rotation_wxyz=None):

@@ -1,6 +1,5 @@
 {
   "files": {
-    "tests/test_orbit_attitude_reference.py": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
     "tests/test_linux_deployment.py": "Linux UID/start-time ownership and native deployment lifecycle; run on the Linux deployment host",
     "tests/test_linux_mujoco_runtime.py": "Linux-only ELF/runtime isolation checks require Basilisk and MuJoCo; run separately on the Linux simulation host",
     "tests/test_sarm_asset_plugins.py": "Requires the locally compiled SARM native plugin; run on each simulation host after building it",
@@ -35,22 +34,14 @@
     "tests/test_native_planning_clearance.py": "Private native-model separation query and production state isolation; requires locally compiled helper and Basilisk, run separately on the simulation host",
     "tests/test_native_contact_force_snapshot.py": "Native contact forces and mixed friction coefficients; requires locally compiled helper and Basilisk, run separately on the simulation host",
     "tests/test_native_episode_reset.py": "Basilisk and built native reset helper; explicitly executed by --ci-native",
-    "tests/test_flight_environment.py": "Basilisk messages; run in the native simulation acceptance suite",
-    "tests/test_gyroscope_native.py": "Basilisk scheduler and real SCStatesMsg; run in the native simulation environment. Pure sensor statistics, wire validation and recording remain in basic CI.",
-    "tests/test_native_pose_ik.py": "Compiled posture helper and native IK equivalence; executed by --ci-native",
-    "tests/test_native_plug_retention.py": "Compiled MuJoCo helper and native retention equivalence; executed by --ci-native",
-    "tests/test_axial_friction_coupled.py": "Basilisk and native coupled friction dynamics; executed by --ci-native",
-    "tests/test_scripted_render_model.py": "Scripted run wiring imports the Basilisk assembly/runtime; executed by --ci-native"
+    "tests/test_compiled_model_cache.py": "Basilisk MJScene compiled cache and native stepper; executed in the native profile to keep the Python MuJoCo ABI isolated",
+    "tests/test_native_observation_detail.py": "Basilisk native contact/body observations and exclusive friction ownership; executed in native profile",
+    "tests/test_orbit_attitude_reference.py": "Requires Basilisk native components; run separately on the Linux simulation host",
+    "tests/test_flight_environment.py": "Requires Basilisk native components; run separately on the Linux simulation host",
+    "tests/test_gyroscope_native.py": "Requires Basilisk native components; run separately on the Linux simulation host",
+    "tests/test_preheld_capture.py": "Requires Basilisk native components; run separately on the Linux simulation host"
   },
   "nodes": {
-    "tests/test_overview_camera.py::test_saved_v3_p3_replays_its_real_recording_calibration": "Basilisk live scene loader; run separately in the native simulation environment",
-    "tests/test_overview_camera.py::test_saved_v1_record_replays_without_switching_to_30cm": "Basilisk live scene loader; run separately in the native simulation environment",
-    "tests/test_overview_camera.py::test_attempt_resamples_but_recording_preparation_and_reload_preserve_pose": "Basilisk live scene loader; run separately in the native simulation environment",
-    "tests/test_formation_hold.py::test_component_uses_distinct_wrench_sources_and_restoring_torque": "Basilisk messaging and body-wrench integration; run separately in the native simulation environment",
-    "tests/test_visual_attachments.py::test_attachment_keeps_body_local_pose_and_existing_geometry": "Real Basilisk SysModel bridge and messages; pure attachment layout tests remain in basic CI",
-    "tests/test_adjacent_coorbital.py::test_attitude_guidance_keeps_configured_body_rotation": "Basilisk messaging and orbital attitude reference; run separately in the native simulation environment",
-    "tests/test_com_coorbital.py::test_authoritative_compiled_mass_centres_include_arm_and_inferred_mass": "Basilisk MJScene and locally built MuJoCo helper; run separately in the native simulation environment",
-    "tests/test_com_coorbital.py::test_orbital_setters_use_whole_assembly_com_after_initial_arm_pose": "Basilisk orbital state and MJScene initialization; run separately in the native simulation environment",
     "tests/test_wrist_camera_modes.py::test_mode_roundtrip_and_recording_provenance": "Basilisk live scene loader; run on the simulation host; pure camera descriptor validation remains in basic CI",
     "tests/test_wrist_camera_modes.py::test_legacy_scene_defaults_to_rgb": "Basilisk live scene loader; run on the simulation host",
     "tests/test_wrist_camera_modes.py::test_invalid_mode_rejected_in_api_and_saved_scene": "Basilisk live scene loader; run on the simulation host",
@@ -80,12 +71,7 @@
     "tests/test_cylindrical_plug_clearance.py::test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
     "tests/test_cylindrical_plug_clearance.py::test_rising_retreat_avoids_neighbor_that_blocks_old_horizontal_path": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
     "tests/test_threaded_collection_integration.py::test_native_grasp_opening_matches_delivered_head_and_measured_finger_geometry": "Native SARM geometry and measured passive gripper linkage; run separately on the simulation host",
-    "tests/test_plug_retention.py::test_cross_owner_channels_apply_only_one_retention_reaction": "Basilisk MJScene and locally built native friction solver; cross-owner claims are executed in the --ci-native profile",
-    "tests/test_continuous_overview_camera.py::test_saved_v5_record_replays_its_frozen_calibration": "Basilisk live scene loader; executed by --ci-native",
-    "tests/test_overview_camera.py::test_saved_v4_p3_replays_its_real_recording_calibration": "Basilisk live scene loader; executed by --ci-native",
-    "tests/test_compiled_model_cache.py::test_cache_reconstructs_fresh_state_and_servos": "Basilisk MJScene and compiled model cache; executed by --ci-native",
-    "tests/test_initial_joint_angles.py::test_task_box_operating_pose_overrides_only_six_axes_and_is_persisted": "Basilisk live scene loader; executed by --ci-native",
-    "tests/test_publication_scene.py::test_native_publication_keeps_mass_states_and_visible_geom_indices": "Basilisk MJScene publication model equivalence; executed by --ci-native"
+    "tests/test_visual_attachments.py::test_attachment_keeps_body_local_pose_and_existing_geometry": "Real Basilisk SysModel bridge and messages; pure attachment layout tests remain in basic CI"
   },
   "groups": {
     "deploy": {
@@ -141,14 +127,7 @@
         "tests/test_video_delivery_config.py::test_deployment_encoder_min_quality_validation",
         "tests/test_video_delivery_config.py::test_deployment_preview_fps_validation",
         "tests/test_video_delivery_config.py::test_renderer_arguments_are_valid_and_do_not_start_ue",
-        "tests/test_team_rendezvous_runtime.py::test_renderer_launcher_does_not_wait_for_long_lived_child_stdout",
-        "tests/test_platform_cleanup_scope.py::test_orphan_cleanup_is_scoped_to_private_interpreter",
-        "tests/test_renderer_cache_startup.py::test_ssh_renderer_launch_is_detached_and_preserves_cache_arguments",
-        "tests/test_scene_process_helpers.py::test_state_replacement_retries_real_reader_lock_without_removing_old_json",
-        "tests/test_scene_process_helpers.py::test_persistent_reader_lock_fails_without_destroying_either_state",
-        "tests/test_scene_process_helpers.py::test_atomic_state_initial_creation",
-        "tests/test_scene_process_helpers.py::test_cleanup_catches_child_created_while_parent_is_stopping",
-        "tests/test_scene_process_helpers.py::test_simulation_orphan_recovery_checks_script_instance_and_pid_identity"
+        "tests/test_team_rendezvous_runtime.py::test_renderer_launcher_does_not_wait_for_long_lived_child_stdout"
       ]
     }
   }

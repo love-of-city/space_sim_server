@@ -49,7 +49,7 @@ def plan(
         else getattr(cfg, "approach_open_rad", 1.0),
         arm_speed_rad_s=cfg.arm_speed_rad_s,
         linear_speed_m_s=(
-            getattr(cfg, 'carry_speed_m_s', cfg.linear_speed_m_s) if plug and held else cfg.linear_speed_m_s
+            cfg.carry_speed_m_s if plug and held else cfg.linear_speed_m_s
         ),
         angular_speed_rad_s=getattr(cfg, "angular_speed_rad_s", 0.2),
         gripper_speed_rad_s=cfg.gripper_speed_rad_s,

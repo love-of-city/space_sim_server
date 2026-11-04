@@ -7,7 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SceneInstanceCreate
 from space_arm_platform.control_defaults import BALANCED_TELEOP_PROFILE
 from space_arm_platform.recorder import EpisodeRecorder
@@ -103,9 +104,9 @@ def test_api_catalog_create_and_start_accept_the_new_option(tmp_path, monkeypatc
     (tmp_path / "frontend/index.html").write_text("<!doctype html><title>test</title>", encoding="utf-8")
     # Exercise the start request boundary without launching user processes.
     starts = []
-    def start_without_processes(manager, request, creator, *, mission=None):
+    def start_without_processes(manager, request, creator, **kwargs):
         starts.append(request)
-        return manager.create_instance(request, creator, mission=mission)
+        return manager.create_instance(request, creator)
     monkeypatch.setattr(SceneRuntimeManager, "start", start_without_processes)
     app = create_app(PlatformConfig(project_root=tmp_path, data_root=tmp_path / "episodes", simulation_port=0, capture_port=0))
     with TestClient(app) as client:

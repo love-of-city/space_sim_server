@@ -23,7 +23,7 @@ import trimesh
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.assets.build_independent_task_box_layout import mesh_of, solid
+from tools.assets.task_box_geometry import mesh_of, solid
 from simulation.model_preparation.captive_fastener import mesh_vertices
 
 def convex_parts(value):

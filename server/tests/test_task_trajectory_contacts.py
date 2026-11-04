@@ -21,7 +21,7 @@ def test_required_paths_match_the_current_production_stage_enumerations():
     from simulation.scripted_tasks.drawer_lift import DrawerLiftTask
 
     for task in ("aviation_plug_insert", "guide_plug_insert", "cylindrical_plug_insert"):
-        assert REQUIRED_OPERATION_STAGES[task] == PlugInsertTask.latch_stages
+        assert REQUIRED_OPERATION_STAGES[task] == PlugInsertTask.stages
     assert REQUIRED_OPERATION_STAGES["drawer_cycle"] == DrawerCycleTask.stages
     assert REQUIRED_OPERATION_STAGES["drawer_lift"] == DrawerLiftTask.stages
 
@@ -47,40 +47,6 @@ def test_mating_uses_selected_hole_ownership_and_never_an_entire_shared_board():
     assert classify("board1_plug_bore_colliders", "guide_bore_40p5_000") == "forbidden_active_object_contact"
     assert classify("asm_board1", "unassigned_shared_plate") == "forbidden_active_object_contact"
     assert classify("task_box_base", "task_box_base_geom_collision_000") == "forbidden_active_object_contact"
-
-
-def test_service_hole_contact_policy_keeps_recipient_and_hole_identity(tmp_path):
-    model=tmp_path/'two_boxes.xml'
-    model.write_text('''<mujoco><worldbody><body name="cubesat_bus">
-        <body name="link1"><body name="ee_finger1"/><body name="ee_finger2"/></body>
-        <body name="service_board1_plug_bore_colliders">
-          <geom name="service_aviation_bore_40p5_000"/>
-          <geom name="service_aviation_bore_40p1_000"/>
-          <geom name="service_guide_bore_40p5_000"/>
-        </body><body name="board1_plug_bore_colliders"><geom name="aviation_bore_40p5_000"/></body>
-        </body></worldbody></mujoco>''',encoding='utf-8')
-    policy=ContactPolicy(model,'aviation_plug_insert','service_aviation_insert_40p5')
-    def classify(geom):
-        return policy.classify('aviation_plug','service_board1_plug_bore_colliders','shaft',geom,-.0001)
-    assert classify('service_aviation_bore_40p5_000')=='legal_mating'
-    for geom in ('service_aviation_bore_40p1_000','service_guide_bore_40p5_000',
-                 'aviation_bore_40p5_000','unknown'):
-        assert classify(geom)=='forbidden_active_object_contact'
-    with pytest.raises(ValueError):
-        ContactPolicy(model,'aviation_plug_insert','service_guide_insert_40p5')
-
-
-def test_controller_snapshot_labels_nonvertical_seat_coordinate():
-    import numpy as np
-    from tools.diagnostics.validate_task_trajectory_contacts import controller_snapshot
-    task=SimpleNamespace(reference=np.zeros(8),_seat_z=.25,
-                         hole_rotation=np.array([[0.,0.,1.],[0.,1.,0.],[-1.,0.,0.]]))
-    report=controller_snapshot(task)
-    assert report['seat_target_z_m'] is None
-    assert report['seat_target_axis_coordinate_m']==.25
-    assert report['seat_axis_body']==[1.,0.,0.]
-    task.hole_rotation=np.eye(3)
-    assert controller_snapshot(task)['seat_target_z_m']==.25
 
 
 def test_original_shared_pickup_colliders_are_owned_by_vertices_not_a_whole_board():
@@ -191,8 +157,7 @@ def test_reanalysis_changes_only_classification_and_keeps_native_launch_and_erro
     report = analyze_existing(SimpleNamespace(analyze_existing=source),
                               ContactPolicy(MODEL, "guide_plug_insert", ignore_free_bolt=True), output)
     assert report["task_success"] and report["trajectory_clear"] and report["coverage_complete"]
-    assert report["operational_path_complete"] and not report["accepted"]
-    assert report['independent_evaluation']['status']=='unscorable'
+    assert report["operational_path_complete"] and report["accepted"]
     assert report["categories"]["deferred_bolt_contact"] == len(stages)
     assert report["contact_pairs"][0]["minimum_separation_m"] == -.0001
     assert (output / "launch.json").read_bytes() == launch
@@ -221,79 +186,3 @@ def test_complete_sampling_of_a_failed_plan_is_not_a_complete_operational_path()
     planning_failure = complete.report(dict(result="failed", reason="planning_failed: Boundary velocity",
                                             simulated_seconds=complete.last_ns / 1e9), 1)
     assert not planning_failure["operational_path_complete"]
-
-
-def test_physical_gate_recomputes_rows_and_requires_online_agreement(tmp_path):
-    from tools.diagnostics.validate_task_trajectory_contacts import apply_physical_gate
-    from simulation.evaluation.scoring import PhysicalScorer
-    import numpy as np
-    from test_fixed_trajectory_evaluation import row
-    spec=dict(task='guide_plug_insert',final_tool_position=[.1,0,.2],hole=[0,0,0],tip=.095,keyed=True)
-    (tmp_path/'independent-scorer-spec.json').write_text(json.dumps(spec))
-    scorer=PhysicalScorer(**spec)
-    with gzip.open(tmp_path/'states-200hz.jsonl.gz','wt') as stream:
-        for i in range(450):
-            sample=row(i*.005)
-            opening=.4 if i<40 else .65
-            sample.update(tool_position_m=[.1,0,.2],contacts=[1,1] if i<40 else [0,0],
-                joint_position=[0.]*6+[opening,-opening],
-                plug_position_m=[0,0,(.15 if i<10 else .20) if i<20 else .025],
-                plug_rotation=np.diag([1,-1,-1]).tolist(),plug_velocity_m_s=[0,0,0],
-                plug_angular_velocity_rad_s=[0,0,0])
-            scorer.update(sample)
-            stream.write(json.dumps(dict(evaluation=sample))+'\n')
-    online=scorer.report()
-    assert online['success']
-    matched=dict(accepted=True)
-    apply_physical_gate(matched,tmp_path,online)
-    assert matched['accepted'] and matched['online_offline_agree']
-    changed=dict(accepted=True)
-    apply_physical_gate(changed,tmp_path,dict(online,success=False))
-    assert changed['independent_evaluation']['success'] and not changed['accepted']
-
-
-def test_unsupported_old_drawer_spec_is_unscorable_on_reanalysis(tmp_path):
-    from tools.diagnostics.validate_task_trajectory_contacts import apply_physical_gate
-    (tmp_path/'independent-scorer-spec.json').write_text(json.dumps(dict(task='drawer_cycle',final_tool_position=[0,0,.2])))
-    with gzip.open(tmp_path/'states-200hz.jsonl.gz','wt') as stream:stream.write('')
-    report=dict(accepted=True)
-    apply_physical_gate(report,tmp_path,dict(success=True))
-    assert not report['accepted'] and report['independent_evaluation']['status']=='unscorable'
-
-
-def test_native_drawer_spec_includes_full_current_policy_geometry():
-    from tools.diagnostics.validate_task_trajectory_contacts import physical_scorer
-    from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask
-    task=DrawerCycleTask(MODEL)
-    scorer,spec=physical_scorer(task)
-    assert spec['drawer_spec']['sample_period_ns']==5_000_000
-    assert scorer.drawer_monitor is not None
-
-
-def test_utf8_drawer_instruction_can_be_rescored_on_windows(tmp_path):
-    from simulation.scripted_tasks.drawer_cycle import DrawerCycleTask
-    from tools.diagnostics.validate_task_trajectory_contacts import physical_scorer,apply_physical_gate,write_json
-    from test_fixed_trajectory_evaluation import row
-    scorer,spec=physical_scorer(DrawerCycleTask(MODEL))
-    write_json(tmp_path/'independent-scorer-spec.json',spec)
-    with gzip.open(tmp_path/'states-200hz.jsonl.gz','wt') as stream:
-        for i in range(2):
-            sample=row(i*.005);scorer.update(sample)
-            stream.write(json.dumps(dict(evaluation=sample))+'\n')
-    report=dict(accepted=True)
-    apply_physical_gate(report,tmp_path,scorer.report())
-    assert report['online_offline_agree']
-    assert report['independent_evaluation']['status']=='task_failure'
-
-
-def test_controller_diagnostics_are_serializable_copies_not_control_inputs():
-    import numpy as np
-    from tools.diagnostics.validate_task_trajectory_contacts import controller_snapshot
-    task=SimpleNamespace(reference=np.zeros(8),_plug_goal=np.array([.5,.2,.03075]),
-        _seat_z=.03075,_seat_recovery=True,_seat_unloaded=False)
-    row=controller_snapshot(task)
-    task.reference[0]=1.;task._plug_goal[2]=.03
-    assert row['last_joint_reference'][0]==0.
-    assert row['plug_goal_body_m'][2]==.03075
-    assert row['seat_recovery'] and not row['seat_unloaded']
-    json.dumps(row)

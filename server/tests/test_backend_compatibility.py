@@ -65,5 +65,5 @@ def test_launcher_checks_backend_before_starting_renderer():
 
 def test_physics_start_waits_for_negotiated_protocol():
     # Keep a regression guard on the production path, not only on the helper.
-    source = (Path(__file__).resolve().parents[1] / "simulation/teleop_grasp_unreal.py").read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parents[1] / "simulation/teleop_session.py").read_text(encoding="utf-8")
     assert source.index("client.wait_until_ready()") < source.index("reset_request = _run_session(")

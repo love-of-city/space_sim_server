@@ -134,8 +134,7 @@ MJCF = """<mujoco><option gravity="0 0 0"/>
 
 
 def build_pair(tmp_path, *, initial_z=.3, initial_speed=0., publish_every=8, substeps=1,
-               parameters=None, rotation=None, offset_com=False, sockets=None, articulated_base=False, extra_base=False,
-               guidance_backend="native"):
+               parameters=None, rotation=None, offset_com=False, sockets=None, articulated_base=False):
     pytest.importorskip("Basilisk")
     from Basilisk.architecture import messaging
     from Basilisk.simulation import mujoco
@@ -148,10 +147,6 @@ def build_pair(tmp_path, *, initial_z=.3, initial_speed=0., publish_every=8, sub
 
     path = tmp_path/"pair.xml"
     xml = MJCF
-    if extra_base:
-        xml = xml.replace('</worldbody>', '<body name="other" pos="1 0 0"><freejoint name="other_free"/>'
-                          '<geom type="sphere" size=".02" mass="2" contype="0" conaffinity="0"/>'
-                          '</body></worldbody>')
     if offset_com:
         xml = xml.replace('<geom type="sphere"', '<geom pos=".001 .002 .003" type="sphere"')
         xml = xml.replace('<geom type="box"', '<geom pos=".01 .02 .03" type="box"')
@@ -175,7 +170,7 @@ def build_pair(tmp_path, *, initial_z=.3, initial_speed=0., publish_every=8, sub
     # These force-driven regression cases use explicit 5/4 N thresholds.
     component = PlugRetentionComponent(model_path=path, parameters=parameters or
                                        RetentionParameters(static_friction_n=5., sliding_friction_n=4.),
-                                       sockets={"plug": sockets or (seat(),)}, base="bus", guidance_backend=guidance_backend)
+                                       sockets={"plug": sockets or (seat(),)}, base="bus")
     ctx.install([component])
     sim.InitializeSimulation()
     rotation = np.eye(3) if rotation is None else rotation
@@ -195,26 +190,6 @@ def build_pair(tmp_path, *, initial_z=.3, initial_speed=0., publish_every=8, sub
         return float((base_rotation.T @ (stepper.qpos[a:a+3]-stepper.qpos[b:b+3]))[2]-.3)
 
     return run, component, stepper, ctx, sim, scene, force
-
-
-@pytest.mark.parametrize("guidance_backend", ["native", "python"])
-def test_cross_owner_channels_apply_only_one_retention_reaction(tmp_path, guidance_backend):
-    from dataclasses import replace
-    sockets = (replace(seat(), owner_body='bus'), replace(seat('receiver', initial=False), owner_body='other'))
-    run, component, core, *_keep = build_pair(tmp_path, sockets=sockets, extra_base=True, guidance_backend=guidance_backend)
-    try:
-        assert abs(run(.5, 1.)) < 1e-10
-        donor = component.models['plug@bus']
-        receiver = component.models['plug@other']
-        assert donor.detent.active is not None and receiver.detent.active is None
-        assert component.telemetry()['plug']['owner_body'] == 'bus'
-        with pytest.raises(RuntimeError):
-            receiver.friction.configure(enabled=True)
-        assert np.allclose(receiver.last_force_n, 0)
-        run(.8, 8.)
-        assert component.telemetry()['plug']['status'] == 'free'
-    finally:
-        core.close()
 
 
 def test_native_small_load_holds_large_load_releases_and_free_plug_keeps_drifting(tmp_path):

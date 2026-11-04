@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {missionPresentation, createMissionPanel, missionArtifactLinks} from '../mission_panel.js';
+import {missionPresentation, createMissionPanel as createPanel, missionArtifactLinks} from '../mission_panel.js';
+
+function createMissionPanel(options) {
+  const platformApi = async (path, init) => {
+    const response = await options.apiRequest(path, init);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'request failed');
+    return data;
+  };
+  return createPanel({...options, platformApi});
+}
 
 test('starting conditions and the full mission lifecycle keep the same workbench and gate inputs', async () => {
   const previousOption = globalThis.Option;

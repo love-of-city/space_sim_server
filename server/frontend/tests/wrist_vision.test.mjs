@@ -8,6 +8,7 @@ const good={valid:true,status:'tracking',age_s:.1,stale_after_s:1.5,session_id:'
     rotation_error_display_deg:[-2,0,1]},detections:[]}};
 test('success is read-only and values are cleared on recognition failure',()=>{
   assert.equal(wristViewState(good,0,100).valid,true);
+  assert.match(wristViewState(good,0,100).text,/仅观察/);
   const lost=wristViewState({...good,valid:false,status:'lost',result:null},0,100);
   assert.equal(lost.valid,false);assert.equal(lost.result,null);assert.match(lost.text,/识别失败/);
   assert.doesNotMatch(lost.text,/499/);
@@ -20,11 +21,4 @@ test('stale result or shifted inspection camera never draws old boxes',()=>{
 });
 test('letterboxed native image maps inside its actual video rectangle',()=>{
   assert.deepEqual(videoContentRect({x:0,y:0,width:1000,height:700},1024,1024),{x:150,y:0,width:700,height:700});
-});
-
-test('active visual probe is labelled as control instead of read-only observation',()=>{
-  const active=wristViewState(good,0,100,{visualProbe:true});
-  assert.match(active.text,/视觉闭环短程试验/);
-  assert.doesNotMatch(active.text,/仅观察/);
-  assert.match(wristViewState({...good,valid:false,status:'lost'},0,100,{visualProbe:true}).text,/丢失.*过期即停/);
 });

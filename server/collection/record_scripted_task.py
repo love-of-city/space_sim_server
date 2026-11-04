@@ -45,20 +45,18 @@ from space_arm_platform.sampling import (
     capture_preroll_ns,
 )
 
+from space_arm_platform.task_catalog import (
+    RUNNER_TASK_CHOICES, DRAWER_TASKS, THREADED_TASKS,
+    task_default_duration_s, normalize_task_name, TASK_CATALOG,
+)
+
 from simulation.scripted_tasks.motion_options import (
     add_motion_options,
     motion_arguments,
 )
 from simulation.scripted_tasks.plug_profiles import (
-    PLUG_PROFILES,
     is_plug_task,
     plug_profile,
-)
-from simulation.scripted_tasks.drawer_tasks import DRAWER_TASKS
-from simulation.scripted_tasks.threaded_tasks import (
-    THREADED_INSTRUCTIONS,
-    THREADED_TASKS,
-    task_default_duration_s,
 )
 
 CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
@@ -205,10 +203,9 @@ def task_target_site(task, requested=None):
 def task_instruction(scene, task, target_site):
     """Return the instruction realized by this episode's appearance config."""
     cfg = scene.get("collection_config") or {}
-    from simulation.scripted_tasks.instructions import canonical_task
     selected = cfg.get("instruction_randomization")
     if selected is not None:
-        if selected.get("task") != canonical_task(task):
+        if selected.get("task") != normalize_task_name(task):
             raise ValueError("Instruction selection belongs to a different task")
         prompt = selected.get("instruction")
         if not isinstance(prompt, str) or not prompt.strip():
@@ -220,23 +217,15 @@ def task_instruction(scene, task, target_site):
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("color_randomization.prompt_instruction must be nonempty text")
         return prompt
-    if is_plug_task(task):
-        profile = plug_profile(task)
-        object_name = {
-            "aviation_plug": "aviation plug",
-            "guide_plug": "guide plug",
-            "cylindrical_plug": "cylindrical plug",
-        }[profile.body]
-        return f"Pick up the {object_name}, align it with the corresponding socket, and insert it fully."
-    if task in THREADED_INSTRUCTIONS:
-        return THREADED_INSTRUCTIONS[task]
+    metadata = TASK_CATALOG.get(normalize_task_name(task))
+    if metadata is not None and metadata.family != "drawer":
+        return metadata.instruction
     drawer_location = (
         "drawer" if scene.get("task_box_layout", {}).get("schema")
         in ("task-box-layout/2", "task-box-layout/3") else "rightmost drawer"
     )
     if task in ("drawer_open", "drawer_close"):
-        from simulation.scripted_tasks.drawer_tasks import DRAWER_INSTRUCTIONS
-        return DRAWER_INSTRUCTIONS[task]
+        return TASK_CATALOG[task].instruction
     if task == "drawer_cycle":
         return (
             f"Open the {drawer_location} approximately 8 cm, then close it fully and release it."
@@ -330,6 +319,59 @@ def validate_episode(result):
         raise RuntimeError("Dataset has incomplete or rejected capture samples")
 
 
+def freeze_plug_configuration(scene, task_name, target_site):
+    """Save one effective config before preflight, observation or capture."""
+    if not is_plug_task(task_name):
+        return None
+    from simulation.scripted_tasks.plug_motion_config import plug_motion_config, config_snapshot
+    config = plug_motion_config(task_name, scene, target_site=target_site)
+    snapshot = config_snapshot(config, task_name)
+    scene.setdefault("collection_config", {})["plug_config_snapshot"] = snapshot
+    return snapshot
+
+
+def dynamics_command(args, out, scene_path, stop_file, catalog, source_model, settings):
+    """Build the exact child command without starting or owning its process."""
+    command = [
+        sys.executable,
+        str(ROOT / "collection/run_scripted_task.py"),
+        "--task",
+        args.task,
+        "--output",
+        str(out / "dynamics"),
+        "--scene",
+        str(scene_path),
+        "--capture-control-port",
+        str(args.control_port),
+        "--capture-render-port",
+        str(args.render_port),
+        "--catalog",
+        str(catalog),
+        "--capture-stop-file",
+        str(stop_file),
+        "--max-sim-seconds",
+        str(args.max_sim_seconds),
+        "--warmup-sim-seconds",
+        str(args.warmup_sim_seconds),
+        "--capture-backpressure-poll-s",
+        str(settings.capture_backpressure_poll_s),
+    ]
+    if args.target_site is not None:
+        command += ["--target-site", args.target_site]
+    if getattr(args, "model", None) is not None:
+        command += ["--model", str(source_model)]
+    if getattr(args, "profile_dynamics", False):
+        command[1:1] = ["-m", "cProfile", "-o", str(out / "dynamics.pstats")]
+    if not settings.save_dynamics_trace:
+        command.append("--no-save-trace")
+    if settings.scripted_native_geometry:
+        command.append("--native-geometry")
+    command += motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
+    if args.substeps is not None:
+        command += ["--substeps", str(args.substeps)]
+    return command
+
+
 async def run(args):
     run_started = time.monotonic()
     scene = scene_copy(args.scene, args.task)
@@ -343,7 +385,10 @@ async def run(args):
     if getattr(args, "gpu_index", None) is not None:
         settings.video = type(settings.video).model_validate(
             {**settings.video.model_dump(), "gpu_index": args.gpu_index})
-    args.target_site = task_target_site(args.task, getattr(args, "target_site", None))
+    requested_target = getattr(args, "target_site", None)
+    snapshot = freeze_plug_configuration(scene, args.task, requested_target)
+    args.target_site = task_target_site(
+        args.task, snapshot["values"]["target_site"] if snapshot else requested_target)
     scene["scripted_task_name"] = args.task
     collection_config = scene.setdefault("collection_config", {})
     collection_config["task"] = args.task
@@ -352,7 +397,7 @@ async def run(args):
         collection_config["threaded_speed_profile"] = args.threaded_speed_profile
     if frame_limit_override:
         collection_config["recording_frame_limit_override"] = frame_limit_override
-    from space_arm_platform.overview_camera import validate_overview_camera
+    from space_arm_platform.overview_camera_records import validate_overview_camera
     validate_overview_camera(scene)
     project = args.adapter / "Unreal/BskUnrealRenderer"
     editor = unreal_editor(args.unreal)
@@ -397,7 +442,7 @@ async def run(args):
     prepare_episode(scene)
     source_model = (getattr(args, "model", None) or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
     if getattr(args, "model", None) is not None:
-        from simulation.task_box_layout import validated_capture_layout
+        from simulation.capture_layout import validated_capture_layout
         placement = validated_capture_layout(source_model, catalog)
         scene["task_box_layout"] = placement
         selected = scene.get("collection_config", {}).get("layout_randomization")
@@ -450,6 +495,11 @@ async def run(args):
         "ue_build_id": ue_manifest["build_id"],
     }
 
+    if is_plug_task(args.task):
+        snapshot = collection_config["plug_config_snapshot"]
+        report["config_schema"] = snapshot["schema"]
+        report["configuration_snapshot"] = snapshot
+
     def emit(stage, **values):
         elapsed = time.monotonic() - run_started
         report.setdefault("stage_seconds", {})[stage] = elapsed
@@ -497,43 +547,7 @@ async def run(args):
         env["PYTHONPATH"] = os.pathsep.join(
             [str(ROOT), str(ROOT / "backend"), str(args.adapter / "Adapters")]
         )
-        command = [
-            sys.executable,
-            str(ROOT / "collection/run_scripted_task.py"),
-            "--task",
-            args.task,
-            "--output",
-            str(out / "dynamics"),
-            "--scene",
-            str(scene_path),
-            "--capture-control-port",
-            str(args.control_port),
-            "--capture-render-port",
-            str(args.render_port),
-            "--catalog",
-            str(catalog),
-            "--capture-stop-file",
-            str(stop_file),
-            "--max-sim-seconds",
-            str(args.max_sim_seconds),
-            "--warmup-sim-seconds",
-            str(args.warmup_sim_seconds),
-            "--capture-backpressure-poll-s",
-            str(settings.capture_backpressure_poll_s),
-        ]
-        if args.target_site is not None:
-            command += ["--target-site", args.target_site]
-        if getattr(args, "model", None) is not None:
-            command += ["--model", str(source_model)]
-        if getattr(args, "profile_dynamics", False):
-            command[1:1] = ["-m", "cProfile", "-o", str(out / "dynamics.pstats")]
-        if not settings.save_dynamics_trace:
-            command.append("--no-save-trace")
-        if settings.scripted_native_geometry:
-            command.append("--native-geometry")
-        command += motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
-        if args.substeps is not None:
-            command += ["--substeps", str(args.substeps)]
+        command = dynamics_command(args, out, scene_path, stop_file, catalog, source_model, settings)
         mailbox = getattr(args, "dynamics_worker", None)
         simulation = submit_dynamics(command, mailbox, stop_file, launch, env)
         if mailbox is not None:
@@ -735,7 +749,7 @@ def main(default_task="drawer_cycle"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", *DRAWER_TASKS, "plug_insert", *PLUG_PROFILES, *THREADED_TASKS],
+        choices=RUNNER_TASK_CHOICES,
         default=default_task,
     )
     parser.add_argument("--target-site", default=None)
@@ -791,8 +805,6 @@ def main(default_task="drawer_cycle"):
         motion_arguments(args.task, args.linear_speed, args.threaded_speed_profile)
     except ValueError as error:
         parser.error(str(error))
-    if args.target_site is None:
-        args.target_site = task_target_site(args.task)
     if args.warmup_sim_seconds is None:
         args.warmup_sim_seconds = 6.466666667 if args.task == "plug_insert" else 0.0
     if args.output is None:

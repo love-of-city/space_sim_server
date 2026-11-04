@@ -62,8 +62,12 @@ def test_source_scope_covers_untracked_code_but_excludes_docs(tmp_path):
 
 
 @pytest.mark.parametrize("relative", ["server/model/SARM/platform/scenarios/scenario_sarm_grasp.py",
-    "ue-adapter/Unreal/BskUnrealRenderer/examples/scenario_spacecraft_arm_grasp_unreal.py"])
-def test_executable_scenarios_participate_in_runtime_identity(tmp_path, relative):
+    "ue-adapter/Unreal/BskUnrealRenderer/examples/scenario_spacecraft_arm_grasp_unreal.py",
+    "server/simulation/local_mujoco_bindings.py",
+    "ue-adapter/Adapters/bsk_render_adapter/scene_description.py",
+    "ue-adapter/Adapters/bsk_render_adapter/device_registration.py",
+    "ue-adapter/Adapters/bsk_render_adapter/command_dispatch.py"])
+def test_runtime_entrypoints_and_extracted_modules_participate_in_identity(tmp_path, relative):
     server, adapter = tmp_path / "server", tmp_path / "ue-adapter"
     code = tmp_path / relative
     code.parent.mkdir(parents=True)

@@ -73,7 +73,8 @@ def main() -> None:
     from Basilisk.architecture import sysModel
     import bsk_render_adapter
     from bsk_render_adapter.protocol import RecordingOnlyPublisher
-    from simulation import teleop_grasp_unreal as teleop
+    from simulation import teleop_control as teleop
+    from simulation import teleop_session as session
     from simulation.reference_governor import GovernedReference
     from space_arm_platform.control_defaults import BALANCED_TELEOP_HOME
 
@@ -206,16 +207,16 @@ def main() -> None:
         return graph
 
     native._build_simulation = build
-    teleop.CartesianTeleopTarget = TracedTarget
-    teleop.SimulationControlClient = OfflineClient
+    session.CartesianTeleopTarget = TracedTarget
+    session.SimulationControlClient = OfflineClient
     bsk_render_adapter.BasiliskRenderBridge = OfflineBridge
-    teleop.time.sleep = lambda _duration: None
+    session.time.sleep = lambda _duration: None
     args = SimpleNamespace(adapter_root=options.adapter, model_root=ROOT / "model/SARM/platform",
                            scene_instance=instance_path, catalog=options.output / "unused.json",
                            control_host="127.0.0.1", control_port=0, render_host="127.0.0.1", render_port=0,
                            duration=options.duration, simulation_rate=1.0, capture_rate=10.0, ik_rate=100.0,
                            disable_attitude_control=False, ik_mode=teleop.IK_MODE_IK_POSE)
-    teleop.run(args)
+    session.run(args)
     arrays = {key: np.asarray([sample[key] for sample in snapshots]) for key in snapshots[0]}
     np.savez_compressed(options.output / "dynamics.npz", **arrays)
     (options.output / "observations.json").write_text(json.dumps(observations, indent=2), encoding="utf-8")

@@ -277,7 +277,7 @@ def run(args):
     ctx = AssemblyContext(simulation, scene, config=SessionConfig(
         model_path=model, dynamics_backend="local", publish_stride=1,
         clock_rate_hz=1 / args.step, physics_task="flightDynamics"))
-    from simulation.teleop_grasp_unreal import DEFAULT_EPHEMERIS_EPOCH_UTC, _register_celestial_bodies
+    from simulation.teleop_scene import DEFAULT_EPHEMERIS_EPOCH_UTC, register_celestial_bodies
     orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC, physics=options.physics)
     ctx.install([orbit])
     stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin,
@@ -324,7 +324,7 @@ def run(args):
             mesh_asset_catalog=catalog,
             camera_picture_in_picture=False,
         )
-        _register_celestial_bodies(bridge, orbit.earth, orbit.sun)
+        register_celestial_bodies(bridge, orbit.earth, orbit.sun)
         bridge.set_scene_settings(flight_scene_settings(args.sunlight_intensity_scale, manifest["bodies"]))
         simulation.AddModelToTask("flightDynamics", bridge, -10000)
     simulation.InitializeSimulation()

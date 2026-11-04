@@ -36,25 +36,23 @@ def test_target_is_independent_and_bound_to_capture_gripper(tmp_path, monkeypatc
 
 def test_legacy_cross_materializer_cannot_create_deck_mounted_target(tmp_path):
     from simulation.scene_library.materialize import materialize
-    with pytest.raises(ValueError, match='capture-arm-held target'):
+    with pytest.raises(ValueError, match='current-controller'):
         materialize(tmp_path, tmp_path / 'library', geometry_python='unused',
                     scene_ids=['04_cross_transfer/guide_plug_insert'])
 
 
-def test_preheld_site_initial_geometry_is_in_service_frame(tmp_path):
-    from simulation.scripted_tasks.scene_plug import fixed_site_pose
-    model = tmp_path / 'model.xml'
+def test_preheld_initial_geometry_is_in_service_frame(tmp_path):
+    from simulation.scene_library.frames import mounted_body_pose
     xml = ('<mujoco><worldbody><body name="cubesat_bus" pos="1 0 0"/>'
            '<body name="capture_target" pos="2 3 0"><freejoint/>'
-           '<site name="target" pos="0 0 1"/></body></worldbody>'
+           '<body name="target_mount" pos="0 0 1"/></body></worldbody>'
            '<equality><weld name="preheld_capture_lock" body1="gripper" '
            'body2="capture_target"/></equality></mujoco>')
-    model.write_text(xml)
-    position, _ = fixed_site_pose(ET.parse(model).getroot(), 'target')
+    position, _ = mounted_body_pose(ET.fromstring(xml), 'target_mount', allow_preheld=True)
     np.testing.assert_allclose(position, [1, 3, 1])
-    model.write_text(xml.replace('body1="gripper"', 'body1="cubesat_bus"'))
-    with pytest.raises(ValueError, match='fixed relative'):
-        fixed_site_pose(ET.parse(model).getroot(), 'target')
+    with pytest.raises(ValueError, match='Movable mounting'):
+        mounted_body_pose(ET.fromstring(xml.replace('body1="gripper"', 'body1="cubesat_bus"')),
+                          'target_mount', allow_preheld=True)
 
 
 def test_socket_owners_and_local_coordinates_follow_actual_mount(tmp_path):

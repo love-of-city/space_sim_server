@@ -161,9 +161,10 @@ class PlugRetentionComponent:
             raise ValueError("plug retention parameters must be supplied explicitly")
         if ctx.ports.stepper is None:
             raise RuntimeError("plug retention requires the local dynamics backend")
-        sockets = self.sockets if self.sockets is not None else model_retention_sockets(self.model_path, owned=True)
+        sockets = self.sockets if self.sockets is not None else retention_sockets(self.model_path)
         if not sockets:
             return
+        self.moving_owners = any(s.owner_body not in (None, self.base) for seats in sockets.values() for s in seats)
         claims, groups = {}, []
         self.model_bodies = {}
         kinematics = RetentionKinematics(ctx.ports.scene_state())
@@ -198,14 +199,16 @@ class PlugRetentionComponent:
         for key, model in self.models.items():
             body = self.model_bodies[key]
             if body not in result or model.detent.active is not None:
-                result[body] = dict(model.telemetry(), owner_body=model.owner)
+                result[body] = dict(model.telemetry())
+                if self.moving_owners:
+                    result[body]["owner_body"] = model.owner
         return result
 
     def configuration(self):
-        return dict(enabled=True, version="plug-retention/3-moving-owner", guidance_backend=self.guidance_backend,
+        return dict(enabled=True, version="plug-retention/3-moving-owner" if self.moving_owners else "plug-retention/2-dry-friction", guidance_backend=self.guidance_backend,
                     parameters=asdict(self.parameters),
                     sockets={body: [dict(name=s.name, initial=s.initial, keyed=s.keyed,
-                                         owner_body=model.owner, position_body_m=s.position_body_m.tolist(),
+                                         **({"owner_body": model.owner} if self.moving_owners else {}), position_body_m=s.position_body_m.tolist(),
                                          rotation_body=s.rotation_body.tolist(),
                                          plug_rotation_body=s.plug_rotation_body.tolist())
                                     for s in model.detent.sockets]
@@ -216,7 +219,7 @@ def install_configured_plug_retention(ctx):
     parameters = load_retention_parameters()
     if parameters is None:
         return None
-    sockets = model_retention_sockets(ctx.config.model_path, owned=True)
+    sockets = retention_sockets(ctx.config.model_path)
     if not sockets:
         return None
     component = PlugRetentionComponent(model_path=ctx.config.model_path, parameters=parameters, sockets=sockets)
@@ -224,3 +227,14 @@ def install_configured_plug_retention(ctx):
     print(json.dumps(dict(type="plug_retention_configuration", model=str(ctx.config.model_path),
                          **component.configuration()), sort_keys=True), flush=True)
     return component
+
+
+def retention_sockets(model_path):
+    """Resolve moving ownership only for models with target-owned seats."""
+    import xml.etree.ElementTree as ET
+    from simulation.scene_library.frames import site_attachment
+    root = ET.parse(model_path).getroot()
+    names = [site.get("name", "") for site in root.iter("site")]
+    moving = any(site_attachment(root, name)[0] != "cubesat_bus" for name in names
+                 if name.endswith(("_pickup", "_insert_40p1", "_insert_40p5")))
+    return model_retention_sockets(model_path, owned=moving)

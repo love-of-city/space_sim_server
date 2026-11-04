@@ -29,13 +29,9 @@ function Resolve-PlatformAdapterRoot([string]$RequestedRoot, [string]$ProjectRoo
     $parent = Split-Path -Parent $workspace
     $candidates = @()
     foreach ($base in @($workspace, $parent) | Where-Object { $_ } | Select-Object -Unique) {
-        foreach ($name in @('ue-adapter', 'space_sim_UE_adapter')) {
-            $sibling = Join-Path $base $name
-            $candidates += $sibling
-            foreach ($nested in @('ue-adapter', 'space_sim_UE_adapter')) {
-                $candidates += Join-Path $sibling $nested
-            }
-        }
+        $sibling = Join-Path $base 'ue-adapter'
+        $candidates += $sibling
+        $candidates += Join-Path $sibling 'ue-adapter'
     }
     foreach ($candidate in $candidates | Select-Object -Unique) {
         if (Test-Path -LiteralPath (Join-Path $candidate 'Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject') -PathType Leaf) {

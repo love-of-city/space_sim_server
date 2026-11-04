@@ -8,7 +8,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-from simulation.scripted_tasks.drawer_initialization import NativePoseProbe, randomized_scene
+from simulation.scripted_tasks.native_geometry_probe import NativePoseProbe
+from simulation.scripted_tasks.task_initialization import randomized_scene
 from simulation.scripted_tasks.native_state import DrawerState
 from simulation.scripted_tasks.randomization import write_model_variant
 

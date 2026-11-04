@@ -1,10 +1,10 @@
 import template from './collection.html?raw';
+import {createTaskCatalog} from '../task_catalog.js';
 import {mountView} from '../ui.js';
 import {createRandomizationControls} from './collection_randomization.js';
 import {collectionLayoutError} from './collection_layout_status.js';
-export function createCollectionPage(root,{api}) {
+export function createCollectionPage(root,{api,taskCatalog=createTaskCatalog(api)}) {
 const $=mountView(root,template);
-const taskLabels = new Map();
 let randomizationControls=null;
 const syncInitialization=()=>{$("range-deg").disabled=!$("initialization-enabled").checked;};
 $("initialization-enabled").onchange=syncInitialization;
@@ -17,7 +17,7 @@ const duration = (seconds) => `${Math.floor(seconds/60)} 分 ${Math.floor(second
 function renderJob(job) {
   const card=element("article",undefined,"panel job");
   const head=element("div",undefined,"job-head"), title=element("div");
-  title.append(element("h3",taskLabels.get(job.config.task) || job.config.task),element("div",job.id,"muted job-id"));
+  title.append(element("h3",taskCatalog.label(job.config.task)),element("div",job.id,"muted job-id"));
   head.append(title,element("span",label(job.status),`badge ${job.status}`)); card.append(head);
   const metrics=element("div",undefined,"metrics");
   for(const [value,caption] of [[`${job.success_count} / ${job.config.count}`,"成功记录"],[job.config.workers,"并发实例"],[duration(job.elapsed_seconds),"实际耗时"]]){
@@ -75,7 +75,7 @@ let active=false, timer=null, epoch=0, refreshing=false, submitting=false, previ
 function historyRow(job) {
   const details=element('details',undefined,'panel'); details.dataset.history=job.id;
   const summary=element('summary',undefined,'history-row'), info=element('span');
-  info.append(element('strong',taskLabels.get(job.config.task)||job.config.task),element('small',    `${new Date(job.started_at*1000).toLocaleString()} · ${job.success_count} / ${job.config.count} 条成功 · ${job.owner.username}`));
+  info.append(element('strong',taskCatalog.label(job.config.task)),element('small',    `${new Date(job.started_at*1000).toLocaleString()} · ${job.success_count} / ${job.config.count} 条成功 · ${job.owner.username}`));
   summary.append(info,element('span',label(job.status),`badge ${job.status}`));details.append(summary);
   details.addEventListener('toggle',()=>{if(details.open&&!details.dataset.loaded){details.dataset.loaded='true';const body=renderJob(job);body.classList.remove('panel');details.append(body);}});
   return details;
@@ -135,8 +135,7 @@ return {
   async activate(){
     active=true;const version=++epoch;
     try{
-      if(!catalog){const data=await api('/api/collections/catalog');if(!active||version!==epoch)return;if(!Array.isArray(data.randomization_options))throw new Error('后端仍在运行旧版本，请重启平台后端并刷新页面以加载扰动设置。');catalog=data;
-        for(const task of data.tasks)taskLabels.set(task.id,task.label);
+      if(!catalog){const data=await taskCatalog.load();if(!active||version!==epoch)return;if(!Array.isArray(data.randomization_options))throw new Error('后端仍在运行旧版本，请重启平台后端并刷新页面以加载扰动设置。');catalog=data;
         $('task').replaceChildren(...data.tasks.map(task=>{const option=element('option',task.label);option.value=task.id;return option;}));
         randomizationControls=createRandomizationControls($("randomization-options"),data.randomization_options||[]);syncInitialization();
         $('layout-randomization').disabled=!data.layout_randomization?.available;
@@ -150,6 +149,6 @@ return {
     if(active&&version===epoch){await refresh();if(active&&version===epoch){clearInterval(timer);timer=setInterval(refresh,2000);}}
   },
   deactivate(){active=false;epoch++;clearInterval(timer);timer=null;},
-  reset(){this.deactivate();catalog=null;previousJobs='';taskLabels.clear();$('jobs').replaceChildren();$('history').replaceChildren();$('setup').hidden=true;$('collection-form').reset();randomizationControls?.sync();syncInitialization();notice();},
+  reset(){this.deactivate();catalog=null;previousJobs='';$('jobs').replaceChildren();$('history').replaceChildren();$('setup').hidden=true;$('collection-form').reset();randomizationControls?.sync();syncInitialization();notice();},
 };
 }

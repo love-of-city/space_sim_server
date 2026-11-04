@@ -8,18 +8,19 @@ from test_unified_drawer_scoring import scorer as drawer_scorer, cycle, ROTATION
 
 
 def document():
-    return dict(schema='space-arm-fixed-trajectory/1',task='drawer_cycle',frame='cubesat_bus',
+    return dict(schema='space-arm-fixed-trajectory/2',task='drawer_cycle',frame='cubesat_bus',
                 model_sha256='a'*64,initial_joints=[0.0]*8,
                 samples=[dict(time_s=0.,joint_reference=[0.]*8,joint_reference_velocity=[0.]*8,position_m=[0.,0.,0.],rotation=np.eye(3).tolist()),
-                         dict(time_s=1.,joint_reference=[.1]*6+[.7,-.7],joint_reference_velocity=[0.]*8,position_m=[.1,0.,0.],rotation=np.eye(3).tolist())])
+                         dict(time_s=.005,joint_reference=[.1]*6+[.7,-.7],joint_reference_velocity=[0.]*8,position_m=[.1,0.,0.],rotation=np.eye(3).tolist())])
 
 
-def test_legacy_replay_accepts_only_disabled_new_scene_options():
+def test_replay_requires_exact_effective_configuration():
     from simulation.evaluation.replay import same_task_configuration
     frozen = dict(force_limit_n=40., torque_limit_nm=4.)
     current = dict(frozen, transport_clearance_m=None, part_velocity_damping=None,
                    transfer_offset_xy_m=[0., 0.])
-    assert same_task_configuration(frozen, current)
+    assert same_task_configuration(frozen, dict(frozen))
+    assert not same_task_configuration(frozen, current)
     assert len(current) == 5 and len(frozen) == 2
     for change in [dict(part_velocity_damping=2.), dict(transfer_offset_xy_m=[.1, 0.]),
                    dict(transport_clearance_m=.16), dict(force_limit_n=80.)]:
@@ -35,8 +36,8 @@ def row(t, **kw):
 
 def test_frozen_reference_does_not_depend_on_observed_objects():
     d=document();t=FrozenTrajectory(d);d['samples'][0]['joint_reference'][0]=999
-    assert t.reference(.5)[0][0]==0
-    assert t.reference(1.0)[0][0]==.1
+    assert t.reference(.0025)[0][0]==0
+    assert t.reference(.005)[0][0]==.1
     assert t.reference(8.)[1]==pytest.approx([0.]*8)
 
 
@@ -155,7 +156,7 @@ def test_applied_velocity_is_frozen_instead_of_reconstructed():
     d=document()
     for sample in d['samples']:sample['joint_reference_velocity']=[.03]*8
     t=FrozenTrajectory(d)
-    assert t.reference(.5)[1]==pytest.approx([.03]*8)
+    assert t.reference(.0025)[1]==pytest.approx([.03]*8)
     assert t.reference(1.1)[1]==pytest.approx([0.]*8)
 
 
@@ -171,7 +172,7 @@ def test_replay_step_does_not_call_adaptive_controller():
     donor=SimpleNamespace(step=forbidden,chain=SimpleNamespace(forward=lambda q:(np.array([0.,0.,.2]),np.eye(3))))
     replay=FixedReplayTask.__new__(FixedReplayTask)
     replay.donor=donor;replay.trajectory=FrozenTrajectory(document());replay.scorer=drawer_scorer()
-    replay.result=None;replay.events=[];replay.reason=''
+    replay.result=None;replay.events=[];replay.reason='';replay._initial_position=None
     sample=SimpleNamespace(time_s=0.,joints=np.zeros(8),joint_velocities=np.zeros(8),wrench=np.zeros(6),wrench_valid=False,
                            drawer_m=0.,drawer_velocity_m_s=0.,buckle_rad=0.,finger_drawer_contacts=[0,0])
     command,_=replay.step(sample)
@@ -241,7 +242,7 @@ def test_drawer_retreat_goal_cannot_be_weakened_by_failed_donor_endpoint():
 
 
 @pytest.mark.parametrize("replay", [False, True])
-def test_donor_and_replay_launch_the_same_scene_expert(tmp_path, monkeypatch, replay):
+def test_donor_and_replay_share_current_runner_without_legacy_expert(tmp_path, monkeypatch, replay):
     from types import SimpleNamespace
     from pathlib import Path
     from tools.diagnostics import evaluate_fixed_trajectories as cli
@@ -254,6 +255,6 @@ def test_donor_and_replay_launch_the_same_scene_expert(tmp_path, monkeypatch, re
                          trajectory=tmp_path / "trajectory.json" if replay else None)
     assert result["returncode"] == 0
     command = launched[0]
-    assert "--scene-expert" in command
+    assert "--scene-expert" not in command
     assert ("--replay-trajectory" in command) is replay
     assert Path(command[1]).is_file()

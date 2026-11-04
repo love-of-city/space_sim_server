@@ -11,7 +11,8 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import PlatformConfig, create_app
+from .app import create_app
+from .platform_config import PlatformConfig
 from .camera_defaults import CAPTURE_CAMERA_WIDTH, CAPTURE_CAMERA_HEIGHT
 from .sampling import DEFAULT_CAPTURE_HZ, DEFAULT_IK_HZ
 
@@ -41,7 +42,6 @@ def main() -> None:
     parser.add_argument("--simulation-host", default="127.0.0.1")
     parser.add_argument("--simulation-port", type=int, default=8766)
     parser.add_argument("--rendezvous-port", type=int, default=8768)
-    parser.add_argument("--rendezvous-repo", type=Path, default=os.getenv("SPACE_SIM_RENDEZVOUS_REPO"))
     parser.add_argument("--rendezvous-python", type=Path, default=os.getenv("SPACE_SIM_RENDEZVOUS_PYTHON", sys.executable))
     parser.add_argument("--capture-host", default="127.0.0.1")
     parser.add_argument("--capture-port", type=int, default=8767)
@@ -113,7 +113,6 @@ def main() -> None:
             simulation_host=args.simulation_host,
             simulation_port=args.simulation_port,
             rendezvous_port=args.rendezvous_port,
-            rendezvous_repo=args.rendezvous_repo.resolve() if args.rendezvous_repo else None,
             rendezvous_python=args.rendezvous_python.resolve() if args.rendezvous_python else None,
             capture_host=args.capture_host,
             capture_port=args.capture_port,

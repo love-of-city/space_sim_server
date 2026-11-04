@@ -1,15 +1,9 @@
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { resolveSignallingUrl } from '../pixel_stream_session.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const source = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
-const definition = source.slice(source.indexOf('function signallingUrl()'), source.indexOf('function resetWebRtcStats()'));
 function resolve(config, href = 'http://127.0.0.1:18000/') {
-  const location = new URL(href);
-  const context = vm.createContext({ state: { streamConfig: config }, location, URL });
-  vm.runInContext(definition, context);
-  return new URL(context.signallingUrl());
+  return new URL(resolveSignallingUrl(config, new URL(href)));
 }
 
 test('default local signalling includes the JWT needed by secure Linux deployment', () => {

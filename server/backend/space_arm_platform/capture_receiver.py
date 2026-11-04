@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .protocol import FramedSocketReader
+from .vision_capture_dispatch import VisionCaptureDispatch
 
 
 HEADER = struct.Struct("!I")
@@ -31,13 +32,14 @@ class PreviewFrame:
 class CaptureReceiver:
     def __init__(self, host: str, port: int, on_authoritative_capture: Callable[[dict[str, Any], dict[str, bytes]], None],
                  on_authoritative_error: Callable[[str], None] | None = None,
-                 on_vision_capture: Callable[[dict[str, Any], dict[str, bytes]], None] | None = None) -> None:
+                 *, on_vision_capture=None) -> None:
         self.host = host
         self.port = int(port)
         self.on_authoritative_capture = on_authoritative_capture
         self.on_authoritative_error = on_authoritative_error
-        self.on_vision_capture = on_vision_capture
         self._accepted_packets = OrderedDict()
+        self._vision_packets = OrderedDict()
+        self.vision_dispatch = VisionCaptureDispatch(on_vision_capture)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._authoritative_thread: threading.Thread | None = None
@@ -52,14 +54,13 @@ class CaptureReceiver:
         self.last_authoritative_error: str | None = None
         self.preview_count = 0
         self.authoritative_count = 0
-        self.vision_count = 0
-        self.last_vision_error = None
         self._pipeline_status = {}
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        self.vision_dispatch.start()
         self._authoritative_thread = threading.Thread(
             target=self._authoritative_worker,
             name="bsk-authoritative-capture-writer",
@@ -94,6 +95,7 @@ class CaptureReceiver:
                         break
             writer.join(timeout=max(0.0, deadline - time.monotonic()))
         self._authoritative_thread = None
+        self.vision_dispatch.close()
 
     def camera_ids(self) -> list[str]:
         with self._condition:
@@ -124,19 +126,32 @@ class CaptureReceiver:
                 "preview_cameras": sorted(self._frames),
                 "preview_count": self.preview_count,
                 "authoritative_count": self.authoritative_count,
-                "vision_count": self.vision_count,
-                "last_vision_error": self.last_vision_error,
                 "last_error": self.last_error,
                 "last_authoritative_error": self.last_authoritative_error,
                 "pending_authoritative_packets": self._authoritative_queue.qsize(),
                 "unfinished_authoritative_packets": self._authoritative_queue.unfinished_tasks,
                 "pipeline": dict(self._pipeline_status),
+                "vision": self.vision_dispatch.status(),
             }
 
     def route_capture(self, metadata: dict[str, Any], products: dict[str, bytes]) -> None:
         """Route one decoded packet; preview bytes never enter the episode recorder."""
         stream_kind = str(metadata.get("stream_kind", ""))
         state_kind = str(metadata.get("state_kind", ""))
+        if stream_kind == "vision" and state_kind == "authoritative":
+            key = None
+            if metadata.get("ack_required"):
+                key = tuple(str(metadata.get(k, "")) for k in ("session_id", "camera_id", "capture_sequence"))
+                if not all(key):
+                    raise ValueError("acknowledged vision capture needs session, camera and sequence")
+                if key in self._vision_packets:
+                    return
+            self.vision_dispatch.offer(metadata, products)
+            if key is not None:
+                self._vision_packets[key] = None
+                while len(self._vision_packets) > 1024:
+                    self._vision_packets.popitem(last=False)
+            return
         if stream_kind == "preview":
             rgb = products.get("rgb")
             if not rgb:
@@ -156,9 +171,7 @@ class CaptureReceiver:
                 )
                 self._condition.notify_all()
             return
-        if stream_kind in {"authoritative", "vision"} and state_kind == "authoritative":
-            if stream_kind == 'vision' and self.on_vision_capture is None:
-                raise ValueError('vision capture consumer is not configured')
+        if stream_kind == "authoritative" and state_kind == "authoritative":
             with self._condition:
                 self._pipeline_status = {key: metadata.get(key) for key in (
                     'capture_episode_id', 'source_frame_id', 'camera_id', 'render_queue_frames',
@@ -180,10 +193,7 @@ class CaptureReceiver:
             # slow writer cannot make UE's reliable capture queue overflow.
             if self._authoritative_thread and self._authoritative_thread.is_alive():
                 with self._condition:
-                    if stream_kind == 'vision':
-                        self.vision_count += 1
-                    else:
-                        self.authoritative_count += 1
+                    self.authoritative_count += 1
                 # Preserve the packet across temporary stalls; do not crash the
                 # receiver thread with queue.Full or abandon a partial TCP packet.
                 while not self._stop.is_set():
@@ -194,10 +204,7 @@ class CaptureReceiver:
                         continue
             else:
                 with self._condition:
-                    if stream_kind == 'vision':
-                        self.vision_count += 1
-                    else:
-                        self.authoritative_count += 1
+                    self.authoritative_count += 1
                 self._process_authoritative_capture(metadata, products)
             if key is not None:
                 self._accepted_packets[key] = None
@@ -205,7 +212,7 @@ class CaptureReceiver:
                     self._accepted_packets.popitem(last=False)
             return
         raise ValueError(
-            f"capture must declare preview or authoritative state, got stream={stream_kind!r}, state={state_kind!r}"
+            f"capture must declare preview, vision or authoritative state, got stream={stream_kind!r}, state={state_kind!r}"
         )
 
     def wait_for_authoritative_idle(self, timeout_s: float = 10.0) -> bool:
@@ -218,13 +225,6 @@ class CaptureReceiver:
         return True
 
     def _process_authoritative_capture(self, metadata: dict[str, Any], products: dict[str, bytes]) -> None:
-        if metadata.get('stream_kind') == 'vision':
-            try:
-                self.on_vision_capture(metadata, products)
-                self.last_vision_error = None
-            except Exception as error:
-                self.last_vision_error = str(error)
-            return
         try:
             self.on_authoritative_capture(metadata, products)
             with self._condition:

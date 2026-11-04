@@ -2,25 +2,25 @@
 
 完整任务交接见[全流程指南](../../docs/guides/simulation-data-workflow.md)，精确的配置优先级及入口差异见[采集配置参考](../../docs/reference/collection-configuration.md)，当前任务版本与成功/数据判据见[验收参考](../../docs/reference/task-and-data-acceptance.md)。本页带日期段落保留当时变更背景。
 
-日常入口只有 `tools/collect.py`，参数集中在 `config/collection.json`。航空螺栓与其他任务共用正式实现，只在本次默认配置中关闭。
+日常入口只有 `tools/collect.py`，参数集中在 `config/collection.json`。当前默认只启用航空、导向、圆柱三个插头任务；其他受支持任务可通过同一配置启用。
 
 | 顺序 | 任务 | 默认启用 |
 |---|---|---|
-| 1 | `drawer_cycle` 抽屉开关 | 是 |
+| 1 | `drawer_cycle` 抽屉开关 | 否 |
 | 2 | `aviation_plug_insert` 航空插头拔取插入 | 是 |
 | 3 | `guide_plug_insert` 导向插头拔取插入 | 是 |
 | 4 | `cylindrical_plug_insert` 圆柱插头拔取插入 | 是 |
-| 5 | `locking_rod_cycle` 锁杆松开、折叠、复位、锁紧 | 是 |
+| 5 | `locking_rod_cycle` 锁杆松开、折叠、复位、锁紧 | 否 |
 | 6 | `aviation_bolt_insert` 航空螺栓旋出装配 | 否 |
 | 7 | `drawer_open` 抽屉拉起 | 否 |
 | 8 | `drawer_close` 抽屉放回 | 否 |
 | 9 | `locking_rod_fold` 锁杆装置放倒 | 否 |
 | 10 | `locking_rod_restore` 锁杆装置复位 | 否 |
 
-四项[单向任务](single-direction-collection.md)可独立启用，默认保留原五任务批次。`drawer_close` 在任务开始前初始化为约 8 cm 打开，`locking_rod_restore` 初始化为放倒入卡扣且紧固件松开的物理初态；无需先录前置任务，也不在录制中跳变物体状态。语言、阶段和验收按所选方向记录。
+四项[单向任务](single-direction-collection.md)可独立启用，本次固定初态的三插头计划关闭这些任务。`drawer_close` 在任务开始前初始化为约 8 cm 打开，`locking_rod_restore` 初始化为放倒入卡扣且紧固件松开的物理初态；无需先录前置任务，也不在录制中跳变物体状态。语言、阶段和验收按所选方向记录。
 
 
-每遍将池内布局洗牌、不重复遍历；当前配置 `layout_cycles: 1000` 表示总共 **1000个布局轮次 × 5种任务 = 5000次尝试**，即150套遍历6遍后再取100套。此参数存在时取代 `passes` 的总量设置；设为null时恢复按passes遍历，`--layouts`显式短批参数也关闭总轮次设置。成功数取决于实际结果。每个布局轮次初始化一次七孔颜色、源件颜色和五个固定机位中的一个，随后依序执行启用任务。孔颜色不重复；颜色不改变实际孔件对应关系。每条重新采样六关节相对基准的 ±30° 初态，恢复全部物体、关节速度和控制器状态。任务指令依照当条真实颜色生成英语，保留既有模板选择功能。
+每遍将池内布局洗牌、不重复遍历；当前配置 `layout_cycles: 1000` 表示总共 **1000个布局轮次 × 3种任务 = 3000次尝试**，即150套遍历6遍后再取100套。此参数存在时取代 `passes` 的总量设置；设为null时恢复按passes遍历，`--layouts`显式短批参数也关闭总轮次设置。成功数取决于实际结果。每个布局轮次初始化一次七孔颜色、源件颜色和五个固定机位中的一个，随后依序执行启用任务。孔颜色不重复；颜色不改变实际孔件对应关系。当前`range_deg=0`，每条六轴关节固定为`[90,-60,60,0,-90,0]°`，关节偏移和初速度均为零；恢复全部物体和控制器状态。改变`range_deg`可为以后新批次启用相对该基准的均匀偏移。任务指令依照当条真实颜色生成英语，保留既有模板选择功能。
 
 初态拒绝、控制任务失败/超时、录后质量不合格均跳过当前任务，**不重试、不补齐成功数**，直接走下一任务；列表走完就换布局。布局准备失败跳过该轮。UE退出或动力学进程异常时关闭本采集器的会话，下一任务重新启动；连续3次运行环境异常仍无法恢复才保存进度并停止。磁盘不可写或可用空间低于20GiB时保存进度停止。这里没有逐布局完整轨迹认证，也不增加试跑任务。
 
@@ -29,7 +29,7 @@
 ```mermaid
 flowchart LR
   A[布局池洗牌] --> B[加载下一布局及颜色和机位]
-  B --> C[恢复物体并随机机械臂初态]
+  B --> C[恢复物体和配置指定的机械臂初态]
   C --> D[尝试录制下一任务]
   D --> E[记录成功或跳过原因]
   E --> F{本布局任务列表结束}
@@ -48,7 +48,7 @@ python tools/collect.py --output /absolute/new-run --plan-only
 python tools/collect.py --output /absolute/new-run --resume
 # 新建完整采集批次。
 python tools/collect.py --output /absolute/another-new-run
-# 短批次验收：两套布局，每套五种任务。
+# 短批次验收：两套布局，每套三个启用任务。
 python tools/collect.py --output /absolute/new-smoke-run --layouts 2
 ```
 

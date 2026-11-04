@@ -36,7 +36,8 @@ def test_catalog_preserves_diagram_and_first_phase():
 def test_materialized_library_preserves_scope_and_rejects_changed_manifest(repository):
     from simulation.scene_library.materialize import materialize, library_instances, phase_one_presets
     entries = phase_one_presets()
-    assert len(entries) == 14
+    assert len(entries) == 5
+    assert all(e['scene_id'].startswith(('01_', '03_')) for e in entries)
     assert not any(e['scene_id'] == '04_cross_transfer/drawer_cycle' for e in entries)
     output = repository / 'library'
     record = materialize(repository, output, geometry_python='unused',
@@ -193,8 +194,8 @@ def test_failed_rod_preflight_never_starts_dynamics(repository, monkeypatch):
         return subprocess.CompletedProcess(command, 1)
     monkeypatch.setattr('simulation.scene_library.runner.subprocess.run', reject_preflight)
     receipt = run(instance, repository / 'rod-result')
-    assert len(calls) == 1 and 'prepare_locking_rod_path.py' in calls[0][1]
-    assert receipt['status'] == 'preparation_failed'
+    assert not calls
+    assert receipt['status'] == 'unsupported'
     assert receipt['accepted'] is False
     assert not (repository / 'rod-result/native').exists()
 
@@ -300,7 +301,8 @@ def test_cross_star_builder_preserves_pairs_and_source(repository, monkeypatch):
         return subprocess.CompletedProcess(command, 0)
     monkeypatch.setattr('simulation.scene_library.runner.subprocess.run', successful_operation)
     receipt = run(instance, repository / 'fixture-result')
-    assert receipt['operation_accepted'] is True
+    assert receipt['operation_accepted'] is False
+    assert receipt['status'] == 'unsupported'
     assert receipt['accepted'] is False
     assert receipt['physical_docking_accepted'] is False
     instance['initial_scene']['randomization']['target_position_m'] = [0, 0, 0]
@@ -318,20 +320,10 @@ def test_cross_star_builder_preserves_pairs_and_source(repository, monkeypatch):
             mount_inspection=bad_inspection)
 
 
-def test_raised_plug_clearance_is_opt_in_and_keeps_protection(tmp_path):
-    from simulation.scripted_tasks.scene_plug import PlugInsertTask, PlugInsertConfig
-    model = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_20261012.xml"
-    baseline = PlugInsertTask(model)
-    assert baseline.config.transport_height_m == .245
-    tree = ET.parse(model)
-    mount = tree.getroot().find('.//body[@name="task_box_base"]')
-    position = [float(v) for v in mount.get("pos").split()]
-    position[2] += .45
-    mount.set("pos", " ".join(map(str, position)))
-    raised = tmp_path / "raised.xml"
-    tree.write(raised)
-    task = PlugInsertTask(raised, PlugInsertConfig(transport_clearance_m=.24))
-    assert task.config.transport_height_m == pytest.approx(.695)
-    assert task.config.force_limit_n == baseline.config.force_limit_n == 40.
-    assert task.config.torque_limit_nm == baseline.config.torque_limit_nm == 4.
-    assert task.config.seat_tolerance_m == baseline.config.seat_tolerance_m
+def test_moving_plug_operations_require_a_current_controller_adapter(repository):
+    from simulation.scene_library.materialize import materialize
+    for family in ('02_docked_operation', '04_cross_transfer'):
+        with pytest.raises(ValueError, match='current-controller'):
+            materialize(repository, repository / 'unsupported',
+                        scene_ids=[family + '/guide_plug_insert'])
+    assert not (repository / 'unsupported').exists()

@@ -1,4 +1,4 @@
-"""User diagram in its original order; availability is not acceptance."""
+"""Design catalogue in source order; runtime support and acceptance are separate."""
 from copy import deepcopy
 
 OPERATIONS = [
@@ -44,8 +44,10 @@ def catalog():
     for index, (family, label, operations, roles) in enumerate(FAMILIES, 1):
         for task, task_label in operations:
             adapter = "task_box" if index == 1 and task != "locking_rod_cycle" else (
-                "locking_rod" if index == 1 else "flight" if index == 3 else None)
+                "flight" if index == 3 else None)
             gaps = []
+            if index == 1 and task == "locking_rod_cycle":
+                gaps += ["current_rod_independent_scoring_adapter"]
             if index in (2, 4):
                 gaps += ["dual_arm_preheld_target_and_hold_validation", "target_owned_task_modules"]
             if index == 4:
@@ -80,7 +82,7 @@ def recipe(scene_id):
 
 
 def phase_one_scope():
-    """Explicit user decisions; retain the complete original diagram separately."""
+    """Original design scope; unsupported adapters remain explicitly unavailable."""
     return dict(version='local-phase-one/3-dual-arm-preheld',
                 connected_initial_state_families=[2, 4],
                 connected_initial_state='target_held_by_capture_arm_at_working_distance',

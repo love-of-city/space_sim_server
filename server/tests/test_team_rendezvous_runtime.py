@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from space_arm_platform.app import RendezvousStart
+from space_arm_platform.mission_api import RendezvousStart
 from space_arm_platform.rendezvous_runtime import RendezvousRuntime
 
 from simulation.orbital_rendezvous.handoff import load_handoff
@@ -18,7 +18,7 @@ from simulation.orbital_rendezvous.handoff import load_handoff
 
 def renderer_release_probe(tmp_path, monkeypatch):
     import psutil
-    runtime = RendezvousRuntime(None, Path(sys.executable), 0, tmp_path / "logs", tmp_path, render_port=25558)
+    runtime = RendezvousRuntime(Path(sys.executable), 0, tmp_path / "logs", tmp_path, render_port=25558)
     runtime._renderer_identity = (42, 7.0)
     events = []
     process = SimpleNamespace(pid=42, create_time=lambda: 7.0, children=lambda **kw: [],
@@ -109,7 +109,7 @@ def test_renderer_launcher_does_not_wait_for_long_lived_child_stdout(tmp_path, m
                              runtime_powershell_exe="pwsh", runtime_pixel_streamer_port=28888,
                              pixel_streaming_streamer_id="test", runtime_preview_rate=90,
                              runtime_renderer_ready_timeout=2)
-    runtime = RendezvousRuntime(None, Path(sys.executable), 0, tmp_path / "logs", tmp_path,
+    runtime = RendezvousRuntime(Path(sys.executable), 0, tmp_path / "logs", tmp_path,
                                 launch_config=config)
     connections = 0
 
@@ -166,8 +166,7 @@ def test_team_launch_does_not_require_old_demo_repository(tmp_path, monkeypatch,
     monkeypatch.setattr(
         "space_arm_platform.rendezvous_runtime.subprocess.Popen", Process
     )
-    runtime = RendezvousRuntime(
-        None, Path(sys.executable), 28768, tmp_path / "logs", tmp_path, render_port=render_port
+    runtime = RendezvousRuntime( Path(sys.executable), 28768, tmp_path / "logs", tmp_path, render_port=render_port
     )
     assert runtime.start(scenario="team-orbit-raise")["running"]
     command, options = launched[0]
@@ -205,7 +204,7 @@ def test_live_flight_uses_catalog_from_configured_runtime_adapter(tmp_path, monk
         def terminate(self): pass
         def wait(self, **kwargs): return 0
     monkeypatch.setattr('space_arm_platform.rendezvous_runtime.subprocess.Popen',Process)
-    runtime=RendezvousRuntime(None,Path(sys.executable),28768,tmp_path/'logs',tmp_path/'team',
+    runtime=RendezvousRuntime(Path(sys.executable),28768,tmp_path/'logs',tmp_path/'team',
         launch_config=SimpleNamespace(runtime_adapter_root=adapter))
     monkeypatch.setattr(runtime,'_ensure_renderer',lambda:None)
     assert runtime.start(live=True,scenario='team-in-orbit')['running']
@@ -225,7 +224,7 @@ def test_renderer_ownership_uses_resolved_project_paths(tmp_path, monkeypatch, f
     alias=project.parent/'../BskUnrealRenderer'/('Foreign.uproject' if foreign else project.name)
     process=SimpleNamespace(pid=42,cmdline=lambda:['UnrealEditor',str(alias),'-game'],create_time=lambda:7.0)
     monkeypatch.setattr(psutil,'Process',lambda pid:process)
-    runtime=RendezvousRuntime(None,Path(sys.executable),28768,tmp_path/'logs',tmp_path)
+    runtime=RendezvousRuntime(Path(sys.executable),28768,tmp_path/'logs',tmp_path)
     if foreign:
         with pytest.raises(RuntimeError,match='不属于'):
             runtime._remember_renderer(tmp_path,require_listening=False)
@@ -235,7 +234,8 @@ def test_renderer_ownership_uses_resolved_project_paths(tmp_path, monkeypatch, f
         assert runtime._renderer_identity==(42,7.0)
 
 
-def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tmp_path, monkeypatch):
+def test_windows_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tmp_path, monkeypatch):
+    monkeypatch.setattr("space_arm_platform.rendezvous_runtime.sys.platform", "win32")
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "start_renderer.ps1").write_text("")
@@ -244,7 +244,7 @@ def test_flight_renderer_uses_the_same_camera_streams_as_the_operator_console(tm
         pixel_streaming_streamer_id="test", runtime_preview_rate=60, runtime_renderer_ready_timeout=2,
         runtime_encoder_min_quality=65, runtime_pixel_streaming_camera_ids=("teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"),
         runtime_pixel_streaming_camera_width=640, runtime_pixel_streaming_camera_height=360)
-    runtime = RendezvousRuntime(None, Path(sys.executable), 0, tmp_path / "logs", tmp_path, launch_config=config)
+    runtime = RendezvousRuntime(Path(sys.executable), 0, tmp_path / "logs", tmp_path, launch_config=config)
     attempts = 0
     def connect(*args, **kwargs):
         nonlocal attempts

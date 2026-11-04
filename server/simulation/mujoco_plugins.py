@@ -14,13 +14,13 @@ def ensure_model_plugins(model_path: Path):
     root = ET.parse(model_path).getroot()
     if root.find('./extension/plugin[@plugin="sarm.sdf.two_start_thread"]') is None:
         return
-    from simulation.local_mujoco_stepper import _basilisk_mujoco_runtime
+    from simulation.mujoco_runtime import basilisk_mujoco_runtime
     base = Path(__file__).resolve().parents[1]
     manifest = base / 'run/native_acceleration/sarm_thread.json'
     if not manifest.is_file():
         raise FileNotFoundError('SARM thread plugin is missing; run tools/assets/build_sarm_plugin.py with the platform Python')
     record = json.loads(manifest.read_text(encoding='utf-8-sig'))
-    return ensure_sarm_plugin(_basilisk_mujoco_runtime(), base / record['library'], manifest)
+    return ensure_sarm_plugin(basilisk_mujoco_runtime(), base / record['library'], manifest)
 
 def validate_plugin_manifest(plugin_path: Path, manifest_path: Path, runtime_version: int) -> dict:
     plugin_path, manifest_path = Path(plugin_path), Path(manifest_path)

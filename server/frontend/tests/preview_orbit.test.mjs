@@ -34,7 +34,7 @@ test('viewport routes middle drag, releases capture and never enters robot opera
     pixelStreaming:{emitCommand:p=>{packets.push(p);return true;}}};
   const context=vm.createContext({PreviewOrbit,state,$,window:node('window'),document:node('document'),
     exitOperationMode(){neutral++;},enterOperationMode(){entered++;},setMessage(){},freeCamera:{}});
-  vm.runInContext(source.slice(source.indexOf('const previewOrbit ='),source.indexOf('window.addEventListener("keydown"')),context);
+  vm.runInContext(source.slice(source.indexOf('const previewOrbit ='), source.indexOf('const diagnostics =')) + source.slice(source.indexOf('// Presentation offsets'),source.indexOf('window.addEventListener("keydown"')),context);
   const fire=(type,extra)=>{const event={button:1,buttons:4,clientX:10,clientY:20,pointerId:1,
     target:{closest:()=>null},preventDefault(){},stopImmediatePropagation(){this.stop=true;},...extra};
     for(const fn of listeners.get(type)||[]){fn(event);if(event.stop)break;}};

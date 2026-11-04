@@ -1,4 +1,6 @@
 """The scheduler must preserve one layout's appearance and never retry a bad task."""
+
+from collection import recording_validation as validation
 import errno
 import json
 from copy import deepcopy
@@ -11,7 +13,7 @@ from pydantic import ValidationError
 from collection import sequence
 from collection import collect_scripted_tasks as batch
 from space_arm_platform.collection_layouts import LayoutPool
-from space_arm_platform.overview_camera import validate_overview_camera
+from space_arm_platform.overview_camera_records import validate_overview_camera
 from simulation.scripted_tasks.randomization import prepare_episode
 from test_collection_layouts import layout_pool
 
@@ -195,12 +197,12 @@ def test_shared_batch_session_reuses_runtime_without_outer_preflight(tmp_path, m
         out=Path(command[command.index('--output')+1]); out.mkdir()
         (out/'summary.json').write_text(json.dumps(dict(episode_id='episode', task=dict(result='success'))))
         return SimpleNamespace(returncode=0, poll=lambda:0)
-    monkeypatch.setattr('simulation.scripted_tasks.drawer_initialization.NativePoseProbe', Probe)
+    monkeypatch.setattr('simulation.scripted_tasks.native_geometry_probe.NativePoseProbe', Probe)
     monkeypatch.setattr(batch, 'PersistentRenderer', Renderer)
     monkeypatch.setattr(batch, 'PersistentDynamics', Dynamics)
     monkeypatch.setattr(batch, 'check_port_available', ports.append)
-    monkeypatch.setattr(batch, 'validate_recording_fast', lambda *a: {})
-    monkeypatch.setattr(batch, 'validate_recording', lambda *a: {})
+    monkeypatch.setattr(validation, 'validate_recording_fast', lambda *a: {})
+    monkeypatch.setattr(validation, 'validate_recording', lambda *a: {})
     monkeypatch.setattr(batch.subprocess, 'Popen', popen)
     monkeypatch.setattr(recorder, 'recording_settings', lambda *a: None)
     monkeypatch.setattr(randomization, 'prepare_episode', lambda s:s)

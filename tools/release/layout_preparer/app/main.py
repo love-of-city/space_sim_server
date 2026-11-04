@@ -113,7 +113,7 @@ class Job:
 
     def prepare(self):
         from simulation.collection_assets import prepare_base_catalog
-        from simulation.task_box_layout import validated_capture_layout
+        from simulation.capture_layout import validated_capture_layout
         base = prepare_base_catalog(self.out/'base.catalog.json', adapter=ADAPTER)
         self.state['phase'] = 'assets'
         for index in range(self.args.count):

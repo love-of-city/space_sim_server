@@ -109,7 +109,7 @@ def benchmark(args) -> dict:
     if not (examples / "scenario_spacecraft_arm_grasp_unreal.py").is_file():
         raise ValueError("adapter-root must be the repository containing Adapters/ and Unreal/")
     out = args.output.resolve()
-    suffixes = (".json", ".scene.json", ".observations.jsonl", ".frames.jsonl", ".pstats", ".profile.txt", ".physics.npz")
+    suffixes = (".json", ".scene.json", ".observations.jsonl", ".frames.jsonl", ".pstats", ".profile.txt")
     if out.suffix != ".json" or any(out.with_suffix(s).exists() for s in suffixes):
         raise ValueError("output must be a NEW .json path with unused sidecar names")
     # Copy, never modify, the saved scene; pacing alone is accelerated. The
@@ -159,7 +159,8 @@ def benchmark(args) -> dict:
         native.MODEL_PATH = model_path
     import bsk_render_adapter
     from bsk_render_adapter.protocol import RecordingOnlyPublisher, encode_packet
-    from simulation import teleop_grasp_unreal as teleop
+    from simulation import teleop_control as teleop
+    from simulation import teleop_session as session
     from simulation import attitude_control
     from simulation import native_integration
     if not math.isfinite(args.rkf_relative_tol) or args.rkf_relative_tol <= 0:
@@ -174,7 +175,6 @@ def benchmark(args) -> dict:
 
     profile = cProfile.Profile()
     execute_wall, execute_cpu, observations, frames = [], [], [], []
-    physical_states = []
     timing = {}
     scene_probes, probe_samples = [], []
     counters = {"render_frames": 0, "render_encoded_bytes": 0}
@@ -289,12 +289,6 @@ def benchmark(args) -> dict:
             finally:
                 execute_wall.append(time.perf_counter() - wall)
                 execute_cpu.append(time.process_time() - cpu)
-                # Outside the timed interval: compare complete authoritative
-                # states, not only visible joints, across performance changes.
-                if getattr(sim, "local_stepper", None) is not None:
-                    stepper = sim.local_stepper
-                    physical_states.append((stepper._last_nanos, stepper.qpos.copy(),
-                                            stepper.qvel.copy(), stepper.qacc.copy()))
                 # Sampling is outside the timed execute region and identical
                 # for 0/1/2/4/8-worker trials.
                 if scene_probes:
@@ -354,8 +348,8 @@ def benchmark(args) -> dict:
             (native, "_build_simulation", build),
             (native, "_initialize_state", initialize),
             (bsk_render_adapter, "BasiliskRenderBridge", OfflineBridge),
-            (teleop, "SimulationControlClient", OfflineClient),
-            (teleop, "CartesianTeleopTarget", TimedTarget),
+            (session, "SimulationControlClient", OfflineClient),
+            (session, "CartesianTeleopTarget", TimedTarget),
         ):
             stack.enter_context(patch.object(obj, name, value))
         if args.profile:
@@ -374,7 +368,7 @@ def benchmark(args) -> dict:
 
                 stack.enter_context(patch.object(cls, "UpdateState", profiled))
         try:
-            teleop.run(runtime)
+            session.run(runtime)
         finally:
             for probe in scene_probes:
                 probe.close()
@@ -417,12 +411,6 @@ def benchmark(args) -> dict:
         "note": "Run uninstrumented repeats for throughput; profiling/timers add overhead. Not end-to-end RTF.",
     }
     out.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    if physical_states:
-        np.savez_compressed(out.with_suffix(".physics.npz"),
-                            time_ns=np.asarray([sample[0] for sample in physical_states], dtype=np.int64),
-                            qpos=np.stack([sample[1] for sample in physical_states]),
-                            qvel=np.stack([sample[2] for sample in physical_states]),
-                            qacc=np.stack([sample[3] for sample in physical_states]))
     with out.with_suffix(".observations.jsonl").open("w", encoding="utf-8") as stream:
         for observation in observations:
             stream.write(json.dumps(observation) + "\n")

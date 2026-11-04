@@ -1,4 +1,6 @@
 """Saved layout metadata and caller paths must stay consistent during collection."""
+
+from collection import recording_validation as validation
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +26,7 @@ def test_saved_layout_requires_explicit_pool_before_startup(tmp_path, monkeypatc
         pytest.fail("A saved layout must be rejected before checking ports or starting native preflight")
 
     monkeypatch.setattr(collector, "check_port_available", unexpected_start)
-    monkeypatch.setattr("simulation.scripted_tasks.drawer_initialization.NativePoseProbe", unexpected_start)
+    monkeypatch.setattr("simulation.scripted_tasks.native_geometry_probe.NativePoseProbe", unexpected_start)
     with pytest.raises(SystemExit) as error:
         collector.main()
     assert error.value.code == 2
@@ -76,7 +78,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         assert kwargs["env"]["PYTHONPATH"].split(collector.os.pathsep) == [
             str(collector.ROOT), str(collector.ROOT / "backend"),
             str(expected["--adapter"] / "Adapters")]
-        scene = json.loads(Path(command[command.index("--scene")+1]).read_text(encoding="utf-8"))
+        scene = json.loads(Path(command[command.index("--scene")+1]).read_text())
         assert scene["overview_camera_sampling"] == "presets"
         assert scene["overview_camera"]["schema"] == SCHEMA
         assert scene["collection_config"]["overview_camera_randomization"] == scene["overview_camera"]
@@ -94,7 +96,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
     def settings(path):
         assert path == expected["--recording-config"]
 
-    monkeypatch.setattr("simulation.scripted_tasks.drawer_initialization.NativePoseProbe", unexpected_outer_preflight)
+    monkeypatch.setattr("simulation.scripted_tasks.native_geometry_probe.NativePoseProbe", unexpected_outer_preflight)
     monkeypatch.setattr(collector, "PersistentRenderer", Renderer)
     monkeypatch.setattr(collector, "check_port_available", lambda _: None)
     monkeypatch.setattr(recorder, "recording_settings", settings)
@@ -111,10 +113,10 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         arguments += ["--overview-camera-sampling", sampling]
     monkeypatch.setattr("sys.argv", arguments)
     assert collector.main() == 1
-    report = json.loads((tmp_path / "batch/summary.json").read_text(encoding="utf-8"))
+    report = json.loads((tmp_path / "batch/summary.json").read_text())
     assert report["status"] == "cancelled"
     assert seen == ["renderer", "recording", "renderer_closed"]
-    assert json.loads((tmp_path / "scene.json").read_text(encoding="utf-8"))["overview_camera_sampling"] == "continuous"
+    assert json.loads((tmp_path / "scene.json").read_text())["overview_camera_sampling"] == "continuous"
 
 
 @pytest.mark.parametrize("half_range", ["-1", "50.1", "nan", "inf"])
@@ -143,41 +145,41 @@ def layout_metadata(*, source="layout-model", variant=None):
 
 def test_layout_model_is_checked_against_every_authoritative_observation():
     meta = layout_metadata()
-    collector.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}] * 2)
+    validation.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}] * 2)
     with pytest.raises(ValueError, match="Authoritative model"):
-        collector.validate_recorded_layout_model(
+        validation.validate_recorded_layout_model(
             meta, [{"model_sha256": "layout-model"}, {"model_sha256": "fixed-model"}])
 
 
 def test_layout_acceptance_handles_dynamics_randomization_without_weakening_binding():
     meta = layout_metadata(variant={"source_sha256": "layout-model", "variant_sha256": "scaled-model"})
-    collector.validate_recorded_layout_model(meta, [{"model_sha256": "scaled-model"}])
+    validation.validate_recorded_layout_model(meta, [{"model_sha256": "scaled-model"}])
     with pytest.raises(ValueError, match="Authoritative model"):
-        collector.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
+        validation.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
     meta["scene_instance"]["collection_config"]["model_randomization"]["source_sha256"] = "other-layout"
     with pytest.raises(ValueError, match="Randomized model source"):
-        collector.validate_recorded_layout_model(meta, [{"model_sha256": "scaled-model"}])
+        validation.validate_recorded_layout_model(meta, [{"model_sha256": "scaled-model"}])
 
 
 def test_layout_selection_must_agree_with_saved_layout_model():
     meta = layout_metadata()
     meta["scene_instance"]["collection_config"]["layout_randomization"]["model_sha256"] = "other-layout"
     with pytest.raises(ValueError, match="layout selection"):
-        collector.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
+        validation.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
     del meta["scene_instance"]["task_box_layout"]
     with pytest.raises(ValueError, match="no layout model"):
-        collector.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
+        validation.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
 
 
 def test_historical_episode_without_layout_metadata_keeps_existing_validation():
-    collector.validate_recorded_layout_model({}, [{}])
-    collector.validate_recorded_layout_model({"scene_instance": {}}, [{}])
-    collector.validate_recorded_layout_model({"scene_instance": {
+    validation.validate_recorded_layout_model({}, [{}])
+    validation.validate_recorded_layout_model({"scene_instance": {}}, [{}])
+    validation.validate_recorded_layout_model({"scene_instance": {
         "collection_config": {"layout_randomization": {"enabled": False}},
     }}, [{}])
     meta = layout_metadata()
     meta["scene_instance"]["collection_config"]["layout_randomization"] = {"enabled": False}
-    collector.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
+    validation.validate_recorded_layout_model(meta, [{"model_sha256": "layout-model"}])
 
 
 @pytest.mark.parametrize("platform_model", ["layout-model", "fixed-model", None])
@@ -204,10 +206,10 @@ def test_historical_compact_layout_uses_writer_platform_identity(tmp_path, platf
     restored = list(read_observations(tmp_path))
     assert restored[0]["model_sha256"] == platform_model
     if platform_model == "layout-model":
-        collector.validate_recorded_layout_model(layout_metadata(), restored)
+        validation.validate_recorded_layout_model(layout_metadata(), restored)
     else:
         with pytest.raises(ValueError, match="Authoritative model"):
-            collector.validate_recorded_layout_model(layout_metadata(), restored)
+            validation.validate_recorded_layout_model(layout_metadata(), restored)
 
 
 def test_recording_validator_rejects_stale_layout_metadata_before_accepting_dataset(tmp_path, monkeypatch):
@@ -221,7 +223,7 @@ def test_recording_validator_rejects_stale_layout_metadata_before_accepting_data
         "features": {"observation.state": feature, "action": feature},
     }), encoding="utf-8")
     (directory / "platform.json").write_text(json.dumps({"schema": "space-arm-lerobot/2"}), encoding="utf-8")
-    monkeypatch.setattr(collector, "is_compact", lambda _: True)
-    monkeypatch.setattr(collector, "read_observations", lambda _: iter([{"model_sha256": "actual-fixed-model"}]))
+    monkeypatch.setattr(validation, "is_compact", lambda _: True)
+    monkeypatch.setattr(validation, "read_observations", lambda _: iter([{"model_sha256": "actual-fixed-model"}]))
     with pytest.raises(ValueError, match="Authoritative model"):
-        collector.validate_recording(tmp_path)
+        validation.validate_recording(tmp_path)

@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 import pytest
 
-from collection.collect_scripted_tasks import validate_drawer_recording, validate_threaded_recording
+from collection.recording_validation import validate_drawer_recording, validate_threaded_recording
 from collection.sequence import SequenceConfig, TaskConfig
 from simulation.scripted_tasks.drawer_tasks import drawer_task_class
 from simulation.scripted_tasks.threaded_tasks import threaded_task_class
@@ -178,8 +178,8 @@ def test_directional_rod_retains_stability_and_rejects_cycle_version(name):
     moving[-10]["scripted_task"]["part_velocity_body_m_s"] = [.02, 0., 0.]
     with pytest.raises(AssertionError):
         validate_threaded_recording(moving, stages, name)
-    rows[-1]["scripted_task"]["task_version"] = threaded_task_class("locking_rod_cycle").previous_version
-    with pytest.raises(AssertionError):
+    rows[-1]["scripted_task"]["task_version"] = "locking-rod-cycle/3-straight-approach"
+    with pytest.raises(ValueError, match="Unsupported recorded task/version"):
         validate_threaded_recording(rows, stages, name)
 
 

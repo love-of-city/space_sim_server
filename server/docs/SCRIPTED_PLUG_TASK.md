@@ -2,7 +2,7 @@
 
 # 圆柱插头自动搬运与插入
 
-> 本文保留初期实现与后续带日期的演进记录。下文 240/30 Hz、2 秒停稳和默认载荷中止等旧参数不作为当前执行标准；当前 v17 的配置、成功判据及审核边界见[任务与数据验收](../../docs/reference/task-and-data-acceptance.md)，采样与入口设置见[采集配置](../../docs/reference/collection-configuration.md)。
+> 本文保留初期实现与后续带日期的演进记录。下文 240/30 Hz、2 秒停稳和默认载荷中止等旧参数不作为当前执行标准；当前 v19 的连续接触控制与有界参数搜索见[插头运动优化](plug-motion-optimization.md)，成功判据及审核边界见[任务与数据验收](../../docs/reference/task-and-data-acceptance.md)，采样与入口设置见[采集配置](../../docs/reference/collection-configuration.md)。
 
 任务对象为当前 SARM 2026-10-12 模型的 `cylindrical_plug`。夹爪从初始取件位拿起插头，搬运到前方单独的装配孔，插入后松爪撤离。取件位和目标孔分别从 MJCF 的 site 读取，并转换到卫星本体系；不是把插头放回取件位。
 

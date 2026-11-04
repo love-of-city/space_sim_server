@@ -1,4 +1,4 @@
-"""Launch team-model orbital flights and retain the historical docking demo."""
+"""Launch team-model orbital and near-field flights in this repository."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import threading
 import uuid
 import socket
 import time
+import sys
 from pathlib import Path
 
-from .rendezvous_demo import RendezvousDemo
 from .rendezvous_config import FlightOptions
 from .near_field_config import NearFieldOptions
 
@@ -19,7 +19,6 @@ from .near_field_config import NearFieldOptions
 class RendezvousRuntime:
     def __init__(
         self,
-        repository: Path | None,
         python: Path | None,
         state_port: int,
         log_root: Path,
@@ -27,7 +26,6 @@ class RendezvousRuntime:
         render_port: int = 5558,
         launch_config=None,
     ):
-        self.repository = repository
         self.python = python
         self.state_port = state_port
         self.render_port = render_port
@@ -38,28 +36,12 @@ class RendezvousRuntime:
         self._options = FlightOptions()
         self._lock = threading.RLock()
         self._cancel_start = threading.Event()
-        self._scenario = "legacy"
+        self._scenario = "team-in-orbit"
         self._process: subprocess.Popen | None = None
         self._log = None
         self._log_path: Path | None = None
         self._output_dir: Path | None = None
-        self._demo: RendezvousDemo | None = None
         self._mode = "simulation"
-        if repository is not None:
-            runs = repository / "output" / "spacesim_platform"
-            if runs.is_dir():
-                completed = [
-                    folder
-                    for folder in runs.iterdir()
-                    if (folder / "mission_report.json").is_file()
-                ]
-                if completed:
-                    self._output_dir = max(
-                        completed,
-                        key=lambda folder: (
-                            (folder / "mission_report.json").stat().st_mtime_ns
-                        ),
-                    )
         if team_repository is not None:
             team_runs = team_repository / "run" / "team_rendezvous"
             if team_runs.is_dir():
@@ -89,40 +71,6 @@ class RendezvousRuntime:
             raise RuntimeError("交会启动已取消")
 
     def status(self) -> dict:
-        if self._mode == "demo" and self._demo is not None:
-            demo = self._demo
-            source = demo.data["source_report"]
-            report = (
-                {
-                    "outcome": source["outcome"],
-                    "basic_nominal_passed": source["basic_nominal_passed"],
-                    "latch_time_s": source["capture"]["latch_time_s"],
-                    "final_time_s": source["final_time_s"],
-                    "final_body_origin_distance_m": source[
-                        "final_body_origin_distance_m"
-                    ],
-                }
-                if demo.completed
-                else None
-            )
-            return {
-                "configured": True,
-                "mode": "demo",
-                "demo_available": True,
-                "running": demo.running,
-                "completed": demo.completed,
-                "pid": None,
-                "exit_code": 0 if demo.completed else None,
-                "error": demo.error,
-                "elapsed_s": demo.elapsed,
-                "duration_s": 15,
-                "run_id": demo.run_id,
-                "started_at": demo.started_at,
-                "finished_at": demo.finished_at,
-                "output_dir": str(demo.source),
-                "log_file": None,
-                "report": report,
-            }
         process = self._process
         report_path = (
             self._output_dir / "mission_report.json" if self._output_dir else None
@@ -132,7 +80,7 @@ class RendezvousRuntime:
             try:
                 result = json.loads(report_path.read_text(encoding="utf-8"))
                 report = {
-                    "scenario": result.get("scenario", "legacy"),
+                    "scenario": result.get("scenario", "unknown"),
                     "outcome": result.get("outcome"),
                     "basic_nominal_passed": result.get("basic_nominal_passed"),
                     "latch_time_s": (result.get("capture") or {}).get("latch_time_s"),
@@ -149,14 +97,7 @@ class RendezvousRuntime:
         return {
             "scenario": self._scenario,
             "mode": "simulation",
-            "demo_available": bool(
-                self.repository
-                and (self.repository / "output/spacesim_demo15/demo.json.gz").is_file()
-            ),
-            "configured": (
-                self.repository is not None or self.team_repository is not None
-            )
-            and self.python is not None,
+            "configured": self.team_repository is not None and self.python is not None,
             "running": process is not None and process.poll() is None,
             "pid": process.pid if process else None,
             "exit_code": process.poll() if process else None,
@@ -167,7 +108,7 @@ class RendezvousRuntime:
         }
 
     def start(
-        self, live: bool = False, mode: str = "simulation", scenario: str = "legacy", options=None
+        self, live: bool = False, mode: str = "simulation", scenario: str = "team-in-orbit", options=None
     ) -> dict:
         with self._lock:
             return self._start(live, mode, scenario, options)
@@ -180,7 +121,7 @@ class RendezvousRuntime:
         if (not near and resolved_options.differential_gnss
                 and resolved_options.differential_gnss["delay_s"] > 0
                 and (scenario not in {"team-in-orbit", "team-orbit-raise"} or mode != "simulation")):
-            raise ValueError("通信时延仅支持团队模型的实际远距仿真；历史演示和回放不能应用此参数")
+            raise ValueError("通信时延仅支持团队模型的实际远距仿真；该参数不能用于轨迹回放")
         handoff_path = None
         if scenario == "near-field-resume":
             from simulation.orbital_rendezvous.handoff import load_handoff
@@ -189,82 +130,40 @@ class RendezvousRuntime:
                 raise RuntimeError("没有可接续的 110 m 交会结果")
             handoff_path = self._output_dir / "handoff.json"
             load_handoff(handoff_path, self.team_repository / DEFAULT_MODEL)
-        if self._demo is not None and self._demo.running:
-            raise RuntimeError("请先停止正在播放的演示")
         if self._process is not None and self._process.poll() is None:
             raise RuntimeError("A 7 km rendezvous run is already active")
-        if mode == "demo":
-            path = (
-                self.repository / "output/spacesim_demo15/demo.json.gz"
-                if self.repository
-                else None
-            )
-            if path is None or not path.is_file():
-                raise RuntimeError("尚未准备 15 秒演示数据")
-            self.stop()
-            if self._log is not None:
-                self._log.close()
-                self._log = None
-            if self.launch_config is not None:
-                self._ensure_renderer()
-            try:
-                if self._demo is None:
-                    self._demo = RendezvousDemo(path, self.state_port, self.render_port)
-                self._demo.start()
-            except (OSError, ValueError) as error:
-                raise RuntimeError(
-                    f"演示未启动，请确认 UE 接收端已经启动：{error}"
-                ) from error
-            self._mode = "demo"
-            self._output_dir = self._demo.source
-            return self.status()
         if mode != "simulation":
             raise RuntimeError("Unknown rendezvous mode")
-        if scenario not in ("legacy", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"):
+        if scenario not in ("team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"):
             raise RuntimeError("Unknown rendezvous scenario")
-        if (
-            not self.python
-            or not self.state_port
-            or (scenario == "legacy" and not self.repository)
-        ):
-            raise RuntimeError(
-                "Configure the rendezvous repository, Python runtime and state port"
-            )
-        if (
-            scenario == "legacy"
-            and not (self.repository / "rendezvous" / "cli" / "spacesim.py").is_file()
-        ):
-            raise RuntimeError(
-                "The configured rendezvous repository has no SpaceSim entry point"
-            )
+        if not self.python or not self.state_port or not self.team_repository:
+            raise RuntimeError("Configure the flight Python runtime and state port")
         if not self.python.is_file():
             raise RuntimeError(
                 "The configured rendezvous Python executable does not exist"
             )
-        if scenario != "legacy" and (
+        if (
             self.team_repository is None
             or not (
                 self.team_repository / "simulation/orbital_rendezvous/run.py"
             ).is_file()
         ):
             raise RuntimeError("Team flight entry point is unavailable")
-        catalog = None
-        if scenario != "legacy":
-            adapter_root = (getattr(self.launch_config, 'runtime_adapter_root', None)
-                            or self.team_repository.parent / 'ue-adapter')
-            catalog = Path(
-                os.environ.get(
-                    "SPACE_SIM_TEAM_CATALOG",
-                    str(
-                        adapter_root
-                        / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_platform.catalog.json"
-                    ),
-                )
+        adapter_root = (getattr(self.launch_config, 'runtime_adapter_root', None)
+                        or self.team_repository.parent / 'ue-adapter')
+        catalog = Path(
+            os.environ.get(
+                "SPACE_SIM_TEAM_CATALOG",
+                str(
+                    adapter_root
+                    / "Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_platform.catalog.json"
+                ),
             )
-            if live and not catalog.is_file():
-                raise RuntimeError(
-                    "Run platform asset preparation before starting UE flight"
-                )
+        )
+        if live and not catalog.is_file():
+            raise RuntimeError(
+                "Run platform asset preparation before starting UE flight"
+            )
         self.stop()
         if self._log is not None:
             self._log.close()
@@ -277,52 +176,36 @@ class RendezvousRuntime:
         self._scenario = scenario
         self._process = None
         run_id = uuid.uuid4().hex
-        self._output_dir = (
-            self.repository / "output" / "spacesim_platform" / run_id
-            if scenario == "legacy"
-            else self.team_repository / "run" / "team_rendezvous" / run_id
-        )
+        self._output_dir = self.team_repository / "run" / "team_rendezvous" / run_id
         self.log_root.mkdir(parents=True, exist_ok=True)
         self._log_path = self.log_root / f"{run_id}.log"
         self._log = self._log_path.open("wb")
+        working_directory = self.team_repository
         command = [
             str(self.python),
+            "-u",
             "-m",
-            "rendezvous.cli.spacesim",
+            "simulation.orbital_rendezvous.run",
+            "--scenario",
+            scenario.removeprefix("team-"),
             "--output-dir",
             str(self._output_dir),
             "--state-port",
             str(self.state_port),
         ]
-        working_directory = self.repository
-        if scenario != "legacy":
-            working_directory = self.team_repository
-            command = [
-                str(self.python),
-                "-u",
-                "-m",
-                "simulation.orbital_rendezvous.run",
-                "--scenario",
-                scenario.removeprefix("team-"),
-                "--output-dir",
-                str(self._output_dir),
-                "--state-port",
-                str(self.state_port),
-            ]
+        if catalog.is_file():
+            command.extend(["--catalog", str(catalog)])
+        if near:
+            command = [str(self.python), "-u", "-m", "simulation.near_field.run",
+                       "--output-dir", str(self._output_dir), "--state-port", str(self.state_port)]
+            command.extend(["--handoff", str(handoff_path)] if handoff_path else ["--fixture"])
             if catalog.is_file():
                 command.extend(["--catalog", str(catalog)])
-            if near:
-                command = [str(self.python), "-u", "-m", "simulation.near_field.run",
-                           "--output-dir", str(self._output_dir), "--state-port", str(self.state_port)]
-                command.extend(["--handoff", str(handoff_path)] if handoff_path else ["--fixture"])
-                if catalog.is_file():
-                    command.extend(["--catalog", str(catalog)])
-        if scenario != "legacy":
-            self._output_dir.mkdir(parents=True, exist_ok=True)
-            options_path = self._output_dir / "mission_options.json"
-            options_path.write_text(json.dumps(self._options.to_dict(), indent=2), encoding="utf-8")
-            command.extend(["--config", str(options_path)])
-            command.extend(["--render-port", str(self.render_port)])
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        options_path = self._output_dir / "mission_options.json"
+        options_path.write_text(json.dumps(self._options.to_dict(), indent=2), encoding="utf-8")
+        command.extend(["--config", str(options_path)])
+        command.extend(["--render-port", str(self.render_port)])
         if live:
             command.append("--live")
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -330,6 +213,10 @@ class RendezvousRuntime:
             self._process = subprocess.Popen(
                 command,
                 cwd=working_directory,
+                env={**os.environ, "PYTHONPATH": os.pathsep.join([
+                    str(self.team_repository), str(self.team_repository / "backend"),
+                    str(adapter_root / "Adapters"),
+                    str(adapter_root / "Unreal/BskUnrealRenderer/examples")])},
                 stdin=subprocess.DEVNULL,
                 stdout=self._log,
                 stderr=subprocess.STDOUT,
@@ -354,43 +241,49 @@ class RendezvousRuntime:
         if ready():
             self._remember_renderer(adapter)
             return
-        script = adapter / "scripts/start_renderer.ps1"
-        if not script.is_file() or cfg.runtime_unreal_root is None:
-            raise RuntimeError("请先配置本平台的 UE 路径并完成资产准备")
-        command = [str(cfg.runtime_powershell_exe or "pwsh"), "-NoProfile", "-File", str(script),
-                   "-UnrealRoot", str(cfg.runtime_unreal_root), "-Port", str(self.render_port),
-                   "-PixelStreamingURL", f"ws://127.0.0.1:{cfg.runtime_pixel_streamer_port}",
-                   "-PixelStreamingId", cfg.pixel_streaming_streamer_id,
-                   "-PixelStreamingFps", str(round(cfg.runtime_preview_rate)),
-                   "-EncoderMinQuality", str(getattr(cfg, "runtime_encoder_min_quality", 60))]
-        cameras = getattr(cfg, "runtime_pixel_streaming_camera_ids", ())
-        if cameras:
-            # The orbital manifest keeps the team's model under its flight
-            # namespace; the console resolves these streams as the same cameras.
-            cameras = tuple("team/" + camera.removeprefix("teleop/") if camera.startswith("teleop/") else camera
-                            for camera in cameras)
-            command.extend([
-                # UE's FParse::Value stops at commas. The team launcher uses
-                # '+' on its native command line and normalizes it in UE.
-                "-PixelStreamingCameraIds", "+".join(cameras),
-                "-PixelStreamingCameraWidth", str(cfg.runtime_pixel_streaming_camera_width),
-                "-PixelStreamingCameraHeight", str(cfg.runtime_pixel_streaming_camera_height),
-                "-PixelStreamingCameraFps", str(round(cfg.runtime_preview_rate)),
-            ])
-        try:
-            self.log_root.mkdir(parents=True, exist_ok=True)
-            # A Windows/RDP launch lets long-lived UE inherit the launcher's
-            # stdout handles. PIPE/communicate then waits for UE to exit even
-            # after PowerShell has finished (including timeout cleanup).
-            # A regular log file preserves diagnostics without waiting on EOF.
-            with (self.log_root / "renderer-start.log").open("ab") as output:
-                result = subprocess.run(command, cwd=adapter, stdin=subprocess.DEVNULL,
-                                        stdout=output, stderr=subprocess.STDOUT, timeout=60,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise RuntimeError("无法启动本工作区的 UE 渲染器") from error
-        if result.returncode:
-            raise RuntimeError("UE 启动失败，请查看本工作区渲染日志")
+        if sys.platform.startswith("linux"):
+            from .flight_renderer import start_renderer
+            process = start_renderer(cfg, self.log_root, self.render_port)
+            import psutil
+            self._renderer_identity = (process.pid, psutil.Process(process.pid).create_time())
+        else:
+            script = adapter / "scripts/start_renderer.ps1"
+            if not script.is_file() or cfg.runtime_unreal_root is None:
+                raise RuntimeError("请先配置本平台的 UE 路径并完成资产准备")
+            command = [str(cfg.runtime_powershell_exe or "pwsh"), "-NoProfile", "-File", str(script),
+                       "-UnrealRoot", str(cfg.runtime_unreal_root), "-Port", str(self.render_port),
+                       "-PixelStreamingURL", f"ws://127.0.0.1:{cfg.runtime_pixel_streamer_port}",
+                       "-PixelStreamingId", cfg.pixel_streaming_streamer_id,
+                       "-PixelStreamingFps", str(round(cfg.runtime_preview_rate)),
+                       "-EncoderMinQuality", str(getattr(cfg, "runtime_encoder_min_quality", 60))]
+            cameras = getattr(cfg, "runtime_pixel_streaming_camera_ids", ())
+            if cameras:
+                # The orbital manifest keeps the team's model under its flight
+                # namespace; the console resolves these streams as the same cameras.
+                cameras = tuple("team/" + camera.removeprefix("teleop/") if camera.startswith("teleop/") else camera
+                                for camera in cameras)
+                command.extend([
+                    # UE's FParse::Value stops at commas. The team launcher uses
+                    # '+' on its native command line and normalizes it in UE.
+                    "-PixelStreamingCameraIds", "+".join(cameras),
+                    "-PixelStreamingCameraWidth", str(cfg.runtime_pixel_streaming_camera_width),
+                    "-PixelStreamingCameraHeight", str(cfg.runtime_pixel_streaming_camera_height),
+                    "-PixelStreamingCameraFps", str(round(cfg.runtime_preview_rate)),
+                ])
+            try:
+                self.log_root.mkdir(parents=True, exist_ok=True)
+                # A Windows/RDP launch lets long-lived UE inherit the launcher's
+                # stdout handles. PIPE/communicate then waits for UE to exit even
+                # after PowerShell has finished (including timeout cleanup).
+                # A regular log file preserves diagnostics without waiting on EOF.
+                with (self.log_root / "renderer-start.log").open("ab") as output:
+                    result = subprocess.run(command, cwd=adapter, stdin=subprocess.DEVNULL,
+                                            stdout=output, stderr=subprocess.STDOUT, timeout=60,
+                                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise RuntimeError("无法启动本工作区的 UE 渲染器") from error
+            if result.returncode:
+                raise RuntimeError("UE 启动失败，请查看本工作区渲染日志")
         self._remember_renderer(adapter, require_listening=False)
         deadline = time.monotonic() + cfg.runtime_renderer_ready_timeout
         while time.monotonic() < deadline:
@@ -476,8 +369,6 @@ class RendezvousRuntime:
             return self._stop()
 
     def _stop(self) -> dict:
-        if self._demo is not None:
-            self._demo.stop()
         if self._process is not None and self._process.poll() is None:
             self._process.terminate()
             try:

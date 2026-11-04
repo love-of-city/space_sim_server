@@ -2,7 +2,7 @@ name: Basic CI
 on:
   pull_request:
   push:
-    branches: [main, master, zmh_linux]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,6 +44,10 @@ jobs:
           python -m venv ../.venv-ci
           ../.venv-ci/Scripts/python -m pip install -e "../ue-adapter[test]" -e ".[test,simulation,posture,vision]" "ruff==0.15.7"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Refresh editable checkout paths
+        run: |
+          ../.venv-ci/Scripts/python -m pip install --no-deps -e "../ue-adapter" -e .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Save right after installing so a failing test run still warms the cache.
       - name: Save Python environment
         if: steps.venv.outputs.cache-hit != 'true'
@@ -53,17 +57,10 @@ jobs:
           key: ${{ steps.venv.outputs.cache-primary-key }}
       - name: Activate Python environment
         run: (Resolve-Path ../.venv-ci/Scripts).Path >> $env:GITHUB_PATH
-      # Editable installs contain absolute source paths. A restored environment
-      # must bind both packages to this checkout after repository/path changes.
-      - name: Refresh editable project paths
-        run: python -m pip install --no-deps -e "../ue-adapter" -e "."
       - name: Check installed dependencies
         run: |
           python -c "import sys; assert sys.prefix != sys.base_prefix, sys.prefix"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip check
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -c "import bsk_render_adapter, space_arm_platform"
       - name: Python syntax and undefined names
         run: python -m ruff check .
       - name: Verify CI failure guards
@@ -113,6 +110,7 @@ jobs:
               - 'server/scripts/platform_paths.ps1'
               - 'server/scripts/posture_runtime.ps1'
               - 'server/scripts/native_acceleration_runtime.ps1'
+              - 'server/scripts/prepare_sarm_scene.ps1'
               - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/prepare_mjcf_assets.ps1'
               - 'ue-adapter/Unreal/BskUnrealRenderer/scripts/generate_mjcf_asset_catalog.py'
               - 'server/scripts/ci*'
@@ -121,18 +119,11 @@ jobs:
               - 'server/tools/deployment/check_deployment_auth.py'
               - 'server/tools/deployment/prepare_public_auth.py'
               - 'server/*_deployment.cmd'
+              - 'server/*_deployment.sh'
               - 'server/tests/test_deployment_launcher.py'
               - 'server/tests/test_public_deployment.py'
               - 'server/tests/test_fixed_deployment.py'
               - 'server/tests/test_deployment_scripts.py'
-              - 'server/scripts/start_secure_pixel_streaming.ps1'
-              - 'server/signalling/**'
-              - 'server/backend/space_arm_platform/rendezvous_runtime.py'
-              - 'server/backend/space_arm_platform/near_field_config.py'
-              - 'server/simulation/near_field/**'
-              - 'ue-adapter/Adapters/bsk_render_adapter/near_field.py'
-              - 'ue-adapter/Unreal/BskUnrealRenderer/Plugins/BskUnrealRuntime/Source/**'
-              - 'server/scripts/*scene*.ps1'
               - '.github/**'
               - 'server/pyproject.toml'
               - '.gitattributes'
@@ -237,8 +228,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install adapter and test dependencies
-        run: python -m pip install -e './ue-adapter[test]' pytest-xdist
+      - name: Install adapter and release-test dependencies
+        run: python -m pip install -e './ue-adapter[test]' pytest-xdist 'pydantic>=2.8' 'av>=14.2,<16' pyarrow
       - name: Linux adapter Python checks
         working-directory: ue-adapter
         env:
@@ -248,3 +239,7 @@ jobs:
         run: |
           python -m pytest -q tools/release/tests/test_packaging.py tools/release/tests/test_ue_build_tools.py tools/release/tests/test_external_environment_assets.py tools/release/tests/test_runtime_metadata.py tools/release/tests/layout_preparer/test_launcher.py
           python tools/release/tests/layout_preparer/test_self_extractor.py
+      - name: Collector CLI and recording-validator entrypoints
+        env:
+          PYTHONPATH: server:server/backend
+        run: python -m pytest -q tools/release/tests/collector/test_collection_cli.py

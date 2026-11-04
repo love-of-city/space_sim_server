@@ -1,4 +1,5 @@
-import { installSceneSelection } from "./helpers/scene_context.mjs";
+import { installSceneSelection } from './helpers/scene_context.mjs';
+import { createSceneSession } from '../scene_session.js';
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
@@ -7,7 +8,6 @@ import assert from "node:assert/strict";
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const selectionSource = source.slice(source.indexOf("function configureSceneSelection()"), source.indexOf("const jointAngles ="));
 const catalogSource = source.slice(source.indexOf("async function loadSceneCatalog()"), source.indexOf("function applySceneRuntime("));
-const startSource = source.slice(source.indexOf("async function startScene()"), source.indexOf("async function stopScene("));
 const freePlugs = "sarm-task-box-free-plugs";
 const directStart = "teleop-zero-prepare-v1";
 const autoPrepare = "teleop-zero-prepare-v2";
@@ -62,7 +62,9 @@ function setup() {
     readApiResponse: async () => ({ instance_id: "s1", seed: 42 }),
   });
   installSceneSelection(ctx, source);
-  vm.runInContext(selectionSource + catalogSource + startSource, ctx);
+
+  vm.runInContext(selectionSource + catalogSource, ctx);
+  Object.assign(ctx, createSceneSession({...ctx, applySceneRuntime: (...args) => ctx.applySceneRuntime(...args)}));
   return { $, ctx, requests, catalog, configuredProfiles };
 }
 

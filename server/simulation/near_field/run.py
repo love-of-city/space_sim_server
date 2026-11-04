@@ -35,7 +35,7 @@ from simulation.orbital_rendezvous.handoff import apply_handoff, load_handoff
 from simulation.orbital_rendezvous.model import DEFAULT_MODEL
 from simulation.orbital_rendezvous.reference import FlightProfile
 from simulation.orbital_rendezvous.rendering import flight_scene_settings
-from simulation.teleop_grasp_unreal import DEFAULT_EPHEMERIS_EPOCH_UTC, _register_celestial_bodies
+from simulation.teleop_scene import DEFAULT_EPHEMERIS_EPOCH_UTC, register_celestial_bodies
 
 from .controller import NearController
 from .model import prepare, JOINTS, ACTUATORS, GRASP_TARGET
@@ -159,7 +159,7 @@ def run(args):
                     frame_period_ns=macros.sec2nano(0.1), publisher=None if args.live else RecordingOnlyPublisher(),
                     recording_path=output / "near_field.bskrec")
         bridge.add_mj_scene(scene, namespace="team", source_path=model, mesh_asset_catalog=catalog, camera_picture_in_picture=False)
-        _register_celestial_bodies(bridge, orbit.earth, orbit.sun)
+        register_celestial_bodies(bridge, orbit.earth, orbit.sun)
         settings = flight_scene_settings(bodies=manifest["bodies"])
         # Presentation-only light makes the unchanged meshes visible in eclipse.
         # It does not illuminate simulated sensor images (none are processed),

@@ -63,7 +63,7 @@ class MissionRuntime:
             self._record.update(stage="teleop", scene_instance_id=instance["instance_id"])
             self._save()
         elif runtime.get("output_dir") and runtime.get("report"):
-            self._new(runtime.get("scenario", "legacy"), None)
+            self._new(runtime.get("scenario", "team-in-orbit"), None)
             self._record.update(stage="flight", flight_output_dir=runtime["output_dir"],
                                 options=runtime.get("mission_options", {}), restored=True)
             self._save()
@@ -102,8 +102,8 @@ class MissionRuntime:
             raise RuntimeError("请先结束当前采集")
 
     def require_stable(self):
-        if self._operation or self._stop_requested:
-            raise RuntimeError("任务正在切换阶段，请稍后重试")
+        if self._operation or self._stop_requested or self.flight.status().get("running"):
+            raise RuntimeError("飞行或阶段切换期间不能启动机械臂控制或采集")
 
     def provenance(self):
         record = self._record or {}
@@ -151,7 +151,7 @@ class MissionRuntime:
             if "orbital_physics" not in options:
                 options["orbital_physics"] = OrbitalPhysics().model_dump(mode="json")
         resolved = (NearFieldOptions if near else FlightOptions).from_dict(options).to_dict()
-        if scenario not in {"legacy", "team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"}:
+        if scenario not in {"team-in-orbit", "team-orbit-raise", "near-field", "near-field-resume"}:
             raise ValueError("未知交会任务模式")
         self.require_available()
         self._new(scenario, user)
@@ -253,7 +253,7 @@ class MissionRuntime:
             # A pre-migration result can be adopted explicitly by an administrator.
             if user.get("role") != "admin":
                 raise PermissionError("历史结果需要管理员接续")
-            self._new(self.flight.status().get("scenario", "legacy"), user)
+            self._new(self.flight.status().get("scenario", "team-in-orbit"), user)
             self._record["flight_output_dir"] = str(folder)
         # Imported pre-coordinator results have no saved form settings. Restore
         # their actual flight settings instead of displaying today's defaults.
@@ -327,8 +327,6 @@ class MissionRuntime:
                 raise ValueError("该阶段尚无已验收结果")
         folder = Path(output_dir).resolve()
         allowed = [self.scenes.project_root / "run/team_rendezvous"]
-        if getattr(self.flight, "repository", None):
-            allowed.append(self.flight.repository / "output")
         if not any(folder.is_relative_to(path.resolve()) for path in allowed):
             raise ValueError("结果目录不属于本工作区")
         return folder / name

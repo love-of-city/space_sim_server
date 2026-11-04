@@ -165,7 +165,7 @@ Initialize-FixedConfig -ConfigPath (Join-Path $Root 'deploy/fixed.local.json') -
 @pytest.fixture
 def launcher_repo(tmp_path):
     root = tmp_path / "fixed launcher repo"
-    for directory in ("scripts", "deploy", "tools/deployment"):
+    for directory in ("scripts", "deploy", "tools"):
         (root / directory).mkdir(parents=True)
     for name in ("deployment_launcher.ps1", "deployment_bootstrap.ps1", "deployment_config.ps1",
                  "fixed_deployment_helpers.ps1", "python_runtime.ps1"):

@@ -24,12 +24,16 @@ def write_json(path,value):
     temporary.write_text(json.dumps(value,indent=2,allow_nan=False),encoding='utf-8');temporary.replace(path)
 
 
-def execute(task,model,output,*,trajectory=None,max_sim_seconds=360.,wall_timeout=3600.):
+def execute(task,model,output,*,trajectory=None,scene=None,max_sim_seconds=360.,wall_timeout=3600.):
     command=[sys.executable,str(ROOT/'collection/run_scripted_task.py'),'--task',task,'--model',str(model),'--output',str(output),
-             '--max-sim-seconds',str(max_sim_seconds),'--scene-expert']
+             '--max-sim-seconds',str(max_sim_seconds)]
+    if scene is not None: command += ['--scene', str(scene)]
     if trajectory:command+=['--replay-trajectory',str(trajectory),'--no-save-trace']
+    env = os.environ.copy()
+    paths = [ROOT, ROOT / 'backend', ROOT.parent / 'ue-adapter' / 'Adapters']
+    env['PYTHONPATH'] = os.pathsep.join([*(str(path) for path in paths), env.get('PYTHONPATH', '')])
     with output.parent.joinpath(output.name+'.log').open('x',encoding='utf-8') as log:
-        process=subprocess.Popen(command,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT)
+        process=subprocess.Popen(command,cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT)
         try:
             returncode=process.wait(timeout=wall_timeout)
             return dict(command=command,returncode=returncode,timed_out=False)
@@ -122,13 +126,13 @@ def canonical(args):
     report={}
     for task in tasks:
         directory=args.output/task;directory.mkdir()
-        process=execute(task,args.model,directory/'donor',max_sim_seconds=args.max_sim_seconds,wall_timeout=args.wall_timeout)
+        process=execute(task,args.model,directory/'donor',scene=args.scene,max_sim_seconds=args.max_sim_seconds,wall_timeout=args.wall_timeout)
         donor=directory/'donor/summary.json';trace=directory/'donor/trace.jsonl'
         result=dict(process=process,canonical_prepared=False)
         if donor.is_file():result['donor']=json.loads(donor.read_text(encoding='utf-8'))
         try:
             if process['timed_out']:raise ValueError('Donor timed out; incomplete trajectory is not frozen')
-            frozen=freeze_trace(trace,args.model,task,directory/'trajectory.json',ROOT)
+            frozen=freeze_trace(trace,Path(result['donor']['model']),task,directory/'trajectory.json',ROOT)
             result.update(canonical_prepared=True,trajectory_sha256=sha256(directory/'trajectory.json'),duration_s=frozen['samples'][-1]['time_s'])
         except (OSError,ValueError,KeyError) as exc:result['error']=str(exc)
         write_json(directory/'canonical.json',result);report[task]=result
@@ -161,7 +165,7 @@ def evaluate(args):
                 if any(sha256(ROOT/p)!=expected for p,expected in protocol['sources'].items()):
                     raise ValueError('Evaluation source changed during the fixed-count suite')
                 frozen=FrozenTrajectory(json.loads(artifact.read_text(encoding='utf-8')))
-                frozen.validate_runtime(args.model,frozen.document['initial_joints'],ROOT)
+                frozen.validate_runtime(Path(frozen.document['model_path']),frozen.document['initial_joints'],ROOT)
                 if frozen.document['task']!=task:raise ValueError('Trajectory task mismatch')
                 donor_result=frozen.document.get('donor_result')
                 result['trajectory_sha256']=sha256(artifact)
@@ -171,7 +175,7 @@ def evaluate(args):
                 suite[task]=dict(**aggregate(results),trials=results);write_json(args.output/'summary.json',suite)
                 continue
             try:
-                process=execute(task,args.model,directory/'native',trajectory=artifact,
+                process=execute(task,Path(frozen.document['model_path']),directory/'native',trajectory=artifact,
                                 max_sim_seconds=frozen.duration+3.5,wall_timeout=args.wall_timeout)
                 result['process']=process
                 native=directory/'native/summary.json'
@@ -207,7 +211,9 @@ def main():
         p=sub.add_parser(name);p.add_argument('--task',choices=['all',*TASKS],default='all')
         p.add_argument('--model',type=Path,default=ROOT/'model/SARM/platform/sarm_20261012.xml')
         p.add_argument('--output',type=Path,required=True);p.add_argument('--wall-timeout',type=float,default=3600.)
-        if name=='canonical':p.add_argument('--max-sim-seconds',type=float,default=360.)
+        if name=='canonical':
+            p.add_argument('--max-sim-seconds',type=float,default=360.)
+            p.add_argument('--scene',type=Path,required=True,help='Current collection scene with fixed initialization and explicit configuration')
         else:p.add_argument('--canonical-dir',type=Path,required=True);p.add_argument('--trials',type=int,default=10)
     p=sub.add_parser('rescore');p.add_argument('directory',type=Path)
     p=sub.add_parser('rescore-drawer-trace',help='Reassess a complete native drawer trace under benchmark v2 criteria')

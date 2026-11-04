@@ -10,7 +10,7 @@ import pytest
 from simulation.scripted_tasks.native_state import STATE_READERS, ThreadedState
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
 from space_arm_platform.collection_jobs import CollectionCreate, TASKS
-from collection.collect_scripted_tasks import validate_threaded_recording
+from collection.recording_validation import validate_threaded_recording
 
 
 @pytest.mark.parametrize("name", THREADED_TASKS)
@@ -28,7 +28,7 @@ def test_private_preflight_uses_the_executed_collection_profile(
     tmp_path, monkeypatch, name, profile
 ):
     from pathlib import Path
-    from simulation.scripted_tasks import drawer_initialization as initialization
+    from simulation.scripted_tasks import native_geometry_probe as initialization
     from simulation.scripted_tasks.randomization import write_model_variant
     from simulation.scripted_tasks.threaded_motion import ThreadedSample, model_body_pose
     from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
@@ -92,7 +92,7 @@ def test_private_preflight_uses_the_executed_collection_profile(
 
 
 def test_threaded_duration_can_complete_real_turns_without_changing_global_recording_limits():
-    from simulation.scripted_tasks.threaded_tasks import task_default_duration_s
+    from space_arm_platform.task_catalog import task_default_duration_s
     from space_arm_platform.recording_config import RecordingConfig
     from collection.record_scripted_task import task_recording_settings
 
@@ -113,7 +113,7 @@ def test_native_grasp_opening_matches_delivered_head_and_measured_finger_geometr
     pytest.importorskip("Basilisk")
     from pathlib import Path
     from simulation.scripted_tasks.aviation_bolt import AviationBoltTask
-    from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+    from simulation.scripted_tasks.native_geometry_probe import NativePoseProbe
     from simulation.scripted_tasks.threaded_motion import ThreadedSample
     from space_arm_platform.control_defaults import DEFAULT_OPERATING_JOINT_DEG
 
@@ -198,7 +198,7 @@ def test_child_fastener_reads_actual_body_pose_scalar_addresses_and_contact_forc
 
 @pytest.mark.parametrize("arm_body",["link5","wrist_ft_tool"])
 def test_preflight_updates_only_private_mechanism_state_and_keeps_arm_collision_check(monkeypatch,arm_body):
-    from simulation.scripted_tasks import drawer_initialization as initialization
+    from simulation.scripted_tasks import native_geometry_probe as initialization
 
     candidates = np.zeros((2, 8))
     task = SimpleNamespace(lower=np.full(6, -1.), upper=np.ones(6),
@@ -231,7 +231,7 @@ def test_preflight_updates_only_private_mechanism_state_and_keeps_arm_collision_
                                               ("locking_rod","layout_plug_start"),
                                               ("fastener","layout_drawer")])
 def test_threaded_preflight_rejects_mechanism_sweep_into_base_or_foreign_module(monkeypatch,moving,environment):
-    from simulation.scripted_tasks import drawer_initialization as initialization
+    from simulation.scripted_tasks import native_geometry_probe as initialization
 
     candidates=np.zeros((2,8))
     task=SimpleNamespace(lower=np.full(6,-1.),upper=np.ones(6),
@@ -257,7 +257,7 @@ def test_threaded_preflight_rejects_mechanism_sweep_into_base_or_foreign_module(
                                   ("locking_rod","hook"),("locking_rod","limit_clip"),
                                   ("fastener","limit_clip")])
 def test_threaded_preflight_preserves_real_internal_rod_and_clip_contacts(monkeypatch,pair):
-    from simulation.scripted_tasks import drawer_initialization as initialization
+    from simulation.scripted_tasks import native_geometry_probe as initialization
 
     task=SimpleNamespace(lower=np.full(6,-1.),upper=np.ones(6),
              preflight_paths=lambda q:[("seat",np.zeros((2,8)),("fastener",))])
@@ -275,7 +275,7 @@ def test_threaded_preflight_preserves_real_internal_rod_and_clip_contacts(monkey
                                                ("bolt_storage_thread_sdf",True),
                                                ("unrelated_board_convex",False)])
 def test_bolt_preflight_allows_exact_mating_geoms_without_exempting_whole_board(monkeypatch,other_geom,accepted):
-    from simulation.scripted_tasks import drawer_initialization as initialization
+    from simulation.scripted_tasks import native_geometry_probe as initialization
 
     task=SimpleNamespace(lower=np.full(6,-1.),upper=np.ones(6),
              preflight_paths=lambda q:[("turn",np.zeros((2,8)),("bolt",))])
@@ -295,7 +295,7 @@ def test_bolt_preflight_allows_exact_mating_geoms_without_exempting_whole_board(
 
 @pytest.mark.parametrize("stage,accepted",[("target_turn",True),("target_release",False),("retract",False)])
 def test_bolt_withdrawal_rejects_shallow_nonfinger_obstruction(stage,accepted):
-    from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+    from simulation.scripted_tasks.native_geometry_probe import NativePoseProbe
 
     probe=object.__new__(NativePoseProbe)
     probe.home=np.zeros(12)
@@ -310,7 +310,7 @@ def test_bolt_withdrawal_rejects_shallow_nonfinger_obstruction(stage,accepted):
 
 
 def test_private_measured_baseline_preserves_actual_passive_linkage_offsets():
-    from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+    from simulation.scripted_tasks.native_geometry_probe import NativePoseProbe
 
     probe=object.__new__(NativePoseProbe)
     probe.home=np.zeros(9)
@@ -472,7 +472,7 @@ def test_released_recording_requires_versioned_jaw_clearance_during_entire_hold(
         obs["scripted_task"]["task_parameters"]["release_open_rad"] = release_opening
         obs["gripper_opening_normalized"] = release_opening if historical else .421
         if historical:
-            obs["scripted_task"]["task_version"] = threaded_task_class(task).previous_version
+            obs["scripted_task"]["task_version"] = {"aviation_bolt_insert": "aviation-bolt/4-straight-approach", "locking_rod_cycle": "locking-rod-cycle/3-straight-approach"}[task]
     validate_threaded_recording(observations, stages, task)
     insufficient = deepcopy(observations)
     insufficient[-1]["gripper_opening_normalized"] = release_opening-.02 if historical else .399

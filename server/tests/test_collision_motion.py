@@ -8,7 +8,7 @@ from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
 
 @pytest.mark.parametrize('held',[False,True])
 def test_future_queries_reuse_actual_frame_and_only_held_fingers_are_exempt(monkeypatch,held):
-    from simulation.scripted_tasks import drawer_initialization
+    from simulation.scripted_tasks import native_geometry_probe
     restored,queried=[],[]
     bus_p=np.array([.9,-.4,.2])
     bus_r=np.array([[0.,-1.,0.],[1.,0.,0.],[0.,0.,1.]])
@@ -20,7 +20,7 @@ def test_future_queries_reuse_actual_frame_and_only_held_fingers_are_exempt(monk
         def body_pose(self,name):return bus_p,bus_r
         def pose_collision(self,*args,**kwargs):queried.append((args,kwargs))
         def close(self):pass
-    monkeypatch.setattr(drawer_initialization,'NativePoseProbe',Probe)
+    monkeypatch.setattr(native_geometry_probe,'NativePoseProbe',Probe)
     measured=np.arange(12.)
     joints=np.r_[np.zeros(6),.27,-.27]
     part_p=np.array([.2,.3,.1])

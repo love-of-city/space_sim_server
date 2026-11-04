@@ -83,10 +83,15 @@
           <select id="videoFpsSelector" aria-label="视频目标帧率" title="目标而非保证帧率；网络较差选 30/60，高刷屏可选 90。影响共享 UE 实例。"></select>
           <button id="workLightToggle" class="quiet-button" type="button" disabled aria-pressed="false" title="控制当前视角对应的工作灯，各灯独立；不改变太阳、质量或姿控">工作灯：未连接</button>
           <button id="copyVideoDiagnostics" class="quiet-button" type="button">复制诊断</button>
-          <a class="quiet-button" href="/api/vision/view" target="_blank" rel="noopener">双目定位</a>
+          <button class="quiet-button" id="stereoVisionToggle" type="button" aria-expanded="false" aria-controls="stereoVisionPanel">双目定位</button>
         </div>
         <span id="frameState" class="frame-state">NO SIGNAL</span>
       </div>
+      <section id="stereoVisionPanel" class="stereo-vision-panel" hidden aria-label="双目定位观测">
+        <p>双目定位观测 · 仅显示图像解算结果，不控制机械臂</p>
+        <div class="stereo-vision-images"><img id="stereoVisionLeft" alt="左目图像"><img id="stereoVisionRight" alt="右目图像"></div>
+        <pre id="stereoVisionStatus" aria-live="polite">等待双目图像</pre>
+      </section>
       <div id="webrtcStats" class="webrtc-stats" aria-live="polite">
         <span><small>RTT</small><strong id="webrtcRtt">—</strong></span>
         <span><small>码率</small><strong id="webrtcBitrate">—</strong></span>
@@ -367,9 +372,6 @@
           <div><dt>动作序号</dt><dd id="actionSequence">—</dd></div>
           <div><dt>末端位置</dt><dd id="toolPosition">—</dd></div>
           <div><dt>两星原点距离</dt><dd id="relativeDistance">—</dd></div>
-          <div><dt>编队保持（理想推力）</dt><dd id="formationHold">—</dd></div>
-          <div><dt>保持位置误差</dt><dd id="formationError">—</dd></div>
-          <div><dt>轨道系相对速度</dt><dd id="formationVelocity">—</dd></div>
           <div><dt>两星相对速度（惯性系）</dt><dd id="relativeVelocity">—</dd></div>
           <div><dt>两星相对角速度（惯性系）</dt><dd id="relativeAngularVelocity">—</dd></div>
           <div><dt>腕部力 X/Y/Z</dt><dd id="wristForce">—</dd></div>

@@ -9,14 +9,9 @@ BANK_PATH = Path(__file__).resolve().parents[2] / "config/task-instructions.json
 BANK_SCHEMA = "task-instructions/1"
 SELECTION_SCHEMA = "task-instruction-selection/1"
 STREAM = "task-instruction-v1"
-TASKS = ("drawer_cycle", "aviation_plug_insert", "guide_plug_insert",
-         "cylindrical_plug_insert", "aviation_bolt_insert", "locking_rod_cycle",
-         "drawer_open", "drawer_close", "locking_rod_fold", "locking_rod_restore")
-COLOR_TASKS = frozenset(TASKS[1:5])
-
-
-def canonical_task(task):
-    return "cylindrical_plug_insert" if task == "plug_insert" else task
+from space_arm_platform.task_catalog import (
+    INSTRUCTION_TASKS as TASKS, COLOR_TASKS, normalize_task_name,
+)
 
 
 def validate_template(task, template):
@@ -54,7 +49,7 @@ def prepare_instruction(cfg, task, seed, rng, values=None):
     Save the actual template as well as its index so replay survives bank edits.
     A new batch attempt replaces collection_config before entering this function.
     """
-    task = canonical_task(task)
+    task = normalize_task_name(task)
     if task not in TASKS:
         return None
     previous = cfg.get("instruction_randomization")

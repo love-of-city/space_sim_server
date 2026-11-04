@@ -3,7 +3,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from space_arm_platform.app import PlatformConfig, create_app
+from space_arm_platform.app import create_app
+from space_arm_platform.platform_config import PlatformConfig
 from space_arm_platform.recording_config import (
     H264_ENCODER_PRESETS, NVENC_ENCODER_PRESETS, VideoEncodingConfig, load_recording_config,
 )
@@ -108,11 +109,10 @@ def test_file_defaults_reach_scene_and_episode_requests(tmp_path, monkeypatch):
                                    simulation_port=0, capture_port=0))
     scenes = app.state.scenes
     monkeypatch.setattr(scenes, "catalog", lambda: {"defaults": {}})
-    monkeypatch.setattr(scenes, "create_instance", lambda payload, creator: payload.model_dump())
-    monkeypatch.setattr(scenes, "start", lambda payload, creator, **kwargs: {
-        **payload.model_dump(), "instance_id": "configured-scene", **kwargs})
+    monkeypatch.setattr(scenes, "create_instance", lambda payload, creator, **kwargs: dict(payload.model_dump(), instance_id="test-scene"))
+    monkeypatch.setattr(scenes, "start", lambda payload, creator, **kwargs: dict(payload.model_dump(), instance_id="test-scene"))
     async def accept_recording(payload):
-        return {**payload.model_dump(), "episode_id": "configured-episode"}
+        return dict(payload.model_dump(), episode_id="test-episode")
     monkeypatch.setattr(app.state.capture_lifecycle, "start", accept_recording)
     with TestClient(app) as client:
         client.post("/api/auth/login", json={"username": "admin", "password": "ChangeMe123!"})

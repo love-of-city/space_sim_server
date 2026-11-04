@@ -37,8 +37,8 @@ def test_new_scene_persists_selection_but_never_changes_explicit_angles(tmp_path
     # Loader/reset consumes the saved angles, not a fresh preferred solve.
     import importlib.util
     if importlib.util.find_spec('Basilisk') is not None:
-        from simulation.teleop_grasp_unreal import _load_scene_instance
-        loaded = _load_scene_instance(Path(new['config_path']))
+        from simulation.teleop_scene import load_scene_instance
+        loaded = load_scene_instance(Path(new['config_path']))
         assert loaded['randomization']['arm_joint_position_rad'] == new['randomization']['arm_joint_position_rad']
         assert len(calls) == 1
     explicit = manager.create_instance(SceneInstanceCreate(**req, randomization_profile=ELBOW_UP_TELEOP_PROFILE, initial_arm_joint_position_deg=[1,2,3,4,5,6]))

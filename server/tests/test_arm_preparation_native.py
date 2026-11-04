@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 pytest.importorskip('Basilisk')
-from simulation import teleop_grasp_unreal as teleop
+from simulation import teleop_control as teleop
+from simulation import teleop_session as session
 from space_arm_platform.models import SceneInstanceCreate
 from space_arm_platform.scene_runtime import SceneRuntimeManager
 from space_arm_platform.control_defaults import AUTO_PREPARE_TELEOP_PROFILE
@@ -68,7 +69,7 @@ def test_zero_start_fixed_sequence_real_joint_controllers(tmp_path, monkeypatch,
             if len(ready)>=90:raise Finished()
             return True
     monkeypatch.setattr(bsk_render_adapter,'BasiliskRenderBridge',ProbeBridge)
-    monkeypatch.setattr(teleop,'SimulationControlClient',Client)
+    monkeypatch.setattr(session,'SimulationControlClient',Client)
     manager=SceneRuntimeManager(None,project_root=ROOT)
     manager.scene_root=tmp_path
     instance=manager.create_instance(SceneInstanceCreate(seed=123, randomization_profile=AUTO_PREPARE_TELEOP_PROFILE,
@@ -76,7 +77,7 @@ def test_zero_start_fixed_sequence_real_joint_controllers(tmp_path, monkeypatch,
     args=SimpleNamespace(adapter_root=ADAPTER,model_root=ROOT/'model/SARM/platform',scene_instance=Path(instance['config_path']),
         catalog=tmp_path/'unused.json',control_host='127.0.0.1',control_port=0,render_host='127.0.0.1',render_port=0,
         duration=180.,simulation_rate=1.,capture_rate=50.,ik_rate=100.,ik_mode=teleop.IK_MODE_IK_POSE,disable_attitude_control=False)
-    try:teleop.run(args)
+    try:session.run(args)
     except Finished:pass
     report={'case':case,'goal_deg':goal_deg,'final':observations[-1],'count':len(observations),
         'statuses':sorted({o['arm_preparation']['status'] for o in observations})}

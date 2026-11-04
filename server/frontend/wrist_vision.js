@@ -5,8 +5,8 @@ export function videoContentRect(rect,width,height) {
 }
 const labels={lost:'未发现靶标',insufficient_markers:'可用靶标不足',ambiguous:'平面位姿存在歧义',
   reprojection_rejected:'重投影检查未通过',capture_error:'图像采集失败',error:'图像解算失败',waiting:'等待末端图像',stopped:'场景已停止'};
-export function wristViewState(data,receivedAt,now,{orbitShifted=false,session='',visualProbe=false}={}) {
-  const mode=visualProbe?'视觉闭环短程试验 · 丢失/过期即停':'仅观察，不控制机械臂';
+export function wristViewState(data,receivedAt,now,{orbitShifted=false,session=''}={}) {
+  const mode='仅观察，不控制机械臂';
   const invalid=text=>({valid:false,result:null,text:`视觉无效 · ${text}\n位置／姿态误差：—\n${mode}`});
   if(orbitShifted)return invalid('观察角度已偏移，请按 Home 复位');
   if(!data)return invalid('等待末端图像');

@@ -126,8 +126,6 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
                                position_body_m=(1, 2, 3), field_of_view_rad=0.9)
     wrist = SimpleNamespace(camera_id="teleop/camera/sarm_wrist_cam", parent_id="teleop/ee_base",
                             position_body_m=(4, 5, 6), field_of_view_rad=1.2, display_name="Wrist")
-    for camera in (overview, wrist):
-        camera.to_payload = lambda camera=camera: {k: v for k, v in vars(camera).items() if k != "to_payload"}
     lights = []
     bridge = SimpleNamespace(_cameras=[overview, wrist], add_mj_scene=lambda *a, **kw: None,
                              add_lights=lambda light: lights.append(light))
@@ -135,8 +133,8 @@ def test_camera_mode_preserves_pose_and_only_demo_overrides_overview(monkeypatch
     monkeypatch.setitem(sys.modules, "bsk_render_adapter", SimpleNamespace(
         BasiliskRenderBridge=lambda **kw: bridge, SceneSettings=SimpleNamespace,
         VisualElement=SimpleNamespace))
-    monkeypatch.setitem(sys.modules, "simulation.teleop_grasp_unreal", SimpleNamespace(
-        _register_celestial_bodies=lambda *a: None))
+    monkeypatch.setitem(sys.modules, "simulation.teleop_scene", SimpleNamespace(
+        register_celestial_bodies=lambda *a: None))
     ctx = SimpleNamespace(scene=object(), extra={"template_id": template},
                           add=lambda *a, **kw: None, keep_alive=lambda *a: None)
     RenderComponent(model_path="unused.xml", catalog={}, host="localhost", port=5558,

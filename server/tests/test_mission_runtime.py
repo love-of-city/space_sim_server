@@ -269,7 +269,7 @@ def test_handoff_keeps_mission_identity_in_scene_and_can_be_repeated_after_stop(
     asyncio.run(run())
 
 
-def test_existing_and_new_http_routes_share_admission_and_original_page_redirect(tmp_path, monkeypatch):
+def test_existing_and_new_http_routes_share_admission_without_duplicate_console(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from space_arm_platform.app import PlatformConfig, create_app
     (tmp_path / "frontend").mkdir()
@@ -282,7 +282,7 @@ def test_existing_and_new_http_routes_share_admission_and_original_page_redirect
         assert client.post('/api/mission/start', json={"mode": "team-in-orbit"}).status_code == 401
         client.post('/api/auth/login', json={"username": "admin", "password": "ChangeMe123!"})
         old = client.get('/static/rendezvous.html?access_key=test', follow_redirects=False)
-        assert old.status_code == 307 and old.headers['location'] == '/?access_key=test#mission'
+        assert old.status_code == 404
         try:
             started = client.post('/api/mission/start', json={"mode": "team-in-orbit", "options": {"seed": 19}})
             assert started.status_code == 202

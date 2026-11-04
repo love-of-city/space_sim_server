@@ -1,3 +1,4 @@
+from collection.recorded_task_contracts import recorded_stages, validate_recorded_stages
 """The two rod skills have separate physical starts and completion evidence."""
 from dataclasses import replace
 import math
@@ -102,11 +103,11 @@ def test_restore_settle_approaches_folded_support_grasp_without_replaying_fold(t
 def test_registry_and_stage_validation_are_direction_specific(tmp_path, name, kind):
     task = create_threaded_task(name, make_model(tmp_path, name), speed_profile="fast_collection")
     assert isinstance(task, kind) and task.config.linear_speed_m_s == .08
-    assert kind.validate_recorded_stages([s for s in kind.stages for _ in range(2)])
-    assert not kind.validate_recorded_stages(LockingRodTask.stages)
-    assert not kind.validate_recorded_stages(kind.stages[:-1])
+    assert validate_recorded_stages(kind.name, [s for s in kind.stages for _ in range(2)], kind.version)
+    assert not validate_recorded_stages(kind.name, LockingRodTask.stages, kind.version)
+    assert not validate_recorded_stages(kind.name, kind.stages[:-1], kind.version)
     with pytest.raises(ValueError, match="Unsupported"):
-        kind.recorded_stages(LockingRodTask.version)
+        recorded_stages(kind.name, LockingRodTask.version)
 
 
 def test_fold_terminates_only_with_loosen_lower_release_and_clip_retention(tmp_path):

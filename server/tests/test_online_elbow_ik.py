@@ -163,7 +163,7 @@ def test_low_level_requires_valid_base_and_timestep(chain):
 @pytest.mark.parametrize('reason', ['release', 'timeout', 'gripper'])
 @pytest.mark.parametrize('joint3_enabled', [False, True])
 def test_live_zero_start_release_resume_keeps_budget_and_reset_clears_it(chain,reason,joint3_enabled):
-    from simulation.teleop_grasp_unreal import CartesianTeleopTarget
+    from simulation.teleop_control import CartesianTeleopTarget
     class Client:
         enabled=True
         stale=False
@@ -203,7 +203,7 @@ def test_live_zero_start_release_resume_keeps_budget_and_reset_clears_it(chain,r
 
 
 def test_live_policy_switch_and_strict_bypass(chain,monkeypatch):
-    from simulation.teleop_grasp_unreal import CartesianTeleopTarget
+    from simulation.teleop_control import CartesianTeleopTarget
     monkeypatch.setenv('SPACE_SIM_ONLINE_ELBOW_MODE','off')
     initial=np.r_[np.zeros(6),.01875,.01875]
     assert not CartesianTeleopTarget(initial,None,chain).elbow_preference.enabled
@@ -217,7 +217,7 @@ def test_live_policy_switch_and_strict_bypass(chain,monkeypatch):
                 end_effector_angular_velocity_body_rad_s=[0,0,0],gripper_velocity_m_s=0),False
     target=CartesianTeleopTarget(initial,Client(),chain,ik_mode='strict')
     target.reset(0.)
-    with patch('simulation.teleop_grasp_unreal.apply_online_elbow_preference',side_effect=AssertionError):
+    with patch('simulation.teleop_control.apply_online_elbow_preference',side_effect=AssertionError):
         target.update(.01)
     assert not target.elbow_diagnostics.enabled
 
@@ -315,7 +315,7 @@ def test_invalid_wrist_preferences_fail_clearly(kwargs):
 
 
 def test_wrist_only_switch_does_not_disable_elbow_and_invalid_value_fails(chain,monkeypatch):
-    from simulation.teleop_grasp_unreal import CartesianTeleopTarget
+    from simulation.teleop_control import CartesianTeleopTarget
     q=np.r_[np.zeros(6),.01875,.01875]
     monkeypatch.setenv('SPACE_SIM_ONLINE_ELBOW_MODE','prefer')
     monkeypatch.setenv('SPACE_SIM_ONLINE_WRIST_MODE','off')
@@ -404,7 +404,7 @@ def test_invalid_joint3_preferences_fail_clearly(kwargs):
 
 
 def test_joint3_switch_and_manual_positive_initialization(chain,monkeypatch):
-    from simulation.teleop_grasp_unreal import CartesianTeleopTarget
+    from simulation.teleop_control import CartesianTeleopTarget
     monkeypatch.setenv('SPACE_SIM_ONLINE_ELBOW_MODE','prefer')
     monkeypatch.setenv('SPACE_SIM_ONLINE_WRIST_MODE','prefer')
     monkeypatch.setenv('SPACE_SIM_ONLINE_JOINT3_MODE','off')

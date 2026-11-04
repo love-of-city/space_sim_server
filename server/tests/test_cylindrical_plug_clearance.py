@@ -1,13 +1,16 @@
+from collection.recorded_task_contracts import recorded_stages
 """Regress the long-shaft grasp and the blocked side retreat with real geometry."""
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
 
-from simulation.scripted_tasks.plug_insert import PlugInsertConfig, PlugInsertTask, PlugSample
+from simulation.scripted_tasks.plug_insert import PlugInsertTask, PlugSample
+from simulation.scripted_tasks.plug_motion_config import PlugInsertConfig
 from simulation.scripted_tasks.plug_clearance import cylindrical_hold_opening, plan_cylindrical_retract
 from simulation.scripted_tasks.motion import solve_pose
 from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix, matrix_to_quaternion_wxyz
@@ -35,21 +38,77 @@ def test_cylindrical_height_and_version_do_not_change_other_connectors_or_explic
     assert PlugInsertConfig(plug_body="guide_plug").grasp_offset_m == (0., 0., -.003)
     assert PlugInsertConfig(grasp_offset_m=(0., 0., .001)).grasp_offset_m == (0., 0., .001)
     version = PlugInsertTask.task_version("cylindrical_plug_insert")
-    assert version == "plug-insert/17-smooth-insertion-gate"
-    assert PlugInsertTask.recorded_stages(version) == PlugInsertTask.recorded_stages(PlugInsertTask.latch_version)
-    assert PlugInsertTask.recorded_stages(PlugInsertTask.cylindrical_clearance_version) == PlugInsertTask.recorded_stages(version)
-    assert PlugInsertTask.recorded_stages(PlugInsertTask.gentle_release_version) == PlugInsertTask.recorded_stages(version)
-    from simulation.scripted_tasks.drawer_initialization import randomized_scene
+    assert version == PlugInsertTask.version
+    assert recorded_stages('cylindrical_plug_insert', version) == recorded_stages('cylindrical_plug_insert', 'plug-insert/11-all-latch-aligned')
+    assert recorded_stages('cylindrical_plug_insert', 'plug-insert/12-cylindrical-clearance') == recorded_stages('cylindrical_plug_insert', version)
+    assert recorded_stages('cylindrical_plug_insert', 'plug-insert/12-round-plug-release') == recorded_stages('cylindrical_plug_insert', version)
+    from simulation.scripted_tasks.task_initialization import randomized_scene
     scene = randomized_scene({"randomization": {"arm_joint_position_rad": [0.] * 8}}, 42,
                              task_name="cylindrical_plug_insert")
     assert scene["collection_config"]["task_version"] == version
-    for historical in (PlugInsertTask.integrated_cylindrical_version, PlugInsertTask.legacy_straight_approach_version):
-        assert PlugInsertTask.recorded_stages(historical) == PlugInsertTask.recorded_stages(version)
+    for historical in ('plug-insert/13-cylindrical-clearance-gentle-release', 'plug-insert/13-straight-approach'):
+        assert recorded_stages('cylindrical_plug_insert', historical) == recorded_stages('cylindrical_plug_insert', version)
+
+
+@pytest.mark.parametrize("clearance_result", [False, True])
+def test_native_release_queries_geometry_before_fixed_aperture_and_gates_retreat(monkeypatch, clearance_result):
+    task, sample = initial_task()
+    task.stage = "release"
+    task._release_unloaded = True
+    task._release_start_opening = .45
+    task._gripper_timing = None
+    task._path = None
+    task._entered = 0.
+    task._timeout = 90.
+    sample = replace(sample, finger_plug_contacts=(0, 0), native_qpos=np.zeros(1))
+    monkeypatch.setattr(task, "_hold_release_pose", lambda *_: None)
+    calls, transitions = [], []
+    monkeypatch.setattr(task, "_next", lambda observed: transitions.append(observed.time_s))
+
+    def clearance(_task, observed):
+        calls.append(observed.time_s)
+        # Actual fingers are clear, but the old +.08-rad gate is not met.
+        assert min(observed.joints[6], -observed.joints[7]) < .53
+        return clearance_result
+
+    monkeypatch.setattr("simulation.scripted_tasks.plug_clearance.cylindrical_release_clearance", clearance)
+    for tick in range(1, 5):
+        task.step(replace(sample, time_s=tick*.02))
+    assert not calls and not transitions
+    task.step(replace(sample, time_s=.12))
+    assert calls == [.12]
+    assert bool(transitions) is clearance_result
+
+
+@pytest.mark.parametrize("unloaded,contacts,native", [
+    (False, (0, 0), True),
+    (True, (1, 0), True),
+    (True, (0, 0), False),
+])
+def test_release_geometry_cannot_bypass_unloading_contacts_or_non_native_aperture(monkeypatch, unloaded, contacts, native):
+    task, sample = initial_task()
+    task.stage = "release"
+    task._release_unloaded = unloaded
+    task._release_start_opening = .45
+    task._gripper_timing = None
+    task._path = None
+    task._entered = 0.
+    task._timeout = 90.
+    sample = replace(sample, finger_plug_contacts=contacts,
+                     native_qpos=np.zeros(1) if native else None)
+    monkeypatch.setattr(task, "_hold_release_pose", lambda *_: None)
+    calls, transitions = [], []
+    monkeypatch.setattr(task, "_next", lambda observed: transitions.append(observed.time_s))
+    monkeypatch.setattr("simulation.scripted_tasks.plug_clearance.cylindrical_release_clearance",
+                        lambda *_: calls.append(True) or True)
+    for tick in range(1, 11):
+        task.step(replace(sample, time_s=tick*.02))
+    assert not calls and not transitions
 
 
 def test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload():
     pytest.importorskip("Basilisk")
-    from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+    from simulation.scripted_tasks.native_geometry_probe import NativePoseProbe
 
     task, sample = initial_task()
     goal, rotation = task._tracked_grasp(sample)
@@ -84,7 +143,7 @@ def test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload():
 
 def test_rising_retreat_avoids_neighbor_that_blocks_old_horizontal_path():
     pytest.importorskip("Basilisk")
-    from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
+    from simulation.scripted_tasks.native_geometry_probe import NativePoseProbe
 
     task, sample = initial_task()
     part_position = task.hole + [0., 0., task.config.flange_local_m]
@@ -123,3 +182,76 @@ def test_rising_retreat_avoids_neighbor_that_blocks_old_horizontal_path():
         np.testing.assert_array_equal(sample.native_qpos, before)
     finally:
         probe.close()
+
+
+def test_retreat_checks_timed_opening_and_continues_after_positive_gap_failure(monkeypatch, tmp_path):
+    """A safe later heading must survive a stricter clearance check of the first."""
+    model = tmp_path / "model.xml"
+    model.write_text('<mujoco><worldbody><body name="cylindrical_plug">'
+                     '<freejoint name="cylindrical_plug_free"/></body></worldbody></mujoco>')
+    reference = np.r_[np.zeros(6), .38, -.38]
+    measured = np.r_[np.zeros(6), .37, -.375]
+    active, calls = {}, []
+
+    class Path:
+        def at(self, progress):
+            return np.array([.02*progress, 0., 0., 0., 0., 0.])
+
+        def derivative_bounds(self):
+            return np.full((3, 6), .02)
+
+    class Query:
+        closed = False
+
+        def __init__(self, proxy, observed, *, clearance_m):
+            assert clearance_m == .002
+            assert proxy._planning_stage == "retract"
+            assert proxy.planning_part_body == "cylindrical_plug"
+            assert proxy.planning_part_joint == "cylindrical_plug_free"
+            np.testing.assert_array_equal(observed.joints, measured)
+
+        def __call__(self, configuration):
+            progress = configuration[0]/.02
+            opening = configuration[6]
+            calls.append((active["candidate"], progress, opening))
+            if .2 < progress < .8 and active["candidate"] == 0:
+                # The old penetration-only gate would accept this 1.8-mm gap.
+                return {"body1": "ee_finger1", "body2": "cylindrical_plug",
+                        "separation_m": .0018, "penetration_m": -.0018}
+            if progress > 1e-9 and opening < .38+.27*progress-1e-12:
+                raise AssertionError("Frozen initial aperture rejects a safe timed opening")
+            return None
+
+        def close(self):
+            Query.closed = True
+
+    task = SimpleNamespace(model_path=model,
+                           config=SimpleNamespace(plug_body="cylindrical_plug", release_open_rad=.65),
+                           reference=reference.copy(), _release_clearance_probe=None)
+
+    def plan(position, _rotation):
+        active["candidate"] = int(position[0])
+        task._timing = SimpleNamespace(path=Path())
+
+    task._plan = plan
+    task.path_reference = lambda progress: np.r_[task._timing.path.at(progress),
+                                                 .38+.27*progress, -.38-.27*progress]
+    observed = SimpleNamespace(joints=measured.copy(), native_qpos=np.zeros(1),
+                               plug_position_body_m=np.zeros(3), plug_rotation_body=np.eye(3))
+    candidates = [dict(position=np.array([index, 0., 0.]), rotation=np.eye(3),
+                       height_m=height, angle_rad=angle, direction_body=[1., 0., 0.])
+                  for index, height, angle in ((0, .08, 0.), (1, .12, np.pi))]
+    monkeypatch.setattr("simulation.scripted_tasks.collision_motion.NativeMotionQuery", Query)
+    plan_cylindrical_retract(task, observed, candidates)
+    assert task.retract_plan["height_m"] == .12
+    assert task.retract_plan["attempts"][0]["collision"]["separation_m"] == .0018
+    assert task.retract_plan["attempts"][1]["collision"] is None
+    assert task.retract_plan["start_opening_rad"] == .37
+    assert task.retract_plan["clearance_m"] == .002
+    assert any(candidate == 1 and 0. < progress < 1. and .38 < opening < .65
+               for candidate, progress, opening in calls)
+    assert any(candidate == 1 and 0. < progress < 1. and opening == .65
+               for candidate, progress, opening in calls)
+    np.testing.assert_array_equal(task.reference, reference)
+    np.testing.assert_array_equal(observed.joints, measured)
+    assert Query.closed

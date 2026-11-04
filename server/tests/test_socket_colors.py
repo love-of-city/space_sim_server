@@ -87,7 +87,7 @@ def test_socket_identity_is_unique_per_diameter_and_matches_plug_to_scripted_tar
 
 def test_adapter_reads_explicit_linear_material_on_every_coloured_mesh(tmp_path, monkeypatch):
     from bsk_render_adapter import mjcf_assets
-    from bsk_render_adapter.bridge import _mj_mesh_geometry
+    from bsk_render_adapter.scene_description import mesh_geometry
     from types import SimpleNamespace
 
     root = independent_model()
@@ -108,7 +108,7 @@ def test_adapter_reads_explicit_linear_material_on_every_coloured_mesh(tmp_path,
         if not item.mesh_name:
             continue
         expected = record["palette"][record["identities"][item.body_name]["colour_identity"]]
-        geometry = _mj_mesh_geometry(SimpleNamespace(rgba=[.5, .5, .5, 1]), "test/geom", item, {}, {})
+        geometry = mesh_geometry(SimpleNamespace(rgba=[.5, .5, .5, 1]), "test/geom", item, {}, {})
         np.testing.assert_allclose(geometry.color_rgba, expected["linear_rgba"], rtol=1e-10)
         assert not geometry.use_asset_materials
         assert geometry.material_name == expected["material_name"]

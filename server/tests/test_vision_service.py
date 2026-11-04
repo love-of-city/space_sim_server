@@ -76,3 +76,32 @@ def test_new_session_flushes_pending_and_records_stale_result(tmp_path):
         assert service.status()['last_result'] is None
     finally:
         service.close()
+
+
+def test_reset_discards_inflight_result_and_cached_images(tmp_path):
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    def solver(left, right):
+        entered.set()
+        assert release.wait(3)
+        return {'status': 'ok'}
+    service = make_service(tmp_path, solver)
+    service.start()
+    try:
+        service.on_capture(packet('L'), {'rgb': b'left'})
+        service.on_capture(packet('R'), {'rgb': b'right'})
+        assert entered.wait(2)
+        service.invalidate()
+        assert service.latest_image('left') is None
+        assert service.diagnostics() == {}
+        assert service.status()['stale']
+        release.set()
+        assert service.wait_idle()
+        assert service.status()['last_result'] is None
+        service.on_capture(packet('L', session='next'), {'rgb': b'next-left'})
+        service.on_capture(packet('R', session='next'), {'rgb': b'next-right'})
+        assert service.wait_idle()
+        assert service.status()['last_result']['session_id'] == 'next'
+    finally:
+        release.set()
+        service.close()

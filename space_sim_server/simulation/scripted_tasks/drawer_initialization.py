@@ -271,7 +271,7 @@ class NativePoseProbe:
 
     def pose_collision(self, candidate, task_name, allowed_contact_bodies=(),
                        joint_values=None, baseline=None, arm_penetration_m=.0005,
-                       clearance_m=0., mechanism_clearance_m=None, axial_socket=None):
+                       clearance_m=0., mechanism_clearance_m=None, axial_socket=None, moving_bodies=()):
         """The same private contact gate for reset preflight and carry branches."""
         moving_mechanism = ({"locking_rod", "fastener"} if task_name == "locking_rod_cycle"
                             else {"bolt"} if task_name == "aviation_bolt_insert"
@@ -283,6 +283,7 @@ class NativePoseProbe:
             # A released plug or drawer is static scene geometry. Its own seat
             # contact must not reject an unrelated empty-gripper withdrawal.
             moving_mechanism = set()
+        moving_mechanism.update(moving_bodies)
         own_rod_contacts = {
             frozenset(pair) for pair in (
                 ("locking_rod", "fastener"), ("fastener", "hook"),

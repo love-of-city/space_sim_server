@@ -36,10 +36,10 @@ def _defaults(root, tag):
     return classes
 
 
-def apply_target_variations(root, scene, body_name):
+def apply_target_variations(root, scene, body_name, *, options_override=None, instance_key=None):
     """Always receives a fresh source tree after target release/copy preparation."""
     from .randomization import generator, options_for_scene
-    options = FloatingTargetConfig.model_validate(scene.get("floating_target", {}))
+    options = FloatingTargetConfig.model_validate(scene.get("floating_target", {}) if options_override is None else options_override)
     if options_for_scene(scene).dynamics.enabled:
         raise ValueError("Floating target variants cannot be combined with global dynamics scaling")
     cfg = scene["collection_config"]
@@ -70,7 +70,8 @@ def apply_target_variations(root, scene, body_name):
             if key in inertial.attrib:
                 inertial.set(key, scaled(inertial.get(key), mass))
     names, visual, physical = set(), [], []
-    material_name = f"floating_target_color_{color}" if color else None
+    prefix = "floating_target" if instance_key is None else instance_key
+    material_name = f"{prefix}_color_{color}" if color else None
     rgba = list(_linear_rgba(COLOR_PALETTE[color]["srgb_hex"])) if color else None
     for geom in body.findall("geom"):
         cls = geom.get("class", childclass)

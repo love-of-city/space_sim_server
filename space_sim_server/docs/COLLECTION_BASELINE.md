@@ -66,3 +66,19 @@
 ## glx：漂浮抓取后携物回收（2026-11-04）
 
 `floating-capture/3`将末段更新为稳定夹持2秒、携物回收、到位稳定1秒；CLI与场景参数见[服务端说明](../README.md#漂浮抓取后的携物回收)。固定目的地与回收速度独立配置；抓持相对基准贯穿全段，保持原载荷/碰撞门槛。原生50Hz录制验收检查完整阶段、保持窗口、连续接触/滑移、实际末端与物体搬运以及最终到位。该源码更新的真实动力学与UE结果以本轮验证产物为准。
+
+
+## 单物体与多物体漂浮抓取
+
+`floating-capture/4` 保留抓稳 2 秒、携物回收至操作台上方、到位保持 1 秒，并记录每个漂浮实例的状态与唯一目标。CLI 默认 `--object-count 1`；多物体参数例如：
+
+```bash
+--object-count 2 --object-composition different-types --distractor-types floating_aviation_plug_capture
+--object-count 2 --object-composition same-type-colors
+```
+
+数量包含目标；不同类型不重复，同类型使用不同颜色。多物体未指定速度时初始速度与角速度为零，显式 `--object-speed`（m/s）和 `--object-spin`（rad/s）作用于所有实例。零初态后仍按自由动力学演化。目标颜色沿用 `floating_target.color_choices`，多物体缺省从已有调色板选择。单物体原有释放参数保持可用。
+
+配置在 `floating_scene`；实现集中于 `simulation/scripted_tasks/floating_objects.py`，复用资产注册表和释放采样器。各实例有独立 body/freejoint/material。`collection_config.floating_objects` 保存类型、颜色、释放状态与目标 ID；逐帧 `scripted_task.floating_objects` 保存真实状态。有效接触涉及干扰物时任务失败。初始可达性、碰撞和摆放间隔检查会拒绝无法放置的组合；数量上限不代表任意大尺寸资产组合均可摆放。
+
+指令按实际目标生成：`Catch the {color} {object_name}, hold it securely for two seconds, then bring it back above the workbench.`，写入原有 LeRobot task/instruction 通道。

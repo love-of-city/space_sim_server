@@ -101,39 +101,54 @@ def camera_in_tool(root):
     return tr.T@(cp-tp), tr.T@cr
 
 
+def clone_floating_body(root, source_body, body_name):
+    """Copy a standalone part while inheriting source physical defaults."""
+    original = root.find(f'.//body[@name="{source_body}"]')
+    if original is None or original.find("geom") is None:
+        raise ValueError(f"Floating source {source_body} has no direct geometry")
+    body = ET.Element("body", name=body_name)
+    parents = {child: parent for parent in root.iter() for child in parent}
+    ancestor = original
+    while ancestor is not None:
+        if "childclass" in ancestor.attrib:
+            body.set("childclass", ancestor.get("childclass"))
+            break
+        ancestor = parents.get(ancestor)
+    for index, item in enumerate(original):
+        if item.tag not in ("geom", "inertial"):
+            continue
+        copied = deepcopy(item)
+        if item.tag == "geom":
+            copied.set("name", f"{body_name}_{item.get('name', str(index))}")
+        body.append(copied)
+    ET.SubElement(body, "freejoint", name=f"{body_name}_free")
+    for item in body.iter():
+        tags = ("joint", "freejoint") if item.tag == "freejoint" else (item.tag,)
+        if "name" in item.attrib and any(root.find(f'.//{tag}[@name="{item.get("name")}"]') is not None for tag in tags):
+            raise ValueError("Floating instance names must be unique")
+    return body
+
+
+def floating_release_options(scene):
+    from .floating_objects import FloatingSceneConfig
+    options = dict(scene.get("floating_capture", {}))
+    if FloatingSceneConfig.model_validate(scene.get("floating_scene", {})).object_count > 1:
+        options.setdefault("view_x_range", [-.28, .28])
+        options.setdefault("view_y_range", [-.20, .20])
+        for quantity in ("speed_m_s", "spin_rad_s"):
+            if f"min_{quantity}" not in options and f"max_{quantity}" not in options:
+                options[f"min_{quantity}"] = options[f"max_{quantity}"] = 0.
+    return FloatingInitialConfig(**options)
+
+
 def apply_floating_model(root, source, scene):
     """Detach only the selected part; retain geometry, inertial and contact data."""
     name = scene.get("scripted_task_name") or scene["collection_config"]["task"]
     asset = FLOATING_TASKS[name]
     cfg = scene["collection_config"]
-    options = FloatingInitialConfig(**scene.get("floating_capture", {}))
+    options = floating_release_options(scene)
     if asset.source_body is not None:
-        original = root.find(f'.//body[@name="{asset.source_body}"]')
-        if original is None or original.find("geom") is None:
-            raise ValueError(f"Floating source {asset.source_body} has no direct geometry")
-        body = ET.Element("body", name=asset.body)
-        parents = {child: parent for parent in root.iter() for child in parent}
-        ancestor = original
-        while ancestor is not None:
-            if "childclass" in ancestor.attrib:
-                body.set("childclass", ancestor.get("childclass"))
-                break
-            ancestor = parents.get(ancestor)
-        # Geometry and inertia remain in source-body coordinates. Assembly poses,
-        # descendants, joints and sites do not belong to this independent part.
-        for index, item in enumerate(original):
-            if item.tag not in ("geom", "inertial"):
-                continue
-            copied = deepcopy(item)
-            if item.tag == "geom":
-                copied.set("name", f"{asset.body}_{item.get('name', str(index))}")
-            body.append(copied)
-        ET.SubElement(body, "freejoint", name=f"{asset.body}_free")
-        for item in body.iter():
-            tags = ("joint", "freejoint") if item.tag == "freejoint" else (item.tag,)
-            if "name" in item.attrib and any(
-                    root.find(f'.//{tag}[@name="{item.get("name")}"]') is not None for tag in tags):
-                raise ValueError(f"Floating copy name already exists: {item.get('name')}")
+        body = clone_floating_body(root, asset.source_body, asset.body)
         root.find("worldbody").append(body)
     else:
         body = root.find(f'.//body[@name="{asset.body}"]')
@@ -281,13 +296,14 @@ def apply_floating_model(root, source, scene):
 
 def initialize_floating_body(scene, orbit_state, native, config):
     """Called only at scene initialization, never during interception or contact."""
-    state = config["floating_initial_state"]
-    body = scene.getBody(state["target_body"])
-    body.setPosition(np.asarray(orbit_state["initial_position_m"])+state["position_body_m"])
-    body.setVelocity(np.asarray(orbit_state["initial_velocity_m_s"])+state["velocity_body_m_s"])
-    body.setAttitude(native._quaternion_to_mrp(np.asarray(state["orientation_wxyz"])))
-    rotation = quaternion_wxyz_to_matrix(np.asarray(state["orientation_wxyz"]))
-    body.setAttitudeRate(rotation.T@state["angular_velocity_body_rad_s"])
+    for instance in config["floating_objects"]["instances"]:
+        state = instance["initial_state"]
+        body = scene.getBody(instance["instance_id"])
+        body.setPosition(np.asarray(orbit_state["initial_position_m"])+state["position_body_m"])
+        body.setVelocity(np.asarray(orbit_state["initial_velocity_m_s"])+state["velocity_body_m_s"])
+        body.setAttitude(native._quaternion_to_mrp(np.asarray(state["orientation_wxyz"])))
+        rotation = quaternion_wxyz_to_matrix(np.asarray(state["orientation_wxyz"]))
+        body.setAttitudeRate(rotation.T@state["angular_velocity_body_rad_s"])
 
 
 def validate_floating_preflight(probe, model, scene, name):
@@ -303,13 +319,15 @@ def validate_floating_preflight(probe, model, scene, name):
     overrides = {"capture_target_free": [*target["target_position_m"], *target["target_orientation_wxyz"]]}
     candidates = [np.r_[initial[:6], opening, -opening] for opening in np.linspace(0., 1., 21)]
     candidates += [np.r_[(1-fraction)*initial[:6]+fraction*goal, 1., -1.] for fraction in np.linspace(0., 1., 81)]
+    instances = scene["collection_config"]["floating_objects"]["instances"]
+    moving_bodies = tuple(item["instance_id"] for item in instances)
     count = 0
     for q in candidates:
         allowed = () if count < 21 else (task.asset.body,)
         # A released target must start without even shallow background penetration:
         # sub-millimetre overlap can impart a large impulse to a heavy part.
         hit = probe.pose_collision(q, name, allowed_contact_bodies=allowed, joint_values=overrides,
-                                   mechanism_clearance_m=0.)
+                                   mechanism_clearance_m=0., moving_bodies=moving_bodies)
         count += 1
         if hit:
             return dict(accepted=False, reason="approach_collision", contact=hit, checked_poses=count)

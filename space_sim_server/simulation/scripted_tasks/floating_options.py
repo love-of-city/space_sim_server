@@ -3,10 +3,15 @@ from copy import deepcopy
 
 from .floating_assets import FLOATING_TASKS
 from .floating_capture import floating_controller_config
-from .floating_initialization import FloatingInitialConfig
+from .floating_initialization import floating_release_options
+from .floating_objects import FloatingSceneConfig
 
 
 def add_floating_options(parser):
+    parser.add_argument("--object-count", type=int, help="Total floating instances including the target (default: 1)")
+    parser.add_argument("--object-composition", choices=("different-types", "same-type-colors"))
+    parser.add_argument("--distractor-types", choices=tuple(FLOATING_TASKS), nargs="+",
+                        help="Eligible registered tasks for different-type distractors")
     for quantity, unit in (("speed", "m/s"), ("spin", "rad/s")):
         group = parser.add_mutually_exclusive_group()
         group.add_argument(f"--object-{quantity}", type=float, help=f"Fixed initial magnitude ({unit})")
@@ -23,7 +28,7 @@ def add_floating_options(parser):
 
 
 def apply_floating_options(source, args, *, prepared=False):
-    release, controller, retraction = {}, {}, {}
+    release, controller, retraction, objects = {}, {}, {}, {}
     for quantity, field in (("speed", "speed_m_s"), ("spin", "spin_rad_s")):
         fixed = getattr(args, f"object_{quantity}")
         interval = getattr(args, f"object_{quantity}_range")
@@ -43,7 +48,11 @@ def apply_floating_options(source, args, *, prepared=False):
         value = getattr(args, argument)
         if value is not None:
             retraction[field] = value
-    if release or controller or retraction:
+    for argument, field in (("object_count", "object_count"), ("object_composition", "composition"), ("distractor_types", "distractor_types")):
+        value = getattr(args, argument)
+        if value is not None:
+            objects[field] = value
+    if release or controller or retraction or objects:
         if prepared:
             raise ValueError("Floating overrides cannot be combined with a prepared scene")
         if args.task not in FLOATING_TASKS:
@@ -53,6 +62,8 @@ def apply_floating_options(source, args, *, prepared=False):
         result["floating_capture"] = {**result.get("floating_capture", {}), **release}
         result["floating_controller"] = {**result.get("floating_controller", {}), **controller}
         result["floating_retraction"] = {**result.get("floating_retraction", {}), **retraction}
-        FloatingInitialConfig(**result["floating_capture"])
+        result["floating_scene"] = {**result.get("floating_scene", {}), **objects}
+        FloatingSceneConfig.model_validate(result["floating_scene"])
+        floating_release_options(result)
         floating_controller_config(args.task, result)
     return result

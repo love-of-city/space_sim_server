@@ -58,7 +58,7 @@ class FloatingCaptureConfig:
 
 
 class FloatingCaptureTask:
-    version = "floating-capture/3"
+    version = "floating-capture/4"
     stages = ("open", "intercept", "grip", "hold", "retract", "settle")
 
     def __init__(self, model_path, config=None):
@@ -66,6 +66,7 @@ class FloatingCaptureTask:
         self.config = config or FloatingCaptureConfig()
         self.name = self.config.task
         self.asset = FLOATING_TASKS[self.name]
+        self.object_instances = []
         self.chain = SerialChainKinematics.from_mjcf(
             self.model_path, base_body="cubesat_bus",
             joint_names=tuple(f"joint{i}" for i in range(1, 7)), tool_site="sarm_ee")
@@ -132,6 +133,9 @@ class FloatingCaptureTask:
                 rotation_matrix_to_vector((r.T@sample.plug_rotation_body)@self._held_rotation.T))),
             grasp_point_tool_m=local.tolist(),
             unexpected_contacts=getattr(sample, "unexpected_contacts", []),
+            target_instance_id=self.asset.body,
+            floating_objects=getattr(sample, "floating_objects", []),
+            non_target_contacts=getattr(sample, "non_target_contacts", []),
         )
 
     def _enter(self, stage, sample):
@@ -206,6 +210,8 @@ class FloatingCaptureTask:
             self.fail("wrist_sensor_unavailable", sample)
         elif self._overload >= .1:
             self.fail("wrist_load_limit", sample)
+        elif getattr(sample, "non_target_contacts", []):
+            self.fail("non_target_contact", sample)
         elif getattr(sample, "unexpected_contacts", []):
             self.fail("unexpected_collision", sample)
         elif sample.time_s > self.config.timeout_s:
@@ -306,4 +312,7 @@ def floating_controller_config(name, scene):
 
 
 def create_floating_task(name, model, scene=None):
-    return FloatingCaptureTask(model, floating_controller_config(name, scene or {}))
+    task = FloatingCaptureTask(model, floating_controller_config(name, scene or {}))
+    if scene is not None:
+        task.object_instances = scene.get("collection_config", {}).get("floating_objects", {}).get("instances", [])
+    return task

@@ -385,6 +385,8 @@ def validate_recording(episode, task_name="drawer_cycle"):
         assert all(obs["model_sha256"] == variant["variant_sha256"] for obs in steps)
         assert cfg["floating_controller"] == final["task_parameters"]
         validate_floating_recording(steps, stages, task_name)
+        from simulation.scripted_tasks.floating_objects import validate_floating_object_recording
+        validate_floating_object_recording(cfg, steps, meta["instruction"])
     elif task_name in THREADED_TASKS:
         validate_threaded_recording(steps, stages, task_name)
     elif is_plug_task(task_name):

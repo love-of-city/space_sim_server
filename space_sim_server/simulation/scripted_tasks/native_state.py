@@ -2,7 +2,7 @@
 
 import numpy as np
 from dataclasses import dataclass, field
-from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix, matrix_to_quaternion_wxyz
 from simulation.scripted_tasks.drawer_lift import DrawerSample
 from simulation.scripted_tasks.plug_insert import PlugSample
 from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
@@ -228,16 +228,54 @@ class ThreadedState:
 class FloatingSample(PlugSample):
     unexpected_contacts: list = field(default_factory=list)
     finger_normal_force_n: tuple = (0., 0.)
+    floating_objects: list = field(default_factory=list)
+    non_target_contacts: list = field(default_factory=list)
 
 
 class FloatingState(PlugState):
+    def __init__(self, task, scene, stepper):
+        super().__init__(task, scene, stepper)
+        self.instances = task.object_instances
+        self.instance_joints = {obj["instance_id"]: scene.getBody(obj["instance_id"]).getFreeJoint() for obj in self.instances}
+
+    def object_states(self, contacts):
+        qa, va = self.base.getQposAdr(), self.base.getQvelAdr()
+        state, rate = self.stepper.qpos, self.stepper.qvel
+        rb = quaternion_wxyz_to_matrix(state[qa+3:qa+7])
+        result = []
+        for obj in self.instances:
+            name = obj["instance_id"]
+            joint = self.instance_joints[name]
+            pa, pv = joint.getQposAdr(), joint.getQvelAdr()
+            rotation = rb.T @ quaternion_wxyz_to_matrix(state[pa+3:pa+7])
+            position = rb.T @ (state[pa:pa+3]-state[qa:qa+3])
+            velocity = rb.T @ (rate[pv:pv+3]-rate[va:va+3])-np.cross(rate[va+3:va+6],position)
+            counts, forces = [0,0], [0.,0.]
+            for contact in contacts:
+                _, _, a, b, distance = contact[:5]
+                names = {self.body_names[int(a)],self.body_names[int(b)]}
+                if name in names and distance <= .0001 and float(contact[5]) > .001:
+                    for i in (0,1):
+                        if f"ee_finger{i+1}" in names:
+                            counts[i] += 1; forces[i] += float(contact[5])
+            result.append(dict(instance_id=name,type_task=obj["type_task"],color=obj["variation"]["color"],
+                position_body_m=position.tolist(),orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(),
+                velocity_body_m_s=velocity.tolist(),angular_velocity_body_rad_s=(rotation@rate[pv+3:pv+6]-rate[va+3:va+6]).tolist(),
+                finger_contacts=counts,finger_normal_force_n=forces))
+        return result
+
     def sample(self, time_s, q, v, wrench):
         sample = super().sample(time_s, q, v, wrench)
         unexpected = []
         normal_force = [0., 0.]
-        for contact in self.stepper.contact_force_snapshot():
+        contacts = self.stepper.contact_force_snapshot()
+        distractors = set(self.instance_joints)-{self.task.asset.body}
+        non_target = []
+        for contact in contacts:
             _, _, first, second, distance = contact[:5]
             names = {self.body_names[int(first)], self.body_names[int(second)]}
+            if distractors.intersection(names) and distance <= .0001 and float(contact[5]) > .001:
+                non_target.append(dict(bodies=sorted(names),normal_force_n=float(contact[5]),distance_m=float(distance)))
             if self.task.asset.body in names and distance <= .0001:
                 for index in (0, 1):
                     if f"ee_finger{index+1}" in names:
@@ -254,7 +292,8 @@ class FloatingState(PlugState):
             if arm(a) or arm(b) or self.task.asset.body in (a, b):
                 unexpected.append(dict(body1=a, body2=b, penetration_m=float(-distance)))
         return FloatingSample(**vars(sample), unexpected_contacts=unexpected,
-                              finger_normal_force_n=tuple(normal_force))
+                              finger_normal_force_n=tuple(normal_force),
+                              floating_objects=self.object_states(contacts), non_target_contacts=non_target)
 
 
 STATE_READERS = {

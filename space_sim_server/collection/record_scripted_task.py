@@ -197,7 +197,12 @@ def task_instruction(scene, task, target_site):
     """Return the instruction realized by this episode's appearance config."""
     cfg = scene.get("collection_config") or {}
     if task in FLOATING_TASKS:
-        return f"Intercept the {FLOATING_TASKS[task].instruction_name} and hold it securely."
+        object_description = FLOATING_TASKS[task].instruction_name
+        color = (cfg.get("floating_target_variation") or {}).get("color")
+        if color:
+            object_description = f"{color} {object_description}"
+        return (f"Catch the {object_description}, hold it securely for two seconds, "
+                "then bring it back above the workbench.")
     from simulation.scripted_tasks.instructions import canonical_task
     selected = cfg.get("instruction_randomization")
     if selected is not None:
@@ -268,6 +273,7 @@ def task_metadata(scene, task, target_site, instruction):
     }
     if task in FLOATING_TASKS:
         result["floating_initial_state"] = dict(cfg["floating_initial_state"])
+        result["floating_objects"] = dict(cfg["floating_objects"])
         result["feedback_source"] = "authoritative_simulation_state"
     if cfg.get("instruction_randomization") is not None:
         result["instruction_randomization"] = dict(cfg["instruction_randomization"])

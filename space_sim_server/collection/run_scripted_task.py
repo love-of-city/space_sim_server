@@ -236,7 +236,8 @@ def run(args):
                             ROOT / "simulation/scripted_tasks/floating_variations.py",
                             ROOT / "simulation/scripted_tasks/floating_profiles.py",
                             ROOT / "simulation/scripted_tasks/floating_options.py",
-                            ROOT / "simulation/scripted_tasks/floating_assets.py"]
+                            ROOT / "simulation/scripted_tasks/floating_assets.py",
+                            ROOT / "simulation/scripted_tasks/floating_objects.py"]
                            if args.task in FLOATING_TASKS else []))
         },
     }

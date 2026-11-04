@@ -319,9 +319,7 @@ def write_model_variant(source, output, scene):
     initialization = {}
     if floating_task:
         from .floating_initialization import apply_floating_model
-        from .floating_variations import apply_target_variations
         initialization['floating_release'] = apply_floating_model(root, source, scene)
-        initialization['floating_target'] = apply_target_variations(root, scene, initialization['floating_release']['target_body'])
     if storage_thread is not None:
         initialization['bolt_storage_thread'] = storage_thread
     appearance = None
@@ -333,6 +331,12 @@ def write_model_variant(source, output, scene):
             "assignment_schema", color_config.get("schema")
         )
         appearance = apply_socket_colors(root, appearance_assignment)
+    if floating_task:
+        from .floating_variations import apply_target_variations
+        from .floating_objects import apply_floating_objects, target_variation_options
+        initialization['floating_target'] = apply_target_variations(root, scene,
+            initialization['floating_release']['target_body'], options_override=target_variation_options(scene))
+        initialization['floating_objects'] = apply_floating_objects(root, source, scene)
     if task == 'locking_rod_cycle':
         from simulation.model_preparation.threaded_task_initialization import apply_locking_cycle_initial_state
         initialization['locking_rod'] = apply_locking_cycle_initial_state(root)
@@ -419,7 +423,7 @@ def write_model_variant(source, output, scene):
         variant_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
         mass_scale=mass,
         friction_scale=friction,
-        scope=("floating_target_and_release" if floating_task
+        scope=("floating_objects_and_release" if floating_task
                else "all_bodies_and_contact_geoms" if (dynamics_enabled or threaded_task)
                else "appearance_and_storage_thread_upgrade" if visual_color and physics_upgraded
                else "storage_thread_upgrade" if physics_upgraded

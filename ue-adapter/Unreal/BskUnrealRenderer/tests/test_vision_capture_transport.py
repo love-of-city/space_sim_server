@@ -1,4 +1,9 @@
-"""Independent vision requests preserve exact source frames without an episode."""
+"""Vision protocol tests exercise Python scheduling without a native simulator.
+
+Only the missing native base constructor is stubbed for the protocol harness;
+bridge initialization, validation, Reset, and UpdateState remain real. When
+Basilisk is installed, these same cases use its real SysModel base instead.
+"""
 import json
 import math
 from unittest.mock import patch
@@ -6,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from bsk_render_adapter import BasiliskRenderBridge, CameraVisual
+from bsk_render_adapter import bridge as bridge_module
 from bsk_render_adapter.protocol import RenderPublisher
 
 
@@ -18,18 +24,25 @@ class Publisher:
     def close(self): pass
 
 
-def test_default_bridge_does_not_request_vision():
+@pytest.fixture
+def protocol_bridge(monkeypatch):
+    if bridge_module.sysModel is None:
+        monkeypatch.setattr(bridge_module._MissingBasiliskBase, "__init__", lambda self: None)
+    return BasiliskRenderBridge
+
+
+def test_default_bridge_does_not_request_vision(protocol_bridge):
     publisher = Publisher()
-    bridge = BasiliskRenderBridge(publisher=publisher)
+    bridge = protocol_bridge(publisher=publisher)
     bridge.Reset(0)
     bridge.UpdateState(0)
     assert not publisher.frames[0].get("vision_capture_requested", False)
     assert "vision_capture_camera_ids" not in publisher.frames[0]
 
 
-def test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idle():
+def test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idle(protocol_bridge):
     publisher = Publisher()
-    bridge = BasiliskRenderBridge(
+    bridge = protocol_bridge(
         publisher=publisher, frame_rate_hz=50,
         capture_state_provider=lambda: {"capture_episode_id": "", "capture_request_id": ""},
         vision_capture_camera_ids=("teleop/camera/left", "teleop/camera/right"),
@@ -47,15 +60,23 @@ def test_vision_trigger_uses_published_simulation_grid_and_preserves_dataset_idl
 
 
 @pytest.mark.parametrize("rate", [0, -1, 7, 9.5, float("nan"), True])
-def test_vision_rejects_invalid_sampling_rate(rate):
+def test_vision_rejects_invalid_sampling_rate(rate, protocol_bridge):
     with pytest.raises(ValueError, match="vision_capture_rate_hz"):
-        BasiliskRenderBridge(publisher=Publisher(), vision_capture_camera_ids=("left",), vision_capture_rate_hz=rate)
+        protocol_bridge(publisher=Publisher(), vision_capture_camera_ids=("left",), vision_capture_rate_hz=rate)
 
 
-def test_vision_rejects_rate_not_contained_in_published_frame_grid():
+def test_vision_rejects_rate_not_contained_in_published_frame_grid(protocol_bridge):
     with pytest.raises(ValueError, match="frame_rate_hz"):
-        BasiliskRenderBridge(publisher=Publisher(), frame_rate_hz=30,
-                            vision_capture_camera_ids=("left",), vision_capture_rate_hz=25)
+        protocol_bridge(publisher=Publisher(), frame_rate_hz=30,
+                        vision_capture_camera_ids=("left",), vision_capture_rate_hz=25)
+
+
+def test_protocol_harness_preserves_missing_basilisk_guard():
+    # The fixture must not make the production bridge silently usable without
+    # its native simulator, or alter subsequent tests in the same process.
+    guarded_type = BasiliskRenderBridge if bridge_module.sysModel is None else bridge_module._MissingBasiliskBase
+    with pytest.raises(RuntimeError, match="Basilisk is unavailable"):
+        guarded_type()
 
 
 @pytest.mark.parametrize("legacy_reliable", [False, True])

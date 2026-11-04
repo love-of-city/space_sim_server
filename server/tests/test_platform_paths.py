@@ -35,13 +35,14 @@ Resolve-PlatformAdapterRoot $Requested $Project
 
 @pytest.mark.parametrize("server_wrapped", [False, True])
 @pytest.mark.parametrize("adapter_wrapped", [False, True])
-def test_discovers_sibling_and_wrapped_checkouts(tmp_path, server_wrapped, adapter_wrapped):
+@pytest.mark.parametrize("adapter_name", ["ue-adapter", "space_sim_UE_adapter"])
+def test_discovers_sibling_and_wrapped_checkouts(tmp_path, server_wrapped, adapter_wrapped, adapter_name):
     workspace = tmp_path / "workspace with spaces"
     project = workspace / "server"
     if server_wrapped:
         project /= "server"
     project.mkdir(parents=True)
-    adapter = workspace / "space_sim_UE_adapter"
+    adapter = workspace / adapter_name
     if adapter_wrapped:
         adapter /= "ue-adapter"
     make_adapter(adapter)
@@ -54,10 +55,20 @@ def test_prefers_nearest_valid_checkout(tmp_path):
     project = tmp_path / "outer/server/server"
     project.mkdir(parents=True)
     nearest = make_adapter(project.parent / "space_sim_UE_adapter")
-    make_adapter(project.parent.parent / "space_sim_UE_adapter")
+    make_adapter(project.parent.parent / "ue-adapter")
     result = resolve(tmp_path, project)
     assert result.returncode == 0, result.stderr
     assert Path(result.stdout.strip()) == nearest
+
+
+def test_current_sibling_name_takes_precedence_over_legacy_checkout(tmp_path):
+    project = tmp_path / "server"
+    project.mkdir()
+    current = make_adapter(tmp_path / "ue-adapter")
+    make_adapter(tmp_path / "space_sim_UE_adapter")
+    result = resolve(tmp_path, project)
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()) == current
 
 
 def test_explicit_relative_path_overrides_discovery(tmp_path):
@@ -128,6 +139,7 @@ def test_monorepo_prefers_bundled_adapter_over_external_checkout(tmp_path):
 
 def test_monorepo_missing_bundle_never_falls_back_to_external_checkout(tmp_path):
     project = make_monorepo(tmp_path / "unified")
+    make_adapter(project.parent / "space_sim_UE_adapter")
     make_adapter(project.parent.parent / "ue-adapter")
     result = resolve(tmp_path, project)
     assert result.returncode != 0

@@ -5,10 +5,9 @@ import vm from 'node:vm';
 import {createTaskCatalog} from '../task_catalog.js';
 import {collectionLayoutError} from '../pages/collection_layout_status.js';
 
-const source=readFileSync(new URL('../pages/collection.js',import.meta.url),'utf8')
-  .replace(/^import .*;\n/gm,'').replace('export function createCollectionPage','function createCollectionPage');
+const source=readFileSync(new URL('../pages/collection.js',import.meta.url),'utf8');
 
-async function setup(){
+async function setup(lineEnding){
   const nodes=new Map(), requests=[];
   const node=()=>({value:'',disabled:false,hidden:false,checked:false,options:[],
     replaceChildren(){},append(){},setAttribute(){}});
@@ -30,7 +29,12 @@ async function setup(){
     createRandomizationControls:()=>({value:()=>({})}),
     document:{createElement:node},setInterval:()=>1,clearInterval(){},
   });
-  vm.runInContext(source+'\nthis.createCollectionPage=createCollectionPage;',context);
+  // Exercise the checked-out source with either Git line-ending style. Imports
+  // are supplied by the fixture because the HTML ?raw import belongs to Vite.
+  const script=source.replace(/\r?\n/g,lineEnding)
+    .replace(/^import .*;\r?\n/gm,'')
+    .replace('export function createCollectionPage','function createCollectionPage');
+  vm.runInContext(script+'\nthis.createCollectionPage=createCollectionPage;',context);
   const page=context.createCollectionPage({querySelectorAll:()=>[]},{api:async(path,options)=>{
     if(options){requests.push({path,options});return {};}
     if(path==='/api/collections/catalog')return {
@@ -44,8 +48,9 @@ async function setup(){
   return {$,requests,context};
 }
 
-test('threaded speed control follows the selected task and never affects drawer speed',async()=>{
-  const h=await setup();
+for(const [style,lineEnding] of [['LF','\n'],['CRLF','\r\n']]){
+test(`threaded speed control follows the selected task and never affects drawer speed (${style})`,async()=>{
+  const h=await setup(lineEnding);
   for(const [task,threaded,drawer] of [
     ['aviation_bolt_insert',true,false],['locking_rod_cycle',true,false],
     ['aviation_plug_insert',false,false],['drawer_cycle',false,true],
@@ -59,8 +64,8 @@ test('threaded speed control follows the selected task and never affects drawer 
   }
 });
 
-test('submission preserves either threaded profile and drops stale values after a task switch',async()=>{
-  const h=await setup();
+test(`submission preserves either threaded profile and drops stale values after a task switch (${style})`,async()=>{
+  const h=await setup(lineEnding);
   for(const [task,profile,expected] of [
     ['aviation_bolt_insert','fast_collection','fast_collection'],
     ['locking_rod_cycle','default','default'],
@@ -77,3 +82,4 @@ test('submission preserves either threaded profile and drops stale values after 
     assert.equal(JSON.parse(request.options.body).threaded_speed_profile,expected);
   }
 });
+}

@@ -28,10 +28,17 @@ function Resolve-PlatformAdapterRoot([string]$RequestedRoot, [string]$ProjectRoo
     }
     $parent = Split-Path -Parent $workspace
     $candidates = @()
+    # Standalone checkouts may still use the pre-monorepo name. Search the
+    # nearest directory first, preferring its current name over the legacy one.
+    $adapterNames = @('ue-adapter', 'space_sim_UE_adapter')
     foreach ($base in @($workspace, $parent) | Where-Object { $_ } | Select-Object -Unique) {
-        $sibling = Join-Path $base 'ue-adapter'
-        $candidates += $sibling
-        $candidates += Join-Path $sibling 'ue-adapter'
+        foreach ($name in $adapterNames) {
+            $sibling = Join-Path $base $name
+            $candidates += $sibling
+            foreach ($nestedName in $adapterNames) {
+                $candidates += Join-Path $sibling $nestedName
+            }
+        }
     }
     foreach ($candidate in $candidates | Select-Object -Unique) {
         if (Test-Path -LiteralPath (Join-Path $candidate 'Unreal/BskUnrealRenderer/BskUnrealRenderer.uproject') -PathType Leaf) {

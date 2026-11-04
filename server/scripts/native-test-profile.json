@@ -12,6 +12,11 @@
     "tests/test_wrist_wrench_native.py",
     "tests/test_collection_physics_graph.py",
     "tests/test_compiled_model_cache.py",
-    "tests/test_native_observation_detail.py"
+    "tests/test_native_observation_detail.py",
+    "tests/test_native_pose_ik.py",
+    "tests/test_native_plug_retention.py",
+    "tests/test_axial_friction_coupled.py",
+    "tests/test_publication_scene.py",
+    "tests/test_cylindrical_plug_clearance.py"
   ]
 }

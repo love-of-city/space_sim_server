@@ -24,7 +24,7 @@ from space_arm_platform.layout_trajectories import (
 
 def validate_diagnostic(entry):
     """Trajectory reports remain optional diagnostics, outside pool admission."""
-    native = json.loads(Path(entry["native_report"]).read_text())
+    native = json.loads(Path(entry["native_report"]).read_text(encoding="utf-8"))
     binding = native.get("trajectory_acceptance")
     if not isinstance(binding, dict):
         raise ValueError("Missing optional trajectory diagnostic binding")
@@ -132,10 +132,10 @@ def test_selection_reproduces_and_does_not_change_arm_noise_or_orbit(layout_pool
 
 @pytest.mark.parametrize("binding", [None, {"path": "/missing/old-trajectory.json", "sha256": "stale"}])
 def test_geometry_accepted_layout_needs_no_trajectory_evidence(layout_pool, binding):
-    document = json.loads(layout_pool.read_text())
+    document = json.loads(layout_pool.read_text(encoding="utf-8"))
     for entry in document["layouts"]:
         native = Path(entry["native_report"])
-        report = json.loads(native.read_text())
+        report = json.loads(native.read_text(encoding="utf-8"))
         if binding is None:
             report.pop("trajectory_acceptance", None)
         else:
@@ -149,7 +149,7 @@ def test_geometry_accepted_layout_needs_no_trajectory_evidence(layout_pool, bind
 
 
 def test_clear_trajectory_with_failed_target_is_not_a_success_demonstration(layout_pool):
-    entry = json.loads(layout_pool.read_text())["layouts"][0]
+    entry = json.loads(layout_pool.read_text(encoding="utf-8"))["layouts"][0]
     directory, model, native = Path(entry["model"]).parent, Path(entry["model"]), Path(entry["native_report"])
     scene, trajectories = trajectory_evidence(directory, model, native, successful=False)
     aggregate = bind_trajectory_acceptance(model, native, scene, trajectories, directory / "failed-target.json")
@@ -159,11 +159,11 @@ def test_clear_trajectory_with_failed_target_is_not_a_success_demonstration(layo
 
 @pytest.mark.parametrize("changed", ["missing_binding", "missing_task", "forbidden_contact", "incomplete_coverage", "wrong_model", "strict_free_bolt", "incomplete_path", "missing_stage", "wrong_stage_order", "shortened_contract", "planning_failed"])
 def test_optional_trajectory_diagnostic_rejects_invalid_evidence(layout_pool, changed):
-    entry = json.loads(layout_pool.read_text())["layouts"][0]
+    entry = json.loads(layout_pool.read_text(encoding="utf-8"))["layouts"][0]
     model, native = Path(entry["model"]), Path(entry["native_report"])
-    report = json.loads(native.read_text())
+    report = json.loads(native.read_text(encoding="utf-8"))
     path = Path(report["trajectory_acceptance"]["path"])
-    aggregate = json.loads(path.read_text())
+    aggregate = json.loads(path.read_text(encoding="utf-8"))
     if changed == "missing_binding":
         del report["trajectory_acceptance"]
     elif changed == "missing_task":
@@ -173,7 +173,7 @@ def test_optional_trajectory_diagnostic_rejects_invalid_evidence(layout_pool, ch
     else:
         case = aggregate["tasks"][TASKS[0]]
         acceptance_path = Path(case["report"]["path"])
-        acceptance = json.loads(acceptance_path.read_text())
+        acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
         if changed == "forbidden_contact":
             acceptance["forbidden_contact_point_samples"] = 1
         elif changed == "strict_free_bolt":
@@ -204,11 +204,11 @@ def test_optional_trajectory_diagnostic_rejects_invalid_evidence(layout_pool, ch
 
 @pytest.mark.parametrize("changed", ["observed_stages", "deferred_bolt_contact_point_samples", "operational_path_complete"])
 def test_aggregate_cannot_hide_native_path_or_deferred_contacts(layout_pool, changed):
-    entry = json.loads(layout_pool.read_text())["layouts"][0]
+    entry = json.loads(layout_pool.read_text(encoding="utf-8"))["layouts"][0]
     native = Path(entry["native_report"])
-    report = json.loads(native.read_text())
+    report = json.loads(native.read_text(encoding="utf-8"))
     path = Path(report["trajectory_acceptance"]["path"])
-    aggregate = json.loads(path.read_text())
+    aggregate = json.loads(path.read_text(encoding="utf-8"))
     if changed == "observed_stages":
         aggregate[changed][TASKS[0]] = ["settle"]
     elif changed == "deferred_bolt_contact_point_samples":
@@ -223,7 +223,7 @@ def test_aggregate_cannot_hide_native_path_or_deferred_contacts(layout_pool, cha
 
 
 def test_reanalysis_binds_original_launch_and_exact_archived_observer(layout_pool):
-    entry = json.loads(layout_pool.read_text())["layouts"][0]
+    entry = json.loads(layout_pool.read_text(encoding="utf-8"))["layouts"][0]
     model, native = Path(entry["model"]), Path(entry["native_report"])
     directory = model.parent
     scene, trajectories = trajectory_evidence(directory, model, native)
@@ -233,13 +233,13 @@ def test_reanalysis_binds_original_launch_and_exact_archived_observer(layout_poo
     archived.write_bytes(OBSERVER.read_bytes() + b"\n# Earlier observer snapshot.\n")
     folder = trajectories[TASKS[0]]
     launch_path = folder / "launch.json"
-    launch = json.loads(launch_path.read_text())
+    launch = json.loads(launch_path.read_text(encoding="utf-8"))
     launch["source_sha256"][str(OBSERVER)] = digest(archived)
     launch_path.write_text(json.dumps(launch))
     original = folder / "original-launch.json"
     original.write_bytes(launch_path.read_bytes())
     report_path = folder / "acceptance.json"
-    report = json.loads(report_path.read_text())
+    report = json.loads(report_path.read_text(encoding="utf-8"))
     original_inputs = [folder / name for name in (
         "contacts-400hz.jsonl.gz", "names.json", "run/summary.json", "states-200hz.jsonl.gz")]
     for path in original_inputs:
@@ -264,7 +264,7 @@ def test_reanalysis_binds_original_launch_and_exact_archived_observer(layout_poo
     aggregate["tasks"][TASKS[0]]["report"] = reference(report_path)
     aggregate_path = directory / "reanalysis.json"
     aggregate_path.write_text(json.dumps(aggregate))
-    native_report = json.loads(native.read_text())
+    native_report = json.loads(native.read_text(encoding="utf-8"))
     native_report["trajectory_acceptance"] = reference(aggregate_path)
     native.write_text(json.dumps(native_report))
     with pytest.raises(ValueError, match="original launch"):
@@ -273,19 +273,19 @@ def test_reanalysis_binds_original_launch_and_exact_archived_observer(layout_poo
 
 @pytest.mark.parametrize("changed", ["missing_manifest_policy", "old_manifest_policy", "missing_native_policy", "old_native_policy"])
 def test_old_layout_acceptance_is_rejected_even_with_matching_file_hashes(layout_pool, changed):
-    document = json.loads(layout_pool.read_text())
+    document = json.loads(layout_pool.read_text(encoding="utf-8"))
     entry = document["layouts"][0]
     manifest = Path(entry["model"]).with_suffix(".layout.json")
     if changed.endswith("manifest_policy"):
         path, hash_key = manifest, "manifest_sha256"
-        record = json.loads(path.read_text())
+        record = json.loads(path.read_text(encoding="utf-8"))
         if changed.startswith("missing"):
             del record["operational_clearance"]
         else:
             record["operational_clearance"]["schema"] = "task-box-operation-clearance/0"
     else:
         path, hash_key = Path(entry["native_report"]), "native_report_sha256"
-        record = json.loads(path.read_text())
+        record = json.loads(path.read_text(encoding="utf-8"))
         if changed.startswith("missing"):
             del record["operation_clearance_schema"]
         else:
@@ -307,7 +307,7 @@ def test_asset_mutation_fails_closed_even_after_pool_load(layout_pool, changed):
     if changed == "manifest":
         path = Path(entry["model"]).with_suffix(".layout.json")
     elif changed == "visual":
-        path = Path(json.loads(Path(entry["model"]).with_suffix(".layout.json").read_text())["generated_visuals"][0]["file"])
+        path = Path(json.loads(Path(entry["model"]).with_suffix(".layout.json").read_text(encoding="utf-8"))["generated_visuals"][0]["file"])
     else:
         path = Path(entry[changed])
     path.write_text("changed")
@@ -318,14 +318,14 @@ def test_asset_mutation_fails_closed_even_after_pool_load(layout_pool, changed):
 
 
 def test_requires_two_distinct_layouts_and_valid_native_acceptance(layout_pool):
-    document = json.loads(layout_pool.read_text())
+    document = json.loads(layout_pool.read_text(encoding="utf-8"))
     document["layouts"] = [document["layouts"][0]] * 2
     layout_pool.write_text(json.dumps(document))
     with pytest.raises(ValueError, match="unique"):
         LayoutPool(layout_pool)
     entry = document["layouts"][0]
     native = Path(entry["native_report"])
-    report = json.loads(native.read_text())
+    report = json.loads(native.read_text(encoding="utf-8"))
     report["passed"] = False
     native.write_text(json.dumps(report))
     with pytest.raises(ValueError, match="native geometry"):
@@ -347,9 +347,9 @@ def test_collector_passes_same_layout_to_worker_renderer_and_recording(layout_po
     def popen(command, **kwargs):
         calls.append(command)
         arg = lambda key: Path(command[command.index(key)+1])
-        capture_scene = json.loads(arg("--scene").read_text())
+        capture_scene = json.loads(arg("--scene").read_text(encoding="utf-8"))
         model, catalog = arg("--model"), arg("--catalog")
-        assert json.loads(catalog.read_text())["source_mjcf"] == str(model)
+        assert json.loads(catalog.read_text(encoding="utf-8"))["source_mjcf"] == str(model)
         assert digest(model) == capture_scene["task_box_layout"]["model_sha256"]
         if mismatched_recording:
             capture_scene["collection_config"]["layout_randomization"]["layout_id"] = "wrong"
@@ -371,14 +371,14 @@ def test_collector_passes_same_layout_to_worker_renderer_and_recording(layout_po
                                    "--count", "2", "--max-attempts", "2", "--seed", "1", "--validation-mode", "full"])
     if mismatched_recording:
         assert collector.main() == 1
-        report = json.loads((output / "summary.json").read_text())
+        report = json.loads((output / "summary.json").read_text(encoding="utf-8"))
         assert report["status"] == "attempt_limit" and report["accepted_episodes"] == []
         assert [item["status"] for item in report["attempts"]] == [
             "validation_failed", "validation_failed"
         ]
         return
     assert collector.main() == 0
-    report = json.loads((output / "summary.json").read_text())
+    report = json.loads((output / "summary.json").read_text(encoding="utf-8"))
     assert report["status"] == "complete" and len(report["accepted_episodes"]) == 2
     for attempt, episode in zip(report["attempts"], report["accepted_episodes"]):
         validate_episode_layout(episode, attempt["layout_randomization"])
@@ -411,7 +411,7 @@ def test_api_manager_requires_pool_and_snapshots_it(layout_pool, tmp_path, monke
         job = manager.start(request, owner, {})
         snapshot = manager.root / job["id"] / "layout-pool.json"
         assert LayoutPool(snapshot).document == LayoutPool(layout_pool).document
-        saved = json.loads((snapshot.parent / "scene.json").read_text())
+        saved = json.loads((snapshot.parent / "scene.json").read_text(encoding="utf-8"))
         assert saved["collection_layout_randomization"] is True
     finally:
         manager.close()
@@ -439,7 +439,7 @@ def test_parallel_workers_receive_same_pool_with_disjoint_attempt_seeds(layout_p
             return 0
 
     def popen(command, **kwargs):
-        plan = json.loads(Path(command[-1]).read_text())
+        plan = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
         commands.append(plan["command"])
         worker_output = Path(plan["command"][plan["command"].index("--output")+1])
         worker_output.mkdir()

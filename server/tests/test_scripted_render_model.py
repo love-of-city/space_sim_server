@@ -1,7 +1,8 @@
 """Exercise the actual run entrypoint: realised colours must reach the renderer."""
 import hashlib
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -91,15 +92,26 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
     monkeypatch.setattr('simulation.compiled_model_cache.configure_asset_cache', lambda: None)
     monkeypatch.setattr('simulation.scripted_tasks.disturbances.EpisodeDisturbances',
                         lambda _: SimpleNamespace(install_external_force=lambda _: None))
-    monkeypatch.setattr('simulation.assembly.AssemblyContext', lambda sim, scene, config:
-                        SimpleNamespace(simulation=sim, scene=scene, config=config, install=lambda _: None, extra={}))
+    # Replace the native assembly boundary before importing it: importing those
+    # modules just to patch their classes already requires Basilisk on hosted CI.
+    # monkeypatch restores every module after this transport-wiring test.
+    def native_module(name, **attributes):
+        module = ModuleType(name)
+        module.__dict__.update(attributes)
+        monkeypatch.setitem(sys.modules, name, module)
+
+    native_module('simulation.assembly', SessionConfig=SimpleNamespace,
+                  AssemblyContext=lambda sim, scene, config: SimpleNamespace(
+                      simulation=sim, scene=scene, config=config, install=lambda _: None, extra={}))
     for module, name in [('clock', 'ClockComponent'), ('dynamics_core', 'DynamicsCoreComponent'),
                          ('orbital_gravity', 'OrbitalGravityComponent'), ('arm_reference', 'JointReferenceComponent'),
                          ('attitude', 'AttitudeComponent')]:
-        monkeypatch.setattr('simulation.components.'+module+'.'+name, lambda *_, **__: None)
-    monkeypatch.setattr('simulation.components.orbit.OrbitComponent', lambda **kwargs:
-                        SimpleNamespace(earth=None, epoch_utc=kwargs['epoch_utc'], gravity_factory=None))
-    monkeypatch.setattr('simulation.components.plug_retention.install_configured_plug_retention', lambda _: None)
+        native_module('simulation.components.'+module, **{name: lambda *_, **__: None})
+    native_module('simulation.components.orbit', OrbitComponent=lambda **kwargs:
+                  SimpleNamespace(earth=None, epoch_utc=kwargs['epoch_utc'], gravity_factory=None))
+    native_module('simulation.components.plug_retention', install_configured_plug_retention=lambda _: None)
+    native_module('simulation.joint_reference_publisher',
+                  HeldJointReferencePublisher=lambda *args: SimpleNamespace())
     monkeypatch.setattr('simulation.orbital_configuration.resolve_orbital_physics', lambda _: SimpleNamespace(drag=None))
     monkeypatch.setattr('simulation.orbital_configuration.environment_metadata', lambda *_, **__: {})
     monkeypatch.setitem(native_state.STATE_READERS, task_name, lambda *_: None)
@@ -120,7 +132,7 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
     assert received['physics_model'] == received['render_model_path'] == variant
     assert received['catalog'] == args.catalog
     assert received['model_hash'] == hashlib.sha256(variant.read_bytes()).hexdigest()
-    report = json.loads((output / 'summary.json').read_text())
+    report = json.loads((output / 'summary.json').read_text(encoding='utf-8'))
     assert report['render_model_path'] == str(variant)
     assert report['render_model_sha256'] == report['model_sha256'] == received['model_hash']
     assert model.read_bytes() == source_bytes

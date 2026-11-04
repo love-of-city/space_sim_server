@@ -17,7 +17,7 @@ from simulation.layout_package import semantic_model_digest
 
 @pytest.fixture
 def package_inputs(layout_pool, tmp_path):
-    document = json.loads(layout_pool.read_text())
+    document = json.loads(layout_pool.read_text(encoding="utf-8"))
     content = tmp_path / 'ue-content'
     for entry in document['layouts']:
         model = Path(entry['model'])
@@ -26,13 +26,13 @@ def package_inputs(layout_pool, tmp_path):
         tree = ET.parse(model)
         ET.SubElement(ET.SubElement(tree.getroot(), 'asset'), 'mesh', name='shape', file=mesh.name)
         tree.write(model)
-        record = json.loads(model.with_suffix('.layout.json').read_text())
+        record = json.loads(model.with_suffix('.layout.json').read_text(encoding="utf-8"))
         record['model_sha256'] = digest(model)
         model.with_suffix('.layout.json').write_text(json.dumps(record))
-        native = json.loads(Path(entry['native_report']).read_text())
+        native = json.loads(Path(entry['native_report']).read_text(encoding="utf-8"))
         native['model_sha256'] = digest(model)
         Path(entry['native_report']).write_text(json.dumps(native))
-        catalog = json.loads(Path(entry['catalog']).read_text())
+        catalog = json.loads(Path(entry['catalog']).read_text(encoding="utf-8"))
         for index, raw in enumerate(catalog['assets'].values()):
             raw['asset_path'] = f'/Game/Test/shape_{index}.shape_{index}'
             package = content / 'Test' / f'shape_{index}.uasset'
@@ -70,7 +70,7 @@ def test_migration_can_move_without_original_root_and_resolve_renderer(package_i
         visual = record['generated_visuals'][0]['file']
         assert Path(visual).is_relative_to(moved)
         assert resolve_asset(load_asset_catalog(catalog), visual).asset_path.startswith('/Game/Test/')
-        original_report = json.loads((moved/after.document['layouts'][index]['native_report']).read_text())
+        original_report = json.loads((moved/after.document['layouts'][index]['native_report']).read_text(encoding="utf-8"))
         assert original_report['model_sha256'] != digest(model)  # Historical report was not rewritten.
     assert source.read_bytes() == original_bytes
 
@@ -84,7 +84,16 @@ def test_package_rejects_escaping_paths(tmp_path, relative):
 def test_package_rejects_symlink_escape(tmp_path):
     root = tmp_path/'package'
     root.mkdir()
-    (root/'link').symlink_to(tmp_path, target_is_directory=True)
+    link = root/'link'
+    try:
+        link.symlink_to(tmp_path, target_is_directory=True)
+    except OSError as error:
+        if getattr(error, 'winerror', None) != 1314:
+            raise
+        # Windows directory junctions exercise the same path-escape guard
+        # without requiring the account's symbolic-link privilege.
+        import _winapi
+        _winapi.CreateJunction(str(tmp_path), str(link))
     with pytest.raises(ValueError, match='symlink'):
         package_path(root, 'link/escape')
 
@@ -111,17 +120,17 @@ def test_untrusted_external_asset_and_existing_output_are_refused(package_inputs
         migrate(source, output, asset_roots=[], ue_content=content)
     outside = tmp_path.parent / (tmp_path.name + '-outside-source.obj')
     outside.write_text('do not copy')
-    doc = json.loads(source.read_text())
+    doc = json.loads(source.read_text(encoding="utf-8"))
     model = Path(doc['layouts'][0]['model'])
     tree = ET.parse(model)
     tree.find('.//mesh').set('file', str(outside))
     tree.write(model)
     # Even a pinned legacy model cannot grant access to undeclared asset roots.
     entry = doc['layouts'][0]
-    record = json.loads(model.with_suffix('.layout.json').read_text())
+    record = json.loads(model.with_suffix('.layout.json').read_text(encoding="utf-8"))
     record['model_sha256'] = digest(model)
     model.with_suffix('.layout.json').write_text(json.dumps(record))
-    native = json.loads(Path(entry['native_report']).read_text())
+    native = json.loads(Path(entry['native_report']).read_text(encoding="utf-8"))
     native['model_sha256'] = digest(model)
     Path(entry['native_report']).write_text(json.dumps(native))
     entry.update(model_sha256=digest(model), manifest_sha256=digest(model.with_suffix('.layout.json')),
@@ -137,13 +146,13 @@ def test_untrusted_external_asset_and_existing_output_are_refused(package_inputs
 def test_referenced_file_must_be_in_hash_manifest(package_inputs, tmp_path, kind):
     source, content = package_inputs
     path = migrate(source, tmp_path / 'package', asset_roots=[], ue_content=content)
-    document = json.loads(path.read_text())
+    document = json.loads(path.read_text(encoding="utf-8"))
     entry = document['layouts'][0]
     names = document['files_sha256']
     if kind == 'marker':
         relative = 'layout-package.json'
     elif kind == 'manifest':
-        relative = str(Path(entry['model']).with_suffix('.layout.json'))
+        relative = Path(entry['model']).with_suffix('.layout.json').as_posix()
     elif kind in {'model', 'catalog', 'native_report'}:
         relative = entry[kind]
     elif kind.startswith('original_'):

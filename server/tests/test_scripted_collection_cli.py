@@ -78,7 +78,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         assert kwargs["env"]["PYTHONPATH"].split(collector.os.pathsep) == [
             str(collector.ROOT), str(collector.ROOT / "backend"),
             str(expected["--adapter"] / "Adapters")]
-        scene = json.loads(Path(command[command.index("--scene")+1]).read_text())
+        scene = json.loads(Path(command[command.index("--scene")+1]).read_text(encoding="utf-8"))
         assert scene["overview_camera_sampling"] == "presets"
         assert scene["overview_camera"]["schema"] == SCHEMA
         assert scene["collection_config"]["overview_camera_randomization"] == scene["overview_camera"]
@@ -113,10 +113,10 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         arguments += ["--overview-camera-sampling", sampling]
     monkeypatch.setattr("sys.argv", arguments)
     assert collector.main() == 1
-    report = json.loads((tmp_path / "batch/summary.json").read_text())
+    report = json.loads((tmp_path / "batch/summary.json").read_text(encoding="utf-8"))
     assert report["status"] == "cancelled"
     assert seen == ["renderer", "recording", "renderer_closed"]
-    assert json.loads((tmp_path / "scene.json").read_text())["overview_camera_sampling"] == "continuous"
+    assert json.loads((tmp_path / "scene.json").read_text(encoding="utf-8"))["overview_camera_sampling"] == "continuous"
 
 
 @pytest.mark.parametrize("half_range", ["-1", "50.1", "nan", "inf"])

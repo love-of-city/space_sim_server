@@ -163,11 +163,16 @@ def test_current_mounts_form_a_regular_side_rail_with_consistent_calibration():
 
 
 def test_saved_v6_records_replay_all_five_original_calibrations(tmp_path):
-    saved = json.loads((ROOT / "tests/fixtures/overview_camera_v6.json").read_text())
+    saved = json.loads((ROOT / "tests/fixtures/overview_camera_v6.json").read_text(encoding="utf-8"))
     assert {r["preset_id"] for r in saved} == set(PRESETS)
     manager = SceneRuntimeManager(None, project_root=tmp_path)
     for record in saved:
-        assert restore_overview_camera(record["selection_seed"], schema=V6_SCHEMA) == record
+        restored = restore_overview_camera(record["selection_seed"], schema=V6_SCHEMA)
+        # Recomputing a unit quaternion can differ by a few float64 ULPs across
+        # platforms. Saved episode records below must still remain exact.
+        orientation = "orientation_body_from_camera_wxyz"
+        np.testing.assert_allclose(restored.pop(orientation), record[orientation], rtol=0, atol=2e-15)
+        assert restored == {key: value for key, value in record.items() if key != orientation}
         scene = manager.create_instance(SceneInstanceCreate(
             template_id="sarm-task-box-20261012", seed=record["selection_seed"],
             randomize_overview_camera=True))

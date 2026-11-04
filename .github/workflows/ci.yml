@@ -2,7 +2,7 @@ name: Basic CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, zmh_linux]
   workflow_dispatch:
 permissions:
   contents: read
@@ -66,7 +66,7 @@ jobs:
       - name: Verify CI failure guards
         run: python scripts/verify_ci_guards.py
       # Pull requests skip the deployment group unless they touch what it tests;
-      # pushes to main and manual runs always run everything.
+      # pushes to main/zmh_linux and manual runs always run everything.
       - name: Detect deployment changes
         id: changes
         if: github.event_name == 'pull_request'
@@ -140,7 +140,7 @@ jobs:
           $env:SPACE_SIM_RESET_ADAPTER = (Resolve-Path ../ue-adapter).Path
           $env:PYTEST_ADDOPTS = '-p ci_pytest --ci-basic -n 4 --junitxml=reports/python.xml'
           if ($env:SKIP_DEPLOY -eq 'true') {
-            Write-Host '::notice::Deployment tests skipped: this pull request changes no deployment paths. Pushes to main run them.'
+            Write-Host '::notice::Deployment tests skipped: this pull request changes no deployment paths. Branch pushes run them.'
             $env:PYTEST_ADDOPTS += ' --ci-skip-group deploy'
           }
           python -m pytest -ra

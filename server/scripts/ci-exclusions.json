@@ -39,7 +39,10 @@
     "tests/test_orbit_attitude_reference.py": "Requires Basilisk native components; run separately on the Linux simulation host",
     "tests/test_flight_environment.py": "Requires Basilisk native components; run separately on the Linux simulation host",
     "tests/test_gyroscope_native.py": "Requires Basilisk native components; run separately on the Linux simulation host",
-    "tests/test_preheld_capture.py": "Requires Basilisk native components; run separately on the Linux simulation host"
+    "tests/test_preheld_capture.py": "Requires Basilisk native components; run separately on the Linux simulation host",
+    "tests/test_native_pose_ik.py": "Compiled native posture IK equivalence and dispatch; explicitly executed by --ci-native",
+    "tests/test_native_plug_retention.py": "Compiled local_mujoco_stepper guidance and body transforms; explicitly executed by --ci-native",
+    "tests/test_axial_friction_coupled.py": "Basilisk and compiled native friction solver; explicitly executed by --ci-native"
   },
   "nodes": {
     "tests/test_wrist_camera_modes.py::test_mode_roundtrip_and_recording_provenance": "Basilisk live scene loader; run on the simulation host; pure camera descriptor validation remains in basic CI",
@@ -59,8 +62,6 @@
     "tests/test_gamepad_tool_control.py::test_direct_joint_still_obeys_tracking_protection": "Basilisk teleoperation runtime",
     "tests/test_gamepad_tool_control.py::test_mixed_tool_and_joint_commands_stop_together_and_reset": "Basilisk teleoperation runtime",
     "tests/test_arm_preparation.py::test_live_target_waits_and_resets_with_real_chain": "Basilisk live runtime",
-    "tests/test_initial_joint_angles.py::test_only_six_arm_axes_overridden_and_persisted": "Basilisk scene loader",
-    "tests/test_initial_joint_angles.py::test_catalog_bounds_are_enforced_before_writing": "Basilisk scene loader",
     "tests/test_online_elbow_ik.py::test_live_zero_start_release_resume_keeps_budget_and_reset_clears_it": "Basilisk live runtime",
     "tests/test_online_elbow_ik.py::test_live_policy_switch_and_strict_bypass": "Basilisk live runtime",
     "tests/test_online_elbow_ik.py::test_wrist_only_switch_does_not_disable_elbow_and_invalid_value_fails": "Basilisk live runtime",
@@ -68,14 +69,15 @@
     "tests/test_linkage_gripper.py::test_live_target_opposes_linkages_and_holds_on_release": "Basilisk teleoperation runtime; run in the native simulation environment alongside test_teleop_target.py",
     "tests/test_multirate_wrench.py::test_real_scheduler_samples_native_each_second_physics_step": "Basilisk scheduler integration for native 200 Hz wrist sampling; run in the simulation environment",
     "tests/test_policy_runtime.py::test_cartesian_target_uses_governor_and_rate_limits_without_ik_or_deadman_overwrite": "Basilisk live target imports; run separately in the native simulation environment alongside the policy UE/BSK acceptance",
-    "tests/test_cylindrical_plug_clearance.py::test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
-    "tests/test_cylindrical_plug_clearance.py::test_rising_retreat_avoids_neighbor_that_blocks_old_horizontal_path": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime",
+    "tests/test_cylindrical_plug_clearance.py::test_native_grasp_centers_both_original_tabs_and_bounds_servo_preload": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime; explicitly executed by --ci-native",
+    "tests/test_cylindrical_plug_clearance.py::test_rising_retreat_avoids_neighbor_that_blocks_old_horizontal_path": "Native SARM geometry and gripper pose probe; run separately on the simulation host without the offline Python MuJoCo runtime; explicitly executed by --ci-native",
     "tests/test_threaded_collection_integration.py::test_native_grasp_opening_matches_delivered_head_and_measured_finger_geometry": "Native SARM geometry and measured passive gripper linkage; run separately on the simulation host",
-    "tests/test_visual_attachments.py::test_attachment_keeps_body_local_pose_and_existing_geometry": "Real Basilisk SysModel bridge and messages; pure attachment layout tests remain in basic CI"
+    "tests/test_visual_attachments.py::test_attachment_keeps_body_local_pose_and_existing_geometry": "Real Basilisk SysModel bridge and messages; pure attachment layout tests remain in basic CI",
+    "tests/test_publication_scene.py::test_native_publication_keeps_mass_states_and_visible_geom_indices": "Basilisk MJScene publication; explicitly executed by --ci-native; pure publication transformations remain in basic CI"
   },
   "groups": {
     "deploy": {
-      "reason": "PowerShell deployment launchers that only depend on scripts/, deploy/, tools/ and the root *_deployment.cmd files. Pull requests that change none of those paths skip this group; pushes to main always run it.",
+      "reason": "PowerShell deployment launchers that only depend on scripts/, deploy/, tools/ and the root *_deployment.cmd files. Pull requests that change none of those paths skip this group; pushes to main/zmh_linux always run it.",
       "files": [
         "tests/test_deployment_launcher.py",
         "tests/test_public_deployment.py",
@@ -127,7 +129,8 @@
         "tests/test_video_delivery_config.py::test_deployment_encoder_min_quality_validation",
         "tests/test_video_delivery_config.py::test_deployment_preview_fps_validation",
         "tests/test_video_delivery_config.py::test_renderer_arguments_are_valid_and_do_not_start_ue",
-        "tests/test_team_rendezvous_runtime.py::test_renderer_launcher_does_not_wait_for_long_lived_child_stdout"
+        "tests/test_team_rendezvous_runtime.py::test_renderer_launcher_does_not_wait_for_long_lived_child_stdout",
+        "tests/test_platform_paths.py::test_current_sibling_name_takes_precedence_over_legacy_checkout"
       ]
     }
   }

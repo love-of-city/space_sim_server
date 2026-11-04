@@ -35,7 +35,6 @@ def test_only_six_arm_axes_overridden_and_persisted(tmp_path, profile, template)
     assert stored["randomization"] == expected
     assert stored["initial_arm_joint_position_deg"] == ANGLES
     # The existing loader/reset path consumes the saved eight-DOF SI vector.
-    pytest.importorskip("Basilisk")
     from simulation.teleop_scene import load_scene_instance
     loaded = load_scene_instance(Path(instance["config_path"]))
     assert loaded["randomization"]["arm_joint_position_rad"] == expected["arm_joint_position_rad"]
@@ -73,7 +72,6 @@ def test_task_box_operating_pose_overrides_only_six_axes_and_is_persisted(tmp_pa
     stored = json.loads(Path(instance["config_path"]).read_text(encoding="utf-8"))
     assert stored["randomization"] == expected
     assert stored["operating_arm_joint_position_deg"] == ANGLES
-    pytest.importorskip("Basilisk")
     from simulation.teleop_scene import load_scene_instance
     loaded = load_scene_instance(Path(instance["config_path"]))
     assert loaded["randomization"]["arm_joint_position_rad"] == expected["arm_joint_position_rad"]

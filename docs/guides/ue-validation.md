@@ -2,6 +2,8 @@
 
 快速 CI、真实物理、UE Automation、GPU 录制和发布验收是不同证据。新增 workflow 提供执行入口；仓库分支保护、受控 runner 和环境变量需要在托管平台实际配置。仅提交 workflow 不代表远端检查已经运行。
 
+`Basic CI` 在 PR、`main` / `zmh_linux` 推送及手动触发时执行：Windows 检查后端、网页和适配器，Linux 检查适配器与发布工具。基础环境不安装 Basilisk 或编译原生物理库；协议、状态机和渲染模型绑定测试使用明确的原生边界替身，配置保存和场景文档加载直接验证真实 Python 实现。原生 IK、插拔保持力、耦合摩擦、MJScene 发布和几何查询由 `native-test-profile.json` 覆盖。两个 profile 都保留意外 skip 即失败的规则；基础 CI 通过不代表原生或 UE 验收通过。
+
 ## 执行环境
 
 原生 runner 标签为 `self-hosted, Linux, X64, spacesim-native`；UE/GPU 为 `self-hosted, Linux, X64, spacesim-ue-gpu`。配置 `SPACE_SIM_VALIDATION_PYTHON` 和 `SPACE_SIM_VALIDATION_UE_ROOT`，分别指向独立验收环境和允许使用的引擎。不能指向正式采集的可变环境。通过 GitHub 的 `spacesim-validation` / `spacesim-release-validation` 环境限制可执行分支及审批规则。外部分支 PR 不直接在自托管机器执行；需要维护者审阅后在受控分支验证。

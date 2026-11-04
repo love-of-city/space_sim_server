@@ -19,9 +19,10 @@ from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix, matrix
 MODEL = Path(__file__).resolve().parents[1] / "model/SARM/platform/sarm_20261012.xml"
 
 
-def initial_task():
+def initial_task(*, native_geometry=True):
     task = PlugInsertTask(MODEL)
-    task.chain.enable_native_geometry()
+    if native_geometry:
+        task.chain.enable_native_geometry()
     element = ET.parse(MODEL).getroot().find('.//body[@name="cylindrical_plug"]')
     position = np.fromstring(element.get("pos"), sep=" ")
     rotation = quaternion_wxyz_to_matrix(np.fromstring(element.get("quat"), sep=" "))
@@ -52,7 +53,8 @@ def test_cylindrical_height_and_version_do_not_change_other_connectors_or_explic
 
 @pytest.mark.parametrize("clearance_result", [False, True])
 def test_native_release_queries_geometry_before_fixed_aperture_and_gates_retreat(monkeypatch, clearance_result):
-    task, sample = initial_task()
+    # The geometry query below is controlled by this state-machine test.
+    task, sample = initial_task(native_geometry=False)
     task.stage = "release"
     task._release_unloaded = True
     task._release_start_opening = .45
@@ -86,7 +88,7 @@ def test_native_release_queries_geometry_before_fixed_aperture_and_gates_retreat
     (True, (0, 0), False),
 ])
 def test_release_geometry_cannot_bypass_unloading_contacts_or_non_native_aperture(monkeypatch, unloaded, contacts, native):
-    task, sample = initial_task()
+    task, sample = initial_task(native_geometry=False)
     task.stage = "release"
     task._release_unloaded = unloaded
     task._release_start_opening = .45

@@ -117,7 +117,9 @@ class Session:
         self.closed = True
 
 
-def test_failed_tasks_continue_next_task_and_layout_and_resume_does_not_repeat(layout_pool, tmp_path):
+def test_failed_tasks_continue_next_task_and_layout_and_resume_does_not_repeat(layout_pool, tmp_path, monkeypatch):
+    # Synthetic sessions test scheduling, independently of the host's free space.
+    monkeypatch.setattr(sequence.shutil, 'disk_usage', lambda _: SimpleNamespace(free=30 * 1024**3))
     pool = LayoutPool(layout_pool)
     cfg = config(layout_pool)
     source = sequence.source_scene(cfg)
@@ -142,7 +144,9 @@ def test_failed_tasks_continue_next_task_and_layout_and_resume_does_not_repeat(l
     assert len(calls) == plan['total_attempts']
 
 
-def test_infrastructure_failure_persists_and_resume_skips_interrupted_job(layout_pool, tmp_path):
+def test_infrastructure_failure_persists_and_resume_skips_interrupted_job(layout_pool, tmp_path, monkeypatch):
+    # Reach the injected mid-episode ENOSPC instead of the host-space preflight.
+    monkeypatch.setattr(sequence.shutil, 'disk_usage', lambda _: SimpleNamespace(free=30 * 1024**3))
     pool = LayoutPool(layout_pool)
     cfg = config(layout_pool)
     source = sequence.source_scene(cfg)

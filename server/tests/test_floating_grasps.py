@@ -122,3 +122,12 @@ def test_ranked_retains_symmetric_reference_grasp(tmp_path):
     report = select_grasp(Probe(scene), model, scene, 'floating_bolt_capture')
     assert report['accepted'] and report['selected'] == 'baseline'
     assert sum(row['accepted'] for row in report['candidates']) == 2
+
+
+def test_selection_rejects_changed_background_body_pose(tmp_path):
+    scene, model = realized(tmp_path, seed=75)
+    scene['floating_grasp'] = {'candidate_ids':['baseline']}
+    assert select_grasp(Probe(scene), model, scene, 'floating_bolt_capture')['accepted']
+    scene['randomization']['target_position_m'][0] = .2
+    with pytest.raises(ValueError, match='Saved floating grasp'):
+        validate_selection('floating_bolt_capture', model, scene)

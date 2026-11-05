@@ -95,7 +95,7 @@ def _context(name, model, scene):
     cfg = scene["collection_config"]
     return dict(task=name, seed=scene["seed"], model_sha256=hashlib.sha256(model.read_bytes()).hexdigest(),
                 release=cfg["floating_initial_state"], objects=cfg["floating_objects"],
-                initial_joints=scene["randomization"]["arm_joint_position_rad"],
+                randomization=scene["randomization"],
                 controller=cfg["floating_controller"], options=options.model_dump(mode="json"),
                 candidates=[c.snapshot() for c in candidates])
 

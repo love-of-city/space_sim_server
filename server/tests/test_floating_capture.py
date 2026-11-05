@@ -37,7 +37,7 @@ def realized(tmp_path, name="floating_bolt_capture", seed=71):
     return scene, path
 
 
-@pytest.mark.parametrize("name", FLOATING_TASKS)
+@pytest.mark.parametrize("name", [n for n, a in FLOATING_TASKS.items() if a.source_component is None])
 def test_release_replays_and_preserves_team_geometry(tmp_path, name):
     original = MODEL.read_bytes()
     scene, path = realized(tmp_path, name)

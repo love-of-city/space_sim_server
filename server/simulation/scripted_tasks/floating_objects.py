@@ -41,7 +41,7 @@ def _free_joint(body):
 
 
 def apply_floating_objects(root, source, scene):
-    from .floating_initialization import apply_floating_model, clone_floating_body, camera_in_tool, floating_release_options
+    from .floating_initialization import apply_floating_model, build_floating_body, camera_in_tool, floating_release_options
     from .floating_variations import apply_target_variations
     from .randomization import generator
     from simulation.serial_chain_kinematics import SerialChainKinematics
@@ -98,7 +98,7 @@ def apply_floating_objects(root, source, scene):
             else:
                 raise ValueError(f"Cannot place {instance_id} with reachable, separated initial views")
             occupied.append(point)
-            body = clone_floating_body(original, asset.source_body or asset.body, instance_id)
+            body = build_floating_body(original, asset, instance_id)
             for key, values in (("pos", state["position_body_m"]), ("quat", state["orientation_wxyz"])):
                 body.set(key, " ".join(format(float(v), ".17g") for v in values))
             root.find("worldbody").append(body)

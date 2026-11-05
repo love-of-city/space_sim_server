@@ -129,6 +129,14 @@ def clone_floating_body(root, source_body, body_name):
     return body
 
 
+def build_floating_body(root, asset, body_name):
+    """Use identical construction for a target and every distractor instance."""
+    if asset.source_component is not None:
+        from .satellite_components import build_satellite_component
+        return build_satellite_component(root, asset.source_component, body_name)
+    return clone_floating_body(root, asset.source_body or asset.body, body_name)
+
+
 def floating_release_options(scene):
     from .floating_objects import FloatingSceneConfig
     options = dict(scene.get("floating_capture", {}))
@@ -147,8 +155,8 @@ def apply_floating_model(root, source, scene):
     asset = FLOATING_TASKS[name]
     cfg = scene["collection_config"]
     options = floating_release_options(scene)
-    if asset.source_body is not None:
-        body = clone_floating_body(root, asset.source_body, asset.body)
+    if asset.source_body is not None or asset.source_component is not None:
+        body = build_floating_body(root, asset, asset.body)
         root.find("worldbody").append(body)
     else:
         body = root.find(f'.//body[@name="{asset.body}"]')

@@ -13,8 +13,13 @@ class FloatingAsset:
     approach_axis: tuple[float, float, float]
     # A source body means a new root-only copy, with the original assembly intact.
     source_body: str | None = None
+    source_component: str | None = None
 
     def __post_init__(self):
+        if self.source_component is not None:
+            from .satellite_components import SATELLITE_COMPONENTS
+            if self.source_body is not None or self.source_component not in SATELLITE_COMPONENTS:
+                raise ValueError("Floating component source must be registered and exclusive")
         for value in (self.grip_point, self.closing_axis, self.approach_axis):
             if len(value) != 3 or not all(math.isfinite(v) for v in value):
                 raise ValueError("Floating asset vectors must have three finite values")
@@ -29,6 +34,10 @@ class FloatingAsset:
                       closing_axis=list(self.closing_axis), approach_axis=list(self.approach_axis))
         if self.source_body is not None:
             result["source_body"] = self.source_body
+        if self.source_component is not None:
+            from .satellite_components import SATELLITE_COMPONENTS
+            result["source_component"] = self.source_component
+            result["component_definition"] = SATELLITE_COMPONENTS[self.source_component].snapshot()
         return result
 
 
@@ -38,6 +47,15 @@ def validate_asset_snapshot(release, asset):
 
 
 FLOATING_TASKS = {
+    "floating_sun_sensor_capture": FloatingAsset(
+        "floating_sun_sensor", "漂浮太阳敏感器", "floating sun sensor", (0., .0035, -.016),
+        (1., 0., 0.), (0., 0., 1.), source_component="sun_sensor"),
+    "floating_gnss_antenna_capture": FloatingAsset(
+        "floating_gnss_antenna", "漂浮GNSS天线", "floating GNSS antenna", (0., 0., -.021),
+        (1., 0., 0.), (0., 0., 1.), source_component="gnss_antenna"),
+    "floating_data_antenna_capture": FloatingAsset(
+        "floating_data_antenna", "漂浮数传天线", "floating data transmission antenna", (0., 0., -.00842),
+        (1., 0., 0.), (0., 0., 1.), source_component="data_antenna"),
     "floating_task_box_capture": FloatingAsset(
         "floating_task_box_base", "漂浮任务箱底座", "floating task box base", (-.003, .275, -.0125),
         (0., 0., 1.), (1., 0., 0.), source_body="task_box_base"),

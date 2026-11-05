@@ -348,14 +348,21 @@ void ABskRendererHUD::DrawHUD()
     }
 
     const float Margin = 24.0f;
-    const float ViewWidth = FMath::Min(480.0f, static_cast<float>(Canvas->SizeX) * 0.34f);
-    const float ViewHeight = ViewWidth * 9.0f / 16.0f;
-    const float ViewX = static_cast<float>(Canvas->SizeX) - ViewWidth - Margin;
+    int32 VisibleCount = 0;
+    for (const FBskPictureInPictureView& View : PictureInPictureViews)
+        if (View.bVisible && View.Texture) ++VisibleCount;
+    const float MaxViewHeight = (Canvas->SizeY - 2.0f * Margin - 42.0f * FMath::Max(0, VisibleCount - 1)) / FMath::Max(1, VisibleCount);
+    float NextViewY = Margin;
     int32 VisibleIndex = 0;
     for (const FBskPictureInPictureView& View : PictureInPictureViews)
     {
         if (!View.bVisible || !View.Texture) continue;
-        const float ViewY = Margin + VisibleIndex * (ViewHeight + 42.0f);
+        const float Aspect = static_cast<float>(View.Texture->SizeX) / FMath::Max(1, View.Texture->SizeY);
+        const float ViewWidth = FMath::Min3(480.0f, static_cast<float>(Canvas->SizeX) * 0.34f, MaxViewHeight * Aspect);
+        const float ViewHeight = ViewWidth / Aspect;
+        const float ViewX = static_cast<float>(Canvas->SizeX) - ViewWidth - Margin;
+        const float ViewY = NextViewY;
+        NextViewY += ViewHeight + 42.0f;
         if (ViewY + ViewHeight > Canvas->SizeY - Margin) break;
         FCanvasTileItem Tile(FVector2D(ViewX, ViewY), View.Texture->GetResource(), FVector2D(ViewWidth, ViewHeight), FLinearColor::White);
         Tile.BlendMode = SE_BLEND_Opaque;

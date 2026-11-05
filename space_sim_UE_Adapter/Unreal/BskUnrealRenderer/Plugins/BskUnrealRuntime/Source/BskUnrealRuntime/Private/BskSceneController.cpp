@@ -875,6 +875,18 @@ void ABskSceneController::BeginPlay()
     ConfigureCaptureOutput();
     ConfigurePixelStreamingOutput();
     CreateEnvironment();
+    if (FParse::Param(FCommandLine::Get(), TEXT("BskEnvironmentReflections")))
+    {
+        ASkyLight* Sky = GetWorld()->SpawnActor<ASkyLight>();
+        Sky->Tags.Add(TEXT("BskEnvironmentReflection"));
+        USkyLightComponent* Light = Sky->GetLightComponent();
+        Light->SetMobility(EComponentMobility::Movable);
+        Light->SetIntensity(1.0f);
+        Light->SkyDistanceThreshold = 100000.0f;
+        Light->CubemapResolution = 256;
+        Light->bLowerHemisphereIsBlack = false;
+        Light->SetRealTimeCapture(false);
+    }
     ConfigureOfflineSkyLighting();
     // Do not start accepting authoritative simulation frames until configured
     // visual overlays have finished async static-mesh compilation. Otherwise
@@ -924,6 +936,18 @@ void ABskSceneController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 // Work lights share the exact optical transform, including preview orbit offsets.
 ULightComponent* ABskSceneController::ResolveCameraWorkLight(const FString& StreamerId)
 {
+    // Bind the UI switch to the actual scene lamp, avoiding a second lamp
+    // that leaves the original fixture illuminated when the switch is off.
+    const TPair<const TCHAR*, const TCHAR*> Fixtures[] = {
+        {TEXT("teleop/camera/spacecraft_overview"), TEXT("teleop/light/overview_lamp")},
+        {TEXT("teleop/camera/left_sarm_wrist_cam"), TEXT("teleop/light/left_wrist_lamp")},
+        {TEXT("teleop/camera/right_sarm_wrist_cam"), TEXT("teleop/light/right_wrist_lamp")}};
+    for (const auto& Fixture : Fixtures)
+    {
+        if (StreamerId != PixelStreamingIdForCamera(Fixture.Key)) continue;
+        if (AActor* Actor = VisualActors.FindRef(Fixture.Value))
+            return Actor->FindComponentByClass<ULightComponent>();
+    }
     if (auto Existing = CameraWorkLights.FindRef(StreamerId).Get()) return Existing;
     USceneComponent* OpticalComponent = nullptr;
     if (IPixelStreaming2Module::IsAvailable() && StreamerId == IPixelStreaming2Module::Get().GetDefaultStreamerID())
@@ -1069,6 +1093,7 @@ void ABskSceneController::Tick(float DeltaSeconds)
     {
         auto& Module = IPixelStreaming2Module::Get();
         RegisterWorkLightInput(Module.FindStreamer(Module.GetDefaultStreamerID()));
+        ResolveCameraWorkLight(Module.GetDefaultStreamerID());
         for (const auto& Pair : PixelStreamingCameraStreamers) RegisterWorkLightInput(Pair.Value);
     }
     // Drain after STOP too: accepted strict jobs retain their original episode.
@@ -2360,6 +2385,20 @@ void ABskSceneController::ApplyEvent(const FBskRenderEvent& Event)
 {
     check(IsInGameThread());
     if (!ActiveSessionId.IsEmpty() && Event.SessionId != ActiveSessionId) return;
+    if (Event.EventKind == TEXT("session_started") && FParse::Param(FCommandLine::Get(), TEXT("BskEnvironmentReflections")))
+    {
+        for (TActorIterator<ASkyLight> It(GetWorld()); It; ++It)
+        {
+            if (!It->Tags.Contains(TEXT("BskEnvironmentReflection"))) continue;
+            TWeakObjectPtr<ASkyLight> Sky = *It;
+            FTimerHandle Timer;
+            GetWorld()->GetTimerManager().SetTimer(Timer, [Sky]()
+            {
+                if (Sky.IsValid()) Sky->GetLightComponent()->RecaptureSky();
+            }, 20.0f, true, 5.0f);
+            UE_LOG(LogBskUnreal, Display, TEXT("Earth/sky environment reflection capture enabled; local geometry excluded below 1 km"));
+        }
+    }
     FBskMissionEventView View;
     View.Sequence = Event.Sequence;
     View.Kind = Event.EventKind;
@@ -2369,7 +2408,38 @@ void ABskSceneController::ApplyEvent(const FBskRenderEvent& Event)
         TSharedPtr<FJsonObject> Payload;
         if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Event.PayloadJson), Payload) && Payload.IsValid())
         {
+            if (Event.EventKind == TEXT("camera_work_light"))
+            {
+                FString CameraId;
+                bool bEnabled = false;
+                if (Payload->TryGetStringField(TEXT("camera_id"), CameraId)
+                    && Payload->TryGetBoolField(TEXT("enabled"), bEnabled))
+                {
+                    if (ULightComponent* Light = ResolveCameraWorkLight(PixelStreamingIdForCamera(CameraId)))
+                    {
+                        Light->SetVisibility(bEnabled);
+                        UE_LOG(LogBskUnreal, Display, TEXT("Scene camera work light camera=%s enabled=%d intensity=%.1f"), *CameraId, Light->IsVisible(), Light->Intensity);
+                    }
+                }
+            }
             Payload->TryGetStringField(TEXT("severity"), View.Severity);
+            if (Event.EventKind == TEXT("capture26_stage_snapshot"))
+            {
+                FString Directory, Filename;
+                if (FParse::Value(FCommandLine::Get(), TEXT("BskDemoEvidenceDir="), Directory)
+                    && Payload->TryGetStringField(TEXT("filename"), Filename)
+                    && Filename == FPaths::GetCleanFilename(Filename) && Filename.EndsWith(TEXT(".png")))
+                {
+                    Directory = FPaths::ConvertRelativePathToFull(Directory);
+                    IFileManager::Get().MakeDirectory(*Directory, true);
+                    const FString Path = FPaths::Combine(Directory, Filename);
+                    FTimerHandle Timer;
+                    GetWorld()->GetTimerManager().SetTimer(Timer, [Path]()
+                    {
+                        FScreenshotRequest::RequestScreenshot(Path, true, false);
+                    }, 0.15f, false);
+                }
+            }
             Payload->TryGetStringField(TEXT("message"), View.Message);
             int64 EventSimTime = 0;
             FString EventSimTimeString;

@@ -7,6 +7,10 @@ param(
     [string]$ReplayPath = '',
     [double]$ReplayRate = 1.0,
     [string]$ScreenshotPath = '',
+    [string]$SceneConfigPath = '',
+    [double]$OrbitPitch = 20.0,
+    [double]$OrbitYaw = -35.0,
+    [string]$DemoEvidenceDirectory = $env:SPACE_SIM_DEMO_EVIDENCE_DIR,
     [string]$CaptureDirectory = '',
     [string[]]$CaptureProducts = @(),
     [ValidateRange(0.0, 60.0)]
@@ -31,6 +35,8 @@ param(
     [int]$CaptureNetworkPort = 0,
     [string]$AutoCommand = '',
     [string]$DerivedDataCachePath = '',
+    [switch]$ShowWindow,
+    [switch]$EnvironmentReflections,
     [switch]$Foreground
 )
 
@@ -55,6 +61,7 @@ $arguments = @(
     $ProjectFile, '-game', '-windowed', "-ResX=$Width", "-ResY=$Height",
     "-BskListen=$ListenAddress", "-BskPort=$Port", '-log', '-DDC=InstalledDerivedDataBackendGraph'
 )
+$arguments += @("-BskOrbitPitch=$OrbitPitch", "-BskOrbitYaw=$OrbitYaw")
 $normalizedCaptureProducts = @()
 foreach ($item in $CaptureProducts) {
     foreach ($product in ($item -split ',')) {
@@ -79,6 +86,12 @@ if ($ReplayPath) {
 }
 if ($ScreenshotPath) {
     $arguments += "-BskScreenshot=$([IO.Path]::GetFullPath($ScreenshotPath))"
+}
+if ($SceneConfigPath) {
+    $arguments += "-BskConfig=$([IO.Path]::GetFullPath($SceneConfigPath))"
+}
+if ($DemoEvidenceDirectory) {
+    $arguments += "-BskDemoEvidenceDir=$([IO.Path]::GetFullPath($DemoEvidenceDirectory))"
 }
 if ($CaptureDirectory) {
     $arguments += "-BskCaptureDir=$([IO.Path]::GetFullPath($CaptureDirectory))"
@@ -130,6 +143,10 @@ if ($PixelStreamingURL) {
 if ($CaptureNetworkPort -gt 0) {
     $arguments += @("-BskCaptureHost=$CaptureNetworkHost", "-BskCapturePort=$CaptureNetworkPort")
 }
+if ($ShowWindow) {
+    $arguments = @($arguments | Where-Object { $_ -ne '-RenderOffscreen' })
+}
+if ($EnvironmentReflections) { $arguments += '-BskEnvironmentReflections' }
 if ($AutoCommand) {
     $arguments += "-BskAutoCommand=$AutoCommand"
 }
@@ -165,7 +182,8 @@ if ($env:SSH_CONNECTION) {
     }
     $process = [pscustomobject]@{Id = $created.ProcessId}
 } else {
-    $process = Start-Process -FilePath $editor -ArgumentList $arguments -PassThru -WindowStyle Hidden `
+    $windowStyle = if ($ShowWindow) { 'Normal' } else { 'Hidden' }
+    $process = Start-Process -FilePath $editor -ArgumentList $arguments -PassThru -WindowStyle $windowStyle `
         -Environment @{'UE-LocalDataCachePath' = $DerivedDataCachePath}
 }
 Set-Content -LiteralPath (Join-Path $saved 'BskRenderer.pid') -Value $process.Id -Encoding ascii

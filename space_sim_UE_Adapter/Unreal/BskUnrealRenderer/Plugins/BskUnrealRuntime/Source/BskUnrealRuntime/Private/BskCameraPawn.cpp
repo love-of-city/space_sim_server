@@ -28,6 +28,11 @@ ABskCameraPawn::ABskCameraPawn()
     Camera->SetupAttachment(GetRootComponent());
     Camera->bUsePawnControlRotation = true;
     Camera->FieldOfView = 60.0f;
+    FParse::Value(FCommandLine::Get(), TEXT("BskOrbitPitch="), OrbitPitchDegrees);
+    FParse::Value(FCommandLine::Get(), TEXT("BskOrbitYaw="), OrbitYawDegrees);
+    OrbitPitchDegrees = FMath::Clamp(OrbitPitchDegrees, -89.0, 89.0);
+    MainOrbitPitchDegrees = OrbitPitchDegrees;
+    MainOrbitYawDegrees = OrbitYawDegrees;
     bUseControllerRotationYaw = true;
     bUseControllerRotationPitch = true;
     if (UFloatingPawnMovement* Movement = Cast<UFloatingPawnMovement>(GetMovementComponent()))

@@ -59,6 +59,14 @@ $env:PYTHONPATH = @(
     (Join-Path $AdapterRoot 'Adapters')
 ) -join [IO.Path]::PathSeparator
 
+if ($SceneInstancePath -and $selectedInstance.template_id -in @('dual-service-camera-1', 'dual-service-camera-2')) {
+    $version = $selectedInstance.template_id.Substring($selectedInstance.template_id.Length - 1)
+    $output = Join-Path $projectRoot "run\dual_service\$($selectedInstance.instance_id)"
+    & $pythonExe (Join-Path $projectRoot 'simulation\dual_service_full_system.py') `
+        --scene-instance $SceneInstancePath --catalog $catalog --render-port $RenderPort --control-port $ControlPort `
+        --output $output --duration $Duration --realtime
+    exit $LASTEXITCODE
+}
 $arguments = @(
     $scenario,
     '--adapter-root', ([IO.Path]::GetFullPath($AdapterRoot)),

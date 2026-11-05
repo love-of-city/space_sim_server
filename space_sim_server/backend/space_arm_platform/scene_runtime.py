@@ -34,6 +34,7 @@ from .scene_targets import DEFAULT_TEMPLATE, GROUND_TARGET_TEMPLATE, MESH_TARGET
 SCENE_RENDER_PROFILES = json.loads(
     (Path(__file__).resolve().parents[2] / 'config/scene_render_profiles.json').read_text(encoding='utf-8'))
 from .scene_targets import SARM_20261012_TEMPLATE, SARM_SDF_TEMPLATE, SARM_DEMO_TEMPLATE, SARM_TEMPLATES
+from .scene_targets import DUAL_SERVICE_TEMPLATES
 
 
 SCENE_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -127,6 +128,10 @@ RANDOMIZATION_PROFILES: tuple[dict[str, Any], ...] = (
     },
 )
 
+SCENE_TEMPLATES += tuple(dict(id=name, label=f'双操作臂卫星 · 相机版本{v} · 地月环境',
+    description=capture_target(name).runtime_warning,
+    camera_ids=SCENE_RENDER_PROFILES[name]['camera_ids']) for v,name in enumerate(DUAL_SERVICE_TEMPLATES,1))
+
 # Free-plug contact is represented by MuJoCo flexcomp meshes.  The
 # offline zero-start planner deliberately refuses those models until it can
 # validate flex contacts without ignoring the experiment's core collision.
@@ -144,6 +149,10 @@ TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES: dict[str, tuple[str, ...]] = {
 for _template in (SARM_SDF_TEMPLATE, SARM_DEMO_TEMPLATE):
     TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES[_template] = ZERO_START_TELEOP_PROFILE
     TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES[_template] = TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES[SARM_20261012_TEMPLATE]
+
+for _template in DUAL_SERVICE_TEMPLATES:
+    TEMPLATE_DEFAULT_RANDOMIZATION_PROFILES[_template] = ZERO_START_TELEOP_PROFILE
+    TEMPLATE_UNSUPPORTED_RANDOMIZATION_PROFILES[_template] = tuple(p['id'] for p in RANDOMIZATION_PROFILES if p['id'] != ZERO_START_TELEOP_PROFILE)
 
 
 def template_default_randomization_profile(template_id: str) -> str:
@@ -364,7 +373,8 @@ class SceneRuntimeManager:
         model_root = self.launch.model_root if self.launch else Path(__file__).resolve().parents[2] / "model/SARM/platform"
         model_path = capture_target(template_id).resolve_model(model_root)
         try:
-            return load_joint_limits(model_path, tuple(f"joint{i}" for i in range(1, 7)))
+            prefix='right_' if template_id in DUAL_SERVICE_TEMPLATES else ''
+            return load_joint_limits(model_path, tuple(f"{prefix}joint{i}" for i in range(1, 7)))
         except (OSError, ValueError, ET.ParseError) as error:
             raise ValueError(f"无法读取机械臂关节限位（{template_id}）：{error}") from error
 
@@ -474,6 +484,14 @@ class SceneRuntimeManager:
                     raise ValueError(f"J{index} 初始角度必须在 {math.degrees(lo):.6g}° ～ {math.degrees(hi):.6g}° 之间")
         seed = request.seed if request.seed is not None else secrets.randbelow(2**31)
         instance = _sample_instance(request, seed, created_by)
+        if request.template_id in DUAL_SERVICE_TEMPLATES:
+            pose=json.loads((self.project_root/'model/dual_stowed_service/workspace_pose.json').read_text())
+            instance['saved_dual_service_pose']=pose
+            instance['environment']['celestial_bodies']=['earth','sun','moon']
+            instance['environment']['ephemeris_epoch_utc']='2026 NOVEMBER 05 00:00:00.000'
+            instance['runtime']['dataset_capture']=False
+            instance['arm_preparation_required']=False
+            instance['preview_only']=True
         if mission is not None:
             instance["mission"] = dict(mission)
         if request.template_id in SCENE_RENDER_PROFILES:

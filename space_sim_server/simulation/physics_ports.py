@@ -182,9 +182,10 @@ class PhysicsPorts:
         """SPICE planet state message for gravity/renderer use."""
         if self._ephemeris is None:
             raise PortError("no ephemeris is registered for this session")
-        index = {"earth": 0, "sun": 1}.get(name.casefold())
+        names = list(self._gravity_factory.gravBodies) if self._gravity_factory is not None else ['earth', 'sun']
+        index = {key.casefold(): i for i, key in enumerate(names)}.get(name.casefold())
         if index is None:
-            raise PortError(f"unsupported planet {name!r}; expected 'earth' or 'sun'")
+            raise PortError(f"unsupported planet {name!r}; registered bodies: {names}")
         return self._ephemeris.planetStateOutMsgs[index]
 
     # --- write ports -------------------------------------------------------------

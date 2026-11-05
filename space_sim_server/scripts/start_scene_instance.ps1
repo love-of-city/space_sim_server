@@ -48,6 +48,9 @@ foreach ($path in @($SceneInstancePath, $AdapterRoot, $ModelRoot, $UnrealRoot, $
 }
 
 $instance = Get-Content -Raw -LiteralPath $SceneInstancePath | ConvertFrom-Json
+if ([string]$instance.template_id -in @('dual-service-camera-1', 'dual-service-camera-2')) {
+    $RendererReadyTimeout = [Math]::Max($RendererReadyTimeout, 600)
+}
 . (Join-Path $PSScriptRoot 'scene_render_profiles.ps1')
 $PixelStreamingCameraIds = @(Resolve-SceneCameraIds $instance.template_id $PixelStreamingCameraIds)
 if ([string]$instance.schema -ne 'space-arm-scene-instance/1') {
@@ -149,6 +152,27 @@ try {
     if ($datasetCapture -or $visionCapture) {
         $rendererArgs.CaptureNetworkHost = '127.0.0.1'
         $rendererArgs.CaptureNetworkPort = $CapturePort
+    }
+    if ([string]$instance.template_id -in @('dual-service-camera-1', 'dual-service-camera-2')) {
+        # Bounded visual-preview receipts, separate from platform training episodes.
+        $previewDirectory = Join-Path $runDirectory "dual_service\$($instance.instance_id)\ue_preview"
+        New-Item -ItemType Directory -Path $previewDirectory -Force | Out-Null
+        $rendererConfig = Get-Content -Raw -LiteralPath (Join-Path $ueProject 'Config\bsk_unreal_scene.json') | ConvertFrom-Json
+        $rendererConfig.scene.camera_position_m = @(-2.8, -2.8, 2.1)
+        $rendererConfig.scene.camera_look_at_m = @(0.0, 0.0, 0.25)
+        $rendererConfigPath = Join-Path $previewDirectory 'renderer_config.json'
+        $rendererConfig | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $rendererConfigPath -Encoding utf8
+        $rendererArgs.SceneConfigPath = $rendererConfigPath
+        $rendererArgs.Width = 1600
+        $rendererArgs.Height = 1100
+        $rendererArgs.OrbitPitch = -30.0
+        $rendererArgs.OrbitYaw = -35.0
+        $rendererArgs.ShowWindow = $true
+        $rendererArgs.EnvironmentReflections = $true
+        $rendererArgs.CaptureDirectory = $previewDirectory
+        $rendererArgs.DemoEvidenceDirectory = $previewDirectory
+        $rendererArgs.CaptureProducts = @('rgb')
+        $rendererArgs.CaptureRate = 1
     }
     & (Join-Path $ueScripts 'start_renderer.ps1') @rendererArgs
     $rendererPid = [int](Get-Content -Raw -LiteralPath (Join-Path $ueProject 'Saved\BskRenderer.pid'))

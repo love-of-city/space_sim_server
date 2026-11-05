@@ -1,4 +1,12 @@
 {
+  "dual-service-camera-1": {
+    "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/right_sarm_wrist_cam", "teleop/camera/left_sarm_wrist_cam"],
+    "asset_catalog": "dual_service_v1.catalog.json", "automatic_capture_default": false
+  },
+  "dual-service-camera-2": {
+    "camera_ids": ["teleop/camera/spacecraft_overview", "teleop/camera/right_sarm_wrist_cam", "teleop/camera/left_sarm_wrist_cam"],
+    "asset_catalog": "dual_service_v2.catalog.json", "automatic_capture_default": false
+  },
   "sarm-dual-capture26": {
     "camera_ids": [
       "teleop/camera/spacecraft_overview",

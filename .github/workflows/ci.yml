@@ -2,7 +2,7 @@ name: Basic CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, master]
   workflow_dispatch:
 permissions:
   contents: read

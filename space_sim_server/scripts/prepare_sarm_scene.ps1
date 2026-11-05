@@ -11,6 +11,21 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'python_runtime.ps1')
 $pythonExe = Resolve-SpaceSimPython -RepositoryRoot $projectRoot -RequestedPython $Python -RequiredModules @('numpy', 'Basilisk.simulation.mujoco')
 $env:SPACE_SIM_PYTHON = $pythonExe
+if ($TemplateId -in @('dual-service-camera-1', 'dual-service-camera-2')) {
+    $version = $TemplateId.Substring($TemplateId.Length - 1)
+    $ueProject = Join-Path $AdapterRoot 'Unreal\BskUnrealRenderer'
+    $scene = Join-Path $projectRoot "model\dual_stowed_service\camera_version_$version\dual_stowed_service.xml"
+    & (Join-Path $ueProject 'scripts\prepare_mjcf_assets.ps1') -Python $pythonExe -MjcfPath $scene `
+        -Destination "/Game/Generated/DualServiceV$version" `
+        -CatalogPath (Join-Path $ueProject "Saved\AssetImport\dual_service_v$version.catalog.json") `
+        -UnrealRoot $UnrealRoot -NormalMode preserve -Force:$Force
+    if ($LASTEXITCODE -ne 0) { throw 'Dual-service asset preparation failed.' }
+    $mli = Join-Path $ueProject 'Content/Generated/DualServiceMLI/SM_DualServiceMLI.uasset'
+    if ($Force -or !(Test-Path -LiteralPath $mli)) {
+        & (Join-Path $ueProject 'scripts/prepare_dual_service_mli.ps1') -UnrealRoot $UnrealRoot
+    }
+    return
+}
 $pluginLibraries = @()
 if ($TemplateId -in @('sarm-task-box-20261012', 'sarm-task-box-20261012-sdf', 'sarm-task-box-20261012-demo')) {
     $fastenerModel = if ($TemplateId -eq 'sarm-task-box-20261012-sdf') { 'sdf' } else { 'captive' }

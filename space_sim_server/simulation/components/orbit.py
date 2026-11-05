@@ -20,12 +20,15 @@ class OrbitComponent:
     name = "orbit"
 
     def __init__(self, *, epoch_utc: str, central_body: str = "Earth", frame: str = "J2000",
-                 fixed_frames: tuple[str, ...] = ("IAU_EARTH", "IAU_SUN"), physics=None) -> None:
+                 fixed_frames: tuple[str, ...] = ("IAU_EARTH", "IAU_SUN"), physics=None,
+                 include_moon: bool = False) -> None:
         self.epoch_utc = epoch_utc
         self.central_body = central_body
         self.frame = frame
         self.fixed_frames = fixed_frames
         self.physics = physics
+        self.include_moon = include_moon
+        self.moon = None
         self.gravity_factory: Any = None
         self.earth: Any = None
         self.sun: Any = None
@@ -49,18 +52,23 @@ class OrbitComponent:
         gravity_factory = simIncludeGravBody.gravBodyFactory()
         earth = gravity_factory.createEarth()
         sun = gravity_factory.createSun()
+        if self.include_moon:
+            if ctx.config.dynamics_backend != 'local':
+                raise ValueError('Moon-enabled scenes require the local multibody backend')
+            self.moon = gravity_factory.createMoon()
         earth.isCentralBody = True
         if self.physics is not None:
             from simulation.orbital_configuration import configure_earth_gravity
             self.earth_model = configure_earth_gravity(earth, self.physics)
-        ephemeris = _create_ephemeris_interface(gravity_factory, self.epoch_utc)
+        ephemeris = _create_ephemeris_interface(gravity_factory, self.epoch_utc,
+            fixed_frames=(*self.fixed_frames, 'IAU_MOON') if self.include_moon else self.fixed_frames)
         self.gravity_factory, self.earth, self.sun, self.ephemeris = (
             gravity_factory, earth, sun, ephemeris)
         ctx.ports.set_ephemeris(ephemeris)
         ctx.ports.set_gravity_factory(gravity_factory)
         # The renderer draws the same Earth/Sun state messages gravity uses, so it
         # reads them from here rather than creating a second ephemeris.
-        ctx.extra.setdefault("celestial", (earth, sun))
+        ctx.extra.setdefault("celestial", (earth, sun, self.moon) if self.include_moon else (earth, sun))
 
         if ctx.config.dynamics_backend == "local":
             # Basilisk propagates only O under the same SPICE Earth/Sun field; the

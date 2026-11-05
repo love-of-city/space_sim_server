@@ -1,0 +1,105 @@
+{
+  "schema": "dual-stowed-service/1",
+  "source": "model\\SARM\\platform\\sarm_20261012.xml",
+  "source_sha256": "45766f3ea2ce267350328153e0b9e18dc038fc254916884333569e4302170f0f",
+  "model_sha256": "0f63f192ef819b1343473374933b6c8f9d5bae1556ae78c6f2a832b2dbad23fc",
+  "posture": "source-planar-mirrored",
+  "hull_uniform_scale": 2.0,
+  "hull_dimensions_m": [
+    2.04,
+    2.06748522,
+    1.46140002
+  ],
+  "mounting_face_dimensions_m": [
+    1.6,
+    1.5
+  ],
+  "base_center_spacing_m": 1.04,
+  "base_row_y_m": 0.5,
+  "arm_installations_swapped": true,
+  "taskbox_center_y_m": 0.0,
+  "taskbox_scale": 1.0,
+  "arm_scale": 1.0,
+  "camera_housing_height_above_deck_m": 0.40423238600794303,
+  "camera_profile": "vla-upward",
+  "camera_reference": {
+    "schema": "space-arm-overview-camera/7",
+    "configuration": "backend\\space_arm_platform\\overview_camera.py",
+    "configuration_sha256": "6b7a64a6131ffb590761fd00cf23d70c22f6f5360b908e0bbe2439e05b1c3885",
+    "capture_defaults": "backend\\space_arm_platform\\camera_defaults.py",
+    "capture_defaults_sha256": "f1cfd969b370101f8e1f0802a47369fb89c3b5242781b1d79946475cdbf5d71f",
+    "adapted_mount": true,
+    "optical_position_body_m": [
+      0.0,
+      0.535,
+      0.42000000000000004
+    ],
+    "workspace_bounds_body_m": [
+      [
+        -0.278025,
+        -0.22802500000000003,
+        0.02
+      ],
+      [
+        0.278025,
+        0.228025,
+        0.19999999999999998
+      ]
+    ],
+    "workspace_frame_margin_fraction": 0.15,
+    "minimum_visible_taskbox_fraction": 0.04,
+    "task_plane_z_m": 0.02,
+    "upward_pitch_deg": -19.0,
+    "scope": "Task workspace camera; outward stowed fingers need not be in frame."
+  },
+  "camera_representation": "invisible_collision_proxy",
+  "camera_resolution": [
+    1024,
+    1024
+  ],
+  "camera_fovy_deg": 85.0,
+  "camera_aim_body_m": [
+    0.0,
+    -0.46499999999999997,
+    0.07567238671033477
+  ],
+  "flush_taskbox": true,
+  "taskbox_top_z_m": 0.02,
+  "removed_bodies": [
+    "aviation_plug",
+    "guide_plug",
+    "cylindrical_plug",
+    "bolt",
+    "drawer_base",
+    "capture_target",
+    "hook",
+    "limit_clip",
+    "locking_rod",
+    "fastener",
+    "board_thread_sdf",
+    "bolt_storage_thread_sdf"
+  ],
+  "initial_joint_rad": {
+    "left_": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "right_": [
+      0.0,
+      -3.141592653589793,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "mass_assumption_kg": 1440.0,
+  "limitations": [
+    "New bus inertia is a design assumption.",
+    "No task or arbitrary-trajectory acceptance."
+  ]
+}

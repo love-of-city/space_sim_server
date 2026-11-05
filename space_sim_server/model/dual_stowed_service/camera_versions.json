@@ -1,0 +1,38 @@
+{
+  "schema": "dual-service-saved-camera-versions/1",
+  "versions": {
+    "1": {
+      "model": "camera_version_1/dual_stowed_service.xml",
+      "model_sha256": "0f63f192ef819b1343473374933b6c8f9d5bae1556ae78c6f2a832b2dbad23fc",
+      "camera_optical_position_body_m": [
+        0.0,
+        0.535,
+        0.42000000000000004
+      ],
+      "camera_fovy_deg": 85.0,
+      "camera_pitch_deg": -19.0,
+      "image_directory": "previews",
+      "same_non_camera_model_signature": "c2a4b812ffb8c6a86dff957ded1e097e363f2da83674884c7873556a6855bbfc",
+      "same_static_qpos_sha256": "266a093e5f0cc55a034fb0f3865d5fbb56c697224b57bf6cbefa184e2ca16a88",
+      "source": "compact_v9 camera translated with centered taskbox",
+      "preview_image": "previews/version_1.jpg"
+    },
+    "2": {
+      "model": "camera_version_2/dual_stowed_service.xml",
+      "model_sha256": "f8975c294faaac678ae9e3d76fbaa8f8be55912fa55f9ed8001fe48bed4f5096",
+      "camera_optical_position_body_m": [
+        0.0,
+        -0.57,
+        0.42000000000000004
+      ],
+      "camera_fovy_deg": 85.0,
+      "camera_pitch_deg": -28.0,
+      "image_directory": "previews",
+      "same_non_camera_model_signature": "c2a4b812ffb8c6a86dff957ded1e097e363f2da83674884c7873556a6855bbfc",
+      "same_static_qpos_sha256": "266a093e5f0cc55a034fb0f3865d5fbb56c697224b57bf6cbefa184e2ca16a88",
+      "source": "exact compact_v14 model copy",
+      "preview_image": "previews/version_2.jpg"
+    }
+  },
+  "wrist_images_identical": true
+}

@@ -825,12 +825,12 @@ class CartesianIkControlModel(sysModel.SysModel):
         self.target.update(CurrentSimNanos * 1.0e-9)
 
 
-def _create_ephemeris_interface(gravity_factory: Any, epoch_utc: str) -> Any:
+def _create_ephemeris_interface(gravity_factory: Any, epoch_utc: str, *, fixed_frames=None) -> Any:
     """Use one clock/frame for gravity and rendering, with physical planet spin."""
 
     ephemeris = gravity_factory.createSpiceInterface(
         time=epoch_utc,
-        spicePlanetFrames=list(CELESTIAL_FIXED_FRAMES),
+        spicePlanetFrames=list(CELESTIAL_FIXED_FRAMES if fixed_frames is None else fixed_frames),
         epochInMsg=True,
     )
     ephemeris.referenceBase = SUPPORTED_EPHEMERIS_FRAME
@@ -838,13 +838,13 @@ def _create_ephemeris_interface(gravity_factory: Any, epoch_utc: str) -> Any:
     return ephemeris
 
 
-def _register_celestial_bodies(bridge: Any, earth: Any, sun: Any) -> None:
+def _register_celestial_bodies(bridge: Any, earth: Any, sun: Any, moon: Any = None) -> None:
     """Share the gravity-bound body readers with the renderer; no backdrop Earth."""
 
     # Render the same Earth/Sun state messages used by native gravity.
     # The bridge subtracts the moving spacecraft origin for BOTH bodies.
     bridge.add_celestial_bodies(
-        [earth, sun],
+        [earth, sun] if moon is None else [earth, sun, moon],
         visual_overrides={
             "sun": {
                 "visual_role": "star",

@@ -119,3 +119,13 @@ TARGETS[DUAL_CAPTURE_TEMPLATE] = replace(
     runtime_warning='新版带贴图 SARM 与任务盒 + 底部四 L 爪。两臂可独立选择遥操作，抓取臂初始收起；精细目标碰撞和完整抓取轨迹尚待平台验证。')
 
 SARM_TEMPLATES += (DUAL_CAPTURE_TEMPLATE,)
+
+DUAL_SERVICE_TEMPLATES = ('dual-service-camera-1', 'dual-service-camera-2')
+for _version, _template in enumerate(DUAL_SERVICE_TEMPLATES, 1):
+    TARGETS[_template] = CaptureTarget(
+        model_file='dual_stowed_service.xml',
+        source_model=f'model/dual_stowed_service/camera_version_{_version}/dual_stowed_service.xml',
+        model_subdir=f'../../dual_stowed_service/camera_version_{_version}',
+        position_m=(0., 0., 0.), orientation_wxyz=(1., 0., 0., 0.),
+        collision_model='saved_dual_service_original_collision_meshes',
+        runtime_warning='中央齐平任务盒与双操作臂；地球 J2、太阳、月球星历及重力；已保存作业姿态保持预览，未接双臂遥操作或任务采集。')

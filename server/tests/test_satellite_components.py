@@ -131,6 +131,7 @@ def test_data_antenna_preserves_air_under_plate_and_grasps_solid_thickness():
         return result
 
     assert not containing((-.038, .011, 0.))  # Previously filled by the convex hull.
+    assert not containing((.006, 0., -.006))  # Do not inflate the rear shaft.
     assert containing((0., 0., -.006))  # Real rear connector is retained.
     asset = FLOATING_TASKS["floating_data_antenna_capture"]
     assert [g.get("type") for g in containing(asset.grip_point)] == ["box"]

@@ -54,7 +54,12 @@ SATELLITE_COMPONENTS = {
         # A whole-mesh hull incorrectly fills air from the rear connector to
         # the plate edge, creating a wedge that ejects the object when pinched.
         (("box", (0., 0., .00412167221513), (.045, .045, .002008)),
-         ("cylinder", (0., 0., -.00315382778487), (.0068, .0052675)),
+         # Rear shaft and collar are separate; a radius-6.8 mm envelope would
+         # inflate the actual radius-3.175 mm shaft at the bottom of the part.
+         ("cylinder", (0., 0., -.00365382778487), (.003175, .0047675)),
+         ("cylinder", (0., 0., -.00035382778487), (.00635, .0014675)),
+         *(("cylinder", (x, y, -.000854633656905), (.0024, .002968305872035))
+           for x, y in ((-.0044, -.0044), (-.0044, .0044), (.0044, -.0044), (.0044, .0044))),
          *(("cylinder", (x, y, .0072755), (.0025, .001146)) for x, y in
            ((-.041, -.022), (-.041, .022), (.041, -.022), (.041, .022),
             (-.022, -.041), (-.022, .041), (.022, -.041), (.022, .041),

@@ -46,9 +46,9 @@ def test_extraction_matches_assembly_inventory_and_source_coordinates(task):
         np.testing.assert_allclose(np.fromstring(visual.get("pos"), sep=" ")+spec.center_m,
                                    np.fromstring(original.get("pos"), sep=" "), atol=1e-12)
     colliders = body.findall('geom[@group="3"]')
-    assert len(colliders) == len(spec.collision_geoms)
+    assert len(colliders) == len(spec.collision_geoms) + len(spec.collision_primitives)
     assert all(g.get("contype") == g.get("conaffinity") == "1" and g.get("class") == "object_geom" for g in colliders)
-    assert {g.get("mesh") for g in colliders} == {
+    assert {g.get("mesh") for g in colliders if g.get("type") == "mesh"} == {
         root.find(f'.//geom[@name="target_{n}"]').get("mesh") for n in spec.collision_geoms}
     root.find("worldbody").append(body)
     with pytest.raises(ValueError, match="unique"):
@@ -111,3 +111,31 @@ def test_missing_component_member_fails_before_recording():
     source.remove(source.find('geom[@name="target_instance_0077_part_034_color_00"]'))
     with pytest.raises(ValueError, match="Missing satellite component mesh"):
         build_satellite_component(root, "sun_sensor", "missing")
+
+
+def test_data_antenna_preserves_air_under_plate_and_grasps_solid_thickness():
+    root = ET.parse(MODEL).getroot()
+    body = build_satellite_component(root, "data_antenna", "test_antenna")
+    colliders = body.findall('geom[@group="3"]')
+    assert not any(g.get("type") == "mesh" for g in colliders)
+
+    def containing(point):
+        result = []
+        for g in colliders:
+            local = np.asarray(point)-np.fromstring(g.get("pos"), sep=" ")
+            size = np.fromstring(g.get("size"), sep=" ")
+            inside = (np.all(np.abs(local) <= size) if g.get("type") == "box" else
+                      np.linalg.norm(local[:2]) <= size[0] and abs(local[2]) <= size[1])
+            if inside:
+                result.append(g)
+        return result
+
+    assert not containing((-.038, .011, 0.))  # Previously filled by the convex hull.
+    assert containing((0., 0., -.006))  # Real rear connector is retained.
+    asset = FLOATING_TASKS["floating_data_antenna_capture"]
+    assert [g.get("type") for g in containing(asset.grip_point)] == ["box"]
+    plate = body.find('geom[@type="box"]')
+    p, size = (np.fromstring(plate.get(k), sep=" ") for k in ("pos", "size"))
+    assert p[2]-size[2] == pytest.approx(.00211367221513)
+    assert p[2]+size[2] == pytest.approx(.00612967221513)
+    assert asset.grip_point[2] == pytest.approx(p[2])

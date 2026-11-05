@@ -18,12 +18,16 @@ class SatelliteComponent:
     center_m: tuple[float, float, float]
     size_m: tuple[float, float, float]
     mass_kg: float
+    collision_primitives: tuple[tuple[str, tuple, tuple], ...] = ()
 
     def snapshot(self):
+        definition = json.loads(json.dumps(asdict(self)))
+        if not self.collision_primitives:
+            definition.pop("collision_primitives")
         return dict(schema="satellite-component/1", source_body="capture_target",
                     inertia_model="uniform-bounding-box", mass_source="simulation-assumption",
-                    collision_model="solid-part-convex-hulls", collision_class="object_geom",
-                    **json.loads(json.dumps(asdict(self))))
+                    collision_model=("component-primitives" if self.collision_primitives else "solid-part-convex-hulls"),
+                    collision_class="object_geom", **definition)
 
 
 SATELLITE_COMPONENTS = {
@@ -44,8 +48,17 @@ SATELLITE_COMPONENTS = {
         (.07999492854519735, .081, .042), .25),
     "data_antenna": SatelliteComponent(
         "instance_0081", ("instance_0081_part_037_color_00",),
-        ("instance_0081_part_037_color_00",),
-        (.11235, -.00525, .2672150279148613), (.09, .09, .016842655569744014), .15),
+        (),
+        (.11235, -.00525, .2672150279148613), (.09, .09, .016842655569744014), .15,
+        # Source OBJ planar faces: z=.00211367221513 and .00612967221513.
+        # A whole-mesh hull incorrectly fills air from the rear connector to
+        # the plate edge, creating a wedge that ejects the object when pinched.
+        (("box", (0., 0., .00412167221513), (.045, .045, .002008)),
+         ("cylinder", (0., 0., -.00315382778487), (.0068, .0052675)),
+         *(("cylinder", (x, y, .0072755), (.0025, .001146)) for x, y in
+           ((-.041, -.022), (-.041, .022), (.041, -.022), (.041, .022),
+            (-.022, -.041), (-.022, .041), (.022, -.041), (.022, .041),
+            (-.032, 0.), (.032, 0.), (0., -.032), (0., .032))))),
 }
 
 
@@ -77,6 +90,11 @@ def build_satellite_component(root, component_id, body_name):
             collider.attrib.update(name=f"{body_name}_{name}_collision",
                                    **{"class": "object_geom"}, mass="0", contype="1",
                                    conaffinity="1", group="3", rgba="0 0 0 0")
+    for index, (kind, pos, size) in enumerate(spec.collision_primitives):
+        collider = ET.SubElement(body, "geom", name=f"{body_name}_collision_{index}",
+                                 type=kind, pos=" ".join(map(str, pos)), size=" ".join(map(str, size)))
+        collider.attrib.update(**{"class": "object_geom"}, mass="0", contype="1",
+                               conaffinity="1", group="3", rgba="0 0 0 0")
     ET.SubElement(body, "freejoint", name=f"{body_name}_free")
     for item in body.iter():
         tags = ("joint", "freejoint") if item.tag == "freejoint" else (item.tag,)

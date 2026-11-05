@@ -54,8 +54,8 @@ FLOATING_TASKS = {
         "floating_gnss_antenna", "漂浮GNSS天线", "floating GNSS antenna", (0., 0., -.021),
         (1., 0., 0.), (0., 0., 1.), source_component="gnss_antenna"),
     "floating_data_antenna_capture": FloatingAsset(
-        "floating_data_antenna", "漂浮数传天线", "floating data transmission antenna", (0., 0., -.00842),
-        (1., 0., 0.), (0., 0., 1.), source_component="data_antenna"),
+        "floating_data_antenna", "漂浮数传天线", "floating data transmission antenna", (-.038, .011, .00412167221513),
+        (0., 0., 1.), (1., 0., 0.), source_component="data_antenna"),
     "floating_task_box_capture": FloatingAsset(
         "floating_task_box_base", "漂浮任务箱底座", "floating task box base", (-.003, .275, -.0125),
         (0., 0., 1.), (1., 0., 0.), source_body="task_box_base"),

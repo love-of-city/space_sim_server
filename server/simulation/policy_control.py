@@ -95,6 +95,8 @@ class PolicyCommandGate:
                       ok=error is None, executed_steps=executed_steps,
                       period_ns=POLICY_PERIOD_NS, applied_actions=deepcopy(list(applied_actions)),
                       observation=identity, **identity)
+        if packet.get("action_space") == "eef_pose_absolute":
+            result["requested_joint_actions"] = deepcopy(packet.get("_requested_joint_actions", [])[:executed_steps])
         if error is not None:
             result["error"] = str(error)
         return result
@@ -137,6 +139,8 @@ class PolicyCommandGate:
                 if operation == "step":
                     if type(packet.get("period_ns")) is not int or packet["period_ns"] != POLICY_PERIOD_NS:
                         raise ValueError("period_ns must be 20000000")
+                    if packet.get("action_space", "joint_position") not in {"joint_position", "eef_pose_absolute"}:
+                        raise ValueError("Unsupported policy action_space")
                     validate_actions(packet.get("actions"))
                 if self.pending is not None:
                     raise ValueError("another joint policy request is in progress")
@@ -201,6 +205,7 @@ class JointPolicyController:
         self.idle_timeout_s = DEFAULT_POLICY_IDLE_TIMEOUT_S
         self.active: PolicyRequest | None = None
         self.actions: list[list[float]] = []
+        self.action_space = "joint_position"
         self.applied: list[list[float]] = []
         self.inflight: list[float] | None = None
         self.expected_stop_ns: int | None = None
@@ -288,7 +293,13 @@ class JointPolicyController:
                 self.last_progress = now
             else:
                 try:
-                    self.actions = validate_actions(packet["actions"], self.targets.joint_min[:6], self.targets.joint_max[:6])
+                    self.action_space = packet.get("action_space", "joint_position")
+                    if self.action_space == "eef_pose_absolute":
+                        from simulation.policy_pose import validate_kinematics
+                        validate_kinematics(self.targets.kinematics, packet.get("kinematics"))
+                        self.actions = validate_actions(packet["actions"])
+                    else:
+                        self.actions = validate_actions(packet["actions"], self.targets.joint_min[:6], self.targets.joint_max[:6])
                 except ValueError as error:
                     self.gate.finish(request, error)
                     return
@@ -309,7 +320,11 @@ class JointPolicyController:
             snapshot = self.gate.observation
             self.expected_stop_ns = int(snapshot["sim_time_ns"]) + POLICY_PERIOD_NS
             try:
-                self.inflight = self.targets.apply_policy_action(self.actions[len(self.applied)])
+                target = self.actions[len(self.applied)]
+                if self.action_space == "eef_pose_absolute":
+                    target = self.targets.policy_pose_target(target)
+                    self.active.packet.setdefault("_requested_joint_actions", []).append(target)
+                self.inflight = self.targets.apply_policy_action(target)
                 # Publish before the first physical substep, including when the
                 # normal IK publisher's stride does not divide this render tick.
                 self.publish_reference(int(snapshot["sim_time_ns"]))

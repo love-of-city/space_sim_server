@@ -5,7 +5,7 @@ import asyncio
 from collections import OrderedDict
 import time
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
@@ -40,6 +40,8 @@ class PolicyStep(BaseModel):
     request_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     expected_observation: PolicyIdentity
     actions: list[PolicyAction] = Field(min_length=1, max_length=100)
+    action_space: Literal["joint_position", "eef_pose_absolute"] = "joint_position"
+    kinematics: dict | None = None
 
     @field_validator("request_id")
     @classmethod
@@ -182,12 +184,15 @@ class PolicySessions:
             raise HTTPException(409, "episode action budget exceeded or task already completed")
         if any(not 0 <= action[6] <= 1 for action in payload.actions):
             raise HTTPException(422, "夹爪开度必须在 [0, 1] 范围内")
+        if payload.action_space == "eef_pose_absolute" and payload.kinematics is None:
+            raise HTTPException(422, "Cartesian actions require the checkpoint kinematics")
         async with self._lock:
             session["seen"].add(payload.request_id)
             session["last_activity"] = time.monotonic()
             try:
                 receipt = await self.hub.policy_command(identifier, "step", request_id=payload.request_id,
-                    actions=payload.actions, period_ns=PERIOD_NS)
+                    actions=payload.actions, period_ns=PERIOD_NS,
+                    action_space=payload.action_space, kinematics=payload.kinematics)
                 executed = receipt.get("executed_steps")
                 if type(executed) is not int or executed != len(payload.actions):
                     raise RuntimeError("runtime did not confirm every requested action interval")
@@ -195,7 +200,16 @@ class PolicySessions:
                         or receipt["render_session_id"] != session["identity"][0]):
                     raise RuntimeError("policy execution clock or render session changed unexpectedly")
                 receipt["requested_actions"] = payload.actions
-                receipt["action_limited"] = receipt.get("applied_actions") != payload.actions
+                receipt["requested_action_space"] = payload.action_space
+                receipt["action_transformed"] = payload.action_space == "eef_pose_absolute"
+                joint_requests = payload.actions
+                if payload.action_space == "eef_pose_absolute":
+                    joint_requests = receipt["requested_joint_actions"]
+                    if len(joint_requests) != executed:
+                        raise RuntimeError("Missing Cartesian IK target receipts")
+                    receipt["requested_eef_actions"] = payload.actions
+                    receipt["applied_joint_actions"] = receipt["applied_actions"]
+                receipt["action_limited"] = receipt.get("applied_actions") != joint_requests
                 session["steps"] += executed
                 return await self._response(session, receipt)
             except (Exception, asyncio.CancelledError) as error:

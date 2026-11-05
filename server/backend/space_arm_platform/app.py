@@ -54,6 +54,7 @@ from .web_security import LoginRateLimiter, validate_origins
 class PlatformConfig:
     project_root: Path
     data_root: Path
+    source_episodes_root: Path | None = None
     simulation_host: str = "127.0.0.1"
     simulation_port: int = 8766
     rendezvous_port: int = 0
@@ -278,7 +279,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
             default_dataset_capture=capture_defaults["dataset_capture"],
             python_exe=Path(sys.executable) if sys.platform.startswith("linux") else None,
         )
-    scenes = SceneRuntimeManager(launch_config, project_root=config.project_root)
+    scenes = SceneRuntimeManager(launch_config, project_root=config.project_root, episodes_root=config.source_episodes_root or config.data_root)
     mission_vision = MissionVisionRouter(config.project_root, rendezvous_runtime, vision, scenes=scenes)
     vision.config_resolver = lambda: (scenes.status().get('instance') or {}).get(
         'render_profile', {}).get('vision_capture', {}).get('config_file')

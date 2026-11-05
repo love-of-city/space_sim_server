@@ -23,7 +23,7 @@ def check_port_available(port):
 
 def renderer_command(args, output: Path):
     project = args.adapter / "Unreal/BskUnrealRenderer"
-    ensure_environment_level(args.adapter, args.unreal)
+    ensure_environment_level(args.adapter, args.unreal, prepare=getattr(args, "prepare_environment", True))
     # Linux capture hosts use the same persistent filesystem cache directly;
     # a broken Zen autolaunch otherwise adds ~21 s before falling back to it.
     ddc_graph = ("InstalledNoZenLocalFallback" if os.name != "nt"

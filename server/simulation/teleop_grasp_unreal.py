@@ -500,6 +500,12 @@ class CartesianTeleopTarget:
         self.elbow_deviation.reset()
         self.target_tool_position, self.target_tool_rotation = self.kinematics.forward(self.position[:6])
 
+    def policy_pose_target(self, action):
+        from simulation.policy_pose import pose_to_joint_target
+        return pose_to_joint_target(self.kinematics, self._actual_arm_position(), action,
+            lower=self.joint_min[:6], upper=self.joint_max[:6],
+            velocity_limits=ARM_JOINT_VELOCITY_LIMIT, dt=POLICY_PERIOD_NS * 1e-9)
+
     def apply_policy_action(self, action: list[float]) -> list[float]:
         """Bound one absolute target through the existing reference/servo path."""
         if not self.policy_active:
@@ -1317,7 +1323,11 @@ def _run_session(
                     scene_instance['randomization']['coorbital_initialization'].get('service_body_rotation_wxyz'))])
 
         from simulation.components.plug_retention import install_configured_plug_retention
-        plug_retention = install_configured_plug_retention(assembly)
+        released = ()
+        if scene_instance and scene_instance.get("policy_replay"):
+            released = tuple(item["instance_id"] for item in
+                             scene_instance["collection_config"]["floating_objects"]["instances"])
+        plug_retention = install_configured_plug_retention(assembly, released_bodies=released)
         retention_configuration = (plug_retention.configuration() if plug_retention else {"enabled": False})
         if template_id == 'sarm-task-box-20261012-demo':
             from simulation.components.fastener_demo import FastenerDemoComponent
@@ -1648,6 +1658,9 @@ def _run_session(
             scene, native, earth, orbit, randomized, initial_joints, orbit_origin,
             local_stepper=getattr(simulation, 'local_stepper', None)
         )
+        if scene_instance and scene_instance.get("policy_replay"):
+            from simulation.scripted_tasks.floating_initialization import initialize_floating_body
+            initialize_floating_body(scene, orbit_state, native, scene_instance["collection_config"])
         if flight_handoff:
             from simulation.orbital_rendezvous.handoff import apply_handoff, validate_handoff
             validate_handoff(flight_handoff, native.MODEL_PATH)
@@ -1872,6 +1885,7 @@ def main() -> None:
     default_adapter = workspace / "space_sim_UE_adapter"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter-root", type=Path, default=default_adapter)
+    parser.add_argument("--model-path", type=Path, help="Prepared episode model for policy execution")
     parser.add_argument(
         "--model-root",
         type=Path,

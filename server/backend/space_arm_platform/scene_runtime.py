@@ -338,8 +338,9 @@ def _sample_instance(request: SceneInstanceCreate, seed: int, created_by: dict[s
 class SceneRuntimeManager:
     """Own at most one runtime launcher and persist its reproducible input."""
 
-    def __init__(self, launch: SceneLaunchConfig | None, project_root: Path | None = None) -> None:
+    def __init__(self, launch: SceneLaunchConfig | None, project_root: Path | None = None, *, episodes_root: Path | None = None) -> None:
         self.launch = launch
+        self.episodes_root = episodes_root
         project_root = launch.project_root if launch else (project_root or Path.cwd())
         self.project_root = Path(project_root)
         self.run_root = project_root / "run"
@@ -410,6 +411,21 @@ class SceneRuntimeManager:
         }
 
     def create_instance(self, request: SceneInstanceCreate, created_by: dict[str, Any] | None = None, *, handoff=None, mission=None) -> dict[str, Any]:
+        if request.source_episode_id is not None:
+            if handoff is not None:
+                raise ValueError("Recorded policy scenes cannot be combined with rendezvous missions")
+            if self.episodes_root is None or not self.launch or self.launch.python_exe is None:
+                raise ValueError("Recorded policy scenes require a configured Linux runtime and episode root")
+            from .recorded_policy_scene import restore_scene
+            instance = restore_scene(self.episodes_root, request.source_episode_id, created_by)
+            if mission is not None:
+                instance["mission"] = dict(mission)
+            path = self.scene_root / f"{instance['instance_id']}.json"
+            self.scene_root.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(instance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            instance["config_path"] = str(path.resolve())
+            self._last_instance = instance
+            return instance
         if request.template_id not in {item["id"] for item in SCENE_TEMPLATES}:
             raise ValueError(f"unknown scene template: {request.template_id}")
         if request.randomization_profile not in {item["id"] for item in RANDOMIZATION_PROFILES}:

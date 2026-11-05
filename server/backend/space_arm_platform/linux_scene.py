@@ -81,23 +81,25 @@ def supervise(config_path: Path, instance_path: Path):
         for port in (config["render_port"],):
             check_port_available(port)
         runtime = instance["runtime"]
-        prepare = [sys.executable, str(root / "tools/assets/prepare_sarm_assets.py"),
-                   "--adapter", str(adapter), "--model-root", config["model_root"],
-                   "--unreal", config["unreal_root"], "--template-id", instance["template_id"],
-                   "--use-existing-model"]
-        preparation = children.start("prepare", prepare, cwd=root,
-                                     log=root / f"logs/{stamp}.prepare.log")
-        update("launching")
-        while preparation.poll() is None:
-            if stopping or owned_process(parent) is None:
-                raise InterruptedError("scene preparation stopped")
-            time.sleep(.2)
-        if preparation.returncode:
-            raise RuntimeError(f"asset preparation failed; see logs/{stamp}.prepare.log")
-        del children.processes["prepare"]
+        if not instance.get("policy_replay"):
+            prepare = [sys.executable, str(root / "tools/assets/prepare_sarm_assets.py"),
+                       "--adapter", str(adapter), "--model-root", config["model_root"],
+                       "--unreal", config["unreal_root"], "--template-id", instance["template_id"],
+                       "--use-existing-model"]
+            preparation = children.start("prepare", prepare, cwd=root,
+                                         log=root / f"logs/{stamp}.prepare.log")
+            update("launching")
+            while preparation.poll() is None:
+                if stopping or owned_process(parent) is None:
+                    raise InterruptedError("scene preparation stopped")
+                time.sleep(.2)
+            if preparation.returncode:
+                raise RuntimeError(f"asset preparation failed; see logs/{stamp}.prepare.log")
+            del children.processes["prepare"]
         args = SimpleNamespace(adapter=adapter, unreal=Path(config["unreal_root"]),
                                render_port=config["render_port"], capture_port=config["capture_port"],
-                               signalling_port=config["pixel_streamer_port"], offline=False)
+                               signalling_port=config["pixel_streamer_port"], offline=False,
+                               prepare_environment=not bool(instance.get("policy_replay")))
         output = root / f"logs/{stamp}"
         output.mkdir(exist_ok=True)
         command = renderer_command(args, output)
@@ -107,6 +109,7 @@ def supervise(config_path: Path, instance_path: Path):
                 "-BskPixelStreamingCameraFps=", "-PixelStreamingWebRTCFps=", "-BskCaptureRate=",
                 "-BskCaptureProducts=", "-ExecCmds=")
         command = [value for value in command if not value.startswith(keys)]
+        render_fps = 90 if instance.get("policy_replay") else config["preview_rate"]
         command += [f"-PixelStreamingID={config['pixel_streaming_id']}",
                     f"-BskPixelStreamingBaseId={config['pixel_streaming_id']}",
                     "-BskPixelStreamingCameras=" + "+".join(config["pixel_streaming_camera_ids"]),
@@ -117,7 +120,7 @@ def supervise(config_path: Path, instance_path: Path):
                     f"-BskPreviewRate={config['preview_rate']}",
                     f"-PixelStreamingEncoderMinQuality={config['encoder_min_quality']}",
                     "-PixelStreamingEncoderCodec=H264", "-PixelStreamingDecoupleFramerate=false",
-                    f"-ExecCmds=t.MaxFPS {config['preview_rate']},r.VSync 0"]
+                    f"-ExecCmds=t.MaxFPS {render_fps},r.VSync 0"]
         if runtime["dataset_capture"]:
             command += ["-BskCaptureProducts=rgb", f"-BskCaptureRate={runtime['capture_rate_hz']}"]
         children.start("renderer", command, cwd=root, env=renderer_environment(args),
@@ -129,6 +132,11 @@ def supervise(config_path: Path, instance_path: Path):
         catalog = "sarm_20261012" if template.startswith("sarm-task-box-20261012") else catalog_names.get(template, "sarm_platform")
         if template == 'sarm-dual-capture26':
             catalog = 'sarm_dual_capture26'
+        model_args = []
+        if instance.get("policy_replay"):
+            from .recorded_policy_scene import copy_recorded_model
+            prepared_model = copy_recorded_model(instance, output)
+            model_args = ["--model-path", str(prepared_model)]
         children.start("simulation", [sys.executable, "-u", str(root / "simulation/teleop_grasp_unreal.py"),
             "--adapter-root", str(adapter), "--model-root", config["model_root"],
             "--catalog", str(adapter / f"Unreal/BskUnrealRenderer/Saved/AssetImport/{catalog}.catalog.json"),
@@ -136,7 +144,7 @@ def supervise(config_path: Path, instance_path: Path):
             "--capture-port", str(config["capture_port"]),
             "--scene-instance", str(instance_path), "--dynamics-backend", "local",
             "--simulation-rate", str(runtime["simulation_rate"]),
-            "--capture-rate", str(runtime["capture_rate_hz"]), "--ik-rate", str(runtime["ik_rate_hz"])],
+            "--capture-rate", str(runtime["capture_rate_hz"]), "--ik-rate", str(runtime["ik_rate_hz"]), *model_args],
             cwd=root, log=output / "simulation.log")
         update("running")
         while True:

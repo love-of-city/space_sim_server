@@ -432,6 +432,8 @@ class EpisodeStop(BaseModel):
 class SceneInstanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    source_episode_id: str | None = Field(default=None, pattern=r"^episode-[A-Za-z0-9_-]+$")
+
     wrist_camera_mode: Literal["rgb", "fisheye", "monochrome", "monochrome_fisheye"] = "rgb"
     randomize_overview_camera: bool = Field(default=False, strict=True)
 

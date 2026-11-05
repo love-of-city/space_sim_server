@@ -23,7 +23,7 @@ def test_profile_replay_and_source_isolation(tmp_path, profile):
     assert path.read_bytes() == replay.read_bytes()
     assert source == before
     state = scene['collection_config']['floating_initial_state']
-    assert state['schema'] == 'floating-release/3'
+    assert state['schema'] == 'floating-release/4'
     assert state['options']['min_speed_m_s'] <= np.linalg.norm(state['velocity_body_m_s'])+1e-12
     root = ET.parse(path).getroot()
     original = ET.parse(MODEL).getroot()

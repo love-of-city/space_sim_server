@@ -379,11 +379,14 @@ def validate_recording(episode, task_name="drawer_cycle"):
         release = cfg["floating_initial_state"]
         validate_asset_snapshot(release, FLOATING_TASKS[task_name])
         assert release["task"] == task_name and release["target_body"] == FLOATING_TASKS[task_name].body
-        assert .12 <= release["camera_to_grasp_distance_m"] <= .75
+        assert .12 <= release["camera_to_reference_distance_m"] <= .75
         variant = cfg["model_randomization"]
         assert release["source_sha256"] == variant["source_sha256"]
         assert all(obs["model_sha256"] == variant["variant_sha256"] for obs in steps)
         assert cfg["floating_controller"] == final["task_parameters"]
+        from simulation.scripted_tasks.floating_grasps import selected_grasp
+        grasp = selected_grasp(task_name, meta["scene_instance"])
+        assert all(obs["scripted_task"]["grasp_candidate_id"] == grasp.id for obs in steps)
         validate_floating_recording(steps, stages, task_name)
         from simulation.scripted_tasks.floating_objects import validate_floating_object_recording
         validate_floating_object_recording(cfg, steps, meta["instruction"])
@@ -748,6 +751,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                 entry["preflight"] = probe.validate(preflight_model, scene, args.task)
             except ValueError as exc:
                 entry["preflight"] = dict(accepted=False, reason="planning_failed", detail=str(exc))
+            scene_path.write_text(json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8")
             entry["preflight_wall_seconds"] = time.monotonic() - preflight_started
             if not entry["preflight"]["accepted"]:
                 entry["status"] = "initialization_rejected"

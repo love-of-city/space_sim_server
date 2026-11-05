@@ -89,6 +89,8 @@ def test_all_objects_are_initialized(tmp_path):
 
 def test_non_target_contact_fails_even_without_deep_penetration(tmp_path):
     _,scene,model=realize(tmp_path)
+    from simulation.scripted_tasks.floating_grasps import grasp_candidates
+    scene['collection_config']['floating_grasp'] = {'candidate': grasp_candidates('floating_plug_capture')[0].snapshot()}
     task=create_floating_task('floating_plug_capture',model,scene)
     sample=sample_at_grasp(task,scene)
     task.step(replace(sample,non_target_contacts=[dict(bodies=['ee_finger1','floating_distractor_01'],normal_force_n=.1,distance_m=-.00001)]))
@@ -136,6 +138,8 @@ def test_recording_identity_and_instruction_binding(tmp_path):
 
 def test_native_reader_detects_shallow_distractor_contact_and_reads_all_instances(tmp_path):
     _,scene,model=realize(tmp_path)
+    from simulation.scripted_tasks.floating_grasps import grasp_candidates
+    scene['collection_config']['floating_grasp'] = {'candidate': grasp_candidates('floating_plug_capture')[0].snapshot()}
     task=create_floating_task('floating_plug_capture',model,scene)
     names=['cubesat_bus','cylindrical_plug','floating_distractor_01','ee_finger1']
     state=np.zeros(21);state[[3,10,17]]=1.

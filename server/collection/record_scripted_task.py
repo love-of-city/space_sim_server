@@ -300,6 +300,7 @@ def task_metadata(scene, task, target_site, instruction):
     if task in FLOATING_TASKS:
         result["floating_initial_state"] = dict(cfg["floating_initial_state"])
         result["floating_objects"] = dict(cfg["floating_objects"])
+        result["floating_grasp"] = dict(cfg["floating_grasp"])
         result["feedback_source"] = "authoritative_simulation_state"
     if cfg.get("instruction_randomization") is not None:
         result["instruction_randomization"] = dict(cfg["instruction_randomization"])
@@ -412,7 +413,10 @@ async def run(args):
             if (digest(source_model) != selected["model_sha256"]
                     or digest(catalog) != selected["catalog_sha256"]):
                 raise ValueError("Selected collection layout model/catalog changed before recording")
-    write_model_variant(source_model, out / "model.xml", scene)
+    prepared_model = write_model_variant(source_model, out / "model.xml", scene)
+    if args.task in FLOATING_TASKS:
+        from simulation.scripted_tasks.floating_grasps import prepare_floating_grasp
+        prepare_floating_grasp(prepared_model, scene, args.task)
     validate_color_instruction(scene)
     instruction = task_instruction(scene, args.task, args.target_site)
     scripted_metadata = task_metadata(scene, args.task, args.target_site, instruction)

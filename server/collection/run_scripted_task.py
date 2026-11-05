@@ -105,6 +105,9 @@ def run(args):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     model = write_model_variant(source_model, output / "model.xml", scene_instance)
+    if args.task in FLOATING_TASKS:
+        from simulation.scripted_tasks.floating_grasps import prepare_floating_grasp
+        prepare_floating_grasp(model, scene_instance, args.task)
     disturbances = EpisodeDisturbances(scene_instance)
     native.MODEL_PATH = model
     profile = load_model_profile(model)
@@ -237,7 +240,8 @@ def run(args):
                             ROOT / "simulation/scripted_tasks/floating_profiles.py",
                             ROOT / "simulation/scripted_tasks/floating_options.py",
                             ROOT / "simulation/scripted_tasks/floating_assets.py",
-                            ROOT / "simulation/scripted_tasks/floating_objects.py"]
+                            ROOT / "simulation/scripted_tasks/floating_objects.py",
+                            ROOT / "simulation/scripted_tasks/floating_grasps.py"]
                            if args.task in FLOATING_TASKS else []))
         },
     }

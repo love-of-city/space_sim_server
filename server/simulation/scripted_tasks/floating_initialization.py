@@ -13,8 +13,7 @@ from simulation.serial_chain_kinematics import (
     quaternion_wxyz_to_matrix,
 )
 from .floating_assets import FLOATING_TASKS, validate_asset_snapshot
-from .floating_capture import create_floating_task, floating_controller_config, FloatingCaptureTask
-from .motion import solve_pose
+from .floating_capture import floating_controller_config, FloatingCaptureTask
 
 
 @dataclass(frozen=True)
@@ -40,7 +39,7 @@ class FloatingInitialConfig:
         if not all(math.isfinite(v) for v in scalars):
             raise ValueError("Floating initial conditions must be finite")
         if not .12 <= self.min_distance_m <= self.max_distance_m <= .75:
-            raise ValueError("Camera-to-grasp distance must be within [0.12, 0.75] m")
+            raise ValueError("Camera-to-reference distance must be within [0.12, 0.75] m")
         if not (0 <= self.min_speed_m_s <= self.max_speed_m_s
                 and 0 <= self.min_spin_rad_s <= self.max_spin_rad_s
                 and 0 <= self.min_tilt_deg <= self.max_tilt_deg <= 20
@@ -168,8 +167,6 @@ def apply_floating_model(root, source, scene):
     p, r = chain.forward(initial)
     cp, cr = camera_in_tool(root)
     camera_position, camera_rotation = p+r@cp, r@cr
-    lower, upper = np.array([np.fromstring(root.find(f'.//joint[@name="joint{i}"]').get("range"), sep=" ")
-                             for i in range(1, 7)]).T
     basis = np.column_stack((asset.closing_axis, np.cross(asset.approach_axis, asset.closing_axis), asset.approach_axis))
     saved = cfg.get("floating_initial_state")
     if saved is None:
@@ -178,39 +175,29 @@ def apply_floating_model(root, source, scene):
         tilt_rng = generator(scene.get("seed", 0), "floating-tilt-v3")
         speed_rng = generator(scene.get("seed", 0), "floating-speed-v3")
         spin_rng = generator(scene.get("seed", 0), "floating-spin-v3")
-        for attempt in range(128):
-            distance = float(rng.uniform(options.min_distance_m, options.max_distance_m))
-            ray = camera_rotation @ np.array([rng.uniform(*options.view_x_range), rng.uniform(*options.view_y_range), -1.])
-            ray /= np.linalg.norm(ray)
-            point = camera_position + distance*ray
-            axis = _axis(options.tilt_axis, camera_rotation, tilt_rng)
-            angle = tilt_rng.uniform(options.min_tilt_deg, options.max_tilt_deg) * tilt_rng.choice([-1, 1])
-            desired = axis_angle_to_matrix(axis, math.radians(angle))@r
-            rotation = desired@basis.T
-            try:
-                goal = solve_pose(chain, point, desired, initial, lower, upper)
-            except ValueError:
-                continue
-            if np.min(np.minimum(goal-lower, upper-goal)) < .15:
-                continue
-            # Magnitude bounded sampling, not three independently maximal axes.
-            velocity = _velocity_axis(options.velocity_direction, ray, camera_rotation, speed_rng) * speed_rng.uniform(options.min_speed_m_s, options.max_speed_m_s)
-            spin = (desired[:, 2] if options.spin_axis == "grasp_z" else _axis(options.spin_axis, camera_rotation, spin_rng)) * options.spin_sign * spin_rng.uniform(options.min_spin_rad_s, options.max_spin_rad_s)
-            saved = dict(schema="floating-release/3", asset_snapshot=asset.snapshot(), task=name, target_body=asset.body,
-                seed=int(scene.get("seed", 0)), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
-                options=options.snapshot(), position_body_m=(point-rotation@asset.grip_point).tolist(),
-                orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(),
-                velocity_body_m_s=velocity.tolist(), angular_velocity_body_rad_s=spin.tolist(),
-                camera_position_body_m=camera_position.tolist(), camera_to_grasp_distance_m=distance,
-                grasp_position_body_m=point.tolist(), ik_joint_position_rad=goal.tolist(),
-                sampling="uniform configured distance, view slopes and magnitudes, conditioned on pose IK; native collision preflight follows",
-                rejected_ik_candidates=attempt, camera_intrinsics="unchanged source MJCF")
-            break
-        else:
-            raise ValueError("No reachable floating release in the requested distance range")
+        distance = float(rng.uniform(options.min_distance_m, options.max_distance_m))
+        ray = camera_rotation @ np.array([rng.uniform(*options.view_x_range), rng.uniform(*options.view_y_range), -1.])
+        ray /= np.linalg.norm(ray)
+        point = camera_position + distance*ray
+        axis = _axis(options.tilt_axis, camera_rotation, tilt_rng)
+        angle = tilt_rng.uniform(options.min_tilt_deg, options.max_tilt_deg) * tilt_rng.choice([-1, 1])
+        desired = axis_angle_to_matrix(axis, math.radians(angle))@r
+        rotation = desired@basis.T
+        # Magnitude bounded sampling, not three independently maximal axes.
+        velocity = _velocity_axis(options.velocity_direction, ray, camera_rotation, speed_rng) * speed_rng.uniform(options.min_speed_m_s, options.max_speed_m_s)
+        spin = (desired[:, 2] if options.spin_axis == "grasp_z" else _axis(options.spin_axis, camera_rotation, spin_rng)) * options.spin_sign * spin_rng.uniform(options.min_spin_rad_s, options.max_spin_rad_s)
+        saved = dict(schema="floating-release/4", asset_snapshot=asset.snapshot(), task=name, target_body=asset.body,
+            seed=int(scene.get("seed", 0)), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+            options=options.snapshot(), position_body_m=(point-rotation@asset.grip_point).tolist(),
+            orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(),
+            velocity_body_m_s=velocity.tolist(), angular_velocity_body_rad_s=spin.tolist(),
+            camera_position_body_m=camera_position.tolist(), camera_to_reference_distance_m=distance,
+            reference_position_body_m=point.tolist(),
+            sampling="uniform configured reference distance, view slopes and magnitudes; candidate IK follows",
+            camera_intrinsics="unchanged source MJCF")
         cfg["floating_initial_state"] = saved
     validate_asset_snapshot(saved, asset)
-    if (saved.get("schema") != "floating-release/3" or saved.get("task") != name
+    if (saved.get("schema") != "floating-release/4" or saved.get("task") != name
             or saved.get("target_body") != asset.body
             or saved.get("seed") != int(scene.get("seed", 0))
             or saved.get("source_sha256") != hashlib.sha256(source.read_bytes()).hexdigest()
@@ -219,8 +206,7 @@ def apply_floating_model(root, source, scene):
     vectors = {}
     for key, size in (("position_body_m", 3), ("orientation_wxyz", 4),
                       ("velocity_body_m_s", 3), ("angular_velocity_body_rad_s", 3),
-                      ("camera_position_body_m", 3), ("grasp_position_body_m", 3),
-                      ("ik_joint_position_rad", 6)):
+                      ("camera_position_body_m", 3), ("reference_position_body_m", 3)):
         value = np.asarray(saved.get(key), dtype=float)
         if value.shape != (size,) or not np.isfinite(value).all():
             raise ValueError(f"Invalid saved floating release: {key}")
@@ -234,7 +220,7 @@ def apply_floating_model(root, source, scene):
     relative_quat = matrix_to_quaternion_wxyz(grasp_rotation@r.T)
     tilt = 2.*math.atan2(float(np.linalg.norm(relative_quat[1:])), abs(float(relative_quat[0])))
     delta = point-camera_position
-    distance = float(saved.get("camera_to_grasp_distance_m", float("nan")))
+    distance = float(saved.get("camera_to_reference_distance_m", float("nan")))
     camera_delta = camera_rotation.T @ delta
     slopes = camera_delta[:2] / max(1e-20, -camera_delta[2])
     for value, interval in zip(slopes, (options.view_x_range, options.view_y_range)):
@@ -252,21 +238,17 @@ def apply_floating_model(root, source, scene):
     if options.tilt_axis != "random" and tilt > 1e-9:
         if np.linalg.norm(np.cross(relative_quat[1:], _axis(options.tilt_axis, camera_rotation, None))) > 1e-9:
             raise ValueError("Saved floating release violates tilt axis")
-    goal = vectors["ik_joint_position_rad"]
-    gp, gr = chain.forward(goal)
     if (not math.isfinite(distance) or not options.min_distance_m-1e-10 <= distance <= options.max_distance_m+1e-10
             or np.linalg.norm(vectors["velocity_body_m_s"]) > options.max_speed_m_s+1e-12
             or np.linalg.norm(vectors["angular_velocity_body_rad_s"]) > options.max_spin_rad_s+1e-12
             or speed < options.min_speed_m_s-1e-12 or spin_speed < options.min_spin_rad_s-1e-12
             or tilt < math.radians(options.min_tilt_deg)-1e-9
             or tilt > math.radians(options.max_tilt_deg)+1e-9
-            or np.any(goal < lower) or np.any(goal > upper)
             or not np.allclose(camera_position, vectors["camera_position_body_m"], atol=1e-10, rtol=0)
-            or not np.allclose(point, vectors["grasp_position_body_m"], atol=1e-10, rtol=0)
+            or not np.allclose(point, vectors["reference_position_body_m"], atol=1e-10, rtol=0)
             or abs(np.linalg.norm(delta)-distance) > 1e-10
             or camera_delta[2] >= 0
-            or np.linalg.norm(gp-point) > 3e-6
-            or np.linalg.norm(gr-grasp_rotation) > 2e-5):
+):
         raise ValueError("Saved floating release violates its physical configuration")
     parents = {child: parent for parent in root.iter() for child in parent}
     if parents[body] is not root.find("worldbody"):
@@ -315,29 +297,5 @@ def initialize_floating_body(scene, orbit_state, native, config):
 
 
 def validate_floating_preflight(probe, model, scene, name):
-    task = create_floating_task(name, model, scene)
-    initial = np.asarray(scene["randomization"]["arm_joint_position_rad"])
-    state = scene["collection_config"]["floating_initial_state"]
-    goal = np.asarray(state["ik_joint_position_rad"])
-    if np.any(initial[:6] < task.lower) or np.any(initial[:6] > task.upper):
-        return dict(accepted=False, reason="joint_limit")
-    # Full real geometry at initial pose and an open-finger approach. This is a
-    # finite static path check; runtime still stops on unexpected contacts.
-    target = scene["randomization"]
-    overrides = {"capture_target_free": [*target["target_position_m"], *target["target_orientation_wxyz"]]}
-    candidates = [np.r_[initial[:6], opening, -opening] for opening in np.linspace(0., 1., 21)]
-    candidates += [np.r_[(1-fraction)*initial[:6]+fraction*goal, 1., -1.] for fraction in np.linspace(0., 1., 81)]
-    instances = scene["collection_config"]["floating_objects"]["instances"]
-    moving_bodies = tuple(item["instance_id"] for item in instances)
-    count = 0
-    for q in candidates:
-        allowed = () if count < 21 else (task.asset.body,)
-        # A released target must start without even shallow background penetration:
-        # sub-millimetre overlap can impart a large impulse to a heavy part.
-        hit = probe.pose_collision(q, name, allowed_contact_bodies=allowed, joint_values=overrides,
-                                   mechanism_clearance_m=0., moving_bodies=moving_bodies)
-        count += 1
-        if hit:
-            return dict(accepted=False, reason="approach_collision", contact=hit, checked_poses=count)
-    return dict(accepted=True, checked_poses=count, camera_to_grasp_distance_m=state["camera_to_grasp_distance_m"],
-                collision_scope="native geometry at 21 opening and 81 approach poses; online moving-target collision monitoring remains enabled")
+    from .floating_grasps import select_grasp
+    return select_grasp(probe, model, scene, name)

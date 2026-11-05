@@ -58,14 +58,16 @@ class FloatingCaptureConfig:
 
 
 class FloatingCaptureTask:
-    version = "floating-capture/7"
-    stages = ("open", "intercept", "grip", "hold", "retract", "settle")
+    version = "floating-capture/8"
+    stages = ("open", "pregrasp", "intercept", "grip", "hold", "retract", "settle")
 
     def __init__(self, model_path, config=None):
         self.model_path = Path(model_path)
         self.config = config or FloatingCaptureConfig()
         self.name = self.config.task
         self.asset = FLOATING_TASKS[self.name]
+        from .floating_grasps import grasp_candidates
+        self.grasp = grasp_candidates(self.name)[0]
         self.object_instances = []
         self.chain = SerialChainKinematics.from_mjcf(
             self.model_path, base_body="cubesat_bus",
@@ -93,9 +95,9 @@ class FloatingCaptureTask:
 
     def grasp_pose(self, sample):
         rotation = sample.plug_rotation_body
-        point = sample.plug_position_body_m + rotation @ np.asarray(self.asset.grip_point)
-        x = rotation @ self.asset.closing_axis
-        z = rotation @ self.asset.approach_axis
+        point = sample.plug_position_body_m + rotation @ np.asarray(self.grasp.grip_point)
+        x = rotation @ self.grasp.closing_axis
+        z = rotation @ self.grasp.approach_axis
         return point, np.column_stack((x, np.cross(z, x), z))
 
     def metrics(self, sample):
@@ -105,10 +107,10 @@ class FloatingCaptureTask:
         j = self.chain.jacobian(sample.joints[:6])
         target_velocity = sample.plug_velocity_body_m_s + np.cross(
             sample.plug_angular_velocity_body_rad_s,
-            sample.plug_rotation_body @ np.asarray(self.asset.grip_point))
+            sample.plug_rotation_body @ np.asarray(self.grasp.grip_point))
         relative = target_velocity - j[:3] @ sample.joint_velocities[:6]
         return dict(
-            task_version=self.version, target_body=self.asset.body,
+            task_version=self.version, target_body=self.asset.body, grasp_candidate_id=self.grasp.id,
             feedback_source="authoritative_simulation_state",
             target_position_body_m=sample.plug_position_body_m.tolist(),
             target_velocity_body_m_s=sample.plug_velocity_body_m_s.tolist(),
@@ -155,7 +157,11 @@ class FloatingCaptureTask:
         point, desired = self.grasp_pose(sample)
         speed = sample.plug_velocity_body_m_s + np.cross(
             sample.plug_angular_velocity_body_rad_s,
-            sample.plug_rotation_body @ np.asarray(self.asset.grip_point))
+            sample.plug_rotation_body @ np.asarray(self.grasp.grip_point))
+        if self.stage == "pregrasp":
+            offset = -self.grasp.pregrasp_m*desired[:, 2]
+            point = point+offset
+            speed = speed+np.cross(sample.plug_angular_velocity_body_rad_s, offset)
         self._drive_pose(sample, dt, point, desired, self.config.linear_speed_m_s,
                          speed, sample.plug_angular_velocity_body_rad_s)
 
@@ -186,7 +192,7 @@ class FloatingCaptureTask:
         contact = any(sample.finger_plug_contacts)
         if self.stage == "grip" and contact:
             self._jaw_contact_seen = True
-        if self.stage in ("open", "intercept"):
+        if self.stage in ("open", "pregrasp", "intercept"):
             goal, speed = 1., self.config.gripper_speed_rad_s
         elif self._hold_joints is not None:
             # Position servos remain the only actuators. Weak contact can be
@@ -260,7 +266,7 @@ class FloatingCaptureTask:
             self.reference[:] = sample.joints
             old = self.reference.copy()
             self._enter("open", sample)
-        if self.stage == "intercept" or (self.stage == "grip" and self._hold_joints is None):
+        if self.stage in ("pregrasp", "intercept") or (self.stage == "grip" and self._hold_joints is None):
             self._track(sample, dt)
         elif self.stage in ("retract", "settle"):
             # Start transport from rest without a Cartesian velocity step.
@@ -276,7 +282,13 @@ class FloatingCaptureTask:
         self._drive_gripper(sample, dt, m)
         bilateral = all(count > 0 for count in m["finger_target_contacts"]) and min(m["finger_normal_force_n"]) >= .02
         if self.stage == "open" and sample.joints[6] >= .95:
-            self._enter("intercept", sample)
+            self._enter("pregrasp", sample)
+        elif self.stage == "pregrasp":
+            point, desired = self.grasp_pose(sample)
+            prepoint = point-self.grasp.pregrasp_m*desired[:, 2]
+            tcp, _ = self.chain.forward(sample.joints[:6])
+            if np.linalg.norm(prepoint-tcp) < .002 and m["orientation_error_rad"] < .025:
+                self._enter("intercept", sample)
         elif self.stage == "intercept":
             ready = m["grasp_error_m"] < .0015 and m["orientation_error_rad"] < .025 and m["relative_speed_m_s"] < .006
             self._stable = self._stable+dt if ready else 0.
@@ -353,5 +365,7 @@ def floating_controller_config(name, scene):
 def create_floating_task(name, model, scene=None):
     task = FloatingCaptureTask(model, floating_controller_config(name, scene or {}))
     if scene is not None:
+        from .floating_grasps import selected_grasp
+        task.grasp = selected_grasp(name, scene)
         task.object_instances = scene.get("collection_config", {}).get("floating_objects", {}).get("instances", [])
     return task

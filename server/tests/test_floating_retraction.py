@@ -20,6 +20,7 @@ def controlled_task(tmp_path):
     q = np.array([.6,.35,.36,0,0,0,1,-1.])
     sample = replace(sample_at_grasp(task, scene, contacts=(1,1)), joints=q, plug_rotation_body=np.eye(3),
                      plug_position_body_m=q[:3]-task.asset.grip_point)
+    task.reference[:] = q
     # Identity grasp basis makes this a transparent actuator-following fixture.
     task.grasp_pose = lambda s: (s.plug_position_body_m+task.asset.grip_point, np.eye(3))
     return task, sample
@@ -104,9 +105,9 @@ def test_settle_does_not_count_time_away_from_destination(tmp_path):
 def recording():
     params=FloatingCaptureConfig().snapshot();steps=[]
     start=np.array([.6,.35,.36]);end=np.array(params['retract_position_body_m'])
-    for stage,count in [('open',2),('intercept',2),('grip',2),('hold',105),('retract',80),('settle',55)]:
+    for stage,count in [('open',2),('pregrasp',2),('intercept',2),('grip',2),('hold',105),('retract',80),('settle',55)]:
         for i in range(count):
-            p=start if stage in ('open','intercept','grip','hold') else end if stage=='settle' else start+(end-start)*i/(count-1)
+            p=start if stage in ('open','pregrasp','intercept','grip','hold') else end if stage=='settle' else start+(end-start)*i/(count-1)
             task=dict(task_version=FloatingCaptureTask.version,target_body='bolt',result='success',
                 task_parameters=params,held_seconds=2.,settled_seconds=1.,stage=stage,
                 feedback_source='authoritative_simulation_state',finger_target_contacts=[1,1],

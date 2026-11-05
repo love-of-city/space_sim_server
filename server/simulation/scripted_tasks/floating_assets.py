@@ -42,7 +42,7 @@ class FloatingAsset:
 
 
 def validate_asset_snapshot(release, asset):
-    if release.get("schema") != "floating-release/3" or release.get("asset_snapshot") != asset.snapshot():
+    if release.get("schema") != "floating-release/4" or release.get("asset_snapshot") != asset.snapshot():
         raise ValueError("Floating release asset snapshot does not match current description")
 
 

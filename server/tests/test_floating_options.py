@@ -33,6 +33,8 @@ def test_fixed_release_and_controller_replay(tmp_path):
     state = scene['collection_config']['floating_initial_state']
     assert np.linalg.norm(state['velocity_body_m_s']) == pytest.approx(.03)
     assert np.linalg.norm(state['angular_velocity_body_rad_s']) == pytest.approx(.3)
+    from simulation.scripted_tasks.floating_grasps import grasp_candidates
+    scene["collection_config"]["floating_grasp"] = {"candidate": grasp_candidates(args.task)[0].snapshot()}
     task = create_floating_task(args.task, model, scene)
     assert task.config.angular_speed_rad_s == .6
     assert task.config.arm_speed_rad_s == .7
@@ -86,6 +88,8 @@ def test_tracking_uses_angular_limit(tmp_path):
     args = parse('--tracking-angular-speed', '.6')
     scene = randomized_scene(apply_floating_options(source_scene(), args), 75, 0, args.task)
     model = write_model_variant(MODEL, tmp_path/'model.xml', scene)
+    from simulation.scripted_tasks.floating_grasps import grasp_candidates
+    scene["collection_config"]["floating_grasp"] = {"candidate": grasp_candidates(args.task)[0].snapshot()}
     task = create_floating_task(args.task, model, scene)
     twist = []
     task.chain = SimpleNamespace(forward=lambda q: (np.zeros(3), np.eye(3)),

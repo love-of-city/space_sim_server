@@ -76,7 +76,7 @@ def apply_floating_objects(root, source, scene):
         def view(point):
             local = camera_rotation.T@(np.asarray(point)-camera)
             return local[:2]/(-local[2])
-        occupied = [np.asarray(release["grasp_position_body_m"])]
+        occupied = [np.asarray(release["reference_position_body_m"])]
         pose_options = floating_release_options(scene).snapshot()
         for index, (kind, color) in enumerate(zip(types, colors), 1):
             instance_id = f"floating_distractor_{index:02d}"
@@ -92,7 +92,7 @@ def apply_floating_objects(root, source, scene):
                     if "No reachable floating release" in str(error):
                         continue
                     raise
-                point = np.asarray(state["grasp_position_body_m"])
+                point = np.asarray(state["reference_position_body_m"])
                 if all(np.linalg.norm(point-other) >= .12 and np.linalg.norm(view(point)-view(other)) >= .18 for other in occupied):
                     break
             else:

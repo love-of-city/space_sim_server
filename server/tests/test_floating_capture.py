@@ -46,9 +46,9 @@ def test_release_replays_and_preserves_team_geometry(tmp_path, name):
     assert replay.read_bytes() == path.read_bytes()
     assert MODEL.read_bytes() == original
     assert scene["collection_config"]["floating_initial_state"] == state
-    assert .12 <= state["camera_to_grasp_distance_m"] <= .75
-    np.testing.assert_allclose(np.linalg.norm(np.subtract(state["grasp_position_body_m"], state["camera_position_body_m"])),
-                               state["camera_to_grasp_distance_m"], atol=1e-12)
+    assert .12 <= state["camera_to_reference_distance_m"] <= .75
+    np.testing.assert_allclose(np.linalg.norm(np.subtract(state["reference_position_body_m"], state["camera_position_body_m"])),
+                               state["camera_to_reference_distance_m"], atol=1e-12)
     assert 0 < np.linalg.norm(state["velocity_body_m_s"]) <= .001
     assert 0 < np.linalg.norm(state["angular_velocity_body_rad_s"]) <= .003
     before, after = ET.fromstring(original), ET.parse(path).getroot()
@@ -86,7 +86,7 @@ def test_configuration_and_saved_identity_reject_invalid_inputs(tmp_path):
 
 @pytest.mark.parametrize("key,value", [("position_body_m", [1., 2., 3.]),
     ("velocity_body_m_s", [.1, 0., 0.]), ("orientation_wxyz", [0., 0., 0., 0.]),
-    ("camera_to_grasp_distance_m", float("nan")), ("ik_joint_position_rad", [0.]*6)])
+    ("camera_to_reference_distance_m", float("nan")), ("reference_position_body_m", [0.]*3)])
 def test_replay_rejects_corrupt_physical_state(tmp_path, key, value):
     scene, _ = realized(tmp_path)
     scene["collection_config"]["floating_initial_state"][key] = value
@@ -110,27 +110,39 @@ def test_replay_rejects_out_of_bounds_tilt_even_with_consistent_pose_and_ik(tmp_
     basis = np.column_stack((asset.closing_axis, np.cross(asset.approach_axis, asset.closing_axis), asset.approach_axis))
     rotation = desired@basis.T
     release = scene["collection_config"]["floating_initial_state"]
-    point = np.asarray(release["grasp_position_body_m"])
+    point = np.asarray(release["reference_position_body_m"])
     goal = solve_pose(task.chain, point, desired, initial, task.lower, task.upper)
     release.update(position_body_m=(point-rotation@asset.grip_point).tolist(),
-        orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(), ik_joint_position_rad=goal.tolist())
+        orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist())
     with pytest.raises(ValueError, match="physical configuration"):
         write_model_variant(MODEL, tmp_path/"outside_bounds.xml", scene)
 
 
 @pytest.mark.parametrize("distance", [.12, .75])
-def test_declared_distance_endpoints_are_reachable(tmp_path, distance):
+def test_declared_reference_distance_endpoints_are_sampled(tmp_path, distance):
     source = source_scene()
     source["floating_capture"] = dict(min_distance_m=distance, max_distance_m=distance)
     for name in FLOATING_TASKS:
         scene = randomized_scene(source, 71, 0, name)
         write_model_variant(MODEL, tmp_path/f"{name}.xml", scene)
-        assert scene["collection_config"]["floating_initial_state"]["camera_to_grasp_distance_m"] == distance
+        assert scene["collection_config"]["floating_initial_state"]["camera_to_reference_distance_m"] == distance
 
 
 def sample_at_grasp(task, scene, stamp=0., contacts=(0, 0)):
     state = scene["collection_config"]["floating_initial_state"]
-    q = np.r_[state["ik_joint_position_rad"], 1., -1.]
+    from simulation.scripted_tasks.motion import solve_pose
+    from simulation.serial_chain_kinematics import SerialChainKinematics
+    chain = SerialChainKinematics.from_mjcf(task.model_path, base_body="cubesat_bus",
+        joint_names=tuple(f"joint{i}" for i in range(1,7)), tool_site="sarm_ee")
+    rotation = quaternion_wxyz_to_matrix(np.asarray(state["orientation_wxyz"]))
+    point, desired = task.grasp.pose(np.asarray(state["position_body_m"]), rotation)
+    goal = solve_pose(chain, point, desired, scene["randomization"]["arm_joint_position_rad"][:6], task.lower, task.upper)
+    q = np.r_[goal, 1., -1.]
+    # These retention fixtures begin after approach; pregrasp has separate tests.
+    if task.stage == "pending":
+        task.stage = "intercept"
+        task.reference[:] = q
+        task.events = [dict(stage=stage, sim_time_s=0.) for stage in ("open", "pregrasp", "intercept")]
     return FloatingSample(stamp, q, np.zeros(8), np.asarray(state["position_body_m"]),
         quaternion_wxyz_to_matrix(state["orientation_wxyz"]), np.zeros(3), np.zeros(3),
         np.zeros(6), True, contacts, finger_normal_force_n=(1., 1.))
@@ -208,6 +220,7 @@ def test_unexpected_contact_and_target_loss_fail(tmp_path):
     task.step(replace(sample, unexpected_contacts=[{"body1": "link3", "body2": "bolt"}]))
     assert task.result == "failed" and task.reason == "unexpected_collision"
     task = create_floating_task("floating_bolt_capture", path)
+    sample = sample_at_grasp(task, scene, contacts=(1, 1))
     for i in range(400):
         contacts = (1, 1) if i < 200 else (0, 0)
         task.step(replace(sample, time_s=i*.005, finger_plug_contacts=contacts))
@@ -314,7 +327,8 @@ def test_floating_release_rejects_shallow_target_background_penetration(tmp_path
     assert not result["accepted"]
     assert result["contact"]["penetration_m"] == pytest.approx(.000148)
     probe.contacts = lambda q: np.empty((0, 5))
-    assert validate_floating_preflight(probe, model, scene, name)["accepted"]
+    probe.grasp_opening = lambda *args: (_ for _ in ()).throw(ValueError("No contact"))
+    assert not validate_floating_preflight(probe, model, scene, name)["accepted"]
 
 
 @pytest.mark.parametrize('name', ['floating_board2_capture', 'floating_board3_capture'])
@@ -327,7 +341,8 @@ def test_board_grasp_contacts_both_fingers_before_deep_one_sided_penetration(tmp
     load_native_grasp_module(MODEL.parent)
     from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
     scene, model = realized(tmp_path, name, seed=75)
-    q = np.r_[scene['collection_config']['floating_initial_state']['ik_joint_position_rad'], 1., -1.]
+    task = create_floating_task(name, model)
+    q = sample_at_grasp(task, scene).joints.copy()
     probe = NativePoseProbe(model)
     try:
         for opening in np.linspace(1., 0., 501):

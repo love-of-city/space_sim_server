@@ -21,7 +21,7 @@ def add_floating_options(parser):
                         help="Final end-effector position in satellite body frame (m)")
     parser.add_argument("--retract-speed", type=float, help="Retraction linear speed limit (m/s)")
     parser.add_argument("--object-direction", choices=("random", "stationary", "approaching", "receding", "lateral_left", "lateral_right", "up", "down"))
-    parser.add_argument("--spin-axis", choices=("random", "camera_x", "camera_y", "camera_z", "grasp_z"))
+    parser.add_argument("--spin-axis", choices=("random", "camera_x", "camera_y", "camera_z", "reference_z"))
     parser.add_argument("--spin-sign", type=int, choices=(-1, 1))
     for quantity, unit in (("linear", "m/s"), ("angular", "rad/s"), ("joint", "rad/s")):
         parser.add_argument(f"--tracking-{quantity}-speed", type=float, help=f"Controller tracking limit ({unit})")

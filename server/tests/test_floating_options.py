@@ -25,7 +25,7 @@ def parse(*flags):
 def test_fixed_release_and_controller_replay(tmp_path):
     source = apply_floating_profile(source_scene(), 'right-incoming-blue')
     before = deepcopy(source)
-    args = parse('--object-speed', '.03', '--object-spin', '.3', '--spin-axis', 'grasp_z', '--spin-sign', '-1',
+    args = parse('--object-speed', '.03', '--object-spin', '.3', '--spin-axis', 'reference_z', '--spin-sign', '-1',
                  '--tracking-linear-speed', '.08', '--tracking-angular-speed', '.6', '--tracking-joint-speed', '.7')
     configured = apply_floating_options(source, args)
     scene = randomized_scene(configured, 75, 0, args.task)

@@ -42,11 +42,11 @@ class FloatingInitialConfig:
             raise ValueError("Camera-to-reference distance must be within [0.12, 0.75] m")
         if not (0 <= self.min_speed_m_s <= self.max_speed_m_s
                 and 0 <= self.min_spin_rad_s <= self.max_spin_rad_s
-                and 0 <= self.min_tilt_deg <= self.max_tilt_deg <= 20
+                and 0 <= self.min_tilt_deg <= self.max_tilt_deg <= 180
                 and 0 <= self.arm_half_range_deg <= 10):
             raise ValueError("Floating velocity, spin or tilt exceeds task envelope")
         axes = ("random", "camera_x", "camera_y", "camera_z")
-        if self.tilt_axis not in axes or self.spin_axis not in (*axes, "grasp_z") or self.spin_sign not in (-1, 1):
+        if self.tilt_axis not in axes or self.spin_axis not in (*axes, "reference_z") or self.spin_sign not in (-1, 1):
             raise ValueError("Invalid floating rotation axis or sign")
         if self.velocity_direction not in ("random", "stationary", "approaching", "receding", "lateral_left", "lateral_right", "up", "down"):
             raise ValueError("Invalid floating velocity direction")
@@ -185,7 +185,7 @@ def apply_floating_model(root, source, scene):
         rotation = desired@basis.T
         # Magnitude bounded sampling, not three independently maximal axes.
         velocity = _velocity_axis(options.velocity_direction, ray, camera_rotation, speed_rng) * speed_rng.uniform(options.min_speed_m_s, options.max_speed_m_s)
-        spin = (desired[:, 2] if options.spin_axis == "grasp_z" else _axis(options.spin_axis, camera_rotation, spin_rng)) * options.spin_sign * spin_rng.uniform(options.min_spin_rad_s, options.max_spin_rad_s)
+        spin = (desired[:, 2] if options.spin_axis == "reference_z" else _axis(options.spin_axis, camera_rotation, spin_rng)) * options.spin_sign * spin_rng.uniform(options.min_spin_rad_s, options.max_spin_rad_s)
         saved = dict(schema="floating-release/4", asset_snapshot=asset.snapshot(), task=name, target_body=asset.body,
             seed=int(scene.get("seed", 0)), source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
             options=options.snapshot(), position_body_m=(point-rotation@asset.grip_point).tolist(),
@@ -232,7 +232,7 @@ def apply_floating_model(root, source, scene):
         if not np.allclose(vectors["velocity_body_m_s"], expected, atol=1e-12, rtol=0):
             raise ValueError("Saved floating release violates velocity direction")
     if options.spin_axis != "random":
-        expected = (grasp_rotation[:, 2] if options.spin_axis == "grasp_z" else _axis(options.spin_axis, camera_rotation, None))*options.spin_sign*spin_speed
+        expected = (grasp_rotation[:, 2] if options.spin_axis == "reference_z" else _axis(options.spin_axis, camera_rotation, None))*options.spin_sign*spin_speed
         if not np.allclose(vectors["angular_velocity_body_rad_s"], expected, atol=1e-12, rtol=0):
             raise ValueError("Saved floating release violates spin axis")
     if options.tilt_axis != "random" and tilt > 1e-9:

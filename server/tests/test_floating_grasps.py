@@ -13,7 +13,8 @@ from simulation.scripted_tasks.floating_grasps import (
 
 class Probe:
     names = {1: "bolt", 2: "ee_finger1", 3: "ee_finger2"}
-    def __init__(self, depth=1e-7):
+    def __init__(self, scene, depth=1e-7):
+        self.scene = scene
         self.depth, self.carry_poses = depth, []
     def pose_collision(self, q, name, **kwargs):
         joints = kwargs.get('joint_values', {})
@@ -25,7 +26,11 @@ class Probe:
     def contacts(self, q):
         return np.array([[0,1,1,2,-self.depth],[0,2,1,3,0.]]) if q[6] <= .5 else np.empty((0,5))
     def body_pose(self, name):
-        return np.zeros(3), np.eye(3)
+        if name == 'cubesat_bus':
+            return np.zeros(3), np.eye(3)
+        from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
+        release = self.scene['collection_config']['floating_initial_state']
+        return np.asarray(release['position_body_m']), quaternion_wxyz_to_matrix(np.asarray(release['orientation_wxyz']))
 
 
 def test_registry_has_stable_unique_candidates_for_every_object():
@@ -42,12 +47,12 @@ def test_fixed_scene_selection_freezes_candidate_and_rejects_changed_context(tmp
     scene, model = realized(tmp_path, name, 75)
     scene['floating_grasp'] = {'candidate_ids':['baseline']}
     before = deepcopy(scene['collection_config']['floating_initial_state'])
-    probe = Probe()
+    probe = Probe(scene)
     result = select_grasp(probe, model, scene, name)
     assert result['accepted'], result
     assert scene['collection_config']['floating_initial_state'] == before
     record = deepcopy(scene['collection_config']['floating_grasp'])
-    assert select_grasp(Probe(), model, scene, name)['replay']
+    assert select_grasp(Probe(scene), model, scene, name)['replay']
     assert scene['collection_config']['floating_grasp'] == record
     task = create_floating_task(name, model, scene)
     assert task.grasp.id == 'baseline'
@@ -57,21 +62,23 @@ def test_fixed_scene_selection_freezes_candidate_and_rejects_changed_context(tmp
         validate_selection(name, model, scene)
 
 
-def test_deep_one_sided_overlap_is_not_a_feasible_grasp(tmp_path):
+def test_contact_asymmetry_penalizes_rank_without_overriding_dynamic_validation(tmp_path):
     scene, model = realized(tmp_path, seed=75)
     scene['floating_grasp'] = {'candidate_ids':['baseline']}
-    report = select_grasp(Probe(depth=.01), model, scene, 'floating_bolt_capture')
-    assert not report['accepted']
-    assert report['candidates'][0]['reason'] == 'asymmetric_contact'
-    assert 'floating_grasp' not in scene['collection_config']
+    report = select_grasp(Probe(scene, depth=.01), model, scene, 'floating_bolt_capture')
+    assert report['accepted']
+    assert report['candidates'][0]['contact_asymmetry_warning']
+    del scene['collection_config']['floating_grasp']
+    symmetric = select_grasp(Probe(scene), model, scene, 'floating_bolt_capture')
+    assert report['candidates'][0]['score'] < symmetric['candidates'][0]['score']
 
 
 def test_seeded_random_selection_is_repeatable_without_resampling_object(tmp_path):
     scene, model = realized(tmp_path, seed=75)
     scene['floating_grasp'] = {'selection':'random', 'candidate_ids':['baseline','deep']}
     other = deepcopy(scene)
-    a = select_grasp(Probe(), model, scene, 'floating_bolt_capture')
-    b = select_grasp(Probe(), model, other, 'floating_bolt_capture')
+    a = select_grasp(Probe(scene), model, scene, 'floating_bolt_capture')
+    b = select_grasp(Probe(scene), model, other, 'floating_bolt_capture')
     assert a == b and a['accepted']
     assert scene == other
 
@@ -90,3 +97,28 @@ def test_pregrasp_waits_at_offset_before_interception(tmp_path):
     sample = replace(sample, joints=np.r_[q,1.,-1.], time_s=.005)
     task.step(sample)
     assert task.stage == 'intercept'
+
+
+@pytest.mark.parametrize("angle", [90., 180.])
+def test_large_reference_rotations_replay_before_grasp_selection(tmp_path, angle):
+    from test_floating_capture import source_scene, MODEL
+    from simulation.scripted_tasks.drawer_initialization import randomized_scene
+    from simulation.scripted_tasks.randomization import write_model_variant
+    from simulation.scripted_tasks.floating_initialization import FloatingInitialConfig
+    source = source_scene()
+    source['floating_capture'] = dict(min_tilt_deg=angle, max_tilt_deg=angle, tilt_axis='camera_z')
+    scene = randomized_scene(source, 75, 0, 'floating_data_antenna_capture')
+    model = write_model_variant(MODEL, tmp_path/'model.xml', scene)
+    replay = write_model_variant(MODEL, tmp_path/'replay.xml', scene)
+    assert model.read_bytes() == replay.read_bytes()
+    assert 'floating_grasp' not in scene['collection_config']
+    with pytest.raises(ValueError):
+        FloatingInitialConfig(max_tilt_deg=181.)
+
+
+def test_ranked_retains_symmetric_reference_grasp(tmp_path):
+    scene, model = realized(tmp_path, seed=75)
+    scene['floating_grasp'] = {'candidate_ids':['baseline','shallow']}
+    report = select_grasp(Probe(scene), model, scene, 'floating_bolt_capture')
+    assert report['accepted'] and report['selected'] == 'baseline'
+    assert sum(row['accepted'] for row in report['candidates']) == 2

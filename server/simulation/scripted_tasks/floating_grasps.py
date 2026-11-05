@@ -66,7 +66,11 @@ def grasp_candidates(name):
         for offset in (-.04, .04):
             candidates.append(GraspCandidate(f"edge-slide-{offset:+.2f}", tuple(p+offset*tangent), tuple(x), tuple(z)))
     if name == "floating_drawer_capture":
-        # Source box is 200 x 60 x 120 mm: the 60 mm direction fits the jaws.
+        # STL has an open central handle: its origin has no opposed surfaces.
+        # The two front shoulders at x=+/-40 mm provide real 60 mm jaw spans.
+        for x in (-.04, .04):
+            candidates.append(GraspCandidate(f"front-{x:+.3f}", (x, 0., .025), (0., 1., 0.), (0., 0., 1.)))
+        # Side candidates remain orientation-dependent alternatives.
         for height in (.025, .06, .095):
             candidates.append(GraspCandidate(f"side-{height:.3f}", (.04, 0., height), (0., 1., 0.), (-1., 0., 0.)))
     return tuple(candidates)
@@ -208,11 +212,16 @@ def select_grasp(probe, model, scene, name):
         row.update(first_contact_openings=first_contacts, max_finger_penetration_m=max_penetration)
         if hit:
             row.update(reason="closing_collision", contact=hit); continue
-        if max_penetration > .0005:
-            row.update(reason="asymmetric_contact"); continue
+        # A frozen target cannot yield or recenter under one-sided contact.
+        # Penalize asymmetry rather than rejecting known dynamically valid grasps.
+        row["contact_asymmetry_warning"] = max_penetration > .0005
         # The private probe transports the target with a fixed tool-relative pose.
         # This predicts clearance only, not frictional retention.
         bp, br = probe.body_pose("cubesat_bus")
+        target_p, target_r = probe.body_pose(task.asset.body)
+        if not (np.allclose(target_p, bp+br@position, atol=1e-5, rtol=0)
+                and np.allclose(target_r, br@rotation, atol=1e-5, rtol=0)):
+            raise ValueError("Private carry probe disagrees with the frozen target pose")
         local_position, local_rotation = desired.T@(position-point), desired.T@rotation
         carry_q = goal.copy()
         carry_margin = margin
@@ -231,10 +240,11 @@ def select_grasp(probe, model, scene, name):
         except ValueError:
             row["reason"] = "retract_ik"; continue
         if hit:
-            row.update(reason="retract_collision", contact=hit); continue
+            row.update(reason="retract_collision", contact=hit, path_fraction=float(t),
+                       tcp_position_body_m=tcp.tolist(), target_position_world_m=pos.tolist()); continue
         if carry_margin < .02:
             row["reason"] = "retract_joint_margin"; continue
-        score = carry_margin - .05*float(np.linalg.norm(pre-initial[:6]))
+        score = carry_margin - .05*float(np.linalg.norm(pre-initial[:6])) - 200.*max_penetration
         row.update(accepted=True, score=score, joint_margin_rad=carry_margin, contact_opening_rad=opening)
         feasible.append((candidate, row, goal, pre))
     if not feasible:
@@ -242,7 +252,8 @@ def select_grasp(probe, model, scene, name):
     if options.selection == "random":
         chosen = feasible[int(generator(scene["seed"], "floating-grasp-v1").integers(len(feasible)))]
     else:
-        chosen = max(feasible, key=lambda item: item[1]["score"])
+        chosen = max(feasible, key=lambda item: (not item[1]["contact_asymmetry_warning"],
+                                                item[0].id == "baseline", item[1]["score"]))
     candidate, row, goal, pre = chosen
     record = dict(schema="floating-grasp/1", context_sha256=_digest(_context(name, model, scene)),
                   options=options.model_dump(mode="json"), candidate=candidate.snapshot(),

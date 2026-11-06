@@ -24,4 +24,9 @@ if sys.argv[1:] == ["navigation"]:
     from simulation.benchmark_navigation_methods import GNSSOrbitEstimator
     from space_arm_platform.benchmark_navigation import NavigationContext, GNSSMeasurements
     raise SystemExit(serve_method(GNSSOrbitEstimator(), NavigationContext, GNSSMeasurements))
-raise SystemExit("expected one task-family argument: attitude, waypoint, orbit or navigation")
+if sys.argv[1:] == ["relative-flight"]:
+    from simulation.benchmark_relative_flight_methods import GNSSRelativeFlight
+    from space_arm_platform.benchmark_relative_flight import RelativeFlightContext
+    from space_arm_platform.benchmark_contract import NavigationObservation
+    raise SystemExit(serve_method(GNSSRelativeFlight(), RelativeFlightContext, NavigationObservation))
+raise SystemExit("expected one task-family argument: attitude, waypoint, orbit, navigation or relative-flight")

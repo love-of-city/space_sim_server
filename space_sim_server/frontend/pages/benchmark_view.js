@@ -16,6 +16,8 @@ export const methodLabels = {
   'unsafe-orbit-burn-v1':'持续轨控推力（负对照）','external-orbit-maneuver-v1':'轨道机动 · 独立进程示例',
   'gnss-orbit-estimator-v1':'GNSS 轨道状态估计','gnss-measurement-only-v1':'直接使用 GNSS 测量',
   'zero-navigation-estimate-v1':'零状态估计（负对照）','external-gnss-estimator-v1':'GNSS 状态估计 · 独立进程示例',
+  'gnss-relative-flight-v1':'GNSS 相对飞行','no-relative-thrust-v1':'零相对飞行推力（负对照）',
+  'unsafe-relative-flight-v1':'横向偏离（负对照）','external-relative-flight-v1':'相对飞行 · 独立进程示例',
 };
 export function benchmarkMetric(score){
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
@@ -52,7 +54,8 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     if(trial.detail)outcome.append(element('small','muted',trial.detail==='operator requested episode stop'?'用户停止了该回合':trial.detail));
     if(trial.physics_score?.safety_violations?.length)outcome.append(element('small','error',trial.physics_score.safety_violations.join('、')));
     if(trial.physics_score?.quality_violations?.length){
-      const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差'};
+      const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
+        continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离'};
       outcome.append(element('small','error',trial.physics_score.quality_violations.map(name=>labels[name]||name).join('、')));
     }
     row.append(element('td','',String(trial.seed)),outcome,

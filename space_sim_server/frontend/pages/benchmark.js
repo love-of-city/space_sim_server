@@ -16,7 +16,8 @@ export function createBenchmarkPanel(root,{api}){
     const objective=spec.objective.kind==='navigation_accuracy'
       ?`全程位置 RMSE ≤ ${spec.objective.position_rmse_limit_m} m、速度 RMSE ≤ ${spec.objective.velocity_rmse_limit_m_s} m/s；方法只输出估计，不控制推进器`
       :`连续保持 ${spec.objective.dwell_s} s`;
-    $('description').textContent=`${task.source_id} · ${spec.spacecraft_count} 颗航天器 · ${spec.vision_mode==='V0'?'无视觉观测':'视觉参与'} · 时限 ${spec.duration_s} s · ${objective}。该配置的目标与安全限制固定，结果可与同配置的方法比较。`;
+    const corridor=spec.path_requirement?.kind==='axis_approach_corridor'?`；全程横向偏差 ≤ ${spec.path_requirement.maximum_cross_track_m} m`:'';
+    $('description').textContent=`${task.source_id} · ${spec.spacecraft_count} 颗航天器 · ${spec.vision_mode==='V0'?'无视觉观测':'视觉参与'} · 时限 ${spec.duration_s} s · ${objective}${corridor}。该配置的目标与安全限制固定，结果可与同配置的方法比较。`;
     $('submit').disabled=busy||!active||!catalog.dependencies.available||jobs.some(job=>!benchmarkTerminal.has(job.status));
   }
   async function refresh(){

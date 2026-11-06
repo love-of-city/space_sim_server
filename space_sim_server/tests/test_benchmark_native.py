@@ -18,6 +18,48 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.parametrize('configuration', ['d12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1'])
+def test_relative_flight_contracts_use_actual_actuators_and_reset(tmp_path, configuration):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task, ForceAction
+from simulation.benchmark_native_relative_flight import NativeRelativeFlightEnvironment
+
+task = load_task(SPEC_DIRECTORY/(sys.argv[2]+'.json'))
+env = NativeRelativeFlightEnvironment(task, Path(sys.argv[1]))
+try:
+    first = env.reset(201)
+    initial = env._read_physical_states(0).copy()
+    assert env.model_manifest['mesh_count'] == 113
+    action = ForceAction(episode_id=first.episode_id, observation_sequence=0, force_j2000_n=(1., 0., 0.))
+    env.step(action)
+    propelled = env._read_physical_states(task.decision_period_ns).copy()
+    assert abs(env.evaluation()['thrust_impulse_n_s']-.5) < 1e-12
+    assert env.evaluation()['path_requirement'] == task.path_requirement.kind
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    again = env.reset(201)
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(env._read_physical_states(0), initial)
+    assert env.evaluation()['sample_count'] == 1
+    try: env.step(action)
+    except ValueError as error: assert 'stale' in str(error)
+    else: raise AssertionError('old relative-flight action accepted after reset')
+    env.step(ForceAction(episode_id=again.episode_id, observation_sequence=0, force_j2000_n=(0., 0., 0.)))
+    difference = np.linalg.norm(propelled[1,:3]-env._read_physical_states(task.decision_period_ns)[1,:3])
+    assert 1e-4 < difference < .01, difference
+    assert env.evaluation()['thrust_impulse_n_s'] == 0
+finally:
+    env.close()
+print('native relative-flight actuation, evidence and reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/configuration), configuration],
+                            cwd=SERVER, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native relative-flight actuation' in result.stdout
+
+
 @pytest.mark.parametrize("configuration", ["s14-gnss-state-estimation-v1", "d01-cooperative-gnss-estimation-v1"])
 def test_native_navigation_uses_unfiltered_sensors_and_zero_actuation(tmp_path, configuration):
     code = r'''

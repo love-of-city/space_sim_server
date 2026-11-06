@@ -10,8 +10,10 @@ from .benchmark_orbit import CircularOrbitObjective, OrbitTask
 from .benchmark_orbit_score import OrbitScorer
 from .benchmark_navigation import NavigationEstimateAction, NavigationTask
 from .benchmark_navigation_score import NavigationScorer
+from .benchmark_relative_flight import RelativeFlightTask
+from .benchmark_relative_flight_score import RelativeFlightScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ FAMILIES = {
         "NativeOrbitEnvironment", ("gnss-orbit-maneuver-v1", "no-orbit-thrust-v1", "unsafe-orbit-burn-v1")),
     NavigationTask: FamilyImplementation("simulation.benchmark_navigation_methods", "simulation.benchmark_native_navigation",
         "NativeNavigationEnvironment", ("gnss-orbit-estimator-v1", "gnss-measurement-only-v1", "zero-navigation-estimate-v1")),
+    RelativeFlightTask: FamilyImplementation("simulation.benchmark_relative_flight_methods", "simulation.benchmark_native_relative_flight",
+        "NativeRelativeFlightEnvironment", ("gnss-relative-flight-v1", "no-relative-thrust-v1", "unsafe-relative-flight-v1")),
 }
 
 
@@ -71,6 +75,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, RelativeFlightTask):
+        return RelativeFlightScorer(task, chaser_mass_kg)
     if isinstance(task, NavigationTask):
         return NavigationScorer(task, chaser_mass_kg)
     if isinstance(task, OrbitTask):

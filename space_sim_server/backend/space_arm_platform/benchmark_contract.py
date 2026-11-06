@@ -180,9 +180,11 @@ def load_task(path: Path, catalogue: AutonomyCatalog | None = None):
     from .benchmark_attitude import AttitudeTask
     from .benchmark_orbit import OrbitTask
     from .benchmark_navigation import NavigationTask
+    from .benchmark_relative_flight import RelativeFlightTask
     document = json.loads(path.read_text(encoding="utf-8"))
     schemas = {"spacesim-autonomy-waypoint/1": WaypointTask, "spacesim-autonomy-attitude/1": AttitudeTask,
-               "spacesim-autonomy-orbit/1": OrbitTask, "spacesim-autonomy-navigation-evaluation/1": NavigationTask}
+               "spacesim-autonomy-orbit/1": OrbitTask, "spacesim-autonomy-navigation-evaluation/1": NavigationTask,
+               "spacesim-autonomy-relative-flight/1": RelativeFlightTask}
     if not isinstance(document, dict) or document.get("schema_version") not in schemas:
         raise ValueError("unknown executable benchmark task schema")
     task = schemas[document["schema_version"]].model_validate(document)

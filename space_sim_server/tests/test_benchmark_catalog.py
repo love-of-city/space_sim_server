@@ -105,7 +105,7 @@ def test_cli_distinguishes_registered_configurations_from_requirement_ids(capsys
     assert main(["tasks"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["scope"] == "registered_execution_configurations"
-    assert [item["id"] for item in result["configurations"]] == ["d01-cooperative-gnss-estimation-v1", "d32-cooperative-gnss-v1", "s01-wheel-detumble-v1", "s02-wheel-attitude-v1", "s03-large-angle-wheel-v1", "s09-finite-burn-v1", "s11-orbit-lower-v1", "s11-orbit-raise-v1", "s14-gnss-state-estimation-v1"]
+    assert [item["id"] for item in result["configurations"]] == ["d01-cooperative-gnss-estimation-v1", "d12-continuous-gnss-hold-v1", "d29-vbar-gnss-approach-v1", "d30-rbar-gnss-approach-v1", "d32-cooperative-gnss-v1", "s01-wheel-detumble-v1", "s02-wheel-attitude-v1", "s03-large-angle-wheel-v1", "s09-finite-burn-v1", "s11-orbit-lower-v1", "s11-orbit-raise-v1", "s14-gnss-state-estimation-v1"]
     output = tmp_path / "must-not-exist"
     assert main(["run", "D26", "--seed", "201", "--output", str(output)]) == 2
     assert "not registered" in capsys.readouterr().err
@@ -117,9 +117,9 @@ def test_matrix_keeps_unregistered_requirements_and_does_not_claim_acceptance(ca
     result = json.loads(capsys.readouterr().out)
     assert result["scope"] == "execution_registration_not_runtime_acceptance"
     assert result["requirements"] == len(result["tasks"]) == 122
-    assert result["registered_requirements"] == 8
-    assert result["unregistered_requirements"] == 114
-    assert result["configuration_count"] == 9
+    assert result["registered_requirements"] == 11
+    assert result["unregistered_requirements"] == 111
+    assert result["configuration_count"] == 12
     rows = {row["source_id"]: row for row in result["tasks"]}
     assert len(rows["S11"]["configurations"]) == 2
     assert rows["T06"]["execution_registration"] == "not_registered"

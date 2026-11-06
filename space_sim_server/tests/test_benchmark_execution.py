@@ -236,6 +236,33 @@ def test_interrupted_trial_is_not_pending_or_implicitly_retried(task, tmp_path):
     directory = tmp_path / "attempt"
     directory.mkdir()
     write_json(directory / "status.json", {"outcome": "running"})
-    result = _completed_trial(directory, {"trial_id": "0000-seed-1", "seed": 1}, task, "gnss-pd-v1")
+    result = _completed_trial(directory, {"trial_id": "0000-seed-1", "seed": 1}, task, "gnss-pd-v1", source_sha256={})
     assert result["outcome"] == "infrastructure_error"
     assert "not retried" in result["detail"]
+
+
+@pytest.mark.parametrize('source', ['frozen', 'changed', 'missing'])
+def test_batch_rejects_self_consistent_episode_from_another_source_revision(task, tmp_path, source):
+    from space_arm_platform.benchmark_batch import _completed_trial
+    from space_arm_platform.benchmark_execution import sha256, write_json
+    attempt = tmp_path/'trial'
+    attempt.mkdir()
+    directory = attempt/'run'
+    make_artifact(directory, task)
+    manifest = json.loads((directory/'manifest.json').read_text(encoding='utf-8'))
+    if source != 'missing':
+        manifest['source'] = {'source_sha256': {'simulation/method.py': source}}
+    write_json(directory/'manifest.json', manifest)
+    result = json.loads((directory/'result.json').read_text(encoding='utf-8'))
+    result.update(seed=201, method='gnss-pd-v1')
+    result['evidence_sha256']['manifest.json'] = sha256(directory/'manifest.json')
+    write_json(directory/'result.json', result)
+    write_json(attempt/'status.json', {'outcome': 'success', 'result_sha256': sha256(directory/'result.json')})
+    def completed():
+        return _completed_trial(attempt, {'seed': 201}, task, 'gnss-pd-v1',
+                                source_sha256={'simulation/method.py': 'frozen'})
+    if source == 'frozen':
+        assert completed()['outcome'] == 'success'
+    else:
+        with pytest.raises(ValueError, match='source implementation differs'):
+            completed()

@@ -203,7 +203,7 @@ def test_same_method_name_cannot_replace_frozen_implementation(tmp_path):
     (run / "manifest.json").write_text(json.dumps({"task_fingerprint": context.task.fingerprint(),
         "external_method": {"files_sha256": {"worker.py": "different"}}}))
     with pytest.raises(ValueError, match="implementation"):
-        _completed_trial(tmp_path, {"seed": 201}, context.task, "custom-v1", {"files_sha256": {"worker.py": "frozen"}})
+        _completed_trial(tmp_path, {"seed": 201}, context.task, "custom-v1", {"files_sha256": {"worker.py": "frozen"}}, source_sha256={})
 
 
 @pytest.mark.parametrize("raw", [b'{"value":NaN}\n', b'{"value":Infinity}\n', b'{"value":1,"value":2}\n', b'{}', b'[]\n'])

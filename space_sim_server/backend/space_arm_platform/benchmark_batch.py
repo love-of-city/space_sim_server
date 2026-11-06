@@ -70,7 +70,7 @@ def batch_lock(directory: Path):
             path.unlink()
 
 
-def _completed_trial(directory: Path, planned: dict, task: Task, method: str, external_identity=None) -> dict:
+def _completed_trial(directory: Path, planned: dict, task: Task, method: str, external_identity=None, *, source_sha256: dict) -> dict:
     status = json.loads((directory / "status.json").read_text(encoding="utf-8"))
     result_path = directory / "run/result.json"
     if status.get("outcome") == "running" and "child_pid" in status:
@@ -87,6 +87,8 @@ def _completed_trial(directory: Path, planned: dict, task: Task, method: str, ex
             raise ValueError("trial identity differs from frozen plan")
         if manifest.get("external_method") != external_identity:
             raise ValueError("trial method implementation differs from frozen plan")
+        if manifest.get("source", {}).get("source_sha256") != source_sha256:
+            raise ValueError("trial source implementation differs from frozen plan")
         if status.get("result_sha256") and sha256(result_path) != status["result_sha256"]:
             raise ValueError("completed trial result has changed")
         if result["outcome"] not in TERMINAL_OUTCOMES:
@@ -150,7 +152,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
         for trial in planned:
             directory = output / trial["trial_id"]
             if (directory / "status.json").is_file():
-                result = _completed_trial(directory, trial, task, method, plan.get("external_method"))
+                result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"])
                 prior = json.loads((directory / "status.json").read_text(encoding="utf-8"))
                 write_json(directory / "status.json", {**prior, **result})
                 results.append(result)
@@ -205,7 +207,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
                 returncode = child.returncode
             if cancelled and not (directory / "run/result.json").exists():
                 write_json(directory / "status.json", {"outcome": "cancelled", "returncode": returncode})
-            result = _completed_trial(directory, trial, task, method, plan.get("external_method"))
+            result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"])
             write_json(directory / "status.json", {**result, "returncode": returncode})
             results.append(result)
             current = summarize(results + [{**pending, "outcome": "pending"} for pending in planned[len(results):]])
@@ -234,7 +236,7 @@ def reconcile_batch(task: Task, method: str, output: Path, *, interrupted_outcom
             status = json.loads(path.read_text(encoding="utf-8"))
             # _completed_trial checks the recorded child identity before any
             # recovery write. A live worker is never treated as interrupted.
-            result = _completed_trial(directory, trial, task, method, plan.get("external_method"))
+            result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"])
             if status["outcome"] == "running" and not (directory / "run/result.json").is_file():
                 result["outcome"] = interrupted_outcome
             write_json(path, {**status, **result})

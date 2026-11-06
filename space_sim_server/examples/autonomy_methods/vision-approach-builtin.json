@@ -1,0 +1,9 @@
+{
+  "schema_version": "spacesim-autonomy-python-method/1",
+  "method_id": "image-stereo-approach-v1",
+  "task_schemas": ["spacesim-autonomy-visual-approach/1"],
+  "entrypoint": "vision-approach.py",
+  "files": ["vision-approach.py"],
+  "initialization_timeout_s": 60.0,
+  "response_timeout_s": 10.0
+}

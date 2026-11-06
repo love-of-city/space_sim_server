@@ -83,6 +83,7 @@ class _PhysicsEvidence(sysModel.SysModel):
 class NativeWaypointEnvironment:
     context_type = MethodContext
     scorer_type = WaypointScorer
+    actuator_type = _InertialForceActuator
 
     def __init__(self, task: WaypointTask, output_directory: Path):
         self.task = task
@@ -129,7 +130,7 @@ class NativeWaypointEnvironment:
             ("cubesat_bus", "orbital_thrust_center", self.context.chaser_mass_kg, options.chaser_area_m2),
         ])
         ctx.install([self._environment])
-        self._actuator = _InertialForceActuator(ctx.ports)
+        self._actuator = self.actuator_type(ctx.ports)
         ctx.add(self._actuator, Slot.ACTUATOR, component="benchmark_actuator")
         self._state_readers = [ctx.ports.site_state(name).addSubscriber()
                                for name in ("target_flight_center", "orbital_thrust_center")]

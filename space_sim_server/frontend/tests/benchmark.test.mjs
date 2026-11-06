@@ -31,6 +31,8 @@ test('displayed success rate uses all planned cases and separates angle and posi
   assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-rendered-pose-score/1',available_pose_count:0,expected_estimates:40,position_rmse_m:null,orientation_rmse_rad:null}),'有效估计 0/40');
   assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-rendered-spin-score/1',available_spin_count:36,expected_spin_estimates:36,angular_velocity_rmse_rad_s:.004}),'有效角速度估计 36/36；角速度 RMSE 0.00400 rad/s');
   assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-rendered-spin-score/1',available_spin_count:0,expected_spin_estimates:36,angular_velocity_rmse_rad_s:null}),'有效角速度估计 0/36');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-visual-approach-score/1',position_error_m:.025,optical_relative_speed_m_s:.001,dwell_s:5}),'位置误差 0.0250 m；相对速度 0.0010 m/s；连续保持 5.00 s');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-visual-approach-score/1',position_error_m:null,optical_relative_speed_m_s:null,dwell_s:0}),'—');
 });
 
 class Node {

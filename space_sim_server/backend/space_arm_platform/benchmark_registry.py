@@ -22,8 +22,10 @@ from .benchmark_vision import VisionPoseTask, VisionPoseContext, VisionPoseObser
 from .benchmark_vision_score import VisionPoseScorer
 from .benchmark_vision_motion import VisionMotionTask, VisionMotionContext, VisionMotionObservation, VisionMotionAction
 from .benchmark_vision_motion_score import VisionMotionScorer
+from .benchmark_vision_approach import VisionApproachTask, VisionApproachContext, VisionApproachObservation, VisionApproachAction
+from .benchmark_vision_approach_score import VisionApproachScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    VisionApproachTask: FamilyImplementation("simulation.benchmark_vision_approach_methods", "simulation.benchmark_native_vision_approach",
+        "NativeVisionApproachEnvironment", ("image-stereo-approach-v1", "no-visual-thrust-v1", "unsafe-visual-close-v1", "missing-visual-control-v1")),
     VisionMotionTask: FamilyImplementation("simulation.benchmark_vision_motion_methods", "simulation.benchmark_native_vision_motion",
         "NativeVisionMotionEnvironment", ("image-gyro-spin-v1", "zero-image-spin-v1", "missing-image-spin-v1")),
     VisionPoseTask: FamilyImplementation("simulation.benchmark_vision_methods", "simulation.benchmark_native_vision",
@@ -97,11 +101,15 @@ def method_input_types(task: Task):
         PointingTask: (PointingContext, PointingObservation),
         VisionPoseTask: (VisionPoseContext, VisionPoseObservation),
         VisionMotionTask: (VisionMotionContext, VisionMotionObservation),
+        VisionApproachTask: (VisionApproachContext, VisionApproachObservation),
     }[type(task)]
 
 
 def parse_action(task: Task, raw, observation):
-    if isinstance(task, VisionMotionTask):
+    if isinstance(task, VisionApproachTask):
+        action = VisionApproachAction.model_validate(raw)
+        action.validate_for(observation, task)
+    elif isinstance(task, VisionMotionTask):
         action = VisionMotionAction.model_validate(raw)
         action.validate_for(observation, task)
     elif isinstance(task, VisionPoseTask):
@@ -123,6 +131,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, VisionApproachTask):
+        return VisionApproachScorer(task, chaser_mass_kg)
     if isinstance(task, VisionMotionTask):
         return VisionMotionScorer(task, chaser_mass_kg)
     if isinstance(task, VisionPoseTask):

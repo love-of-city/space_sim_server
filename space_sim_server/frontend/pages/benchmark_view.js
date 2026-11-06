@@ -8,6 +8,9 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'image-stereo-approach-v1':'双目图像闭环接近','external-image-stereo-approach-v1':'图像闭环接近 · 独立进程示例',
+  'no-visual-thrust-v1':'图像观测与零推力（负对照）','unsafe-visual-close-v1':'盲目满推力接近（负对照）',
+  'missing-visual-control-v1':'缺失图像估计与零推力（负对照）',
   'image-gyro-spin-v1':'图像与自身陀螺角速度估计','external-image-gyro-spin-v1':'图像角速度估计 · 独立进程示例',
   'zero-image-spin-v1':'零目标角速度（负对照）','missing-image-spin-v1':'始终缺失运动估计（负对照）',
   'image-fiducial-pose-v1':'图像标志物位姿估计','external-image-fiducial-pose-v1':'图像位姿估计 · 独立进程示例',
@@ -32,6 +35,10 @@ export const methodLabels = {
   'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
 };
 export function benchmarkMetric(score){
+  if(score?.schema_version==='spacesim-autonomy-visual-approach-score/1'){
+    return Number.isFinite(score.position_error_m)&&Number.isFinite(score.optical_relative_speed_m_s)
+      ?`位置误差 ${score.position_error_m.toFixed(4)} m；相对速度 ${score.optical_relative_speed_m_s.toFixed(4)} m/s；连续保持 ${score.dwell_s.toFixed(2)} s`:'—';
+  }
   if(score?.schema_version==='spacesim-autonomy-rendered-spin-score/1'){
     const available=`有效角速度估计 ${score.available_spin_count}/${score.expected_spin_estimates}`;
     return Number.isFinite(score.angular_velocity_rmse_rad_s)

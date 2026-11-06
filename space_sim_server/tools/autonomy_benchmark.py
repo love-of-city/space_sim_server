@@ -30,6 +30,7 @@ from space_arm_platform.benchmark_formation import FormationAction, FormationObs
 from space_arm_platform.benchmark_pointing import PointingTask, PointingObservation  # noqa: E402
 from space_arm_platform.benchmark_vision import VisionPoseTask, VisionPoseObservation, VisionPoseAction  # noqa: E402
 from space_arm_platform.benchmark_vision_motion import VisionMotionTask, VisionMotionObservation, VisionMotionAction  # noqa: E402
+from space_arm_platform.benchmark_vision_approach import VisionApproachTask, VisionApproachObservation, VisionApproachAction  # noqa: E402
 from space_arm_platform.benchmark_execution import rescore_episode, run_episode  # noqa: E402
 from space_arm_platform.benchmark_external import PythonMethodSpec, MethodRequest, MethodResponse  # noqa: E402
 from space_arm_platform.benchmark_registry import capability_matrix, method_ids  # noqa: E402
@@ -87,6 +88,7 @@ def main(argv=None) -> int:
                  "pointing": PointingTask, "pointing-observation": PointingObservation,
                  "vision-pose": VisionPoseTask, "vision-observation": VisionPoseObservation, "vision-estimate": VisionPoseAction,
                  "vision-spin": VisionMotionTask, "vision-spin-observation": VisionMotionObservation, "vision-spin-estimate": VisionMotionAction,
+                 "vision-approach": VisionApproachTask, "vision-approach-observation": VisionApproachObservation, "vision-approach-action": VisionApproachAction,
                  "orbit": OrbitTask, "orbit-observation": OrbitObservation,
                  "navigation-task": NavigationTask, "gnss-measurements": GNSSMeasurements, "navigation-estimate": NavigationEstimateAction,
                  "relative-flight": RelativeFlightTask, "flyaround": FlyAroundTask,

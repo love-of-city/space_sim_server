@@ -106,9 +106,7 @@ class VisionPoseScorer:
         if any(np.linalg.norm(rate) > limits.maximum_body_rate_rad_s for rate in
                (sample.target_angular_velocity_body_rad_s,sample.chaser_angular_velocity_body_rad_s)):
             self.safety_violations.add('body_angular_rate')
-        if (np.linalg.norm(sample.applied_motor_force_body_n) > limits.maximum_uncommanded_force_n
-                or np.linalg.norm(sample.applied_wheel_torque_xyz_nm) > limits.maximum_uncommanded_wheel_torque_nm):
-            self.safety_violations.add('pose_estimator_has_no_actuation_authority')
+        self._check_actuation(sample)
         if self.latest is None:
             initial = task.initial
             if initial_orbit_errors(sample.target_com_j2000,initial.target_altitude_m,0.,initial.inclination_deg,initial.true_anomaly_deg,0.):
@@ -142,6 +140,12 @@ class VisionPoseScorer:
     def initial_rates_valid(self,sample):
         return (np.linalg.norm(sample.chaser_angular_velocity_body_rad_s)<=1e-8
                 and np.linalg.norm(sample.target_angular_velocity_body_rad_s)<=1e-8)
+
+    def _check_actuation(self,sample):
+        limits=self.task.safety
+        if (np.linalg.norm(sample.applied_motor_force_body_n)>limits.maximum_uncommanded_force_n
+                or np.linalg.norm(sample.applied_wheel_torque_xyz_nm)>limits.maximum_uncommanded_wheel_torque_nm):
+            self.safety_violations.add('pose_estimator_has_no_actuation_authority')
 
     def _capture(self,capture):
         expected_time = self.capture_count*self.task.decision_period_ns

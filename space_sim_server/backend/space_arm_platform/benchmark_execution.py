@@ -1,0 +1,161 @@
+"""Single-episode execution and tamper-evident offline scoring artifacts.
+
+Native imports are deferred until execution so catalogue/spec/replay tooling
+works without Basilisk. Each CLI run owns a new directory and process.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+import platform
+import subprocess
+import sys
+import time
+
+from .benchmark_contract import ForceAction, WaypointTask
+from .benchmark_scoring import WaypointScorer
+
+
+class MethodFailure(RuntimeError):
+    pass
+
+
+def write_json(path: Path, value: dict) -> None:
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def source_identity(server_root: Path) -> dict:
+    paths = set((server_root / "simulation").rglob("*.py"))
+    paths.update((server_root / "backend/space_arm_platform").glob("*.py"))
+    paths.add(server_root / "native/local_mujoco_stepper.cpp")
+    hashes = {path.relative_to(server_root).as_posix(): sha256(path) for path in sorted(paths)}
+    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=server_root, text=True, capture_output=True, check=False)
+    return {"git_revision": revision.stdout.strip() if revision.returncode == 0 else None,
+            "python": sys.version, "platform": platform.platform(), "source_sha256": hashes}
+
+
+def run_waypoint(task: WaypointTask, method_id: str, seed: int, output: Path) -> dict:
+    """Record failures too. Output must be new; a retry cannot overwrite a trial."""
+    split = task.seeds.split_for(seed)
+    from simulation.benchmark_methods import METHODS
+    if method_id not in METHODS:
+        raise ValueError(f"unknown benchmark method: {method_id}")
+    output = output.resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    write_json(output / "task.json", task.model_dump(mode="json"))
+    root = Path(__file__).resolve().parents[2]
+    manifest = {"schema_version": "spacesim-autonomy-run/1", "configuration_id": task.configuration_id,
+                "task_fingerprint": task.fingerprint(), "seed": seed, "split": split, "method": method_id,
+                "source": source_identity(root)}
+    write_json(output / "manifest.json", manifest)
+    started = time.monotonic()
+    environment = None
+    method = None
+    provenance = None
+    outcome = "infrastructure_error"
+    detail = None
+    physics_score = None
+    try:
+        from simulation.benchmark_native_flight import NativeWaypointEnvironment
+        environment = NativeWaypointEnvironment(task, output)
+        observation = environment.reset(seed)
+        manifest.update({"episode_id": environment.episode_id,
+                         "physics_path": (environment.episode_directory / "physics.jsonl").relative_to(output).as_posix(),
+                         "chaser_mass_kg": environment.context.chaser_mass_kg})
+        write_json(output / "manifest.json", manifest)
+        try:
+            method = METHODS[method_id]()
+            method.reset(environment.context)
+        except Exception as error:
+            raise MethodFailure(f"{type(error).__name__}: {error}") from error
+        with (output / "observations.jsonl").open("w", encoding="utf-8", newline="\n") as observations, \
+                (output / "actions.jsonl").open("w", encoding="utf-8", newline="\n") as actions:
+            observations.write(observation.model_dump_json() + "\n")
+            while environment.evaluation()["outcome"] == "incomplete":
+                try:
+                    raw_action = method.act(observation)
+                    action = ForceAction.model_validate(raw_action)
+                    action.validate_for(observation, task.safety.maximum_force_n)
+                except Exception as error:
+                    outcome, detail = "method_error", f"{type(error).__name__}: {error}"
+                    break
+                # The request is persisted before execution; physics evidence
+                # contains the actual native motor readback on every tick.
+                actions.write(action.model_dump_json() + "\n")
+                observation = environment.step(action)
+                observations.write(observation.model_dump_json() + "\n")
+            else:
+                outcome = environment.evaluation()["outcome"]
+    except MethodFailure as error:
+        outcome, detail = "method_error", str(error)
+    except KeyboardInterrupt:
+        outcome, detail = "cancelled", "operator interrupted the episode"
+    except Exception as error:
+        outcome, detail = "infrastructure_error", f"{type(error).__name__}: {error}"
+    finally:
+        if environment is not None:
+            try:
+                if hasattr(environment, "_scorer"):
+                    physics_score = environment.evaluation()
+                if hasattr(environment, "initial_states_j2000"):
+                    provenance = environment.provenance()
+            except Exception as error:
+                outcome = "infrastructure_error"
+                detail = (detail + "; " if detail else "") + f"evidence finalization: {type(error).__name__}: {error}"
+            finally:
+                environment.close()
+        if method is not None:
+            try:
+                method.close()
+            except Exception as error:
+                if outcome not in {"infrastructure_error", "cancelled"}:
+                    outcome = "method_error"
+                detail = (detail + "; " if detail else "") + f"method close: {type(error).__name__}: {error}"
+    if provenance is not None:
+        write_json(output / "provenance.json", provenance)
+    evidence = {"task.json": sha256(output / "task.json"), "manifest.json": sha256(output / "manifest.json")}
+    for relative in (manifest.get("physics_path"), "observations.jsonl", "actions.jsonl", "provenance.json"):
+        if relative and (output / relative).is_file():
+            evidence[relative] = sha256(output / relative)
+    result = {"schema_version": "spacesim-autonomy-result/1", "configuration_id": task.configuration_id,
+              "seed": seed, "split": split, "method": method_id, "outcome": outcome,
+              "success": outcome == "success", "detail": detail, "wall_time_s": time.monotonic() - started,
+              "physics_score": physics_score, "evidence_sha256": evidence}
+    write_json(output / "result.json", result)
+    return result
+
+
+def rescore_waypoint(output: Path) -> dict:
+    """Verify artifact hashes, replay truth and preserve non-physical failures."""
+    output = output.resolve()
+    result = json.loads((output / "result.json").read_text(encoding="utf-8"))
+    for relative, expected in result["evidence_sha256"].items():
+        path = (output / relative).resolve()
+        if not path.is_relative_to(output) or sha256(path) != expected:
+            raise ValueError(f"changed or invalid evidence artifact: {relative}")
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    task = WaypointTask.model_validate_json((output / "task.json").read_text(encoding="utf-8"))
+    if task.fingerprint() != manifest["task_fingerprint"]:
+        raise ValueError("task does not match run fingerprint")
+    physics_path = manifest.get("physics_path")
+    if not physics_path or physics_path not in result["evidence_sha256"]:
+        raise ValueError("run has no complete hashed physical evidence")
+    scorer = WaypointScorer(task, manifest["chaser_mass_kg"])
+    with (output / physics_path).open(encoding="utf-8") as stream:
+        for line in stream:
+            scorer.add(json.loads(line))
+    score = scorer.result()
+    preserved = result["outcome"] in {"infrastructure_error", "method_error", "cancelled"}
+    outcome = result["outcome"] if preserved else score["outcome"]
+    return {"schema_version": "spacesim-autonomy-rescore/1", "outcome": outcome, "success": outcome == "success",
+            "physics_score": score, "matches_recorded_physics_score": score == result.get("physics_score"),
+            "original_outcome": result["outcome"]}

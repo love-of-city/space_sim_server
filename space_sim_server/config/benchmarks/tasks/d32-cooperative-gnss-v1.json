@@ -1,0 +1,60 @@
+{
+  "schema_version": "spacesim-autonomy-waypoint/1",
+  "configuration_id": "d32-cooperative-gnss-v1",
+  "requirement_id": "ssb.approach.waypoint-dwell",
+  "source_id": "D32",
+  "backend": "native_team_stowed_flight_v1",
+  "target_cooperation": "C",
+  "controlled_spacecraft": 1,
+  "spacecraft_count": 2,
+  "control_architecture": "single_agent",
+  "vision_mode": "V0",
+  "action_type": "ideal_force_j2000_at_assembly_com",
+  "attitude_control": "none_passive_attitude",
+  "reference_frame": "target_TNR_tangent_normal_radial",
+  "initial": {
+    "target_altitude_m": 500000.0,
+    "inclination_deg": 51.6,
+    "true_anomaly_deg": 180.0,
+    "relative_position_tnr_m": [-160.0, 3.0, 2.0],
+    "relative_velocity_tnr_m_s": [0.0, 0.0, 0.0],
+    "position_half_width_m": 3.0,
+    "velocity_half_width_m_s": 0.01
+  },
+  "objective": {
+    "position_tnr_m": [-150.0, 0.0, 0.0],
+    "position_tolerance_m": 0.75,
+    "speed_tolerance_m_s": 0.05,
+    "dwell_s": 20.0
+  },
+  "safety": {
+    "minimum_range_m": 100.0,
+    "maximum_range_m": 1000.0,
+    "maximum_relative_speed_m_s": 2.0,
+    "maximum_force_n": 25.0
+  },
+  "observation": {
+    "kind": "independent_gnss_solutions_and_orbit_filters",
+    "position_sigma_m": 0.2,
+    "velocity_sigma_m_s": 0.002,
+    "delay_s": 0.0,
+    "target_link": "cooperative_target_filtered_state",
+    "reference_point": "assembled_center_of_mass",
+    "frame": "J2000"
+  },
+  "seeds": {
+    "train": [1, 2, 3],
+    "validation": [101, 102, 103],
+    "test": [201, 202, 203, 204, 205, 206, 207, 208, 209, 210]
+  },
+  "duration_s": 240.0,
+  "physics_period_ns": 20000000,
+  "physics_substeps": 8,
+  "decision_period_ns": 500000000,
+  "earth_gravity": "j2",
+  "solar_gravity": true,
+  "drag_enabled": true,
+  "srp_enabled": true,
+  "disturbance_sigma_m_s2": 0.00002,
+  "mass_model": "constant_no_propellant_model"
+}

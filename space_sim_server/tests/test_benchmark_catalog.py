@@ -101,8 +101,12 @@ def test_cli_reports_catalogue_scope_and_rejects_invalid_inputs(tmp_path, capsys
     assert "invalid autonomy catalogue" in capsys.readouterr().err
 
 
-def test_cli_does_not_advertise_a_nonexistent_execution_backend(capsys):
-    with pytest.raises(SystemExit) as error:
-        main(["run", "D32"])
-    assert error.value.code == 2
-    assert "invalid choice" in capsys.readouterr().err
+def test_cli_distinguishes_registered_configurations_from_requirement_ids(capsys, tmp_path):
+    assert main(["tasks"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["scope"] == "registered_execution_configurations"
+    assert [item["id"] for item in result["configurations"]] == ["d32-cooperative-gnss-v1"]
+    output = tmp_path / "must-not-exist"
+    assert main(["run", "D26", "--seed", "201", "--output", str(output)]) == 2
+    assert "not registered" in capsys.readouterr().err
+    assert not output.exists()

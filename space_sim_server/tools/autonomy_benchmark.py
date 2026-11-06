@@ -1,7 +1,7 @@
 """Autonomy benchmark tooling; performance microbenchmarks remain tools/benchmarks.
 
-At this implementation stage the command exposes validated requirements only.
-It does not pretend that a catalogue entry is a registered simulation backend.
+Requirements and executable configurations have separate listing commands.
+Native execution runs in this dedicated CLI process; scoring is simulator-free.
 """
 from __future__ import annotations
 
@@ -13,10 +13,15 @@ from typing import get_args
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT / "backend"))
+sys.path.insert(0, str(SERVER_ROOT))
 
 from space_arm_platform.benchmark_catalog import (  # noqa: E402
     AutonomyCatalog, CATALOG_PATH, Family, load_catalog,
 )
+from space_arm_platform.benchmark_contract import (  # noqa: E402
+    SPEC_DIRECTORY, ForceAction, NavigationObservation, WaypointTask, load_task,
+)
+from space_arm_platform.benchmark_execution import rescore_waypoint, run_waypoint  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -30,10 +35,29 @@ def main(argv=None) -> int:
     listing.add_argument("--group", choices=list("SDMT"))
     listing.add_argument("--format", choices=["json", "markdown"], default="json")
     commands.add_parser("validate", help="validate the complete final source mapping")
-    commands.add_parser("schema", help="print the requirement catalogue JSON Schema")
+    schema = commands.add_parser("schema", help="print a versioned JSON Schema")
+    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action"], default="catalogue")
+    commands.add_parser("tasks", help="list registered executable configurations, separately from requirements")
+    spec = commands.add_parser("spec", help="print an executable task specification")
+    spec.add_argument("configuration")
+    run = commands.add_parser("run", help="run one native episode in a new output directory")
+    run.add_argument("configuration")
+    run.add_argument("--method", choices=["gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1"], default="gnss-pd-v1")
+    run.add_argument("--seed", type=int, required=True)
+    run.add_argument("--output", type=Path, required=True)
+    rescore = commands.add_parser("rescore", help="verify artifact hashes and independently replay physical evidence")
+    rescore.add_argument("output", type=Path)
+    batch = commands.add_parser("batch", help="run a frozen split in isolated processes; resume does not retry failures")
+    batch.add_argument("configuration")
+    batch.add_argument("--method", choices=["gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1"], default="gnss-pd-v1")
+    batch.add_argument("--split", choices=["train", "validation", "test"], default="test")
+    batch.add_argument("--output", type=Path, required=True)
+    batch.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "schema":
-        print(json.dumps(AutonomyCatalog.model_json_schema(), ensure_ascii=False, indent=2))
+        model = {"catalogue": AutonomyCatalog, "waypoint": WaypointTask,
+                 "observation": NavigationObservation, "action": ForceAction}[args.kind]
+        print(json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2))
         return 0
     try:
         catalog = load_catalog(args.catalog)
@@ -43,6 +67,37 @@ def main(argv=None) -> int:
     if args.command == "validate":
         print(json.dumps(catalog.coverage(), ensure_ascii=False, indent=2))
         return 0
+    if args.command in {"tasks", "spec", "run", "rescore", "batch"}:
+        try:
+            if args.command == "rescore":
+                print(json.dumps(rescore_waypoint(args.output), ensure_ascii=False, indent=2))
+                return 0
+            registered = [load_task(path, catalog) for path in sorted(SPEC_DIRECTORY.glob("*.json"))]
+            if args.command == "tasks":
+                print(json.dumps({"scope": "registered_execution_configurations", "configurations": [
+                    {"id": task.configuration_id, "requirement_id": task.requirement_id,
+                     "source_id": task.source_id, "backend": task.backend, "vision_mode": task.vision_mode,
+                     "target_cooperation": task.target_cooperation, "fingerprint": task.fingerprint()}
+                    for task in registered]}, ensure_ascii=False, indent=2))
+                return 0
+            matches = [task for task in registered if task.configuration_id == args.configuration]
+            if len(matches) != 1:
+                raise ValueError("configuration is not registered; use 'tasks' to list executable configurations")
+            task = matches[0]
+            if args.command == "spec":
+                print(task.model_dump_json(indent=2))
+                return 0
+            if args.command == "batch":
+                from space_arm_platform.benchmark_batch import run_batch
+                result = run_batch(task, args.method, args.split, args.output, resume=args.resume)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0 if result["complete"] and result["successes"] == result["planned"] else 1
+            result = run_waypoint(task, args.method, args.seed, args.output)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0 if result["success"] else {"infrastructure_error": 3, "cancelled": 130}.get(result["outcome"], 1)
+        except (OSError, ValueError, KeyError) as error:
+            print(f"benchmark command failed: {error}", file=sys.stderr)
+            return 2
     selected = catalog.select(priority=args.priority, family=args.family,
                               vision=args.vision, source_group=args.group)
     if args.format == "json":

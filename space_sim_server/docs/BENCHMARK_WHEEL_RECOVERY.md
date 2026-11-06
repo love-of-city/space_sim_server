@@ -45,4 +45,6 @@ python tools/autonomy_benchmark.py rescore run/s22-train-1
 
 云端隔离工作树的相关后端检查 461 项、前端检查 261 项通过，均无跳过；Ruff 和网页生产构建通过。报告位于 `.tmp/benchmark-recovery-checks-v1/acceptance.json`，SHA-256 为 `72fd601f92aa36263f093ee9657fbdd507096889edfe47659f4a6f8d77b878dc`。这些检查不含原生测试，不能作为实际故障已触发的证明。
 
-真实电机衰减和复位测试入口为 `tests/test_benchmark_native.py::test_native_wheel_loss_changes_motor_output_and_reset_restores_history`，使用训练种子 3，实际推进到 8.5 s 后复位，并比较新旧初态、带噪观测、后续物理样本、力矩回执与故障历史。该测试以及训练、完整冻结矩阵和原网页验收仍待运行。
+真实电机衰减和复位测试 `tests/test_benchmark_native.py::test_native_wheel_loss_changes_motor_output_and_reset_restores_history` 已在云端源码 `61b9e9a4271449ae43d761c27b48e107fa45e449` 通过：1 项、零跳过、22.00 s。训练种子 3 实际推进至 8.5 s，426 条物理记录确认一轴电机输出按抽样系数衰减，另外两轴保持正常，角速度发生真实变化，未回写状态；公开力矩含独立噪声。复位清除请求、故障历史和随机流，新旧初态、首次观测及后续十条物理样本一致，旧动作不能复用。JUnit 证据 `.tmp/s22-native-reset-v1.xml` SHA-256 为 `0ad8cfe95cac2aa201789993f893cf08dc3a6d0ada668fd5ef3369595589d244`。
+
+该工作树单独构建原生 DLL，并核验 4,565 个运行依赖文件，错误数为零；加载运行指纹为 `767379a861f910d231042393b1aabcbb78746fb3f3fd281675253b269ced85bf`。准备报告 `.tmp/benchmark-recovery-runtime-v2/preparation.json` SHA-256 为 `3dd1d965eaf1b81af6a3ed83d82bdf411cdb62274f74ac6272c48e6fcdd6acf1`。短时故障与复位通过不等于整项恢复成功；完整训练、十个冻结种子、对照、外部方法及原网页验收仍待完成。

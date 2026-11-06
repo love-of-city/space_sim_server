@@ -183,6 +183,10 @@ python tools/autonomy_benchmark.py run s04-sequential-wheel-slew-v1 --seed 1 --o
 python tools/autonomy_benchmark.py run s04-sequential-wheel-slew-v1 --seed 201 --method-spec examples/autonomy_methods/attitude-sequence.json --output ../.tmp/sequence-external-201
 ```
 
+云端 `f25be0e` 的三个固定测试种子 201–203 全部完成三个姿态，每段连续保持均为 5 s，完成时间分别为 107.20、105.08、105.62 s。三个训练种子也完成全部目标。原固定姿态方法仅完成首段后超时，零力矩超时，持续满力矩被硬安全约束否决。各结果独立复算一致，测试批次恢复保留全部 33 个原文件的内容及修改时间；独立进程 S04 方法复现完整物理轨迹，S02 原始种子 201 的物理日志仍逐字节相同。
+
+真实 Edge 页面分别完成 S04 独立进程成功和固定姿态部分完成两种回合，显示 3/3 与 1/3，后者成功率为 0/1。复算、JSON/CSV 和物理日志下载与 CLI 一致，无浏览器错误；两个测试回合分别导出 5,360、9,000 条有类型的公开输入/动作转换，保持测试集用途和原失败结果。相关 151 项后端检查、261 项前端检查、构建、Ruff 及五项根 CI 通过；评分显示修正后另复核 40 项姿态检查和三个训练归档。原生矩阵在 `.tmp/benchmark-s04-frozen-v1`，验收报告 SHA-256 为 `74aa6225f0ea88a4145cd0d4eab284f8d8ba75b7e43aa7fdb681d9683d18c4ad`；网页证据在 `.tmp/benchmark-s04-platform-v1`，报告 SHA-256 为 `041e254f47d5111c5d3f0475e20b204a6e437fcda8db821d6a4d156b1d52210e`。
+
 ## 原生单星轨道机动
 
 轨道任务采用 `spacesim-autonomy-orbit/1`，只含原团队 SARM 收拢构型的单颗航天器、9 个原始网格和被动飞轮，在组合体质心增加限幅理想平移执行器。该执行器是仿真抽象，不代表已建模的具体推进器、燃料流量或姿轨联合控制。400 Hz 原生积分与 50 Hz 私有物理证据沿用原后端，初始化之后不写入位置或速度。

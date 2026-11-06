@@ -93,6 +93,17 @@ def test_observation_whitelist_rejects_target_telemetry_truth_and_invalid_sensor
         RadarObservation.model_validate(packet(task(), physical(0)).model_dump() | change)
 
 
+def test_private_delivery_is_reproducible_across_episode_identities():
+    observation = packet(task(), physical(0))
+    values = observation.model_dump(exclude={'episode_id', 'schema_version'})
+    changed = observation.model_copy(update={'episode_id': 'another-run'})
+    first = RadarDelivery(observation=values)
+    second = RadarDelivery(observation=changed.model_dump(exclude={'episode_id', 'schema_version'}))
+    assert first.model_dump_json() == second.model_dump_json()
+    with pytest.raises(ValidationError):
+        RadarDelivery(observation=observation.model_dump())
+
+
 def scored(fault=None):
     spec = task()
     scorer = RadarNavigationScorer(spec, 170.)
@@ -107,7 +118,7 @@ def scored(fault=None):
             continue
         observation = packet(spec, row)
         if not (fault == 'missing_delivery' and tick == 25):
-            delivery = RadarDelivery(observation=observation)
+            delivery = RadarDelivery(observation=observation.model_dump(exclude={'episode_id', 'schema_version'}))
             scorer.add(delivery)
             if fault == 'duplicate_delivery' and tick == 25:
                 scorer.add(delivery)

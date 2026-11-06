@@ -40,7 +40,7 @@ class NativeRadarNavigationEnvironment(NativeRelativeNavigation):
         observation = measure_radar(self.task.observation, states[0], states[1],
             rbk.MRP2C(self._observer_body_reader().sigma_BN).T, self._sensor_rng,
             episode_id=self.episode_id, sequence=sequence, nanos=self._time_ns)
-        delivered = RadarDelivery(observation=observation)
+        delivered = RadarDelivery(observation=observation.model_dump(exclude={'episode_id', 'schema_version'}))
         self._scorer.add(delivered)
         self._truth_stream.write(delivered.model_dump_json()+'\n')
         return observation

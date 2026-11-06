@@ -14,7 +14,6 @@ class RadarNavigationScorer(NavigationScorer):
         super().__init__(task, chaser_mass_kg)
         self.delivery_count = 0
         self.last_delivery_time_ns = None
-        self.last_episode_id = None
         self.physical_pair = None
         self.range_squared_error = self.bearing_squared_error = self.range_rate_squared_error = 0.
 
@@ -48,9 +47,6 @@ class RadarNavigationScorer(NavigationScorer):
                     or self.delivery_count > self.task.expected_estimates):
                 self.evidence_errors.add('missing_duplicate_or_noncontemporaneous_radar_delivery')
                 return
-            if self.last_episode_id is not None and observation.episode_id != self.last_episode_id:
-                self.evidence_errors.add('radar_delivery_from_another_episode')
-            self.last_episode_id = observation.episode_id
             target, observer = self.physical_pair
             difference = target[:3]-observer[:3]
             distance = float(np.linalg.norm(difference))

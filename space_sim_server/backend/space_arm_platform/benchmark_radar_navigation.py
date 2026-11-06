@@ -5,9 +5,9 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from .benchmark_attitude import Quaternion, unit_quaternion
-from .benchmark_contract import Contract, Number, Positive, Vector3, WaypointInitialState
+from .benchmark_contract import Contract, Count, Number, Positive, State6, Vector3, WaypointInitialState
 from .benchmark_navigation import (
-    GNSSMeasurements, NavigationContext, NavigationTask, RelativeNavigationSafety, validate_navigation_physics,
+    NavigationContext, NavigationTask, RelativeNavigationSafety, validate_navigation_physics,
 )
 
 
@@ -67,8 +67,11 @@ class RadarNavigationTask(NavigationTask):
         return self
 
 
-class RadarObservation(GNSSMeasurements):
-    schema_version: Literal['spacesim-autonomy-radar-observation/1'] = 'spacesim-autonomy-radar-observation/1'
+class RadarMeasurements(Contract):
+    sequence: Count
+    sample_time_ns: Count
+    delivery_time_ns: Count
+    chaser_measurement_j2000: State6
     target_measurement_j2000: None
     orientation_body_to_j2000_wxyz: Quaternion
     range_m: Positive
@@ -86,9 +89,16 @@ class RadarObservation(GNSSMeasurements):
         return self
 
 
+class RadarObservation(RadarMeasurements):
+    schema_version: Literal['spacesim-autonomy-radar-observation/1'] = 'spacesim-autonomy-radar-observation/1'
+    episode_id: str = Field(min_length=1)
+
+
 class RadarDelivery(Contract):
     record_type: Literal['radar_delivery'] = 'radar_delivery'
-    observation: RadarObservation
+    # Episode identity belongs to the enclosing run, not the deterministic
+    # physical/sensor stream. Public actions still validate their episode ID.
+    observation: RadarMeasurements
 
 
 class RadarNavigationContext(NavigationContext):

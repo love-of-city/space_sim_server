@@ -10,6 +10,7 @@ import pytest
 from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation
 from space_arm_platform.benchmark_wheel_recovery import WheelRecoveryContext, WheelRecoveryObservation
 from space_arm_platform.benchmark_orbit import OrbitContext, OrbitObservation
+from space_arm_platform.benchmark_avoidance import AvoidanceContext, AvoidanceObservation
 from space_arm_platform.benchmark_navigation import NavigationContext, GNSSMeasurements
 from space_arm_platform.benchmark_relative_flight import RelativeFlightContext
 from space_arm_platform.benchmark_flyaround import FlyAroundContext
@@ -37,7 +38,13 @@ def assert_process_exited(identity):
 
 
 def context_and_observation(family):
-    if family in {"attitude", "pointing", "wheel-recovery"}:
+    if family == "debris-avoidance":
+        task = load_task(SPEC_DIRECTORY/'s16-catalog-debris-avoidance-v1.json')
+        context = AvoidanceContext(task=task,chaser_mass_kg=170.)
+        observation = AvoidanceObservation(episode_id='test',sequence=0,sample_time_ns=0,delivery_time_ns=0,
+            chaser_estimate_j2000=(7e6,0.,0.,0.,7500.,0.), debris_catalog_j2000=(7e6+5.,0.,-1500.,0.,7500.,10.),
+            catalog_sample_time_ns=0,catalog_delivery_time_ns=0)
+    elif family in {"attitude", "pointing", "wheel-recovery"}:
         task = load_task(SPEC_DIRECTORY / "s02-wheel-attitude-v1.json")
         context = AttitudeContext(task=task, chaser_mass_kg=170., inertia_com_body_kg_m2=((1., 0., 0.), (0., 2., 0.), (0., 0., 3.)),
             wheel_spin_inertia_kg_m2=(.01, .01, .01), hardware_torque_limits_nm=(.2, .2, .2),
@@ -87,10 +94,10 @@ def context_and_observation(family):
     return context, observation
 
 
-@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation", "pointing", "wheel-recovery"])
+@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation", "pointing", "wheel-recovery", "debris-avoidance"])
 def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family):
     context, observation = context_and_observation(family)
-    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "pointing": "pointing.json", "wheel-recovery": "wheel-recovery.json"}.get(family, f"{family}-pd.json")
+    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "pointing": "pointing.json", "wheel-recovery": "wheel-recovery.json", "debris-avoidance": "debris-avoidance.json"}.get(family, f"{family}-pd.json")
     definition = ExternalMethodDefinition(SERVER / "examples/autonomy_methods" / filename, context.task)
     method = ExternalMethod(definition, tmp_path)
     baseline = method_classes(context.task)[method_ids(context.task)[0]]()

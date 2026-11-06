@@ -8,6 +8,8 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'catalog-avoidance-v1':'外部目录与 GNSS 自主避碰','external-catalog-avoidance-v1':'目录避碰 · 独立进程示例',
+  'no-avoidance-thrust-v1':'零避碰推力（负对照）','unsafe-avoidance-burn-v1':'持续避碰推力（负对照）',
   'adaptive-wheel-recovery-v1':'飞轮异常诊断与自适应控制','external-wheel-recovery-v1':'飞轮异常恢复 · 独立进程示例',
   'unaware-wheel-recovery-v1':'不诊断飞轮异常（对照）','no-recovery-torque-v1':'零恢复力矩（负对照）',
   'unsafe-recovery-spin-v1':'异常期间持续满力矩（负对照）',
@@ -38,6 +40,11 @@ export const methodLabels = {
   'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
 };
 export function benchmarkMetric(score){
+  if(score?.schema_version==='spacesim-autonomy-debris-avoidance-score/1'){
+    const range=Number.isFinite(score.minimum_range_m)?`${score.minimum_range_m.toFixed(2)} m`:'—';
+    const coast=Number.isFinite(score.final_coast_s)?`${score.final_coast_s.toFixed(2)} s`:'—';
+    return `最小碎片间距 ${range}；末段无推力滑行 ${coast}`;
+  }
   if(score?.schema_version==='spacesim-autonomy-wheel-recovery-score/1'){
     const diagnosis=Number.isFinite(score.diagnosis_latency_s)?`${score.diagnosis_latency_s.toFixed(2)} s`:'未确认';
     const angle=Number.isFinite(score.final_attitude_error_rad)?`${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`:'—';
@@ -109,6 +116,8 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     }
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
+        closest_approach_outside_encounter_window:'最近接近不在规定会遇时窗内',outward_pass_not_confirmed:'尚未确认安全远离碎片',
+        final_unpowered_coast_not_confirmed:'末段无推力滑行不足',no_actual_avoidance_maneuver:'未验证实际避碰机动',
         orientation_rmse:'姿态 RMSE',maximum_orientation_error:'最大姿态误差',pose_availability:'有效位姿估计不足',
         false_motor_loss_diagnosis:'正常阶段误报电机异常',motor_loss_diagnosis_deadline:'电机异常诊断超时',motor_loss_not_observed_under_load:'未验证带载电机衰减',
         angular_velocity_rmse:'角速度 RMSE',maximum_angular_velocity_error:'最大角速度误差',spin_availability:'有效角速度估计不足',

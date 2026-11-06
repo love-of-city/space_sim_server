@@ -1,0 +1,55 @@
+{
+  "schema_version": "spacesim-autonomy-debris-avoidance/1",
+  "configuration_id": "s16-catalog-debris-avoidance-v1",
+  "requirement_id": "ssb.safety.single-avoidance",
+  "source_id": "S16",
+  "backend": "native_team_single_debris_avoidance_v1",
+  "target_cooperation": "none",
+  "controlled_spacecraft": 1,
+  "spacecraft_count": 1,
+  "debris_count": 1,
+  "control_architecture": "single_agent",
+  "vision_mode": "V0",
+  "action_type": "ideal_force_j2000_at_assembly_com",
+  "attitude_control": "none_passive_attitude",
+  "reference_frame": "Earth_centered_J2000",
+  "initial": {
+    "altitude_m": 500000.0, "altitude_half_width_m": 1.0,
+    "inclination_deg": 51.6, "true_anomaly_deg": 180.0,
+    "anomaly_half_width_deg": 0.01, "orbit_shape": "circular_two_body_osculating"
+  },
+  "encounter": {
+    "object_type": "synthetic_passive_spherical_debris", "radius_m": 0.25, "mass_kg": 50.0,
+    "relative_position_tnr_m": [0.0, -1500.0, 5.0],
+    "relative_velocity_tnr_m_s": [0.0, 10.0, 0.0],
+    "position_half_width_m": 1.0, "velocity_half_width_m_s": 0.005,
+    "frame": "spacecraft_TNR_rotating"
+  },
+  "objective": {
+    "kind": "pass_single_conjunction_and_coast", "screening_horizon_s": 200.0,
+    "initial_predicted_miss_max_m": 50.0,
+    "encounter_window_start_s": 100.0, "encounter_window_end_s": 200.0,
+    "final_range_min_m": 1000.0, "outward_speed_min_m_s": 0.5,
+    "outward_dwell_s": 20.0, "final_coast_s": 30.0,
+    "coast_force_tolerance_n": 0.01, "minimum_maneuver_delta_v_m_s": 0.05
+  },
+  "safety": {
+    "minimum_altitude_m": 450000.0, "maximum_altitude_m": 550000.0,
+    "maximum_eccentricity": 0.02, "maximum_force_n": 5.0, "maximum_delta_v_m_s": 3.0,
+    "minimum_range_m": 100.0, "maximum_range_m": 5000.0,
+    "maximum_relative_speed_m_s": 20.0
+  },
+  "observation": {
+    "kind": "self_gnss_filter_and_external_noisy_debris_catalog",
+    "position_sigma_m": 0.2, "velocity_sigma_m_s": 0.002,
+    "catalog_position_sigma_m": 3.0, "catalog_velocity_sigma_m_s": 0.01,
+    "catalog_period_ns": 500000000, "delay_s": 0.0,
+    "target_link": "none_external_catalog_only",
+    "reference_point": "assembled_center_of_mass_and_debris_center", "frame": "J2000"
+  },
+  "seeds": {"train": [1, 2, 3], "validation": [101, 102, 103], "test": [201, 202, 203, 204, 205, 206, 207, 208, 209, 210]},
+  "duration_s": 320.0, "physics_period_ns": 20000000, "physics_substeps": 8,
+  "decision_period_ns": 500000000, "earth_gravity": "j2", "solar_gravity": true,
+  "drag_enabled": true, "srp_enabled": true, "disturbance_sigma_m_s2": 0.000002,
+  "mass_model": "constant_no_propellant_model"
+}

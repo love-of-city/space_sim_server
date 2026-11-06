@@ -34,13 +34,7 @@ class _OrbitEvidence(sysModel.SysModel):
 
     def UpdateState(self, nanos):
         env = self.env
-        state = env._physical_state(nanos)
-        if int(env._body_reader.timeWritten()) != nanos:
-            raise RuntimeError("stale attitude cannot rotate native motor evidence")
-        sample = OrbitTruthSample(time_ns=int(nanos), chaser_com_j2000=tuple(state),
-            orientation_body_to_j2000_wxyz=tuple(rbk.MRP2EP(env._body_reader().sigma_BN)),
-            applied_motor_force_body_n=tuple(float(env._stepper.actuator_force[i]) for i in env._force_indices),
-            external_state_writes=env._stepper.external_writes)
+        sample = env._truth_sample(nanos)
         env._scorer.add(sample)
         env._truth_stream.write(sample.model_dump_json()+"\n")
 
@@ -60,8 +54,7 @@ class NativeOrbitEnvironment:
         self.episode_id = uuid.uuid4().hex
         self.episode_directory = self.output_directory / "episodes" / self.episode_id
         self.episode_directory.mkdir(parents=True, exist_ok=False)
-        model, meshes, self.model_manifest = prepare_orbit_model(self.repository, self.episode_directory / "model",
-                                                                force_limit_n=self.task.safety.maximum_force_n)
+        model, meshes, self.model_manifest = self._prepare_model()
         self.context = self.context_type(task=self.task, chaser_mass_kg=self.model_manifest["bodies"]["cubesat_bus"]["mass_kg"])
         sim = self._simulation = SimulationBaseClass.SimBaseClass()
         process = sim.CreateNewProcess("autonomyOrbitBenchmark")
@@ -83,8 +76,7 @@ class NativeOrbitEnvironment:
                                          substeps=self.task.physics_substeps, publish_every=1, model_from_memory=True)
         ctx.ports.set_stepper(self._stepper)
         ctx.add(self._stepper, Slot.PHYSICS, component="dynamics_core")
-        ctx.install([OrbitalGravityComponent(force_every=1), FlightEnvironmentComponent(options, [
-            ("cubesat_bus", "orbital_thrust_center", self.context.chaser_mass_kg, options.chaser_area_m2)])])
+        ctx.install([OrbitalGravityComponent(force_every=1), FlightEnvironmentComponent(options, self._environment_bodies(options))])
         self._actuator = _InertialForceActuator(ctx.ports)
         ctx.add(self._actuator, Slot.ACTUATOR, component="benchmark_actuator")
         self._state_reader = ctx.ports.site_state("orbital_thrust_center").addSubscriber()
@@ -112,14 +104,34 @@ class NativeOrbitEnvironment:
         body.setVelocity(state[3:].tolist())
         body.setAttitude([0., 0., 0.])
         body.setAttitudeRate([0., 0., 0.])
+        additional_states = self._initialize_additional_bodies(state, seed)
         orbit.origin.set_state(state[:3], state[3:])
         self._time_ns = 0
         sim.ConfigureStopTime(0)
         sim.ExecuteSimulation()
         self._observation = self._measure(0)
-        self.initial_states_j2000 = [state.tolist()]
+        self.initial_states_j2000 = [state.tolist(), *additional_states]
         self.environment_options = options.to_dict()
         return self._observation
+
+    def _prepare_model(self):
+        return prepare_orbit_model(self.repository, self.episode_directory / "model",
+                                   force_limit_n=self.task.safety.maximum_force_n)
+
+    def _environment_bodies(self, options):
+        return [("cubesat_bus", "orbital_thrust_center", self.context.chaser_mass_kg, options.chaser_area_m2)]
+
+    def _initialize_additional_bodies(self, state, seed):
+        return []
+
+    def _truth_sample(self, nanos):
+        state = self._physical_state(nanos)
+        if int(self._body_reader.timeWritten()) != nanos:
+            raise RuntimeError("stale attitude cannot rotate native motor evidence")
+        return OrbitTruthSample(time_ns=int(nanos), chaser_com_j2000=tuple(state),
+            orientation_body_to_j2000_wxyz=tuple(rbk.MRP2EP(self._body_reader().sigma_BN)),
+            applied_motor_force_body_n=tuple(float(self._stepper.actuator_force[i]) for i in self._force_indices),
+            external_state_writes=self._stepper.external_writes)
 
     def _setup_observation(self, ctx):
         self._filter = OrbitFilter(self.task.observation.position_sigma_m, self.task.observation.velocity_sigma_m_s,

@@ -8,6 +8,10 @@ sys.path.insert(0, str(SERVER))
 
 from space_arm_platform.benchmark_external import serve_method  # noqa: E402
 
+if sys.argv[1:] == ["debris-avoidance"]:
+    from simulation.benchmark_avoidance_methods import CatalogAvoidance
+    from space_arm_platform.benchmark_avoidance import AvoidanceContext, AvoidanceObservation
+    raise SystemExit(serve_method(CatalogAvoidance(), AvoidanceContext, AvoidanceObservation))
 if sys.argv[1:] == ["pointing"]:
     from simulation.benchmark_pointing_methods import PointingWheelPD
     from space_arm_platform.benchmark_pointing import PointingContext, PointingObservation
@@ -50,4 +54,4 @@ if sys.argv[1:] == ["formation"]:
     from simulation.benchmark_formation_methods import GNSSFormation
     from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
     raise SystemExit(serve_method(GNSSFormation(), FormationContext, FormationObservation))
-raise SystemExit("expected one task-family argument: attitude, attitude-sequence, wheel-recovery, pointing, waypoint, orbit, navigation, relative-flight, flyaround or formation")
+raise SystemExit("expected one task-family argument: attitude, attitude-sequence, wheel-recovery, debris-avoidance, pointing, waypoint, orbit, navigation, relative-flight, flyaround or formation")

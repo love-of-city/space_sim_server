@@ -18,6 +18,71 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_debris_is_independent_force_moves_spacecraft_and_reset_restores_sensors(tmp_path):
+    code = r'''
+import json
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, ForceAction, load_task
+from space_arm_platform.benchmark_registry import native_environment
+
+task = load_task(SPEC_DIRECTORY/'s16-catalog-debris-avoidance-v1.json')
+env = native_environment(task,Path(sys.argv[1]))
+def physical():
+    env._truth_stream.flush()
+    return [json.loads(line) for line in (env.episode_directory/'physics.jsonl').read_text('utf-8').splitlines()]
+def action(obs):
+    return ForceAction(episode_id=obs.episode_id,observation_sequence=obs.sequence,force_j2000_n=(1.,0.,0.))
+try:
+    first = env.reset(3)
+    initial = physical()
+    assert len(initial) == 1
+    manifest = env.model_manifest
+    assert manifest['spacecraft_count'] == manifest['debris_count'] == 1
+    assert manifest['bodies']['benchmark_debris']['actuators'] == []
+    assert env.context.task.observation.target_link == 'none_external_catalog_only'
+    assert not np.array_equal(first.debris_catalog_j2000,initial[0]['debris_com_j2000'])
+    old = action(first)
+    observation = first
+    for _ in range(4):
+        observation = env.step(action(observation))
+    rows = physical()
+    assert len(rows) == 101 and env.evaluation()['thrust_impulse_n_s'] > 1.99
+    assert not env.evaluation()['evidence_errors']
+    assert np.linalg.norm(np.asarray(rows[-1]['debris_com_j2000'][:3])-rows[0]['debris_com_j2000'][:3]) > 14000
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    repeated = env.reset(3)
+    assert repeated.episode_id != first.episode_id
+    assert repeated.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert physical() == initial
+    try:
+        env.step(old)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('stale action accepted after reset')
+    for _ in range(4):
+        repeated = env.step(action(repeated))
+    assert physical() == rows
+    assert repeated.model_dump(exclude={'episode_id'}) == observation.model_dump(exclude={'episode_id'})
+    coast = env.reset(3)
+    for _ in range(4):
+        coast = env.step(ForceAction(episode_id=coast.episode_id,observation_sequence=coast.sequence,force_j2000_n=(0.,0.,0.)))
+    quiet = physical()
+    dv = np.asarray(rows[-1]['chaser_com_j2000'][3:])-quiet[-1]['chaser_com_j2000'][3:]
+    assert np.linalg.norm(dv) > .005
+    assert env.evaluation()['thrust_impulse_n_s'] == 0
+finally:
+    env.close()
+print('native debris, real force, independent catalog and reset verified')
+'''
+    result = subprocess.run([sys.executable,'-c',code,str(tmp_path/'avoidance-native')],
+                            cwd=SERVER,capture_output=True,text=True,timeout=240)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native debris' in result.stdout
+
+
 def test_native_wheel_loss_changes_motor_output_and_reset_restores_history(tmp_path):
     code = r'''
 import json

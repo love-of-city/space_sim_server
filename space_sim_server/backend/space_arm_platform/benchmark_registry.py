@@ -26,8 +26,10 @@ from .benchmark_vision_approach import VisionApproachTask, VisionApproachContext
 from .benchmark_vision_approach_score import VisionApproachScorer
 from .benchmark_wheel_recovery import WheelRecoveryTask, WheelRecoveryContext, WheelRecoveryObservation, WheelRecoveryAction
 from .benchmark_wheel_recovery_score import WheelRecoveryScorer
+from .benchmark_avoidance import AvoidanceTask, AvoidanceContext, AvoidanceObservation
+from .benchmark_avoidance_score import AvoidanceScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    AvoidanceTask: FamilyImplementation("simulation.benchmark_avoidance_methods", "simulation.benchmark_native_avoidance",
+        "NativeAvoidanceEnvironment", ("catalog-avoidance-v1", "no-avoidance-thrust-v1", "unsafe-avoidance-burn-v1")),
     WheelRecoveryTask: FamilyImplementation("simulation.benchmark_wheel_recovery_methods", "simulation.benchmark_native_wheel_recovery",
         "NativeWheelRecoveryEnvironment", ("adaptive-wheel-recovery-v1", "unaware-wheel-recovery-v1", "no-recovery-torque-v1", "unsafe-recovery-spin-v1")),
     VisionApproachTask: FamilyImplementation("simulation.benchmark_vision_approach_methods", "simulation.benchmark_native_vision_approach",
@@ -107,6 +111,7 @@ def method_input_types(task: Task):
         VisionMotionTask: (VisionMotionContext, VisionMotionObservation),
         VisionApproachTask: (VisionApproachContext, VisionApproachObservation),
         WheelRecoveryTask: (WheelRecoveryContext, WheelRecoveryObservation),
+        AvoidanceTask: (AvoidanceContext, AvoidanceObservation),
     }[type(task)]
 
 
@@ -129,7 +134,7 @@ def parse_action(task: Task, raw, observation):
     elif isinstance(task, NavigationTask):
         action = NavigationEstimateAction.model_validate(raw)
         action.validate_for(observation, task)
-    elif isinstance(task, (WaypointTask, OrbitTask, FlyAroundTask)):
+    elif isinstance(task, (WaypointTask, OrbitTask, FlyAroundTask, AvoidanceTask)):
         action = ForceAction.model_validate(raw)
         action.validate_for(observation, task.safety.maximum_force_n)
     else:
@@ -139,6 +144,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, AvoidanceTask):
+        return AvoidanceScorer(task, chaser_mass_kg)
     if isinstance(task, WheelRecoveryTask):
         return WheelRecoveryScorer(task)
     if isinstance(task, VisionApproachTask):
@@ -188,6 +195,8 @@ def capability_matrix(catalogue, tasks):
 
 def configuration_title(catalogue, task):
     title = catalogue.task(task.requirement_id).title
+    if isinstance(task, AvoidanceTask):
+        title += "（单星与被动碎片，外部目录观测）"
     if isinstance(task, WheelRecoveryTask):
         title += "（单飞轮力矩衰减与姿态恢复）"
     if isinstance(task, RelativeFlightTask) and task.source_id == 'D40':

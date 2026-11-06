@@ -26,7 +26,7 @@ SPEC_DIRECTORY = Path(__file__).resolve().parents[2] / "config/benchmarks/tasks"
 
 
 class Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
     def fingerprint(self) -> str:
         payload = json.dumps(self.model_dump(mode="json"), sort_keys=True,
@@ -206,10 +206,14 @@ class ForceAction(Contract):
     force_j2000_n: Vector3
 
     def validate_for(self, observation: NavigationObservation, limit_n: float) -> None:
-        if (self.episode_id != observation.episode_id
-                or self.observation_sequence != observation.sequence):
+        # Pydantic model_copy(update=...) intentionally bypasses construction
+        # validation. A method returning such an object must not inject NaN or
+        # malformed vectors into the native dynamics process.
+        validated = ForceAction.model_validate(self)
+        if (validated.episode_id != observation.episode_id
+                or validated.observation_sequence != observation.sequence):
             raise ValueError("stale action: episode or observation identity does not match")
-        if math.dist(self.force_j2000_n, (0, 0, 0)) > limit_n + 1e-9:
+        if math.dist(validated.force_j2000_n, (0, 0, 0)) > limit_n + 1e-9:
             raise ValueError("requested force exceeds the action contract")
 
 

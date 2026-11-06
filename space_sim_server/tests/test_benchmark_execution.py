@@ -87,6 +87,26 @@ def test_tnr_velocity_removes_rotating_frame_motion():
     assert velocity == pytest.approx((0., 0., 0.), abs=1e-10)
 
 
+def test_copied_model_cannot_bypass_action_validation():
+    observation = NavigationObservation(episode_id="episode", sequence=0, sample_time_ns=0, delivery_time_ns=0,
+                                        target_estimate_j2000=(7e6, 0., 0., 0., 7500., 0.),
+                                        chaser_estimate_j2000=(7e6, -150., 0., 0., 7500., 0.))
+    action = ForceAction(episode_id="episode", observation_sequence=0, force_j2000_n=(0., 0., 0.))
+    for invalid in ((math.nan, 0., 0.), (True, 0., 0.), (1., 2.), ("1", 0., 0.)):
+        copied = action.model_copy(update={"force_j2000_n": invalid})
+        with pytest.raises(ValidationError):
+            copied.validate_for(observation, 25.)
+
+
+def test_typed_evidence_is_revalidated_before_grading(task):
+    from space_arm_platform.benchmark_contract import FlightTruthSample
+    copied = FlightTruthSample.model_validate(sample(0)).model_copy(update={"chaser_com_j2000": (math.nan,) * 6})
+    scorer = WaypointScorer(task, 100.)
+    with pytest.raises(ValueError, match="invalid benchmark physical evidence"):
+        scorer.add(copied)
+    assert scorer.result()["outcome"] == "invalid_evidence"
+
+
 def test_dwell_requires_full_continuous_duration(task):
     scorer = WaypointScorer(task, 100.)
     for tick in range(5):

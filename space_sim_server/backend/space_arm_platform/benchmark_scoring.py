@@ -49,7 +49,7 @@ class WaypointScorer:
 
     def add(self, raw: FlightTruthSample | dict) -> None:
         try:
-            sample = raw if isinstance(raw, FlightTruthSample) else FlightTruthSample.model_validate(raw)
+            sample = FlightTruthSample.model_validate(raw)
             position, velocity = relative_truth(sample)
         except (ValueError, TypeError) as error:
             self.evidence_errors.add("invalid_physical_sample")

@@ -9,6 +9,8 @@
 
 团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](space_sim_server/README.md)。
 
+卫星自动驾驶 Benchmark 正在开发，当前提供完整来源任务目录及校验/查询入口；最终范围、实现状态和使用方法见[Benchmark 说明](space_sim_server/docs/AUTONOMY_BENCHMARK.md)。目录覆盖不表示对应任务已完成运行验收。
+
 原工作台提供机械臂操作、7 km交会、300 km入轨后三种起始条件。连续任务保留同一任务编号，远距通过后接续近距，再以实际关节终态进入标准操作场景；两阶段共享GNSS配置和导航不确定性。原 SARM 模型的近距采用参数化视觉与逻辑捕获，未验证真实图像闭环或物理锁定。详细流程见[连续任务说明](archive/2026_10_17_连续任务与共享导航.md)和[远距物理参数](space_sim_server/docs/TEAM_RENDEZVOUS.md)。
 
 capture26 网页新增显式 `near23_vbar_v1` 路线：远距GNSS → V-bar → 17.4 m调姿并稳姿 → 约3 m获取原双目 → 平台驻留 → 四爪实际抓持。远近交接继承动力学、导航、两臂和传感器历史。本地7 km远距记录经正式协调器续接至实际四爪抓持已通过独立验收；HTTP从零启动全程及共享网页部署尚未验收，详见[原双目正式任务](space_sim_server/docs/CAPTURE26_NEAR23_FORMAL.md)。

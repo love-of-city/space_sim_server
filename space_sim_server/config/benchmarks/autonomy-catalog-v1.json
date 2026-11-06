@@ -1,0 +1,1877 @@
+{
+  "schema": "spacesim-autonomy-catalog/1",
+  "source": {
+    "id": "teacher-capture-scope-122-v1",
+    "description": "用户于2026-11-06提供的最终版任务清单；S/D/M/T编号仅在本source_id内有效。M/T目标合作标签为显式工程分类，单个case还须声明每个参与者的合作程度。",
+    "expected_counts": {
+      "S": 26,
+      "D": 62,
+      "M": 24,
+      "T": 10
+    }
+  },
+  "scope": {
+    "endpoint": "verified_docking_or_grasp_connection",
+    "excluded": [
+      "post_capture_combined_body_control",
+      "towing",
+      "repair",
+      "refueling",
+      "assembly",
+      "release"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "ssb.attitude.detumble",
+      "source_id": "S01",
+      "title": "入轨初始消旋与姿态稳定",
+      "priority": "P1",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.slew-hold",
+      "source_id": "S02",
+      "title": "指定姿态机动与稳定保持",
+      "priority": "P0",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.large-angle-slew",
+      "source_id": "S03",
+      "title": "大角度快速姿态机动",
+      "priority": "P1",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.multi-target-slew",
+      "source_id": "S04",
+      "title": "连续多目标姿态切换",
+      "priority": "P1",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.ground-track",
+      "source_id": "S05",
+      "title": "地面目标定向与连续跟踪",
+      "priority": "P1",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0",
+        "V1"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.reference-pointing",
+      "source_id": "S06",
+      "title": "太阳、地球、惯性方向定向",
+      "priority": "P1",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.laser-pointing",
+      "source_id": "S07",
+      "title": "星间激光终端精密指向",
+      "priority": "P2",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0",
+        "V1"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.momentum-unload",
+      "source_id": "S08",
+      "title": "飞轮饱和预防与动量卸载",
+      "priority": "P2",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.orbit.maneuver",
+      "source_id": "S09",
+      "title": "指定轨道机动执行",
+      "priority": "P0",
+      "family": "orbit",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.orbit.low-thrust",
+      "source_id": "S10",
+      "title": "连续低推力轨道机动",
+      "priority": "P2",
+      "family": "orbit",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.orbit.raise-lower",
+      "source_id": "S11",
+      "title": "轨道抬升与降低",
+      "priority": "P0",
+      "family": "orbit",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.orbit.plane-change",
+      "source_id": "S12",
+      "title": "轨道面调整",
+      "priority": "P2",
+      "family": "orbit",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.orbit.stationkeeping",
+      "source_id": "S13",
+      "title": "轨道自主维持与修正",
+      "priority": "P0",
+      "family": "orbit",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.navigation.absolute",
+      "source_id": "S14",
+      "title": "轨道状态估计与自主导航",
+      "priority": "P0",
+      "family": "navigation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.navigation.celestial",
+      "source_id": "S15",
+      "title": "视觉天体、地平线或地标导航",
+      "priority": "P2",
+      "family": "navigation",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.safety.single-avoidance",
+      "source_id": "S16",
+      "title": "单次碰撞风险自主规避",
+      "priority": "P0",
+      "family": "safety",
+      "requested_vision_modes": [
+        "V0",
+        "V1"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.safety.multi-conflict",
+      "source_id": "S17",
+      "title": "多个空间目标冲突下的避碰决策",
+      "priority": "P1",
+      "family": "safety",
+      "requested_vision_modes": [
+        "V0",
+        "V1"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.space-object-track",
+      "source_id": "S18",
+      "title": "视觉空间目标发现与持续跟踪",
+      "priority": "P1",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.observation-scan",
+      "source_id": "S19",
+      "title": "观测任务中的自主指向和扫描",
+      "priority": "P2",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V1",
+        "V2"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.autonomy.mode-switch",
+      "source_id": "S20",
+      "title": "自主工作模式切换",
+      "priority": "P0",
+      "family": "autonomy",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.resources.constrained-maneuver",
+      "source_id": "S21",
+      "title": "能量、热控和燃料约束下的自主机动",
+      "priority": "P1",
+      "family": "resources",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.recovery.actuator-reconfigure",
+      "source_id": "S22",
+      "title": "执行器异常后的自主控制重构",
+      "priority": "P0",
+      "family": "recovery",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.recovery.navigation-failure",
+      "source_id": "S23",
+      "title": "导航传感器失效后的状态恢复",
+      "priority": "P1",
+      "family": "recovery",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.recovery.safe-mode",
+      "source_id": "S24",
+      "title": "异常情况下进入安全模式并恢复",
+      "priority": "P0",
+      "family": "recovery",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.autonomy.coupled-attitude-orbit",
+      "source_id": "S25",
+      "title": "姿态与轨道联合规划控制",
+      "priority": "P1",
+      "family": "autonomy",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.recovery.interrupted-mission",
+      "source_id": "S26",
+      "title": "任务中断后的自主重规划与继续执行",
+      "priority": "P0",
+      "family": "recovery",
+      "requested_vision_modes": [
+        "V0",
+        "V1"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.relative-navigation.cooperative",
+      "source_id": "D01",
+      "title": "合作目标相对位置与速度估计",
+      "priority": "P0",
+      "family": "relative-navigation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.relative-navigation.noncooperative",
+      "source_id": "D02",
+      "title": "非合作目标轨道状态估计",
+      "priority": "P1",
+      "family": "relative-navigation",
+      "requested_vision_modes": [
+        "V0",
+        "V1"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.phasing",
+      "source_id": "D03",
+      "title": "轨道相位调整与追赶",
+      "priority": "P0",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.altitude-chase",
+      "source_id": "D04",
+      "title": "通过轨道高度差实现追赶",
+      "priority": "P1",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.far",
+      "source_id": "D05",
+      "title": "远距离轨道交会",
+      "priority": "P0",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.cross-plane",
+      "source_id": "D06",
+      "title": "不同轨道面之间的交会",
+      "priority": "P2",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.fuel-optimal",
+      "source_id": "D07",
+      "title": "多脉冲燃料优化交会",
+      "priority": "P1",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.low-thrust",
+      "source_id": "D08",
+      "title": "低推力连续交会",
+      "priority": "P3",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.uncertain-target",
+      "source_id": "D09",
+      "title": "目标轨道不确定条件下的交会",
+      "priority": "P1",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.target-maneuver",
+      "source_id": "D10",
+      "title": "目标轨道机动后的重新交会",
+      "priority": "P1",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.attitude.target-tracking",
+      "source_id": "D11",
+      "title": "追踪星对目标星持续姿态指向",
+      "priority": "P1",
+      "family": "attitude",
+      "requested_vision_modes": [
+        "V0",
+        "V1"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.relative-motion.hold",
+      "source_id": "D12",
+      "title": "双星相对位置保持与伴飞",
+      "priority": "P0",
+      "family": "relative-motion",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.relative-motion.passive-safe",
+      "source_id": "D13",
+      "title": "被动安全相对轨道设计与保持",
+      "priority": "P1",
+      "family": "relative-motion",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.formation.pair-establish",
+      "source_id": "D14",
+      "title": "双星编队建立",
+      "priority": "P1",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.formation.pair-maintain",
+      "source_id": "D15",
+      "title": "双星编队保持",
+      "priority": "P0",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.formation.pair-reconfigure",
+      "source_id": "D16",
+      "title": "双星编队重构",
+      "priority": "P1",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.safety.pair-coordination",
+      "source_id": "D17",
+      "title": "双星协同避碰与轨迹调整",
+      "priority": "P1",
+      "family": "safety",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.single-controlled",
+      "source_id": "D18",
+      "title": "仅追踪星受控的自主交会",
+      "priority": "P0",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.rendezvous.dual-controlled",
+      "source_id": "D19",
+      "title": "双方同时主动机动的协同交会",
+      "priority": "P2",
+      "family": "rendezvous",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.navigation.far-near-transition",
+      "source_id": "D20",
+      "title": "远程交会向近距导航的自主切换",
+      "priority": "P0",
+      "family": "navigation",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.far-detection",
+      "source_id": "D21",
+      "title": "远距离视觉目标检测与识别",
+      "priority": "P0",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.track-reacquire",
+      "source_id": "D22",
+      "title": "目标连续视觉跟踪与失锁重捕",
+      "priority": "P1",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.monocular-pose",
+      "source_id": "D23",
+      "title": "单目目标六自由度位姿估计",
+      "priority": "P0",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.stereo-pose",
+      "source_id": "D24",
+      "title": "双目目标相对位置与姿态估计",
+      "priority": "P1",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.lidar-fusion",
+      "source_id": "D25",
+      "title": "视觉与激光雷达融合导航",
+      "priority": "P1",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.unknown-geometry-pose",
+      "source_id": "D26",
+      "title": "未知目标几何结构下的位姿估计",
+      "priority": "P2",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.spin-estimation",
+      "source_id": "D27",
+      "title": "目标自旋与角速度估计",
+      "priority": "P1",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.tumble-estimation",
+      "source_id": "D28",
+      "title": "高速翻滚目标运动状态估计",
+      "priority": "P2",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.approach.vbar",
+      "source_id": "D29",
+      "title": "沿 V-bar 方向自主接近",
+      "priority": "P0",
+      "family": "approach",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.approach.rbar",
+      "source_id": "D30",
+      "title": "沿 R-bar 方向自主接近",
+      "priority": "P0",
+      "family": "approach",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.approach.safe-corridor",
+      "source_id": "D31",
+      "title": "安全接近走廊自主规划",
+      "priority": "P0",
+      "family": "approach",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.approach.waypoint-dwell",
+      "source_id": "D32",
+      "title": "近距离保持点到达与驻留",
+      "priority": "P0",
+      "family": "approach",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.relative-motion.flyaround",
+      "source_id": "D33",
+      "title": "目标安全绕飞",
+      "priority": "P0",
+      "family": "relative-motion",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.inspection.multiview",
+      "source_id": "D34",
+      "title": "多视角绕飞检查",
+      "priority": "P1",
+      "family": "inspection",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.inspection.reconstruction",
+      "source_id": "D35",
+      "title": "绕飞过程中的三维结构重建",
+      "priority": "P1",
+      "family": "inspection",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.inspection.active-perception",
+      "source_id": "D36",
+      "title": "主动选择观测视角和绕飞轨迹",
+      "priority": "P1",
+      "family": "inspection",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.approach.visual-feedback",
+      "source_id": "D37",
+      "title": "视觉闭环自主接近",
+      "priority": "P0",
+      "family": "approach",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.occlusion-recovery",
+      "source_id": "D38",
+      "title": "目标遮挡后的自主重新观测",
+      "priority": "P1",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.safety.keepout-decision",
+      "source_id": "D39",
+      "title": "进入近距禁入区前的自主安全决策",
+      "priority": "P0",
+      "family": "safety",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.safety.proximity-abort",
+      "source_id": "D40",
+      "title": "近距离接近中的自主中止与安全撤离",
+      "priority": "P0",
+      "family": "safety",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.vision.docking-interface",
+      "source_id": "D41",
+      "title": "对接接口视觉检测与定位",
+      "priority": "P0",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.alignment",
+      "source_id": "D42",
+      "title": "对接轴线对齐与六自由度位姿匹配",
+      "priority": "P0",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.relative-speed",
+      "source_id": "D43",
+      "title": "对接前相对速度精确控制",
+      "priority": "P0",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.passive-cooperative",
+      "source_id": "D44",
+      "title": "被动合作目标自主对接",
+      "priority": "P0",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.joint-control",
+      "source_id": "D45",
+      "title": "双方主动协同对接",
+      "priority": "P1",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.visual-feedback",
+      "source_id": "D46",
+      "title": "完全视觉闭环合作目标对接",
+      "priority": "P0",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.contact-limits",
+      "source_id": "D47",
+      "title": "接触前速度与接触力约束控制",
+      "priority": "P1",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.soft-capture",
+      "source_id": "D48",
+      "title": "自主软捕获",
+      "priority": "P1",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.hard-lock",
+      "source_id": "D49",
+      "title": "自主硬对接与锁紧确认",
+      "priority": "P1",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.docking.failed-attempt-retry",
+      "source_id": "D50",
+      "title": "对接失败后的中止、撤退与重试",
+      "priority": "P1",
+      "family": "docking",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.feature-detection",
+      "source_id": "D51",
+      "title": "非合作目标可抓取部位视觉识别",
+      "priority": "P0",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.site-selection",
+      "source_id": "D52",
+      "title": "非合作目标抓取点自主选择",
+      "priority": "P0",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.safe-pregrasp",
+      "source_id": "D53",
+      "title": "抓取前安全接近与抓取空间定位",
+      "priority": "P0",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.visual-servo",
+      "source_id": "D54",
+      "title": "视觉引导机械臂末端自主接近",
+      "priority": "P1",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.stable-target",
+      "source_id": "D55",
+      "title": "静止或姿态稳定目标自主抓取",
+      "priority": "P0",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.slow-spin",
+      "source_id": "D56",
+      "title": "缓慢旋转目标自主抓取",
+      "priority": "P1",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.tumble-sync",
+      "source_id": "D57",
+      "title": "翻滚目标运动同步与抓取",
+      "priority": "P1",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.fast-tumble",
+      "source_id": "D58",
+      "title": "高速翻滚目标动态抓取",
+      "priority": "P2",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.unknown-geometry",
+      "source_id": "D59",
+      "title": "未知几何形状目标自主抓取",
+      "priority": "P2",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.appendages",
+      "source_id": "D60",
+      "title": "存在太阳翼等外伸结构的目标抓取",
+      "priority": "P2",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.flexible-capture",
+      "source_id": "D61",
+      "title": "柔性机构自主捕获",
+      "priority": "P3",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.grasp.connection-verification",
+      "source_id": "D62",
+      "title": "抓取接触成功判定与可靠连接确认",
+      "priority": "P1",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source"
+    },
+    {
+      "id": "ssb.formation.swarm-establish",
+      "source_id": "M01",
+      "title": "多星编队自主建立",
+      "priority": "P1",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.formation.swarm-maintain",
+      "source_id": "M02",
+      "title": "多星编队自主保持",
+      "priority": "P0",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.formation.swarm-reconfigure",
+      "source_id": "M03",
+      "title": "多星编队自主重构",
+      "priority": "P1",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.formation.role-swap",
+      "source_id": "M04",
+      "title": "编队内卫星角色与位置交换",
+      "priority": "P2",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.formation.split",
+      "source_id": "M05",
+      "title": "多星编队自主分裂",
+      "priority": "P2",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.formation.merge",
+      "source_id": "M06",
+      "title": "多星编队自主合并",
+      "priority": "P2",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.formation.distributed-control",
+      "source_id": "M07",
+      "title": "多星分布式轨道协同控制",
+      "priority": "P1",
+      "family": "formation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.safety.swarm-avoidance",
+      "source_id": "M08",
+      "title": "多星协同避碰",
+      "priority": "P0",
+      "family": "safety",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.relative-navigation.distributed",
+      "source_id": "M09",
+      "title": "多星分布式相对状态估计",
+      "priority": "P1",
+      "family": "relative-navigation",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.vision.multispacecraft-localization",
+      "source_id": "M10",
+      "title": "多星视觉协同定位",
+      "priority": "P2",
+      "family": "vision",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.coordination.target-search",
+      "source_id": "M11",
+      "title": "多星协同搜索未知目标",
+      "priority": "P1",
+      "family": "coordination",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.coordination.tracking-handoff",
+      "source_id": "M12",
+      "title": "多星目标跟踪与跨星观测接力",
+      "priority": "P1",
+      "family": "coordination",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.inspection.cooperative-multiview",
+      "source_id": "M13",
+      "title": "多星多视角联合目标检查",
+      "priority": "P1",
+      "family": "inspection",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.inspection.cooperative-active",
+      "source_id": "M14",
+      "title": "多星主动观测视角协同规划",
+      "priority": "P2",
+      "family": "inspection",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.relative-motion.cooperative-flyaround",
+      "source_id": "M15",
+      "title": "多星协同目标绕飞",
+      "priority": "P1",
+      "family": "relative-motion",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.coordination.sequential-rendezvous",
+      "source_id": "M16",
+      "title": "多个服务星依次交会同一目标",
+      "priority": "P2",
+      "family": "coordination",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.safety.shared-target-approach",
+      "source_id": "M17",
+      "title": "多星同时接近目标的安全避碰",
+      "priority": "P1",
+      "family": "safety",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.coordination.multi-target-assignment",
+      "source_id": "M18",
+      "title": "多星多目标交会任务分配",
+      "priority": "P1",
+      "family": "coordination",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.coordination.grasper-selection",
+      "source_id": "M19",
+      "title": "多个服务星自主选择最适合的抓取执行者",
+      "priority": "P1",
+      "family": "coordination",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.grasp.cooperative-noncooperative-target",
+      "source_id": "M20",
+      "title": "多星协同抓取同一非合作目标",
+      "priority": "P3",
+      "family": "grasp",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.coordination.docking-schedule",
+      "source_id": "M21",
+      "title": "多星依次对接时的近距操作调度",
+      "priority": "P2",
+      "family": "coordination",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.recovery.communication-outage",
+      "source_id": "M22",
+      "title": "星间通信中断下的协同控制",
+      "priority": "P1",
+      "family": "recovery",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.recovery.failed-member",
+      "source_id": "M23",
+      "title": "编队成员失效后的任务重分配",
+      "priority": "P1",
+      "family": "recovery",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.recovery.global-replanning",
+      "source_id": "M24",
+      "title": "多星多目标动态变化下的全局安全重规划",
+      "priority": "P2",
+      "family": "recovery",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.single-spacecraft",
+      "source_id": "T01",
+      "title": "单星状态评估→姿态调整→轨道机动→目标轨道到达",
+      "priority": "P0",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "none"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.cooperative-rendezvous-hold",
+      "source_id": "T02",
+      "title": "合作目标相对导航→远程交会→近距离保持",
+      "priority": "P0",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V0"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.cooperative-docking",
+      "source_id": "T03",
+      "title": "合作目标轨道交会→近距离接近→自主对接",
+      "priority": "P0",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.visual-docking",
+      "source_id": "T04",
+      "title": "视觉目标发现→位姿估计→自主接近→对接",
+      "priority": "P0",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.noncooperative-inspection",
+      "source_id": "T05",
+      "title": "非合作目标发现→接近→绕飞→目标检查",
+      "priority": "P0",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V2"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.noncooperative-grasp",
+      "source_id": "T06",
+      "title": "非合作目标发现→视觉导航→逼近→抓取",
+      "priority": "P0",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.tumbling-grasp",
+      "source_id": "T07",
+      "title": "翻滚目标观测→运动估计→动态逼近→抓取",
+      "priority": "P1",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V3"
+      ],
+      "target_cooperation": [
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.abort-replan-resume",
+      "source_id": "T08",
+      "title": "接近过程中目标异常→撤离→重规划→继续任务",
+      "priority": "P1",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.fault-recovery",
+      "source_id": "T09",
+      "title": "传感器或执行器故障→自主安全评估→任务恢复或安全中止",
+      "priority": "P1",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V0",
+        "V2"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    },
+    {
+      "id": "ssb.mission.cooperative-search-capture",
+      "source_id": "T10",
+      "title": "多星目标搜索→分布式任务分配→协同接近→检查或抓取",
+      "priority": "P2",
+      "family": "mission",
+      "requested_vision_modes": [
+        "V2",
+        "V3"
+      ],
+      "target_cooperation": [
+        "C",
+        "P",
+        "N"
+      ],
+      "classification_origin": "source_with_explicit_design_tags"
+    }
+  ]
+}

@@ -22,7 +22,7 @@
 ```text
 python tools/autonomy_benchmark.py spec s08-wheel-momentum-unload-v1
 python tools/autonomy_benchmark.py run s08-wheel-momentum-unload-v1 --seed 1 --output ../.tmp/unload-training
-python tools/autonomy_benchmark.py run s08-wheel-momentum-unload-v1 --seed 1 --method-file examples/autonomy_methods/momentum-unload.json --output ../.tmp/unload-external
+python tools/autonomy_benchmark.py run s08-wheel-momentum-unload-v1 --seed 1 --method-spec examples/autonomy_methods/momentum-unload.json --output ../.tmp/unload-external
 python tools/autonomy_benchmark.py rescore ../.tmp/unload-training
 ```
 

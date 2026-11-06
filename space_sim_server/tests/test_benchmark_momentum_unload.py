@@ -159,7 +159,7 @@ def test_action_norm_identity_and_no_truth_input():
 def test_external_unload_policy_receives_only_public_contract_and_matches_in_process(tmp_path):
     path = Path(__file__).resolve().parents[1]/'examples/autonomy_methods/momentum-unload.json'
     definition = ExternalMethodDefinition(path, task())
-    external = ExternalMethod(definition, tmp_path/'external')
+    external = ExternalMethod(definition, tmp_path)
     internal = MomentumUnloadPD()
     try:
         external.reset(context())

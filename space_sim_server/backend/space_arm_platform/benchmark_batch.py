@@ -26,6 +26,13 @@ TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error"
                      "infrastructure_error", "cancelled", "invalid_evidence", "invalid_initialization", "task_failure"}
 
 
+def cancellation_grace_s(task: Task) -> float:
+    # Image capture observes cancellation immediately. Closing UE and checking
+    # the rendered runtime/evidence hashes happens afterwards and can exceed
+    # the ordinary ten-second worker budget. Keep a finite fallback for hangs.
+    return 60. if isinstance(task, VisionPoseTask) else 10.
+
+
 def summarize(trials: list[dict]) -> dict:
     """All planned trials remain in the primary denominator, including errors."""
     outcomes = Counter(trial["outcome"] for trial in trials)
@@ -199,7 +206,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
                         if stop_file is not None and stop_file.exists():
                             cancelled = True
                             stop_started = stop_started or time.monotonic()
-                            if time.monotonic() - stop_started > 10:
+                            if time.monotonic() - stop_started > cancellation_grace_s(task):
                                 break
                         if time.monotonic() - started > plan["wall_time_limit_s"]:
                             write_json(directory / "status.json", {"outcome": "infrastructure_error", "detail": "trial wall-time limit"})

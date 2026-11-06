@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 
 from pydantic import Field, model_validator
 
-from .benchmark_batch import reconcile_batch, summarize
+from .benchmark_batch import cancellation_grace_s, reconcile_batch, summarize
 from .benchmark_catalog import load_catalog
 from .benchmark_contract import Contract, Count, load_task
 from .benchmark_execution import rescore_episode, sha256, source_identity, verify_episode_evidence, write_json
@@ -269,9 +269,12 @@ class BenchmarkManager:
 
     def _monitor(self, job, process, owner):
         try:
+            # The coordinator must outlive the child worker's bounded evidence
+            # finalization. Otherwise UI cancellation destroys an auditable run.
+            stop_grace = cancellation_grace_s(load_task(self._path(job) / "task.json")) + 5.
             while process.poll() is None:
                 with self.lock:
-                    force_stop = job.get("stop_requested_at") and time.time() - job["stop_requested_at"] > 15
+                    force_stop = job.get("stop_requested_at") and time.time() - job["stop_requested_at"] > stop_grace
                 if force_stop:
                     break
                 time.sleep(.2)

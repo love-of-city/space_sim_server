@@ -81,6 +81,7 @@ class OneSidedFormation(GNSSFormation):
         masses = np.asarray(self.context.spacecraft_masses_kg)
         forces = np.asarray(action.forces_j2000_n)
         forces -= forces[0].copy()*masses[:, None]/masses[0]
+        forces[0] = 0.
         limit = self.context.task.safety.maximum_force_n
         forces *= np.minimum(1., limit/np.maximum(np.linalg.norm(forces, axis=1), 1e-15))[:, None]
         return FormationAction(episode_id=observation.episode_id, observation_sequence=observation.sequence,

@@ -17,6 +17,18 @@ from space_arm_platform.benchmark_registry import method_classes, method_ids, pa
 SERVER = Path(__file__).resolve().parents[1]
 
 
+def assert_process_exited(identity):
+    # Windows job termination is asynchronous. A bare PID check can also see a
+    # different process created by another xdist worker after PID reuse.
+    try:
+        process = psutil.Process(identity["pid"])
+        if process.create_time() != identity["created"]:
+            return
+        process.wait(timeout=5)
+    except psutil.NoSuchProcess:
+        return
+
+
 def context_and_observation(family):
     if family == "attitude":
         task = load_task(SPEC_DIRECTORY / "s02-wheel-attitude-v1.json")
@@ -43,12 +55,12 @@ def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family)
     baseline.reset(context)
     try:
         method.reset(context)
-        pid = method.process.pid
+        identity = {"pid": method.process.pid, "created": method.owner.created}
         action = parse_action(context.task, method.act(observation), observation)
         assert action == baseline.act(observation)
     finally:
         method.close()
-    assert not psutil.pid_exists(pid)
+    assert_process_exited(identity)
     calls = [json.loads(line) for line in (tmp_path / "method_calls.jsonl").read_text().splitlines()]
     assert [row["operation"] for row in calls] == ["reset", "act", "close"]
     assert method.telemetry()["call_count"] == 3
@@ -57,7 +69,7 @@ def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family)
 
 
 WORKER = r'''
-import json, sys, time, subprocess
+import json, sys, time, subprocess, psutil
 from pathlib import Path
 mode = sys.argv[1]
 for line in sys.stdin:
@@ -72,7 +84,7 @@ for line in sys.stdin:
         assert set(obs) == {"schema_version", "episode_id", "sequence", "sample_time_ns", "delivery_time_ns", "orientation_body_to_j2000_wxyz", "angular_velocity_body_rad_s", "wheel_speed_rad_s", "gyro_valid"}
         if mode == "timeout":
             child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-            Path("owned-child.pid").write_text(str(child.pid))
+            Path("owned-child.json").write_text(json.dumps({"pid": child.pid, "created": psutil.Process(child.pid).create_time()}))
             time.sleep(60)
         if mode == "crash":
             raise SystemExit(7)
@@ -113,12 +125,12 @@ def test_wire_failures_are_rejected_and_process_is_closed(tmp_path, mode, reason
     method = ExternalMethod(definition_for(tmp_path, mode, context.task), tmp_path)
     try:
         method.reset(context)
-        pid = method.process.pid
+        identity = {"pid": method.process.pid, "created": method.owner.created}
         with pytest.raises((ValueError, RuntimeError), match=reason):
             method.act(observation)
     finally:
         method.close()
-    assert not psutil.pid_exists(pid)
+    assert_process_exited(identity)
 
 
 def test_timeout_closes_its_descendants_and_keeps_call_failure(tmp_path):
@@ -131,8 +143,8 @@ def test_timeout_closes_its_descendants_and_keeps_call_failure(tmp_path):
             method.act(observation)
     finally:
         method.close()
+    assert_process_exited(json.loads((tmp_path / "owned-child.json").read_text()))
     assert time.monotonic() - started < 10
-    assert not psutil.pid_exists(int((tmp_path / "owned-child.pid").read_text()))
     calls = [json.loads(line) for line in (tmp_path / "method_calls.jsonl").read_text().splitlines()]
     assert calls[-1]["operation"] == "act" and calls[-1]["status"] == "failed"
 

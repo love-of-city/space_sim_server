@@ -19,6 +19,7 @@ from .atomic_json import write_json as atomic_write_json
 from .benchmark_external import ExternalMethod, ExternalMethodDefinition
 from .benchmark_registry import Task, make_scorer, method_classes, method_ids, native_environment, parse_action
 from .benchmark_paths import evidence_path
+from .benchmark_runtime import runtime_identity
 
 
 class MethodFailure(RuntimeError):
@@ -67,9 +68,10 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / "task.json", task.model_dump(mode="json"))
     root = Path(__file__).resolve().parents[2]
-    manifest = {"schema_version": "spacesim-autonomy-run/1", "configuration_id": task.configuration_id,
+    runtime = runtime_identity(root)
+    manifest = {"schema_version": "spacesim-autonomy-run/2", "configuration_id": task.configuration_id,
                 "task_fingerprint": task.fingerprint(), "seed": seed, "split": split, "method": method_id,
-                "source": source_identity(root)}
+                "source": source_identity(root), "runtime_identity": runtime}
     if definition is not None:
         manifest["external_method"] = definition.identity
     write_json(output / "manifest.json", manifest)
@@ -80,7 +82,10 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
     outcome = "infrastructure_error"
     detail = None
     physics_score = None
+    runtime_verified = False
     try:
+        if runtime['errors']:
+            raise RuntimeError('native runtime dependencies are incomplete: '+json.dumps(runtime['errors'], sort_keys=True))
         environment = native_environment(task, output)
         observation = environment.reset(seed)
         manifest.update({"episode_id": environment.episode_id,
@@ -140,17 +145,28 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
                 if outcome not in {"infrastructure_error", "cancelled"}:
                     outcome = "method_error"
                 detail = (detail + "; " if detail else "") + f"method close: {type(error).__name__}: {error}"
+    if not runtime['errors']:
+        try:
+            final_runtime = runtime_identity(root)
+            runtime_verified = final_runtime == runtime
+            if not runtime_verified:
+                write_json(output / 'runtime_final.json', final_runtime)
+                outcome = 'infrastructure_error'
+                detail = (detail + '; ' if detail else '') + 'runtime dependencies changed during the episode'
+        except Exception as error:
+            outcome = 'infrastructure_error'
+            detail = (detail + '; ' if detail else '') + f'runtime finalization: {type(error).__name__}: {error}'
     if provenance is not None:
         write_json(output / "provenance.json", provenance)
     evidence = {"task.json": sha256(output / "task.json"), "manifest.json": sha256(output / "manifest.json")}
     for relative in (manifest.get("physics_path"), "observations.jsonl", "actions.jsonl", "provenance.json",
-                     "method_stderr.log", "method_calls.jsonl"):
+                     "method_stderr.log", "method_calls.jsonl", "runtime_final.json"):
         if relative and (output / relative).is_file():
             evidence[relative] = sha256(output / relative)
     result = {"schema_version": "spacesim-autonomy-result/1", "configuration_id": task.configuration_id,
               "seed": seed, "split": split, "method": method_id, "outcome": outcome,
               "success": outcome == "success", "detail": detail, "wall_time_s": time.monotonic() - started,
-              "physics_score": physics_score, "evidence_sha256": evidence}
+              "physics_score": physics_score, "evidence_sha256": evidence, "runtime_identity_verified": runtime_verified}
     if isinstance(method, ExternalMethod):
         result["method_telemetry"] = method.telemetry()
     write_json(output / "result.json", result)

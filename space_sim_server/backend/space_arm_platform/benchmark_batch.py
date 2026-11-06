@@ -18,6 +18,7 @@ from .benchmark_execution import rescore_episode, sha256, source_identity, write
 from .benchmark_external import ExternalMethodDefinition
 from .benchmark_registry import Task, method_ids
 from .benchmark_paths import evidence_path
+from .benchmark_runtime import plan_runtime_identity, runtime_identity
 from .collection_processes import launch_collector
 
 TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error",
@@ -70,7 +71,8 @@ def batch_lock(directory: Path):
             path.unlink()
 
 
-def _completed_trial(directory: Path, planned: dict, task: Task, method: str, external_identity=None, *, source_sha256: dict) -> dict:
+def _completed_trial(directory: Path, planned: dict, task: Task, method: str, external_identity=None, *, source_sha256: dict,
+                     runtime_identity: dict | None = None) -> dict:
     status = json.loads((directory / "status.json").read_text(encoding="utf-8"))
     result_path = directory / "run/result.json"
     if status.get("outcome") == "running" and "child_pid" in status:
@@ -89,6 +91,10 @@ def _completed_trial(directory: Path, planned: dict, task: Task, method: str, ex
             raise ValueError("trial method implementation differs from frozen plan")
         if manifest.get("source", {}).get("source_sha256") != source_sha256:
             raise ValueError("trial source implementation differs from frozen plan")
+        if runtime_identity is not None and manifest.get('runtime_identity') != runtime_identity:
+            raise ValueError('trial runtime dependencies differ from frozen plan')
+        if runtime_identity is not None and result['outcome'] not in {'infrastructure_error', 'cancelled'} and result.get('runtime_identity_verified') is not True:
+            raise ValueError('trial did not verify unchanged runtime dependencies')
         if status.get("result_sha256") and sha256(result_path) != status["result_sha256"]:
             raise ValueError("completed trial result has changed")
         if result["outcome"] not in TERMINAL_OUTCOMES:
@@ -133,9 +139,10 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
     root = Path(__file__).resolve().parents[2]
     source = source_identity(root)
     planned = [{"trial_id": f"{index:04d}-seed-{seed}", "seed": seed} for index, seed in enumerate(seeds)]
-    plan = {"schema_version": "spacesim-autonomy-batch-plan/1", "configuration_id": task.configuration_id,
+    runtime = runtime_identity(root)
+    plan = {"schema_version": "spacesim-autonomy-batch-plan/2", "configuration_id": task.configuration_id,
             "task_fingerprint": task.fingerprint(), "method": method, "split": split,
-            "source_sha256": source["source_sha256"], "wall_time_limit_s": 900, "trials": planned}
+            "source_sha256": source["source_sha256"], "runtime_identity": runtime, "wall_time_limit_s": 900, "trials": planned}
     if definition is not None:
         plan["external_method"] = definition.identity
     if seed is not None:
@@ -152,7 +159,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
         for trial in planned:
             directory = output / trial["trial_id"]
             if (directory / "status.json").is_file():
-                result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"])
+                result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"], runtime_identity=runtime)
                 prior = json.loads((directory / "status.json").read_text(encoding="utf-8"))
                 write_json(directory / "status.json", {**prior, **result})
                 results.append(result)
@@ -165,6 +172,8 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
             # different method/backend under the same frozen trial matrix.
             if source_identity(root)["source_sha256"] != plan["source_sha256"]:
                 raise ValueError("source changed during batch execution; start a new batch")
+            if runtime_identity(root) != runtime:
+                raise ValueError('runtime dependencies changed during batch execution; start a new batch')
             if definition is not None:
                 definition.verify_unchanged()
             directory.mkdir(exist_ok=False)
@@ -207,7 +216,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
                 returncode = child.returncode
             if cancelled and not (directory / "run/result.json").exists():
                 write_json(directory / "status.json", {"outcome": "cancelled", "returncode": returncode})
-            result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"])
+            result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"], runtime_identity=runtime)
             write_json(directory / "status.json", {**result, "returncode": returncode})
             results.append(result)
             current = summarize(results + [{**pending, "outcome": "pending"} for pending in planned[len(results):]])
@@ -223,6 +232,7 @@ def reconcile_batch(task: Task, method: str, output: Path, *, interrupted_outcom
     """After owned processes have exited, recover durable attempts without running any."""
     output = evidence_path(output)
     plan = json.loads((output / "plan.json").read_text(encoding="utf-8"))
+    runtime = plan_runtime_identity(plan)
     if plan["task_fingerprint"] != task.fingerprint() or plan["method"] != method:
         raise ValueError("batch identity does not match its frozen task")
     with batch_lock(output):
@@ -236,7 +246,7 @@ def reconcile_batch(task: Task, method: str, output: Path, *, interrupted_outcom
             status = json.loads(path.read_text(encoding="utf-8"))
             # _completed_trial checks the recorded child identity before any
             # recovery write. A live worker is never treated as interrupted.
-            result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"])
+            result = _completed_trial(directory, trial, task, method, plan.get("external_method"), source_sha256=plan["source_sha256"], runtime_identity=runtime)
             if status["outcome"] == "running" and not (directory / "run/result.json").is_file():
                 result["outcome"] = interrupted_outcome
             write_json(path, {**status, **result})

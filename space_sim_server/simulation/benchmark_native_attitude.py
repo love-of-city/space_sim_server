@@ -46,18 +46,15 @@ class _AttitudeEvidence(sysModel.SysModel):
         env = self.environment
         if int(env._body_reader.timeWritten()) != nanos:
             raise RuntimeError("stale native attitude publication")
-        state = env._body_reader()
-        sample = AttitudeTruthSample(time_ns=int(nanos),
-            orientation_body_to_j2000_wxyz=tuple(rbk.MRP2EP(state.sigma_BN)),
-            angular_velocity_body_rad_s=tuple(state.omega_BN_B),
-            wheel_speed_rad_s=tuple(float(read().state) for read in env._wheel_readers),
-            applied_motor_torque_xyz_nm=tuple(float(env._stepper.actuator_force[i]) for i in env._motor_indices),
-            external_state_writes=env._stepper.external_writes)
+        sample = env._truth_sample(nanos)
         env._scorer.add(sample)
         env._truth_stream.write(sample.model_dump_json() + "\n")
 
 
 class NativeAttitudeEnvironment:
+    context_type = AttitudeContext
+    scorer_type = AttitudeScorer
+
     def __init__(self, task: AttitudeTask, output_directory: Path):
         self.task, self.output_directory = task, evidence_path(output_directory)
         self.repository = Path(__file__).resolve().parents[1]
@@ -75,7 +72,7 @@ class NativeAttitudeEnvironment:
                 or self.task.safety.maximum_wheel_speed_rad_s > min(w.max_speed for w in wheels)):
             raise ValueError("task limits exceed the original wheel hardware limits")
         body_properties = self.model_manifest["bodies"]["cubesat_bus"]
-        self.context = AttitudeContext(task=self.task, chaser_mass_kg=body_properties["mass_kg"],
+        self.context = self.context_type(task=self.task, chaser_mass_kg=body_properties["mass_kg"],
             inertia_com_body_kg_m2=body_properties["inertia_com_body_kg_m2"],
             wheel_spin_inertia_kg_m2=tuple(w.spin_inertia for w in wheels),
             hardware_torque_limits_nm=tuple(w.max_torque for w in wheels),
@@ -94,7 +91,7 @@ class NativeAttitudeEnvironment:
         options = FlightOptions(seed=seed, orbital_physics=OrbitalPhysics(earth_gravity=self.task.earth_gravity).model_dump(mode="json"),
                                 drag_enabled=self.task.drag_enabled, srp_enabled=self.task.srp_enabled,
                                 orbit_acceleration_sigma_m_s2=self.task.disturbance_sigma_m_s2)
-        orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC, physics=options.physics)
+        orbit = self._orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC, physics=options.physics)
         ctx.install([orbit])
         self._stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin,
                                          substeps=self.task.physics_substeps, publish_every=1, model_from_memory=True)
@@ -122,7 +119,8 @@ class NativeAttitudeEnvironment:
             initial_bias_std_rad_s=obs.gyro_initial_bias_std_rad_s,
             bias_random_walk_rad_s_sqrt_s=obs.gyro_bias_random_walk_rad_s_sqrt_s,
             range_rad_s=obs.gyro_range_rad_s), seed=seed)
-        self._scorer = AttitudeScorer(self.task)
+        self._setup_additional_observation(ctx, seed)
+        self._scorer = self.scorer_type(self.task)
         self._truth_stream = (self.episode_directory / "physics.jsonl").open("w", encoding="utf-8", newline="\n")
         self._recorder = _AttitudeEvidence(self)
         ctx.add(self._recorder, Slot.RECORD, component="benchmark_evidence")
@@ -148,6 +146,18 @@ class NativeAttitudeEnvironment:
                                  "angular_velocity_body_rad_s": omega.tolist()}
         self.environment_options = options.to_dict()
         return self._observation
+
+    def _setup_additional_observation(self, ctx, seed):
+        pass
+
+    def _truth_sample(self, nanos):
+        state = self._body_reader()
+        return AttitudeTruthSample(time_ns=int(nanos),
+            orientation_body_to_j2000_wxyz=tuple(rbk.MRP2EP(state.sigma_BN)),
+            angular_velocity_body_rad_s=tuple(state.omega_BN_B),
+            wheel_speed_rad_s=tuple(float(read().state) for read in self._wheel_readers),
+            applied_motor_torque_xyz_nm=tuple(float(self._stepper.actuator_force[i]) for i in self._motor_indices),
+            external_state_writes=self._stepper.external_writes)
 
     def _initial_state(self, seed):
         initial = self.task.initial

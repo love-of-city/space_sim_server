@@ -28,6 +28,7 @@ from typing import Literal
 
 TERMINAL = {"complete", "stopped", "interrupted", "failed"}
 BUNDLED_METHODS = {
+    "external-ephemeris-pointing-v1": ("spacesim-autonomy-pointing/1", "examples/autonomy_methods/pointing.json"),
     "external-attitude-pd-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-pd.json"),
     "external-attitude-sequence-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-sequence.json"),
     "external-gnss-pd-v1": ("spacesim-autonomy-waypoint/1", "examples/autonomy_methods/waypoint-pd.json"),

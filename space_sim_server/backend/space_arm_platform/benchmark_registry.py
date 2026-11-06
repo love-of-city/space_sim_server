@@ -16,8 +16,10 @@ from .benchmark_flyaround import FlyAroundContext, FlyAroundTask
 from .benchmark_flyaround_score import FlyAroundScorer
 from .benchmark_formation import FormationAction, FormationContext, FormationObservation, FormationTask
 from .benchmark_formation_score import FormationScorer
+from .benchmark_pointing import PointingContext, PointingObservation, PointingTask
+from .benchmark_pointing_score import PointingScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ FAMILIES = {
         "NativeFlyAroundEnvironment", ("gnss-flyaround-v1", "no-flyaround-thrust-v1", "unsafe-flyaround-v1")),
     FormationTask: FamilyImplementation("simulation.benchmark_formation_methods", "simulation.benchmark_native_formation",
         "NativeFormationEnvironment", ("gnss-formation-v1", "no-formation-thrust-v1", "unsafe-formation-v1")),
+    PointingTask: FamilyImplementation("simulation.benchmark_pointing_methods", "simulation.benchmark_native_pointing",
+        "NativePointingEnvironment", ("ephemeris-pointing-pd-v1", "frozen-pointing-pd-v1", "no-pointing-torque-v1", "unsafe-pointing-spin-v1")),
 }
 
 
@@ -82,6 +86,7 @@ def method_input_types(task: Task):
         RelativeFlightTask: (RelativeFlightContext, NavigationObservation),
         FlyAroundTask: (FlyAroundContext, NavigationObservation),
         FormationTask: (FormationContext, FormationObservation),
+        PointingTask: (PointingContext, PointingObservation),
     }[type(task)]
 
 
@@ -102,6 +107,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, PointingTask):
+        return PointingScorer(task)
     if isinstance(task, FormationTask):
         return FormationScorer(task, chaser_mass_kg)
     if isinstance(task, FlyAroundTask):
@@ -141,6 +148,8 @@ def capability_matrix(catalogue, tasks):
 
 def configuration_title(catalogue, task):
     title = catalogue.task(task.requirement_id).title
+    if isinstance(task, PointingTask):
+        title += "（"+{"earth_center": "地心", "sun": "太阳", "inertial_direction": "惯性方向", "ground_site": "地面固定点"}[task.objective.kind]+"）"
     if isinstance(task, OrbitTask) and isinstance(task.objective, CircularOrbitObjective):
         title += f"（目标圆轨道高度 {task.objective.altitude_m/1000:g} km）"
     return title

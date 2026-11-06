@@ -18,6 +18,52 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_pointing_gnss_ephemeris_motor_action_and_reset(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_attitude import WheelTorqueAction
+from space_arm_platform.benchmark_registry import native_environment
+task = load_task(SPEC_DIRECTORY/'s05-ground-pointing-v1.json')
+env = native_environment(task, Path(sys.argv[1]))
+try:
+    first = env.reset(201)
+    physical = env._com_sample(0)
+    assert .001 < np.linalg.norm(np.asarray(first.chaser_gnss_j2000[:3])-physical[:3]) < 2.
+    assert not np.array_equal(first.chaser_gnss_j2000[3:], physical[3:])
+    assert env.evaluation()['outcome'] == 'incomplete'
+    assert env.evaluation()['minimum_ground_elevation_rad'] > task.objective.minimum_elevation_rad
+    initial_earth = np.asarray(first.ephemeris.earth_j2000_to_fixed)
+    initial_rates = np.asarray(env._body_reader().omega_BN_B)
+    action = WheelTorqueAction(episode_id=first.episode_id, observation_sequence=0, motor_torque_xyz_nm=(.1,0.,0.))
+    following = env.step(action)
+    assert following.sample_time_ns == task.decision_period_ns
+    assert not np.array_equal(initial_earth, following.ephemeris.earth_j2000_to_fixed)
+    assert env._body_reader().omega_BN_B[0] < initial_rates[0]
+    assert np.allclose(env.evaluation()['absolute_motor_impulse_xyz_nm_s'], [.002,0.,0.], atol=1e-12)
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    repeated = env.reset(201)
+    assert repeated.episode_id != first.episode_id
+    assert first.model_dump(exclude={'episode_id'}) == repeated.model_dump(exclude={'episode_id'})
+    assert env.evaluation()['sample_count'] == 1
+    try:
+        env.step(action)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('a stale episode action was accepted after reset')
+finally:
+    env.close()
+print('native pointing sensors, shared ephemeris, motor reaction and reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'pointing-native')],
+                            cwd=SERVER, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native pointing sensors' in result.stdout
+
+
 @pytest.mark.parametrize('configuration', ['d15-gnss-formation-hold-v1', 'm02-gnss-formation-hold-v1'])
 def test_each_formation_member_has_independent_native_actuation_and_reset(tmp_path, configuration):
     code = r'''

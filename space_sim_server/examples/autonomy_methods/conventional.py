@@ -8,6 +8,10 @@ sys.path.insert(0, str(SERVER))
 
 from space_arm_platform.benchmark_external import serve_method  # noqa: E402
 
+if sys.argv[1:] == ["pointing"]:
+    from simulation.benchmark_pointing_methods import PointingWheelPD
+    from space_arm_platform.benchmark_pointing import PointingContext, PointingObservation
+    raise SystemExit(serve_method(PointingWheelPD(), PointingContext, PointingObservation))
 if sys.argv[1:] == ["attitude"]:
     from simulation.benchmark_attitude_methods import AttitudeWheelPD
     from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation
@@ -42,4 +46,4 @@ if sys.argv[1:] == ["formation"]:
     from simulation.benchmark_formation_methods import GNSSFormation
     from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
     raise SystemExit(serve_method(GNSSFormation(), FormationContext, FormationObservation))
-raise SystemExit("expected one task-family argument: attitude, attitude-sequence, waypoint, orbit, navigation, relative-flight, flyaround or formation")
+raise SystemExit("expected one task-family argument: attitude, attitude-sequence, pointing, waypoint, orbit, navigation, relative-flight, flyaround or formation")

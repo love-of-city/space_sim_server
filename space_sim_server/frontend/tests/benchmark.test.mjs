@@ -15,6 +15,7 @@ test('benchmark deep links use existing pages and preserve the selected batch',(
 test('displayed success rate uses all planned cases and separates angle and position units',()=>{
   assert.equal(benchmarkRate({success_rate_all_planned:.25,successes:1,planned:4}),'25.0%（1/4）');
   assert.equal(benchmarkMetric({final_attitude_error_rad:Math.PI/180}),'1.0000°');
+  assert.equal(benchmarkMetric({final_boresight_error_rad:Math.PI/180,failed_tracking_samples:1,tracking_samples:9001}),'指向误差 1.0000°；跟踪时窗超限 1/9001 帧');
   assert.equal(benchmarkMetric({target_count:3,completed_targets:[{target_index:0}],final_attitude_error_rad:0}), '已完成姿态 1/3；当前姿态误差 0.0000°');
   assert.equal(benchmarkMetric({final_position_error_m:.125}),'0.1250 m');
   assert.equal(benchmarkMetric({final_orbit:{impulse_vector_error_m_s:.001}}),'Δv 误差 0.0010 m/s');

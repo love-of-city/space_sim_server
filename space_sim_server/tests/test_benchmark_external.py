@@ -13,6 +13,7 @@ from space_arm_platform.benchmark_navigation import NavigationContext, GNSSMeasu
 from space_arm_platform.benchmark_relative_flight import RelativeFlightContext
 from space_arm_platform.benchmark_flyaround import FlyAroundContext
 from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
+from space_arm_platform.benchmark_pointing import PointingContext, PointingObservation
 from space_arm_platform.benchmark_contract import MethodContext, NavigationObservation, SPEC_DIRECTORY, load_task
 from space_arm_platform.benchmark_external import (
     ExternalMethod, ExternalMethodDefinition, MAX_STDERR_BYTES, decode_message,
@@ -35,7 +36,7 @@ def assert_process_exited(identity):
 
 
 def context_and_observation(family):
-    if family == "attitude":
+    if family in {"attitude", "pointing"}:
         task = load_task(SPEC_DIRECTORY / "s02-wheel-attitude-v1.json")
         context = AttitudeContext(task=task, chaser_mass_kg=170., inertia_com_body_kg_m2=((1., 0., 0.), (0., 2., 0.), (0., 0., 3.)),
             wheel_spin_inertia_kg_m2=(.01, .01, .01), hardware_torque_limits_nm=(.2, .2, .2),
@@ -43,6 +44,14 @@ def context_and_observation(family):
         observation = AttitudeObservation(episode_id="test", sequence=0, sample_time_ns=0, delivery_time_ns=0,
             orientation_body_to_j2000_wxyz=(math.cos(.1), math.sin(.1), 0., 0.),
             angular_velocity_body_rad_s=(.001, .002, -.001), wheel_speed_rad_s=(0., 0., 0.), gyro_valid=True)
+        if family == "pointing":
+            task = load_task(SPEC_DIRECTORY / "s06-earth-pointing-v1.json")
+            context = PointingContext(task=task, **context.model_dump(exclude={"task"}))
+            observation = PointingObservation(**observation.model_dump(exclude={"schema_version"}),
+                chaser_gnss_j2000=(6878136.6,0.,0.,0.,7500.,0.),
+                ephemeris=dict(earth_j2000_to_fixed=((1.,0.,0.),(0.,1.,0.),(0.,0.,1.)),
+                    earth_j2000_to_fixed_rate_s=((0.,0.,0.),(0.,0.,0.),(0.,0.,0.)),
+                    sun_geocentric_j2000=(1.5e11,0.,0.,0.,30000.,0.)))
     elif family == "formation":
         task = load_task(SPEC_DIRECTORY / "m02-gnss-formation-hold-v1.json")
         context = FormationContext(task=task, spacecraft_masses_kg=(170., 170., 170.))
@@ -72,10 +81,10 @@ def context_and_observation(family):
     return context, observation
 
 
-@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation"])
+@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation", "pointing"])
 def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family):
     context, observation = context_and_observation(family)
-    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json"}.get(family, f"{family}-pd.json")
+    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "pointing": "pointing.json"}.get(family, f"{family}-pd.json")
     definition = ExternalMethodDefinition(SERVER / "examples/autonomy_methods" / filename, context.task)
     method = ExternalMethod(definition, tmp_path)
     baseline = method_classes(context.task)[method_ids(context.task)[0]]()

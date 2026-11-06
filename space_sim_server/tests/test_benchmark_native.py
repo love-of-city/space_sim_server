@@ -18,6 +18,62 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_noncooperative_radar_two_bodies_no_target_link_and_reset(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_navigation import NavigationEstimateAction
+from space_arm_platform.benchmark_registry import native_environment, method_classes, method_ids
+
+task = load_task(SPEC_DIRECTORY/'d02-noncooperative-radar-estimation-v1.json')
+env = native_environment(task, Path(sys.argv[1]))
+method = method_classes(task)[method_ids(task)[0]]()
+try:
+    first = env.reset(3)
+    initial = env._read_physical_states(0).copy()
+    assert set(env.model_manifest['bodies']) == {'capture_target', 'cubesat_bus'}
+    assert first.target_measurement_j2000 is None
+    assert not hasattr(env, '_filters')
+    assert np.linalg.norm(np.asarray(first.chaser_measurement_j2000)-initial[1]) > 1e-5
+    assert abs(first.range_m-np.linalg.norm(initial[0, :3]-initial[1, :3])) > 1e-8
+    assert not any(name.startswith('target_') for name in env._stepper.actuator_names)
+    method.reset(env.context)
+    action = method.act(first)
+    after = env.step(action)
+    propagated = env._read_physical_states(task.decision_period_ns).copy()
+    assert np.linalg.norm(propagated[0, :3]-initial[0, :3]) > 3000.
+    assert np.linalg.norm(propagated[1, :3]-initial[1, :3]) > 3000.
+    assert after.target_measurement_j2000 is None
+    assert env.evaluation()['estimate_count'] == 1 and env.evaluation()['radar_delivery_count'] == 2
+    assert env.evaluation()['thrust_impulse_n_s'] == 0.
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    again = env.reset(3)
+    assert again.episode_id != first.episode_id
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(env._read_physical_states(0), initial)
+    assert env.evaluation()['estimate_count'] == 0 and env.evaluation()['radar_delivery_count'] == 1
+    try:
+        env.step(action)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('old episode estimate accepted')
+    env.step(NavigationEstimateAction(episode_id=again.episode_id, observation_sequence=0, estimate_time_ns=0,
+        reference_frame=task.reference_frame, estimated_state=(0.,)*6))
+    assert np.array_equal(env._read_physical_states(task.decision_period_ns), propagated)
+    assert env.evaluation()['thrust_impulse_n_s'] == 0.
+finally:
+    env.close()
+print('native radar packets, passive target, state-estimation-only control boundary and exact reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'radar-native')],
+        cwd=SERVER, capture_output=True, text=True, timeout=240)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native radar packets' in result.stdout
+
+
 def test_native_receiver_outage_withholds_solutions_propagates_and_resets(tmp_path):
     code = r'''
 import json

@@ -12,6 +12,8 @@ from .benchmark_navigation import GNSSMeasurements, NavigationContext, Navigatio
 from .benchmark_navigation_score import NavigationScorer
 from .benchmark_navigation_recovery import NavigationRecoveryTask, NavigationRecoveryContext, NavigationRecoveryObservation
 from .benchmark_navigation_recovery_score import NavigationRecoveryScorer
+from .benchmark_radar_navigation import RadarNavigationTask, RadarNavigationContext, RadarObservation
+from .benchmark_radar_navigation_score import RadarNavigationScorer
 from .benchmark_relative_flight import RelativeFlightContext, RelativeFlightTask
 from .benchmark_relative_flight_score import RelativeFlightScorer
 from .benchmark_flyaround import FlyAroundContext, FlyAroundTask
@@ -33,7 +35,7 @@ from .benchmark_wheel_recovery_score import WheelRecoveryScorer
 from .benchmark_avoidance import AvoidanceTask, AvoidanceContext, AvoidanceObservation
 from .benchmark_avoidance_score import AvoidanceScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | NavigationRecoveryTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | TargetPointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | NavigationRecoveryTask | RadarNavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | TargetPointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    RadarNavigationTask: FamilyImplementation('simulation.benchmark_radar_navigation_methods', 'simulation.benchmark_native_radar_navigation',
+        'NativeRadarNavigationEnvironment', ('radar-orbit-estimator-v1', 'frozen-radar-estimate-v1', 'zero-radar-estimate-v1')),
     TargetPointingTask: FamilyImplementation('simulation.benchmark_target_pointing_methods', 'simulation.benchmark_native_target_pointing',
         'NativeTargetPointingEnvironment', ('cooperative-target-pointing-v1', 'frozen-target-pointing-v1', 'no-target-pointing-torque-v1', 'unsafe-target-pointing-spin-v1')),
     NavigationRecoveryTask: FamilyImplementation("simulation.benchmark_navigation_recovery_methods", "simulation.benchmark_native_navigation_recovery",
@@ -117,6 +121,7 @@ def method_input_types(task: Task):
         OrbitTask: (OrbitContext, OrbitObservation),
         NavigationTask: (NavigationContext, GNSSMeasurements),
         NavigationRecoveryTask: (NavigationRecoveryContext, NavigationRecoveryObservation),
+        RadarNavigationTask: (RadarNavigationContext, RadarObservation),
         RelativeFlightTask: (RelativeFlightContext, NavigationObservation),
         FlyAroundTask: (FlyAroundContext, NavigationObservation),
         FormationTask: (FormationContext, FormationObservation),
@@ -159,6 +164,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, RadarNavigationTask):
+        return RadarNavigationScorer(task, chaser_mass_kg)
     if isinstance(task, TargetPointingTask):
         return TargetPointingScorer(task)
     if isinstance(task, NavigationRecoveryTask):
@@ -214,6 +221,8 @@ def capability_matrix(catalogue, tasks):
 
 def configuration_title(catalogue, task):
     title = catalogue.task(task.requirement_id).title
+    if isinstance(task, RadarNavigationTask):
+        title += '（主动测距与多普勒，无目标遥测）'
     if isinstance(task, AvoidanceTask):
         title += "（单星与被动碎片，外部目录观测）"
     if isinstance(task, WheelRecoveryTask):

@@ -81,18 +81,25 @@ class NavigationScorer:
             if np.linalg.norm(velocity) > limits.maximum_relative_speed_m_s:
                 self.safety_violations.add("relative_speed")
             if self.last_time_ns is None:
-                if initial_orbit_errors(sample.target_com_j2000, initial.target_altitude_m, 0.,
-                                         initial.inclination_deg, initial.true_anomaly_deg, 0.):
+                if self._initial_target_orbit_invalid(sample):
                     self.initialization_errors.add("initial_target_orbit_outside_declared_distribution")
                 if (np.any(abs(position-initial.relative_position_tnr_m) > initial.position_half_width_m+1e-5)
                         or np.any(abs(velocity-initial.relative_velocity_tnr_m_s) > initial.velocity_half_width_m_s+1e-8)):
                     self.initialization_errors.add("initial_relative_state_outside_declared_distribution")
             # Inertial vector difference; not a rotating-frame velocity.
-            self.latest_truth = np.asarray(sample.chaser_com_j2000)-sample.target_com_j2000
+            self.latest_truth = self._relative_estimate_truth(sample)
         self.last_time_ns = sample.time_ns
         self.count += 1
         if sample.time_ns == round(self.task.duration_s*1e9) and self.estimate_count != self.task.expected_estimates:
             self.evidence_errors.add("incomplete_navigation_estimate_coverage")
+
+    def _relative_estimate_truth(self, sample):
+        return np.asarray(sample.chaser_com_j2000)-sample.target_com_j2000
+
+    def _initial_target_orbit_invalid(self, sample):
+        initial = self.task.initial
+        return initial_orbit_errors(sample.target_com_j2000, initial.target_altitude_m, 0.,
+                                    initial.inclination_deg, initial.true_anomaly_deg, 0.)
 
     def _estimate(self, raw):
         try:

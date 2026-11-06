@@ -8,7 +8,7 @@ from pydantic import Field, StrictBool, field_validator, model_validator
 from .benchmark_contract import Contract, Count, Number, Positive, SeedSplits, State6, WaypointInitialState
 from .benchmark_orbit import OrbitInitialState
 
-EstimateFrame = Literal["Earth_centered_J2000", "chaser_minus_target_J2000"]
+EstimateFrame = Literal["Earth_centered_J2000", "chaser_minus_target_J2000", "target_Earth_centered_J2000"]
 EstimatePosition = Annotated[Number, Field(ge=-1e12, le=1e12)]
 EstimateVelocity = Annotated[Number, Field(ge=-1e7, le=1e7)]
 EstimateState = tuple[EstimatePosition, EstimatePosition, EstimatePosition, EstimateVelocity, EstimateVelocity, EstimateVelocity]

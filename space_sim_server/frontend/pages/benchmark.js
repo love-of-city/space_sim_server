@@ -27,6 +27,8 @@ export function createBenchmarkPanel(root,{api}){
       ?`${spec.controlled_spacecraft} 颗星分别受控；所有成员位置误差 ≤ ${spec.objective.position_tolerance_m} m，连续保持 ${spec.objective.dwell_s} s；任意两星间距 ≥ ${spec.safety.minimum_pair_distance_m} m`
       :spec.objective.kind==='navigation_outage_recovery'
       ?`GNSS 解中断 ${spec.fault.minimum_duration_s}–${spec.fault.maximum_duration_s} s；中断期间持续估计，位置误差 ≤ ${spec.objective.outage_maximum_position_error_m} m；信号恢复后 ${spec.objective.recovery_deadline_after_return_s} s 内确认连续 ${spec.objective.recovered_dwell_s} s 精度恢复`
+      :spec.schema_version==='spacesim-autonomy-radar-navigation/1'
+      ?`非合作目标，不接收目标遥测；自身导航与模拟测距、视线方向、多普勒观测，连续估计目标地心位置和速度；位置 RMSE ≤ ${spec.objective.position_rmse_limit_m} m、速度 RMSE ≤ ${spec.objective.velocity_rmse_limit_m_s} m/s`
       :spec.objective.kind==='navigation_accuracy'
       ?`全程位置 RMSE ≤ ${spec.objective.position_rmse_limit_m} m、速度 RMSE ≤ ${spec.objective.velocity_rmse_limit_m_s} m/s；方法只输出估计，不控制推进器`
       :spec.objective.kind==='spacecraft_com'

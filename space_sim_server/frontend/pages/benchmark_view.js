@@ -8,6 +8,8 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'radar-orbit-estimator-v1':'测距与多普勒轨道估计','external-radar-estimator-v1':'非合作轨道估计 · 独立进程示例',
+  'frozen-radar-estimate-v1':'冻结目标初始估计（负对照）','zero-radar-estimate-v1':'零目标状态估计（负对照）',
   'cooperative-target-pointing-v1':'合作目标星持续指向','external-target-pointing-v1':'目标星指向 · 独立进程示例',
   'frozen-target-pointing-v1':'保持目标初始方向（负对照）','no-target-pointing-torque-v1':'零目标跟踪力矩（负对照）',
   'unsafe-target-pointing-spin-v1':'持续满力矩指向（负对照）',

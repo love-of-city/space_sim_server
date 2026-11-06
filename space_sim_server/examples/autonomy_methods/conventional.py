@@ -8,6 +8,11 @@ sys.path.insert(0, str(SERVER))
 
 from space_arm_platform.benchmark_external import serve_method  # noqa: E402
 
+if sys.argv[1:] == ['radar-navigation']:
+    from simulation.benchmark_radar_navigation_methods import RadarOrbitEstimator
+    from space_arm_platform.benchmark_radar_navigation import RadarNavigationContext, RadarObservation
+    raise SystemExit(serve_method(RadarOrbitEstimator(), RadarNavigationContext, RadarObservation))
+
 if sys.argv[1:] == ["navigation-recovery"]:
     from simulation.benchmark_navigation_recovery_methods import GNSSOutageRecovery
     from space_arm_platform.benchmark_navigation_recovery import NavigationRecoveryContext, NavigationRecoveryObservation

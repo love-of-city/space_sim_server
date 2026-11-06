@@ -117,9 +117,9 @@ def test_matrix_keeps_unregistered_requirements_and_does_not_claim_acceptance(ca
     result = json.loads(capsys.readouterr().out)
     assert result["scope"] == "execution_registration_not_runtime_acceptance"
     assert result["requirements"] == len(result["tasks"]) == 122
-    assert result["registered_requirements"] == 35
-    assert result["unregistered_requirements"] == 87
-    assert result["configuration_count"] == 38
+    assert result["registered_requirements"] == 36
+    assert result["unregistered_requirements"] == 86
+    assert result["configuration_count"] == 39
     rows = {row["source_id"]: row for row in result["tasks"]}
     assert len(rows["S11"]["configurations"]) == 2
     assert rows["T06"]["execution_registration"] == "not_registered"
@@ -128,7 +128,7 @@ def test_matrix_keeps_unregistered_requirements_and_does_not_claim_acceptance(ca
 
 
 @pytest.mark.parametrize('kind', ['vision-approach', 'vision-approach-observation', 'vision-approach-action',
-                                 'wheel-recovery', 'wheel-recovery-observation', 'wheel-recovery-action', 'debris-avoidance', 'debris-observation', 'navigation-recovery', 'navigation-recovery-observation'])
+                                 'wheel-recovery', 'wheel-recovery-observation', 'wheel-recovery-action', 'debris-avoidance', 'debris-observation', 'navigation-recovery', 'navigation-recovery-observation', 'radar-navigation', 'radar-observation'])
 def test_new_family_schemas_are_reachable_through_cli_argument_parser(capsys, kind):
     assert main(['schema', '--kind', kind]) == 0
     schema = json.loads(capsys.readouterr().out)

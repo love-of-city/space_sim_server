@@ -4,6 +4,8 @@ import importlib
 
 from .benchmark_attitude import AttitudeContext, AttitudeObservation, AttitudeTask, WheelTorqueAction
 from .benchmark_attitude_score import AttitudeScorer
+from .benchmark_momentum_unload import MomentumUnloadTask, MomentumUnloadContext, MomentumUnloadAction
+from .benchmark_momentum_unload_score import MomentumUnloadScorer
 from .benchmark_contract import ForceAction, MethodContext, NavigationObservation, WaypointTask
 from .benchmark_scoring import WaypointScorer
 from .benchmark_orbit import CircularOrbitObjective, OrbitMaintenanceObjective, OrbitPlaneObjective, OrbitContext, OrbitObservation, OrbitTask
@@ -35,7 +37,7 @@ from .benchmark_wheel_recovery_score import WheelRecoveryScorer
 from .benchmark_avoidance import AvoidanceTask, AvoidanceContext, AvoidanceObservation
 from .benchmark_avoidance_score import AvoidanceScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | NavigationRecoveryTask | RadarNavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | TargetPointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
+Task = WaypointTask | AttitudeTask | MomentumUnloadTask | OrbitTask | NavigationTask | NavigationRecoveryTask | RadarNavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | TargetPointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    MomentumUnloadTask: FamilyImplementation('simulation.benchmark_momentum_unload_methods', 'simulation.benchmark_native_momentum_unload',
+        'NativeMomentumUnloadEnvironment', ('momentum-unload-pd-v1', 'attitude-only-unload-v1', 'wheels-only-unload-v1', 'unsafe-unload-spin-v1')),
     RadarNavigationTask: FamilyImplementation('simulation.benchmark_radar_navigation_methods', 'simulation.benchmark_native_radar_navigation',
         'NativeRadarNavigationEnvironment', ('radar-orbit-estimator-v1', 'frozen-radar-estimate-v1', 'zero-radar-estimate-v1')),
     TargetPointingTask: FamilyImplementation('simulation.benchmark_target_pointing_methods', 'simulation.benchmark_native_target_pointing',
@@ -118,6 +122,7 @@ def method_input_types(task: Task):
     return {
         WaypointTask: (MethodContext, NavigationObservation),
         AttitudeTask: (AttitudeContext, AttitudeObservation),
+        MomentumUnloadTask: (MomentumUnloadContext, AttitudeObservation),
         OrbitTask: (OrbitContext, OrbitObservation),
         NavigationTask: (NavigationContext, GNSSMeasurements),
         NavigationRecoveryTask: (NavigationRecoveryContext, NavigationRecoveryObservation),
@@ -136,7 +141,10 @@ def method_input_types(task: Task):
 
 
 def parse_action(task: Task, raw, observation):
-    if isinstance(task, WheelRecoveryTask):
+    if isinstance(task, MomentumUnloadTask):
+        action = MomentumUnloadAction.model_validate(raw)
+        action.validate_for(observation, task)
+    elif isinstance(task, WheelRecoveryTask):
         action = WheelRecoveryAction.model_validate(raw)
         action.validate_for(observation, task.safety.maximum_motor_torque_nm)
     elif isinstance(task, VisionApproachTask):
@@ -164,6 +172,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, MomentumUnloadTask):
+        return MomentumUnloadScorer(task)
     if isinstance(task, RadarNavigationTask):
         return RadarNavigationScorer(task, chaser_mass_kg)
     if isinstance(task, TargetPointingTask):
@@ -221,6 +231,8 @@ def capability_matrix(catalogue, tasks):
 
 def configuration_title(catalogue, task):
     title = catalogue.task(task.requirement_id).title
+    if isinstance(task, MomentumUnloadTask):
+        title += '（原飞轮与理想外部卸载力矩）'
     if isinstance(task, RadarNavigationTask):
         title += '（主动测距与多普勒，无目标遥测）'
     if isinstance(task, AvoidanceTask):

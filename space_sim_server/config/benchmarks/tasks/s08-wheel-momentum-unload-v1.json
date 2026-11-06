@@ -1,0 +1,98 @@
+{
+  "schema_version": "spacesim-autonomy-momentum-unload/1",
+  "configuration_id": "s08-wheel-momentum-unload-v1",
+  "requirement_id": "ssb.attitude.momentum-unload",
+  "source_id": "S08",
+  "backend": "native_team_single_momentum_unload_v1",
+  "target_cooperation": "none",
+  "controlled_spacecraft": 1,
+  "spacecraft_count": 1,
+  "control_architecture": "single_agent",
+  "vision_mode": "V0",
+  "action_type": "wheel_motor_torques_and_external_body_torque",
+  "reference_frame": "body_to_J2000_quaternion_wxyz",
+  "initial": {
+    "altitude_m": 500000.0,
+    "inclination_deg": 51.6,
+    "true_anomaly_deg": 180.0,
+    "rotation_min_rad": 0.02,
+    "rotation_max_rad": 0.05,
+    "body_rate_half_width_rad_s": 0.001,
+    "wheel_speed_rad_s": [
+      600.0,
+      -580.0,
+      560.0
+    ]
+  },
+  "objective": {
+    "orientation_body_to_j2000_wxyz": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "angle_tolerance_rad": 0.008726646259971648,
+    "body_rate_tolerance_rad_s": 0.001,
+    "dwell_s": 10.0,
+    "maximum_wheel_speed_rad_s": 350.0,
+    "minimum_wheel_momentum_reduction_nm_s": 3.5,
+    "minimum_external_torque_impulse_nm_s": 3.5,
+    "maximum_coast_external_torque_norm_nm": 1E-06
+  },
+  "safety": {
+    "maximum_body_rate_rad_s": 0.15,
+    "maximum_wheel_speed_rad_s": 628.3185307179587,
+    "maximum_motor_torque_nm": 0.2,
+    "maximum_external_torque_norm_nm": 0.02
+  },
+  "observation": {
+    "kind": "noisy_absolute_attitude_telemetry_and_gyroscope",
+    "orientation_noise_std_rad": 0.0001,
+    "gyro_white_noise_std_rad_s": 0.0001,
+    "gyro_initial_bias_std_rad_s": 1E-05,
+    "gyro_bias_random_walk_rad_s_sqrt_s": 1E-06,
+    "gyro_range_rad_s": 0.5,
+    "wheel_encoder": "ideal_joint_rate_encoder",
+    "delay_s": 0.0
+  },
+  "seeds": {
+    "train": [
+      1,
+      2,
+      3
+    ],
+    "validation": [
+      101,
+      102,
+      103
+    ],
+    "test": [
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210
+    ]
+  },
+  "duration_s": 480.0,
+  "physics_period_ns": 20000000,
+  "physics_substeps": 8,
+  "decision_period_ns": 20000000,
+  "earth_gravity": "j2",
+  "solar_gravity": true,
+  "drag_enabled": true,
+  "srp_enabled": true,
+  "disturbance_sigma_m_s2": 2E-05,
+  "mass_model": "constant_no_propellant_model",
+  "external_torque_model": "ideal_pure_body_torque_site_motors",
+  "wheel_spin_inertia_kg_m2": [
+    0.01,
+    0.01,
+    0.01
+  ]
+}

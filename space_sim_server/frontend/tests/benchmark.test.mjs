@@ -15,6 +15,8 @@ test('benchmark deep links use existing pages and preserve the selected batch',(
 test('displayed success rate uses all planned cases and separates angle and position units',()=>{
   assert.equal(benchmarkRate({success_rate_all_planned:.25,successes:1,planned:4}),'25.0%（1/4）');
   assert.equal(benchmarkMetric({final_attitude_error_rad:Math.PI/180}),'1.0000°');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-momentum-unload-score/1',wheel_momentum_norm_reduction_nm_s:4.5,final_maximum_wheel_speed_rad_s:314.125}),'轮系角动量模长降低 4.500 N·m·s；末端最大轮速 314.13 rad/s');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-momentum-unload-score/1',wheel_momentum_norm_reduction_nm_s:null,final_maximum_wheel_speed_rad_s:null}),'轮系角动量模长降低 —；末端最大轮速 —');
   assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-wheel-recovery-score/1',diagnosis_latency_s:.86,final_attitude_error_rad:Math.PI/180}),'异常诊断延迟 0.86 s；姿态误差 1.0000°');
   assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-debris-avoidance-score/1',minimum_range_m:201.5,final_coast_s:200}),'最小碎片间距 201.50 m；末段无推力滑行 200.00 s');
   assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-wheel-recovery-score/1',diagnosis_latency_s:null,final_attitude_error_rad:null}),'异常诊断延迟 未确认；姿态误差 —');

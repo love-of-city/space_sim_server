@@ -18,6 +18,69 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_momentum_unload_external_torque_changes_bus_and_reset_restores_all_actuators(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_momentum_unload import MomentumUnloadAction
+from space_arm_platform.benchmark_registry import native_environment, method_classes, method_ids
+
+task = load_task(SPEC_DIRECTORY/'s08-wheel-momentum-unload-v1.json')
+env = native_environment(task, Path(sys.argv[1]))
+def action(obs, torque):
+    return MomentumUnloadAction(episode_id=obs.episode_id, observation_sequence=obs.sequence,
+        motor_torque_xyz_nm=(0., 0., 0.), external_torque_body_nm=torque)
+try:
+    first = env.reset(3)
+    initial = env._truth_sample(0)
+    assert set(env._stepper.actuator_names) == {'rw_x_motor','rw_y_motor','rw_z_motor','momentum_dump_0','momentum_dump_1','momentum_dump_2'}
+    assert env.model_manifest['spacecraft_count'] == 1
+    obs = first
+    for _ in range(25):
+        obs = env.step(action(obs, (.02, 0., 0.)))
+    driven = env._truth_sample(env._time_ns)
+    assert driven.applied_external_torque_body_nm == (.02, 0., 0.)
+    assert env.evaluation()['external_torque_norm_impulse_nm_s'] > .0099
+    assert driven.external_state_writes == 0
+    old_action = action(obs, (.02, 0., 0.))
+    reset = env.reset(3)
+    assert reset.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert env._truth_sample(0) == initial
+    try:
+        env.step(old_action)
+        raise AssertionError('stale action accepted')
+    except ValueError:
+        pass
+    assert env._requested_external_torque == (0., 0., 0.)
+    obs = reset
+    for _ in range(25):
+        obs = env.step(action(obs, (0., 0., 0.)))
+    passive = env._truth_sample(env._time_ns)
+    assert np.linalg.norm(np.asarray(driven.angular_velocity_body_rad_s)-passive.angular_velocity_body_rad_s) > 1e-5
+    assert env.evaluation()['external_torque_norm_impulse_nm_s'] == 0.
+    assert passive.external_state_writes == 0
+    baseline = method_classes(task)[method_ids(task)[0]]()
+    obs = env.reset(3)
+    baseline.reset(env.context)
+    initial_momentum = env.evaluation()['initial_wheel_momentum_norm_nm_s']
+    for _ in range(100):
+        obs = env.step(baseline.act(obs))
+    assert env.evaluation()['final_wheel_momentum_norm_nm_s'] < initial_momentum-.01
+    assert env.evaluation()['outcome'] == 'incomplete'
+    assert env._truth_sample(env._time_ns).external_state_writes == 0
+finally:
+    env.close()
+assert env._simulation is None and env._stepper is None
+print('native external torque, stored wheel momentum reduction, action isolation and exact reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'unload-native')],
+        cwd=SERVER, capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native external torque' in result.stdout
+
+
 def test_native_noncooperative_radar_two_bodies_no_target_link_and_reset(tmp_path):
     code = r'''
 import sys

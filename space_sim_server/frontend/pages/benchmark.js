@@ -13,7 +13,9 @@ export function createBenchmarkPanel(root,{api}){
     $('seed').replaceChildren(...seeds.map(seed=>new Option(String(seed),String(seed))));if(seeds.includes(Number(previous)))$('seed').value=previous;
     const single=$('selection').value==='single';$('seed-field').hidden=!single;
     $('plan').textContent=`计划 ${single?1:seeds.length} 个样本；种子 ${single?$('seed').value:seeds.join('、')}。每个样本只尝试一次，停止后可继续尚未启动的样本。`;
-    const objective=spec.schema_version==='spacesim-autonomy-wheel-recovery/1'
+    const objective=spec.schema_version==='spacesim-autonomy-momentum-unload/1'
+      ?`飞轮转速降至 ${spec.objective.maximum_wheel_speed_rad_s} rad/s 以下，轮系角动量模长降低至少 ${spec.objective.minimum_wheel_momentum_reduction_nm_s} N·m·s；关闭理想外部卸载力矩后，姿态与轮速连续保持 ${spec.objective.dwell_s} s`
+      :spec.schema_version==='spacesim-autonomy-wheel-recovery/1'
       ?`单飞轮发生力矩衰减；依据带噪力矩遥测在异常后 ${spec.objective.diagnosis_deadline_after_onset_s} s 内完成诊断，恢复指定姿态并连续保持 ${spec.objective.dwell_s} s`
       :spec.schema_version==='spacesim-autonomy-visual-approach/1'
       ?`双目真实图像闭环控制；已知被动标志物，无目标遥测；接近后位置误差 ≤ ${spec.objective.position_tolerance_m} m、相对速度 ≤ ${spec.objective.optical_relative_speed_tolerance_m_s} m/s，连续保持 ${spec.objective.dwell_s} s`

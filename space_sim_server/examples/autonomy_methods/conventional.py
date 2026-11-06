@@ -37,6 +37,11 @@ if sys.argv[1:] == ["attitude-sequence"]:
     from simulation.benchmark_attitude_methods import SequenceAttitudePD
     from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation
     raise SystemExit(serve_method(SequenceAttitudePD(), AttitudeContext, AttitudeObservation))
+if sys.argv[1:] == ["momentum-unload"]:
+    from simulation.benchmark_momentum_unload_methods import MomentumUnloadPD
+    from space_arm_platform.benchmark_momentum_unload import MomentumUnloadContext
+    from space_arm_platform.benchmark_attitude import AttitudeObservation
+    raise SystemExit(serve_method(MomentumUnloadPD(), MomentumUnloadContext, AttitudeObservation))
 if sys.argv[1:] == ["wheel-recovery"]:
     from simulation.benchmark_wheel_recovery_methods import AdaptiveWheelRecovery
     from space_arm_platform.benchmark_wheel_recovery import WheelRecoveryContext, WheelRecoveryObservation

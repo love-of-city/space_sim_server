@@ -8,6 +8,9 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'momentum-unload-pd-v1':'飞轮动量卸载与姿态保持','external-momentum-unload-v1':'动量卸载 · 独立进程示例',
+  'attitude-only-unload-v1':'仅保持姿态（卸载负对照）','wheels-only-unload-v1':'仅制动飞轮（负对照）',
+  'unsafe-unload-spin-v1':'持续满飞轮力矩（负对照）',
   'radar-orbit-estimator-v1':'测距与多普勒轨道估计','external-radar-estimator-v1':'非合作轨道估计 · 独立进程示例',
   'frozen-radar-estimate-v1':'冻结目标初始估计（负对照）','zero-radar-estimate-v1':'零目标状态估计（负对照）',
   'cooperative-target-pointing-v1':'合作目标星持续指向','external-target-pointing-v1':'目标星指向 · 独立进程示例',
@@ -50,6 +53,11 @@ export const methodLabels = {
   'one-sided-formation-v1':'仅一星施力（协同交会负对照）',
 };
 export function benchmarkMetric(score){
+  if(score?.schema_version==='spacesim-autonomy-momentum-unload-score/1'){
+    const reduction=Number.isFinite(score.wheel_momentum_norm_reduction_nm_s)?`${score.wheel_momentum_norm_reduction_nm_s.toFixed(3)} N·m·s`:'—';
+    const speed=Number.isFinite(score.final_maximum_wheel_speed_rad_s)?`${score.final_maximum_wheel_speed_rad_s.toFixed(2)} rad/s`:'—';
+    return `轮系角动量模长降低 ${reduction}；末端最大轮速 ${speed}`;
+  }
   if(score?.schema_version==='spacesim-autonomy-navigation-recovery-score/1'){
     const peak=Number.isFinite(score.maximum_outage_position_error_m)?`${score.maximum_outage_position_error_m.toFixed(4)} m`:'—';
     const recovery=Number.isFinite(score.recovery_confirmation_latency_s)?`${score.recovery_confirmation_latency_s.toFixed(2)} s`:'未确认';

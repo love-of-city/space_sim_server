@@ -75,7 +75,7 @@ class AttitudeScorer:
         if sample.time_ns != 0 and sample.time_ns == expected:
             for i, value in enumerate(sample.applied_motor_torque_xyz_nm):
                 self.motor_impulse[i] += abs(value) * self.task.physics_period_ns * 1e-9
-        in_region = angle <= self.task.objective.angle_tolerance_rad and rate <= self.task.objective.body_rate_tolerance_rad_s
+        in_region = self._in_goal_region(sample, angle, rate)
         if in_region and not self.evidence_errors:
             if self.hold_start_ns is None:
                 self.hold_start_ns = sample.time_ns
@@ -104,6 +104,9 @@ class AttitudeScorer:
         self.peak_rate = max(self.peak_rate, rate)
         self.peak_wheel_speed = max(self.peak_wheel_speed, wheel_speed)
         self.peak_torque = max(self.peak_torque, torque)
+
+    def _in_goal_region(self, sample, angle, rate):
+        return angle <= self.task.objective.angle_tolerance_rad and rate <= self.task.objective.body_rate_tolerance_rad_s
 
     def result(self):
         if not self.count or self.evidence_errors:

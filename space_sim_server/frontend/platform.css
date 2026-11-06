@@ -44,6 +44,7 @@
 .button.text-button { background: transparent; border-color: transparent; padding: 5px 0; color: var(--accent); }
 .button:hover:not(:disabled) { filter: brightness(.97); }
 .button:disabled { opacity: .5; cursor: not-allowed; }
+.button[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .field { display: grid; gap: 6px; color: var(--muted); font-size: 12px; min-width: 0; }
 .platform-page input:not([type=checkbox]):not([type=range]), .platform-page select, .platform-dialog input { background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 7px; min-height: 36px; padding: 7px 10px; max-width: 100%; min-width: 0; font: inherit; }
 .field input, .field select { width: 100%; }
@@ -76,6 +77,7 @@
 .section-heading-row span { color: var(--muted); font-size: 11px; }
 .collection-page .job { margin-bottom: 16px; }
 .collection-page .job-head { display: flex; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.collection-page .job-head .badge { align-self: flex-start; }
 .collection-page .job-id { font-size: 11px; margin-top: 4px; overflow-wrap: anywhere; }
 .collection-page .metrics { display: flex; flex-wrap: wrap; gap: 24px; padding: 16px 18px 8px; }
 .collection-page .metrics > div { display: flex; gap: 8px; align-items: center; }

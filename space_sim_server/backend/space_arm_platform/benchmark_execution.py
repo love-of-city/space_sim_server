@@ -14,6 +14,7 @@ import sys
 import time
 
 from .benchmark_contract import load_task
+from .atomic_json import write_json as atomic_write_json
 from .benchmark_external import ExternalMethod, ExternalMethodDefinition
 from .benchmark_registry import Task, make_scorer, method_classes, method_ids, native_environment, parse_action
 
@@ -23,7 +24,7 @@ class MethodFailure(RuntimeError):
 
 
 def write_json(path: Path, value: dict) -> None:
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    atomic_write_json(path, value, allow_nan=False, trailing_newline=True)
 
 
 def sha256(path: Path) -> str:
@@ -38,13 +39,15 @@ def source_identity(server_root: Path) -> dict:
     paths = set((server_root / "simulation").rglob("*.py"))
     paths.update((server_root / "backend/space_arm_platform").glob("*.py"))
     paths.add(server_root / "native/local_mujoco_stepper.cpp")
+    paths.add(server_root / "tools/autonomy_benchmark.py")
     hashes = {path.relative_to(server_root).as_posix(): sha256(path) for path in sorted(paths)}
     revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=server_root, text=True, capture_output=True, check=False)
     return {"git_revision": revision.stdout.strip() if revision.returncode == 0 else None,
             "python": sys.version, "platform": platform.platform(), "source_sha256": hashes}
 
 
-def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, method_spec: Path | None = None) -> dict:
+def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, method_spec: Path | None = None,
+                stop_file: Path | None = None) -> dict:
     """Record failures too. Output must be new; a retry cannot overwrite a trial."""
     task = type(task).model_validate(task)
     split = task.seeds.split_for(seed)
@@ -91,6 +94,9 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
                 (output / "actions.jsonl").open("w", encoding="utf-8", newline="\n") as actions:
             observations.write(observation.model_dump_json() + "\n")
             while environment.evaluation()["outcome"] == "incomplete":
+                if stop_file is not None and stop_file.exists():
+                    outcome, detail = "cancelled", "operator requested episode stop"
+                    break
                 try:
                     raw_action = method.act(observation)
                     action = parse_action(task, raw_action, observation)
@@ -146,15 +152,24 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
     return result
 
 
-def rescore_episode(output: Path) -> dict:
-    """Verify artifact hashes, replay truth and preserve non-physical failures."""
+def verify_episode_evidence(output: Path) -> tuple[dict, dict]:
+    """Check recorded file hashes, including incomplete infrastructure attempts."""
     output = output.resolve()
     result = json.loads((output / "result.json").read_text(encoding="utf-8"))
+    if not {"task.json", "manifest.json"}.issubset(result["evidence_sha256"]):
+        raise ValueError("run has no hashed task and manifest")
     for relative, expected in result["evidence_sha256"].items():
         path = (output / relative).resolve()
         if not path.is_relative_to(output) or sha256(path) != expected:
             raise ValueError(f"changed or invalid evidence artifact: {relative}")
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    return result, manifest
+
+
+def rescore_episode(output: Path) -> dict:
+    """Verify artifact hashes, replay truth and preserve non-physical failures."""
+    output = output.resolve()
+    result, manifest = verify_episode_evidence(output)
     task = load_task(output / "task.json")
     if task.fingerprint() != manifest["task_fingerprint"]:
         raise ValueError("task does not match run fingerprint")

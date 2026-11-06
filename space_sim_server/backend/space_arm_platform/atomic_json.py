@@ -6,9 +6,10 @@ from pathlib import Path
 import time
 
 
-def write_json(path: Path, value) -> None:
+def write_json(path: Path, value, *, allow_nan=True, trailing_newline=False) -> None:
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    text = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=allow_nan)
+    temporary.write_text(text + ("\n" if trailing_newline else ""), encoding="utf-8")
     deadline = time.monotonic() + 1.0
     while True:
         try:

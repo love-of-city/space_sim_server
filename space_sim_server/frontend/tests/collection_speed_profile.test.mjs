@@ -17,7 +17,8 @@ async function setup(){
   };
   $('task').value='drawer_cycle';
   $('threaded-speed-profile').value='fast_collection';
-  const context=vm.createContext({template:'',mountView:()=>$,collectionLayoutError,
+  const context=vm.createContext({template:'',mountView:()=>$,collectionLayoutError,URLSearchParams,
+    createBenchmarkPanel:()=>({activate(){},deactivate(){},reset(){}}),
     FormData:class {
       *[Symbol.iterator](){
         yield ['task',$('task').value];

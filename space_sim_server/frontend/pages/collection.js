@@ -2,8 +2,10 @@ import template from './collection.html?raw';
 import {mountView} from '../ui.js';
 import {createRandomizationControls} from './collection_randomization.js';
 import {collectionLayoutError} from './collection_layout_status.js';
+import {createBenchmarkPanel} from './benchmark.js';
 export function createCollectionPage(root,{api}) {
 const $=mountView(root,template);
+const benchmark=createBenchmarkPanel($('benchmark-content'),{api});
 const taskLabels = new Map();
 let randomizationControls=null;
 let floatingMode=false, savedRange='30', savedInitialization=true;
@@ -150,8 +152,13 @@ $('collection-form').onsubmit=async event=>{
   catch(error){if(active&&version===epoch)notice(error.message);}
   finally{submitting=false;if(active&&version===epoch)await refresh();}
 };
-return {
-  async activate(){
+const view={
+  async activate(params=new URLSearchParams()){
+    const isBenchmark=params.get('mode')==='benchmark';
+    $('recording-content').hidden=isBenchmark;$('benchmark-content').hidden=!isBenchmark;
+    $('mode-recording').setAttribute('aria-pressed',String(!isBenchmark));$('mode-benchmark').setAttribute('aria-pressed',String(isBenchmark));
+    if(isBenchmark){active=false;epoch++;clearInterval(timer);timer=null;return benchmark.activate();}
+    benchmark.deactivate();
     active=true;const version=++epoch;
     try{
       if(!catalog){const data=await api('/api/collections/catalog');if(!active||version!==epoch)return;if(!Array.isArray(data.randomization_options))throw new Error('后端仍在运行旧版本，请重启平台后端并刷新页面以加载扰动设置。');catalog=data;
@@ -168,7 +175,12 @@ return {
     }catch(error){if(active&&version===epoch)notice(error.message);}
     if(active&&version===epoch){await refresh();if(active&&version===epoch){clearInterval(timer);timer=setInterval(refresh,2000);}}
   },
-  deactivate(){active=false;epoch++;clearInterval(timer);timer=null;},
-  reset(){this.deactivate();catalog=null;previousJobs='';taskLabels.clear();$('jobs').replaceChildren();$('history').replaceChildren();$('setup').hidden=true;$('collection-form').reset();randomizationControls?.sync();syncInitialization();notice();},
+  deactivate(){active=false;epoch++;clearInterval(timer);timer=null;benchmark.deactivate();},
+  reset(){this.deactivate();benchmark.reset();catalog=null;previousJobs='';taskLabels.clear();$('jobs').replaceChildren();$('history').replaceChildren();$('setup').hidden=true;$('collection-form').reset();randomizationControls?.sync();syncInitialization();notice();},
 };
+for(const mode of ['recording','benchmark'])$('mode-'+mode).onclick=()=>{
+  const url=new URL(location.href);if(mode==='benchmark')url.searchParams.set('mode',mode);else url.searchParams.delete('mode');
+  history.replaceState(null,'',url.pathname+url.search+url.hash);view.deactivate();void view.activate(url.searchParams);
+};
+return view;
 }

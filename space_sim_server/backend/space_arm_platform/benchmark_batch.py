@@ -10,12 +10,14 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import time
 
 import psutil
 
 from .benchmark_execution import rescore_episode, sha256, source_identity, write_json
 from .benchmark_external import ExternalMethodDefinition
 from .benchmark_registry import Task, method_ids
+from .collection_processes import launch_collector
 
 TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error",
                      "infrastructure_error", "cancelled", "invalid_evidence"}
@@ -25,7 +27,7 @@ def summarize(trials: list[dict]) -> dict:
     """All planned trials remain in the primary denominator, including errors."""
     outcomes = Counter(trial["outcome"] for trial in trials)
     successes, total = outcomes["success"], len(trials)
-    finished = total - outcomes["pending"]
+    finished = total - outcomes["pending"] - outcomes["running"]
     completed = finished == total
     interval = None
     if completed and total:
@@ -101,7 +103,8 @@ def _completed_trial(directory: Path, planned: dict, task: Task, method: str, ex
             "detail": "previous attempt has no complete result; it was not retried"}
 
 
-def run_batch(task: Task, method: str | None, split: str, output: Path, *, resume=False, method_spec: Path | None = None) -> dict:
+def run_batch(task: Task, method: str | None, split: str, output: Path, *, resume=False,
+              method_spec: Path | None = None, stop_file: Path | None = None, seed: int | None = None) -> dict:
     task = type(task).model_validate(task)
     definition = ExternalMethodDefinition(method_spec, task) if method_spec is not None else None
     if definition is not None:
@@ -115,6 +118,10 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
     if split not in {"train", "validation", "test"}:
         raise ValueError("unknown frozen split")
     seeds = getattr(task.seeds, split)
+    if seed is not None:
+        if type(seed) is not int or seed not in seeds:
+            raise ValueError("single trial seed must belong to the selected frozen split")
+        seeds = (seed,)
     output = output.resolve()
     if not resume:
         output.mkdir(parents=True, exist_ok=False)
@@ -128,6 +135,8 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
             "source_sha256": source["source_sha256"], "wall_time_limit_s": 900, "trials": planned}
     if definition is not None:
         plan["external_method"] = definition.identity
+    if seed is not None:
+        plan["trial_selection"] = {"kind": "single", "seed": seed}
     with batch_lock(output):
         if resume:
             previous = json.loads((output / "plan.json").read_text(encoding="utf-8"))
@@ -145,7 +154,8 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
                 write_json(directory / "status.json", {**prior, **result})
                 results.append(result)
                 continue
-            if cancelled:
+            if cancelled or (stop_file is not None and stop_file.exists()):
+                cancelled = True
                 results.append({**trial, "outcome": "pending"})
                 continue
             # Catch source edits during a long-running batch before launching a
@@ -159,24 +169,39 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
             command = [sys.executable, str(root / "tools/autonomy_benchmark.py"), "run", task.configuration_id,
                        "--seed", str(trial["seed"]), "--output", str(directory / "run")]
             command += ["--method-spec", str(definition.path)] if definition is not None else ["--method", method]
+            if stop_file is not None:
+                command += ["--stop-file", str(stop_file.resolve())]
             with (directory / "stdout.log").open("w", encoding="utf-8") as stdout, \
                     (directory / "stderr.log").open("w", encoding="utf-8") as stderr:
-                child = subprocess.Popen(command, cwd=root, stdout=stdout, stderr=stderr)
+                child, owner = launch_collector(command, cwd=root, stdout=stdout, stderr=stderr,
+                                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 write_json(directory / "status.json", {"outcome": "running", "child_pid": child.pid,
-                                                        "child_created": psutil.Process(child.pid).create_time()})
+                                                        "child_created": owner.created})
+                write_json(output / "summary.json", summarize(results + [{**trial, "outcome": "running"}]
+                    + [{**pending, "outcome": "pending"} for pending in planned[len(results)+1:]]))
+                started, stop_started = time.monotonic(), None
                 try:
-                    returncode = child.wait(timeout=plan["wall_time_limit_s"])
+                    while child.poll() is None:
+                        if stop_file is not None and stop_file.exists():
+                            cancelled = True
+                            stop_started = stop_started or time.monotonic()
+                            if time.monotonic() - stop_started > 10:
+                                break
+                        if time.monotonic() - started > plan["wall_time_limit_s"]:
+                            write_json(directory / "status.json", {"outcome": "infrastructure_error", "detail": "trial wall-time limit"})
+                            break
+                        try:
+                            child.wait(timeout=.2)
+                        except subprocess.TimeoutExpired:
+                            pass
                 except KeyboardInterrupt:
-                    # Only the direct child created for this trial is stopped.
-                    child.terminate()
-                    child.wait(timeout=30)
                     cancelled = True
-                    returncode = child.returncode
-                except subprocess.TimeoutExpired:
-                    child.terminate()
-                    child.wait(timeout=30)
-                    returncode = child.returncode
-                    write_json(directory / "status.json", {"outcome": "infrastructure_error", "detail": "trial wall-time limit"})
+                finally:
+                    # Kernel job / subreaper ownership also handles descendants
+                    # left by a crashed method or a killed batch coordinator.
+                    owner.close()
+                    child.wait(timeout=5)
+                returncode = child.returncode
             if cancelled and not (directory / "run/result.json").exists():
                 write_json(directory / "status.json", {"outcome": "cancelled", "returncode": returncode})
             result = _completed_trial(directory, trial, task, method, plan.get("external_method"))
@@ -186,6 +211,32 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
             write_json(output / "summary.json", current)
             print(json.dumps({"trial": trial["trial_id"], "outcome": result["outcome"],
                               "finished": len(results), "planned": len(planned)}), flush=True)
+        summary = summarize(results)
+        write_json(output / "summary.json", summary)
+        return summary
+
+
+def reconcile_batch(task: Task, method: str, output: Path, *, interrupted_outcome="infrastructure_error") -> dict:
+    """After owned processes have exited, recover durable attempts without running any."""
+    plan = json.loads((output / "plan.json").read_text(encoding="utf-8"))
+    if plan["task_fingerprint"] != task.fingerprint() or plan["method"] != method:
+        raise ValueError("batch identity does not match its frozen task")
+    with batch_lock(output):
+        results = []
+        for trial in plan["trials"]:
+            directory = output / trial["trial_id"]
+            path = directory / "status.json"
+            if not path.is_file():
+                results.append({**trial, "outcome": "pending"})
+                continue
+            status = json.loads(path.read_text(encoding="utf-8"))
+            # _completed_trial checks the recorded child identity before any
+            # recovery write. A live worker is never treated as interrupted.
+            result = _completed_trial(directory, trial, task, method, plan.get("external_method"))
+            if status["outcome"] == "running" and not (directory / "run/result.json").is_file():
+                result["outcome"] = interrupted_outcome
+            write_json(path, {**status, **result})
+            results.append(result)
         summary = summarize(results)
         write_json(output / "summary.json", summary)
         return summary

@@ -50,6 +50,7 @@ def main(argv=None) -> int:
     run_method.add_argument("--method-spec", type=Path, help="trusted external Python method JSON specification")
     run.add_argument("--seed", type=int, required=True)
     run.add_argument("--output", type=Path, required=True)
+    run.add_argument("--stop-file", type=Path, help="stop cooperatively when this control file appears")
     rescore = commands.add_parser("rescore", help="verify artifact hashes and independently replay physical evidence")
     rescore.add_argument("output", type=Path)
     batch = commands.add_parser("batch", help="run a frozen split in isolated processes; resume does not retry failures")
@@ -60,6 +61,8 @@ def main(argv=None) -> int:
     batch.add_argument("--split", choices=["train", "validation", "test"], default="test")
     batch.add_argument("--output", type=Path, required=True)
     batch.add_argument("--resume", action="store_true")
+    batch.add_argument("--stop-file", type=Path, help="stop the current attempt and leave unstarted seeds pending")
+    batch.add_argument("--seed", type=int, help="one diagnostic trial from the selected frozen split")
     args = parser.parse_args(argv)
     if args.command == "schema":
         model = {"catalogue": AutonomyCatalog, "waypoint": WaypointTask,
@@ -99,10 +102,11 @@ def main(argv=None) -> int:
                 return 0
             if args.command == "batch":
                 from space_arm_platform.benchmark_batch import run_batch
-                result = run_batch(task, args.method, args.split, args.output, resume=args.resume, method_spec=args.method_spec)
+                result = run_batch(task, args.method, args.split, args.output, resume=args.resume,
+                                   method_spec=args.method_spec, stop_file=args.stop_file, seed=args.seed)
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 return 0 if result["complete"] and result["successes"] == result["planned"] else 1
-            result = run_episode(task, args.method, args.seed, args.output, method_spec=args.method_spec)
+            result = run_episode(task, args.method, args.seed, args.output, method_spec=args.method_spec, stop_file=args.stop_file)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result["success"] else {"infrastructure_error": 3, "cancelled": 130}.get(result["outcome"], 1)
         except (OSError, ValueError, KeyError) as error:

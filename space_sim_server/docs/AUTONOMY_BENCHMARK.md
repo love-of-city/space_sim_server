@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及三个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持，`s03-large-angle-wheel-v1` 为大角度限时姿态机动。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测和离线复算。其他任务族、API、网页和采集集成仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及三个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持，`s03-large-angle-wheel-v1` 为大角度限时姿态机动。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。其他任务族、真实图像和接触任务、评测数据转训练集仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -65,7 +65,7 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --split test --
 基础测试与原生验收分别执行：
 
 ```text
-python -m pytest tests/test_benchmark_catalog.py tests/test_benchmark_execution.py tests/test_benchmark_attitude.py tests/test_benchmark_external.py -q
+python -m pytest tests/test_benchmark_catalog.py tests/test_benchmark_execution.py tests/test_benchmark_attitude.py tests/test_benchmark_external.py tests/test_benchmark_platform.py -q
 python -m pytest tests/test_benchmark_native.py -q
 ```
 
@@ -176,6 +176,45 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --method-spec e
 | GNSS PD，验证集 | `21cb89a89dde24da7c78917c792b7bf53a725df5a695462b43971b1e5472585f` |
 | 动作超时负对照，验证集 | `138aafa66ac474a19647cc38b9b73bf0442782485b297f6eacb4ab3c2f33a1e5` |
 
+## 在原平台运行评测
+
+按项目原有方式启动平台后，登录并打开“自动采集 → 卫星驾驶评测”，或直接访问 `/collection?mode=benchmark`。选择配置、方法、训练/验证/测试划分，再运行整个冻结划分或其中一个种子。界面会明确显示可运行配置数量和 122 项来源需求数量；依赖检查只检查 Basilisk 包、模型文件和原生构建指纹，不能代替原生验收。
+
+批次通过同一 CLI 启动独立仿真进程。普通用户只能管理自己的批次；管理员可以查看和管理全部批次。同一平台数据目录最多同时运行一个驾驶评测批次；不同数据目录须使用各自进程和端口。网页只接受已注册配置和方法 ID，包括两个随项目交付的独立进程方法示例；自定义 Python 方法通过前述 CLI 在研究主机运行。
+
+“停止批次”先请求当前回合收尾，超时后清理该批次拥有的进程树。已启动回合保留取消或失败结果，尚未启动的回合保持待运行；“继续未启动样本”不会重试失败种子。平台重启会回收旧的本机进程并核对记录，不能接管其他主机上的活动批次。任务、源码或外部方法文件变化时须建立新批次。
+
+在批次卡片点击“查看评测数据”，进入原“数据集”页面的评测视图（`/datasets?benchmark=<批次 ID>`）。它显示全部计划样本的成功率、Wilson 区间、逐种子结果、仿真时长和终态误差；未结束批次不报告置信区间。停止、方法错误和基础设施失败均保留在分母中。“独立复算”读取原始证据重新评分；JSON 导出包含任务、冻结计划和汇总，CSV 导出逐种子的结果及适用数值指标。物理日志、观测、动作、评分和版本清单按登录权限下载，并检查归档哈希。
+
+评测文件保存在配置的 `data_root` 上级目录中的 `benchmark_jobs/<批次 ID>/`。`job.json` 保存管理状态，`task.json` 保存任务快照，`batch/plan.json` 保存冻结计划，逐回合数据和评分位于 `batch/<试验 ID>/run/`。运行数据不应加入源码 Git。原有手动录制、自动采集和数据集曲线/视频流程仍通过各自入口使用；当前驾驶评测日志尚未转换为 LeRobot 训练数据。
+
+已登录客户端可使用以下 API；均复用原平台会话，跨用户记录返回 404：
+
+| 请求 | 用途 |
+| --- | --- |
+| `GET /api/benchmarks/catalog` | 注册配置、方法、冻结种子及依赖检查 |
+| `GET /api/benchmarks` | 当前用户可见的批次 |
+| `POST /api/benchmarks` | 创建批次：`configuration`、`method`、`split`、`selection`；单次另填 `seed` |
+| `GET /api/benchmarks/{id}` | 实时状态、全部计划样本和评分 |
+| `POST /api/benchmarks/{id}/stop` | 停止当前批次 |
+| `POST /api/benchmarks/{id}/resume` | 继续未启动样本 |
+| `POST /api/benchmarks/{id}/rescore` | 核验归档并复算 |
+| `GET /api/benchmarks/{id}/export?format=json` | 导出 JSON；也可选 `csv` |
+| `GET /api/benchmarks/{id}/trials/{trial}/artifacts/{name}` | 下载允许的证据文件 |
+
+CLI 也支持 `batch ... --seed 201`，但种子必须属于所选划分。`run` 和 `batch` 的 `--stop-file <路径>` 接受停止标记文件；调用方创建该文件即可请求停止。恢复时应使用新的停止标记路径，不能复用仍存在的标记。单次选择与整个划分属于不同冻结计划，不能通过恢复命令互换。
+
+### 平台入口验证
+
+2026-11-06，在独立云端工作树和端口运行生产构建，使用实际 Edge 浏览器登录原平台，并从网页启动 Basilisk 回合：
+
+- S02 验证种子 101 运行中停止，保留取消结果；继续运行 102、103 后均成功，整体为 2/3，未删除取消样本。恢复前后种子 101 的 10 个回合文件 SHA-256 和修改时间完全相同。
+- D32 外部 GNSS 方法通过网页选择单次测试种子 201，成功并独立复算一致；完整物理日志 SHA-256 仍为前述 `0a8b14ec5c43368693a668245cd7d1f67fd859d7299cd2933ce81b3ada2551d6`。
+- 四个回合均从日志复算一致。实际点击 JSON、CSV 和物理日志下载，返回原“自动采集”及普通“数据集”页面正常，浏览器没有页面运行错误。
+- 149 项相关后端检查通过（包含 2 项真实原生生命周期检查），261 项前端测试及生产构建通过。进程用例覆盖后代清理、异常退出、源码变更拒绝恢复、跨用户权限、初始化失败和证据篡改；生命周期替身进程只报告取消/基础设施失败，不作为物理成功证据。
+
+本次云端证据目录为工作树下 `.tmp/benchmark-platform-native-v3/`，含原始批次、浏览器截图和导出。`acceptance.json` SHA-256 为 `7a62849a32480ead86065fc44f5b1c0d53fc8aaf861211c384208fb2fab5c220`；实际网页 JSON 导出 SHA-256 为 `7337f98b96b8ac76c99d6803f88ad06ba648fc01c3420e1375ed9e811013049d`。这些证明当前三个配置的管理与回读入口可用，不构成其余任务族或真实图像、抓取任务的验收。
+
 ## 实现边界
 
 | 层 | 责任 | 复用入口或新增内容 |
@@ -185,7 +224,7 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --method-spec e
 | 执行适配 | reset/step/close、控制权、权威状态和方法观测分离 | 复用既有在轨组件、MissionRuntime、策略接口及原生执行器 |
 | 感知链 | 时间标记、标定、实际图像与有效测量 | 复用 GNSS、陀螺、Near23 桥和真实 UE 相机 |
 | 独立评分 | 从原始权威证据计算任务/安全/资源结果 | 复用并扩展已有交会、连续性和物理抓持审计 |
-| 批评测 | 固定样本、失败分母、隔离、取消/恢复和结果汇总 | 当前 CLI 原生进程编排；API/采集集成待实现 |
+| 批评测 | 固定样本、失败分母、隔离、取消/恢复和结果汇总 | CLI/API/原平台入口可运行三个配置；转训练集待实现 |
 | 用户界面 | 选择任务/方法、运行与结果呈现 | 原工作台、自动采集、数据集页面 |
 
 定义一项可执行任务时必须明确：

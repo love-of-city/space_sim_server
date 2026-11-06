@@ -6,6 +6,7 @@ from scipy.spatial.transform import Rotation
 
 from .benchmark_vision_approach import VisionApproachAction
 from .benchmark_vision_worker import ImagePoseMethod
+from .benchmark_stereo_tracking import ApproachStereoTracker
 
 
 class ImageApproachMethod:
@@ -18,6 +19,7 @@ class ImageApproachMethod:
         self.context=context
         self.images=ImagePoseMethod()
         self.images.reset(context)
+        self.images.estimator=ApproachStereoTracker(self.images.estimator)
         q=np.asarray(context.task.cameras[0].orientation_body_from_optical_wxyz)
         self.body_from_camera=Rotation.from_quat(q[[1,2,3,0]])
         self.history=deque(maxlen=5)

@@ -23,6 +23,7 @@ test('displayed success rate uses all planned cases and separates angle and posi
   assert.equal(benchmarkMetric({final_position_error_m:.125}),'0.1250 m');
   assert.equal(benchmarkMetric({final_orbit:{impulse_vector_error_m_s:.001}}),'Δv 误差 0.0010 m/s');
   assert.equal(benchmarkMetric({path_requirement:'continuous_low_thrust',longest_continuous_thrust_s:660.5,semimajor_axis_increase_m:1300.125,final_orbit:{impulse_vector_error_m_s:.001}}),'最长连续推力 660.50 s；半长轴增加 1300.13 m');
+  assert.equal(benchmarkMetric({path_requirement:'orbital_plane_adjustment',target_plane_error_rad:Math.PI/180000,achieved_plane_change_rad:Math.PI/3600}),'轨道面误差 0.00100°；实际改变 0.05000°');
   assert.equal(benchmarkMetric({final_orbit:{semimajor_axis_error_m:2,eccentricity:1e-6}}),'半长轴误差 2.00 m；e=1.00e-6');
   assert.equal(benchmarkMetric({path_requirement:'continuous_orbit_maintenance',maximum_maintenance_axis_error_m:28.5,failed_maintenance_samples:1,maintenance_samples:54001,final_orbit:{semimajor_axis_error_m:2,eccentricity:1e-6}}),'维持时窗最大半长轴误差 28.50 m；超限 1/54001 帧');
   assert.equal(benchmarkMetric({position_rmse_m:.2,velocity_rmse_m_s:.003,final_position_error_m:1}),'位置 RMSE 0.2000 m；速度 RMSE 0.0030 m/s');

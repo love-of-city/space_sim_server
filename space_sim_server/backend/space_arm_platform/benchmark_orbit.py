@@ -49,6 +49,18 @@ class CircularOrbitObjective(Contract):
     dwell_s: Positive
 
 
+def orbit_plane_normal(inclination_deg, raan_deg):
+    inclination, raan = math.radians(inclination_deg), math.radians(raan_deg)
+    return (math.sin(inclination)*math.sin(raan), -math.sin(inclination)*math.cos(raan), math.cos(inclination))
+
+
+class OrbitPlaneObjective(CircularOrbitObjective):
+    kind: Literal["orbital_plane_adjustment"]
+    inclination_deg: Annotated[Number, Field(ge=0, le=180)]
+    raan_deg: Annotated[Number, Field(ge=0, lt=360)]
+    plane_definition: Literal["oriented_angular_momentum_normal_in_J2000"]
+
+
 class OrbitMaintenanceObjective(Contract):
     kind: Literal["continuous_orbit_maintenance"]
     altitude_m: Annotated[Number, Field(ge=200_000, le=2_000_000)]
@@ -86,8 +98,8 @@ class SingleGNSSModel(Contract):
 class OrbitTask(Contract):
     schema_version: Literal["spacesim-autonomy-orbit/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    requirement_id: Literal["ssb.orbit.maneuver", "ssb.orbit.low-thrust", "ssb.orbit.raise-lower", "ssb.orbit.stationkeeping"]
-    source_id: Literal["S09", "S10", "S11", "S13"]
+    requirement_id: Literal["ssb.orbit.maneuver", "ssb.orbit.low-thrust", "ssb.orbit.raise-lower", "ssb.orbit.plane-change", "ssb.orbit.stationkeeping"]
+    source_id: Literal["S09", "S10", "S11", "S12", "S13"]
     backend: Literal["native_team_single_orbit_v1"]
     target_cooperation: Literal["none"]
     controlled_spacecraft: Literal[1]
@@ -99,7 +111,7 @@ class OrbitTask(Contract):
     reference_frame: Literal["Earth_centered_J2000"]
     element_convention: Literal["instantaneous_two_body_osculating_fixed_earth_mu"]
     initial: OrbitInitialState
-    objective: Annotated[ImpulseObjective | LowThrustObjective | CircularOrbitObjective | OrbitMaintenanceObjective, Field(discriminator="kind")]
+    objective: Annotated[ImpulseObjective | LowThrustObjective | CircularOrbitObjective | OrbitPlaneObjective | OrbitMaintenanceObjective, Field(discriminator="kind")]
     safety: OrbitSafety
     observation: SingleGNSSModel
     seeds: SeedSplits
@@ -132,14 +144,14 @@ class OrbitTask(Contract):
     @model_validator(mode="after")
     def feasible_contract(self):
         initial, goal, limits = self.initial, self.objective, self.safety
-        requirements = {"S09": "ssb.orbit.maneuver", "S10": "ssb.orbit.low-thrust", "S11": "ssb.orbit.raise-lower", "S13": "ssb.orbit.stationkeeping"}
+        requirements = {"S09": "ssb.orbit.maneuver", "S10": "ssb.orbit.low-thrust", "S11": "ssb.orbit.raise-lower", "S12": "ssb.orbit.plane-change", "S13": "ssb.orbit.stationkeeping"}
         if self.requirement_id != requirements[self.source_id]:
             raise ValueError("source and semantic requirement must agree")
         if not limits.minimum_altitude_m < initial.altitude_m-initial.altitude_half_width_m <= initial.altitude_m+initial.altitude_half_width_m < limits.maximum_altitude_m:
             raise ValueError("all initial circular orbits must lie inside the safety shell")
         if not isinstance(goal, OrbitMaintenanceObjective) and not goal.coast_force_tolerance_n < limits.maximum_force_n:
             raise ValueError("coast thrust must be stricter than the actuator bound")
-        objective_types = {"S09": ImpulseObjective, "S10": LowThrustObjective, "S11": CircularOrbitObjective, "S13": OrbitMaintenanceObjective}
+        objective_types = {"S09": ImpulseObjective, "S10": LowThrustObjective, "S11": CircularOrbitObjective, "S12": OrbitPlaneObjective, "S13": OrbitMaintenanceObjective}
         if type(goal) is not objective_types[self.source_id]:
             raise ValueError("source requires its declared impulse, transfer or maintenance objective")
         if isinstance(goal, ImpulseObjective):
@@ -156,8 +168,15 @@ class OrbitTask(Contract):
                 if initial.altitude_m+initial.altitude_half_width_m+goal.minimum_semimajor_axis_increase_m >= limits.maximum_altitude_m:
                     raise ValueError("required orbital energy increase must fit inside the altitude envelope")
         else:
-            if isinstance(goal, CircularOrbitObjective) and abs(goal.altitude_m-initial.altitude_m) <= initial.altitude_half_width_m+goal.semimajor_axis_tolerance_m:
+            if type(goal) is CircularOrbitObjective and abs(goal.altitude_m-initial.altitude_m) <= initial.altitude_half_width_m+goal.semimajor_axis_tolerance_m:
                 raise ValueError("all initial orbits must require a change of semimajor axis")
+            if isinstance(goal, OrbitPlaneObjective):
+                initial_normal = orbit_plane_normal(initial.inclination_deg, 0.)
+                target_normal = orbit_plane_normal(goal.inclination_deg, goal.raan_deg)
+                chord = math.dist(initial_normal, target_normal)
+                required_angle = 2*math.asin(min(1., chord/2))
+                if required_angle <= 4*goal.plane_tolerance_rad:
+                    raise ValueError("plane adjustment must require a nontrivial change of orbital angular momentum")
             low, high = EARTH_RADIUS_M+goal.altitude_m-goal.semimajor_axis_tolerance_m, EARTH_RADIUS_M+goal.altitude_m+goal.semimajor_axis_tolerance_m
             if not (limits.minimum_altitude_m < low*(1-goal.maximum_eccentricity)-EARTH_RADIUS_M
                     and high*(1+goal.maximum_eccentricity)-EARTH_RADIUS_M < limits.maximum_altitude_m):

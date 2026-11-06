@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import numpy as np
 
-from .benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, LowThrustObjective, OrbitMaintenanceObjective, OrbitTruthSample
+from .benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, LowThrustObjective, OrbitPlaneObjective, OrbitMaintenanceObjective, OrbitTruthSample, orbit_plane_normal
 
 
 def orbital_elements(state):
@@ -110,6 +110,11 @@ class OrbitScorer:
             self.safety_violations.add("delta_v_budget")
         plane_error = float(math.atan2(np.linalg.norm(np.cross(elements["normal"], self.initial_normal)),
                                       np.dot(elements["normal"], self.initial_normal)))
+        plane_change = plane_error
+        if isinstance(goal, OrbitPlaneObjective):
+            target_normal = orbit_plane_normal(goal.inclination_deg, goal.raan_deg)
+            plane_error = float(math.atan2(np.linalg.norm(np.cross(elements['normal'], target_normal)),
+                                          np.dot(elements['normal'], target_normal)))
         vector_error = axis_error = None
         maintenance = isinstance(goal, OrbitMaintenanceObjective)
         coasting = maintenance or magnitude <= goal.coast_force_tolerance_n
@@ -149,6 +154,10 @@ class OrbitScorer:
             self.hold_start_ns = None
         self.final = {key: value for key, value in elements.items() if key != "normal"}
         self.final.update(plane_error_rad=plane_error, impulse_vector_error_m_s=vector_error, semimajor_axis_error_m=axis_error)
+        if isinstance(goal, OrbitPlaneObjective):
+            self.final.update(plane_change_rad=plane_change,
+                inclination_deg=math.degrees(math.acos(float(np.clip(elements['normal'][2], -1., 1.)))),
+                raan_deg=math.degrees(math.atan2(elements['normal'][0], -elements['normal'][1])) % 360)
         self.count += 1
         self.last_time_ns = sample.time_ns
         self.minimum_altitude = min(self.minimum_altitude, elements["altitude_m"])
@@ -201,4 +210,13 @@ class OrbitScorer:
             result.update(path_requirement='continuous_low_thrust', quality_violations=quality,
                 longest_continuous_thrust_s=self.longest_active_thrust_ns*1e-9,
                 semimajor_axis_increase_m=self.semimajor_axis_increase)
+        if isinstance(self.task.objective, OrbitPlaneObjective):
+            goal = self.task.objective
+            quality = ['target_orbit_plane'] if self.final and self.final['plane_error_rad'] > goal.plane_tolerance_rad else []
+            if outcome == 'time_limit' and quality:
+                result['outcome'] = 'task_failure'
+            result.update(path_requirement='orbital_plane_adjustment', plane_reference='target_oriented_J2000_orbit_normal',
+                target_plane_error_rad=self.final['plane_error_rad'] if self.final else None,
+                achieved_plane_change_rad=self.final['plane_change_rad'] if self.final else None,
+                quality_violations=quality)
         return result

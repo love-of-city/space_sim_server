@@ -31,6 +31,8 @@ export function createBenchmarkPanel(root,{api}){
       ?`全程位置 RMSE ≤ ${spec.objective.position_rmse_limit_m} m、速度 RMSE ≤ ${spec.objective.velocity_rmse_limit_m_s} m/s；方法只输出估计，不控制推进器`
       :spec.objective.kind==='continuous_low_thrust_impulse'
       ?`推力不超过 ${spec.safety.maximum_force_n} N；实际推力 ≥ ${spec.objective.minimum_active_force_n} N 连续 ${spec.objective.minimum_continuous_thrust_s} s，完成规定推力积分并使半长轴增加至少 ${spec.objective.minimum_semimajor_axis_increase_m} m，末段无推力保持 ${spec.objective.dwell_s} s`
+      :spec.objective.kind==='orbital_plane_adjustment'
+      ?`目标轨道倾角 ${spec.objective.inclination_deg}°、升交点赤经 ${spec.objective.raan_deg}°；实际轨道面误差 ≤ ${(spec.objective.plane_tolerance_rad*180/Math.PI).toFixed(4)}°，满足目标轨道并无推力保持 ${spec.objective.dwell_s} s`
       :spec.objective.kind==='complete_signed_revolution'
         ?`在 T-R 平面完成一整圈绕飞；半径 ${spec.objective.radius_m} ± ${spec.objective.radial_tolerance_m} m，平面偏差 ≤ ${spec.objective.plane_tolerance_m} m`
         :spec.path_requirement?.kind==='abort_and_retreat'

@@ -6,7 +6,7 @@ from .benchmark_attitude import AttitudeContext, AttitudeObservation, AttitudeTa
 from .benchmark_attitude_score import AttitudeScorer
 from .benchmark_contract import ForceAction, MethodContext, NavigationObservation, WaypointTask
 from .benchmark_scoring import WaypointScorer
-from .benchmark_orbit import CircularOrbitObjective, OrbitMaintenanceObjective, OrbitContext, OrbitObservation, OrbitTask
+from .benchmark_orbit import CircularOrbitObjective, OrbitMaintenanceObjective, OrbitPlaneObjective, OrbitContext, OrbitObservation, OrbitTask
 from .benchmark_orbit_score import OrbitScorer
 from .benchmark_navigation import GNSSMeasurements, NavigationContext, NavigationEstimateAction, NavigationTask
 from .benchmark_navigation_score import NavigationScorer
@@ -60,7 +60,7 @@ FAMILIES = {
     AttitudeTask: FamilyImplementation("simulation.benchmark_attitude_methods", "simulation.benchmark_native_attitude",
         "NativeAttitudeEnvironment", ("attitude-wheel-pd-v1", "no-wheel-torque-v1", "unsafe-spin-v1", "attitude-rate-limited-pd-v1", "attitude-sequence-pd-v1")),
     OrbitTask: FamilyImplementation("simulation.benchmark_orbit_methods", "simulation.benchmark_native_orbit",
-        "NativeOrbitEnvironment", ("gnss-orbit-maneuver-v1", "no-orbit-thrust-v1", "unsafe-orbit-burn-v1", "pulsed-orbit-burn-v1")),
+        "NativeOrbitEnvironment", ("gnss-orbit-maneuver-v1", "no-orbit-thrust-v1", "unsafe-orbit-burn-v1", "pulsed-orbit-burn-v1", "unchanged-orbit-plane-v1")),
     NavigationTask: FamilyImplementation("simulation.benchmark_navigation_methods", "simulation.benchmark_native_navigation",
         "NativeNavigationEnvironment", ("gnss-orbit-estimator-v1", "gnss-measurement-only-v1", "zero-navigation-estimate-v1")),
     RelativeFlightTask: FamilyImplementation("simulation.benchmark_relative_flight_methods", "simulation.benchmark_native_relative_flight",
@@ -77,8 +77,9 @@ FAMILIES = {
 def method_ids(task: Task | None = None):
     if task is not None:
         methods = FAMILIES[type(task)].method_ids
-        if isinstance(task, OrbitTask) and task.source_id != 'S10':
-            return tuple(method for method in methods if method != 'pulsed-orbit-burn-v1')
+        if isinstance(task, OrbitTask):
+            return tuple(method for method in methods if (method != 'pulsed-orbit-burn-v1' or task.source_id == 'S10')
+                         and (method != 'unchanged-orbit-plane-v1' or task.source_id == 'S12'))
         if isinstance(task, AttitudeTask) and task.source_id == "S04":
             preferred = "attitude-sequence-pd-v1"
             return (preferred, *(method for method in methods if method != preferred))
@@ -218,7 +219,9 @@ def configuration_title(catalogue, task):
         title += "（已知被动标志物，真实图像）"
     if isinstance(task, PointingTask):
         title += "（"+{"earth_center": "地心", "sun": "太阳", "inertial_direction": "惯性方向", "ground_site": "地面固定点"}[task.objective.kind]+"）"
-    if isinstance(task, OrbitTask) and isinstance(task.objective, CircularOrbitObjective):
+    if isinstance(task, OrbitTask) and isinstance(task.objective, OrbitPlaneObjective):
+        title += f"（目标倾角 {task.objective.inclination_deg:g}°，升交点赤经 {task.objective.raan_deg:g}°）"
+    elif isinstance(task, OrbitTask) and isinstance(task.objective, CircularOrbitObjective):
         title += f"（目标圆轨道高度 {task.objective.altitude_m/1000:g} km）"
     if isinstance(task, OrbitTask) and isinstance(task.objective, OrbitMaintenanceObjective):
         title += f"（{task.objective.altitude_m/1000:g} km，J2 连续维持）"

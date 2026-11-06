@@ -132,6 +132,58 @@ print('native low-force actuation, orbital response, sensor and force reset veri
     assert 'native low-force actuation' in result.stdout
 
 
+def test_native_orbit_plane_changes_with_normal_thrust_and_resets(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, ForceAction, load_task
+from space_arm_platform.benchmark_registry import native_environment
+
+task = load_task(SPEC_DIRECTORY/'s12-gnss-orbit-plane-v1.json')
+env = native_environment(task,Path(sys.argv[1]))
+def normal(state):
+    value = np.cross(state[:3],state[3:])
+    return value/np.linalg.norm(value)
+def action(obs,force):
+    return ForceAction(episode_id=obs.episode_id,observation_sequence=obs.sequence,force_j2000_n=tuple(force))
+try:
+    first = env.reset(3)
+    initial = env._physical_state(0).copy()
+    before = env.evaluation()['target_plane_error_rad']
+    force = -10*normal(initial)
+    obs = first
+    for _ in range(10):
+        old = action(obs,force)
+        obs = env.step(old)
+    changed = normal(env._physical_state(env._time_ns))
+    score = env.evaluation()
+    assert abs(score['thrust_impulse_n_s']-50.) < 1e-9
+    assert score['achieved_plane_change_rad'] > 2e-5 and score['target_plane_error_rad'] < before-2e-5
+    assert not score['evidence_errors'] and not score['safety_violations']
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    again = env.reset(3)
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(env._physical_state(0),initial)
+    assert env.evaluation()['achieved_plane_change_rad'] < 1e-14 and env.evaluation()['thrust_impulse_n_s'] == 0
+    try: env.step(old)
+    except ValueError as error: assert 'stale' in str(error)
+    else: raise AssertionError('old plane control action accepted after reset')
+    obs = again
+    for _ in range(10):
+        obs = env.step(action(obs,(0.,0.,0.)))
+    assert np.linalg.norm(normal(env._physical_state(env._time_ns))-changed) > 2e-5
+    assert env.evaluation()['thrust_impulse_n_s'] == 0
+finally:
+    env.close()
+print('native normal force changes angular momentum, with deterministic sensor and orbit reset')
+'''
+    result = subprocess.run([sys.executable,'-c',code,str(tmp_path)],cwd=SERVER,
+        capture_output=True,text=True,timeout=240)
+    assert result.returncode == 0,result.stdout+result.stderr
+    assert 'native normal force changes angular momentum' in result.stdout
+
+
 def test_native_debris_is_independent_force_moves_spacecraft_and_reset_restores_sensors(tmp_path):
     code = r'''
 import json

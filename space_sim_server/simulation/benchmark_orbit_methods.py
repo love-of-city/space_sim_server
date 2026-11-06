@@ -3,7 +3,7 @@ import numpy as np
 
 from simulation.orbital_rendezvous.reference import blend, gravity
 from space_arm_platform.benchmark_contract import ForceAction
-from space_arm_platform.benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, OrbitMaintenanceObjective
+from space_arm_platform.benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, OrbitPlaneObjective, OrbitMaintenanceObjective, orbit_plane_normal
 
 _X, _W = np.polynomial.legendre.leggauss(32)
 
@@ -14,6 +14,10 @@ class GNSSOrbitManeuver:
         self.initial = None
         self.commanded_delta_v = np.zeros(3)
         self.coasting = False
+
+    def _plane_reference_normal(self):
+        goal = self.context.task.objective
+        return orbit_plane_normal(goal.inclination_deg, goal.raan_deg)
 
     def act(self, observation):
         task, mass = self.context.task, self.context.chaser_mass_kg
@@ -30,6 +34,29 @@ class GNSSOrbitManeuver:
                 force = mass*residual/dt
                 force *= min(1., 0.8*task.safety.maximum_force_n/max(np.linalg.norm(force), 1e-15))
                 self.commanded_delta_v += force*dt/mass
+        elif isinstance(goal, OrbitPlaneObjective):
+            from simulation.benchmark_plane_reference import plane_reference
+            if self.initial is None:
+                self.initial = state.copy()
+            duration = .7*(task.duration_s-goal.dwell_s)
+            position, velocity, acceleration = plane_reference(self.initial, goal.altitude_m,
+                self._plane_reference_normal(), time, duration)
+            force = mass*(acceleration-gravity(state[:3])+.0025*(position-state[:3])+.1*(velocity-state[3:]))
+            if time >= duration:
+                radius = np.linalg.norm(state[:3])
+                momentum = np.cross(state[:3], state[3:])
+                normal = momentum/np.linalg.norm(momentum)
+                target = orbit_plane_normal(goal.inclination_deg, goal.raan_deg)
+                plane_error = np.arctan2(np.linalg.norm(np.cross(normal,target)),normal@target)
+                energy = state[3:]@state[3:]/2-MU/radius
+                semimajor = -MU/(2*energy) if energy < 0 else np.inf
+                eccentricity = np.linalg.norm(np.cross(state[3:],momentum)/MU-state[:3]/radius)
+                if (abs(semimajor-RADIUS-goal.altitude_m) < .5*goal.semimajor_axis_tolerance_m
+                        and eccentricity < .5*goal.maximum_eccentricity and plane_error < .5*goal.plane_tolerance_rad):
+                    self.coasting = True
+            if self.coasting:
+                force = np.zeros(3)
+            force *= min(1.,task.safety.maximum_force_n/max(np.linalg.norm(force),1e-15))
         elif isinstance(goal, OrbitMaintenanceObjective):
             if self.initial is None:
                 self.initial = state.copy()
@@ -127,5 +154,13 @@ class PulsedOrbitBurn(GNSSOrbitManeuver):
         return ForceAction(episode_id=observation.episode_id,observation_sequence=observation.sequence,force_j2000_n=tuple(force))
 
 
+class UnchangedOrbitPlane(GNSSOrbitManeuver):
+    """Maintain the original orbit normal while ignoring the requested plane change."""
+    def _plane_reference_normal(self):
+        normal = np.cross(self.initial[:3],self.initial[3:])
+        return normal/np.linalg.norm(normal)
+
+
 METHODS = {"gnss-orbit-maneuver-v1": GNSSOrbitManeuver, "no-orbit-thrust-v1": NoOrbitThrust,
-           "unsafe-orbit-burn-v1": UnsafeOrbitBurn, "pulsed-orbit-burn-v1": PulsedOrbitBurn}
+           "unsafe-orbit-burn-v1": UnsafeOrbitBurn, "pulsed-orbit-burn-v1": PulsedOrbitBurn,
+           "unchanged-orbit-plane-v1": UnchangedOrbitPlane}

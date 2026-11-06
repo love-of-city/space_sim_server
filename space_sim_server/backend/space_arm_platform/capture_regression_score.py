@@ -1,7 +1,28 @@
 """Independent contact/vision/gyro qualification. No feedback to the controller."""
 import json
+import math
 from pathlib import Path
 import numpy as np
+
+
+def contact_audit_path(output):
+    """Use this trial's 400 Hz evidence; retain old completed archive support."""
+    output=Path(output)
+    current=output/'capture/contacts_400hz.jsonl'
+    legacy=output/'capture/contact_audit.jsonl'
+    if current.is_file():
+        if legacy.is_file():
+            import hashlib
+            def digest(path):
+                value=hashlib.sha256()
+                with path.open('rb') as stream:
+                    for chunk in iter(lambda:stream.read(1024*1024),b''):value.update(chunk)
+                return value.digest()
+            if digest(current)!=digest(legacy):
+                raise ValueError('conflicting current and legacy contact evidence in this trial')
+        return current
+    if legacy.is_file():return legacy
+    raise FileNotFoundError('this trial has no 400 Hz contact evidence: '+str(current))
 
 
 def gyro_evidence(gyros,controls,session,end_t):
@@ -63,7 +84,9 @@ def score_hold(rows):
     for row in rows:
         if row.get('type')!='step':continue
         t=float(row['t']);clamp=row['clamp'];last=row
-        if previous_t is not None and (t<=previous_t or t-previous_t>.01):stable=None
+        if not math.isfinite(t) or not math.isfinite(clamp['pad_force_n']):
+            raise ValueError('contact evidence contains a non-finite time or force')
+        if previous_t is not None and not math.isclose(t-previous_t,.0025,rel_tol=0.,abs_tol=1e-8):stable=None
         previous_t=t
         good=row['phase']=='hold_force' and clamp['jaw_support_count']>=4 and 4.5<=clamp['pad_force_n']<=5.5
         if good:

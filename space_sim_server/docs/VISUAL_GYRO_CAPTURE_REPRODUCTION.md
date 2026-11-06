@@ -63,6 +63,13 @@ commands, uniquely consumed gyro packets,400Hz contacts, physical fingerprints,
 free-reference trajectory and `result.json`. Failure/timeout returns nonzero and
 keeps the failed directory. A new attempt requires a new output directory.
 
+Current contact evidence is written directly to the trial's
+`capture/contacts_400hz.jsonl`. The runner checks this path once control records
+appear and the scorer reads it in place; it does not copy an older checkout-wide
+`run/capture_contact_audit.jsonl`. Existing completed archives with
+`capture/contact_audit.jsonl` remain readable. Conflicting files in one archive
+are rejected. A missing or repeated 400 Hz timestamp resets the continuous hold.
+
 After actual capture, a separate no-contact run uses the same initial target,
 orbit, mass model and real backend, with the arms held and grasp/vision disabled.
 Only render transport is discarded to speed up that scorer. It records free

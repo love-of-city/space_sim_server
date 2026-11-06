@@ -109,5 +109,23 @@ class UnsafeOrbitBurn(GNSSOrbitManeuver):
                            force_j2000_n=tuple(force))
 
 
+class PulsedOrbitBurn(GNSSOrbitManeuver):
+    """Same impulse with four-second pulses and one-second interruptions."""
+    def act(self, observation):
+        task, mass = self.context.task, self.context.chaser_mass_kg
+        goal = task.objective
+        if not isinstance(goal, ImpulseObjective):
+            raise ValueError('pulsed-burn control requires an impulse objective')
+        time = observation.sample_time_ns*1e-9
+        force = np.zeros(3)
+        ticks = (observation.sample_time_ns-round(goal.earliest_burn_s*1e9))//task.decision_period_ns
+        if goal.earliest_burn_s <= time < goal.latest_burn_s and ticks % 10 < 8:
+            dt = task.decision_period_ns*1e-9
+            force = mass*(np.asarray(goal.delta_velocity_j2000_m_s)-self.commanded_delta_v)/dt
+            force *= min(1.,task.safety.maximum_force_n/max(np.linalg.norm(force),1e-15))
+            self.commanded_delta_v += force*dt/mass
+        return ForceAction(episode_id=observation.episode_id,observation_sequence=observation.sequence,force_j2000_n=tuple(force))
+
+
 METHODS = {"gnss-orbit-maneuver-v1": GNSSOrbitManeuver, "no-orbit-thrust-v1": NoOrbitThrust,
-           "unsafe-orbit-burn-v1": UnsafeOrbitBurn}
+           "unsafe-orbit-burn-v1": UnsafeOrbitBurn, "pulsed-orbit-burn-v1": PulsedOrbitBurn}

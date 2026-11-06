@@ -82,6 +82,56 @@ print('native receiver outage, actual withheld solutions, propagation, return an
     assert 'native receiver outage' in result.stdout
 
 
+def test_native_low_thrust_motor_changes_orbit_and_reset_restores_free_flight(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, ForceAction, load_task
+from space_arm_platform.benchmark_registry import native_environment
+
+task = load_task(SPEC_DIRECTORY/'s10-continuous-low-thrust-v1.json')
+env = native_environment(task,Path(sys.argv[1]))
+def action(observation,force=0.):
+    return ForceAction(episode_id=observation.episode_id,observation_sequence=observation.sequence,
+        force_j2000_n=(0.,-force,0.))
+try:
+    first = env.reset(3)
+    initial = env._physical_state(0).copy()
+    observation = first
+    for _ in range(10):
+        observation = env.step(action(observation))
+    old = action(observation,.2)
+    env.step(old)
+    propelled = env._physical_state(env._time_ns).copy()
+    score = env.evaluation()
+    assert abs(score['thrust_impulse_n_s']-.1) < 1e-12
+    assert score['longest_continuous_thrust_s'] == .5
+    assert not score['evidence_errors'] and not score['safety_violations']
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    again = env.reset(3)
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(env._physical_state(0),initial)
+    assert env.evaluation()['longest_continuous_thrust_s'] == env.evaluation()['thrust_impulse_n_s'] == 0
+    try: env.step(old)
+    except ValueError as error: assert 'stale' in str(error)
+    else: raise AssertionError('old low-thrust command accepted after reset')
+    observation = again
+    for _ in range(11):
+        observation = env.step(action(observation))
+    displacement = np.linalg.norm(propelled[:3]-env._physical_state(env._time_ns)[:3])
+    assert 1e-5 < displacement < .001,displacement
+    assert env.evaluation()['thrust_impulse_n_s'] == 0
+finally:
+    env.close()
+print('native low-force actuation, orbital response, sensor and force reset verified')
+'''
+    result = subprocess.run([sys.executable,'-c',code,str(tmp_path)],cwd=SERVER,
+        capture_output=True,text=True,timeout=240)
+    assert result.returncode == 0,result.stdout+result.stderr
+    assert 'native low-force actuation' in result.stdout
+
+
 def test_native_debris_is_independent_force_moves_spacecraft_and_reset_restores_sensors(tmp_path):
     code = r'''
 import json

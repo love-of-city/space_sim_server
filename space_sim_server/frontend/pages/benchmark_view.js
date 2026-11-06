@@ -31,6 +31,7 @@ export const methodLabels = {
   'no-wheel-torque-v1':'零飞轮力矩（负对照）','unsafe-spin-v1':'持续满力矩（负对照）',
   'external-attitude-pd-v1':'姿态 PD · 独立进程示例','external-gnss-pd-v1':'GNSS PD · 独立进程示例',
   'gnss-orbit-maneuver-v1':'GNSS 轨道控制','no-orbit-thrust-v1':'零轨控推力（负对照）',
+  'pulsed-orbit-burn-v1':'间歇脉冲推力（连续机动负对照）',
   'unsafe-orbit-burn-v1':'持续轨控推力（负对照）','external-orbit-maneuver-v1':'轨道控制 · 独立进程示例',
   'gnss-orbit-estimator-v1':'GNSS 轨道状态估计','gnss-measurement-only-v1':'直接使用 GNSS 测量',
   'zero-navigation-estimate-v1':'零状态估计（负对照）','external-gnss-estimator-v1':'GNSS 状态估计 · 独立进程示例',
@@ -93,6 +94,10 @@ export function benchmarkMetric(score){
   }
   if(Number.isFinite(score?.final_position_error_m))return `${score.final_position_error_m.toFixed(4)} m`;
   if(score?.path_requirement==='continuous_orbit_maintenance'&&Number.isFinite(score.maximum_maintenance_axis_error_m))return `维持时窗最大半长轴误差 ${score.maximum_maintenance_axis_error_m.toFixed(2)} m；超限 ${score.failed_maintenance_samples}/${score.maintenance_samples} 帧`;
+  if(score?.path_requirement==='continuous_low_thrust'){
+    const increase=Number.isFinite(score.semimajor_axis_increase_m)?`${score.semimajor_axis_increase_m.toFixed(2)} m`:'—';
+    return `最长连续推力 ${score.longest_continuous_thrust_s.toFixed(2)} s；半长轴增加 ${increase}`;
+  }
   if(Number.isFinite(score?.final_orbit?.impulse_vector_error_m_s))return `Δv 误差 ${score.final_orbit.impulse_vector_error_m_s.toFixed(4)} m/s`;
   if(Number.isFinite(score?.final_orbit?.semimajor_axis_error_m))return `半长轴误差 ${score.final_orbit.semimajor_axis_error_m.toFixed(2)} m；e=${score.final_orbit.eccentricity.toExponential(2)}`;
   return '—';
@@ -138,6 +143,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
         false_motor_loss_diagnosis:'正常阶段误报电机异常',motor_loss_diagnosis_deadline:'电机异常诊断超时',motor_loss_not_observed_under_load:'未验证带载电机衰减',
         angular_velocity_rmse:'角速度 RMSE',maximum_angular_velocity_error:'最大角速度误差',spin_availability:'有效角速度估计不足',
         continuous_hold_envelope:'全程保持范围',continuous_orbit_band:'轨道维持时窗超限',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
+        continuous_low_thrust_duration:'连续低推力时间不足',low_thrust_orbital_energy_increase:'实际轨道能量增加不足',
         abort_reversal_deadline:'未及时确认持续向外运动',abort_reversal_not_confirmed:'尚未确认持续向外运动',abort_retreat_progress:'撤离距离不足',
         flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程',continuous_formation_envelope:'成员未全程保持编队',
         both_spacecraft_active_impulse:'至少一星实际机动不足',simultaneous_cooperative_maneuver:'持续共同机动不足',cooperative_range_reduction:'协同交会距离缩减不足',

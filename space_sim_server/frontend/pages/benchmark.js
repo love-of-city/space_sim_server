@@ -29,6 +29,8 @@ export function createBenchmarkPanel(root,{api}){
       ?`GNSS 解中断 ${spec.fault.minimum_duration_s}–${spec.fault.maximum_duration_s} s；中断期间持续估计，位置误差 ≤ ${spec.objective.outage_maximum_position_error_m} m；信号恢复后 ${spec.objective.recovery_deadline_after_return_s} s 内确认连续 ${spec.objective.recovered_dwell_s} s 精度恢复`
       :spec.objective.kind==='navigation_accuracy'
       ?`全程位置 RMSE ≤ ${spec.objective.position_rmse_limit_m} m、速度 RMSE ≤ ${spec.objective.velocity_rmse_limit_m_s} m/s；方法只输出估计，不控制推进器`
+      :spec.objective.kind==='continuous_low_thrust_impulse'
+      ?`推力不超过 ${spec.safety.maximum_force_n} N；实际推力 ≥ ${spec.objective.minimum_active_force_n} N 连续 ${spec.objective.minimum_continuous_thrust_s} s，完成规定推力积分并使半长轴增加至少 ${spec.objective.minimum_semimajor_axis_increase_m} m，末段无推力保持 ${spec.objective.dwell_s} s`
       :spec.objective.kind==='complete_signed_revolution'
         ?`在 T-R 平面完成一整圈绕飞；半径 ${spec.objective.radius_m} ± ${spec.objective.radial_tolerance_m} m，平面偏差 ≤ ${spec.objective.plane_tolerance_m} m`
         :spec.path_requirement?.kind==='abort_and_retreat'

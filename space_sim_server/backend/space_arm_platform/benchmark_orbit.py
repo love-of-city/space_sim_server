@@ -32,6 +32,13 @@ class ImpulseObjective(Contract):
     dwell_s: Positive
 
 
+class LowThrustObjective(ImpulseObjective):
+    kind: Literal["continuous_low_thrust_impulse"]
+    minimum_continuous_thrust_s: Positive = Field(ge=300)
+    minimum_active_force_n: Positive
+    minimum_semimajor_axis_increase_m: Positive
+
+
 class CircularOrbitObjective(Contract):
     kind: Literal["circular_orbit"]
     altitude_m: Annotated[Number, Field(ge=200_000, le=2_000_000)]
@@ -79,8 +86,8 @@ class SingleGNSSModel(Contract):
 class OrbitTask(Contract):
     schema_version: Literal["spacesim-autonomy-orbit/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    requirement_id: Literal["ssb.orbit.maneuver", "ssb.orbit.raise-lower", "ssb.orbit.stationkeeping"]
-    source_id: Literal["S09", "S11", "S13"]
+    requirement_id: Literal["ssb.orbit.maneuver", "ssb.orbit.low-thrust", "ssb.orbit.raise-lower", "ssb.orbit.stationkeeping"]
+    source_id: Literal["S09", "S10", "S11", "S13"]
     backend: Literal["native_team_single_orbit_v1"]
     target_cooperation: Literal["none"]
     controlled_spacecraft: Literal[1]
@@ -92,7 +99,7 @@ class OrbitTask(Contract):
     reference_frame: Literal["Earth_centered_J2000"]
     element_convention: Literal["instantaneous_two_body_osculating_fixed_earth_mu"]
     initial: OrbitInitialState
-    objective: Annotated[ImpulseObjective | CircularOrbitObjective | OrbitMaintenanceObjective, Field(discriminator="kind")]
+    objective: Annotated[ImpulseObjective | LowThrustObjective | CircularOrbitObjective | OrbitMaintenanceObjective, Field(discriminator="kind")]
     safety: OrbitSafety
     observation: SingleGNSSModel
     seeds: SeedSplits
@@ -125,15 +132,15 @@ class OrbitTask(Contract):
     @model_validator(mode="after")
     def feasible_contract(self):
         initial, goal, limits = self.initial, self.objective, self.safety
-        requirements = {"S09": "ssb.orbit.maneuver", "S11": "ssb.orbit.raise-lower", "S13": "ssb.orbit.stationkeeping"}
+        requirements = {"S09": "ssb.orbit.maneuver", "S10": "ssb.orbit.low-thrust", "S11": "ssb.orbit.raise-lower", "S13": "ssb.orbit.stationkeeping"}
         if self.requirement_id != requirements[self.source_id]:
             raise ValueError("source and semantic requirement must agree")
         if not limits.minimum_altitude_m < initial.altitude_m-initial.altitude_half_width_m <= initial.altitude_m+initial.altitude_half_width_m < limits.maximum_altitude_m:
             raise ValueError("all initial circular orbits must lie inside the safety shell")
         if not isinstance(goal, OrbitMaintenanceObjective) and not goal.coast_force_tolerance_n < limits.maximum_force_n:
             raise ValueError("coast thrust must be stricter than the actuator bound")
-        objective_types = {"S09": ImpulseObjective, "S11": CircularOrbitObjective, "S13": OrbitMaintenanceObjective}
-        if not isinstance(goal, objective_types[self.source_id]):
+        objective_types = {"S09": ImpulseObjective, "S10": LowThrustObjective, "S11": CircularOrbitObjective, "S13": OrbitMaintenanceObjective}
+        if type(goal) is not objective_types[self.source_id]:
             raise ValueError("source requires its declared impulse, transfer or maintenance objective")
         if isinstance(goal, ImpulseObjective):
             magnitude = math.dist(goal.delta_velocity_j2000_m_s, (0, 0, 0))
@@ -141,6 +148,13 @@ class OrbitTask(Contract):
                 raise ValueError("commanded impulse must be nontrivial and below the delta-v budget")
             if not goal.earliest_burn_s < goal.latest_burn_s <= self.duration_s-goal.dwell_s:
                 raise ValueError("burn window must leave enough time for coasting confirmation")
+            if isinstance(goal, LowThrustObjective):
+                if not goal.coast_force_tolerance_n < goal.minimum_active_force_n < limits.maximum_force_n <= 1.:
+                    raise ValueError("low-thrust scope requires an active-force threshold and a motor bound at most 1 N")
+                if goal.minimum_continuous_thrust_s > goal.latest_burn_s-goal.earliest_burn_s:
+                    raise ValueError("the burn window must fit the required continuous maneuver")
+                if initial.altitude_m+initial.altitude_half_width_m+goal.minimum_semimajor_axis_increase_m >= limits.maximum_altitude_m:
+                    raise ValueError("required orbital energy increase must fit inside the altitude envelope")
         else:
             if isinstance(goal, CircularOrbitObjective) and abs(goal.altitude_m-initial.altitude_m) <= initial.altitude_half_width_m+goal.semimajor_axis_tolerance_m:
                 raise ValueError("all initial orbits must require a change of semimajor axis")
@@ -162,6 +176,8 @@ class OrbitTask(Contract):
         grids = [(self.duration_s, self.decision_period_ns), (goal.dwell_s, self.physics_period_ns)]
         if isinstance(goal, ImpulseObjective):
             grids += [(goal.earliest_burn_s, self.decision_period_ns), (goal.latest_burn_s, self.decision_period_ns)]
+        if isinstance(goal, LowThrustObjective):
+            grids += [(goal.minimum_continuous_thrust_s, self.physics_period_ns)]
         if isinstance(goal, OrbitMaintenanceObjective):
             grids += [(goal.acquisition_deadline_s, self.decision_period_ns)]
         for seconds, grid in grids:

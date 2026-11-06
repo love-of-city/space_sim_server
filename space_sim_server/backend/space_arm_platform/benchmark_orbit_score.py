@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import numpy as np
 
-from .benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, OrbitMaintenanceObjective, OrbitTruthSample
+from .benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, LowThrustObjective, OrbitMaintenanceObjective, OrbitTruthSample
 
 
 def orbital_elements(state):
@@ -51,6 +51,8 @@ class OrbitScorer:
         self.evidence_errors, self.safety_violations = set(), set()
         self.maintenance_samples = self.failed_maintenance_samples = 0
         self.maintenance_axis_error = self.maintenance_eccentricity = self.maintenance_plane_error = 0.
+        self.initial_semimajor_axis = self.semimajor_axis_increase = None
+        self.active_thrust_ns = self.longest_active_thrust_ns = 0
 
     def add(self, raw):
         try:
@@ -68,6 +70,7 @@ class OrbitScorer:
         if sample.external_state_writes:
             self.evidence_errors.add("physical_state_overwritten_after_initialization")
         if self.initial_normal is None:
+            self.initial_semimajor_axis = elements['semimajor_axis_m']
             initial = self.task.initial
             inclination = math.radians(initial.inclination_deg)
             normal = np.array([0., -math.sin(inclination), math.cos(inclination)])
@@ -86,6 +89,15 @@ class OrbitScorer:
             self.impulse += force*dt
             self.total_impulse += magnitude*dt
         goal, limits = self.task.objective, self.task.safety
+        low_thrust = isinstance(goal, LowThrustObjective)
+        if low_thrust:
+            if sample.time_ns and sample.time_ns == expected and magnitude >= goal.minimum_active_force_n:
+                self.active_thrust_ns += self.task.physics_period_ns
+                self.longest_active_thrust_ns = max(self.longest_active_thrust_ns, self.active_thrust_ns)
+            else:
+                self.active_thrust_ns = 0
+            self.semimajor_axis_increase = (None if elements['semimajor_axis_m'] is None or self.initial_semimajor_axis is None
+                else elements['semimajor_axis_m']-self.initial_semimajor_axis)
         if elements["altitude_m"] < limits.minimum_altitude_m:
             self.safety_violations.add("minimum_altitude")
         if elements["altitude_m"] > limits.maximum_altitude_m:
@@ -108,6 +120,10 @@ class OrbitScorer:
                     sample.time_ns <= round(goal.earliest_burn_s*1e9) or sample.time_ns > round(goal.latest_burn_s*1e9)):
                 self.safety_violations.add("thrust_outside_burn_window")
             in_region = vector_error <= goal.vector_tolerance_m_s and coasting
+            if low_thrust:
+                in_region = (in_region and self.longest_active_thrust_ns >= round(goal.minimum_continuous_thrust_s*1e9)
+                    and self.semimajor_axis_increase is not None
+                    and self.semimajor_axis_increase >= goal.minimum_semimajor_axis_increase_m)
         else:
             axis_error = abs(elements["semimajor_axis_m"]-RADIUS-goal.altitude_m) if elements["semimajor_axis_m"] else None
             in_region = (axis_error is not None and axis_error <= goal.semimajor_axis_tolerance_m
@@ -173,4 +189,16 @@ class OrbitScorer:
                 maximum_maintenance_eccentricity=self.maintenance_eccentricity if self.maintenance_samples else None,
                 maximum_maintenance_plane_error_rad=self.maintenance_plane_error if self.maintenance_samples else None,
                 quality_violations=['continuous_orbit_band'] if self.failed_maintenance_samples else [])
+        if isinstance(self.task.objective, LowThrustObjective):
+            goal = self.task.objective
+            quality = []
+            if self.longest_active_thrust_ns < round(goal.minimum_continuous_thrust_s*1e9):
+                quality.append('continuous_low_thrust_duration')
+            if self.semimajor_axis_increase is None or self.semimajor_axis_increase < goal.minimum_semimajor_axis_increase_m:
+                quality.append('low_thrust_orbital_energy_increase')
+            if outcome == 'time_limit' and quality:
+                result['outcome'] = 'task_failure'
+            result.update(path_requirement='continuous_low_thrust', quality_violations=quality,
+                longest_continuous_thrust_s=self.longest_active_thrust_ns*1e-9,
+                semimajor_axis_increase_m=self.semimajor_axis_increase)
         return result

@@ -20,6 +20,7 @@
 #include "Engine/World.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/SceneCaptureComponent2D.h"
 
 namespace
 {
@@ -1216,7 +1217,7 @@ bool FBskDeclaredCameraWorkLightTest::RunTest(const FString& Parameters)
     auto* Lamp = Cast<USpotLightComponent>(Controller->CameraWorkLights.FindRef(Id).Get());
     if (!TestNotNull(TEXT("declared lamp exists without a streaming client"), Lamp)) return false;
     TestTrue(TEXT("lamp attached to canonical capture"),
-        Lamp->GetAttachParent() == Controller->CameraCaptureComponents.FindRef(Camera.CameraId));
+        Lamp->GetAttachParent() == Controller->CameraCaptureComponents.FindRef(Camera.CameraId).Get());
     TestTrue(TEXT("actual lamp enabled"), Lamp->IsVisible());
     TestTrue(TEXT("actual lamp uses candelas"), Lamp->IntensityUnits == ELightUnits::Candelas);
     TestEqual(TEXT("original inspection intensity"), Lamp->Intensity, 1500.0f);
@@ -1226,9 +1227,9 @@ bool FBskDeclaredCameraWorkLightTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("original shadowless approximation"), Lamp->CastShadows);
     TestTrue(TEXT("later streaming lookup reuses this lamp"), Controller->ResolveCameraWorkLight(Id) == Lamp);
     TestEqual(TEXT("no duplicate light"), Controller->CameraWorkLights.Num(), 1);
-    auto* BodyActor = Controller->BoundActors.FindRef(Body.ObjectId);
+    AActor* BodyActor = Controller->BoundActors.FindRef(Body.ObjectId);
     BodyActor->SetActorTransform(FTransform(FRotator(10., 25., -4.), FVector(300., -50., 100.)));
-    auto* CameraActor = Controller->CameraActors.FindRef(Camera.CameraId);
+    AActor* CameraActor = Controller->CameraActors.FindRef(Camera.CameraId);
     TestTrue(TEXT("lamp moves with camera"), Lamp->GetComponentLocation().Equals(CameraActor->GetActorLocation(), 1e-5));
     TestTrue(TEXT("lamp follows optical axis"), Lamp->GetForwardVector().Equals(CameraActor->GetActorForwardVector(), 1e-6));
     Manifest.Cameras[0].WorkLightProfile.Reset();

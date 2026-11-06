@@ -19,7 +19,9 @@ from scipy.spatial.transform import Rotation
 from bsk_render_adapter import BasiliskRenderBridge, CameraVisual
 from space_arm_platform.benchmark_camera import public_camera_image
 from space_arm_platform.benchmark_execution import write_json
-from space_arm_platform.benchmark_vision_resources import renderer_paths
+from space_arm_platform.benchmark_vision_resources import (
+    graphics_identity, new_renderer_user_directory, renderer_paths, selected_graphics_identity,
+)
 from space_arm_platform.capture_receiver import CaptureReceiver
 from space_arm_platform.capture_regression_runtime import ManagedProcesses, ensure_ports_free, wait_ready
 from simulation.orbital_rendezvous.rendering import flight_scene_settings
@@ -64,13 +66,15 @@ class RenderedCameraSensor:
     def _start(self,warmup_wall_s):
         env=self.environment
         project,editor=renderer_paths(env.repository)
+        user_directory=new_renderer_user_directory(env.episode_directory)
+        graphics=graphics_identity()
         self.render_port,self.capture_port=unused_ports(2)
         ensure_ports_free([self.render_port,self.capture_port])
         self.receiver=CaptureReceiver('127.0.0.1',self.capture_port,lambda *args:None,
             on_vision_capture=lambda metadata,products:self.queue.put_nowait((metadata,products)))
         self.receiver.start()
         arguments=[editor,project/'BskUnrealRenderer.uproject','-game','-RenderOffscreen','-ForceRes',
-            f'-UserDir={self.output}/user',
+            f'-UserDir={user_directory}',
             '-unattended','-nosplash','-nosound','-ResX=1280','-ResY=720',
             '-BskListen=127.0.0.1',f'-BskPort={self.render_port}','-BskCaptureHost=127.0.0.1',
             f'-BskCapturePort={self.capture_port}','-BskCaptureProducts=rgb','-BskOfflineCapture','-BskVisionFastPng',
@@ -79,8 +83,12 @@ class RenderedCameraSensor:
         cache=os.environ.get('SPACESIM_BENCHMARK_DDC',str(Path(os.environ['LOCALAPPDATA'])/'BskDDC/capture-regression'))
         if cache:
             arguments.append(f'-LocalDataCachePath={Path(cache).resolve()}')
+        write_json(self.output/'startup.json',dict(user_directory=str(user_directory),
+            renderer_arguments=[str(value) for value in arguments],graphics_devices=graphics,
+            render_port=self.render_port,capture_port=self.capture_port))
         self.renderer=self.managed.start('renderer',arguments,cwd=env.repository)
         wait_ready(self.renderer,self.render_port)
+        selected_graphics=selected_graphics_identity((self.output/'ue.log').read_text('utf-8',errors='replace'),graphics)
         bridge=self.bridge=BasiliskRenderBridge(host='127.0.0.1',port=self.render_port,origin_object='team/cubesat_bus',
             vision_capture_rate_hz=self.cameras[0].sample_rate_hz,
             vision_capture_camera_ids=[camera.camera_id for camera in self.cameras],
@@ -114,6 +122,7 @@ class RenderedCameraSensor:
             raise RuntimeError('camera warmup unexpectedly produced an authoritative dataset frame')
         bridge.vision_requests_enabled=True
         write_json(self.output/'sensor.json',dict(cameras=[camera.model_dump(mode='json') for camera in self.cameras],
+            selected_graphics=selected_graphics,
             warmup=dict(wall_time_s=warmup_wall_s,physical_time_advanced_s=0,recorded_images=0),
             renderer_arguments=[str(value) for value in arguments],render_port=self.render_port,capture_port=self.capture_port,
             catalog_sha256=hashlib.sha256(catalog.read_bytes()).hexdigest(),

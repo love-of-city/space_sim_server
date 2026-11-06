@@ -22,8 +22,10 @@ def verify_public_image_evidence(task, observations_path, physics_path):
                 if capture.sequence in captures:
                     raise ValueError('duplicate capture evidence')
                 captures[capture.sequence]=capture
+    observation_count=0
     with observations_path.open(encoding='utf-8') as stream:
         for sequence,line in enumerate(stream):
+            observation_count+=1
             observation=VisionPoseObservation.model_validate_json(line)
             capture=captures.get(sequence)
             if (capture is None or observation.sequence!=sequence
@@ -35,6 +37,8 @@ def verify_public_image_evidence(task, observations_path, physics_path):
                     or any((image.width,image.height)!=(camera.width,camera.height)
                            for image,camera in zip(observation.images,task.cameras,strict=True))):
                 raise ValueError('public images differ from authoritative physical capture evidence')
+    if observation_count!=len(captures):
+        raise ValueError('public image log is incomplete relative to authoritative captures')
 
 
 def rotation(q):

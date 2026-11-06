@@ -3,7 +3,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
+import tempfile
 
 
 def renderer_paths(server):
@@ -24,21 +26,63 @@ def renderer_paths(server):
 
 
 def graphics_identity():
-    """Stable hardware/driver metadata; never include clocks, load or process IDs."""
+    """PCI rendering hardware/driver identity, independent of RDP connections."""
     if os.name!='nt':
         raise RuntimeError('rendered benchmark GPU identity requires Windows')
     try:
         result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',
-            '[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,AdapterCompatibility,VideoProcessor | ConvertTo-Json -Compress'],
+            '[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,PNPDeviceID,AdapterCompatibility,VideoProcessor | ConvertTo-Json -Compress'],
             capture_output=True,text=True,encoding='utf-8',errors='strict',timeout=30,check=True,
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     except subprocess.SubprocessError as error:
         raise RuntimeError('could not read graphics driver identity') from error
-    value=json.loads(result.stdout)
+    return physical_graphics_identity(json.loads(result.stdout))
+
+
+def physical_graphics_identity(value):
+    # An RDP session adds/removes a software display controller without changing
+    # the GPU executing D3D12. Keep every PCI device, including its PnP identity;
+    # actual UE selection is checked against this inventory after startup.
     devices=value if isinstance(value,list) else [value]
+    devices=[device for device in devices if isinstance(device,dict)
+             and str(device.get('PNPDeviceID','')).upper().startswith('PCI\\')]
     if not devices or any(not device.get('Name') or not device.get('DriverVersion') for device in devices):
-        raise ValueError('GPU model and driver version must be available')
-    return sorted(devices,key=lambda device:(device['Name'],device['DriverVersion']))
+        raise ValueError('PCI GPU model, device identity and driver version must be available')
+    return sorted(devices,key=lambda device:(device['PNPDeviceID'],device['Name'],device['DriverVersion']))
+
+
+def selected_graphics_identity(log,devices):
+    """Fail closed if UE used software rendering or a different model/driver."""
+    header='LogRHI: RHI Adapter Info:'
+    if header not in log:
+        raise ValueError('UE did not report its selected rendering device')
+    lines='\n'.join(log.split(header,1)[1].splitlines()[:5])
+    name=re.search(r'LogRHI:\s+Name:\s*([^\r\n]+)',lines)
+    driver=re.search(r'LogRHI:\s+Driver Version:.*?\(internal:([^,\)]+)',lines)
+    if name is None or driver is None:
+        raise ValueError('UE rendering device model or internal driver version is missing')
+    selected=dict(Name=name.group(1).strip(),DriverVersion=driver.group(1).strip())
+    if not any(all(device.get(key)==value for key,value in selected.items()) for device in devices):
+        raise ValueError('UE selected a renderer outside the frozen PCI graphics inventory')
+    return selected
+
+
+def new_renderer_user_directory(episode_directory):
+    """Short, fresh UE scratch directory; preserve it and record its owner.
+
+    Python evidence paths support extended Windows paths, but UE shader
+    generation does not reliably support a deeply nested -UserDir.
+    """
+    root=Path(os.environ.get('SPACESIM_BENCHMARK_RUNTIME_ROOT',
+        str(Path(os.environ.get('LOCALAPPDATA',tempfile.gettempdir()))/'BskBench'))).resolve()
+    if len(str(root))+12>120 or str(root).startswith('\\\\?\\'):
+        raise ValueError('configure a short SPACESIM_BENCHMARK_RUNTIME_ROOT (UE user directory must be at most 120 characters)')
+    root.mkdir(parents=True,exist_ok=True)
+    directory=Path(tempfile.mkdtemp(prefix='ue-',dir=root))
+    (directory/'owner.json').write_text(json.dumps(dict(
+        schema_version='spacesim-benchmark-renderer-scratch/1',episode_directory=str(episode_directory)),
+        ensure_ascii=False,indent=2),encoding='utf-8')
+    return directory
 
 
 def receipt_dependencies(receipt,project,engine):
@@ -123,5 +167,6 @@ def rendered_resources(server):
                         if path.is_relative_to(root))
         files[label+'/'+path.relative_to(owner).as_posix()]=path
     return files,dict(engine_version=data,graphics_devices=graphics_identity(),
-        user_settings='fresh per-episode UserDir; no inherited project Saved settings',
+        graphics_policy='all PCI device identities and drivers; actual UE selection must match; RDP display controllers excluded',
+        user_settings='fresh short per-episode UserDir; no inherited project Saved settings',
         cache_policy='derived DDC only; original content and shaders are fingerprinted')

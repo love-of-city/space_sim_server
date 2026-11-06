@@ -11,7 +11,8 @@ from space_arm_platform.benchmark_vision import VisionPoseTask
 from space_arm_platform.benchmark_vision_score import VisionPoseScorer,physical_camera
 
 
-def test_public_image_replay_rejects_valid_png_substitution(task,tmp_path):
+@pytest.mark.parametrize('defect',['png_substitution','missing_public_image'])
+def test_public_image_replay_rejects_substitution_and_truncation(task,tmp_path,defect):
     import base64
     import hashlib
     import json
@@ -37,8 +38,11 @@ def test_public_image_replay_rejects_valid_png_substitution(task,tmp_path):
     physics_path.write_text(json.dumps(recorded)+'\n')
     observations_path.write_text(json.dumps(observation)+'\n')
     verify_public_image_evidence(task,observations_path,physics_path)
-    recorded['image_sha256']=['b'*64]
-    physics_path.write_text(json.dumps(recorded)+'\n')
+    if defect=='png_substitution':
+        recorded['image_sha256']=['b'*64]
+        physics_path.write_text(json.dumps(recorded)+'\n')
+    else:
+        observations_path.write_text('')
     with pytest.raises(ValueError,match='authoritative'):
         verify_public_image_evidence(task,observations_path,physics_path)
 

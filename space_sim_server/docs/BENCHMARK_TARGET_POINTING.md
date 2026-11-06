@@ -19,4 +19,6 @@ python tools/autonomy_benchmark.py run d11-cooperative-target-pointing-v1 --seed
 python tools/autonomy_benchmark.py batch d11-cooperative-target-pointing-v1 --split test --output run/d11-test
 ```
 
-训练/验证/测试划分为 1–3 / 101–103 / 201–210。P1 验收预先固定测试种子 201–203，其他七个不计入本次验收分母；先运行训练 1/2、原生两星传播/轮电机/独立 GNSS 复位（种子 3）及原 S02/S05 回归，再运行冻结矩阵、三个对照、外部方法、恢复、复算、数据集、CLI 取消和四种网页流程。当前实现尚待云端基础检查和原生验收。
+训练/验证/测试划分为 1–3 / 101–103 / 201–210。P1 验收预先固定测试种子 201–203，其他七个不计入本次验收分母；先运行训练 1/2、原生两星传播/轮电机/独立 GNSS 复位（种子 3）及原 S02/S05 回归，再运行冻结矩阵、三个对照、外部方法、恢复、复算、数据集、CLI 取消和四种网页流程。
+
+云端源码 `f06c296` 的 608 项 Benchmark 后端测试、适配器元数据检查、261 项前端测试、Ruff 及前端构建通过，无跳过。报告 `.tmp/benchmark-target-pointing-checks-v1/acceptance.json` 的 SHA-256 为 `f0027ce2e82b46e7ef9a9de2a8b835fa9f6f920b9f37c26ea58e891e27b9e13d`。专用 `benchmark-target-v1-20261107` 工作树已核验源码、113 个模型资源并独立构建原生库，完整原生验收排在 D19 流程之后；必须等待完整飞行与 D19 的所有进程退出才启动。目前没有 D11 原生回合结果，不能将基础检查通过视作任务已验收。

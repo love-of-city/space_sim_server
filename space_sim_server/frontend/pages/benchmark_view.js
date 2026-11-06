@@ -11,10 +11,14 @@ export const methodLabels = {
   'attitude-wheel-pd-v1':'姿态 PD','attitude-rate-limited-pd-v1':'角速度受限姿态 PD',
   'no-wheel-torque-v1':'零飞轮力矩（负对照）','unsafe-spin-v1':'持续满力矩（负对照）',
   'external-attitude-pd-v1':'姿态 PD · 独立进程示例','external-gnss-pd-v1':'GNSS PD · 独立进程示例',
+  'gnss-orbit-maneuver-v1':'GNSS 轨道机动','no-orbit-thrust-v1':'零轨控推力（负对照）',
+  'unsafe-orbit-burn-v1':'持续轨控推力（负对照）','external-orbit-maneuver-v1':'轨道机动 · 独立进程示例',
 };
 export function benchmarkMetric(score){
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.final_position_error_m))return `${score.final_position_error_m.toFixed(4)} m`;
+  if(Number.isFinite(score?.final_orbit?.impulse_vector_error_m_s))return `Δv 误差 ${score.final_orbit.impulse_vector_error_m_s.toFixed(4)} m/s`;
+  if(Number.isFinite(score?.final_orbit?.semimajor_axis_error_m))return `半长轴误差 ${score.final_orbit.semimajor_axis_error_m.toFixed(2)} m；e=${score.final_orbit.eccentricity.toExponential(2)}`;
   return '—';
 }
 export function benchmarkRate(summary){

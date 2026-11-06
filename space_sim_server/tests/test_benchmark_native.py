@@ -18,6 +18,53 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_single_orbit_motor_response_and_reset_are_native(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import ForceAction, SPEC_DIRECTORY, load_task
+from simulation.benchmark_native_orbit import NativeOrbitEnvironment
+
+task = load_task(SPEC_DIRECTORY / "s11-orbit-raise-v1.json")
+env = NativeOrbitEnvironment(task, Path(sys.argv[1]))
+try:
+    first = env.reset(201)
+    initial = env._physical_state(0).copy()
+    action = ForceAction(episode_id=first.episode_id, observation_sequence=0, force_j2000_n=(1., 0., 0.))
+    env.step(action)
+    propelled = env._physical_state(task.decision_period_ns).copy()
+    assert abs(env.evaluation()["thrust_impulse_n_s"]-.5) < 1e-12
+    assert set(env.model_manifest["bodies"]) == {"cubesat_bus"}
+    assert env.model_manifest["mesh_count"] == 9
+    assert env.provenance()["native_dynamics"]["external_state_writes"] == 0
+    assert not np.array_equal(first.chaser_estimate_j2000, initial)
+    again = env.reset(201)
+    assert again.episode_id != first.episode_id
+    assert again.model_dump(exclude={"episode_id"}) == first.model_dump(exclude={"episode_id"})
+    assert np.array_equal(env._physical_state(0), initial)
+    assert env.evaluation()["thrust_impulse_n_s"] == 0
+    try:
+        env.step(action)
+    except ValueError as error:
+        assert "stale" in str(error)
+    else:
+        raise AssertionError("stale orbital action accepted after reset")
+    env.step(ForceAction(episode_id=again.episode_id, observation_sequence=0, force_j2000_n=(0., 0., 0.)))
+    displacement = np.linalg.norm(propelled[:3]-env._physical_state(task.decision_period_ns)[:3])
+    assert 1e-4 < displacement < .01, displacement
+    assert env.evaluation()["thrust_impulse_n_s"] == 0
+    assert env.provenance()["native_dynamics"]["external_state_writes"] == 0
+finally:
+    env.close()
+print("single native orbit force, sensor boundary and reset verified")
+'''
+    result = subprocess.run([sys.executable, "-c", code, str(tmp_path / "native-orbit")],
+                            cwd=SERVER, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "single native orbit force" in result.stdout
+
+
 def test_native_action_changes_motion_and_reset_restores_rng_and_physics(tmp_path):
     code = r'''
 import sys

@@ -16,4 +16,8 @@ if sys.argv[1:] == ["waypoint"]:
     from simulation.benchmark_methods import GNSSWaypointPD
     from space_arm_platform.benchmark_contract import MethodContext, NavigationObservation
     raise SystemExit(serve_method(GNSSWaypointPD(), MethodContext, NavigationObservation))
-raise SystemExit("expected one task-family argument: attitude or waypoint")
+if sys.argv[1:] == ["orbit"]:
+    from simulation.benchmark_orbit_methods import GNSSOrbitManeuver
+    from space_arm_platform.benchmark_orbit import OrbitContext, OrbitObservation
+    raise SystemExit(serve_method(GNSSOrbitManeuver(), OrbitContext, OrbitObservation))
+raise SystemExit("expected one task-family argument: attitude, waypoint or orbit")

@@ -6,8 +6,10 @@ from .benchmark_attitude import AttitudeTask, WheelTorqueAction
 from .benchmark_attitude_score import AttitudeScorer
 from .benchmark_contract import ForceAction, WaypointTask
 from .benchmark_scoring import WaypointScorer
+from .benchmark_orbit import OrbitTask
+from .benchmark_orbit_score import OrbitScorer
 
-Task = WaypointTask | AttitudeTask
+Task = WaypointTask | AttitudeTask | OrbitTask
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,8 @@ FAMILIES = {
         "NativeWaypointEnvironment", ("gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1")),
     AttitudeTask: FamilyImplementation("simulation.benchmark_attitude_methods", "simulation.benchmark_native_attitude",
         "NativeAttitudeEnvironment", ("attitude-wheel-pd-v1", "no-wheel-torque-v1", "unsafe-spin-v1", "attitude-rate-limited-pd-v1")),
+    OrbitTask: FamilyImplementation("simulation.benchmark_orbit_methods", "simulation.benchmark_native_orbit",
+        "NativeOrbitEnvironment", ("gnss-orbit-maneuver-v1", "no-orbit-thrust-v1", "unsafe-orbit-burn-v1")),
 }
 
 
@@ -50,7 +54,7 @@ def native_environment(task: Task, output):
 
 
 def parse_action(task: Task, raw, observation):
-    if isinstance(task, WaypointTask):
+    if isinstance(task, (WaypointTask, OrbitTask)):
         action = ForceAction.model_validate(raw)
         action.validate_for(observation, task.safety.maximum_force_n)
     else:
@@ -60,4 +64,6 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, OrbitTask):
+        return OrbitScorer(task, chaser_mass_kg)
     return WaypointScorer(task, chaser_mass_kg) if isinstance(task, WaypointTask) else AttitudeScorer(task)

@@ -16,6 +16,8 @@ test('displayed success rate uses all planned cases and separates angle and posi
   assert.equal(benchmarkRate({success_rate_all_planned:.25,successes:1,planned:4}),'25.0%（1/4）');
   assert.equal(benchmarkMetric({final_attitude_error_rad:Math.PI/180}),'1.0000°');
   assert.equal(benchmarkMetric({final_position_error_m:.125}),'0.1250 m');
+  assert.equal(benchmarkMetric({final_orbit:{impulse_vector_error_m_s:.001}}),'Δv 误差 0.0010 m/s');
+  assert.equal(benchmarkMetric({final_orbit:{semimajor_axis_error_m:2,eccentricity:1e-6}}),'半长轴误差 2.00 m；e=1.00e-6');
   assert.equal(benchmarkMetric(null),'—');
 });
 

@@ -8,6 +8,7 @@ import psutil
 import pytest
 
 from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation
+from space_arm_platform.benchmark_orbit import OrbitContext, OrbitObservation
 from space_arm_platform.benchmark_contract import MethodContext, NavigationObservation, SPEC_DIRECTORY, load_task
 from space_arm_platform.benchmark_external import (
     ExternalMethod, ExternalMethodDefinition, MAX_STDERR_BYTES, decode_message,
@@ -38,6 +39,11 @@ def context_and_observation(family):
         observation = AttitudeObservation(episode_id="test", sequence=0, sample_time_ns=0, delivery_time_ns=0,
             orientation_body_to_j2000_wxyz=(math.cos(.1), math.sin(.1), 0., 0.),
             angular_velocity_body_rad_s=(.001, .002, -.001), wheel_speed_rad_s=(0., 0., 0.), gyro_valid=True)
+    elif family == "orbit":
+        task = load_task(SPEC_DIRECTORY / "s09-finite-burn-v1.json")
+        context = OrbitContext(task=task, chaser_mass_kg=170.)
+        observation = OrbitObservation(episode_id="test", sequence=10, sample_time_ns=5_000_000_000, delivery_time_ns=5_000_000_000,
+            chaser_estimate_j2000=(7e6, 0., 0., 0., 7500., 0.))
     else:
         task = load_task(SPEC_DIRECTORY / "d32-cooperative-gnss-v1.json")
         context = MethodContext(task=task, chaser_mass_kg=170.)
@@ -46,7 +52,7 @@ def context_and_observation(family):
     return context, observation
 
 
-@pytest.mark.parametrize("family", ["attitude", "waypoint"])
+@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit"])
 def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family):
     context, observation = context_and_observation(family)
     definition = ExternalMethodDefinition(SERVER / f"examples/autonomy_methods/{family}-pd.json", context.task)

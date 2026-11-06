@@ -29,6 +29,7 @@ TERMINAL = {"complete", "stopped", "interrupted", "failed"}
 BUNDLED_METHODS = {
     "external-attitude-pd-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-pd.json"),
     "external-gnss-pd-v1": ("spacesim-autonomy-waypoint/1", "examples/autonomy_methods/waypoint-pd.json"),
+    "external-orbit-maneuver-v1": ("spacesim-autonomy-orbit/1", "examples/autonomy_methods/orbit-pd.json"),
 }
 
 

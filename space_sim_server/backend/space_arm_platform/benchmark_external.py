@@ -28,7 +28,7 @@ MAX_STDERR_BYTES = 256 * 1024
 class PythonMethodSpec(Contract):
     schema_version: Literal["spacesim-autonomy-python-method/1"]
     method_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    task_schemas: tuple[Literal["spacesim-autonomy-waypoint/1", "spacesim-autonomy-attitude/1"], ...] = Field(min_length=1)
+    task_schemas: tuple[Literal["spacesim-autonomy-waypoint/1", "spacesim-autonomy-attitude/1", "spacesim-autonomy-orbit/1"], ...] = Field(min_length=1)
     entrypoint: str = Field(min_length=1)
     arguments: tuple[str, ...] = ()
     files: tuple[str, ...] = Field(min_length=1)

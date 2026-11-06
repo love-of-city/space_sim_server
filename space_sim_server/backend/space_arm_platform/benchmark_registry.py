@@ -64,7 +64,7 @@ FAMILIES = {
     FlyAroundTask: FamilyImplementation("simulation.benchmark_flyaround_methods", "simulation.benchmark_native_flyaround",
         "NativeFlyAroundEnvironment", ("gnss-flyaround-v1", "no-flyaround-thrust-v1", "unsafe-flyaround-v1")),
     FormationTask: FamilyImplementation("simulation.benchmark_formation_methods", "simulation.benchmark_native_formation",
-        "NativeFormationEnvironment", ("gnss-formation-v1", "no-formation-thrust-v1", "unsafe-formation-v1")),
+        "NativeFormationEnvironment", ("gnss-formation-v1", "no-formation-thrust-v1", "unsafe-formation-v1", "one-sided-formation-v1")),
     PointingTask: FamilyImplementation("simulation.benchmark_pointing_methods", "simulation.benchmark_native_pointing",
         "NativePointingEnvironment", ("ephemeris-pointing-pd-v1", "frozen-pointing-pd-v1", "no-pointing-torque-v1", "unsafe-pointing-spin-v1")),
 }
@@ -203,6 +203,8 @@ def configuration_title(catalogue, task):
         title += "（GNSS，150 m 接近中止）"
     if isinstance(task, RelativeFlightTask) and task.source_id == 'D05':
         title += "（合作目标，7 km 至 150 m）"
+    if isinstance(task, FormationTask) and task.source_id == 'D19':
+        title += "（双星实际共同机动，600 m 至 150 m）"
     if isinstance(task, VisionPoseTask):
         title += "（已知被动标志物，真实图像）"
     if isinstance(task, PointingTask):

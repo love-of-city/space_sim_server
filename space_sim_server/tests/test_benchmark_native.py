@@ -194,7 +194,7 @@ print('native pointing sensors, shared ephemeris, motor reaction and reset verif
     assert 'native pointing sensors' in result.stdout
 
 
-@pytest.mark.parametrize('configuration', ['d15-gnss-formation-hold-v1', 'm02-gnss-formation-hold-v1'])
+@pytest.mark.parametrize('configuration', ['d15-gnss-formation-hold-v1', 'm02-gnss-formation-hold-v1', 'd19-gnss-cooperative-rendezvous-v1'])
 def test_each_formation_member_has_independent_native_actuation_and_reset(tmp_path, configuration):
     code = r'''
 import sys
@@ -206,7 +206,8 @@ from space_arm_platform.benchmark_registry import native_environment
 task = load_task(SPEC_DIRECTORY/(sys.argv[2]+'.json'))
 env = native_environment(task, Path(sys.argv[1]))
 try:
-    first = env.reset(201)
+    seed = 3 if task.source_id == 'D19' else 201
+    first = env.reset(seed)
     count = task.spacecraft_count
     initial = env._read_physical_states(0).copy()
     assert len(env.model_manifest['crafts']) == count
@@ -219,7 +220,7 @@ try:
     propelled = env._read_physical_states(task.decision_period_ns).copy()
     assert np.allclose(env.evaluation()['per_spacecraft_thrust_impulse_n_s'], .5*np.arange(1, count+1), atol=1e-12)
     assert env.provenance()['native_dynamics']['external_state_writes'] == 0
-    again = env.reset(201)
+    again = env.reset(seed)
     assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
     assert np.array_equal(env._read_physical_states(0), initial)
     assert env.evaluation()['sample_count'] == 1

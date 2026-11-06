@@ -26,6 +26,16 @@ class FormationObjective(Contract):
     minimum_displacement_m: Nonnegative
 
 
+class CooperativeRendezvousObjective(FormationObjective):
+    kind: Literal['cooperative_rendezvous']
+    minimum_initial_range_m: Positive = Field(ge=500)
+    maximum_terminal_range_m: Positive = Field(le=300)
+    minimum_range_reduction_m: Positive = Field(ge=100)
+    minimum_per_spacecraft_impulse_n_s: Positive
+    active_force_threshold_n: Positive
+    simultaneous_maneuver_dwell_s: Positive
+
+
 class FormationSafety(Contract):
     minimum_pair_distance_m: Number = Field(ge=100)
     maximum_pair_distance_m: Positive
@@ -55,8 +65,9 @@ class FormationTask(Contract):
     configuration_id: str = Field(pattern=r'^[a-z0-9]+(?:-[a-z0-9]+)*$')
     requirement_id: Literal['ssb.formation.pair-establish', 'ssb.formation.pair-maintain',
                             'ssb.formation.pair-reconfigure', 'ssb.formation.swarm-establish',
-                            'ssb.formation.swarm-maintain', 'ssb.formation.swarm-reconfigure']
-    source_id: Literal['D14', 'D15', 'D16', 'M01', 'M02', 'M03']
+                            'ssb.formation.swarm-maintain', 'ssb.formation.swarm-reconfigure',
+                            'ssb.rendezvous.dual-controlled']
+    source_id: Literal['D14', 'D15', 'D16', 'D19', 'M01', 'M02', 'M03']
     backend: Literal['native_original_sarm_formation_v1']
     target_cooperation: Literal['C']
     spacecraft_count: Literal[2, 3]
@@ -67,7 +78,7 @@ class FormationTask(Contract):
     attitude_control: Literal['none_passive_attitude']
     reference_frame: Literal['spacecraft0_TNR_tangent_normal_radial']
     initial: FormationInitial
-    objective: FormationObjective
+    objective: FormationObjective | CooperativeRendezvousObjective
     safety: FormationSafety
     observation: FormationSensors
     seeds: SeedSplits
@@ -102,10 +113,12 @@ class FormationTask(Contract):
         initial, goal, safety = self.initial, self.objective, self.safety
         source = {'D14': ('pair-establish', 'establish_formation'), 'D15': ('pair-maintain', 'hold_formation'),
                   'D16': ('pair-reconfigure', 'reconfigure_formation'), 'M01': ('swarm-establish', 'establish_formation'),
-                  'M02': ('swarm-maintain', 'hold_formation'), 'M03': ('swarm-reconfigure', 'reconfigure_formation')}
+                  'M02': ('swarm-maintain', 'hold_formation'), 'M03': ('swarm-reconfigure', 'reconfigure_formation'),
+                  'D19': ('dual-controlled', 'cooperative_rendezvous')}
         requirement, kind = source[self.source_id]
         count = 2 if self.source_id.startswith('D') else 3
-        if (self.requirement_id != 'ssb.formation.'+requirement or goal.kind != kind
+        namespace = 'ssb.rendezvous.' if self.source_id == 'D19' else 'ssb.formation.'
+        if (self.requirement_id != namespace+requirement or goal.kind != kind
                 or self.spacecraft_count != count or self.controlled_spacecraft != count):
             raise ValueError('source, task kind and independently controlled spacecraft must agree')
         arrays = (initial.positions_tnr_m, initial.velocities_tnr_m_s, goal.positions_tnr_m)
@@ -147,6 +160,24 @@ class FormationTask(Contract):
                 raise ValueError('establishment must sample an initially dispersed constellation')
             if goal.kind == 'reconfigure_formation' and initial.position_half_width_m > .5:
                 raise ValueError('reconfiguration starts in a bounded known initial formation')
+            if isinstance(goal, CooperativeRendezvousObjective):
+                initial_minimum = math.dist(initial.positions_tnr_m[1], (0, 0, 0))-math.sqrt(3)*initial.position_half_width_m
+                terminal_maximum = math.dist(goal.positions_tnr_m[1], (0, 0, 0))+goal.position_tolerance_m
+                if initial_minimum < goal.minimum_initial_range_m or terminal_maximum > goal.maximum_terminal_range_m:
+                    raise ValueError('cooperative rendezvous must start outside and finish inside the declared ranges')
+                if goal.minimum_range_reduction_m > initial_minimum-terminal_maximum:
+                    raise ValueError('every initial and terminal pair must imply the required range reduction')
+                if goal.minimum_range_reduction_m > safety.maximum_pair_speed_m_s*(self.duration_s-goal.dwell_s):
+                    raise ValueError('the range reduction must fit the speed limit and final dwell')
+                if not goal.active_force_threshold_n < safety.maximum_force_n:
+                    raise ValueError('simultaneous activity must be distinguishable below the force limit')
+                if goal.minimum_per_spacecraft_impulse_n_s >= safety.maximum_force_n*self.duration_s:
+                    raise ValueError('per-spacecraft impulse requirement must be physically attainable')
+                if not goal.simultaneous_maneuver_dwell_s < self.duration_s-goal.dwell_s:
+                    raise ValueError('simultaneous maneuver must fit before the final dwell')
+                ticks = goal.simultaneous_maneuver_dwell_s*1e9/self.physics_period_ns
+                if not math.isclose(ticks, round(ticks), abs_tol=1e-8, rel_tol=0):
+                    raise ValueError('simultaneous maneuver dwell must lie on the physical grid')
         for seconds, period in ((self.duration_s, self.decision_period_ns), (goal.dwell_s, self.physics_period_ns)):
             ticks = seconds*1e9/period
             if not math.isclose(ticks, round(ticks), abs_tol=1e-8, rel_tol=0):

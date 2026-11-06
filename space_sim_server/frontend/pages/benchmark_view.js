@@ -38,6 +38,7 @@ export const methodLabels = {
   'unsafe-flyaround-v1':'绕飞法向偏离（负对照）','external-flyaround-v1':'安全绕飞 · 独立进程示例',
   'gnss-formation-v1':'GNSS 编队协同控制','no-formation-thrust-v1':'全星零推力（负对照）',
   'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
+  'one-sided-formation-v1':'仅一星施力（协同交会负对照）',
 };
 export function benchmarkMetric(score){
   if(score?.schema_version==='spacesim-autonomy-debris-avoidance-score/1'){
@@ -66,6 +67,7 @@ export function benchmarkMetric(score){
   }
   if(Number.isFinite(score?.final_boresight_error_rad))return `指向误差 ${(score.final_boresight_error_rad*180/Math.PI).toFixed(4)}°；跟踪时窗超限 ${score.failed_tracking_samples}/${score.tracking_samples} 帧`;
   if(Number.isInteger(score?.target_count)&&Array.isArray(score.completed_targets)&&Number.isFinite(score.final_attitude_error_rad))return `已完成姿态 ${score.completed_targets.length}/${score.target_count}；当前姿态误差 ${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
+  if(Number.isFinite(score?.cooperative_range_reduction_m))return `双星交会缩短 ${score.cooperative_range_reduction_m.toFixed(2)} m；共同机动 ${score.simultaneous_maneuver_s.toFixed(2)} s；逐星推力积分 ${score.per_spacecraft_thrust_impulse_n_s.map(value=>value.toFixed(2)).join(' / ')} N·s`;
   if(Number.isFinite(score?.formation_position_error_m))return `成员最大位置误差 ${score.formation_position_error_m.toFixed(4)} m；最小星间距离 ${score.minimum_pair_distance_m.toFixed(2)} m；连续保持 ${score.longest_dwell_s.toFixed(2)} s`;
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.position_rmse_m))return `位置 RMSE ${score.position_rmse_m.toFixed(4)} m；速度 RMSE ${score.velocity_rmse_m_s.toFixed(4)} m/s`;
@@ -130,6 +132,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
         continuous_hold_envelope:'全程保持范围',continuous_orbit_band:'轨道维持时窗超限',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
         abort_reversal_deadline:'未及时确认持续向外运动',abort_reversal_not_confirmed:'尚未确认持续向外运动',abort_retreat_progress:'撤离距离不足',
         flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程',continuous_formation_envelope:'成员未全程保持编队',
+        both_spacecraft_active_impulse:'至少一星实际机动不足',simultaneous_cooperative_maneuver:'持续共同机动不足',cooperative_range_reduction:'协同交会距离缩减不足',
         boresight_error:'跟踪时窗指向超差',direction_rate_error:'跟踪方向变化率超差',
         ground_target_below_elevation_limit:'地面目标低于可见仰角',sun_occulted_by_earth:'太阳被地球遮挡'};
       outcome.append(element('small','error',trial.physics_score.quality_violations.map(name=>labels[name]||name).join('、')));

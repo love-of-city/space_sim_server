@@ -74,6 +74,19 @@ class NoFormationThrust(GNSSFormation):
                                forces_j2000_n=((0., 0., 0.),)*self.context.task.spacecraft_count)
 
 
+class OneSidedFormation(GNSSFormation):
+    """Keep spacecraft zero passive while preserving the requested relative acceleration."""
+    def act(self, observation):
+        action = super().act(observation)
+        masses = np.asarray(self.context.spacecraft_masses_kg)
+        forces = np.asarray(action.forces_j2000_n)
+        forces -= forces[0].copy()*masses[:, None]/masses[0]
+        limit = self.context.task.safety.maximum_force_n
+        forces *= np.minimum(1., limit/np.maximum(np.linalg.norm(forces, axis=1), 1e-15))[:, None]
+        return FormationAction(episode_id=observation.episode_id, observation_sequence=observation.sequence,
+                               forces_j2000_n=tuple(tuple(force) for force in forces))
+
+
 class UnsafeFormation(GNSSFormation):
     def act(self, observation):
         states = np.asarray(observation.estimates_j2000)
@@ -86,4 +99,4 @@ class UnsafeFormation(GNSSFormation):
 
 
 METHODS = {'gnss-formation-v1': GNSSFormation, 'no-formation-thrust-v1': NoFormationThrust,
-           'unsafe-formation-v1': UnsafeFormation}
+           'unsafe-formation-v1': UnsafeFormation, 'one-sided-formation-v1': OneSidedFormation}

@@ -65,12 +65,12 @@ def context_and_observation(family):
                 ephemeris=dict(earth_j2000_to_fixed=((1.,0.,0.),(0.,1.,0.),(0.,0.,1.)),
                     earth_j2000_to_fixed_rate_s=((0.,0.,0.),(0.,0.,0.),(0.,0.,0.)),
                     sun_geocentric_j2000=(1.5e11,0.,0.,0.,30000.,0.)))
-    elif family == "formation":
-        task = load_task(SPEC_DIRECTORY / "m02-gnss-formation-hold-v1.json")
-        context = FormationContext(task=task, spacecraft_masses_kg=(170., 170., 170.))
+    elif family in {"formation", "cooperative-rendezvous"}:
+        task = load_task(SPEC_DIRECTORY / ("d19-gnss-cooperative-rendezvous-v1.json" if family == "cooperative-rendezvous" else "m02-gnss-formation-hold-v1.json"))
+        context = FormationContext(task=task, spacecraft_masses_kg=(170.,)*task.spacecraft_count)
         observation = FormationObservation(episode_id="test", sequence=0, sample_time_ns=0, delivery_time_ns=0,
             estimates_j2000=((7e6, 0., 0., 0., 7500., 0.), (7e6, -150., 0., 0., 7500., 0.),
-                              (7e6+130., 75., 0., 0., 7500., 0.)))
+                              (7e6+130., 75., 0., 0., 7500., 0.))[:task.spacecraft_count])
     elif family == "navigation":
         task = load_task(SPEC_DIRECTORY / "s14-gnss-state-estimation-v1.json")
         context = NavigationContext(task=task, chaser_mass_kg=170.)
@@ -94,10 +94,10 @@ def context_and_observation(family):
     return context, observation
 
 
-@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation", "pointing", "wheel-recovery", "debris-avoidance"])
+@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation", "cooperative-rendezvous", "pointing", "wheel-recovery", "debris-avoidance"])
 def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family):
     context, observation = context_and_observation(family)
-    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "pointing": "pointing.json", "wheel-recovery": "wheel-recovery.json", "debris-avoidance": "debris-avoidance.json"}.get(family, f"{family}-pd.json")
+    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "cooperative-rendezvous": "formation.json", "pointing": "pointing.json", "wheel-recovery": "wheel-recovery.json", "debris-avoidance": "debris-avoidance.json"}.get(family, f"{family}-pd.json")
     definition = ExternalMethodDefinition(SERVER / "examples/autonomy_methods" / filename, context.task)
     method = ExternalMethod(definition, tmp_path)
     baseline = method_classes(context.task)[method_ids(context.task)[0]]()

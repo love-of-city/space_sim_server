@@ -20,8 +20,8 @@ export const methodLabels = {
   'attitude-sequence-pd-v1':'连续姿态切换','external-attitude-sequence-v1':'连续姿态切换 · 独立进程示例',
   'no-wheel-torque-v1':'零飞轮力矩（负对照）','unsafe-spin-v1':'持续满力矩（负对照）',
   'external-attitude-pd-v1':'姿态 PD · 独立进程示例','external-gnss-pd-v1':'GNSS PD · 独立进程示例',
-  'gnss-orbit-maneuver-v1':'GNSS 轨道机动','no-orbit-thrust-v1':'零轨控推力（负对照）',
-  'unsafe-orbit-burn-v1':'持续轨控推力（负对照）','external-orbit-maneuver-v1':'轨道机动 · 独立进程示例',
+  'gnss-orbit-maneuver-v1':'GNSS 轨道控制','no-orbit-thrust-v1':'零轨控推力（负对照）',
+  'unsafe-orbit-burn-v1':'持续轨控推力（负对照）','external-orbit-maneuver-v1':'轨道控制 · 独立进程示例',
   'gnss-orbit-estimator-v1':'GNSS 轨道状态估计','gnss-measurement-only-v1':'直接使用 GNSS 测量',
   'zero-navigation-estimate-v1':'零状态估计（负对照）','external-gnss-estimator-v1':'GNSS 状态估计 · 独立进程示例',
   'gnss-relative-flight-v1':'GNSS 相对飞行','no-relative-thrust-v1':'零相对飞行推力（负对照）',
@@ -51,6 +51,7 @@ export function benchmarkMetric(score){
   if(score?.path_requirement==='full_duration_relative_hold'&&Number.isFinite(score.maximum_position_error_m))return `最大位置误差 ${score.maximum_position_error_m.toFixed(4)} m；连续保持 ${score.longest_dwell_s.toFixed(2)} s`;
   if(score?.path_requirement==='axis_approach_corridor'&&Number.isFinite(score.maximum_cross_track_m))return `位置误差 ${score.final_position_error_m.toFixed(4)} m；最大横向偏差 ${score.maximum_cross_track_m.toFixed(4)} m`;
   if(Number.isFinite(score?.final_position_error_m))return `${score.final_position_error_m.toFixed(4)} m`;
+  if(score?.path_requirement==='continuous_orbit_maintenance'&&Number.isFinite(score.maximum_maintenance_axis_error_m))return `维持时窗最大半长轴误差 ${score.maximum_maintenance_axis_error_m.toFixed(2)} m；超限 ${score.failed_maintenance_samples}/${score.maintenance_samples} 帧`;
   if(Number.isFinite(score?.final_orbit?.impulse_vector_error_m_s))return `Δv 误差 ${score.final_orbit.impulse_vector_error_m_s.toFixed(4)} m/s`;
   if(Number.isFinite(score?.final_orbit?.semimajor_axis_error_m))return `半长轴误差 ${score.final_orbit.semimajor_axis_error_m.toFixed(2)} m；e=${score.final_orbit.eccentricity.toExponential(2)}`;
   return '—';
@@ -90,7 +91,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
         orientation_rmse:'姿态 RMSE',maximum_orientation_error:'最大姿态误差',pose_availability:'有效位姿估计不足',
         angular_velocity_rmse:'角速度 RMSE',maximum_angular_velocity_error:'最大角速度误差',spin_availability:'有效角速度估计不足',
-        continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
+        continuous_hold_envelope:'全程保持范围',continuous_orbit_band:'轨道维持时窗超限',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
         flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程',continuous_formation_envelope:'成员未全程保持编队',
         boresight_error:'跟踪时窗指向超差',direction_rate_error:'跟踪方向变化率超差',
         ground_target_below_elevation_limit:'地面目标低于可见仰角',sun_occulted_by_earth:'太阳被地球遮挡'};

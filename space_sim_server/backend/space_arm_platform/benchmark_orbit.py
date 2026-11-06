@@ -42,6 +42,16 @@ class CircularOrbitObjective(Contract):
     dwell_s: Positive
 
 
+class OrbitMaintenanceObjective(Contract):
+    kind: Literal["continuous_orbit_maintenance"]
+    altitude_m: Annotated[Number, Field(ge=200_000, le=2_000_000)]
+    semimajor_axis_tolerance_m: Positive
+    maximum_eccentricity: Annotated[Number, Field(gt=0, lt=1)]
+    plane_tolerance_rad: Annotated[Number, Field(gt=0, lt=math.pi)]
+    acquisition_deadline_s: Nonnegative
+    dwell_s: Positive
+
+
 class OrbitSafety(Contract):
     minimum_altitude_m: Annotated[Number, Field(ge=200_000)]
     maximum_altitude_m: Positive
@@ -69,8 +79,8 @@ class SingleGNSSModel(Contract):
 class OrbitTask(Contract):
     schema_version: Literal["spacesim-autonomy-orbit/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    requirement_id: Literal["ssb.orbit.maneuver", "ssb.orbit.raise-lower"]
-    source_id: Literal["S09", "S11"]
+    requirement_id: Literal["ssb.orbit.maneuver", "ssb.orbit.raise-lower", "ssb.orbit.stationkeeping"]
+    source_id: Literal["S09", "S11", "S13"]
     backend: Literal["native_team_single_orbit_v1"]
     target_cooperation: Literal["none"]
     controlled_spacecraft: Literal[1]
@@ -82,7 +92,7 @@ class OrbitTask(Contract):
     reference_frame: Literal["Earth_centered_J2000"]
     element_convention: Literal["instantaneous_two_body_osculating_fixed_earth_mu"]
     initial: OrbitInitialState
-    objective: Annotated[ImpulseObjective | CircularOrbitObjective, Field(discriminator="kind")]
+    objective: Annotated[ImpulseObjective | CircularOrbitObjective | OrbitMaintenanceObjective, Field(discriminator="kind")]
     safety: OrbitSafety
     observation: SingleGNSSModel
     seeds: SeedSplits
@@ -115,15 +125,16 @@ class OrbitTask(Contract):
     @model_validator(mode="after")
     def feasible_contract(self):
         initial, goal, limits = self.initial, self.objective, self.safety
-        requirements = {"S09": "ssb.orbit.maneuver", "S11": "ssb.orbit.raise-lower"}
+        requirements = {"S09": "ssb.orbit.maneuver", "S11": "ssb.orbit.raise-lower", "S13": "ssb.orbit.stationkeeping"}
         if self.requirement_id != requirements[self.source_id]:
             raise ValueError("source and semantic requirement must agree")
         if not limits.minimum_altitude_m < initial.altitude_m-initial.altitude_half_width_m <= initial.altitude_m+initial.altitude_half_width_m < limits.maximum_altitude_m:
             raise ValueError("all initial circular orbits must lie inside the safety shell")
-        if not goal.coast_force_tolerance_n < limits.maximum_force_n:
+        if not isinstance(goal, OrbitMaintenanceObjective) and not goal.coast_force_tolerance_n < limits.maximum_force_n:
             raise ValueError("coast thrust must be stricter than the actuator bound")
-        if (self.source_id == "S09") != isinstance(goal, ImpulseObjective):
-            raise ValueError("S09 requires a commanded finite-burn impulse; S11 a changed circular orbit")
+        objective_types = {"S09": ImpulseObjective, "S11": CircularOrbitObjective, "S13": OrbitMaintenanceObjective}
+        if not isinstance(goal, objective_types[self.source_id]):
+            raise ValueError("source requires its declared impulse, transfer or maintenance objective")
         if isinstance(goal, ImpulseObjective):
             magnitude = math.dist(goal.delta_velocity_j2000_m_s, (0, 0, 0))
             if not goal.vector_tolerance_m_s < magnitude < limits.maximum_delta_v_m_s:
@@ -131,7 +142,7 @@ class OrbitTask(Contract):
             if not goal.earliest_burn_s < goal.latest_burn_s <= self.duration_s-goal.dwell_s:
                 raise ValueError("burn window must leave enough time for coasting confirmation")
         else:
-            if abs(goal.altitude_m-initial.altitude_m) <= initial.altitude_half_width_m+goal.semimajor_axis_tolerance_m:
+            if isinstance(goal, CircularOrbitObjective) and abs(goal.altitude_m-initial.altitude_m) <= initial.altitude_half_width_m+goal.semimajor_axis_tolerance_m:
                 raise ValueError("all initial orbits must require a change of semimajor axis")
             low, high = EARTH_RADIUS_M+goal.altitude_m-goal.semimajor_axis_tolerance_m, EARTH_RADIUS_M+goal.altitude_m+goal.semimajor_axis_tolerance_m
             if not (limits.minimum_altitude_m < low*(1-goal.maximum_eccentricity)-EARTH_RADIUS_M
@@ -139,11 +150,20 @@ class OrbitTask(Contract):
                 raise ValueError("the complete target orbit must lie inside the safety shell")
             if goal.maximum_eccentricity >= limits.maximum_eccentricity:
                 raise ValueError("target eccentricity must be stricter than the hard bound")
+            if isinstance(goal, OrbitMaintenanceObjective):
+                if abs(goal.altitude_m-initial.altitude_m)+initial.altitude_half_width_m > goal.semimajor_axis_tolerance_m:
+                    raise ValueError("maintenance starts inside the declared orbital band")
+                if self.earth_gravity != "j2" or goal.dwell_s < 600:
+                    raise ValueError("maintenance requires J2 and at least 600 seconds of continuous coverage")
+                if not math.isclose(goal.acquisition_deadline_s+goal.dwell_s, self.duration_s, rel_tol=0, abs_tol=1e-8):
+                    raise ValueError("maintenance window must extend from acquisition deadline to episode end")
         if goal.dwell_s > self.duration_s:
             raise ValueError("dwell exceeds episode duration")
         grids = [(self.duration_s, self.decision_period_ns), (goal.dwell_s, self.physics_period_ns)]
         if isinstance(goal, ImpulseObjective):
             grids += [(goal.earliest_burn_s, self.decision_period_ns), (goal.latest_burn_s, self.decision_period_ns)]
+        if isinstance(goal, OrbitMaintenanceObjective):
+            grids += [(goal.acquisition_deadline_s, self.decision_period_ns)]
         for seconds, grid in grids:
             if not math.isclose(seconds*1e9/grid, round(seconds*1e9/grid), rel_tol=0, abs_tol=1e-8):
                 raise ValueError("times must lie on their declared grids")

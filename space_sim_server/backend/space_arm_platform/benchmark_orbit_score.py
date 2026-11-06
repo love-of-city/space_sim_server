@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import numpy as np
 
-from .benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, OrbitTruthSample
+from .benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, OrbitMaintenanceObjective, OrbitTruthSample
 
 
 def orbital_elements(state):
@@ -49,6 +49,8 @@ class OrbitScorer:
         self.maximum_eccentricity = 0.
         self.final = None
         self.evidence_errors, self.safety_violations = set(), set()
+        self.maintenance_samples = self.failed_maintenance_samples = 0
+        self.maintenance_axis_error = self.maintenance_eccentricity = self.maintenance_plane_error = 0.
 
     def add(self, raw):
         try:
@@ -97,7 +99,8 @@ class OrbitScorer:
         plane_error = float(math.atan2(np.linalg.norm(np.cross(elements["normal"], self.initial_normal)),
                                       np.dot(elements["normal"], self.initial_normal)))
         vector_error = axis_error = None
-        coasting = magnitude <= goal.coast_force_tolerance_n
+        maintenance = isinstance(goal, OrbitMaintenanceObjective)
+        coasting = maintenance or magnitude <= goal.coast_force_tolerance_n
         if isinstance(goal, ImpulseObjective):
             vector_error = float(np.linalg.norm(self.impulse/self.mass-goal.delta_velocity_j2000_m_s))
             # A sample at t reports the force used over (t-dt,t].
@@ -110,6 +113,15 @@ class OrbitScorer:
             in_region = (axis_error is not None and axis_error <= goal.semimajor_axis_tolerance_m
                          and elements["eccentricity"] <= goal.maximum_eccentricity
                          and plane_error <= goal.plane_tolerance_rad and coasting)
+        if maintenance:
+            if sample.time_ns >= round(goal.acquisition_deadline_s*1e9):
+                self.maintenance_samples += 1
+                self.failed_maintenance_samples += int(not in_region)
+                self.maintenance_axis_error = max(self.maintenance_axis_error, axis_error or 0.)
+                self.maintenance_eccentricity = max(self.maintenance_eccentricity, elements['eccentricity'])
+                self.maintenance_plane_error = max(self.maintenance_plane_error, plane_error)
+            else:
+                in_region = False
         if in_region and not self.evidence_errors:
             if self.hold_start_ns is None:
                 self.hold_start_ns = sample.time_ns
@@ -127,17 +139,20 @@ class OrbitScorer:
         self.maximum_eccentricity = max(self.maximum_eccentricity, elements["eccentricity"])
 
     def result(self):
+        maintenance = isinstance(self.task.objective, OrbitMaintenanceObjective)
         if not self.count or self.evidence_errors:
             outcome = "invalid_evidence"
         elif self.safety_violations:
             outcome = "safety_violation"
+        elif maintenance and self.last_time_ns == round(self.task.duration_s*1e9) and self.failed_maintenance_samples:
+            outcome = "task_failure"
         elif self.completion_time_ns is not None:
             outcome = "success"
         elif self.last_time_ns == round(self.task.duration_s*1e9):
             outcome = "time_limit"
         else:
             outcome = "incomplete"
-        return {"schema_version": "spacesim-autonomy-orbit-score/1", "task_fingerprint": self.task.fingerprint(),
+        result = {"schema_version": "spacesim-autonomy-orbit-score/1", "task_fingerprint": self.task.fingerprint(),
                 "outcome": outcome, "success": outcome == "success", "sample_count": self.count,
                 "final_time_s": self.last_time_ns*1e-9 if self.count else None,
                 "completion_time_s": self.completion_time_ns*1e-9 if outcome == "success" else None,
@@ -151,3 +166,11 @@ class OrbitScorer:
                 "resource_model": "constant mass; 50 Hz native motor-force integral; fuel and electrical energy not modeled",
                 "element_convention": self.task.element_convention, "earth_mu_m3_s2": MU, "earth_radius_m": RADIUS,
                 "evidence_errors": sorted(self.evidence_errors), "safety_violations": sorted(self.safety_violations)}
+        if maintenance:
+            result.update(path_requirement='continuous_orbit_maintenance',
+                maintenance_samples=self.maintenance_samples, failed_maintenance_samples=self.failed_maintenance_samples,
+                maximum_maintenance_axis_error_m=self.maintenance_axis_error if self.maintenance_samples else None,
+                maximum_maintenance_eccentricity=self.maintenance_eccentricity if self.maintenance_samples else None,
+                maximum_maintenance_plane_error_rad=self.maintenance_plane_error if self.maintenance_samples else None,
+                quality_violations=['continuous_orbit_band'] if self.failed_maintenance_samples else [])
+        return result

@@ -3,7 +3,7 @@ import numpy as np
 
 from simulation.orbital_rendezvous.reference import blend, gravity
 from space_arm_platform.benchmark_contract import ForceAction
-from space_arm_platform.benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective
+from space_arm_platform.benchmark_orbit import EARTH_MU_M3_S2 as MU, EARTH_RADIUS_M as RADIUS, ImpulseObjective, OrbitMaintenanceObjective
 
 _X, _W = np.polynomial.legendre.leggauss(32)
 
@@ -30,6 +30,23 @@ class GNSSOrbitManeuver:
                 force = mass*residual/dt
                 force *= min(1., 0.8*task.safety.maximum_force_n/max(np.linalg.norm(force), 1e-15))
                 self.commanded_delta_v += force*dt/mass
+        elif isinstance(goal, OrbitMaintenanceObjective):
+            if self.initial is None:
+                self.initial = state.copy()
+            radial0 = self.initial[:3]/np.linalg.norm(self.initial[:3])
+            normal = np.cross(self.initial[:3], self.initial[3:])
+            normal /= np.linalg.norm(normal)
+            tangent0 = np.cross(normal, radial0)
+            radius = RADIUS+goal.altitude_m
+            rate = np.sqrt(MU/radius**3)
+            phase = rate*time
+            radial = np.cos(phase)*radial0+np.sin(phase)*tangent0
+            tangent = -np.sin(phase)*radial0+np.cos(phase)*tangent0
+            desired_position, desired_velocity = radius*radial, radius*rate*tangent
+            acceleration = (-radius*rate**2*radial-gravity(state[:3])
+                            +.0025*(desired_position-state[:3])+.1*(desired_velocity-state[3:]))
+            force = mass*acceleration
+            force *= min(1., task.safety.maximum_force_n/max(np.linalg.norm(force), 1e-15))
         else:
             if self.initial is None:
                 self.initial = state.copy()

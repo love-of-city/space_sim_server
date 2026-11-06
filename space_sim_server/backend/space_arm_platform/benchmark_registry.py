@@ -6,7 +6,7 @@ from .benchmark_attitude import AttitudeContext, AttitudeObservation, AttitudeTa
 from .benchmark_attitude_score import AttitudeScorer
 from .benchmark_contract import ForceAction, MethodContext, NavigationObservation, WaypointTask
 from .benchmark_scoring import WaypointScorer
-from .benchmark_orbit import CircularOrbitObjective, OrbitContext, OrbitObservation, OrbitTask
+from .benchmark_orbit import CircularOrbitObjective, OrbitMaintenanceObjective, OrbitContext, OrbitObservation, OrbitTask
 from .benchmark_orbit_score import OrbitScorer
 from .benchmark_navigation import GNSSMeasurements, NavigationContext, NavigationEstimateAction, NavigationTask
 from .benchmark_navigation_score import NavigationScorer
@@ -174,4 +174,6 @@ def configuration_title(catalogue, task):
         title += "（"+{"earth_center": "地心", "sun": "太阳", "inertial_direction": "惯性方向", "ground_site": "地面固定点"}[task.objective.kind]+"）"
     if isinstance(task, OrbitTask) and isinstance(task.objective, CircularOrbitObjective):
         title += f"（目标圆轨道高度 {task.objective.altitude_m/1000:g} km）"
+    if isinstance(task, OrbitTask) and isinstance(task.objective, OrbitMaintenanceObjective):
+        title += f"（{task.objective.altitude_m/1000:g} km，J2 连续维持）"
     return title

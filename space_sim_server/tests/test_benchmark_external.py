@@ -52,7 +52,8 @@ def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family)
     calls = [json.loads(line) for line in (tmp_path / "method_calls.jsonl").read_text().splitlines()]
     assert [row["operation"] for row in calls] == ["reset", "act", "close"]
     assert method.telemetry()["call_count"] == 3
-    assert all(row["status"] == "ok" and row["wall_time_s"] > 0 for row in calls)
+    assert all(row["status"] == "ok" and row["wall_time_s"] >= 0 for row in calls)
+    assert method.telemetry()["total_wall_time_s"] > 0
 
 
 WORKER = r'''

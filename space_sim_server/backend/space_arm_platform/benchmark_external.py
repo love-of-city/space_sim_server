@@ -190,7 +190,7 @@ class ExternalMethod:
         encoded = (request.model_dump_json() + "\n").encode("utf-8")
         if len(encoded) > MAX_MESSAGE_BYTES:
             raise ValueError("method request exceeds message size limit")
-        started = time.monotonic()
+        started = time.perf_counter_ns()
         status = "ok"
         try:
             self._requests.put_nowait(encoded)
@@ -209,7 +209,7 @@ class ExternalMethod:
             status, self._failed = "failed", True
             raise
         finally:
-            elapsed = time.monotonic() - started
+            elapsed = (time.perf_counter_ns() - started) / 1e9
             self.call_count += 1
             self.total_wall_s += elapsed
             self.maximum_wall_s = max(self.maximum_wall_s, elapsed)

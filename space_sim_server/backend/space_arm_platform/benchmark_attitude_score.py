@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 
-from .benchmark_attitude import AttitudeTask, AttitudeTruthSample
+from .benchmark_attitude import AttitudeTask, AttitudeTruthSample, DetumbleInitialState
 
 
 class AttitudeScorer:
@@ -45,6 +45,15 @@ class AttitudeScorer:
         rate = math.sqrt(sum(v*v for v in sample.angular_velocity_body_rad_s))
         wheel_speed = max(abs(v) for v in sample.wheel_speed_rad_s)
         torque = max(abs(v) for v in sample.applied_motor_torque_xyz_nm)
+        initial = self.task.initial
+        if self.count == 0 and isinstance(initial, DetumbleInitialState):
+            if (rate < initial.body_rate_min_norm_rad_s - 1e-12
+                    or any(abs(v) > initial.body_rate_half_width_rad_s + 1e-12 for v in sample.angular_velocity_body_rad_s)):
+                self.evidence_errors.add("initial_body_rate_outside_detumble_distribution")
+            if not initial.rotation_min_rad - 1e-8 <= angle <= initial.rotation_max_rad + 1e-8:
+                self.evidence_errors.add("initial_attitude_outside_detumble_distribution")
+            if any(abs(actual-wanted) > 1e-10 for actual, wanted in zip(sample.wheel_speed_rad_s, initial.wheel_speed_rad_s, strict=True)):
+                self.evidence_errors.add("initial_wheels_outside_detumble_distribution")
         limits = self.task.safety
         if rate > limits.maximum_body_rate_rad_s:
             self.safety_violations.add("body_rate")

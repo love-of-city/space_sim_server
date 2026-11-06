@@ -135,3 +135,35 @@ print("single-spacecraft native wheel reaction, COM initialization, sensors and 
                             cwd=SERVER, capture_output=True, text=True, timeout=180)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "single-spacecraft native wheel reaction" in result.stdout
+
+
+def test_native_detumble_initial_spin_is_bounded_and_resettable(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from simulation.benchmark_native_attitude import NativeAttitudeEnvironment
+
+task = load_task(SPEC_DIRECTORY / "s01-wheel-detumble-v1.json")
+env = NativeAttitudeEnvironment(task, Path(sys.argv[1]))
+for seed in (*task.seeds.train, *task.seeds.validation, *task.seeds.test):
+    state, quaternion, omega = env._initial_state(seed)
+    assert .04 <= np.linalg.norm(omega) <= np.sqrt(3)*.04
+    assert np.all(np.abs(omega) <= .04)
+try:
+    first = env.reset(201)
+    omega = env._body_reader().omega_BN_B
+    assert np.linalg.norm(omega) >= .04
+    assert env.evaluation()["outcome"] == "incomplete"
+    assert env.provenance()["native_dynamics"]["external_state_writes"] == 0
+    again = env.reset(201)
+    assert again.model_dump(exclude={"episode_id"}) == first.model_dump(exclude={"episode_id"})
+finally:
+    env.close()
+print("native nonzero spin and reproducible reset verified")
+'''
+    result = subprocess.run([sys.executable, "-c", code, str(tmp_path / "detumble-native")],
+                            cwd=SERVER, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "native nonzero spin" in result.stdout

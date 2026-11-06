@@ -63,6 +63,42 @@ def test_large_angle_requirement_cannot_relabel_an_ordinary_slew(task):
         AttitudeTask.model_validate({**large.model_dump(), "duration_s": 120.})
 
 
+def test_detumble_requires_nonzero_spin_and_does_not_change_legacy_fingerprints(task):
+    document = task.model_dump(mode="json")
+    document.update(source_id="S01", requirement_id="ssb.attitude.detumble")
+    with pytest.raises(ValueError, match="nonzero-spin"):
+        AttitudeTask.model_validate(document)
+    detumble = load_task(SPEC_DIRECTORY / "s01-wheel-detumble-v1.json")
+    assert detumble.initial.body_rate_min_norm_rad_s == .04
+    assert method_ids(detumble)[0] == "attitude-rate-limited-pd-v1"
+    for floor in (.0001, .041):
+        candidate = detumble.model_dump(mode="json")
+        candidate["initial"]["body_rate_min_norm_rad_s"] = floor
+        with pytest.raises(ValueError, match="rate floor"):
+            AttitudeTask.model_validate(candidate)
+    for filename, fingerprint in (
+        ("s02-wheel-attitude-v1.json", "abd19ea93eb5122b14c3fb81f3ad4812cb8c1e8f0e3d775ef0a17bffe3467fa2"),
+        ("s03-large-angle-wheel-v1.json", "56f10e02643e92c83b32ac8ae63a397682c3c1ea6968afe159e0c68a182ea65f"),
+    ):
+        assert load_task(SPEC_DIRECTORY / filename).fingerprint() == fingerprint
+
+
+@pytest.mark.parametrize("change", [dict(rate=(0., 0., 0.)), dict(rate=(.041, 0., 0.)),
+                                    dict(quaternion=(1., 0., 0., 0.)), dict(wheel=(1., 0., 0.))])
+def test_detumble_grader_independently_rejects_invalid_initial_physics(change):
+    task = load_task(SPEC_DIRECTORY / "s01-wheel-detumble-v1.json")
+    state = dict(quaternion=(math.cos(math.pi/12), math.sin(math.pi/12), 0., 0.), rate=(.04, 0., 0.))
+    valid = AttitudeScorer(task)
+    valid.add(sample(0, **state))
+    assert valid.result()["outcome"] == "incomplete"
+    invalid = AttitudeScorer(task)
+    invalid.add(sample(0, **(state | change)))
+    assert invalid.result()["outcome"] == "invalid_evidence"
+    for tick in range(1, 502):
+        invalid.add(sample(tick))
+    assert invalid.result()["outcome"] == "invalid_evidence"
+
+
 def test_quaternion_double_cover_and_continuous_dwell(task):
     scorer = AttitudeScorer(task)
     for tick in range(5):

@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及三个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持，`s03-large-angle-wheel-v1` 为大角度限时姿态机动。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。其他任务族、真实图像和接触任务、评测数据转训练集仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及四个可执行配置：`s01-wheel-detumble-v1` 为入轨初始消旋与姿态稳定，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持，`s03-large-angle-wheel-v1` 为大角度限时姿态机动，`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。其他任务族、真实图像和接触任务、评测数据转训练集仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -124,6 +124,25 @@ python tools/autonomy_benchmark.py rescore ../.tmp/attitude-201
 
 姿态测试批次的原始模型、9 个网格及原生/BSK 运行时指纹一致，初始化后状态写入均为零。汇总 SHA-256 为 `70440b0f6f317de81df387a904087472953baaa8ed5c9e6ba37b805cec2b6967`。该结果只验收此 S02 配置，未覆盖消旋、飞轮卸载、执行器故障或视觉姿态估计。
 
+### 入轨初始消旋与姿态稳定
+
+[`s01-wheel-detumble-v1.json`](../config/benchmarks/tasks/s01-wheel-detumble-v1.json) 对应 S01。初始本体角速度从各轴 ±0.04 rad/s 的均匀立方体中抽样，只接受模长不小于 0.04 rad/s 的样本，因此每个初态都需要真实消旋。该分布是有模长下限的立方体分布，不是球面均匀分布。初始姿态误差为 25°–45°，目标为完成消旋、转至指定惯性姿态，并连续保持 10 s；总时限 120 s。
+
+原生硬件、400 Hz 积分、带噪姿态/陀螺、目标容差与安全限制沿用 S02。默认方法使用限参考角速度的 `attitude-rate-limited-pd-v1`。任务加载器要求显式非零自旋分布，独立评分器还会检查首帧的真实角速度、姿态及飞轮初态；不符合初态范围的日志不能通过最终驻留获得成功。S02/S03 的任务指纹和随机初始化路径保持不变。
+
+```text
+python tools/autonomy_benchmark.py run s01-wheel-detumble-v1 --seed 1 --output ../.tmp/detumble-train-1
+python tools/autonomy_benchmark.py batch s01-wheel-detumble-v1 --split test --output ../.tmp/detumble-test
+python tools/autonomy_benchmark.py run s01-wheel-detumble-v1 --method no-wheel-torque-v1 --seed 201 --output ../.tmp/detumble-zero
+python tools/autonomy_benchmark.py run s01-wheel-detumble-v1 --method unsafe-spin-v1 --seed 201 --output ../.tmp/detumble-unsafe
+```
+
+2026-11-06 云端冻结测试种子 201–210：10/10 成功，完成时间 34.84–40.40 s。实际初始角速度模长为 0.040159–0.053908 rad/s，最终姿态误差为 0.000712–0.000892 rad；整个评测的峰值本体角速度为 0.075024 rad/s，峰值飞轮速度为 77.869 rad/s。零力矩在 120 s 超时，结束角速度仍为 0.044938 rad/s；持续满力矩在 2.32 s 超出 0.15 rad/s 安全限制。
+
+十个测试回合、训练种子 1、两个负对照及 S02 回归共 14 个回合独立复算一致。冻结源码下恢复批次后，100 个回合文件的哈希和修改时间未变；模型/资产/运行时指纹一致，初始化后状态写入为零。S02 种子 201 的完整物理日志仍为 `a44d6f2f45e643fdc1e0438e06b6b86f4102d4fbf38901730bc4662cfb5b652b`。加入首帧评分校验后，14 个归档回合再次复算一致；这次评分代码升级要求新建批次，不能混入此前冻结的运行计划。
+
+S01 任务指纹为 `a65d7a880c26cfc279766b55a96f0e4b91ff318db2459116c5465979b9955f56`；云端 `.tmp/s01-test-rate-limited-v1/summary.json` SHA-256 为 `b696c0602248f101cd57dc6c63a705b62969416f47ff4a57003bb72b8b2c3fd7`。该配置只覆盖原飞轮能够处理的中等初始自旋，不代表磁力矩器消旋、飞轮卸载或执行器故障恢复。
+
 ### 大角度限时机动
 
 [`s03-large-angle-wheel-v1.json`](../config/benchmarks/tasks/s03-large-angle-wheel-v1.json) 对应 S03，初始姿态误差为 120°–170°，要求在 75 s 内完成转向和最后 10 s 连续稳定保持。其传感器、原生飞轮、积分精度、最终姿态/角速度容差及硬安全限制与 S02 相同。75 s 是本配置明确的工程评测预算，不声称是最短时间最优值。
@@ -224,7 +243,7 @@ CLI 也支持 `batch ... --seed 201`，但种子必须属于所选划分。`run`
 | 执行适配 | reset/step/close、控制权、权威状态和方法观测分离 | 复用既有在轨组件、MissionRuntime、策略接口及原生执行器 |
 | 感知链 | 时间标记、标定、实际图像与有效测量 | 复用 GNSS、陀螺、Near23 桥和真实 UE 相机 |
 | 独立评分 | 从原始权威证据计算任务/安全/资源结果 | 复用并扩展已有交会、连续性和物理抓持审计 |
-| 批评测 | 固定样本、失败分母、隔离、取消/恢复和结果汇总 | CLI/API/原平台入口可运行三个配置；转训练集待实现 |
+| 批评测 | 固定样本、失败分母、隔离、取消/恢复和结果汇总 | CLI/API/原平台入口可运行四个配置；转训练集待实现 |
 | 用户界面 | 选择任务/方法、运行与结果呈现 | 原工作台、自动采集、数据集页面 |
 
 定义一项可执行任务时必须明确：

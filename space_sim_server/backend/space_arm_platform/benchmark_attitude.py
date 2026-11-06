@@ -29,6 +29,12 @@ class AttitudeInitialState(Contract):
     wheel_speed_rad_s: Vector3
 
 
+class DetumbleInitialState(AttitudeInitialState):
+    # Uniform rate cube conditioned on this norm floor. Keep this a separate
+    # input variant so existing S02/S03 serialized contracts stay unchanged.
+    body_rate_min_norm_rad_s: Positive
+
+
 class AttitudeObjective(Contract):
     orientation_body_to_j2000_wxyz: Quaternion
     angle_tolerance_rad: Annotated[Number, Field(gt=0, lt=math.pi)]
@@ -65,8 +71,8 @@ class AttitudeObservationModel(Contract):
 class AttitudeTask(Contract):
     schema_version: Literal["spacesim-autonomy-attitude/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    requirement_id: Literal["ssb.attitude.slew-hold", "ssb.attitude.large-angle-slew"]
-    source_id: Literal["S02", "S03"]
+    requirement_id: Literal["ssb.attitude.detumble", "ssb.attitude.slew-hold", "ssb.attitude.large-angle-slew"]
+    source_id: Literal["S01", "S02", "S03"]
     backend: Literal["native_team_single_attitude_v1"]
     target_cooperation: Literal["none"]
     controlled_spacecraft: Literal[1]
@@ -75,7 +81,7 @@ class AttitudeTask(Contract):
     vision_mode: Literal["V0"]
     action_type: Literal["reaction_wheel_motor_torques_xyz"]
     reference_frame: Literal["body_to_J2000_quaternion_wxyz"]
-    initial: AttitudeInitialState
+    initial: AttitudeInitialState | DetumbleInitialState
     objective: AttitudeObjective
     safety: AttitudeSafety
     observation: AttitudeObservationModel
@@ -109,11 +115,16 @@ class AttitudeTask(Contract):
     @model_validator(mode="after")
     def feasible_contract(self):
         initial, goal, safety = self.initial, self.objective, self.safety
-        requirements = {"S02": "ssb.attitude.slew-hold", "S03": "ssb.attitude.large-angle-slew"}
+        requirements = {"S01": "ssb.attitude.detumble", "S02": "ssb.attitude.slew-hold", "S03": "ssb.attitude.large-angle-slew"}
         if self.requirement_id != requirements[self.source_id]:
             raise ValueError("source and semantic requirement must agree")
         if self.source_id == "S03" and (initial.rotation_min_rad < math.pi/2 or self.duration_s > 90):
             raise ValueError("large-angle slew requires at least 90 degrees and a deadline no longer than 90 seconds")
+        if (self.source_id == "S01") != isinstance(initial, DetumbleInitialState):
+            raise ValueError("detumbling requires its explicit nonzero-spin initial distribution")
+        if isinstance(initial, DetumbleInitialState):
+            if not 10*goal.body_rate_tolerance_rad_s <= initial.body_rate_min_norm_rad_s <= initial.body_rate_half_width_rad_s:
+                raise ValueError("detumble rate floor must exceed ten times the success rate and fit inside the rate cube")
         if not goal.angle_tolerance_rad < initial.rotation_min_rad <= initial.rotation_max_rad:
             raise ValueError("every initial attitude must require a maneuver")
         if math.sqrt(3) * initial.body_rate_half_width_rad_s >= safety.maximum_body_rate_rad_s:

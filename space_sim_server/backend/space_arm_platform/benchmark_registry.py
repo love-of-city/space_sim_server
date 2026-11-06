@@ -29,7 +29,7 @@ FAMILIES = {
 def method_ids(task: Task | None = None):
     if task is not None:
         methods = FAMILIES[type(task)].method_ids
-        if isinstance(task, AttitudeTask) and task.source_id == "S03":
+        if isinstance(task, AttitudeTask) and task.source_id in {"S01", "S03"}:
             preferred = "attitude-rate-limited-pd-v1"
             return (preferred, *(method for method in methods if method != preferred))
         return methods

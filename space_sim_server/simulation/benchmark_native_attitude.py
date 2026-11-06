@@ -21,7 +21,7 @@ from simulation.gyroscope import GyroConfig, Gyroscope
 from simulation.local_mujoco_stepper import LocalMujocoStepper
 from simulation.orbital_rendezvous.reference import EARTH_RADIUS, MU
 from space_arm_platform.benchmark_attitude import (
-    AttitudeContext, AttitudeObservation, AttitudeTask, AttitudeTruthSample, WheelTorqueAction,
+    AttitudeContext, AttitudeObservation, AttitudeTask, AttitudeTruthSample, DetumbleInitialState, WheelTorqueAction,
 )
 from space_arm_platform.benchmark_attitude_score import AttitudeScorer
 from space_arm_platform.orbital_physics import OrbitalPhysics
@@ -162,6 +162,11 @@ class NativeAttitudeEnvironment:
         quaternion = rbk.C2EP(rbk.EP2C(delta) @ rbk.EP2C(self.task.objective.orientation_body_to_j2000_wxyz))
         quaternion /= np.linalg.norm(quaternion)
         omega = rng.uniform(-initial.body_rate_half_width_rad_s, initial.body_rate_half_width_rad_s, 3)
+        if isinstance(initial, DetumbleInitialState):
+            # The contract limits the norm floor to the cube half-width, so
+            # rejection sampling accepts at least 1-pi/6 of candidates.
+            while np.linalg.norm(omega) < initial.body_rate_min_norm_rad_s:
+                omega = rng.uniform(-initial.body_rate_half_width_rad_s, initial.body_rate_half_width_rad_s, 3)
         return state, quaternion, omega
 
     def _measure(self, sequence):

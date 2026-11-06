@@ -20,8 +20,11 @@ export const methodLabels = {
   'unsafe-relative-flight-v1':'横向偏离（负对照）','external-relative-flight-v1':'相对飞行 · 独立进程示例',
   'gnss-flyaround-v1':'GNSS 安全绕飞','no-flyaround-thrust-v1':'零绕飞推力（负对照）',
   'unsafe-flyaround-v1':'绕飞法向偏离（负对照）','external-flyaround-v1':'安全绕飞 · 独立进程示例',
+  'gnss-formation-v1':'GNSS 编队协同控制','no-formation-thrust-v1':'全星零推力（负对照）',
+  'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
 };
 export function benchmarkMetric(score){
+  if(Number.isFinite(score?.formation_position_error_m))return `成员最大位置误差 ${score.formation_position_error_m.toFixed(4)} m；最小星间距离 ${score.minimum_pair_distance_m.toFixed(2)} m；连续保持 ${score.longest_dwell_s.toFixed(2)} s`;
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.position_rmse_m))return `位置 RMSE ${score.position_rmse_m.toFixed(4)} m；速度 RMSE ${score.velocity_rmse_m_s.toFixed(4)} m/s`;
   if(Number.isFinite(score?.signed_revolutions)&&Number.isFinite(score.maximum_radial_error_m))return `绕行 ${score.signed_revolutions.toFixed(4)} 圈；最大径向偏差 ${score.maximum_radial_error_m.toFixed(4)} m；平面偏差 ${score.maximum_plane_error_m.toFixed(4)} m`;
@@ -59,13 +62,14 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     if(trial.detail)outcome.append(element('small','muted',trial.detail==='operator requested episode stop'?'用户停止了该回合':trial.detail));
     if(trial.physics_score?.safety_violations?.length){
       const labels={approach_corridor:'超出接近走廊',wrong_approach_side:'接近方向错误',relative_speed:'相对速度超限',
-        minimum_range:'小于最小安全距离',maximum_range:'超出距离范围',applied_force:'实际推力超限'};
+        minimum_range:'小于最小安全距离',maximum_range:'超出距离范围',applied_force:'实际推力超限',
+        minimum_pair_distance:'星间距离小于安全下限',maximum_pair_distance:'星间距离超出上限',pair_relative_speed:'星间相对速度超限'};
       outcome.append(element('small','error',trial.physics_score.safety_violations.map(name=>labels[name]||name).join('、')));
     }
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
         continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
-        flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程'};
+        flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程',continuous_formation_envelope:'成员未全程保持编队'};
       outcome.append(element('small','error',trial.physics_score.quality_violations.map(name=>labels[name]||name).join('、')));
     }
     row.append(element('td','',String(trial.seed)),outcome,

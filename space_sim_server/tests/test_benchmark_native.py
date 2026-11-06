@@ -18,6 +18,54 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.parametrize('configuration', ['d15-gnss-formation-hold-v1', 'm02-gnss-formation-hold-v1'])
+def test_each_formation_member_has_independent_native_actuation_and_reset(tmp_path, configuration):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_formation import FormationAction
+from space_arm_platform.benchmark_registry import native_environment
+task = load_task(SPEC_DIRECTORY/(sys.argv[2]+'.json'))
+env = native_environment(task, Path(sys.argv[1]))
+try:
+    first = env.reset(201)
+    count = task.spacecraft_count
+    initial = env._read_physical_states(0).copy()
+    assert len(env.model_manifest['crafts']) == count
+    assert env.model_manifest['mesh_count'] == 9
+    assert all(mass > 169 for mass in env.context.spacecraft_masses_kg)
+    assert not np.array_equal(np.asarray(first.estimates_j2000), initial)
+    force = tuple((float(i+1), 0., 0.) for i in range(count))
+    action = FormationAction(episode_id=first.episode_id, observation_sequence=0, forces_j2000_n=force)
+    env.step(action)
+    propelled = env._read_physical_states(task.decision_period_ns).copy()
+    assert np.allclose(env.evaluation()['per_spacecraft_thrust_impulse_n_s'], .5*np.arange(1, count+1), atol=1e-12)
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    again = env.reset(201)
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(env._read_physical_states(0), initial)
+    assert env.evaluation()['sample_count'] == 1
+    try: env.step(action)
+    except ValueError as error: assert 'stale' in str(error)
+    else: raise AssertionError('old formation action accepted after reset')
+    env.step(FormationAction(episode_id=again.episode_id, observation_sequence=0, forces_j2000_n=((0.,0.,0.),)*count))
+    drift = env._read_physical_states(task.decision_period_ns)
+    displacement = np.linalg.norm(propelled[:,:3]-drift[:,:3], axis=1)
+    assert np.all(displacement > 1e-4) and np.all(displacement < .01), displacement
+    assert np.all(np.diff(displacement) > 0), displacement
+    assert env.evaluation()['per_spacecraft_thrust_impulse_n_s'] == [0.]*count
+finally:
+    env.close()
+print('every original SARM independently actuated and reset')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/configuration), configuration],
+                            cwd=SERVER, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'every original SARM independently' in result.stdout
+
+
 @pytest.mark.parametrize('configuration', ['d12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1', 'd33-gnss-flyaround-v1'])
 def test_relative_flight_contracts_use_actual_actuators_and_reset(tmp_path, configuration):
     code = r'''

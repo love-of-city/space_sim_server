@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及覆盖 12 条来源的 13 个可执行配置：S01 消旋、S02 姿态机动、S03 大角度机动、S09 有限时长轨道机动、S11 轨道抬升/降低（两个配置）、S14 单星轨道状态估计、D01 合作目标相对导航、D12 持续伴飞、D29 V-bar 接近、D30 R-bar 接近、D32 合作目标保持点驻留及 D33 安全绕飞。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。各配置的实际验收范围与结果见下文；其他任务族、真实图像和接触任务、评测数据转训练集仍在实施。目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及覆盖 18 条来源的 19 个可执行配置：S01 消旋、S02 姿态机动、S03 大角度机动、S09 有限时长轨道机动、S11 轨道抬升/降低（两个配置）、S14 单星轨道状态估计、D01 合作目标相对导航、D12 持续伴飞、D29 V-bar 接近、D30 R-bar 接近、D32 合作目标保持点驻留、D33 安全绕飞，以及 D14/D15/D16 双星编队、M01/M02/M03 三星编队的建立/保持/重构。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。各配置的实际验收范围与结果见下文；其他任务族、真实图像和接触任务、评测数据转训练集仍在实施。目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -29,7 +29,7 @@ python -m tools.autonomy_benchmark schema
 
 目录只描述需求，不能携带 `success`、成功率、已验收等运行结论。任务实例配置、执行后端注册和运行证据分别建模；后续界面也必须区分这三类事实。
 
-`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 12 条来源、13 个配置，余下 110 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
+`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 18 条来源、19 个配置，余下 104 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
 
 ## 原生保持点任务
 
@@ -337,6 +337,39 @@ python tools/autonomy_benchmark.py run d33-gnss-flyaround-v1 --method-spec examp
 测试矩阵目录为云端本人工作树 `.tmp/d33-frozen-matrix-v1/`；计划 SHA-256 为 `f91cfc5c8ca13977de2926c38d62ea8cc5dbf3642f654d58475441ae47869530`，汇总为 `62f182764979efa9f317218db5a1e6fa79fba2d07e9d6f559caaed1ca947b99a`，种子 201 物理日志为 `5c45452ec09f6ec675ae0dcc11fd931d6a0a756012ba8810755717d82a91312d`。验收报告 `.tmp/benchmark-flyaround-acceptance.json` 的 SHA-256 为 `8400b3d2e0631ab8fabb58902507a8e02e0977644d15d91f1f12a49694a5eb7b`。
 
 实际 Edge 在原平台完成独立进程成功任务和法向推力失败任务。页面展示绕行圈数、全程径向/平面偏差及失败原因，复算与 JSON/CSV/物理日志下载均通过，物理日志与对应 CLI 一致。浏览器无页面错误；证据目录为 `.tmp/benchmark-flyaround-platform-v1/`，报告 SHA-256 为 `caa3eb0434c8935acd567b8c331f9470a31990882560b69b1aeb5c76b0b87e73`。
+
+## 双星与三星编队
+
+D14/D15/D16 分别为双星编队建立、保持和重构；M01/M02/M03 为对应的三星配置。每颗卫星都是原 SARM 的独立自由飞行实例，保留原始几何、质量、收拢关节和实体飞轮，多个实例共用 9 个原始网格。每颗装配体质量约 169.399 kg，各有三个原生 COM 推力电机、独立物理状态及 GNSS 滤波器；参考星也参与机动。
+
+| 来源 / 配置 | 初始相对构型 TNR（m） | 目标相对构型 TNR（m） | 成功要求 |
+| --- | --- | --- | --- |
+| D14 `d14-gnss-formation-establish-v1` | (-250,0,0)，各轴 ±10 m | (-150,0,0) | 实际构型变化 ≥60 m，连续驻留 20 s |
+| D15 `d15-gnss-formation-hold-v1` | (-150,0,0)，各轴 ±0.1 m | 同初始构型 | 全程连续保持 300 s |
+| D16 `d16-gnss-formation-reconfigure-v1` | (-150,0,0)，各轴 ±0.1 m | (-250,0,0) | 实际构型变化 ≥80 m，连续驻留 20 s |
+| M01 `m01-gnss-formation-establish-v1` | (-250,0,0)、(250,0,0)，各轴 ±10 m | (-150,0,0)、(75,0,130) | 每个成员实际构型变化 ≥60 m，连续驻留 20 s |
+| M02 `m02-gnss-formation-hold-v1` | (-150,0,0)、(75,0,130)，各轴 ±0.1 m | 同初始构型 | 全体成员全程连续保持 300 s |
+| M03 `m03-gnss-formation-reconfigure-v1` | (-200,0,0)、(200,0,0)，各轴 ±0.1 m | (-150,0,0)、(75,0,130) | 每个成员实际构型变化 ≥40 m，连续驻留 20 s |
+
+表内省略作为相对坐标原点的第 0 颗星。所有坐标以其装配体 COM 和瞬时 TNR 轨道系定义；其自身仍在 J2000 中真实传播、受力。建立任务采样分散初态，重构任务从已知有界构型出发。建立/重构时限 240 s；保持任务带有非零初始相对速度，每个回合必须连续满足 300 s，而不是在末尾重新进入编队即可成功。
+
+所有成员的位置误差须 ≤0.75 m，相对参考星的旋转系速度须 ≤0.05 m/s。独立评分对**全部星对**检查 100–1000 m 间距和 ≤2 m/s 相对速度；成员相互之间的违规同样否决成功。每颗星的实际推力模长上限 25 N。任意成员短时离开保持范围、证据缺帧、重复时间或初始化后写入状态均不能由其他成员的表现或最后一帧抵消。评分输出每颗星的误差、位移、推力积分和 Δv，以及最小星间距离、全体同时驻留时长；总 Δv 是各星标量推力积分/质量之和。
+
+配置均为 C、V0、集中式协同。方法每 0.5 s 接收所有成员的独立带噪 GNSS 滤波解；共享链路零延迟，不声称已经实现分布式决策、通信故障或视觉编队。400 Hz 原生积分、50 Hz 物理证据、J2/太阳引力/阻力/太阳光压及种子扰动与其他轨道任务一致。姿态被动演化，使用声明的理想惯性 COM 推力；没有推进剂和电能模型。
+
+`gnss-formation-v1` 用相对位置和速度反馈、点质量前馈及所有成员共同的运动进度控制构型；将质量加权公共加速度从各星指令中扣除，使参考星分担机动。建立/重构采用余弦加减速段的梯形速度曲线。首轮训练种子 1 曾使 M01/M03 的成员相对速度超过 2 m/s，分别在 42/56.5 s 被正确否决；原始失败保留在 `.tmp/formation-training-v1`。随后仅修改基线速度曲线，未改任务时限、初态、评分和安全阈值。`no-formation-thrust-v1` 对所有星施加零推力；`unsafe-formation-v1` 让一个成员持续朝参考星推进。外部方法示例为 `examples/autonomy_methods/formation.json`，动作必须为每颗星各提供一个当前回合、当前观测序号的力向量。
+
+```text
+python tools/autonomy_benchmark.py schema --kind formation
+python tools/autonomy_benchmark.py schema --kind formation-observation
+python tools/autonomy_benchmark.py schema --kind formation-action
+python tools/autonomy_benchmark.py run m02-gnss-formation-hold-v1 --seed 1 --output ../.tmp/my-formation-train
+python tools/autonomy_benchmark.py batch m02-gnss-formation-hold-v1 --split test --output ../.tmp/my-formation-test
+python tools/autonomy_benchmark.py run m03-gnss-formation-reconfigure-v1 --method-spec examples/autonomy_methods/formation.json --seed 201 --output ../.tmp/my-external-formation
+python tools/autonomy_benchmark.py rescore ../.tmp/my-external-formation
+```
+
+云端已通过 118 项相关后端检查、两项真实双星/三星原生生命周期检查、261 项前端检查、生产构建及新增模块 Ruff。原生检查逐星验证了不同力引起不同物理位移、全部成员的复位及 GNSS 随机流重现、旧回合动作拒绝、原生推力回读及初始化后状态写入为零。修正基线后六个配置的训练种子 1 均通过：建立/重构在 220.72–222.56 s 完成，双星/三星保持均连续满足 300 s。M01/M03 峰值星间相对速度分别为 1.7521/1.2497 m/s；这些训练结果不计入冻结测试成功率。冻结验收预先固定 D15/M02 各 10 个测试种子、其余四项各 3 个种子，共 32 回合；后续补入实际结果与网页验收。
 
 ## 接入自己的方法
 

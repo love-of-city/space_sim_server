@@ -26,6 +26,7 @@ from space_arm_platform.benchmark_orbit import OrbitObservation, OrbitTask  # no
 from space_arm_platform.benchmark_navigation import GNSSMeasurements, NavigationEstimateAction, NavigationTask  # noqa: E402
 from space_arm_platform.benchmark_relative_flight import RelativeFlightTask  # noqa: E402
 from space_arm_platform.benchmark_flyaround import FlyAroundTask  # noqa: E402
+from space_arm_platform.benchmark_formation import FormationAction, FormationObservation, FormationTask  # noqa: E402
 from space_arm_platform.benchmark_execution import rescore_episode, run_episode  # noqa: E402
 from space_arm_platform.benchmark_external import PythonMethodSpec, MethodRequest, MethodResponse  # noqa: E402
 from space_arm_platform.benchmark_registry import capability_matrix, method_ids  # noqa: E402
@@ -43,7 +44,7 @@ def main(argv=None) -> int:
     listing.add_argument("--format", choices=["json", "markdown"], default="json")
     commands.add_parser("validate", help="validate the complete final source mapping")
     schema = commands.add_parser("schema", help="print a versioned JSON Schema")
-    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action", "orbit", "orbit-observation", "navigation-task", "gnss-measurements", "navigation-estimate", "relative-flight", "flyaround", "method", "method-request", "method-response"], default="catalogue")
+    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action", "orbit", "orbit-observation", "navigation-task", "gnss-measurements", "navigation-estimate", "relative-flight", "flyaround", "formation", "formation-observation", "formation-action", "method", "method-request", "method-response"], default="catalogue")
     commands.add_parser("tasks", help="list registered executable configurations, separately from requirements")
     matrix = commands.add_parser("matrix", help="join all 122 requirements to registered configurations; not an acceptance report")
     matrix.add_argument("--format", choices=["json", "markdown"], default="json")
@@ -77,6 +78,7 @@ def main(argv=None) -> int:
                  "orbit": OrbitTask, "orbit-observation": OrbitObservation,
                  "navigation-task": NavigationTask, "gnss-measurements": GNSSMeasurements, "navigation-estimate": NavigationEstimateAction,
                  "relative-flight": RelativeFlightTask, "flyaround": FlyAroundTask,
+                 "formation": FormationTask, "formation-observation": FormationObservation, "formation-action": FormationAction,
                  "method": PythonMethodSpec, "method-request": MethodRequest, "method-response": MethodResponse}[args.kind]
         print(json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2))
         return 0

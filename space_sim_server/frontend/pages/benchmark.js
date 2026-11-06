@@ -13,7 +13,9 @@ export function createBenchmarkPanel(root,{api}){
     $('seed').replaceChildren(...seeds.map(seed=>new Option(String(seed),String(seed))));if(seeds.includes(Number(previous)))$('seed').value=previous;
     const single=$('selection').value==='single';$('seed-field').hidden=!single;
     $('plan').textContent=`计划 ${single?1:seeds.length} 个样本；种子 ${single?$('seed').value:seeds.join('、')}。每个样本只尝试一次，停止后可继续尚未启动的样本。`;
-    const objective=spec.objective.kind==='navigation_accuracy'
+    const objective=spec.schema_version==='spacesim-autonomy-formation/1'
+      ?`${spec.controlled_spacecraft} 颗星分别受控；所有成员位置误差 ≤ ${spec.objective.position_tolerance_m} m，连续保持 ${spec.objective.dwell_s} s；任意两星间距 ≥ ${spec.safety.minimum_pair_distance_m} m`
+      :spec.objective.kind==='navigation_accuracy'
       ?`全程位置 RMSE ≤ ${spec.objective.position_rmse_limit_m} m、速度 RMSE ≤ ${spec.objective.velocity_rmse_limit_m_s} m/s；方法只输出估计，不控制推进器`
       :spec.objective.kind==='complete_signed_revolution'
         ?`在 T-R 平面完成一整圈绕飞；半径 ${spec.objective.radius_m} ± ${spec.objective.radial_tolerance_m} m，平面偏差 ≤ ${spec.objective.plane_tolerance_m} m`

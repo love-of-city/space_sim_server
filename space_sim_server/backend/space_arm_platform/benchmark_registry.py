@@ -14,8 +14,10 @@ from .benchmark_relative_flight import RelativeFlightTask
 from .benchmark_relative_flight_score import RelativeFlightScorer
 from .benchmark_flyaround import FlyAroundTask
 from .benchmark_flyaround_score import FlyAroundScorer
+from .benchmark_formation import FormationAction, FormationTask
+from .benchmark_formation_score import FormationScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,8 @@ FAMILIES = {
         "NativeRelativeFlightEnvironment", ("gnss-relative-flight-v1", "no-relative-thrust-v1", "unsafe-relative-flight-v1")),
     FlyAroundTask: FamilyImplementation("simulation.benchmark_flyaround_methods", "simulation.benchmark_native_flyaround",
         "NativeFlyAroundEnvironment", ("gnss-flyaround-v1", "no-flyaround-thrust-v1", "unsafe-flyaround-v1")),
+    FormationTask: FamilyImplementation("simulation.benchmark_formation_methods", "simulation.benchmark_native_formation",
+        "NativeFormationEnvironment", ("gnss-formation-v1", "no-formation-thrust-v1", "unsafe-formation-v1")),
 }
 
 
@@ -66,7 +70,10 @@ def native_environment(task: Task, output):
 
 
 def parse_action(task: Task, raw, observation):
-    if isinstance(task, NavigationTask):
+    if isinstance(task, FormationTask):
+        action = FormationAction.model_validate(raw)
+        action.validate_for(observation, task)
+    elif isinstance(task, NavigationTask):
         action = NavigationEstimateAction.model_validate(raw)
         action.validate_for(observation, task)
     elif isinstance(task, (WaypointTask, OrbitTask, FlyAroundTask)):
@@ -79,6 +86,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, FormationTask):
+        return FormationScorer(task, chaser_mass_kg)
     if isinstance(task, FlyAroundTask):
         return FlyAroundScorer(task, chaser_mass_kg)
     if isinstance(task, RelativeFlightTask):

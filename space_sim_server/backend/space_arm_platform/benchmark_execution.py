@@ -14,6 +14,7 @@ import sys
 import time
 
 from .benchmark_contract import load_task
+from .benchmark_formation import FormationTask
 from .atomic_json import write_json as atomic_write_json
 from .benchmark_external import ExternalMethod, ExternalMethodDefinition
 from .benchmark_registry import Task, make_scorer, method_classes, method_ids, native_environment, parse_action
@@ -83,8 +84,11 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
         environment = native_environment(task, output)
         observation = environment.reset(seed)
         manifest.update({"episode_id": environment.episode_id,
-                         "physics_path": (environment.episode_directory / "physics.jsonl").relative_to(output).as_posix(),
-                         "chaser_mass_kg": environment.context.chaser_mass_kg})
+                         "physics_path": (environment.episode_directory / "physics.jsonl").relative_to(output).as_posix()})
+        if isinstance(task, FormationTask):
+            manifest["spacecraft_masses_kg"] = list(environment.context.spacecraft_masses_kg)
+        else:
+            manifest["chaser_mass_kg"] = environment.context.chaser_mass_kg
         write_json(output / "manifest.json", manifest)
         try:
             method = ExternalMethod(definition, output) if definition is not None else methods[method_id]()
@@ -177,7 +181,7 @@ def rescore_episode(output: Path) -> dict:
     physics_path = manifest.get("physics_path")
     if not physics_path or physics_path not in result["evidence_sha256"]:
         raise ValueError("run has no complete hashed physical evidence")
-    scorer = make_scorer(task, manifest["chaser_mass_kg"])
+    scorer = make_scorer(task, manifest["spacecraft_masses_kg"] if isinstance(task, FormationTask) else manifest["chaser_mass_kg"])
     with (output / physics_path).open(encoding="utf-8") as stream:
         for line in stream:
             scorer.add(json.loads(line))

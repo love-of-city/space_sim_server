@@ -12,6 +12,7 @@ from space_arm_platform.benchmark_orbit import OrbitContext, OrbitObservation
 from space_arm_platform.benchmark_navigation import NavigationContext, GNSSMeasurements
 from space_arm_platform.benchmark_relative_flight import RelativeFlightContext
 from space_arm_platform.benchmark_flyaround import FlyAroundContext
+from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
 from space_arm_platform.benchmark_contract import MethodContext, NavigationObservation, SPEC_DIRECTORY, load_task
 from space_arm_platform.benchmark_external import (
     ExternalMethod, ExternalMethodDefinition, MAX_STDERR_BYTES, decode_message,
@@ -42,6 +43,12 @@ def context_and_observation(family):
         observation = AttitudeObservation(episode_id="test", sequence=0, sample_time_ns=0, delivery_time_ns=0,
             orientation_body_to_j2000_wxyz=(math.cos(.1), math.sin(.1), 0., 0.),
             angular_velocity_body_rad_s=(.001, .002, -.001), wheel_speed_rad_s=(0., 0., 0.), gyro_valid=True)
+    elif family == "formation":
+        task = load_task(SPEC_DIRECTORY / "m02-gnss-formation-hold-v1.json")
+        context = FormationContext(task=task, spacecraft_masses_kg=(170., 170., 170.))
+        observation = FormationObservation(episode_id="test", sequence=0, sample_time_ns=0, delivery_time_ns=0,
+            estimates_j2000=((7e6, 0., 0., 0., 7500., 0.), (7e6, -150., 0., 0., 7500., 0.),
+                              (7e6+130., 75., 0., 0., 7500., 0.)))
     elif family == "navigation":
         task = load_task(SPEC_DIRECTORY / "s14-gnss-state-estimation-v1.json")
         context = NavigationContext(task=task, chaser_mass_kg=170.)
@@ -65,10 +72,10 @@ def context_and_observation(family):
     return context, observation
 
 
-@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround"])
+@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation"])
 def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family):
     context, observation = context_and_observation(family)
-    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json"}.get(family, f"{family}-pd.json")
+    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json"}.get(family, f"{family}-pd.json")
     definition = ExternalMethodDefinition(SERVER / "examples/autonomy_methods" / filename, context.task)
     method = ExternalMethod(definition, tmp_path)
     baseline = method_classes(context.task)[method_ids(context.task)[0]]()

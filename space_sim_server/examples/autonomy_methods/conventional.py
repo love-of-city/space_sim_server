@@ -34,4 +34,8 @@ if sys.argv[1:] == ["flyaround"]:
     from space_arm_platform.benchmark_flyaround import FlyAroundContext
     from space_arm_platform.benchmark_contract import NavigationObservation
     raise SystemExit(serve_method(GNSSFlyAround(), FlyAroundContext, NavigationObservation))
-raise SystemExit("expected one task-family argument: attitude, waypoint, orbit, navigation, relative-flight or flyaround")
+if sys.argv[1:] == ["formation"]:
+    from simulation.benchmark_formation_methods import GNSSFormation
+    from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
+    raise SystemExit(serve_method(GNSSFormation(), FormationContext, FormationObservation))
+raise SystemExit("expected one task-family argument: attitude, waypoint, orbit, navigation, relative-flight, flyaround or formation")

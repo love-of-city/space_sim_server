@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation, WheelTorqueAction
+from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation, AttitudeSequenceObjective, WheelTorqueAction
 
 
 def quaternion_product(left, right):
@@ -17,11 +17,14 @@ class AttitudeWheelPD:
     def reset(self, context: AttitudeContext):
         self.context = context
 
+    def reference(self, observation):
+        return self.context.task.objective.orientation_body_to_j2000_wxyz
+
     def act(self, observation: AttitudeObservation):
         if not observation.gyro_valid:
             torque = np.zeros(3)
         else:
-            target = np.asarray(self.context.task.objective.orientation_body_to_j2000_wxyz)
+            target = np.asarray(self.reference(observation))
             error = quaternion_product(target * [1., -1., -1., -1.], observation.orientation_body_to_j2000_wxyz)
             if error[0] < 0:
                 error = -error
@@ -65,5 +68,49 @@ class RateLimitedAttitudePD(AttitudeWheelPD):
     rate_limited = True
 
 
+class SequenceAttitudePD(RateLimitedAttitudePD):
+    """Advance only from public measured pose/rate; no scorer stage feedback."""
+    def reset(self, context):
+        super().reset(context)
+        goal = context.task.objective
+        self.targets = (goal.orientation_body_to_j2000_wxyz,)
+        if isinstance(goal, AttitudeSequenceObjective):
+            self.targets += goal.additional_orientations_body_to_j2000_wxyz
+        self.index = 0
+        self.hold_start_ns = None
+        self.last_time_ns = None
+
+    def act(self, observation):
+        if not observation.gyro_valid:
+            self.hold_start_ns = None
+            self.last_time_ns = observation.sample_time_ns
+        return super().act(observation)
+
+    def reference(self, observation):
+        goal = self.context.task.objective
+        target = self.targets[self.index]
+        dot = abs(np.dot(target, observation.orientation_body_to_j2000_wxyz))
+        angle = 2*np.arccos(min(1., dot))
+        rate = np.linalg.norm(observation.angular_velocity_body_rad_s)
+        if (self.last_time_ns is not None
+                and observation.sample_time_ns != self.last_time_ns+self.context.task.decision_period_ns):
+            self.hold_start_ns = None
+        if (observation.gyro_valid and angle <= .9*goal.angle_tolerance_rad
+                and rate <= .9*goal.body_rate_tolerance_rad_s):
+            if self.hold_start_ns is None:
+                self.hold_start_ns = observation.sample_time_ns
+            # Measured hold includes a margin for sensor noise; authoritative
+            # grading independently checks the original physical dwell only.
+            if (observation.sample_time_ns-self.hold_start_ns >= round((goal.dwell_s+.5)*1e9)
+                    and self.index+1 < len(self.targets)):
+                self.index += 1
+                self.hold_start_ns = None
+        else:
+            self.hold_start_ns = None
+        self.last_time_ns = observation.sample_time_ns
+        return self.targets[self.index]
+
+
 METHODS = {"attitude-wheel-pd-v1": AttitudeWheelPD, "no-wheel-torque-v1": NoWheelTorque,
-           "unsafe-spin-v1": UnsafeSpin, "attitude-rate-limited-pd-v1": RateLimitedAttitudePD}
+           "unsafe-spin-v1": UnsafeSpin, "attitude-rate-limited-pd-v1": RateLimitedAttitudePD,
+           "attitude-sequence-pd-v1": SequenceAttitudePD}

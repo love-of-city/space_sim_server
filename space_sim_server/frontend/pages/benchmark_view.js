@@ -10,6 +10,7 @@ export const benchmarkLabels = {
 export const methodLabels = {
   'gnss-pd-v1':'GNSS PD','no-thrust-v1':'零推力（负对照）','unsafe-approach-v1':'持续接近（负对照）',
   'attitude-wheel-pd-v1':'姿态 PD','attitude-rate-limited-pd-v1':'角速度受限姿态 PD',
+  'attitude-sequence-pd-v1':'连续姿态切换','external-attitude-sequence-v1':'连续姿态切换 · 独立进程示例',
   'no-wheel-torque-v1':'零飞轮力矩（负对照）','unsafe-spin-v1':'持续满力矩（负对照）',
   'external-attitude-pd-v1':'姿态 PD · 独立进程示例','external-gnss-pd-v1':'GNSS PD · 独立进程示例',
   'gnss-orbit-maneuver-v1':'GNSS 轨道机动','no-orbit-thrust-v1':'零轨控推力（负对照）',
@@ -24,6 +25,7 @@ export const methodLabels = {
   'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
 };
 export function benchmarkMetric(score){
+  if(Number.isInteger(score?.target_count)&&Array.isArray(score.completed_targets)&&Number.isFinite(score.final_attitude_error_rad))return `已完成姿态 ${score.completed_targets.length}/${score.target_count}；当前姿态误差 ${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.formation_position_error_m))return `成员最大位置误差 ${score.formation_position_error_m.toFixed(4)} m；最小星间距离 ${score.minimum_pair_distance_m.toFixed(2)} m；连续保持 ${score.longest_dwell_s.toFixed(2)} s`;
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.position_rmse_m))return `位置 RMSE ${score.position_rmse_m.toFixed(4)} m；速度 RMSE ${score.velocity_rmse_m_s.toFixed(4)} m/s`;

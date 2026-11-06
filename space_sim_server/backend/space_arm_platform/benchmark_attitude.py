@@ -44,6 +44,22 @@ class AttitudeObjective(Contract):
     _normalized = field_validator("orientation_body_to_j2000_wxyz")(unit_quaternion)
 
 
+class AttitudeSequenceObjective(AttitudeObjective):
+    """Ordered inertial orientations; every target needs its own physical dwell."""
+    additional_orientations_body_to_j2000_wxyz: tuple[Quaternion, ...] = Field(min_length=2, max_length=15)
+
+    @model_validator(mode="after")
+    def distinct_transitions(self):
+        previous = self.orientation_body_to_j2000_wxyz
+        for target in self.additional_orientations_body_to_j2000_wxyz:
+            unit_quaternion(target)
+            angle = 2*math.acos(min(1., abs(sum(a*b for a,b in zip(previous, target, strict=True)))))
+            if angle < 5*self.angle_tolerance_rad:
+                raise ValueError("adjacent sequence targets must require a distinct attitude maneuver")
+            previous = target
+        return self
+
+
 class AttitudeSafety(Contract):
     maximum_body_rate_rad_s: Positive
     maximum_wheel_speed_rad_s: Positive
@@ -71,8 +87,8 @@ class AttitudeObservationModel(Contract):
 class AttitudeTask(Contract):
     schema_version: Literal["spacesim-autonomy-attitude/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    requirement_id: Literal["ssb.attitude.detumble", "ssb.attitude.slew-hold", "ssb.attitude.large-angle-slew"]
-    source_id: Literal["S01", "S02", "S03"]
+    requirement_id: Literal["ssb.attitude.detumble", "ssb.attitude.slew-hold", "ssb.attitude.large-angle-slew", "ssb.attitude.multi-target-slew"]
+    source_id: Literal["S01", "S02", "S03", "S04"]
     backend: Literal["native_team_single_attitude_v1"]
     target_cooperation: Literal["none"]
     controlled_spacecraft: Literal[1]
@@ -82,7 +98,7 @@ class AttitudeTask(Contract):
     action_type: Literal["reaction_wheel_motor_torques_xyz"]
     reference_frame: Literal["body_to_J2000_quaternion_wxyz"]
     initial: AttitudeInitialState | DetumbleInitialState
-    objective: AttitudeObjective
+    objective: AttitudeObjective | AttitudeSequenceObjective
     safety: AttitudeSafety
     observation: AttitudeObservationModel
     seeds: SeedSplits
@@ -115,11 +131,16 @@ class AttitudeTask(Contract):
     @model_validator(mode="after")
     def feasible_contract(self):
         initial, goal, safety = self.initial, self.objective, self.safety
-        requirements = {"S01": "ssb.attitude.detumble", "S02": "ssb.attitude.slew-hold", "S03": "ssb.attitude.large-angle-slew"}
+        requirements = {"S01": "ssb.attitude.detumble", "S02": "ssb.attitude.slew-hold", "S03": "ssb.attitude.large-angle-slew",
+                        "S04": "ssb.attitude.multi-target-slew"}
         if self.requirement_id != requirements[self.source_id]:
             raise ValueError("source and semantic requirement must agree")
         if self.source_id == "S03" and (initial.rotation_min_rad < math.pi/2 or self.duration_s > 90):
             raise ValueError("large-angle slew requires at least 90 degrees and a deadline no longer than 90 seconds")
+        if (self.source_id == "S04") != isinstance(goal, AttitudeSequenceObjective):
+            raise ValueError("multi-target slew requires an explicit ordered sequence objective")
+        if isinstance(goal, AttitudeSequenceObjective) and (1+len(goal.additional_orientations_body_to_j2000_wxyz))*goal.dwell_s >= self.duration_s:
+            raise ValueError("all sequence dwells must fit within the maneuver deadline")
         if (self.source_id == "S01") != isinstance(initial, DetumbleInitialState):
             raise ValueError("detumbling requires its explicit nonzero-spin initial distribution")
         if isinstance(initial, DetumbleInitialState):

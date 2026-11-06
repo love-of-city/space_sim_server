@@ -32,7 +32,7 @@ FAMILIES = {
     WaypointTask: FamilyImplementation("simulation.benchmark_methods", "simulation.benchmark_native_flight",
         "NativeWaypointEnvironment", ("gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1")),
     AttitudeTask: FamilyImplementation("simulation.benchmark_attitude_methods", "simulation.benchmark_native_attitude",
-        "NativeAttitudeEnvironment", ("attitude-wheel-pd-v1", "no-wheel-torque-v1", "unsafe-spin-v1", "attitude-rate-limited-pd-v1")),
+        "NativeAttitudeEnvironment", ("attitude-wheel-pd-v1", "no-wheel-torque-v1", "unsafe-spin-v1", "attitude-rate-limited-pd-v1", "attitude-sequence-pd-v1")),
     OrbitTask: FamilyImplementation("simulation.benchmark_orbit_methods", "simulation.benchmark_native_orbit",
         "NativeOrbitEnvironment", ("gnss-orbit-maneuver-v1", "no-orbit-thrust-v1", "unsafe-orbit-burn-v1")),
     NavigationTask: FamilyImplementation("simulation.benchmark_navigation_methods", "simulation.benchmark_native_navigation",
@@ -49,6 +49,9 @@ FAMILIES = {
 def method_ids(task: Task | None = None):
     if task is not None:
         methods = FAMILIES[type(task)].method_ids
+        if isinstance(task, AttitudeTask) and task.source_id == "S04":
+            preferred = "attitude-sequence-pd-v1"
+            return (preferred, *(method for method in methods if method != preferred))
         if isinstance(task, AttitudeTask) and task.source_id in {"S01", "S03"}:
             preferred = "attitude-rate-limited-pd-v1"
             return (preferred, *(method for method in methods if method != preferred))

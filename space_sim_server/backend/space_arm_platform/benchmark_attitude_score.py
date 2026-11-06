@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 
-from .benchmark_attitude import AttitudeTask, AttitudeTruthSample, DetumbleInitialState
+from .benchmark_attitude import AttitudeSequenceObjective, AttitudeTask, AttitudeTruthSample, DetumbleInitialState
 
 
 class AttitudeScorer:
@@ -22,6 +22,11 @@ class AttitudeScorer:
         self.motor_impulse = [0., 0., 0.]
         self.evidence_errors = set()
         self.safety_violations = set()
+        self.targets = (task.objective.orientation_body_to_j2000_wxyz,)
+        if isinstance(task.objective, AttitudeSequenceObjective):
+            self.targets += task.objective.additional_orientations_body_to_j2000_wxyz
+        self.target_index = 0
+        self.completed_targets = []
 
     def add(self, raw: AttitudeTruthSample | dict):
         try:
@@ -39,13 +44,19 @@ class AttitudeScorer:
             self.evidence_errors.add("physical_state_overwritten_after_initialization")
         # q and -q describe the same physical orientation. This computation is
         # independent of the controller's quaternion product/MRP error code.
+        graded_target_index = self.target_index
         dot = sum(a*b for a, b in zip(sample.orientation_body_to_j2000_wxyz,
-                                     self.task.objective.orientation_body_to_j2000_wxyz, strict=True))
+                                     self.targets[self.target_index], strict=True))
         angle = 2 * math.acos(min(1., abs(dot)))
         rate = math.sqrt(sum(v*v for v in sample.angular_velocity_body_rad_s))
         wheel_speed = max(abs(v) for v in sample.wheel_speed_rad_s)
         torque = max(abs(v) for v in sample.applied_motor_torque_xyz_nm)
         initial = self.task.initial
+        if self.count == 0 and len(self.targets) > 1:
+            if (not initial.rotation_min_rad-1e-8 <= angle <= initial.rotation_max_rad+1e-8
+                    or any(abs(v) > initial.body_rate_half_width_rad_s+1e-12 for v in sample.angular_velocity_body_rad_s)
+                    or any(abs(a-b) > 1e-10 for a,b in zip(sample.wheel_speed_rad_s, initial.wheel_speed_rad_s, strict=True))):
+                self.evidence_errors.add("initial_state_outside_attitude_sequence_distribution")
         if self.count == 0 and isinstance(initial, DetumbleInitialState):
             if (rate < initial.body_rate_min_norm_rad_s - 1e-12
                     or any(abs(v) > initial.body_rate_half_width_rad_s + 1e-12 for v in sample.angular_velocity_body_rad_s)):
@@ -71,11 +82,24 @@ class AttitudeScorer:
             dwell = sample.time_ns - self.hold_start_ns
             self.longest_hold_ns = max(self.longest_hold_ns, dwell)
             if dwell >= round(self.task.objective.dwell_s * 1e9) and self.completion_time_ns is None:
-                self.completion_time_ns = sample.time_ns
+                if len(self.targets) > 1:
+                    self.completed_targets.append(dict(target_index=self.target_index,
+                        hold_start_s=self.hold_start_ns/1e9, completed_at_s=sample.time_ns/1e9,
+                        continuous_dwell_s=dwell/1e9))
+                if self.target_index+1 == len(self.targets):
+                    self.completion_time_ns = sample.time_ns
+                else:
+                    self.target_index += 1
+                    # This physical sample belongs to the target just completed.
+                    # The next target can only start accumulating on a later tick.
+                    self.hold_start_ns = None
         else:
             self.hold_start_ns = None
         self.count += 1
         self.last_time_ns = sample.time_ns
+        if self.target_index != graded_target_index:
+            dot = sum(a*b for a,b in zip(sample.orientation_body_to_j2000_wxyz, self.targets[self.target_index], strict=True))
+            angle = 2*math.acos(min(1., abs(dot)))
         self.final_angle, self.final_rate = angle, rate
         self.peak_rate = max(self.peak_rate, rate)
         self.peak_wheel_speed = max(self.peak_wheel_speed, wheel_speed)
@@ -92,7 +116,7 @@ class AttitudeScorer:
             outcome = "time_limit"
         else:
             outcome = "incomplete"
-        return {"schema_version": "spacesim-autonomy-attitude-score/1", "task_fingerprint": self.task.fingerprint(),
+        result = {"schema_version": "spacesim-autonomy-attitude-score/1", "task_fingerprint": self.task.fingerprint(),
                 "outcome": outcome, "success": outcome == "success", "sample_count": self.count,
                 "final_time_s": None if self.last_time_ns is None else self.last_time_ns / 1e9,
                 "completion_time_s": self.completion_time_ns / 1e9 if outcome == "success" else None,
@@ -104,3 +128,7 @@ class AttitudeScorer:
                 "resource_model": "reaction-wheel motor torque integrals; electrical losses and energy not modeled",
                 "safety_sampling": "50 Hz physical body rates, rotor speeds and native motor torque readbacks",
                 "evidence_errors": sorted(self.evidence_errors), "safety_violations": sorted(self.safety_violations)}
+        if len(self.targets) > 1:
+            result.update(target_count=len(self.targets), completed_targets=list(self.completed_targets),
+                          current_target_index=self.target_index)
+        return result

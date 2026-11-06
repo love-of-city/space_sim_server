@@ -86,6 +86,10 @@ def renderer_environment(args):
     return env
 
 
+class RendererExitedError(RuntimeError):
+    """The owned UE process died; callers may rebuild its collection session."""
+
+
 class PersistentRenderer:
     """One renderer per batch worker; dynamics still starts fresh each episode."""
     def __init__(self, args, output):
@@ -102,7 +106,7 @@ class PersistentRenderer:
 
     def check(self):
         if self.process.poll() is not None:
-            raise RuntimeError(f"Persistent UE exited with code {self.process.returncode}")
+            raise RendererExitedError(f"Persistent UE exited with code {self.process.returncode}")
 
     def close(self):
         try:

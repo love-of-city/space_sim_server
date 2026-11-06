@@ -33,7 +33,8 @@ def test_saved_layout_requires_explicit_pool_before_startup(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("sampling", [None, "presets"])
-def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkeypatch, sampling):
+@pytest.mark.parametrize("renderer_crashed", [False, True])
+def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkeypatch, sampling, renderer_crashed):
     from collection import record_scripted_task as recorder
 
     monkeypatch.chdir(tmp_path)
@@ -75,7 +76,9 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
             seen.append("renderer")
 
         def check(self):
-            pass
+            if renderer_crashed and "recording" in seen:
+                from space_arm_platform.collection_runtime import RendererExitedError
+                raise RendererExitedError("UE -11")
 
         def close(self):
             seen.append("renderer_closed")
@@ -95,7 +98,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         # The batch must see the exact same file despite the child's different cwd.
         expected["--cancel-file"].write_text("cancel", encoding="utf-8")
         seen.append("recording")
-        return SimpleNamespace(poll=lambda: 0, returncode=0)
+        return SimpleNamespace(poll=lambda: 1 if renderer_crashed else 0, returncode=1 if renderer_crashed else 0)
 
     def settings(path, scene=None):
         assert path == expected["--recording-config"]
@@ -117,9 +120,13 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
     if sampling is not None:
         arguments += ["--overview-camera-sampling", sampling]
     monkeypatch.setattr("sys.argv", arguments)
-    assert collector.main() == 1
+    if renderer_crashed:
+        from space_arm_platform.collection_runtime import RendererExitedError
+        with pytest.raises(RendererExitedError):collector.main()
+    else:
+        assert collector.main() == 1
     report = json.loads((tmp_path / "batch/summary.json").read_text(encoding="utf-8"))
-    assert report["status"] == "cancelled"
+    assert report["status"] == ("failed" if renderer_crashed else "cancelled")
     assert seen == ["renderer", "recording", "renderer_closed"]
     assert json.loads((tmp_path / "scene.json").read_text(encoding="utf-8"))["overview_camera_sampling"] == "continuous"
 
@@ -232,3 +239,11 @@ def test_recording_validator_rejects_stale_layout_metadata_before_accepting_data
     monkeypatch.setattr(collector, "read_observations", lambda _: iter([{"model_sha256": "actual-fixed-model"}]))
     with pytest.raises(ValueError, match="Authoritative model"):
         collector.validate_recording(tmp_path)
+
+
+def test_owned_renderer_exit_has_recoverable_type():
+    from space_arm_platform.collection_runtime import PersistentRenderer, RendererExitedError
+    renderer = object.__new__(PersistentRenderer)
+    renderer.process = SimpleNamespace(poll=lambda: -11, returncode=-11)
+    with pytest.raises(RendererExitedError, match='-11'):
+        renderer.check()

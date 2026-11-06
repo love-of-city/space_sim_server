@@ -878,6 +878,10 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                     if renderer is not None:
                         renderer.check()
                     time.sleep(0.2)
+            # Both processes can exit between polls. Classify the owned UE
+            # failure before interpreting the recorder's nonzero exit.
+            if child.returncode != 0 and renderer is not None:
+                renderer.check()
             recorded += 1
             entry["returncode"] = child.returncode
             entry["end_to_end_wall_seconds"] = time.monotonic() - attempt_started

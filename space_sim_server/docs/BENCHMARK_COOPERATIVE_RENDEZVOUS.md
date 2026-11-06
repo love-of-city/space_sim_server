@@ -17,4 +17,4 @@ python tools/autonomy_benchmark.py run d19-gnss-cooperative-rendezvous-v1 --seed
 python tools/autonomy_benchmark.py batch d19-gnss-cooperative-rendezvous-v1 --split test --output run/d19-test
 ```
 
-训练/验证种子分别为 1–3 / 101–103，P2 冻结测试为 201–203。当前已实现任务、评分、对照及原工作台入口；原生训练、冻结矩阵、复位、取消和网页验收待完成。配置注册不表示验收通过。
+训练/验证种子分别为 1–3 / 101–103，测试划分为 201–210；本次 P2 验收预先固定使用 201–203，另外七个不计入本次验收分母。当前已实现任务、评分、对照及原工作台入口；原生训练、冻结矩阵、复位、取消和网页验收待完成。配置注册不表示验收通过。

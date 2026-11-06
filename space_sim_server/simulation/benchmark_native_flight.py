@@ -75,12 +75,7 @@ class _PhysicsEvidence(sysModel.SysModel):
 
     def UpdateState(self, nanos):
         env = self.environment
-        states = env._read_physical_states(nanos)
-        sample = FlightTruthSample(
-            time_ns=int(nanos), target_com_j2000=tuple(states[0]), chaser_com_j2000=tuple(states[1]),
-            applied_motor_force_body_n=tuple(float(env._stepper.actuator_force[i]) for i in env._force_indices),
-            external_state_writes=env._stepper.external_writes,
-        )
+        sample = env._truth_sample(nanos)
         env._scorer.add(sample)
         env._truth_stream.write(sample.model_dump_json() + "\n")
 
@@ -148,13 +143,7 @@ class NativeWaypointEnvironment:
         sim.InitializeSimulation()
         sim.disableTask("benchmarkPublisherInit")
         states = self._initial_states(seed)
-        for index, name in enumerate(("capture_target", "cubesat_bus")):
-            center = np.asarray(self.model_manifest["bodies"][name]["center_body_m"])
-            body = scene.getBody(name)
-            body.setPosition((states[index, :3] - center).tolist())
-            body.setVelocity(states[index, 3:].tolist())
-            body.setAttitude([0.0, 0.0, 0.0])
-            body.setAttitudeRate([0.0, 0.0, 0.0])
+        self._initialize_bodies(states, seed)
         orbit.origin.set_state(states[0, :3], states[0, 3:])
         self._time_ns = 0
         sim.ConfigureStopTime(0)
@@ -163,6 +152,23 @@ class NativeWaypointEnvironment:
         self.initial_states_j2000 = states.tolist()
         self.environment_options = options.to_dict()
         return self._observation
+
+    def _initialize_bodies(self, states, seed):
+        for index, name in enumerate(("capture_target", "cubesat_bus")):
+            center = np.asarray(self.model_manifest["bodies"][name]["center_body_m"])
+            body = self._scene.getBody(name)
+            body.setPosition((states[index, :3] - center).tolist())
+            body.setVelocity(states[index, 3:].tolist())
+            body.setAttitude([0.0, 0.0, 0.0])
+            body.setAttitudeRate([0.0, 0.0, 0.0])
+
+    def _truth_sample(self, nanos):
+        states = self._read_physical_states(nanos)
+        return FlightTruthSample(
+            time_ns=int(nanos), target_com_j2000=tuple(states[0]), chaser_com_j2000=tuple(states[1]),
+            applied_motor_force_body_n=tuple(float(self._stepper.actuator_force[i]) for i in self._force_indices),
+            external_state_writes=self._stepper.external_writes,
+        )
 
     def _setup_observation(self, ctx):
         gravity = BskNavigationGravity(ctx.ports.orbital_environment())

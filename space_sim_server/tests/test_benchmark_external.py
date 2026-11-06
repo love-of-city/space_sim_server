@@ -125,7 +125,7 @@ for line in sys.stdin:
         if mode == "crash":
             raise SystemExit(7)
         if mode == "oversized":
-            print("X" * (1024*1024 + 2), flush=True)
+            print("X" * (4*1024*1024 + 2), flush=True)
             continue
         if mode == "malformed":
             print("not json", flush=True)

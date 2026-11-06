@@ -1,0 +1,9 @@
+{
+  "schema_version": "spacesim-autonomy-python-method/1",
+  "method_id": "external-image-fiducial-pose-v1",
+  "task_schemas": ["spacesim-autonomy-rendered-pose/1"],
+  "entrypoint": "vision_pose.py",
+  "files": ["vision_pose.py"],
+  "initialization_timeout_s": 60.0,
+  "response_timeout_s": 10.0
+}

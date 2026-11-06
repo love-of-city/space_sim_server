@@ -15,6 +15,7 @@ import time
 
 from .benchmark_contract import load_task
 from .benchmark_formation import FormationTask
+from .benchmark_vision import VisionPoseTask
 from .atomic_json import write_json as atomic_write_json
 from .benchmark_external import ExternalMethod, ExternalMethodDefinition
 from .benchmark_registry import Task, make_scorer, method_classes, method_ids, native_environment, parse_action
@@ -43,6 +44,7 @@ def source_identity(server_root: Path) -> dict:
     paths.update((server_root / "backend/space_arm_platform").glob("*.py"))
     paths.add(server_root / "native/local_mujoco_stepper.cpp")
     paths.add(server_root / "tools/autonomy_benchmark.py")
+    paths.update((server_root / "examples/autonomy_methods").glob("vision*"))
     hashes = {path.relative_to(server_root).as_posix(): sha256(path) for path in sorted(paths)}
     revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=server_root, text=True, capture_output=True, check=False)
     return {"git_revision": revision.stdout.strip() if revision.returncode == 0 else None,
@@ -68,7 +70,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / "task.json", task.model_dump(mode="json"))
     root = Path(__file__).resolve().parents[2]
-    runtime = runtime_identity(root)
+    runtime = runtime_identity(root, rendered=True) if isinstance(task, VisionPoseTask) else runtime_identity(root)
     manifest = {"schema_version": "spacesim-autonomy-run/2", "configuration_id": task.configuration_id,
                 "task_fingerprint": task.fingerprint(), "seed": seed, "split": split, "method": method_id,
                 "source": source_identity(root), "runtime_identity": runtime}
@@ -87,6 +89,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
         if runtime['errors']:
             raise RuntimeError('native runtime dependencies are incomplete: '+json.dumps(runtime['errors'], sort_keys=True))
         environment = native_environment(task, output)
+        environment.stop_requested = lambda: stop_file is not None and stop_file.exists()
         observation = environment.reset(seed)
         manifest.update({"episode_id": environment.episode_id,
                          "physics_path": (environment.episode_directory / "physics.jsonl").relative_to(output).as_posix()})
@@ -97,7 +100,8 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
         write_json(output / "manifest.json", manifest)
         write_json(output / "context.json", environment.context.model_dump(mode="json"))
         try:
-            method = ExternalMethod(definition, output) if definition is not None else methods[method_id]()
+            method = (ExternalMethod(definition, output) if definition is not None else
+                      methods[method_id](task, output) if isinstance(task, VisionPoseTask) else methods[method_id]())
             method.reset(environment.context)
         except Exception as error:
             raise MethodFailure(f"{type(error).__name__}: {error}") from error
@@ -125,6 +129,8 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
         outcome, detail = "method_error", str(error)
     except KeyboardInterrupt:
         outcome, detail = "cancelled", "operator interrupted the episode"
+    except InterruptedError as error:
+        outcome, detail = "cancelled", str(error)
     except Exception as error:
         outcome, detail = "infrastructure_error", f"{type(error).__name__}: {error}"
     finally:
@@ -138,7 +144,11 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
                 outcome = "infrastructure_error"
                 detail = (detail + "; " if detail else "") + f"evidence finalization: {type(error).__name__}: {error}"
             finally:
-                environment.close()
+                try:
+                    environment.close()
+                except Exception as error:
+                    outcome = "infrastructure_error"
+                    detail = (detail + "; " if detail else "") + f"environment close: {type(error).__name__}: {error}"
         if method is not None:
             try:
                 method.close()
@@ -148,7 +158,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
                 detail = (detail + "; " if detail else "") + f"method close: {type(error).__name__}: {error}"
     if not runtime['errors']:
         try:
-            final_runtime = runtime_identity(root)
+            final_runtime = runtime_identity(root, rendered=True) if isinstance(task, VisionPoseTask) else runtime_identity(root)
             runtime_verified = final_runtime == runtime
             if not runtime_verified:
                 write_json(output / 'runtime_final.json', final_runtime)
@@ -164,6 +174,10 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
                      "method_stderr.log", "method_calls.jsonl", "runtime_final.json"):
         if relative and (output / relative).is_file():
             evidence[relative] = sha256(output / relative)
+    if isinstance(task, VisionPoseTask):
+        for path in output.glob('episodes/*/rendered_sensor/*'):
+            if path.is_file():
+                evidence[path.relative_to(output).as_posix()] = sha256(path)
     result = {"schema_version": "spacesim-autonomy-result/1", "configuration_id": task.configuration_id,
               "seed": seed, "split": split, "method": method_id, "outcome": outcome,
               "success": outcome == "success", "detail": detail, "wall_time_s": time.monotonic() - started,
@@ -203,6 +217,9 @@ def rescore_episode(output: Path) -> dict:
         for line in stream:
             scorer.add(json.loads(line))
     score = scorer.result()
+    if isinstance(task, VisionPoseTask) and 'observations.jsonl' in result['evidence_sha256']:
+        from .benchmark_vision_score import verify_public_image_evidence
+        verify_public_image_evidence(task, output/'observations.jsonl', output/physics_path)
     preserved = result["outcome"] in {"infrastructure_error", "method_error", "cancelled"}
     outcome = result["outcome"] if preserved else score["outcome"]
     return {"schema_version": "spacesim-autonomy-rescore/1", "outcome": outcome, "success": outcome == "success",

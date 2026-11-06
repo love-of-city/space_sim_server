@@ -26,6 +26,8 @@ test('displayed success rate uses all planned cases and separates angle and posi
   assert.equal(benchmarkMetric({signed_revolutions:1.0001,maximum_radial_error_m:.25,maximum_plane_error_m:.01}),'绕行 1.0001 圈；最大径向偏差 0.2500 m；平面偏差 0.0100 m');
   assert.equal(benchmarkMetric({signed_revolutions:0,maximum_radial_error_m:null}),'—');
   assert.equal(benchmarkMetric(null),'—');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-rendered-pose-score/1',available_pose_count:38,expected_estimates:40,position_rmse_m:.004,orientation_rmse_rad:Math.PI/180}),'有效估计 38/40；位置 RMSE 4.00 mm；姿态 RMSE 1.000°');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-rendered-pose-score/1',available_pose_count:0,expected_estimates:40,position_rmse_m:null,orientation_rmse_rad:null}),'有效估计 0/40');
 });
 
 class Node {

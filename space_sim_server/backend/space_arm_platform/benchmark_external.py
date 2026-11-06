@@ -21,14 +21,16 @@ from .benchmark_contract import Contract, Count, Number
 from .collection_processes import launch_collector
 
 PROTOCOL = "spacesim-autonomy-method-jsonl/1"
-MAX_MESSAGE_BYTES = 1024 * 1024
+# Two bounded, lossless 640x480 RGBA images fit even when PNG compression
+# provides little benefit. Replies and non-image requests retain this bound.
+MAX_MESSAGE_BYTES = 4 * 1024 * 1024
 MAX_STDERR_BYTES = 256 * 1024
 
 
 class PythonMethodSpec(Contract):
     schema_version: Literal["spacesim-autonomy-python-method/1"]
     method_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    task_schemas: tuple[Literal["spacesim-autonomy-waypoint/1", "spacesim-autonomy-attitude/1", "spacesim-autonomy-pointing/1", "spacesim-autonomy-orbit/1", "spacesim-autonomy-navigation-evaluation/1", "spacesim-autonomy-relative-flight/1", "spacesim-autonomy-flyaround/1", "spacesim-autonomy-formation/1"], ...] = Field(min_length=1)
+    task_schemas: tuple[Literal["spacesim-autonomy-waypoint/1", "spacesim-autonomy-attitude/1", "spacesim-autonomy-pointing/1", "spacesim-autonomy-rendered-pose/1", "spacesim-autonomy-orbit/1", "spacesim-autonomy-navigation-evaluation/1", "spacesim-autonomy-relative-flight/1", "spacesim-autonomy-flyaround/1", "spacesim-autonomy-formation/1"], ...] = Field(min_length=1)
     entrypoint: str = Field(min_length=1)
     arguments: tuple[str, ...] = ()
     files: tuple[str, ...] = Field(min_length=1)

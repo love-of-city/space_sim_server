@@ -2,8 +2,8 @@
 
 No simulator import or file mutation. A snapshot hashes content again rather
 than trusting timestamps or distribution versions. Native free-flight tasks
-currently share one source MJCF and its assets; rendered/contact families will
-need their own explicit resource closure before registration.
+share one source MJCF and its assets. Rendered tasks additionally bind their
+UE build/content, image-estimator dependencies and graphics driver identity.
 """
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
@@ -67,7 +67,7 @@ def native_resources(server):
     return sorted(paths)
 
 
-def runtime_identity(server):
+def runtime_identity(server, *, rendered=False):
     server = Path(server).resolve()
     files = {}
     errors = {}
@@ -96,8 +96,16 @@ def runtime_identity(server):
         expected_native_sha256 = build['library_sha256']
     except (OSError, ValueError, KeyError) as error:
         errors['native_library'] = str(error)
+    visual_metadata = None
+    if rendered:
+        try:
+            from .benchmark_vision_resources import rendered_resources
+            visual_files, visual_metadata = rendered_resources(server)
+            files.update(visual_files)
+        except (OSError, ValueError, KeyError, RuntimeError) as error:
+            errors['rendered_resources'] = str(error)
     versions = {}
-    for name in PACKAGES:
+    for name in (*PACKAGES, 'cv2') if rendered else PACKAGES:
         try:
             spec = importlib.util.find_spec(name)
             if spec is None or not spec.origin:
@@ -146,6 +154,10 @@ def runtime_identity(server):
         python_implementation=platform.python_implementation(), system=platform.platform(),
         package_versions=versions, installed_distributions=installed, files_sha256=hashed,
         numeric_environment={key: os.environ.get(key) for key in NUMERIC_ENVIRONMENT}, errors=errors)
+    if rendered:
+        data.update(schema_version='spacesim-autonomy-rendered-runtime/1',
+            scope='native SARM plus real UE RGB: built project, asset catalogue, shader/content, editor dependencies, OpenCV and GPU driver',
+            rendered_environment=visual_metadata)
     payload = json.dumps(data, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
     return dict(data, fingerprint=hashlib.sha256(payload).hexdigest())
 
@@ -160,7 +172,7 @@ def plan_runtime_identity(plan):
     identity = plan.get('runtime_identity')
     if (not isinstance(identity, dict) or not identity.get('fingerprint') or not isinstance(identity.get('files_sha256'), dict)
             or not identity['files_sha256']
-            or identity.get('schema_version') != 'spacesim-autonomy-native-runtime/1'):
+            or identity.get('schema_version') not in {'spacesim-autonomy-native-runtime/1','spacesim-autonomy-rendered-runtime/1'}):
         raise ValueError('frozen v2 plan requires a complete runtime identity')
     payload = {key: value for key, value in identity.items() if key != 'fingerprint'}
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()

@@ -8,6 +8,8 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'image-fiducial-pose-v1':'图像标志物位姿估计','external-image-fiducial-pose-v1':'图像位姿估计 · 独立进程示例',
+  'missing-image-pose-v1':'始终失锁（负对照）','zero-image-pose-v1':'零位姿（负对照）',
   'ephemeris-pointing-pd-v1':'星历与遥测指向','frozen-pointing-pd-v1':'保持初始参考方向（对照）',
   'no-pointing-torque-v1':'零指向力矩（负对照）','unsafe-pointing-spin-v1':'持续满力矩（负对照）',
   'external-ephemeris-pointing-v1':'星历与遥测指向 · 独立进程示例',
@@ -28,6 +30,11 @@ export const methodLabels = {
   'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
 };
 export function benchmarkMetric(score){
+  if(score?.schema_version==='spacesim-autonomy-rendered-pose-score/1'){
+    const available=`有效估计 ${score.available_pose_count}/${score.expected_estimates}`;
+    return Number.isFinite(score.position_rmse_m)&&Number.isFinite(score.orientation_rmse_rad)
+      ?`${available}；位置 RMSE ${(score.position_rmse_m*1000).toFixed(2)} mm；姿态 RMSE ${(score.orientation_rmse_rad*180/Math.PI).toFixed(3)}°`:available;
+  }
   if(Number.isFinite(score?.final_boresight_error_rad))return `指向误差 ${(score.final_boresight_error_rad*180/Math.PI).toFixed(4)}°；跟踪时窗超限 ${score.failed_tracking_samples}/${score.tracking_samples} 帧`;
   if(Number.isInteger(score?.target_count)&&Array.isArray(score.completed_targets)&&Number.isFinite(score.final_attitude_error_rad))return `已完成姿态 ${score.completed_targets.length}/${score.target_count}；当前姿态误差 ${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.formation_position_error_m))return `成员最大位置误差 ${score.formation_position_error_m.toFixed(4)} m；最小星间距离 ${score.minimum_pair_distance_m.toFixed(2)} m；连续保持 ${score.longest_dwell_s.toFixed(2)} s`;
@@ -74,6 +81,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     }
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
+        orientation_rmse:'姿态 RMSE',maximum_orientation_error:'最大姿态误差',pose_availability:'有效位姿估计不足',
         continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
         flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程',continuous_formation_envelope:'成员未全程保持编队',
         boresight_error:'跟踪时窗指向超差',direction_rate_error:'跟踪方向变化率超差',

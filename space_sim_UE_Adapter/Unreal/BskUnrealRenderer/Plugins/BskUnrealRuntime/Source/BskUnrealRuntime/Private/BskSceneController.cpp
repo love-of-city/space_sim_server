@@ -1127,7 +1127,16 @@ void ABskSceneController::Tick(float DeltaSeconds)
                     FVector::Distance(Light->GetComponentLocation(), View.SecondaryCentimeters)));
                 const double Scale = FMath::Min(RangeCm / 300.0, 10000.0);
                 Light->SetIntensity(static_cast<float>(150000.0 * Scale * Scale));
-                Light->SetAttenuationRadius(static_cast<float>(FMath::Max(1000.0, RangeCm * 3.0)));
+                const float Radius = static_cast<float>(FMath::Max(1000.0, RangeCm * 3.0));
+                if (Light->AttenuationRadius != Radius)
+                {
+                    // UE 5.6's non-shadowed radius-only fast path changes the
+                    // proxy without queuing a GPU Scene light upload. Recreate
+                    // the render state with the complete current properties;
+                    // do not enqueue that incomplete incremental radius update.
+                    Light->AttenuationRadius = Radius;
+                    Light->MarkRenderStateDirty();
+                }
             }
         }
     }
@@ -3921,7 +3930,18 @@ void ABskSceneController::ApplyFrame(const FBskRenderFrame& Frame, bool bPresent
         }
         const FVector Location(Converter.LocalMetersToUnrealCentimeters(State.PositionMeters));
         const FQuat Rotation(Converter.ActiveLocalWxyzToUnreal(State.OrientationWxyz));
-        Actor->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+        if (!bPresentationFrame && Actor->GetRootComponent())
+        {
+            // Floating-origin bodies can have zero translation and microradian
+            // attitude changes. MoveComponent's quaternion tolerance drops
+            // those changes, including attached camera poses. Authoritative
+            // capture must apply the received pose; dynamics lives in Basilisk.
+            Actor->GetRootComponent()->SetWorldLocationAndRotationNoPhysics(Location, Rotation.Rotator());
+        }
+        else
+        {
+            Actor->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+        }
     }
     UpdateCelestialBodies(Frame);
     UpdateVisualStates(Frame);

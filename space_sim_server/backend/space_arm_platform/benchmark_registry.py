@@ -18,8 +18,10 @@ from .benchmark_formation import FormationAction, FormationContext, FormationObs
 from .benchmark_formation_score import FormationScorer
 from .benchmark_pointing import PointingContext, PointingObservation, PointingTask
 from .benchmark_pointing_score import PointingScorer
+from .benchmark_vision import VisionPoseTask, VisionPoseContext, VisionPoseObservation, VisionPoseAction
+from .benchmark_vision_score import VisionPoseScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    VisionPoseTask: FamilyImplementation("simulation.benchmark_vision_methods", "simulation.benchmark_native_vision",
+        "NativeVisionPoseEnvironment", ("image-fiducial-pose-v1", "missing-image-pose-v1", "zero-image-pose-v1")),
     WaypointTask: FamilyImplementation("simulation.benchmark_methods", "simulation.benchmark_native_flight",
         "NativeWaypointEnvironment", ("gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1")),
     AttitudeTask: FamilyImplementation("simulation.benchmark_attitude_methods", "simulation.benchmark_native_attitude",
@@ -87,11 +91,15 @@ def method_input_types(task: Task):
         FlyAroundTask: (FlyAroundContext, NavigationObservation),
         FormationTask: (FormationContext, FormationObservation),
         PointingTask: (PointingContext, PointingObservation),
+        VisionPoseTask: (VisionPoseContext, VisionPoseObservation),
     }[type(task)]
 
 
 def parse_action(task: Task, raw, observation):
-    if isinstance(task, FormationTask):
+    if isinstance(task, VisionPoseTask):
+        action = VisionPoseAction.model_validate(raw)
+        action.validate_for(observation, task)
+    elif isinstance(task, FormationTask):
         action = FormationAction.model_validate(raw)
         action.validate_for(observation, task)
     elif isinstance(task, NavigationTask):
@@ -107,6 +115,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, VisionPoseTask):
+        return VisionPoseScorer(task, chaser_mass_kg)
     if isinstance(task, PointingTask):
         return PointingScorer(task)
     if isinstance(task, FormationTask):
@@ -148,6 +158,8 @@ def capability_matrix(catalogue, tasks):
 
 def configuration_title(catalogue, task):
     title = catalogue.task(task.requirement_id).title
+    if isinstance(task, VisionPoseTask):
+        title += "（已知被动标志物，真实图像）"
     if isinstance(task, PointingTask):
         title += "（"+{"earth_center": "地心", "sun": "太阳", "inertial_direction": "惯性方向", "ground_site": "地面固定点"}[task.objective.kind]+"）"
     if isinstance(task, OrbitTask) and isinstance(task.objective, CircularOrbitObjective):

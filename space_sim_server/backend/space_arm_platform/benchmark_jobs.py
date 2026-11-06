@@ -28,6 +28,7 @@ from typing import Literal
 
 TERMINAL = {"complete", "stopped", "interrupted", "failed"}
 BUNDLED_METHODS = {
+    "external-image-fiducial-pose-v1": ("spacesim-autonomy-rendered-pose/1", "examples/autonomy_methods/vision-pose.json"),
     "external-ephemeris-pointing-v1": ("spacesim-autonomy-pointing/1", "examples/autonomy_methods/pointing.json"),
     "external-attitude-pd-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-pd.json"),
     "external-attitude-sequence-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-sequence.json"),
@@ -58,7 +59,7 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def dependency_check(root):
+def dependency_check(root, *, rendered=False):
     """File checks only. Never import BSK/native dynamics into the web server."""
     problems = []
     if importlib.util.find_spec("Basilisk") is None:
@@ -81,6 +82,15 @@ def dependency_check(root):
             raise ValueError("原生动力学构建与源码不一致，请重新构建")
     except (OSError, ValueError, KeyError, ET.ParseError) as error:
         problems.append(f"模型或原生动力学依赖未就绪：{error}")
+    if rendered:
+        try:
+            from .benchmark_vision_resources import renderer_paths, validate_catalog
+            if importlib.util.find_spec('cv2') is None:
+                raise ValueError('未安装 OpenCV 图像估计依赖')
+            project,_=renderer_paths(root)
+            validate_catalog(root.resolve(),project,project/'Saved/AssetImport/sarm_platform.catalog.json')
+        except (OSError, ValueError, RuntimeError) as error:
+            problems.append(f"视觉仿真依赖未就绪：{error}")
     return {"available": not problems, "problems": problems, "scope": "dependency_files_only_not_native_acceptance"}
 
 
@@ -127,11 +137,14 @@ class BenchmarkManager:
     def catalog(self):
         catalog = load_catalog(self.project / "config/benchmarks/autonomy-catalog-v1.json")
         tasks = [load_task(path, catalog) for path in sorted((self.project / "config/benchmarks/tasks").glob("*.json"))]
+        native=dependency_check(self.project)
+        rendered=dependency_check(self.project, rendered=True) if any(task.vision_mode!='V0' for task in tasks) else native
         return {"requirements": catalog.coverage(), "capability_matrix": capability_matrix(catalog, tasks),
-                "dependencies": dependency_check(self.project),
+                "dependencies": native,
                 "configurations": [{"id": task.configuration_id, "source_id": task.source_id,
                     "title": configuration_title(catalog, task), "priority": catalog.task(task.requirement_id).priority,
                     "specification": task.model_dump(mode="json"), "fingerprint": task.fingerprint(),
+                    "dependencies": rendered if task.vision_mode!='V0' else native,
                     "default_method": method_ids(task)[0], "methods": list(self._methods(task))} for task in tasks]}
 
     def _path(self, job):
@@ -199,7 +212,7 @@ class BenchmarkManager:
             seeds = [payload.seed]
         with self.lock:
             self._admit()
-            capability = dependency_check(self.project)
+            capability = dependency_check(self.project, rendered=True) if task.vision_mode!='V0' else dependency_check(self.project)
             if not capability["available"]:
                 raise ValueError("；".join(capability["problems"]))
             key = "benchmark-" + uuid.uuid4().hex

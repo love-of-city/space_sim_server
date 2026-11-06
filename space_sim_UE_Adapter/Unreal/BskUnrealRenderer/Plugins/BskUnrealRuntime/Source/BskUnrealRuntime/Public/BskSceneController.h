@@ -124,6 +124,7 @@ private:
     friend class FBskBuiltinCaptureProvider;
     friend class FBskEmptyManifestBodyTest;
     friend class FBskFlushPlaneGeometryTest;
+    friend class FBskAuthoritativeSmallRotationTest;
     friend class FBskManifestGeometryRefreshTest;
     friend class FBskCameraMountedLightTest;
     friend class FBskOfflineCameraWarmupTest;

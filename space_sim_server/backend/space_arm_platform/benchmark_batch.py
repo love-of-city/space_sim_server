@@ -19,6 +19,7 @@ from .benchmark_external import ExternalMethodDefinition
 from .benchmark_registry import Task, method_ids
 from .benchmark_paths import evidence_path
 from .benchmark_runtime import plan_runtime_identity, runtime_identity
+from .benchmark_vision import VisionPoseTask
 from .collection_processes import launch_collector
 
 TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error",
@@ -139,7 +140,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
     root = Path(__file__).resolve().parents[2]
     source = source_identity(root)
     planned = [{"trial_id": f"{index:04d}-seed-{seed}", "seed": seed} for index, seed in enumerate(seeds)]
-    runtime = runtime_identity(root)
+    runtime = runtime_identity(root, rendered=True) if isinstance(task, VisionPoseTask) else runtime_identity(root)
     plan = {"schema_version": "spacesim-autonomy-batch-plan/2", "configuration_id": task.configuration_id,
             "task_fingerprint": task.fingerprint(), "method": method, "split": split,
             "source_sha256": source["source_sha256"], "runtime_identity": runtime, "wall_time_limit_s": 900, "trials": planned}
@@ -172,7 +173,8 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
             # different method/backend under the same frozen trial matrix.
             if source_identity(root)["source_sha256"] != plan["source_sha256"]:
                 raise ValueError("source changed during batch execution; start a new batch")
-            if runtime_identity(root) != runtime:
+            current_runtime = runtime_identity(root, rendered=True) if isinstance(task, VisionPoseTask) else runtime_identity(root)
+            if current_runtime != runtime:
                 raise ValueError('runtime dependencies changed during batch execution; start a new batch')
             if definition is not None:
                 definition.verify_unchanged()

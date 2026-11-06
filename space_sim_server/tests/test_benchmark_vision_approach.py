@@ -43,7 +43,7 @@ def physical(task,tick,*,at_goal=False):
     return raw
 
 
-def sequence(task,defect=None,end=100):
+def sequence(task,defect=None,end=100,*,return_scorer=False):
     scorer=VisionApproachScorer(task,169.4)
     for tick in range(end+1):
         raw=physical(task,tick,at_goal=tick>=50 and not(defect=='dwell_gap' and tick==80))
@@ -56,14 +56,14 @@ def sequence(task,defect=None,end=100):
             com[3]+=.1
             raw['chaser_com_j2000']=tuple(com)
         scorer.add(raw)
-        if tick%25==0:
+        if tick%25==0 and not(defect=='missing_terminal_image' and tick==end):
             index=tick//25
             scorer.add(capture(scorer,index))
-            if tick<end:
+            if tick<end or defect=='pending_terminal_command':
                 command=estimate(scorer,index)
                 command.update(record_type='vision_approach_action',force_frame=task.force_frame,force_body_n=(.1,0.,0.))
                 scorer.add(command)
-    return scorer.result()
+    return scorer if return_scorer else scorer.result()
 
 
 def test_early_physical_dwell_requires_all_preceding_control_images_but_not_unused_future_ticks(task):
@@ -73,6 +73,32 @@ def test_early_physical_dwell_requires_all_preceding_control_images_but_not_unus
     assert result['expected_estimates']==result['available_pose_count']==4
     assert result['maximum_planned_estimates']==6 and result['capture_count']==5
     assert result['thrust_impulse_n_s']==pytest.approx(.2)
+
+
+@pytest.mark.parametrize('end',[100,150])
+def test_cancelled_terminal_capture_is_a_valid_prefix_but_cannot_certify_a_completed_dwell(task,end):
+    result=sequence(task,'missing_terminal_image',end=end)
+    assert result['dwell_s']>=task.objective.dwell_s
+    assert result['outcome']=='incomplete' and not result['success']
+    assert result['completion_time_s'] is None and not result['evidence_errors']
+    assert result['capture_count']==result['estimate_count']==result['expected_estimates']
+
+
+@pytest.mark.parametrize('end,defect',[(103,None),(100,'pending_terminal_command')])
+def test_cancelled_native_interval_or_pending_command_remains_incomplete(task,end,defect):
+    result=sequence(task,defect,end=end)
+    assert result['outcome']=='incomplete' and not result['evidence_errors']
+    assert not result['success'] and result['completion_time_s'] is None
+
+
+def test_partial_motion_without_a_preceding_image_control_remains_invalid(task):
+    scorer=sequence(task,end=100,return_scorer=True)
+    # A physical interval cannot silently use the previous image's command
+    # after the next decision instant, even if its force receipt matches.
+    scorer.add(physical(task,101,at_goal=True))
+    result=scorer.result()
+    assert result['outcome']=='invalid_evidence'
+    assert 'incomplete_visual_control_coverage' in result['evidence_errors']
 
 
 @pytest.mark.parametrize('defect',['dwell_gap','speed_gap'])

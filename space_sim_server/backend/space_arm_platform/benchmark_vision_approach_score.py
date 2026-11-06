@@ -92,7 +92,12 @@ class VisionApproachScorer(VisionPoseScorer):
 
     def result(self):
         score=super().result()
-        expected=0 if self.latest is None else self.latest.time_ns//self.task.decision_period_ns
+        time_ns=0 if self.latest is None else self.latest.time_ns
+        period=self.task.decision_period_ns
+        expected=(time_ns+period-1)//period
+        at_boundary=time_ns%period==0
+        pending_command=(at_boundary and self.estimate_count==expected+1
+                         and self.capture_count==expected+1 and time_ns<round(self.task.duration_s*1e9))
         fraction=self.available_count/self.estimate_count if self.estimate_count else 0.
         quality=[name for name in score['quality_violations'] if name!='pose_availability']
         if fraction<self.task.objective.minimum_available_fraction:
@@ -101,9 +106,19 @@ class VisionApproachScorer(VisionPoseScorer):
         end=self.latest is not None and self.latest.time_ns>=round(self.task.duration_s*1e9)
         if score['outcome'] in {'invalid_initialization','invalid_evidence','safety_violation'}:
             outcome=score['outcome']
-        elif self.estimate_count!=expected or self.capture_count!=expected+1:
+        elif pending_command:
+            # An accepted request may be cancelled before its first native
+            # interval. It has no physical completion credit.
+            outcome='incomplete'
+        elif self.estimate_count!=expected or self.capture_count not in {expected,expected+1}:
             outcome='invalid_evidence'
             score['evidence_errors'].append('incomplete_visual_control_coverage')
+        elif not at_boundary or self.capture_count==expected:
+            # Native motion precedes the next image. Cancellation can interrupt
+            # that image or the motion interval. All applied controls still need
+            # their preceding captures and receipts; a missing terminal image
+            # can never certify success, even when physical dwell was reached.
+            outcome='incomplete'
         elif reached:
             outcome='task_failure' if quality else 'success'
         else:

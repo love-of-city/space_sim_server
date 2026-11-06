@@ -1,5 +1,7 @@
 """Platform lifecycle tests use failing worker processes, never fake physics passes."""
 import json
+import csv
+import io
 from pathlib import Path
 import shutil
 import sys
@@ -15,6 +17,7 @@ from space_arm_platform import benchmark_jobs as jobs
 from space_arm_platform.benchmark_batch import run_batch, summarize
 from space_arm_platform.benchmark_contract import load_task, SPEC_DIRECTORY
 from space_arm_platform.benchmark_execution import write_json, sha256
+from space_arm_platform.benchmark_api import results_csv
 from space_arm_platform.collection_processes import launch_collector, kill_owned_tree
 from space_arm_platform.recorder import EpisodeRecorder
 
@@ -22,6 +25,24 @@ ROOT = Path(__file__).resolve().parents[1]
 OWNER = dict(user_id="owner", username="alice", role="operator")
 OTHER = dict(user_id="other", username="bob", role="operator")
 ADMIN = dict(user_id="admin", username="admin", role="admin")
+
+
+def test_csv_keeps_nested_orbit_metrics_vectors_and_missing_values():
+    score = dict(final_time_s=300., success=True, fuel_kg=None,
+                 final_orbit=dict(semimajor_axis_error_m=1.25, eccentricity=1e-6),
+                 delta_velocity_j2000_m_s=[0., -2., 0.], safety_violations=[])
+    rows = [dict(trial_id="one", seed=201, outcome="success", physics_score=score),
+            dict(trial_id="two", seed=202, outcome="cancelled", physics_score=None)]
+    document = dict(job=dict(configuration="s11-orbit-raise-v1", method="gnss-orbit-maneuver-v1",
+                            request=dict(split="test", selection="split"), summary=dict(trials=rows)))
+    exported = list(csv.DictReader(io.StringIO(results_csv(document))))
+    assert len(exported) == 2
+    assert exported[0]["final_orbit.semimajor_axis_error_m"] == "1.25"
+    assert exported[0]["final_orbit.eccentricity"] == "1e-06"
+    assert exported[0]["delta_velocity_j2000_m_s[1]"] == "-2.0"
+    assert exported[0]["fuel_kg"] == exported[1]["final_time_s"] == ""
+    assert exported[1]["outcome"] == "cancelled"
+    assert "success" not in exported[0] and "safety_violations" not in exported[0]
 CONFIGURATION = "s02-wheel-attitude-v1"
 
 # This coordinator exercises real process ownership and durable batch recovery.

@@ -25,7 +25,7 @@ from space_arm_platform.benchmark_attitude import AttitudeObservation, AttitudeT
 from space_arm_platform.benchmark_orbit import OrbitObservation, OrbitTask  # noqa: E402
 from space_arm_platform.benchmark_execution import rescore_episode, run_episode  # noqa: E402
 from space_arm_platform.benchmark_external import PythonMethodSpec, MethodRequest, MethodResponse  # noqa: E402
-from space_arm_platform.benchmark_registry import method_ids  # noqa: E402
+from space_arm_platform.benchmark_registry import capability_matrix, method_ids  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -42,6 +42,8 @@ def main(argv=None) -> int:
     schema = commands.add_parser("schema", help="print a versioned JSON Schema")
     schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action", "orbit", "orbit-observation", "method", "method-request", "method-response"], default="catalogue")
     commands.add_parser("tasks", help="list registered executable configurations, separately from requirements")
+    matrix = commands.add_parser("matrix", help="join all 122 requirements to registered configurations; not an acceptance report")
+    matrix.add_argument("--format", choices=["json", "markdown"], default="json")
     spec = commands.add_parser("spec", help="print an executable task specification")
     spec.add_argument("configuration")
     run = commands.add_parser("run", help="run one native episode in a new output directory")
@@ -81,12 +83,24 @@ def main(argv=None) -> int:
     if args.command == "validate":
         print(json.dumps(catalog.coverage(), ensure_ascii=False, indent=2))
         return 0
-    if args.command in {"tasks", "spec", "run", "rescore", "batch"}:
+    if args.command in {"tasks", "matrix", "spec", "run", "rescore", "batch"}:
         try:
             if args.command == "rescore":
                 print(json.dumps(rescore_episode(args.output), ensure_ascii=False, indent=2))
                 return 0
             registered = [load_task(path, catalog) for path in sorted(SPEC_DIRECTORY.glob("*.json"))]
+            if args.command == "matrix":
+                matrix = capability_matrix(catalog, registered)
+                if args.format == "json":
+                    print(json.dumps(matrix, ensure_ascii=False, indent=2))
+                else:
+                    print("Execution registration only; acceptance results require native evidence.\n")
+                    print("| Source | Task | Priority | Requested vision | Registered configurations |")
+                    print("| --- | --- | --- | --- | --- |")
+                    for row in matrix["tasks"]:
+                        configs = ", ".join(item["id"]+" ("+item["vision_mode"]+")" for item in row["configurations"]) or "Not registered"
+                        print(f"| {row['source_id']} | {row['title']} | {row['priority']} | {'/'.join(row['requested_vision_modes'])} | {configs} |")
+                return 0
             if args.command == "tasks":
                 print(json.dumps({"scope": "registered_execution_configurations", "configurations": [
                     {"id": task.configuration_id, "requirement_id": task.requirement_id,

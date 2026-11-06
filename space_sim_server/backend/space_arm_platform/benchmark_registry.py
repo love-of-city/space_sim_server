@@ -6,7 +6,7 @@ from .benchmark_attitude import AttitudeTask, WheelTorqueAction
 from .benchmark_attitude_score import AttitudeScorer
 from .benchmark_contract import ForceAction, WaypointTask
 from .benchmark_scoring import WaypointScorer
-from .benchmark_orbit import OrbitTask
+from .benchmark_orbit import CircularOrbitObjective, OrbitTask
 from .benchmark_orbit_score import OrbitScorer
 
 Task = WaypointTask | AttitudeTask | OrbitTask
@@ -67,3 +67,34 @@ def make_scorer(task: Task, chaser_mass_kg):
     if isinstance(task, OrbitTask):
         return OrbitScorer(task, chaser_mass_kg)
     return WaypointScorer(task, chaser_mass_kg) if isinstance(task, WaypointTask) else AttitudeScorer(task)
+
+
+def capability_matrix(catalogue, tasks):
+    """Join all requirements to registered configurations, never to implied passes."""
+    by_requirement = {requirement.id: [] for requirement in catalogue.tasks}
+    seen = set()
+    for task in tasks:
+        task.validate_catalogue(catalogue)
+        if task.configuration_id in seen or type(task) not in FAMILIES:
+            raise ValueError("duplicate configuration or unregistered execution family")
+        seen.add(task.configuration_id)
+        by_requirement[task.requirement_id].append({"id": task.configuration_id, "task_fingerprint": task.fingerprint(),
+            "backend": task.backend, "vision_mode": task.vision_mode, "target_cooperation": task.target_cooperation,
+            "spacecraft_count": task.spacecraft_count, "controlled_spacecraft": task.controlled_spacecraft,
+            "control_architecture": task.control_architecture})
+    rows = [{**requirement.model_dump(mode="json"),
+             "execution_registration": "registered" if by_requirement[requirement.id] else "not_registered",
+             "configurations": sorted(by_requirement[requirement.id], key=lambda item: item["id"])}
+            for requirement in catalogue.tasks]
+    registered = sum(bool(row["configurations"]) for row in rows)
+    return {"schema_version": "spacesim-autonomy-capability-matrix/1", "source_id": catalogue.source.id,
+            "scope": "execution_registration_not_runtime_acceptance", "requirements": len(rows),
+            "registered_requirements": registered, "unregistered_requirements": len(rows)-registered,
+            "configuration_count": len(seen), "tasks": rows}
+
+
+def configuration_title(catalogue, task):
+    title = catalogue.task(task.requirement_id).title
+    if isinstance(task, OrbitTask) and isinstance(task.objective, CircularOrbitObjective):
+        title += f"（目标圆轨道高度 {task.objective.altitude_m/1000:g} km）"
+    return title

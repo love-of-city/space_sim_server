@@ -10,18 +10,29 @@ from fastapi.responses import FileResponse, Response
 from .benchmark_jobs import BenchmarkCreate, BenchmarkManager
 
 
+def numeric_metrics(value, prefix=""):
+    """Keep nested orbital metrics and vector components in research exports."""
+    if isinstance(value, dict):
+        return {name: number for key, item in value.items()
+                for name, number in numeric_metrics(item, f"{prefix}.{key}" if prefix else key).items()}
+    if isinstance(value, (tuple, list)):
+        return {name: number for index, item in enumerate(value)
+                for name, number in numeric_metrics(item, f"{prefix}[{index}]").items()}
+    return {prefix: value} if prefix and (type(value) in (float, int) or value is None) else {}
+
+
 def results_csv(document):
     stream = io.StringIO(newline="")
     rows = document["job"]["summary"]["trials"]
-    metrics = sorted({key for row in rows for key, value in (row.get("physics_score") or {}).items()
-                      if type(value) in (float, int) or value is None})
+    values = [numeric_metrics(row.get("physics_score") or {}) for row in rows]
+    metrics = sorted({key for score in values for key in score})
     writer = csv.writer(stream)
     writer.writerow(["configuration", "method", "split", "selection", "trial_id", "seed", "outcome", "wall_time_s", *metrics])
     job = document["job"]
-    for row in rows:
+    for row, score in zip(rows, values, strict=True):
         writer.writerow([job["configuration"], job["method"], job["request"]["split"], job["request"]["selection"],
                          row["trial_id"], row["seed"], row["outcome"], row.get("wall_time_s"),
-                         *((row.get("physics_score") or {}).get(key) for key in metrics)])
+                         *(score.get(key) for key in metrics)])
     return stream.getvalue()
 
 

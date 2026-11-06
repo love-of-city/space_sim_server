@@ -38,7 +38,8 @@ export function createBenchmarkPanel(root,{api}){
     async activate(){active=true;const version=++epoch;
       try{catalog=await api('/api/benchmarks/catalog');if(!active||version!==epoch)return;
         $('configuration').replaceChildren(...catalog.configurations.map(task=>new Option(`${task.source_id} · ${task.title}`,task.id)));
-        $('coverage').textContent=`${catalog.configurations.length} 个可运行配置 · 来源目录 ${catalog.requirements.requirements} 项需求`;
+        const mapped=catalog.capability_matrix?.registered_requirements??new Set(catalog.configurations.map(task=>task.source_id)).size;
+        $('coverage').textContent=`${catalog.configurations.length} 个可运行配置 · 对应 ${mapped} / ${catalog.requirements.requirements} 项来源需求`;
         $('availability').textContent=catalog.dependencies.problems.join('；');syncPlan(true);await refresh();
         if(active&&version===epoch){clearInterval(timer);timer=setInterval(refresh,2000);}
       }catch(error){if(active&&version===epoch)notice(error.message);}

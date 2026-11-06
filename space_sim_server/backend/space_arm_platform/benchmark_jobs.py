@@ -21,7 +21,7 @@ from .benchmark_catalog import load_catalog
 from .benchmark_contract import Contract, Count, load_task
 from .benchmark_execution import rescore_episode, sha256, source_identity, verify_episode_evidence, write_json
 from .benchmark_external import ExternalMethodDefinition
-from .benchmark_registry import method_ids
+from .benchmark_registry import capability_matrix, configuration_title, method_ids
 from .collection_processes import ManagerLease, kill_owned_tree, launch_collector
 from typing import Literal
 
@@ -120,9 +120,10 @@ class BenchmarkManager:
     def catalog(self):
         catalog = load_catalog(self.project / "config/benchmarks/autonomy-catalog-v1.json")
         tasks = [load_task(path, catalog) for path in sorted((self.project / "config/benchmarks/tasks").glob("*.json"))]
-        return {"requirements": catalog.coverage(), "dependencies": dependency_check(self.project),
+        return {"requirements": catalog.coverage(), "capability_matrix": capability_matrix(catalog, tasks),
+                "dependencies": dependency_check(self.project),
                 "configurations": [{"id": task.configuration_id, "source_id": task.source_id,
-                    "title": catalog.task(task.requirement_id).title, "priority": catalog.task(task.requirement_id).priority,
+                    "title": configuration_title(catalog, task), "priority": catalog.task(task.requirement_id).priority,
                     "specification": task.model_dump(mode="json"), "fingerprint": task.fingerprint(),
                     "default_method": method_ids(task)[0], "methods": list(self._methods(task))} for task in tasks]}
 
@@ -196,7 +197,7 @@ class BenchmarkManager:
                 raise ValueError("；".join(capability["problems"]))
             key = "benchmark-" + uuid.uuid4().hex
             job = {"id": key, "status": "starting", "configuration": payload.configuration, "method": method,
-                   "title": load_catalog(self.project / "config/benchmarks/autonomy-catalog-v1.json").task(task.requirement_id).title,
+                   "title": configuration_title(load_catalog(self.project / "config/benchmarks/autonomy-catalog-v1.json"), task),
                    "method_spec": methods[method], "request": payload.model_dump(mode="json"), "seeds": seeds,
                    "task_fingerprint": task.fingerprint(), "owner": {name: user[name] for name in ("user_id", "username", "role")},
                    "started_at": time.time(), "launches": 0, "error": None}

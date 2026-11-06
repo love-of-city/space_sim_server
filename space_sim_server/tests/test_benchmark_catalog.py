@@ -110,3 +110,18 @@ def test_cli_distinguishes_registered_configurations_from_requirement_ids(capsys
     assert main(["run", "D26", "--seed", "201", "--output", str(output)]) == 2
     assert "not registered" in capsys.readouterr().err
     assert not output.exists()
+
+
+def test_matrix_keeps_unregistered_requirements_and_does_not_claim_acceptance(capsys):
+    assert main(["matrix"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["scope"] == "execution_registration_not_runtime_acceptance"
+    assert result["requirements"] == len(result["tasks"]) == 122
+    assert result["registered_requirements"] == 6
+    assert result["unregistered_requirements"] == 116
+    assert result["configuration_count"] == 7
+    rows = {row["source_id"]: row for row in result["tasks"]}
+    assert len(rows["S11"]["configurations"]) == 2
+    assert rows["T06"]["execution_registration"] == "not_registered"
+    assert rows["T06"]["configurations"] == []
+    assert "success_rate" not in result and "accepted" not in result

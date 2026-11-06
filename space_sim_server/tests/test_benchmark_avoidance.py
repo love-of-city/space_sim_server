@@ -1,4 +1,5 @@
 """Conjunction semantics, public-input methods and independent physical scoring."""
+from copy import deepcopy
 import math
 import numpy as np
 import pytest
@@ -96,6 +97,22 @@ def test_full_horizon_and_coast_are_required_and_later_safety_vetoes_success():
     for tick in range(16000):
         scorer.add(sample(tick))
     assert scorer.result()['outcome'] == 'incomplete'
+    for kind in ('coast','outward','force'):
+        alternative = deepcopy(scorer)
+        last = sample(16000)
+        if kind in ('coast','force'):
+            last['applied_motor_force_body_n'] = (.1 if kind == 'coast' else 6.,0.,0.)
+        else:
+            own, debris = np.asarray(last['chaser_com_j2000']),np.asarray(last['debris_com_j2000'])
+            debris[3:] = 2*own[3:]-debris[3:]
+            last['debris_com_j2000'] = tuple(debris)
+        alternative.add(last)
+        changed = alternative.result()
+        assert changed['outcome'] == ('safety_violation' if kind == 'force' else 'task_failure')
+        if kind == 'coast':
+            assert 'final_unpowered_coast_not_confirmed' in changed['quality_violations']
+        if kind == 'outward':
+            assert 'outward_pass_not_confirmed' in changed['quality_violations']
     scorer.add(sample(16000))
     result = scorer.result()
     assert result['outcome'] == 'success'
@@ -114,7 +131,7 @@ def test_zero_thrust_fails_the_actual_distance_even_before_nominal_closest_time(
     scorer = AvoidanceScorer(task(),100.)
     for tick in range(7101):
         scorer.add(sample(tick,avoid=False))
-        if scorer.result()['safety_violations']:
+        if scorer.safety_violations:
             break
     result = scorer.result()
     assert result['outcome'] == 'safety_violation'

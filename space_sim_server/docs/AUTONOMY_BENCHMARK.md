@@ -22,7 +22,7 @@ S23 的实际 GNSS 解中断、全时窗估计和连续恢复判据见 [导航�
 
 S10 的低推力上限、实际连续机动与轨道能量变化判据见 [连续低推力机动](BENCHMARK_LOW_THRUST.md)。云端基础检查通过，原生验收仍待完成。
 
-S12 的角动量轨道面定义、法向机动和无推力驻留判据见 [轨道面调整](BENCHMARK_ORBIT_PLANE.md)。云端检查与原生验收仍待完成。
+S12 的角动量轨道面定义、法向机动和无推力驻留判据见 [轨道面调整](BENCHMARK_ORBIT_PLANE.md)。云端基础检查通过，独立工作树的原生验收已排队。
 
 ## 任务目录
 
@@ -49,7 +49,7 @@ python -m tools.autonomy_benchmark schema
 
 目录只描述需求，不能携带 `success`、成功率、已验收等运行结论。任务实例配置、执行后端注册和运行证据分别建模；后续界面也必须区分这三类事实。
 
-`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 30 条来源、33 个配置，余下 92 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
+`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 34 条来源、37 个配置，余下 88 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
 
 ## 原生保持点任务
 

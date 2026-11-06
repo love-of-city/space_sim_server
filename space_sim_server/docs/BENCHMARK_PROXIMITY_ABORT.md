@@ -24,6 +24,28 @@ python tools/autonomy_benchmark.py batch d40-gnss-proximity-abort-v1 --split tes
 python tools/autonomy_benchmark.py rescore run/proximity-abort-train
 ```
 
-配置已在个人分支实现，原生训练、10 个冻结测试种子、负对照、复位及网页验收待完成。数学轨迹与时序用例用于核对评分规则，不能视为已经通过真实动力学运行。
+配置已在个人分支实现，原生训练、10 个冻结测试种子、负对照、复位、取消及原网页验收完成。数学轨迹与时序用例只用于核对评分规则，实际运行证据另列于下文。
 
 整合源码 `d605b00365c4491d7db97cf51ba24bd9076a936f` 在 SpaceSim 云端通过 431 项相关后端检查、261 项前端检查、Ruff 和生产构建，均无跳过的测试。这组检查包含初态风险分布约束、晚中止后到达正确终态仍失败、间断反向运动不能累计、证据和安全否决，以及 GNSS 风险触发、撤离锁存和方法复位。报告 `.tmp/benchmark-abort-integration-checks-v1/acceptance.json` SHA-256 为 `cd8eb140afa34f468c6b65a0e4b338758915e7b0dc6f3d4e4eef26feb08d5b52`。实际原生执行器及复位用例单独运行，不计入上述检查数。
+
+## 冻结原生与完整生命周期验收
+
+云端个人工作树 `benchmark-v1-20261106` 在源码 `9417d828cfd2967c640fce6b8647ccc635896931` 上完成整套验收，运行期间源码不变。任务指纹 `269a791ec2f6dc262d376e1997172309c6d8debba3509687c36ff3c3fc7f1e68`，加载原生运行指纹 `5bb835b6e4c068bf254e21c3dd84947bfcdff13549afff398d410c2cb36cf13a`。
+
+训练种子 1、2 分别在 257 / 257.5 s 完成，连续驻留 20.14 / 20.3 s；反向运动确认分别发生在 23.54 / 23.56 s，实际撤离 99.598 / 100.734 m。零推力与满法向推力都被安全否决。包含失败的训练数据共 1,235 条转换。D29 回归物理日志与既有金样 `5a41682935a15762fb476a59f711b77af0caa9ad899f17fd822293f813bbf5c6` 完全一致。
+
+冻结测试 201–210 全部成功，成功率 10/10，Wilson 95% 区间约 [0.7225, 1]；未重新调参或移除失败样本。种子 201 在 257 s 完成，最小距离 144.6579 m，23.54 s 确认反向运动，最终撤离 100.9358 m、驻留 20 s。零推力在 97.5 s 穿越 100 m 安全边界；满法向推力在 37.5 s 违反 1.2 m/s 速度上限。外部方法与内置基线的物理日志完全一致（SHA-256 `35b8baad5dc8b55bd5846ed1d031be43a5dfca307f3265be4d170c36571711cf`）。全部 13 个回合独立复算一致，批次恢复保留原文件哈希与修改时间，公开测试数据集及可移植副本均通过校验。
+
+实际执行器与复位检查 1 项通过、零跳过，证据为训练 v5 目录的 `native-reset.xml`（SHA-256 `5cfcea855c791ed0a885756fd773a1309e4f80009a9770eb3e6bad8939b99fc9`）。CLI 外部方法主动取消保留 9.5 s、476 条物理样本、47.5 N·s 实际推力积分和 19 条训练转换；退出码 130，全部拥有的子进程停止。
+
+原网页使用 Edge 156.0.4314.58 完成外部方法成功、零推力越界、满推力超速和主动取消四种操作，核验独立复算、JSON/CSV/物理日志下载和数据集导出，浏览器错误为零。三个完整回合的物理日志均与冻结结果一致，分别导出 514 / 195 / 75 条测试转换。取消回合保留 10 s、501 条物理记录和 20 条训练转换；外层为 `cancelled`，物理前缀为 `incomplete`，未将尚未制止接近的前缀判为成功。
+
+原始证据保留在上述云端个人工作树 `.tmp/`，不进入源码 Git：
+
+| 证据 | SHA-256 |
+|---|---|
+| `benchmark-abort-training-v5/acceptance.json` | `50bec63a688ad1d658b92b0fed4bc7c83a624cdfed091d76439b4b413841048e` |
+| `benchmark-abort-frozen-v1/acceptance.json` | `ad923310eb23eac13359fcb7442b6bc893245bc0d6988e4a34a6fb1c44f220f8` |
+| `benchmark-abort-cancel-v1/acceptance.json` | `7ed4742aa6f76a92fbaedefec431ac509246c88e055177f6e97989212bb618d9` |
+| `benchmark-abort-platform-v1/acceptance.json` | `b18c37d0ccd618619fe2d6d9210fa3ef2712d980cfac9952cfa0e8732ecf2803` |
+| `benchmark-abort-lifecycle-v1/acceptance.json` | `b1a3f79cb7081fc0481c59b72a06cd242f336763dede7c097340dd16a804148a` |

@@ -43,8 +43,11 @@ class GNSSOrbitManeuver:
             radial = np.cos(phase)*radial0+np.sin(phase)*tangent0
             tangent = -np.sin(phase)*radial0+np.cos(phase)*tangent0
             desired_position, desired_velocity = radius*radial, radius*rate*tangent
+            # Continuous maintenance needs stronger disturbance rejection than
+            # a finite transfer. These gains were selected on training episodes;
+            # the public GNSS state is still the only feedback measurement.
             acceleration = (-radius*rate**2*radial-gravity(state[:3])
-                            +.0025*(desired_position-state[:3])+.1*(desired_velocity-state[3:]))
+                            +.01*(desired_position-state[:3])+.2*(desired_velocity-state[3:]))
             force = mass*acceleration
             force *= min(1., task.safety.maximum_force_n/max(np.linalg.norm(force), 1e-15))
         else:

@@ -66,6 +66,11 @@ class VisionMotionScorer(VisionPoseScorer):
                         or any(not math.isclose(value,expected,rel_tol=1e-12,abs_tol=1e-20)
                                for value in sample.chaser_gyro.error_variance_rad2_s2)):
                     self.evidence_errors.add('stale_or_misconfigured_own_gyro_evidence')
+                for rate,saturated in zip(sample.chaser_gyro.angular_velocity_body_rad_s,
+                                          sample.chaser_gyro.saturated_axes,strict=True):
+                    if (abs(rate)>model.range_rad_s or saturated
+                            and not math.isclose(abs(rate),model.range_rad_s,rel_tol=0,abs_tol=1e-12)):
+                        self.evidence_errors.add('own_gyro_range_or_clipping_mismatch')
                 self.invalid_gyro_count+=not sample.chaser_gyro.valid
             elif kind=='vision_capture':
                 super().add(document)

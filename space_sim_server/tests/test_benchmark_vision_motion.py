@@ -75,6 +75,10 @@ def sequence(task,defect=None):
         model=task.own_gyro
         variance=model.white_noise_std_rad_s**2+model.initial_bias_std_rad_s**2+model.bias_random_walk_rad_s_sqrt_s**2*tick*.02
         raw['chaser_gyro']=packet(tick*20_000_000,variance=(variance,)*3).model_dump()
+        if tick==40 and defect in ('gyro_range','gyro_false_saturation','gyro_clipped'):
+            rate=0. if defect=='gyro_false_saturation' else model.range_rad_s*(2 if defect=='gyro_range' else 1)
+            raw['chaser_gyro']=packet(tick*20_000_000,(rate,0.,0.),
+                variance=(variance,)*3,valid=defect=='gyro_range').model_dump()
         if defect=='physical_violation' and tick==40:
             raw['applied_motor_force_body_n']=(1.,0.,0.)
         scorer.add(raw)
@@ -111,6 +115,18 @@ def test_good_final_spin_or_pose_cannot_erase_an_earlier_angular_velocity_failur
 
 def test_perfect_spin_does_not_override_physical_safety(task):
     assert sequence(task,'physical_violation')['outcome']=='safety_violation'
+
+
+@pytest.mark.parametrize('defect',['gyro_range','gyro_false_saturation'])
+def test_perfect_spin_does_not_override_impossible_sensor_evidence(task,defect):
+    score=sequence(task,defect)
+    assert score['outcome']=='invalid_evidence'
+    assert 'own_gyro_range_or_clipping_mismatch' in score['evidence_errors']
+
+
+def test_a_correctly_clipped_invalid_reading_is_retained_as_sensor_evidence(task):
+    score=sequence(task,'gyro_clipped')
+    assert score['success'] and score['invalid_own_gyro_count']==1
 
 
 @pytest.mark.parametrize('key,value',[('target_link','target_gyro'),('vision_mode','V3'),('source_id','D28')])
@@ -179,3 +195,50 @@ def test_real_method_specs_admit_the_registered_spin_contract(task,filename):
     definition=ExternalMethodDefinition(server/'examples/autonomy_methods'/filename,task)
     assert definition.spec.task_schemas==(task.schema_version,)
     definition.verify_unchanged()
+
+
+@pytest.mark.parametrize('defect',['substituted_measurement','missing_private_sample','duplicate_private_sample'])
+def test_exported_own_gyro_is_bound_to_the_recorded_sensor_sample(task,tmp_path,defect):
+    import base64
+    import hashlib
+    import json
+    import struct
+    import zlib
+    from space_arm_platform.benchmark_vision_motion_score import verify_motion_observations
+
+    # Small compressed unit-test image at the declared resolution; this tests
+    # evidence binding, never image-estimator quality or native acceptance.
+    def chunk(kind,data):
+        return struct.pack('!I',len(data))+kind+data+struct.pack('!I',zlib.crc32(kind+data)&0xffffffff)
+    image=(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!IIBBBBB',640,480,8,2,0,0,0))
+           +chunk(b'IDAT',zlib.compress(bytes((640*3+1)*480)))+chunk(b'IEND',b''))
+    digest=hashlib.sha256(image).hexdigest()
+    raw=truth(0)
+    raw['target_angular_velocity_body_rad_s']=(0.,.04,0.)
+    variance=task.own_gyro.white_noise_std_rad_s**2+task.own_gyro.initial_bias_std_rad_s**2
+    raw['chaser_gyro']=packet(0,variance=(variance,)*3).model_dump()
+    scorer=VisionMotionScorer(task,169.4)
+    scorer.add(raw)
+    recorded=capture(scorer,0)
+    recorded['image_sha256']=[digest]*2
+    frames=[dict(camera_id=camera.camera_id,renderer_session_id=recorded['renderer_session_id'],
+        source_frame_id=recorded['source_frame_id'],sample_time_ns=0,width=640,height=480,
+        png_sha256=digest,png_base64=base64.b64encode(image).decode()) for camera in task.cameras]
+    observation=dict(episode_id='unit-motion-evidence',sequence=0,sample_time_ns=0,delivery_time_ns=0,
+        images=frames,gyro_samples=[deepcopy(raw['chaser_gyro'])])
+    physics_path,observations_path=tmp_path/'physics.jsonl',tmp_path/'observations.jsonl'
+    physical=[raw,recorded]
+    def write():
+        physics_path.write_text(''.join(json.dumps(row)+'\n' for row in physical),encoding='utf-8')
+        observations_path.write_text(json.dumps(observation)+'\n',encoding='utf-8')
+    write()
+    verify_motion_observations(task,observations_path,physics_path)
+    if defect=='substituted_measurement':
+        observation['gyro_samples'][0]['angular_velocity_body_rad_s']=(.001,0.,0.)
+    elif defect=='missing_private_sample':
+        physical.remove(raw)
+    else:
+        physical.insert(0,raw)
+    write()
+    with pytest.raises(ValueError,match='gyro'):
+        verify_motion_observations(task,observations_path,physics_path)

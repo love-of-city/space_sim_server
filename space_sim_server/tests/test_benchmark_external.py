@@ -8,6 +8,7 @@ import psutil
 import pytest
 
 from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation
+from space_arm_platform.benchmark_wheel_recovery import WheelRecoveryContext, WheelRecoveryObservation
 from space_arm_platform.benchmark_orbit import OrbitContext, OrbitObservation
 from space_arm_platform.benchmark_navigation import NavigationContext, GNSSMeasurements
 from space_arm_platform.benchmark_relative_flight import RelativeFlightContext
@@ -36,7 +37,7 @@ def assert_process_exited(identity):
 
 
 def context_and_observation(family):
-    if family in {"attitude", "pointing"}:
+    if family in {"attitude", "pointing", "wheel-recovery"}:
         task = load_task(SPEC_DIRECTORY / "s02-wheel-attitude-v1.json")
         context = AttitudeContext(task=task, chaser_mass_kg=170., inertia_com_body_kg_m2=((1., 0., 0.), (0., 2., 0.), (0., 0., 3.)),
             wheel_spin_inertia_kg_m2=(.01, .01, .01), hardware_torque_limits_nm=(.2, .2, .2),
@@ -44,6 +45,11 @@ def context_and_observation(family):
         observation = AttitudeObservation(episode_id="test", sequence=0, sample_time_ns=0, delivery_time_ns=0,
             orientation_body_to_j2000_wxyz=(math.cos(.1), math.sin(.1), 0., 0.),
             angular_velocity_body_rad_s=(.001, .002, -.001), wheel_speed_rad_s=(0., 0., 0.), gyro_valid=True)
+        if family == "wheel-recovery":
+            task = load_task(SPEC_DIRECTORY / "s22-wheel-effectiveness-recovery-v1.json")
+            context = WheelRecoveryContext(task=task, **context.model_dump(exclude={"task"}))
+            observation = WheelRecoveryObservation(**observation.model_dump(exclude={"schema_version"}),
+                measured_motor_torque_xyz_nm=(0., 0., 0.))
         if family == "pointing":
             task = load_task(SPEC_DIRECTORY / "s06-earth-pointing-v1.json")
             context = PointingContext(task=task, **context.model_dump(exclude={"task"}))
@@ -81,10 +87,10 @@ def context_and_observation(family):
     return context, observation
 
 
-@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation", "pointing"])
+@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "navigation", "relative-flight", "flyaround", "formation", "pointing", "wheel-recovery"])
 def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family):
     context, observation = context_and_observation(family)
-    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "pointing": "pointing.json"}.get(family, f"{family}-pd.json")
+    filename = {"navigation": "navigation-estimator.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "pointing": "pointing.json", "wheel-recovery": "wheel-recovery.json"}.get(family, f"{family}-pd.json")
     definition = ExternalMethodDefinition(SERVER / "examples/autonomy_methods" / filename, context.task)
     method = ExternalMethod(definition, tmp_path)
     baseline = method_classes(context.task)[method_ids(context.task)[0]]()

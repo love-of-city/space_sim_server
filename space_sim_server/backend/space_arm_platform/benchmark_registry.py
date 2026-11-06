@@ -24,8 +24,10 @@ from .benchmark_vision_motion import VisionMotionTask, VisionMotionContext, Visi
 from .benchmark_vision_motion_score import VisionMotionScorer
 from .benchmark_vision_approach import VisionApproachTask, VisionApproachContext, VisionApproachObservation, VisionApproachAction
 from .benchmark_vision_approach_score import VisionApproachScorer
+from .benchmark_wheel_recovery import WheelRecoveryTask, WheelRecoveryContext, WheelRecoveryObservation, WheelRecoveryAction
+from .benchmark_wheel_recovery_score import WheelRecoveryScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    WheelRecoveryTask: FamilyImplementation("simulation.benchmark_wheel_recovery_methods", "simulation.benchmark_native_wheel_recovery",
+        "NativeWheelRecoveryEnvironment", ("adaptive-wheel-recovery-v1", "unaware-wheel-recovery-v1", "no-recovery-torque-v1", "unsafe-recovery-spin-v1")),
     VisionApproachTask: FamilyImplementation("simulation.benchmark_vision_approach_methods", "simulation.benchmark_native_vision_approach",
         "NativeVisionApproachEnvironment", ("image-stereo-approach-v1", "no-visual-thrust-v1", "unsafe-visual-close-v1", "missing-visual-control-v1")),
     VisionMotionTask: FamilyImplementation("simulation.benchmark_vision_motion_methods", "simulation.benchmark_native_vision_motion",
@@ -102,11 +106,15 @@ def method_input_types(task: Task):
         VisionPoseTask: (VisionPoseContext, VisionPoseObservation),
         VisionMotionTask: (VisionMotionContext, VisionMotionObservation),
         VisionApproachTask: (VisionApproachContext, VisionApproachObservation),
+        WheelRecoveryTask: (WheelRecoveryContext, WheelRecoveryObservation),
     }[type(task)]
 
 
 def parse_action(task: Task, raw, observation):
-    if isinstance(task, VisionApproachTask):
+    if isinstance(task, WheelRecoveryTask):
+        action = WheelRecoveryAction.model_validate(raw)
+        action.validate_for(observation, task.safety.maximum_motor_torque_nm)
+    elif isinstance(task, VisionApproachTask):
         action = VisionApproachAction.model_validate(raw)
         action.validate_for(observation, task)
     elif isinstance(task, VisionMotionTask):
@@ -131,6 +139,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, WheelRecoveryTask):
+        return WheelRecoveryScorer(task)
     if isinstance(task, VisionApproachTask):
         return VisionApproachScorer(task, chaser_mass_kg)
     if isinstance(task, VisionMotionTask):
@@ -178,6 +188,8 @@ def capability_matrix(catalogue, tasks):
 
 def configuration_title(catalogue, task):
     title = catalogue.task(task.requirement_id).title
+    if isinstance(task, WheelRecoveryTask):
+        title += "（单飞轮力矩衰减与姿态恢复）"
     if isinstance(task, RelativeFlightTask) and task.source_id == 'D40':
         title += "（GNSS，150 m 接近中止）"
     if isinstance(task, VisionPoseTask):

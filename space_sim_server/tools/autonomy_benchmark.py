@@ -31,6 +31,7 @@ from space_arm_platform.benchmark_pointing import PointingTask, PointingObservat
 from space_arm_platform.benchmark_vision import VisionPoseTask, VisionPoseObservation, VisionPoseAction  # noqa: E402
 from space_arm_platform.benchmark_vision_motion import VisionMotionTask, VisionMotionObservation, VisionMotionAction  # noqa: E402
 from space_arm_platform.benchmark_vision_approach import VisionApproachTask, VisionApproachObservation, VisionApproachAction  # noqa: E402
+from space_arm_platform.benchmark_wheel_recovery import WheelRecoveryTask, WheelRecoveryObservation, WheelRecoveryAction  # noqa: E402
 from space_arm_platform.benchmark_execution import rescore_episode, run_episode  # noqa: E402
 from space_arm_platform.benchmark_external import PythonMethodSpec, MethodRequest, MethodResponse  # noqa: E402
 from space_arm_platform.benchmark_registry import capability_matrix, method_ids  # noqa: E402
@@ -48,7 +49,7 @@ def main(argv=None) -> int:
     listing.add_argument("--format", choices=["json", "markdown"], default="json")
     commands.add_parser("validate", help="validate the complete final source mapping")
     schema = commands.add_parser("schema", help="print a versioned JSON Schema")
-    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action", "pointing", "pointing-observation", "vision-pose", "vision-observation", "vision-estimate", "vision-spin", "vision-spin-observation", "vision-spin-estimate", "orbit", "orbit-observation", "navigation-task", "gnss-measurements", "navigation-estimate", "relative-flight", "flyaround", "formation", "formation-observation", "formation-action", "method", "method-request", "method-response"], default="catalogue")
+    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action", "pointing", "pointing-observation", "vision-pose", "vision-observation", "vision-estimate", "vision-spin", "vision-spin-observation", "vision-spin-estimate", "vision-approach", "vision-approach-observation", "vision-approach-action", "wheel-recovery", "wheel-recovery-observation", "wheel-recovery-action", "orbit", "orbit-observation", "navigation-task", "gnss-measurements", "navigation-estimate", "relative-flight", "flyaround", "formation", "formation-observation", "formation-action", "method", "method-request", "method-response"], default="catalogue")
     commands.add_parser("tasks", help="list registered executable configurations, separately from requirements")
     matrix = commands.add_parser("matrix", help="join all 122 requirements to registered configurations; not an acceptance report")
     matrix.add_argument("--format", choices=["json", "markdown"], default="json")
@@ -89,6 +90,7 @@ def main(argv=None) -> int:
                  "vision-pose": VisionPoseTask, "vision-observation": VisionPoseObservation, "vision-estimate": VisionPoseAction,
                  "vision-spin": VisionMotionTask, "vision-spin-observation": VisionMotionObservation, "vision-spin-estimate": VisionMotionAction,
                  "vision-approach": VisionApproachTask, "vision-approach-observation": VisionApproachObservation, "vision-approach-action": VisionApproachAction,
+                 "wheel-recovery": WheelRecoveryTask, "wheel-recovery-observation": WheelRecoveryObservation, "wheel-recovery-action": WheelRecoveryAction,
                  "orbit": OrbitTask, "orbit-observation": OrbitObservation,
                  "navigation-task": NavigationTask, "gnss-measurements": GNSSMeasurements, "navigation-estimate": NavigationEstimateAction,
                  "relative-flight": RelativeFlightTask, "flyaround": FlyAroundTask,

@@ -105,7 +105,7 @@ class NativeAttitudeEnvironment:
         self._wheel_owner = SimpleNamespace(wheels=wheels, joints=joints, enabled=True,
             cached_speed_reads=True, settings={"speed_guard_fraction": 0.98})
         self._motor_messages = [messaging.SingleActuatorMsg().write(messaging.SingleActuatorMsgPayload(input=0.)) for _ in wheels]
-        self._drives = [WheelDrive(self._wheel_owner, i, message) for i, message in enumerate(self._motor_messages)]
+        self._drives = [self._make_wheel_drive(i, message) for i, message in enumerate(self._motor_messages)]
         for wheel, drive in zip(wheels, self._drives, strict=True):
             ctx.ports.drive_actuator(wheel.motor, drive.actuatorOutMsg, owner="benchmark_wheel_method")
         self._drive_group = WheelDriveGroup(self._drives)
@@ -149,6 +149,9 @@ class NativeAttitudeEnvironment:
 
     def _setup_additional_observation(self, ctx, seed):
         pass
+
+    def _make_wheel_drive(self, index, message):
+        return WheelDrive(self._wheel_owner, index, message)
 
     def _truth_sample(self, nanos):
         state = self._body_reader()

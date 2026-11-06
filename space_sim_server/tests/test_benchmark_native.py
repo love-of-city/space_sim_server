@@ -18,6 +18,71 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_wheel_loss_changes_motor_output_and_reset_restores_history(tmp_path):
+    code = r'''
+import json
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_registry import native_environment
+from space_arm_platform.benchmark_wheel_recovery import WheelRecoveryAction
+
+task = load_task(SPEC_DIRECTORY/'s22-wheel-effectiveness-recovery-v1.json')
+env = native_environment(task, Path(sys.argv[1]))
+def action(observation):
+    return WheelRecoveryAction(episode_id=observation.episode_id, observation_sequence=observation.sequence,
+        motor_torque_xyz_nm=(.04, .04, .04), estimated_effectiveness_xyz=(1., 1., 1.))
+def physical():
+    env._truth_stream.flush()
+    return [json.loads(line) for line in (env.episode_directory/'physics.jsonl').read_text('utf-8').splitlines()]
+try:
+    first = env.reset(3)
+    initial = physical()
+    old_action = action(first)
+    observation = first
+    while observation.sample_time_ns < 8_500_000_000:
+        observation = env.step(action(observation))
+    rows = physical()
+    fault = rows[0]['fault']
+    axis = 'xyz'.index(fault['axis'])
+    assert len(rows) == 426 and env.evaluation()['fault_triggered']
+    assert not env.evaluation()['evidence_errors']
+    assert env.evaluation()['lost_motor_impulse_nm_s'] > 0
+    for row in rows[1:]:
+        expected = np.full(3, .04)
+        if row['time_ns'] > fault['onset_time_ns']:
+            expected[axis] *= fault['effectiveness']
+        assert np.allclose(row['applied_motor_torque_xyz_nm'], expected, atol=1e-12, rtol=0)
+    assert not np.array_equal(rows[-1]['angular_velocity_body_rad_s'], rows[0]['angular_velocity_body_rad_s'])
+    assert not np.array_equal(observation.measured_motor_torque_xyz_nm, rows[-1]['applied_motor_torque_xyz_nm'])
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    again = env.reset(3)
+    assert again.episode_id != first.episode_id
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert physical() == initial
+    assert env.evaluation()['fault_samples'] == 0 and not env.evaluation()['fault_triggered']
+    assert env.evaluation()['lost_motor_impulse_nm_s'] == 0
+    assert env.evaluation()['diagnosis_confirmed_s'] is None
+    try:
+        env.step(old_action)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('stale action accepted after fault reset')
+    for _ in range(10):
+        again = env.step(action(again))
+    assert physical() == rows[:11]
+finally:
+    env.close()
+print('actual wheel loss, torque telemetry and fault reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'recovery-native')],
+                            cwd=SERVER, capture_output=True, text=True, timeout=240)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'actual wheel loss' in result.stdout
+
+
 def test_native_pointing_gnss_ephemeris_motor_action_and_reset(tmp_path):
     code = r'''
 import sys

@@ -1,0 +1,73 @@
+{
+  "schema_version": "spacesim-autonomy-wheel-recovery/1",
+  "configuration_id": "s22-wheel-effectiveness-recovery-v1",
+  "requirement_id": "ssb.recovery.actuator-reconfigure",
+  "source_id": "S22",
+  "backend": "native_team_single_wheel_recovery_v1",
+  "target_cooperation": "none",
+  "controlled_spacecraft": 1,
+  "spacecraft_count": 1,
+  "control_architecture": "single_agent",
+  "vision_mode": "V0",
+  "action_type": "wheel_motor_torques_and_effectiveness_estimate",
+  "reference_frame": "body_to_J2000_quaternion_wxyz",
+  "initial": {
+    "altitude_m": 500000.0,
+    "inclination_deg": 51.6,
+    "true_anomaly_deg": 180.0,
+    "rotation_min_rad": 1.0,
+    "rotation_max_rad": 1.2,
+    "body_rate_half_width_rad_s": 0.001,
+    "wheel_speed_rad_s": [0.0, 0.0, 0.0]
+  },
+  "objective": {
+    "orientation_body_to_j2000_wxyz": [1.0, 0.0, 0.0, 0.0],
+    "angle_tolerance_rad": 0.008726646259971648,
+    "body_rate_tolerance_rad_s": 0.001,
+    "dwell_s": 10.0,
+    "diagnosis_deadline_after_onset_s": 3.0,
+    "diagnosis_dwell_s": 0.5,
+    "effectiveness_tolerance": 0.08,
+    "minimum_lost_motor_impulse_nm_s": 0.01
+  },
+  "fault": {
+    "kind": "permanent_single_wheel_motor_effectiveness_loss",
+    "onset_earliest_s": 5.0,
+    "onset_latest_s": 8.0,
+    "axes": ["x", "y", "z"],
+    "effectiveness_min": 0.25,
+    "effectiveness_max": 0.45
+  },
+  "safety": {
+    "maximum_body_rate_rad_s": 0.15,
+    "maximum_wheel_speed_rad_s": 500.0,
+    "maximum_motor_torque_nm": 0.2
+  },
+  "observation": {
+    "kind": "noisy_absolute_attitude_telemetry_and_gyroscope",
+    "orientation_noise_std_rad": 0.0001,
+    "gyro_white_noise_std_rad_s": 0.0001,
+    "gyro_initial_bias_std_rad_s": 0.00001,
+    "gyro_bias_random_walk_rad_s_sqrt_s": 0.000001,
+    "gyro_range_rad_s": 0.5,
+    "wheel_encoder": "ideal_joint_rate_encoder",
+    "delay_s": 0.0,
+    "motor_torque_telemetry": "noisy_native_motor_torque_readback",
+    "motor_torque_noise_std_nm": 0.0005
+  },
+  "seeds": {
+    "train": [1, 2, 3],
+    "validation": [101, 102, 103],
+    "test": [201, 202, 203, 204, 205, 206, 207, 208, 209, 210]
+  },
+  "duration_s": 240.0,
+  "physics_period_ns": 20000000,
+  "physics_substeps": 8,
+  "decision_period_ns": 20000000,
+  "earth_gravity": "j2",
+  "solar_gravity": true,
+  "drag_enabled": true,
+  "srp_enabled": true,
+  "disturbance_sigma_m_s2": 0.00002,
+  "mass_model": "constant_no_propellant_model"
+}

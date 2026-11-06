@@ -20,6 +20,10 @@ if sys.argv[1:] == ["attitude-sequence"]:
     from simulation.benchmark_attitude_methods import SequenceAttitudePD
     from space_arm_platform.benchmark_attitude import AttitudeContext, AttitudeObservation
     raise SystemExit(serve_method(SequenceAttitudePD(), AttitudeContext, AttitudeObservation))
+if sys.argv[1:] == ["wheel-recovery"]:
+    from simulation.benchmark_wheel_recovery_methods import AdaptiveWheelRecovery
+    from space_arm_platform.benchmark_wheel_recovery import WheelRecoveryContext, WheelRecoveryObservation
+    raise SystemExit(serve_method(AdaptiveWheelRecovery(), WheelRecoveryContext, WheelRecoveryObservation))
 if sys.argv[1:] == ["waypoint"]:
     from simulation.benchmark_methods import GNSSWaypointPD
     from space_arm_platform.benchmark_contract import MethodContext, NavigationObservation
@@ -46,4 +50,4 @@ if sys.argv[1:] == ["formation"]:
     from simulation.benchmark_formation_methods import GNSSFormation
     from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
     raise SystemExit(serve_method(GNSSFormation(), FormationContext, FormationObservation))
-raise SystemExit("expected one task-family argument: attitude, attitude-sequence, pointing, waypoint, orbit, navigation, relative-flight, flyaround or formation")
+raise SystemExit("expected one task-family argument: attitude, attitude-sequence, wheel-recovery, pointing, waypoint, orbit, navigation, relative-flight, flyaround or formation")

@@ -191,6 +191,7 @@ def parse_task(document: dict, catalogue: AutonomyCatalog | None = None):
     from .benchmark_vision import VisionPoseTask
     from .benchmark_vision_motion import VisionMotionTask
     from .benchmark_vision_approach import VisionApproachTask
+    from .benchmark_wheel_recovery import WheelRecoveryTask
     schemas = {"spacesim-autonomy-waypoint/1": WaypointTask, "spacesim-autonomy-attitude/1": AttitudeTask,
                "spacesim-autonomy-orbit/1": OrbitTask, "spacesim-autonomy-navigation-evaluation/1": NavigationTask,
                "spacesim-autonomy-relative-flight/1": RelativeFlightTask,
@@ -199,7 +200,8 @@ def parse_task(document: dict, catalogue: AutonomyCatalog | None = None):
                "spacesim-autonomy-pointing/1": PointingTask,
                "spacesim-autonomy-rendered-pose/1": VisionPoseTask,
                "spacesim-autonomy-rendered-spin/1": VisionMotionTask,
-               "spacesim-autonomy-visual-approach/1": VisionApproachTask}
+               "spacesim-autonomy-visual-approach/1": VisionApproachTask,
+               "spacesim-autonomy-wheel-recovery/1": WheelRecoveryTask}
     if not isinstance(document, dict) or document.get("schema_version") not in schemas:
         raise ValueError("unknown executable benchmark task schema")
     task = schemas[document["schema_version"]].model_validate(document)

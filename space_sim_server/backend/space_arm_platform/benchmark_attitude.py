@@ -84,6 +84,25 @@ class AttitudeObservationModel(Contract):
         return value
 
 
+def validate_attitude_limits(task):
+    """Shared physical bounds; each task family separately validates its semantics."""
+    initial, goal, safety = task.initial, task.objective, task.safety
+    if not goal.angle_tolerance_rad < initial.rotation_min_rad <= initial.rotation_max_rad:
+        raise ValueError("every initial attitude must require a maneuver")
+    if math.sqrt(3) * initial.body_rate_half_width_rad_s >= safety.maximum_body_rate_rad_s:
+        raise ValueError("initial body rates must satisfy the hard bound")
+    if any(abs(value) >= safety.maximum_wheel_speed_rad_s for value in initial.wheel_speed_rad_s):
+        raise ValueError("initial wheel speeds must satisfy the hard bound")
+    if not goal.body_rate_tolerance_rad_s < safety.maximum_body_rate_rad_s < task.observation.gyro_range_rad_s:
+        raise ValueError("success rate, hard rate bound and gyro range must be ordered")
+    if goal.dwell_s > task.duration_s:
+        raise ValueError("dwell exceeds episode duration")
+    for seconds in (goal.dwell_s, task.duration_s):
+        ticks = seconds * 1e9 / task.physics_period_ns
+        if not math.isclose(ticks, round(ticks), rel_tol=0, abs_tol=1e-8):
+            raise ValueError("dwell and duration must lie on the physics grid")
+
+
 class AttitudeTask(Contract):
     schema_version: Literal["spacesim-autonomy-attitude/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -130,7 +149,7 @@ class AttitudeTask(Contract):
 
     @model_validator(mode="after")
     def feasible_contract(self):
-        initial, goal, safety = self.initial, self.objective, self.safety
+        initial, goal = self.initial, self.objective
         requirements = {"S01": "ssb.attitude.detumble", "S02": "ssb.attitude.slew-hold", "S03": "ssb.attitude.large-angle-slew",
                         "S04": "ssb.attitude.multi-target-slew"}
         if self.requirement_id != requirements[self.source_id]:
@@ -146,20 +165,7 @@ class AttitudeTask(Contract):
         if isinstance(initial, DetumbleInitialState):
             if not 10*goal.body_rate_tolerance_rad_s <= initial.body_rate_min_norm_rad_s <= initial.body_rate_half_width_rad_s:
                 raise ValueError("detumble rate floor must exceed ten times the success rate and fit inside the rate cube")
-        if not goal.angle_tolerance_rad < initial.rotation_min_rad <= initial.rotation_max_rad:
-            raise ValueError("every initial attitude must require a maneuver")
-        if math.sqrt(3) * initial.body_rate_half_width_rad_s >= safety.maximum_body_rate_rad_s:
-            raise ValueError("initial body rates must satisfy the hard bound")
-        if any(abs(value) >= safety.maximum_wheel_speed_rad_s for value in initial.wheel_speed_rad_s):
-            raise ValueError("initial wheel speeds must satisfy the hard bound")
-        if not goal.body_rate_tolerance_rad_s < safety.maximum_body_rate_rad_s < self.observation.gyro_range_rad_s:
-            raise ValueError("success rate, hard rate bound and gyro range must be ordered")
-        if goal.dwell_s > self.duration_s:
-            raise ValueError("dwell exceeds episode duration")
-        for seconds in (goal.dwell_s, self.duration_s):
-            ticks = seconds * 1e9 / self.physics_period_ns
-            if not math.isclose(ticks, round(ticks), rel_tol=0, abs_tol=1e-8):
-                raise ValueError("dwell and duration must lie on the physics grid")
+        validate_attitude_limits(self)
         return self
 
     def validate_catalogue(self, catalogue):

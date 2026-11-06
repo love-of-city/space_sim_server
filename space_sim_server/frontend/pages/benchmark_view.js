@@ -8,6 +8,9 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'adaptive-wheel-recovery-v1':'飞轮异常诊断与自适应控制','external-wheel-recovery-v1':'飞轮异常恢复 · 独立进程示例',
+  'unaware-wheel-recovery-v1':'不诊断飞轮异常（对照）','no-recovery-torque-v1':'零恢复力矩（负对照）',
+  'unsafe-recovery-spin-v1':'异常期间持续满力矩（负对照）',
   'image-stereo-approach-v1':'双目图像闭环接近','external-image-stereo-approach-v1':'图像闭环接近 · 独立进程示例',
   'no-visual-thrust-v1':'图像观测与零推力（负对照）','unsafe-visual-close-v1':'盲目满推力接近（负对照）',
   'missing-visual-control-v1':'缺失图像估计与零推力（负对照）',
@@ -35,6 +38,11 @@ export const methodLabels = {
   'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
 };
 export function benchmarkMetric(score){
+  if(score?.schema_version==='spacesim-autonomy-wheel-recovery-score/1'){
+    const diagnosis=Number.isFinite(score.diagnosis_latency_s)?`${score.diagnosis_latency_s.toFixed(2)} s`:'未确认';
+    const angle=Number.isFinite(score.final_attitude_error_rad)?`${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`:'—';
+    return `异常诊断延迟 ${diagnosis}；姿态误差 ${angle}`;
+  }
   if(score?.schema_version==='spacesim-autonomy-visual-approach-score/1'){
     return Number.isFinite(score.position_error_m)&&Number.isFinite(score.optical_relative_speed_m_s)
       ?`位置误差 ${score.position_error_m.toFixed(4)} m；相对速度 ${score.optical_relative_speed_m_s.toFixed(4)} m/s；连续保持 ${score.dwell_s.toFixed(2)} s`:'—';
@@ -102,6 +110,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
         orientation_rmse:'姿态 RMSE',maximum_orientation_error:'最大姿态误差',pose_availability:'有效位姿估计不足',
+        false_motor_loss_diagnosis:'正常阶段误报电机异常',motor_loss_diagnosis_deadline:'电机异常诊断超时',motor_loss_not_observed_under_load:'未验证带载电机衰减',
         angular_velocity_rmse:'角速度 RMSE',maximum_angular_velocity_error:'最大角速度误差',spin_availability:'有效角速度估计不足',
         continuous_hold_envelope:'全程保持范围',continuous_orbit_band:'轨道维持时窗超限',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
         abort_reversal_deadline:'未及时确认持续向外运动',abort_reversal_not_confirmed:'尚未确认持续向外运动',abort_retreat_progress:'撤离距离不足',

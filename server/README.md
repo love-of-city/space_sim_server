@@ -382,3 +382,27 @@ camera_ids:
 ```
 
 第三路为固定在卫星本体上的独立视角，原两机位保持不变。三路均为1024×1024、50Hz，录制会等待全部相机，验收逐帧检查图像、状态、安装标定及视频完整性。省略场景profile使用原双相机设置。实际验收见[三相机与双臂采集](../archive/2026_11_06_三相机与双臂漂浮采集.md)。
+
+
+### 双臂三相机顺序漂浮抓取
+
+原生采集任务 `dual_floating_sequential_capture` 使用 `dual-service-v2-floating` 场景和 `dual-arm-three-view-v1` 相机配置。模型位于 `model/dual_stowed_service/collection_v2/dual_arm_capture.xml`；源 V2 的左右标签已按本体坐标规范化为左 `-X`、右 `+X`。首次部署拉取相应 Git LFS 模型网格和 `Content/Generated/DualServiceV2`、`DualServiceMLI` UE 资产；`tools/assets/prepare_dual_catalog.py` 生成当前机器的渲染目录。不要把本机生成的绝对路径目录提交到仓库。
+
+场景参数示例：
+
+```json
+{
+  "template_id": "dual-service-v2-floating",
+  "collection_camera_profile": "dual-arm-three-view-v1",
+  "dual_floating": {
+    "left_task": "floating_plug_capture",
+    "right_task": "floating_aviation_plug_capture",
+    "position_jitter_m": 0.025
+  },
+  "floating_grasp": {"selection": "ranked"}
+}
+```
+
+使用现有 `collection/collect_scripted_tasks.py` 入口指定该任务和源场景；每条按 seed 独立生成两个自由体及不同颜色。初始相对速度、角速度为零，此后由动力学自然演化。联合几何预检选择候选抓法；左手抓稳2秒、回收到本体坐标 `[-.30,-.05,.40] m`，然后右手抓稳2秒并回收到 `[.30,-.05,.40] m`。右手动作期间持续检查左手抓持，完成时两手均持物到位。
+
+录制 `camera_ids` 必须为 `teleop/camera/spacecraft_overview`、`teleop/camera/left_sarm_wrist_cam`、`teleop/camera/right_sarm_wrist_cam`。LeRobot `observation.state/action` 明确为左臂6关节＋夹爪、右臂6关节＋夹爪，共14维；两侧原生腕力分别按200Hz保存，网页分析独立显示左右曲线。指令包含两侧真实物体颜色、种类与顺序；单臂数据仍为7维。双臂当前支持位置、物体类型、颜色、候选抓法、光照和轨道相位采样；未接入双臂的关节噪声等扰动配置会明确拒绝。

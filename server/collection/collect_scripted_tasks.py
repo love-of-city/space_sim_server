@@ -37,6 +37,7 @@ from simulation.scripted_tasks.plug_profiles import (
 )
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, threaded_task_class
 from simulation.scripted_tasks.floating_assets import FLOATING_TASKS, validate_asset_snapshot
+from simulation.scripted_tasks.dual_floating_model import DUAL_TASK, randomized_dual_scene, prepare_dual_model
 from simulation.scripted_tasks.floating_capture import FloatingCaptureTask
 from simulation.scripted_tasks.floating_profiles import FLOATING_PROFILES, apply_floating_profile
 from simulation.scripted_tasks.floating_options import add_floating_options, apply_floating_options
@@ -233,18 +234,20 @@ def validate_recorded_layout_model(meta, observations):
         raise ValueError("Authoritative model differs from the saved layout/variant")
 
 
-def validate_floating_recording(steps, stages, task_name):
+def validate_floating_recording(steps, stages, task_name, *, target_body=None, require_result=True):
     """Check observed retention, transport and arrival, independently of success."""
     import numpy as np
     from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix, rotation_matrix_to_vector
     from itertools import groupby
 
+    target_body = target_body or FLOATING_TASKS[task_name].body
     final = steps[-1]["scripted_task"]
     assert stages == list(FloatingCaptureTask.stages), stages
     assert [key for key, _ in groupby(obs["scripted_task"]["stage"] for obs in steps)] == stages
     assert final["task_version"] == FloatingCaptureTask.version
-    assert final["target_body"] == FLOATING_TASKS[task_name].body
-    assert final["result"] == "success"
+    assert final["target_body"] == target_body
+    if require_result:
+        assert final["result"] == "success"
     params = final["task_parameters"]
     hold_s, settle_s = params["hold_s"], params["settle_s"]
     assert np.isfinite([hold_s, settle_s]).all() and hold_s >= 2. and settle_s >= 1.
@@ -256,7 +259,7 @@ def validate_floating_recording(steps, stages, task_name):
     for obs in steps:
         task = obs["scripted_task"]
         assert task["task_parameters"] == params
-        assert task["task_version"] == FloatingCaptureTask.version and task["target_body"] == FLOATING_TASKS[task_name].body
+        assert task["task_version"] == FloatingCaptureTask.version and task["target_body"] == target_body
         assert not task.get("unexpected_contacts")
         assert task["feedback_source"] == "authoritative_simulation_state"
         contacts, forces = np.asarray(task["finger_target_contacts"]), np.asarray(task["finger_normal_force_n"])
@@ -313,6 +316,9 @@ def validate_floating_recording(steps, stages, task_name):
 
 
 def validate_recording(episode, task_name="drawer_cycle"):
+    if task_name==DUAL_TASK:
+        from collection.validate_dual_recording import validate
+        return validate(episode)
     import av
     import numpy as np
     import pyarrow.parquet as pq
@@ -460,23 +466,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
             for actual, original in zip(force_rows, expected):
                 assert all(actual[key] == value for key, value in original.items())
     capture_count = validate_capture_manifest(episode, meta, steps)
-    from space_arm_platform.collection_cameras import camera_ids
-    from space_arm_platform.lerobot_capture import camera_key
-    expected_video_keys = {f"observation.images.{camera_key(c)}" for c in camera_ids(meta.get("scene_instance") or {})}
-    assert {key for key, feature in info["features"].items() if feature["dtype"] == "video"} == expected_video_keys
-    videos = list((episode / "lerobot/videos").rglob("*.mp4"))
-    assert len(videos) == len(expected_video_keys)
-    assert {path.relative_to(episode / "lerobot/videos").parts[0] for path in videos} == expected_video_keys
-    for path in videos:
-        with av.open(str(path)) as video:
-            stream = video.streams.video[0]
-            assert (stream.width, stream.height) == (1024, 1024)
-            assert stream.average_rate == meta["dataset_fps"]
-            times = [float(frame.time) for frame in video.decode(video=0)]
-            assert len(times) == len(steps)
-            np.testing.assert_allclose(
-                np.diff(times), 1 / meta["dataset_fps"], atol=1e-6
-            )
+    validate_videos(episode,meta,info,len(steps))
     return dict(
         passed=True,
         episode_id=episode.name,
@@ -492,6 +482,28 @@ def validate_recording(episode, task_name="drawer_cycle"):
         source_validation="numeric_sha256_and_camera_pairing" if compact else "full_observation_comparison",
         videos_fully_decoded=True,
     )
+
+
+def validate_videos(episode, meta, info, frame_count):
+    import av
+    import numpy as np
+    from space_arm_platform.collection_cameras import camera_ids
+    from space_arm_platform.lerobot_capture import camera_key
+    expected_video_keys = {f"observation.images.{camera_key(c)}" for c in camera_ids(meta.get("scene_instance") or {})}
+    assert {key for key, feature in info["features"].items() if feature["dtype"] == "video"} == expected_video_keys
+    videos = list((episode / "lerobot/videos").rglob("*.mp4"))
+    assert len(videos) == len(expected_video_keys)
+    assert {path.relative_to(episode / "lerobot/videos").parts[0] for path in videos} == expected_video_keys
+    for path in videos:
+        with av.open(str(path)) as video:
+            stream = video.streams.video[0]
+            assert (stream.width, stream.height) == (1024, 1024)
+            assert stream.average_rate == meta["dataset_fps"]
+            times = [float(frame.time) for frame in video.decode(video=0)]
+            assert len(times) == frame_count
+            np.testing.assert_allclose(
+                np.diff(times), 1 / meta["dataset_fps"], atol=1e-6
+            )
 
 
 @dataclass
@@ -521,7 +533,7 @@ class CollectionSession:
 def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--task", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS], default=default_task
+        "--task", choices=["drawer_cycle", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS, DUAL_TASK], default=default_task
     )
     parser.add_argument("--scene", type=Path, required=True)
     parser.add_argument("--floating-profile", choices=FLOATING_PROFILES,
@@ -632,9 +644,15 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
         raise ValueError("Layout randomization requires --layout-pool; refusing fixed-layout fallback")
     model = args.model or ROOT / "model/SARM/platform/sarm_20261012.xml"
     fixed_placement = None
-    if args.model and prepared_scene is None:
+    if args.model and prepared_scene is None and args.task != DUAL_TASK:
         from simulation.task_box_layout import validated_capture_layout
         fixed_placement = validated_capture_layout(model, args.catalog)
+    if args.task == DUAL_TASK:
+        from tools.assets.prepare_dual_catalog import prepare as prepare_catalog
+        model=args.model or ROOT/'model/dual_stowed_service/collection_v2/dual_arm_capture.xml'
+        if args.catalog is None:
+            args.catalog=prepare_catalog(model,ROOT.parent/'ue-adapter/Unreal/BskUnrealRenderer/Saved/AssetImport/sarm_20261012.catalog.json',
+                ROOT.parent/'ue-adapter',args.output/'dual.catalog.json')
     started = time.monotonic()
     report = dict(
         schema="scripted-batch/2",
@@ -684,6 +702,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
             attempt_started = time.monotonic()
             attempt_started_at_ns = time.time_ns()
             scene = (deepcopy(prepared_scene) if prepared_scene is not None
+                     else randomized_dual_scene(source,seed) if args.task==DUAL_TASK
                      else randomized_scene(source, seed, args.range_deg, args.task))
             if prepared_scene is not None and (
                     scene.get("seed") != seed or scene["collection_config"]["task"] != args.task):
@@ -709,7 +728,11 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
             # per-episode visual assignment can be materialized into the
             # preflight model as well as into the recording child. Fixed
             # monolithic models safely return their original path.
-            preflight_model = write_model_variant(model, directory / "preflight-model.xml", scene)
+            if args.task == DUAL_TASK:
+                preflight_model=directory/'preflight-model.xml'
+                prepare_dual_model(model,ROOT/'model/SARM/platform/sarm_20261012.xml',preflight_model,scene)
+            else:
+                preflight_model = write_model_variant(model, directory / "preflight-model.xml", scene)
             scene_path = directory / "scene.json"
             scene_path.write_text(
                 json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -748,18 +771,25 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
             # layout's collision state when selecting a different model.
             # Standalone variants have absolute asset references. Identical
             # contents may share the private probe even under different paths.
-            probe_key = (preflight_model if owned_session else
-                         hashlib.sha256(preflight_model.read_bytes()).hexdigest())
-            if probe is None or probe_model != probe_key:
-                if probe is not None:
-                    probe.close()
-                    probe = None
-                probe = NativePoseProbe(preflight_model)
-                probe_model = probe_key
-            try:
-                entry["preflight"] = probe.validate(preflight_model, scene, args.task)
-            except ValueError as exc:
-                entry["preflight"] = dict(accepted=False, reason="planning_failed", detail=str(exc))
+            if args.task == DUAL_TASK:
+                from simulation.scripted_tasks.dual_floating_grasps import select_dual_grasps
+                try:
+                    entry['preflight']=select_dual_grasps(preflight_model,scene)
+                except ValueError as exc:
+                    entry['preflight']=dict(accepted=False,reason='planning_failed',detail=str(exc))
+            else:
+                probe_key = (preflight_model if owned_session else
+                             hashlib.sha256(preflight_model.read_bytes()).hexdigest())
+                if probe is None or probe_model != probe_key:
+                    if probe is not None:
+                        probe.close()
+                        probe = None
+                    probe = NativePoseProbe(preflight_model)
+                    probe_model = probe_key
+                try:
+                    entry["preflight"] = probe.validate(preflight_model, scene, args.task)
+                except ValueError as exc:
+                    entry["preflight"] = dict(accepted=False, reason="planning_failed", detail=str(exc))
             scene_path.write_text(json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8")
             entry["preflight_wall_seconds"] = time.monotonic() - preflight_started
             if not entry["preflight"]["accepted"]:
@@ -784,9 +814,9 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                 "--episodes-root",
                 str(args.episodes_root.resolve()),
                 "--substeps",
-                "4" if args.task in FLOATING_TASKS else "1",
+                "4" if args.task in FLOATING_TASKS or args.task==DUAL_TASK else "1",
                 "--max-sim-seconds",
-                "160" if args.task in FLOATING_TASKS else "900" if args.task in THREADED_TASKS else "450",
+                "250" if args.task==DUAL_TASK else "160" if args.task in FLOATING_TASKS else "900" if args.task in THREADED_TASKS else "450",
                 "--timeout-seconds",
                 "5400" if args.task in THREADED_TASKS else "1800",
                 "--simulation-startup-timeout-seconds",
@@ -794,7 +824,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
             ]
             command += motion_args
             if catalog is not None:
-                command += ["--model", str(model), "--catalog", str(catalog)]
+                command += ["--model", str(preflight_model if args.task==DUAL_TASK else model), "--catalog", str(catalog)]
             command += ["--warmup-seconds", str(args.reuse_warmup_seconds
                         if renderer is not None and recorded else args.warmup_seconds)]
             if args.offline:

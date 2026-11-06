@@ -261,7 +261,17 @@ def parse_mjcf_geometry_metadata(mjcf_path: str | Path, *, compile_mesh_poses: b
     output: list[MjcfGeometryMetadata] = []
 
     def walk_container(container: ET.Element, body_name: str) -> None:
-        for child in list(container):
+        # MuJoCo compiles all geoms owned by a body before any descendant body,
+        # even when XML declares a parent geom after its children. Frames are
+        # transparent owners and must be included in the same first pass.
+        geoms, bodies = [], []
+        def collect(node):
+            for child in node:
+                if child.tag == 'geom': geoms.append(child)
+                elif child.tag == 'body': bodies.append(child)
+                elif child.tag == 'frame': collect(child)
+        collect(container)
+        for child in geoms:
             if child.tag == "geom":
                 mesh_name = child.get("mesh", "")
                 source, mesh_scale = meshes.get(mesh_name, ("", (1.0, 1.0, 1.0)))
@@ -293,14 +303,8 @@ def parse_mjcf_geometry_metadata(mjcf_path: str | Path, *, compile_mesh_poses: b
                         visible=float(child.get('rgba', '1 1 1 1').split()[-1]) > 0,
                     )
                 )
-            elif child.tag == "body":
-                walk_container(child, child.get("name", ""))
-            elif child.tag == "frame":
-                # MjSpec attachment commonly inserts a named frame between a
-                # parent body and a vendored articulated model.  A frame is not
-                # a dynamic body: direct geoms still belong to body_name, while
-                # nested bodies establish their own names.
-                walk_container(child, body_name)
+        for body in bodies:
+            walk_container(body, body.get('name', ''))
 
     for worldbody in root.findall("./worldbody"):
         for body in worldbody.findall("body"):

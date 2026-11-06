@@ -1,6 +1,7 @@
 """Async duplex gateway between the API backend and BSK/MJScene."""
 
 from __future__ import annotations
+from .models import parse_simulation_observation
 
 import asyncio
 import contextlib
@@ -349,7 +350,7 @@ class SimulationHub:
                             continue
                         if sequence != last + 1:
                             raise ValueError(f"authoritative state sequence gap: expected={last + 1}, received={sequence}")
-                    observation = SimulationObservation.model_validate(raw)
+                    observation = parse_simulation_observation(raw)
                     await self._accept_observation(observation)
                     if reliable:
                         # Remember BEFORE ACK: reconnect after a lost ACK replays safely.

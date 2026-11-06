@@ -251,6 +251,10 @@ def test_existing_collection_registry_exposes_floating_tasks():
 def test_preflight_does_not_exempt_target_environment_or_initial_finger_collisions():
     from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
     probe = NativePoseProbe.__new__(NativePoseProbe)
+    from simulation.sarm_model_profile import SINGLE_ARM
+    probe.arm = SINGLE_ARM
+    probe.scene_arms = (SINGLE_ARM,)
+    probe.held_finger_contacts = {}
     probe.home = probe.q = np.zeros(8)
     probe.names = {1: "satellite_outer_panel", 2: "ee_finger1", 3: "task_box_base"}
     probe.contacts = lambda q: np.array([[0, 1, 1, 3, -.002]])
@@ -318,6 +322,10 @@ def test_floating_release_rejects_shallow_target_background_penetration(tmp_path
     name = "floating_task_box_capture"
     scene, model = realized(tmp_path, name, 75)
     probe = NativePoseProbe.__new__(NativePoseProbe)
+    from simulation.sarm_model_profile import SINGLE_ARM
+    probe.arm = SINGLE_ARM
+    probe.scene_arms = (SINGLE_ARM,)
+    probe.held_finger_contacts = {}
     probe.home = np.zeros(8)
     probe.q = probe.home.copy()
     probe.address = lambda _: 0

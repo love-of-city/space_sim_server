@@ -4,6 +4,7 @@ A single long-lived spawn process is warmed before recording becomes available.
 Only the recorder's serial I/O thread calls append; RPCs never hold its state lock.
 """
 from __future__ import annotations
+from .models import parse_simulation_observation
 
 import multiprocessing as mp
 import threading
@@ -41,7 +42,7 @@ def _serve(connection, video_settings: dict, storage_profile: str) -> None:
                 elif command == "append":
                     if writer is None:
                         raise RuntimeError("dataset writer has no episode")
-                    writer.append(SimulationObservation.model_validate(payload[0]), payload[1])
+                    writer.append(parse_simulation_observation(payload[0]), payload[1])
                 elif command in {"finish", "fail"}:
                     if writer is not None:
                         try:

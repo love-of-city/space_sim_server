@@ -157,6 +157,10 @@ def test_searched_retract_handoff_holds_open_fingers_instead_of_replaying_releas
 def test_socket_exemption_does_not_exempt_arm_or_other_obstacles():
     from simulation.scripted_tasks.drawer_initialization import NativePoseProbe
     probe = NativePoseProbe.__new__(NativePoseProbe)
+    from simulation.sarm_model_profile import SINGLE_ARM
+    probe.arm = SINGLE_ARM
+    probe.scene_arms = (SINGLE_ARM,)
+    probe.held_finger_contacts = {}
     probe.handle = None
     probe.q = np.zeros(1)
     probe.home = np.zeros(1)

@@ -54,6 +54,7 @@ class LiveLeRobotWriter:
         self.model_identity = None
         self.wrench_identity = None
         self.wrench_stream = WrenchStreamWriter(root, compact=self.sidecars is not None)
+        self.arm_wrench_streams = {}
 
     def append(self, observation: Any, captures: dict[str, tuple[dict, dict]]) -> None:
         identity = (observation.model_sha256, observation.model_revision, observation.gripper_type)
@@ -72,18 +73,25 @@ class LiveLeRobotWriter:
             if not np.isfinite(array).all():
                 raise ValueError("non-finite dataset feature")
             return array
+        dual = getattr(observation, 'observation_layout', None) == 'dual-arm/1'
         profile = opening_profile(observation.gripper_type)
-        state = list(observation.joint_position_rad)
-        action = list(observation.target_joint_position_rad)
-        if profile is not None:
-            state = state[:6] + [observation.gripper_opening_normalized]
-            action = action[:6] + [observation.target_gripper_opening_normalized]
+        arms = {side:observation.arms[side] for side in ('left','right')} if dual else {'': observation}
+        state, action, raw, targets, velocity, pose, twist = [], [], [], [], [], [], []
+        for arm in arms.values():
+            state.extend(list(arm.joint_position_rad[:6]) + [arm.gripper_opening_normalized]
+                         if profile else arm.joint_position_rad)
+            action.extend(list(arm.target_joint_position_rad[:6]) + [arm.target_gripper_opening_normalized]
+                          if profile else arm.target_joint_position_rad)
+            raw.extend(arm.joint_position_rad)
+            targets.extend(arm.target_joint_position_rad)
+            velocity.extend(arm.joint_velocity_rad_s)
+            pose.extend(arm.end_effector_position_body_m + arm.end_effector_orientation_body_wxyz)
+            twist.extend(arm.end_effector_twist_body)
         frame = {
             "observation.state": f32(state),
-            "observation.joint_velocity": f32(observation.joint_velocity_rad_s),
-            "observation.end_effector_pose_body": f32(observation.end_effector_position_body_m + observation.end_effector_orientation_body_wxyz),
-            "observation.end_effector_twist_body": f32(observation.end_effector_twist_body),
-            # Held joint servo targets, not the API's newest (possibly unapplied) command.
+            "observation.joint_velocity": f32(velocity),
+            "observation.end_effector_pose_body": f32(pose),
+            "observation.end_effector_twist_body": f32(twist),
             "action": f32(action),
             "observation.sim_time_ns": np.array([int(observation.sim_time_ns)], dtype=np.int64),
             "observation.source_frame_id": np.array([int(observation.render_frame_id)], dtype=np.int64),
@@ -93,20 +101,24 @@ class LiveLeRobotWriter:
         if self.sidecars is None:
             frame["observation.platform_json"] = observation.model_dump_json()
         if profile is not None:
-            frame["observation.raw_joint_position"] = f32(observation.joint_position_rad)
-            frame["observation.raw_target_joint_position"] = f32(observation.target_joint_position_rad)
-        wrench = observation.wrist_wrench
-        identity = None if wrench is None else (
-            wrench.sensor_name, wrench.site_name, wrench.parent_body, wrench.child_body,
-            wrench.frame, wrench.sign_convention, wrench.measurement, wrench.sample_phase)
-        if self.frames and identity != self.wrench_identity:
+            frame["observation.raw_joint_position"] = f32(raw)
+            frame["observation.raw_target_joint_position"] = f32(targets)
+        wrench = None if dual else observation.wrist_wrench
+        identities = {}
+        for side, arm in arms.items():
+            reading = arm.wrist_wrench
+            identities[side] = None if reading is None else (
+                reading.sensor_name, reading.site_name, reading.parent_body, reading.child_body,
+                reading.frame, reading.sign_convention, reading.measurement, reading.sample_phase)
+            if reading is not None:
+                prefix = 'observation.' + (side + '.' if side else '')
+                frame[prefix+"wrist_wrench_valid"] = np.array([int(reading.valid)], dtype=np.int64)
+                frame[prefix+"wrist_wrench"] = f32(reading.force_n + reading.torque_nm)
+                frame[prefix+"wrist_wrench_sample_time_ns"] = np.array([int(reading.sample_time_ns)], dtype=np.int64)
+                frame[prefix+"wrist_wrench_interval_end_time_ns"] = np.array([int(reading.interval_end_time_ns)], dtype=np.int64)
+        if self.frames and identities != self.wrench_identity:
             raise ValueError("wrist sensor availability or frame changed within an episode")
-        self.wrench_identity = identity
-        if wrench is not None:
-            frame["observation.wrist_wrench_valid"] = np.array([int(wrench.valid)], dtype=np.int64)
-            frame["observation.wrist_wrench"] = f32(wrench.force_n + wrench.torque_nm)
-            frame["observation.wrist_wrench_sample_time_ns"] = np.array([int(wrench.sample_time_ns)], dtype=np.int64)
-            frame["observation.wrist_wrench_interval_end_time_ns"] = np.array([int(wrench.interval_end_time_ns)], dtype=np.int64)
+        self.wrench_identity = identities
         for camera in self.cameras:
             meta, products = captures[camera]
             if set(self.products) - products.keys():
@@ -140,22 +152,29 @@ class LiveLeRobotWriter:
                 else:
                     dtype = "video" if name.startswith("observation.images.") else str(value.dtype)
                     features[name] = {"dtype": dtype, "shape": value.shape, "names": None}
-            n = len(observation.joint_position_rad)
-            names = [f"joint_{i + 1}_rad" for i in range(6)] + (["finger_1_m", "finger_2_m"] if n == 8 else [])
-            if profile is not None:
-                raw_names = [f"joint_{i+1}_rad" for i in range(6)] + ["ee_link11_joint_rad", "ee_link12_joint_rad"]
-                names = [f"joint_{i+1}_rad" for i in range(6)] + ["gripper_opening_normalized"]
+            names, raw_names, pose_names = [], [], []
+            for side, arm in arms.items():
+                prefix = side+'_' if side else ''
+                joint_names = [prefix+f"joint_{i+1}_rad" for i in range(6)]
+                if profile:
+                    names.extend(joint_names+[prefix+"gripper_opening_normalized"])
+                    raw_names.extend(joint_names+[prefix+"ee_link11_joint_rad",prefix+"ee_link12_joint_rad"])
+                else:
+                    names.extend(joint_names+(["finger_1_m","finger_2_m"] if len(arm.joint_position_rad)==8 else []))
+                pose_names.extend(prefix+name for name in ["x_m","y_m","z_m","qw","qx","qy","qz"])
+                if arm.wrist_wrench:
+                    key='observation.'+(side+'.' if side else '')+'wrist_wrench'
+                    features[key]['names']=["Fx_N","Fy_N","Fz_N","Tx_Nm","Ty_Nm","Tz_Nm"]
+            if profile:
                 for key in ("observation.raw_joint_position", "observation.raw_target_joint_position"):
                     features[key]["names"] = raw_names
-                features["observation.joint_velocity"]["names"] = [name + "_s" for name in raw_names]
+                features["observation.joint_velocity"]["names"] = [name+"_s" for name in raw_names]
             features["observation.state"]["names"] = names
             features["action"]["names"] = names
-            if wrench is not None:
-                features["observation.wrist_wrench"]["names"] = ["Fx_N", "Fy_N", "Fz_N", "Tx_Nm", "Ty_Nm", "Tz_Nm"]
-            features["observation.end_effector_pose_body"]["names"] = ["x_m", "y_m", "z_m", "qw", "qx", "qy", "qz"]
+            features["observation.end_effector_pose_body"]["names"] = pose_names
             self.dataset = self.dataset_class.create(
                 repo_id=f"local/{self.root.parent.name}", root=self.root,
-                robot_type="sarm", fps=self.fps, features=features,
+                robot_type="sarm_dual" if dual else "sarm", fps=self.fps, features=features,
                 use_videos=bool(self.cameras), video_backend="pyav", vcodec=self.video_encoding.codec,
                 image_writer_threads=self.video_encoding.image_writer_threads,
                 encoder_threads=self.video_encoding.encoder_threads,
@@ -194,7 +213,21 @@ class LiveLeRobotWriter:
                 "sidecars": {"context": "auxiliary/context", "cameras": "auxiliary/cameras"} if self.sidecars else {},
                 "request": self.request.model_dump(mode="json"),
             }, ensure_ascii=False, indent=2), encoding="utf-8")
-        self.wrench_stream.append(observation)
+            if dual:
+                path=self.root / "meta/platform.json"
+                metadata=json.loads(path.read_text())
+                metadata.update(schema='space-arm-dual-lerobot/1', arm_order=['left','right'],
+                    tool_site={'left':'left_sarm_ee','right':'right_sarm_ee'},
+                    action_semantics='left six held joint servo targets in radians plus normalized opening, then right; same physics time',
+                    state_semantics='left six measured joint angles in radians plus normalized opening, then right; same physics time',
+                    wrist_wrench={side:arm.wrist_wrench.model_dump(exclude={'force_n','torque_nm','sample_time_ns','interval_end_time_ns','valid'}) for side,arm in arms.items()})
+                path.write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
+                self.arm_wrench_streams={side:WrenchStreamWriter(self.root,compact=self.sidecars is not None,stream_name=side+'_wrist_wrench') for side in arms}
+        if dual:
+            for side,arm in arms.items():
+                self.arm_wrench_streams[side].append(arm,sim_time_ns=observation.sim_time_ns)
+        else:
+            self.wrench_stream.append(observation)
         self.dataset.add_frame(frame)
         if self.sidecars:
             self.sidecars.append(observation, captures, frame)
@@ -211,19 +244,17 @@ class LiveLeRobotWriter:
             return
         try:
             self.wrench_stream.finish()
+            for stream in getattr(self, "arm_wrench_streams", {}).values():
+                stream.finish()
             if self.sidecars:
                 self.sidecars.finish()
             # LeRobot describes shape-(1,) features as scalar Hugging Face Values.
             # Its frame validator requires the arrays, but save_episode stacks
             # them into (frames, 1), which NumPy 2 cannot encode as scalars.
-            for key in (
-                "observation.sim_time_ns",
-                "observation.source_frame_id",
-                "observation.applied_action_sequence",
-                "observation.wrist_wrench_valid",
-                "observation.wrist_wrench_sample_time_ns",
-                "observation.wrist_wrench_interval_end_time_ns",
-            ):
+            scalar_keys = ['observation.sim_time_ns', 'observation.source_frame_id', 'observation.applied_action_sequence']
+            for prefix in ('observation.', 'observation.left.', 'observation.right.'):
+                scalar_keys.extend(prefix+name for name in ('wrist_wrench_valid','wrist_wrench_sample_time_ns','wrist_wrench_interval_end_time_ns'))
+            for key in scalar_keys:
                 if key not in self.dataset.episode_buffer:
                     continue
                 self.dataset.episode_buffer[key] = [
@@ -240,7 +271,9 @@ class LiveLeRobotWriter:
             encoder = getattr(self.dataset, "_streaming_encoder", None)
             if getattr(encoder, "episode_metrics", None) is not None:
                 metadata["video_encoding_metrics"] = encoder.episode_metrics
-            metadata["high_frequency_wrist_wrench"] = self.wrench_stream.metadata()
+            metadata["high_frequency_wrist_wrench"] = (
+                {side:stream.metadata() for side,stream in self.arm_wrench_streams.items()}
+                if getattr(self,"arm_wrench_streams",{}) else self.wrench_stream.metadata())
             metadata["episode_result"] = {"outcome": outcome, "note": note}
             path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         finally:
@@ -250,6 +283,8 @@ class LiveLeRobotWriter:
     def close_failed(self) -> None:
         if self.dataset is not None:
             self.wrench_stream.finish()
+            for stream in getattr(self, "arm_wrench_streams", {}).values():
+                stream.finish()
             if self.sidecars:
                 self.sidecars.finish()
             self.dataset.finalize()

@@ -121,28 +121,14 @@ def validate_selection(name, model, scene):
     return record
 
 
-def select_grasp(probe, model, scene, name):
-    """Private native geometry only. No state is imposed on the actual simulation."""
-    from .floating_capture import FloatingCaptureTask, floating_controller_config
-    from .randomization import generator
-    cfg = scene["collection_config"]
-    if "floating_grasp" in cfg:
-        record = validate_selection(name, model, scene)
-        return dict(accepted=True, selected=record["candidate"]["id"], replay=True)
-    options, candidates = requested_candidates(name, scene)
-    task = FloatingCaptureTask(model, floating_controller_config(name, scene))
-    state = cfg["floating_initial_state"]
-    initial = np.asarray(scene["randomization"]["arm_joint_position_rad"])
-    position = np.asarray(state["position_body_m"])
-    rotation = quaternion_wxyz_to_matrix(np.asarray(state["orientation_wxyz"]))
-    instances = cfg["floating_objects"]["instances"]
+def evaluate_grasps(probe, task, initial, position, rotation, instances, overrides, candidates):
+    """Shared geometric selection for one arm/target in a complete native scene."""
+    name = task.name
     moving = tuple(i["instance_id"] for i in instances)
-    target_joint = next(i["free_joint"] for i in instances if i["is_target"])
-    target = scene["randomization"]
-    overrides = {"capture_target_free": [*target["target_position_m"], *target["target_orientation_wxyz"]]}
+    target_joint = next(i["free_joint"] for i in instances if i["instance_id"] == task.asset.body)
     results, feasible = [], []
     if np.any(initial[:6] < task.lower) or np.any(initial[:6] > task.upper):
-        return dict(accepted=False, reason="joint_limit")
+        return [], dict(accepted=False, reason="joint_limit")
     def collision(q, *, carry=None, allow=False):
         joints = dict(overrides)
         if carry is not None:
@@ -152,7 +138,7 @@ def select_grasp(probe, model, scene, name):
     for opening in np.linspace(0., 1., 21):
         hit = collision(np.r_[initial[:6], opening, -opening])
         if hit:
-            return dict(accepted=False, reason="initial_collision", contact=hit)
+            return [], dict(accepted=False, reason="initial_collision", contact=hit)
     for candidate in candidates:
         row = dict(id=candidate.id, accepted=False)
         results.append(row)
@@ -206,7 +192,7 @@ def select_grasp(probe, model, scene, name):
             for _, _, first, second, distance in probe.contacts(np.r_[goal, closing, -closing]):
                 names = {probe.names[int(first)], probe.names[int(second)]}
                 if task.asset.body in names and distance <= 0:
-                    for finger in names.intersection({"ee_finger1", "ee_finger2"}):
+                    for finger in names.intersection(task.arm.finger_bodies):
                         first_contacts.setdefault(finger, float(closing))
                         max_penetration = max(max_penetration, -float(distance))
         row.update(first_contact_openings=first_contacts, max_finger_penetration_m=max_penetration)
@@ -246,18 +232,43 @@ def select_grasp(probe, model, scene, name):
             row["reason"] = "retract_joint_margin"; continue
         score = carry_margin - .05*float(np.linalg.norm(pre-initial[:6])) - 200.*max_penetration
         row.update(accepted=True, score=score, joint_margin_rad=carry_margin, contact_opening_rad=opening)
-        feasible.append((candidate, row, goal, pre))
+        feasible.append((candidate, row, goal, pre, carry_q))
     if not feasible:
-        return dict(accepted=False, reason="no_feasible_grasp", candidates=results)
+        return [], dict(accepted=False, reason="no_feasible_grasp", candidates=results)
+    return feasible, dict(accepted=True, candidates=results)
+
+
+def select_grasp(probe, model, scene, name):
+    """Private native geometry only. No state is imposed on the actual simulation."""
+    from .floating_capture import FloatingCaptureTask, floating_controller_config
+    from .randomization import generator
+    cfg = scene["collection_config"]
+    if "floating_grasp" in cfg:
+        record = validate_selection(name, model, scene)
+        return dict(accepted=True, selected=record["candidate"]["id"], replay=True)
+    options, candidates = requested_candidates(name, scene)
+    task = FloatingCaptureTask(model, floating_controller_config(name, scene))
+    state = cfg["floating_initial_state"]
+    initial = np.asarray(scene["randomization"]["arm_joint_position_rad"])
+    position = np.asarray(state["position_body_m"])
+    rotation = quaternion_wxyz_to_matrix(np.asarray(state["orientation_wxyz"]))
+    instances = cfg["floating_objects"]["instances"]
+    target = scene["randomization"]
+    overrides = {"capture_target_free": [*target["target_position_m"], *target["target_orientation_wxyz"]]}
+    feasible, report = evaluate_grasps(probe, task, initial, position, rotation, instances, overrides, candidates)
+    if not feasible:
+        return report
+    results = report["candidates"]
     if options.selection == "random":
         chosen = feasible[int(generator(scene["seed"], "floating-grasp-v1").integers(len(feasible)))]
     else:
         chosen = max(feasible, key=lambda item: (not item[1]["contact_asymmetry_warning"],
                                                 item[0].id == "baseline", item[1]["score"]))
-    candidate, row, goal, pre = chosen
+    candidate, row, goal, pre, carry_q = chosen
     record = dict(schema="floating-grasp/1", context_sha256=_digest(_context(name, model, scene)),
                   options=options.model_dump(mode="json"), candidate=candidate.snapshot(),
                   grasp_joint_position_rad=goal.tolist(), pregrasp_joint_position_rad=pre.tolist(),
+                  retract_joint_position_rad=carry_q.tolist(),
                   candidates=results, collision_scope="finite static approach and fixed-relative-pose carry; dynamic retention checked at runtime")
     record["sha256"] = _digest(record)
     cfg["floating_grasp"] = record

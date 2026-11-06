@@ -1,0 +1,13 @@
+[
+  {
+    "geometry_id": "teleop/cubesat_bus/visual/mli",
+    "shape": "mesh",
+    "dimensions_m": [1, 1, 1],
+    "position_body_m": [-0.4, -0.53, 0],
+    "asset_type": "static_mesh",
+    "asset_path": "/Game/Generated/DualServiceMLI/SM_DualServiceMLI.SM_DualServiceMLI",
+    "scale": [2, 2, 2],
+    "use_asset_materials": true,
+    "render_role": "visual"
+  }
+]

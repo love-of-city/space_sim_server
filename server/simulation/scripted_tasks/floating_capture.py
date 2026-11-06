@@ -61,24 +61,26 @@ class FloatingCaptureTask:
     version = "floating-capture/8"
     stages = ("open", "pregrasp", "intercept", "grip", "hold", "retract", "settle")
 
-    def __init__(self, model_path, config=None):
+    def __init__(self, model_path, config=None, *, arm=None, target_asset=None):
+        from simulation.sarm_model_profile import SINGLE_ARM
+        self.arm = arm or SINGLE_ARM
         self.model_path = Path(model_path)
         self.config = config or FloatingCaptureConfig()
         self.name = self.config.task
-        self.asset = FLOATING_TASKS[self.name]
+        self.asset = target_asset or FLOATING_TASKS[self.name]
         from .floating_grasps import grasp_candidates
         self.grasp = grasp_candidates(self.name)[0]
         self.object_instances = []
         self.chain = SerialChainKinematics.from_mjcf(
             self.model_path, base_body="cubesat_bus",
-            joint_names=tuple(f"joint{i}" for i in range(1, 7)), tool_site="sarm_ee")
+            joint_names=self.arm.joint_names[:6], tool_site=self.arm.tool_site)
         root = ET.parse(model_path).getroot()
         body = root.find(f'./worldbody/body[@name="{self.asset.body}"]')
         if body is None or (body.find("freejoint") is None and body.find('joint[@type="free"]') is None):
             raise ValueError("Floating target must be an independent free body")
         self.lower, self.upper = np.array([
-            np.fromstring(root.find(f'.//joint[@name="joint{i}"]').get("range"), sep=" ")
-            for i in range(1, 7)]).T
+            np.fromstring(root.find(f'.//joint[@name="{name}"]').get("range"), sep=" ")
+            for name in self.arm.joint_names[:6]]).T
         self.stage, self.result, self.reason = "pending", None, ""
         self.reference, self.velocity = np.zeros(8), np.zeros(8)
         self.events = []
@@ -92,6 +94,8 @@ class FloatingCaptureTask:
         self._contact_loss = 0.
         self._hold_completed = 0.
         self._retract_start = self._retract_rotation = None
+        self.completion_ready = False
+        self._park_last_time = None
 
     def grasp_pose(self, sample):
         rotation = sample.plug_rotation_body
@@ -219,20 +223,7 @@ class FloatingCaptureTask:
         if self._hold_joints is not None:
             self._hold_opening = float(self.reference[6])
 
-    def step(self, sample):
-        if not math.isfinite(sample.time_s) or (self._last_time is not None and sample.time_s < self._last_time):
-            raise ValueError("Task time must be finite and monotonic")
-        dt = 0. if self._last_time is None else sample.time_s-self._last_time
-        invalid_timing = (self._last_time is not None
-                          and (dt <= 0. or dt > 1./SCRIPTED_TASK_HZ + 1e-9))
-        self._last_time = sample.time_s
-        if self.result is not None:
-            return self.reference.copy(), np.zeros(8)
-        if invalid_timing:
-            # Wall-clock backpressure pauses simulation time. Missing physics
-            # observations must never count toward an uninterrupted grasp.
-            self.fail("invalid_observation_timing", sample)
-            return self.reference.copy(), np.zeros(8)
+    def check_safety(self, sample, dt, *, enforce_timeout=True):
         contacts = np.asarray(sample.finger_plug_contacts)
         forces = np.asarray(sample.finger_normal_force_n)
         if (contacts.shape != (2,) or forces.shape != (2,)
@@ -240,8 +231,7 @@ class FloatingCaptureTask:
                 or np.any(contacts < 0) or np.any(contacts != np.floor(contacts))
                 or np.any(forces < 0)):
             self.fail("invalid_contact_observation", sample)
-            return self.reference.copy(), np.zeros(8)
-        old = self.reference.copy()
+            return
         force, torque = np.linalg.norm(sample.wrench[:3]), np.linalg.norm(sample.wrench[3:])
         self.max_force_n, self.max_torque_nm = max(self.max_force_n, float(force)), max(self.max_torque_nm, float(torque))
         self._overload = self._overload+dt if force > self.config.force_limit_n or torque > self.config.torque_limit_nm else 0.
@@ -258,8 +248,36 @@ class FloatingCaptureTask:
             self.fail("non_target_contact", sample)
         elif getattr(sample, "unexpected_contacts", []):
             self.fail("unexpected_collision", sample)
-        elif sample.time_s > self.config.timeout_s:
+        elif enforce_timeout and sample.time_s > self.config.timeout_s:
             self.fail("interception_timeout", sample)
+
+    def check_parked(self, sample):
+        previous = self._park_last_time
+        dt = 0. if previous is None else sample.time_s-previous
+        self._park_last_time = sample.time_s
+        if not math.isfinite(sample.time_s) or (previous is not None and not 0 < dt <= .005000001):
+            self.fail("invalid_observation_timing", sample)
+            return
+        self.check_safety(sample, dt, enforce_timeout=False)
+
+    def step(self, sample, *, complete=True, continue_holding=False):
+        if continue_holding and (self.stage != "settle" or self.result is not None):
+            raise ValueError("Continuous holding requires an active settled grasp")
+        if not math.isfinite(sample.time_s) or (self._last_time is not None and sample.time_s < self._last_time):
+            raise ValueError("Task time must be finite and monotonic")
+        dt = 0. if self._last_time is None else sample.time_s-self._last_time
+        invalid_timing = (self._last_time is not None
+                          and (dt <= 0. or dt > 1./SCRIPTED_TASK_HZ + 1e-9))
+        self._last_time = sample.time_s
+        if self.result is not None:
+            return self.reference.copy(), np.zeros(8)
+        if invalid_timing:
+            # Wall-clock backpressure pauses simulation time. Missing physics
+            # observations must never count toward an uninterrupted grasp.
+            self.fail("invalid_observation_timing", sample)
+            return self.reference.copy(), np.zeros(8)
+        old = self.reference.copy()
+        self.check_safety(sample, dt, enforce_timeout=not continue_holding)
         if self.result is not None:
             return self.reference.copy(), np.zeros(8)
         if self.stage == "pending":
@@ -344,8 +362,10 @@ class FloatingCaptureTask:
                         if np.linalg.norm(np.asarray(m["measured_tool_position_body_m"])-self._retract_start) < .05:
                             self.fail("retraction_distance_too_short", sample)
                         else:
-                            self.result, self.reason = "success", "retained_object_retracted_and_settled"
-                            self.events.append(dict(stage="success", sim_time_s=float(sample.time_s)))
+                            self.completion_ready = True
+                            if complete:
+                                self.result, self.reason = "success", "retained_object_retracted_and_settled"
+                                self.events.append(dict(stage="success", sim_time_s=float(sample.time_s)))
         self.velocity[:] = (self.reference-old)/dt if dt > 0 else 0.
         return self.reference.copy(), self.velocity.copy()
 

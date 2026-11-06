@@ -61,6 +61,7 @@ from simulation.scripted_tasks.threaded_tasks import (
 )
 
 from simulation.scripted_tasks.floating_assets import FLOATING_TASKS
+from simulation.scripted_tasks.dual_floating_model import DUAL_TASK
 
 from space_arm_platform.collection_cameras import camera_ids, freeze_camera_profile
 
@@ -177,7 +178,8 @@ def task_recording_settings(settings, task_name, max_sim_seconds):
 
 def scene_copy(source, task="drawer_lift"):
     scene = json.loads(source.read_text(encoding="utf-8-sig"))
-    if scene.get("template_id") != "sarm-task-box-20261012":
+    expected_template = "dual-service-v2-floating" if task == DUAL_TASK else "sarm-task-box-20261012"
+    if scene.get("template_id") != expected_template:
         raise ValueError("Scripted task requires the SARM 2026-10-12 scene")
     runtime = scene.get("runtime", {})
     if scene.get("arm_preparation_required"):
@@ -201,7 +203,7 @@ def scene_copy(source, task="drawer_lift"):
 
 def task_target_site(task, requested=None):
     """Resolve the physical target used by both the controller and metadata."""
-    if task in FLOATING_TASKS:
+    if task in FLOATING_TASKS or task == DUAL_TASK:
         if requested is not None:
             raise ValueError("Floating capture uses the part's moving grasp point; target_site must be omitted")
         return None
@@ -222,6 +224,11 @@ def task_target_site(task, requested=None):
 def task_instruction(scene, task, target_site):
     """Return the instruction realized by this episode's appearance config."""
     cfg = scene.get("collection_config") or {}
+    if task == DUAL_TASK:
+        objects={obj['arm']:obj for obj in cfg['dual_floating']['instances']}
+        descriptions={side:f"{obj['color']} {FLOATING_TASKS[obj['type_task']].instruction_name}" for side,obj in objects.items()}
+        return (f"With the left hand, catch the {descriptions['left']}, hold it securely for two seconds, then bring it back above the workbench. "
+                f"Keep holding it while the right hand catches the {descriptions['right']}, holds it securely for two seconds, and brings it back above the workbench.")
     if task in FLOATING_TASKS:
         object_description = FLOATING_TASKS[task].instruction_name
         color = (cfg.get("floating_target_variation") or {}).get("color")
@@ -383,7 +390,8 @@ async def run(args):
     if frame_limit_override:
         collection_config["recording_frame_limit_override"] = frame_limit_override
     from space_arm_platform.overview_camera import validate_overview_camera
-    validate_overview_camera(scene)
+    if args.task != DUAL_TASK:
+        validate_overview_camera(scene)
     project = args.adapter / "Unreal/BskUnrealRenderer"
     editor = unreal_editor(args.unreal)
     catalog = (getattr(args, "catalog", None) or project / "Saved/AssetImport/sarm_20261012.catalog.json").resolve()
@@ -404,23 +412,32 @@ async def run(args):
         check_port_available(port)
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
-    prepare_episode(scene)
     source_model = (getattr(args, "model", None) or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
-    if getattr(args, "model", None) is not None:
-        from simulation.task_box_layout import validated_capture_layout
-        placement = validated_capture_layout(source_model, catalog)
-        scene["task_box_layout"] = placement
-        selected = scene.get("collection_config", {}).get("layout_randomization")
-        if selected and selected.get("enabled"):
-            from space_arm_platform.collection_layouts import digest
-            if (digest(source_model) != selected["model_sha256"]
-                    or digest(catalog) != selected["catalog_sha256"]):
-                raise ValueError("Selected collection layout model/catalog changed before recording")
-    prepared_model = write_model_variant(source_model, out / "model.xml", scene)
-    if args.task in FLOATING_TASKS:
-        from simulation.scripted_tasks.floating_grasps import prepare_floating_grasp
-        prepare_floating_grasp(prepared_model, scene, args.task)
+    if args.task == DUAL_TASK:
+        from simulation.scripted_tasks.dual_floating_grasps import validate_dual_selection
+        validate_dual_selection(source_model,scene)
+        prepared_model=source_model
+        catalog_record=json.loads(catalog.read_text())
+        if catalog_record.get('dual_model_sha256')!=scene['collection_config']['dual_floating']['base_sha256']:
+            raise ValueError('Dual catalog does not match the prepared robot')
+    else:
+        from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
+        prepare_episode(scene)
+        source_model = (getattr(args, "model", None) or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
+        if getattr(args, "model", None) is not None:
+            from simulation.task_box_layout import validated_capture_layout
+            placement = validated_capture_layout(source_model, catalog)
+            scene["task_box_layout"] = placement
+            selected = scene.get("collection_config", {}).get("layout_randomization")
+            if selected and selected.get("enabled"):
+                from space_arm_platform.collection_layouts import digest
+                if (digest(source_model) != selected["model_sha256"]
+                        or digest(catalog) != selected["catalog_sha256"]):
+                    raise ValueError("Selected collection layout model/catalog changed before recording")
+        prepared_model = write_model_variant(source_model, out / "model.xml", scene)
+        if args.task in FLOATING_TASKS:
+            from simulation.scripted_tasks.floating_grasps import prepare_floating_grasp
+            prepare_floating_grasp(prepared_model, scene, args.task)
     validate_color_instruction(scene)
     instruction = task_instruction(scene, args.task, args.target_site)
     scripted_metadata = task_metadata(scene, args.task, args.target_site, instruction)
@@ -741,7 +758,7 @@ def main(default_task="drawer_cycle"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS],
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS, DUAL_TASK],
         default=default_task,
     )
     parser.add_argument("--target-site", default=None)

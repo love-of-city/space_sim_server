@@ -291,11 +291,15 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
     policy_watchdog_task: asyncio.Task | None = None
 
     async def record_observation(observation: SimulationObservation) -> None:
-        policy_cache.record_observation(observation)
+        dual = getattr(observation, "observation_layout", None) == "dual-arm/1"
+        if not dual:
+            policy_cache.record_observation(observation)
         safety.gripper_type = observation.gripper_type
         await asyncio.to_thread(recorder.record_observation, observation, safety.last_action)
         if hub.capture_pair_ack_supported:
             await asyncio.to_thread(recorder.wait_for_capture_pair, observation)
+        if dual:
+            return
         try:
             await asyncio.to_thread(policy_cache.wait_for_pair, observation)
         except RuntimeError as error:

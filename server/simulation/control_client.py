@@ -17,11 +17,14 @@ class SimulationControlClient:
 
     def __init__(self, host: str, port: int, simulation_id: str, *,
                  max_pending_observations: int = 128, observation_timeout_s: float = 30., policy_timeout_s: float = 30.,
-                 policy_runtime: bool = False, allow_scene_reset: bool = True) -> None:
+                 policy_runtime: bool = False, allow_scene_reset: bool = True, recording_only: bool = False) -> None:
         self.host = host
         self.port = int(port)
         self.simulation_id = simulation_id
         self.allow_scene_reset = allow_scene_reset
+        self.recording_only = recording_only
+        if recording_only and (policy_runtime or allow_scene_reset):
+            raise ValueError("Recording-only peer cannot advertise policy or scene reset")
         self._lock = threading.RLock()
         self._send_lock = threading.Lock()
         self._action: dict[str, Any] = self._neutral_action()
@@ -253,6 +256,8 @@ class SimulationControlClient:
                                  "joint_observation", "cartesian_observation", "sarm_si_joint_observation",
                                  "reaction_wheel_attitude_control"] + (["scene_reset"] if self.allow_scene_reset else [])
                                  + (["joint_policy_v1"] if self.policy.enabled else [])}
+                    if self.recording_only:
+                        hello['capabilities'] = ['reliable_observations_v1', 'capture_on_demand_v1', 'capture_pair_ack_v1', 'dual_arm_observation_v1']
                     self._socket = connection
                 connection.sendall(encode_packet(hello))
                 handshake_deadline = time.monotonic() + 3.

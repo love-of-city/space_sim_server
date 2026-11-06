@@ -42,7 +42,7 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
     from simulation.scripted_tasks.drawer_lift import DrawerLiftConfig
     from simulation.scripted_tasks import native_state
     from bsk_render_adapter import mjcf_assets
-    from bsk_render_adapter.bridge import _mj_mesh_geometry
+    from bsk_render_adapter.scene_description import mesh_geometry
     from simulation.socket_colors import COLOR_PALETTE
 
     model = layout_model(tmp_path)
@@ -131,7 +131,7 @@ def test_run_passes_realized_model_to_capture_and_preserves_catalog_identity(tmp
         hole = metadata.body_name.removeprefix('layout_')
         if not metadata.mesh_name or hole not in colors['hole_colors']:
             continue
-        geometry = _mj_mesh_geometry(SimpleNamespace(rgba=[.3, .3, .3, 1]),
+        geometry = mesh_geometry(SimpleNamespace(rgba=[.3, .3, .3, 1]),
             f'teleop/{metadata.body_name}/geom/{index}', metadata, catalog, {})
         assert geometry.asset_path == catalog_asset
         assert geometry.geometry_id == f'teleop/{old[index].body_name}/geom/{index}'

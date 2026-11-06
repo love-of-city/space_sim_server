@@ -4,6 +4,7 @@ Preserves native sample clocks; never interpolates sensor samples for export.
 """
 
 from collections import OrderedDict
+from copy import deepcopy
 import json
 import math
 from pathlib import Path
@@ -253,9 +254,7 @@ class Store:
             source_files += sorted((path / "lerobot/high_frequency").rglob("*.parquet"))
         else:
             source_files += [path / "steps.jsonl"]
-            high_file = path / "lerobot/high_frequency/wrist_wrench.jsonl"
-            if high_file.is_file():
-                source_files.append(high_file)
+            source_files += sorted((path / "lerobot/high_frequency").glob("*.jsonl"))
         if any(not file.resolve().is_relative_to(path) for file in source_files):
             raise ValueError("Dataset source path escapes episode")
         signature = (key, tuple((str(file), file.stat().st_mtime_ns, file.stat().st_size)
@@ -264,7 +263,18 @@ class Store:
             if signature in self.cache:
                 return self.cache[signature]
         meta = self.metadata(path)
+        dual=meta.get('scene_instance',{}).get('collection_camera_profile')=='dual-arm-three-view-v1'
         groups = specs()
+        if dual:
+            arm_groups=[g for g in groups if g['id'] in ('joints','velocity','force','torque','gripper_opening','position')]
+            groups=[]
+            for side,label in [('left','左臂'),('right','右臂')]:
+                for original in arm_groups:
+                    group=deepcopy(original);group['id']=side+'_'+group['id'];group['title']=label+' · '+group['title']
+                    for series in group['series']:
+                        series['id']=side+'_'+series['id'];series['path']=['arms',side,*series['path']]
+                        if series['target']:series['target']=['arms',side,*series['target']]
+                    groups.append(group)
         flat = [s for g in groups for s in g["series"]]
         values = {s["id"]: [] for s in flat}
         targets = {s["id"]: [] for s in flat if s["target"]}
@@ -285,10 +295,13 @@ class Store:
             frames.append(str(obs.get("render_frame_id", "")))
             stages.append((obs.get("scripted_task") or {}).get("stage", ""))
             valid = (obs.get("wrist_wrench") or {}).get("valid") is True
+            if dual:
+                valid=all(arm["wrist_wrench"]["valid"] for arm in obs["arms"].values())
             valid_wrench.append(valid)
             for s in flat:
                 value = get_path(obs, s["path"])
-                if s["path"][0] == "wrist_wrench" and not valid:
+                sensor_valid=(obs['arms'][s['path'][1]]['wrist_wrench']['valid'] if dual else valid)
+                if 'wrist_wrench' in s['path'] and not sensor_valid:
                     value = None
                 values[s["id"]].append(
                     value * s["scale"] if value is not None else None
@@ -307,41 +320,44 @@ class Store:
                 s["available"] = any(v is not None for v in s["values"])
                 del s["path"], s["target"], s["scale"]
         # Auxiliary sensor stream has its own clock; never upsample RGB values.
-        high_rows = list(read_wrench(path))
-        if high_rows:
-            high_times = [(int(row["sim_time_ns"]) - start) / 1e9 for row in high_rows]
-            if any(
-                abs(b - a - 0.005) > 1e-8 for a, b in zip(high_times, high_times[1:])
-            ):
-                raise ValueError("200 Hz 六维力数据存在缺失或重复采样")
-            for group_key, title, field, unit in (
-                ("force_200hz", "六维力 · 200 Hz 原始力", "force_n", "N"),
-                ("torque_200hz", "六维力 · 200 Hz 原始力矩", "torque_nm", "N·m"),
-            ):
-                groups.append(
-                    dict(
-                        id=group_key,
-                        title=title,
-                        unit=unit,
-                        angle=False,
-                        times=high_times,
-                        sample_rate_hz=200,
-                        series=[
-                            dict(
-                                id=group_key + axis,
-                                label=axis.upper(),
-                                color=["#64d9c4", "#6eb5ff", "#e7ad6b"][i],
-                                values=[
-                                    row[field][i] if row["valid"] else None
-                                    for row in high_rows
-                                ],
-                                targetValues=None,
-                                available=bool(high_rows),
-                            )
-                            for i, axis in enumerate("xyz")
-                        ],
+        high_count=0
+        for side in (("left","right") if dual else (None,)):
+            high_rows = list(read_wrench(path,side))
+            high_count+=len(high_rows)
+            if high_rows:
+                high_times = [(int(row["sim_time_ns"]) - start) / 1e9 for row in high_rows]
+                if any(
+                    abs(b - a - 0.005) > 1e-8 for a, b in zip(high_times, high_times[1:])
+                ):
+                    raise ValueError("200 Hz 六维力数据存在缺失或重复采样")
+                for group_key, title, field, unit in (
+                    ("force_200hz", "六维力 · 200 Hz 原始力", "force_n", "N"),
+                    ("torque_200hz", "六维力 · 200 Hz 原始力矩", "torque_nm", "N·m"),
+                ):
+                    groups.append(
+                        dict(
+                            id=(side+"_" if side else "")+group_key,
+                            title=({"left":"左臂 · ","right":"右臂 · "}.get(side,""))+title,
+                            unit=unit,
+                            angle=False,
+                            times=high_times,
+                            sample_rate_hz=200,
+                            series=[
+                                dict(
+                                    id=(side+"_" if side else "")+group_key + axis,
+                                    label=axis.upper(),
+                                    color=["#64d9c4", "#6eb5ff", "#e7ad6b"][i],
+                                    values=[
+                                        row[field][i] if row["valid"] else None
+                                        for row in high_rows
+                                    ],
+                                    targetValues=None,
+                                    available=bool(high_rows),
+                                )
+                                for i, axis in enumerate("xyz")
+                            ],
+                        )
                     )
-                )
         videos = []
         video_root = path / "lerobot/videos"
         if video_root.is_dir():

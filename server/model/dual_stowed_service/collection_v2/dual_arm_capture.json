@@ -1,0 +1,98 @@
+{
+  "schema": "dual-arm-collection-model/1",
+  "source_commit": "afaf8a14de98c1be7044751bfa59a08de938c02e",
+  "source_sha256": "f8975c294faaac678ae9e3d76fbaa8f8be55912fa55f9ed8001fe48bed4f5096",
+  "model_sha256": "f618c2ecef6a152eb939a5b7cb46f75b1e7c21881d2275bf4ff88facc8a8a647",
+  "arm_order": [
+    "left",
+    "right"
+  ],
+  "left_body_axis": "-X",
+  "right_body_axis": "+X",
+  "side_definition": "fixed overview camera facing the workbench",
+  "workspace_joint_positions": {
+    "cubesat_free": [
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "right_joint1": [
+      -0.4027840690300813
+    ],
+    "right_joint2": [
+      -1.4040598152063528
+    ],
+    "right_joint3": [
+      -1.1317279779728182
+    ],
+    "right_joint4": [
+      -0.6058060323857999
+    ],
+    "right_joint5": [
+      1.5708011599915355
+    ],
+    "right_joint6": [
+      2.09117809957058e-05
+    ],
+    "right_ee_link11_joint": [
+      0.0
+    ],
+    "right_ee_link21_joint": [
+      0.0
+    ],
+    "right_ee_finger1_joint": [
+      0.0
+    ],
+    "right_ee_link12_joint": [
+      0.0
+    ],
+    "right_ee_link22_joint": [
+      0.0
+    ],
+    "right_ee_finger2_joint": [
+      0.0
+    ],
+    "left_joint1": [
+      0.40278367250052527
+    ],
+    "left_joint2": [
+      -1.7375327416861075
+    ],
+    "left_joint3": [
+      1.131727856836183
+    ],
+    "left_joint4": [
+      0.6058134030309299
+    ],
+    "left_joint5": [
+      -1.5707987470041693
+    ],
+    "left_joint6": [
+      -3.1506627068605747e-06
+    ],
+    "left_ee_link11_joint": [
+      0.0
+    ],
+    "left_ee_link21_joint": [
+      0.0
+    ],
+    "left_ee_finger1_joint": [
+      0.0
+    ],
+    "left_ee_link12_joint": [
+      0.0
+    ],
+    "left_ee_link22_joint": [
+      0.0
+    ],
+    "left_ee_finger2_joint": [
+      0.0
+    ]
+  },
+  "base_mass_kg": 1440.0,
+  "attitude_control": "passive free spacecraft; source model has no reaction wheels"
+}

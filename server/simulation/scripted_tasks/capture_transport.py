@@ -32,7 +32,8 @@ class ScriptedCaptureTransport:
         from simulation.components.observation import ObservationComponent
         from space_arm_platform.overview_camera import validate_overview_camera
 
-        overview_camera = validate_overview_camera(scene_instance)
+        dual = scene_instance.get('collection_camera_profile') == 'dual-arm-three-view-v1'
+        overview_camera = None if dual else validate_overview_camera(scene_instance)
         from space_arm_platform.collection_cameras import camera_profile
         cameras = camera_profile(scene_instance)
 
@@ -49,7 +50,8 @@ class ScriptedCaptureTransport:
         self.task_start_ns = None
         self.task_elapsed_s = 0.0
         self.client = SimulationControlClient(
-            "127.0.0.1", control_port, "sarm-scripted-task"
+            "127.0.0.1", control_port, "dual-scripted-task" if dual else "sarm-scripted-task",
+            allow_scene_reset=False, recording_only=dual
         )
         self.render = None
         self.client.start()
@@ -64,6 +66,7 @@ class ScriptedCaptureTransport:
                 capture_rate_hz=DEFAULT_CAPTURE_HZ,
                 capture_state_provider=self.client.capture_state,
                 overview_camera=overview_camera,
+                visual_attachments=[dict(parent_id='teleop/cubesat_bus',geometry_file='model/dual_stowed_service/collection_v2/mli_visual.json')] if dual else None,
                 wrist_camera_mode=scene_instance.get("wrist_camera_mode", "rgb"),
                 sunlight_intensity_scale=scene_instance.get("environment", {})
                 .get("lighting", {})
@@ -73,7 +76,11 @@ class ScriptedCaptureTransport:
             )
             ctx.install([self.render])
             from simulation.wrench_sampling import install_wrench_sampler
-            self.wrench_sampler = install_wrench_sampler(ctx, self._sensor_sample if disturbances else None)
+            if dual:
+                from simulation.sarm_model_profile import DUAL_ARMS
+                self.arm_wrench_samplers={side:install_wrench_sampler(ctx,sensor=arm.wrench_sensor,component=side+'_wrist_sampling') for side,arm in DUAL_ARMS.items()}
+            else:
+                self.wrench_sampler = install_wrench_sampler(ctx, self._sensor_sample if disturbances else None)
             self.observation = ObservationComponent(self.render.bridge, self.snapshot)
             ctx.install([self.observation])
         except BaseException:

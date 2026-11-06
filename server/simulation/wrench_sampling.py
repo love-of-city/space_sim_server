@@ -7,12 +7,13 @@ from simulation.wrench_sensors import WRIST_SENSOR
 
 
 class WrenchSampler(sysModel.SysModel):
-    def __init__(self, stepper, clock, transform=None):
+    def __init__(self, stepper, clock, transform=None, sensor=WRIST_SENSOR):
         super().__init__()
         self.ModelTag = "wristWrench200Hz"
         self.stepper, self.clock = stepper, clock
         self.pending = deque()
         self.transform = transform
+        self.sensor = sensor
 
     def Reset(self, CurrentSimNanos):
         self.pending.clear()
@@ -20,7 +21,7 @@ class WrenchSampler(sysModel.SysModel):
     def UpdateState(self, CurrentSimNanos):
         if self.clock.step_index % (DYNAMICS_HZ // WRENCH_HZ):
             return
-        reading = WRIST_SENSOR.observation(self.stepper, int(CurrentSimNanos))
+        reading = self.sensor.observation(self.stepper, int(CurrentSimNanos))
         if reading is None or not reading["valid"]:
             return
         if len(self.pending) >= 1024:
@@ -36,9 +37,9 @@ class WrenchSampler(sysModel.SysModel):
         return rows
 
 
-def install_wrench_sampler(ctx, transform=None):
-    model = WrenchSampler(ctx.simulation.local_stepper, ctx.clock, transform)
+def install_wrench_sampler(ctx, transform=None, *, sensor=WRIST_SENSOR, component="wrist_wrench_sampling"):
+    model = WrenchSampler(ctx.simulation.local_stepper, ctx.clock, transform, sensor)
     # Reads native sensordata, not decimated BSK body/site messages. Self-divides
     # after physics so body publication stride never limits sensor sampling.
-    ctx.add(model, Slot.SENSOR, every=1, component="wrist_wrench_sampling")
+    ctx.add(model, Slot.SENSOR, every=1, component=component)
     return model

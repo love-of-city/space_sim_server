@@ -52,6 +52,10 @@ def default_target_state(model):
 
 
 def run(args):
+    from simulation.scripted_tasks.dual_floating_model import DUAL_TASK
+    if args.task == DUAL_TASK:
+        from collection.run_dual_task import run as run_dual
+        return run_dual(args)
     if args.task in FLOATING_TASKS and args.substeps is None:
         args.substeps = 4
     initialization_started = time.perf_counter()
@@ -573,7 +577,7 @@ def main(default_task="drawer_lift", argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
-        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS],
+        choices=["drawer_lift", "drawer_cycle", "plug_insert", *PLUG_PROFILES, *THREADED_TASKS, *FLOATING_TASKS, "dual_floating_sequential_capture"],
         default=default_task,
     )
     parser.add_argument(
@@ -618,6 +622,7 @@ def main(default_task="drawer_lift", argv=None):
         parser.error(str(error))
     if (
         args.model is not None
+        and args.task != "dual_floating_sequential_capture"
         and not args.model.with_name("attitude_control.json").is_file()
     ):
         parser.error(
@@ -633,7 +638,7 @@ def main(default_task="drawer_lift", argv=None):
         and args.capture_stop_file
     ):
         parser.error("capture mode requires render port, catalog, scene, and stop file")
-    if args.model is not None and args.capture_control_port:
+    if args.model is not None and args.capture_control_port and args.task != "dual_floating_sequential_capture":
         from simulation.task_box_layout import validated_capture_layout
         try:
             layout = validated_capture_layout(args.model, args.catalog)

@@ -118,11 +118,15 @@ class NativePoseProbe:
     is touched, and the Python mujoco package is never imported.
     """
 
-    def __init__(self, model_path, *, clearance_m=0.):
+    def __init__(self, model_path, *, clearance_m=0., arm=None):
+        from simulation.sarm_model_profile import SINGLE_ARM, DUAL_ARMS
+        self.arm = arm or SINGLE_ARM
+        self.scene_arms = tuple(DUAL_ARMS.values()) if self.arm.prefix else (SINGLE_ARM,)
+        self.held_finger_contacts = {}
         if not np.isfinite(clearance_m) or not 0. <= clearance_m <= .02:
             raise ValueError("Planning clearance must be between 0 and 0.02 m")
         from .gripper_preflight import ParallelogramGripper
-        self.gripper_kinematics = ParallelogramGripper(model_path)
+        self.gripper_kinematics = ParallelogramGripper(model_path, arm=self.arm)
         from simulation.mujoco_plugins import ensure_model_plugins
         from simulation.local_mujoco_stepper import (
             _library,
@@ -157,11 +161,7 @@ class NativePoseProbe:
         self.home = self.q.copy()
         self.addresses = [
             self.address(name)
-            for name in [
-                *(f"joint{i}" for i in range(1, 7)),
-                "ee_link11_joint",
-                "ee_link12_joint",
-            ]
+            for name in self.arm.joint_names
         ]
         self.passive_addresses = {
             name: self.address(name)
@@ -250,7 +250,7 @@ class NativePoseProbe:
             for _, _, first, second, distance in self.contacts(candidate):
                 names = {self.names[int(first)], self.names[int(second)]}
                 if part_body in names and distance <= 0.0:
-                    fingers.update(names.intersection({"ee_finger1", "ee_finger2"}))
+                    fingers.update(names.intersection(self.arm.finger_bodies))
             return len(fingers) == 2
 
         if bilateral(1.0):
@@ -305,16 +305,16 @@ class NativePoseProbe:
             self.q[address:address + len(values)] = values
         for geom1, geom2, first, second, distance in self.contacts(candidate):
             a, b = self.names[int(first)], self.names[int(second)]
-            is_arm = lambda name: (
-                name.startswith(("ee", "wrist_ft")) or name in {f"link{i}" for i in range(1, 6)}
-            )
+            is_arm = lambda name: any(arm.is_arm_body(name) for arm in self.scene_arms)
             # Internal closed four-bar contacts belong to the gripper itself.
-            if a.startswith("ee") and b.startswith("ee"):
+            if any(a.startswith(arm.prefix+"ee") and b.startswith(arm.prefix+"ee") for arm in self.scene_arms):
+                continue
+            if self.held_finger_contacts.get(a) == b or self.held_finger_contacts.get(b) == a:
                 continue
             # Planned grasp contact permits the fingers only. A declared
             # grasped body never exempts a wrist or arm-link collision.
-            if ((a in {"ee_finger1", "ee_finger2"} and b in allowed_contact_bodies)
-                    or (b in {"ee_finger1", "ee_finger2"} and a in allowed_contact_bodies)):
+            if ((a in self.arm.finger_bodies and b in allowed_contact_bodies)
+                    or (b in self.arm.finger_bodies and a in allowed_contact_bodies)):
                 continue
             arm_threshold = clearance_m if clearance_m else -arm_penetration_m
             if (is_arm(a) or is_arm(b)) and distance < arm_threshold:

@@ -65,10 +65,13 @@ class DrawerState:
 
 
 class PlugState:
-    def __init__(self, task, scene, stepper):
+    def __init__(self, task, scene, stepper, *, target_body=None):
+        from simulation.sarm_model_profile import SINGLE_ARM
+        self.arm = getattr(task, "arm", SINGLE_ARM)
         self.task, self.stepper = task, stepper
+        self.target_body = target_body or task.config.plug_body
         self.base = scene.getBody("cubesat_bus").getFreeJoint()
-        self.plug = scene.getBody(task.config.plug_body).getFreeJoint()
+        self.plug = scene.getBody(self.target_body).getFreeJoint()
         self.body_names = {i: stepper._name(1, i) for i in range(stepper.nbody)}
 
     def sample(self, time_s, q, v, wrench):
@@ -91,9 +94,9 @@ class PlugState:
                     self.body_names.get(int(first)),
                     self.body_names.get(int(second)),
                 }
-                if distance <= 0.0001 and self.task.config.plug_body in names:
+                if distance <= 0.0001 and self.target_body in names:
                     for index in (0, 1):
-                        if f"ee_finger{index + 1}" in names:
+                        if self.arm.finger_bodies[index] in names:
                             contacts[index] += 1
         return PlugSample(
             time_s,
@@ -234,7 +237,12 @@ class FloatingSample(PlugSample):
 
 class FloatingState(PlugState):
     def __init__(self, task, scene, stepper):
-        super().__init__(task, scene, stepper)
+        super().__init__(task, scene, stepper, target_body=task.asset.body)
+        from simulation.sarm_model_profile import DUAL_ARMS
+        self.scene_arms = tuple(DUAL_ARMS.values()) if self.arm.prefix else (self.arm,)
+        self.allowed_pairs = {frozenset((finger, obj["instance_id"]))
+                              for obj in task.object_instances if obj.get("arm")
+                              for finger in DUAL_ARMS[obj["arm"]].finger_bodies}
         self.instances = task.object_instances
         self.instance_joints = {obj["instance_id"]: scene.getBody(obj["instance_id"]).getFreeJoint() for obj in self.instances}
 
@@ -256,7 +264,7 @@ class FloatingState(PlugState):
                 names = {self.body_names[int(a)],self.body_names[int(b)]}
                 if name in names and distance <= .0001 and float(contact[5]) > .001:
                     for i in (0,1):
-                        if f"ee_finger{i+1}" in names:
+                        if self.arm.finger_bodies[i] in names:
                             counts[i] += 1; forces[i] += float(contact[5])
             result.append(dict(instance_id=name,type_task=obj["type_task"],color=obj["variation"]["color"],
                 position_body_m=position.tolist(),orientation_wxyz=matrix_to_quaternion_wxyz(rotation).tolist(),
@@ -274,22 +282,25 @@ class FloatingState(PlugState):
         for contact in contacts:
             _, _, first, second, distance = contact[:5]
             names = {self.body_names[int(first)], self.body_names[int(second)]}
-            if distractors.intersection(names) and distance <= .0001 and float(contact[5]) > .001:
+            if (distractors.intersection(names) and frozenset(names) not in self.allowed_pairs
+                    and distance <= .0001 and float(contact[5]) > .001):
                 non_target.append(dict(bodies=sorted(names),normal_force_n=float(contact[5]),distance_m=float(distance)))
             if self.task.asset.body in names and distance <= .0001:
                 for index in (0, 1):
-                    if f"ee_finger{index+1}" in names:
+                    if self.arm.finger_bodies[index] in names:
                         normal_force[index] += max(0., float(contact[5]))
             if distance >= -.0005:
                 continue
             a, b = self.body_names[int(first)], self.body_names[int(second)]
-            arm = lambda name: name.startswith(("ee", "wrist_ft")) or name in {f"link{i}" for i in range(1, 6)}
-            if a.startswith("ee") and b.startswith("ee"):
+            is_arm = lambda name: any(arm.is_arm_body(name) for arm in self.scene_arms)
+            if any(a.startswith(arm.prefix+"ee") and b.startswith(arm.prefix+"ee") for arm in self.scene_arms):
                 continue
-            if ((a in {"ee_finger1", "ee_finger2"} and b == self.task.asset.body)
-                    or (b in {"ee_finger1", "ee_finger2"} and a == self.task.asset.body)):
+            if ((a in self.arm.finger_bodies and b == self.task.asset.body)
+                    or (b in self.arm.finger_bodies and a == self.task.asset.body)):
                 continue
-            if arm(a) or arm(b) or self.task.asset.body in (a, b):
+            if frozenset(names) in self.allowed_pairs:
+                continue
+            if is_arm(a) or is_arm(b) or self.task.asset.body in (a, b):
                 unexpected.append(dict(body1=a, body2=b, penetration_m=float(-distance)))
         return FloatingSample(**vars(sample), unexpected_contacts=unexpected,
                               finger_normal_force_n=tuple(normal_force),

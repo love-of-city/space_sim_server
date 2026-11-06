@@ -7,13 +7,16 @@ from pathlib import Path
 class WrenchStreamWriter:
     relative_path = "high_frequency/wrist_wrench.jsonl"
 
-    def __init__(self, root: Path, *, compact=False):
+    def __init__(self, root: Path, *, compact=False, stream_name="wrist_wrench"):
+        if stream_name not in ("wrist_wrench", "left_wrist_wrench", "right_wrist_wrench"):
+            raise ValueError("Unknown wrist stream")
+        self.relative_path = f"high_frequency/{stream_name}.jsonl"
         self.root = root
         self.columnar = None
         self.digest = hashlib.sha256()
         if compact:
             from .compact_storage import ParquetChunks
-            self.relative_path = "high_frequency/wrist_wrench"
+            self.relative_path = f"high_frequency/{stream_name}"
             self.columnar = ParquetChunks(root, self.relative_path, batch_size=4096)
         self.first_observation_ns = None
         self.last_end_ns = None
@@ -22,14 +25,14 @@ class WrenchStreamWriter:
         self.initialized = False
         self.identity = None
 
-    def append(self, observation):
+    def append(self, observation, *, sim_time_ns=None):
         rate = observation.wrist_wrench_rate_hz
         if self.initialized and rate != self.rate:
             raise ValueError("high-rate wrench availability changed within episode")
         self.initialized, self.rate = True, rate
         if rate is None:
             return
-        stamp = int(observation.sim_time_ns)
+        stamp = int(observation.sim_time_ns if sim_time_ns is None else sim_time_ns)
         if self.first_observation_ns is None:
             self.first_observation_ns = stamp
         rows = []

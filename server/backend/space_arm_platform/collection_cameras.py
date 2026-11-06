@@ -7,6 +7,12 @@ import numpy as np
 SINGLE_ARM_CAMERA_IDS = ("teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam")
 SIDE_CAMERA_ID = "teleop/camera/workbench_side"
 PROFILES = {
+    "dual-arm-three-view-v1": {
+        "cameras": [dict(id="teleop/camera/spacecraft_overview", role="overview", label="全局相机"),
+                    dict(id="teleop/camera/left_sarm_wrist_cam", role="left_wrist", label="左手眼相机"),
+                    dict(id="teleop/camera/right_sarm_wrist_cam", role="right_wrist", label="右手眼相机")],
+        "mounts": [],
+    },
     "single-arm-two-view-v1": {
         "cameras": [dict(id=SINGLE_ARM_CAMERA_IDS[0], role="overview", label="全局相机"),
                     dict(id=SINGLE_ARM_CAMERA_IDS[1], role="wrist", label="手眼相机")],

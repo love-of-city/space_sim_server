@@ -11,7 +11,7 @@ from pathlib import Path
 
 COMPACT_SCHEMA = "space-arm-compact/1"
 CONTEXT_FIELDS = (
-    "model_sha256",
+    "model_sha256", "observation_layout",
     "render_session_id", "reset_generation", "capture_episode_id",
     "gripper_drive_position_rad", "target_gripper_drive_position_rad",
     "gripper_position_m", "target_gripper_position_m",
@@ -102,7 +102,11 @@ class CompactSidecars:
     def append(self, observation, captures, frame):
         extra = observation.model_extra or {}
         context = {key: getattr(observation, key, extra.get(key)) for key in CONTEXT_FIELDS}
-        if observation.wrist_wrench is not None:
+        if getattr(observation, 'observation_layout', None) == 'dual-arm/1':
+            context['arms'] = {side:dict(wrist_wrench_rate_hz=arm.wrist_wrench_rate_hz,
+                wrist_wrench_context=arm.wrist_wrench.model_dump(exclude={'force_n','torque_nm','valid','sample_time_ns','interval_end_time_ns'}))
+                for side, arm in observation.arms.items()}
+        elif observation.wrist_wrench is not None:
             context["wrist_wrench_context"] = observation.wrist_wrench.model_dump(
                 exclude={"force_n", "torque_nm", "valid", "sample_time_ns", "interval_end_time_ns"}
             )
@@ -149,6 +153,26 @@ def read_observations(episode):
                 context["model_sha256"] = platform_model
             elif platform_model is not None and context["model_sha256"] != platform_model:
                 raise ValueError("Compact context/platform model mismatch")
+            if context.get('observation_layout') == 'dual-arm/1':
+                arms={}
+                for index,side in enumerate(('left','right')):
+                    prefix='observation.'+side+'.'
+                    pose=row['observation.end_effector_pose_body'][index*7:(index+1)*7]
+                    raw=row['observation.raw_joint_position'][index*8:(index+1)*8]
+                    target=row['observation.raw_target_joint_position'][index*8:(index+1)*8]
+                    wrench=row[prefix+'wrist_wrench']
+                    arms[side]=dict(context['arms'][side],joint_position_rad=raw,target_joint_position_rad=target,
+                        joint_velocity_rad_s=row['observation.joint_velocity'][index*8:(index+1)*8],
+                        gripper_opening_normalized=row['observation.state'][index*7+6],
+                        target_gripper_opening_normalized=row['action'][index*7+6],
+                        end_effector_position_body_m=pose[:3],end_effector_orientation_body_wxyz=pose[3:],
+                        end_effector_twist_body=row['observation.end_effector_twist_body'][index*6:(index+1)*6],
+                        wrist_wrench=dict(context['arms'][side]['wrist_wrench_context'],force_n=wrench[:3],torque_nm=wrench[3:],
+                            valid=bool(row[prefix+'wrist_wrench_valid']),
+                            sample_time_ns=row[prefix+'wrist_wrench_sample_time_ns'],
+                            interval_end_time_ns=row[prefix+'wrist_wrench_interval_end_time_ns']))
+                yield dict(context,arms=arms,render_frame_id=str(context['source_frame_id']),sim_time_ns=str(context['sim_time_ns']))
+                continue
             pose = row["observation.end_effector_pose_body"]
             obs = {**context,
                 "render_frame_id": str(context["source_frame_id"]),
@@ -175,12 +199,15 @@ def read_observations(episode):
         raise ValueError("Extra compact context frames")
 
 
-def read_wrench(episode):
+def read_wrench(episode, arm=None):
     root = Path(episode) / "lerobot/high_frequency"
-    if (root / "wrist_wrench").is_dir():
-        yield from read_chunks(root / "wrist_wrench")
-    elif (root / "wrist_wrench.jsonl").is_file():
-        with (root / "wrist_wrench.jsonl").open(encoding="utf-8") as stream:
+    if arm not in (None,'left','right'):
+        raise ValueError('Unknown arm')
+    name='wrist_wrench' if arm is None else arm+'_wrist_wrench'
+    if (root / name).is_dir():
+        yield from read_chunks(root / name)
+    elif (root / (name+'.jsonl')).is_file():
+        with (root / (name+'.jsonl')).open(encoding="utf-8") as stream:
             for line in stream:
                 if line.strip():
                     yield json.loads(line)

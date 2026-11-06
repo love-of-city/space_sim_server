@@ -392,6 +392,95 @@ class SimulationObservation(BaseModel):
         return value
 
 
+class DualArmState(BaseModel):
+    """One physical arm; timestamps belong to the shared observation header."""
+    model_config = ConfigDict(extra="forbid")
+    joint_position_rad: list[FiniteFloat] = Field(min_length=8, max_length=8)
+    joint_velocity_rad_s: list[FiniteFloat] = Field(min_length=8, max_length=8)
+    target_joint_position_rad: list[FiniteFloat] = Field(min_length=8, max_length=8)
+    end_effector_position_body_m: list[FiniteFloat] = Field(min_length=3, max_length=3)
+    end_effector_orientation_body_wxyz: list[FiniteFloat] = Field(min_length=4, max_length=4)
+    end_effector_twist_body: list[FiniteFloat] = Field(min_length=6, max_length=6)
+    wrist_wrench: WrenchObservation
+    wrist_wrench_rate_hz: Literal[200]
+    wrist_wrench_samples: list[WrenchObservation] = Field(max_length=1024)
+
+    @computed_field
+    @property
+    def gripper_opening_normalized(self) -> float:
+        return opening_profile('four_bar_tendon').normalize(self.joint_position_rad[6])
+
+    @computed_field
+    @property
+    def target_gripper_opening_normalized(self) -> float:
+        return opening_profile('four_bar_tendon').normalize(self.target_joint_position_rad[6])
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_derived(cls, values):
+        if isinstance(values, dict):
+            values = dict(values)
+            values.pop('gripper_opening_normalized', None)
+            values.pop('target_gripper_opening_normalized', None)
+        return values
+
+
+class DualSimulationObservation(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    observation_layout: Literal['dual-arm/1']
+    protocol: Literal[CONTROL_PROTOCOL]
+    type: Literal["observation"]
+    reset_generation: str = ""
+    render_session_id: str = ""
+    capture_episode_id: str = ""
+    capture_request_id: str = ""
+    simulation_id: str
+    step_id: str
+    render_frame_id: str
+    sim_time_ns: str
+    wall_time_ns: str
+    applied_action_sequence: str
+    model_revision: str
+    model_sha256: str
+    mujoco_runtime_version: int
+    gripper_type: Literal['four_bar_tendon']
+    arms: dict[Literal['left', 'right'], DualArmState]
+
+    @model_validator(mode="after")
+    def validate_layout(self):
+        for key in ('step_id','render_frame_id','sim_time_ns','wall_time_ns','applied_action_sequence'):
+            if not getattr(self,key).isdecimal():
+                raise ValueError('step/frame/time identifiers must be decimal strings')
+        if set(self.arms) != {'left','right'}:
+            raise ValueError('Dual observation requires both left and right arms')
+        for side, arm in self.arms.items():
+            wrench = arm.wrist_wrench
+            expected=dict(sensor_name=side+'_wrist_ft',site_name=side+'_wrist_ft_site',
+                          parent_body=side+'_ee_base',child_body=side+'_wrist_ft_tool')
+            for reading in [wrench,*arm.wrist_wrench_samples]:
+                if any(getattr(reading,key)!=value for key,value in expected.items()):
+                    raise ValueError('Wrist sensor must belong to its named arm')
+            if int(wrench.interval_end_time_ns) != int(self.sim_time_ns):
+                raise ValueError('Both wrist readings must match the shared observation timestamp')
+            last = None
+            for sample in arm.wrist_wrench_samples:
+                end = int(sample.interval_end_time_ns)
+                if (not sample.valid or end > int(self.sim_time_ns) or end % 5_000_000
+                        or sample.sensor_name != wrench.sensor_name
+                        or (last is not None and end-last != 5_000_000)):
+                    raise ValueError('Invalid dual wrist sample batch')
+                last = end
+        return self
+
+
+def parse_simulation_observation(payload):
+    if payload.get('observation_layout') == 'dual-arm/1':
+        return DualSimulationObservation.model_validate(payload)
+    if 'observation_layout' in payload or 'arms' in payload:
+        raise ValueError('Unknown observation layout')
+    return SimulationObservation.model_validate(payload)
+
+
 class EpisodeStart(BaseModel):
     fps: Literal[1, 2, 5, 10, 25, 30, 50] = DEFAULT_CAPTURE_HZ
     camera_ids: list[str] = Field(default_factory=lambda: [

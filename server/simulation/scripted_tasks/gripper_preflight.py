@@ -10,18 +10,21 @@ class ParallelogramGripper:
     Physics still solves the real passive joints. This merely keeps a read-only
     candidate pose from leaving passive fingers in their old closed configuration.
     """
-    def __init__(self, model_path):
+    def __init__(self, model_path, *, arm=None):
+        from simulation.sarm_model_profile import SINGLE_ARM
+        arm = arm or SINGLE_ARM
+        prefix = arm.prefix
         root = ET.parse(model_path).getroot()
         self.chains = []
         for side in (1, 2):
-            active_name = f"ee_link1{side}_joint"
-            passive_names = (f"ee_link2{side}_joint", f"ee_finger{side}_joint")
-            site1, site2 = f"ee_link1{side}_finger{side}_site", f"ee_finger{side}_link1{side}_site"
+            active_name = f"{prefix}ee_link1{side}_joint"
+            passive_names = (f"{prefix}ee_link2{side}_joint", f"{prefix}ee_finger{side}_joint")
+            site1, site2 = f"{prefix}ee_link1{side}_finger{side}_site", f"{prefix}ee_finger{side}_link1{side}_site"
             connection = root.find(f'./equality/connect[@site1="{site1}"]')
             if connection is None or connection.get("site2") != site2:
                 raise ValueError("Unsupported gripper loop geometry for collision preflight")
-            active = SerialChainKinematics.from_mjcf(model_path, base_body="wrist_ft_tool", joint_names=(active_name,), tool_site=site1)
-            passive = SerialChainKinematics.from_mjcf(model_path, base_body="wrist_ft_tool", joint_names=passive_names, tool_site=site2)
+            active = SerialChainKinematics.from_mjcf(model_path, base_body=prefix+"wrist_ft_tool", joint_names=(active_name,), tool_site=site1)
+            passive = SerialChainKinematics.from_mjcf(model_path, base_body=prefix+"wrist_ft_tool", joint_names=passive_names, tool_site=site2)
             self.chains.append((passive_names, active, passive))
         # Reject a different linkage instead of silently applying SARM relations.
         for opening in np.linspace(0, 1, 9):

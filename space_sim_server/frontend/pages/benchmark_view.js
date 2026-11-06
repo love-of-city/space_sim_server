@@ -77,6 +77,11 @@ export function benchmarkMetric(score){
     const progress=Number.isFinite(score.retreat_progress_m)?`${score.retreat_progress_m.toFixed(2)} m`:'—';
     return `向外运动确认 ${reversal}；撤离距离 ${progress}`;
   }
+  if(score?.path_requirement==='far_to_proximity_rendezvous'){
+    const reduction=Number.isFinite(score.range_reduction_m)?`${score.range_reduction_m.toFixed(2)} m`:'—';
+    const distance=Number.isFinite(score.final_range_m)?`${score.final_range_m.toFixed(2)} m`:'—';
+    return `交会缩短距离 ${reduction}；当前距离 ${distance}`;
+  }
   if(Number.isFinite(score?.final_position_error_m))return `${score.final_position_error_m.toFixed(4)} m`;
   if(score?.path_requirement==='continuous_orbit_maintenance'&&Number.isFinite(score.maximum_maintenance_axis_error_m))return `维持时窗最大半长轴误差 ${score.maximum_maintenance_axis_error_m.toFixed(2)} m；超限 ${score.failed_maintenance_samples}/${score.maintenance_samples} 帧`;
   if(Number.isFinite(score?.final_orbit?.impulse_vector_error_m_s))return `Δv 误差 ${score.final_orbit.impulse_vector_error_m_s.toFixed(4)} m/s`;
@@ -118,6 +123,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
         closest_approach_outside_encounter_window:'最近接近不在规定会遇时窗内',outward_pass_not_confirmed:'尚未确认安全远离碎片',
         final_unpowered_coast_not_confirmed:'末段无推力滑行不足',no_actual_avoidance_maneuver:'未验证实际避碰机动',
+        rendezvous_range_reduction:'远距交会的距离缩减不足',rendezvous_terminal_range:'尚未进入规定近距范围',
         orientation_rmse:'姿态 RMSE',maximum_orientation_error:'最大姿态误差',pose_availability:'有效位姿估计不足',
         false_motor_loss_diagnosis:'正常阶段误报电机异常',motor_loss_diagnosis_deadline:'电机异常诊断超时',motor_loss_not_observed_under_load:'未验证带载电机衰减',
         angular_velocity_rmse:'角速度 RMSE',maximum_angular_velocity_error:'最大角速度误差',spin_availability:'有效角速度估计不足',

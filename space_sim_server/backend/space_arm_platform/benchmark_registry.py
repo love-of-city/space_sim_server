@@ -201,6 +201,8 @@ def configuration_title(catalogue, task):
         title += "（单飞轮力矩衰减与姿态恢复）"
     if isinstance(task, RelativeFlightTask) and task.source_id == 'D40':
         title += "（GNSS，150 m 接近中止）"
+    if isinstance(task, RelativeFlightTask) and task.source_id == 'D05':
+        title += "（合作目标，7 km 至 150 m）"
     if isinstance(task, VisionPoseTask):
         title += "（已知被动标志物，真实图像）"
     if isinstance(task, PointingTask):

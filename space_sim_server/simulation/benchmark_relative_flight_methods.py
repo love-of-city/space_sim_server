@@ -40,7 +40,7 @@ class GNSSRelativeFlight:
             elapsed_s = (observation.sample_time_ns-self.abort_time_ns)*1e-9
         reference = np.asarray(task.objective.position_tnr_m)
         velocity, acceleration = np.zeros(3), np.zeros(3)
-        if task.path_requirement.kind in {'axis_approach_corridor', 'abort_and_retreat'}:
+        if task.path_requirement.kind in {'axis_approach_corridor', 'abort_and_retreat', 'far_to_proximity_rendezvous'}:
             duration = .75*(task.duration_s-task.objective.dwell_s)
             u = min(1., elapsed_s/duration)
             s = 10*u**3-15*u**4+6*u**5

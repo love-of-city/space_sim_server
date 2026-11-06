@@ -242,7 +242,7 @@ print('every original SARM independently actuated and reset')
     assert 'every original SARM independently' in result.stdout
 
 
-@pytest.mark.parametrize('configuration', ['d12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1', 'd33-gnss-flyaround-v1', 'd40-gnss-proximity-abort-v1'])
+@pytest.mark.parametrize('configuration', ['d05-cooperative-far-rendezvous-v1', 'd12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1', 'd33-gnss-flyaround-v1', 'd40-gnss-proximity-abort-v1'])
 def test_relative_flight_contracts_use_actual_actuators_and_reset(tmp_path, configuration):
     code = r'''
 import sys
@@ -254,7 +254,7 @@ from space_arm_platform.benchmark_registry import native_environment
 task = load_task(SPEC_DIRECTORY/(sys.argv[2]+'.json'))
 env = native_environment(task, Path(sys.argv[1]))
 try:
-    seed = 3 if task.source_id == 'D40' else 201
+    seed = 3 if task.source_id in {'D05', 'D40'} else 201
     first = env.reset(seed)
     initial = env._read_physical_states(0).copy()
     assert env.model_manifest['mesh_count'] == 113

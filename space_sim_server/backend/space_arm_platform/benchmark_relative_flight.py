@@ -11,6 +11,13 @@ class FullDurationHold(Contract):
     kind: Literal["full_duration_relative_hold"]
 
 
+class FarRendezvous(Contract):
+    kind: Literal['far_to_proximity_rendezvous']
+    minimum_initial_range_m: Annotated[Positive, Field(ge=5000)]
+    maximum_terminal_range_m: Annotated[Positive, Field(le=300)]
+    minimum_range_reduction_m: Positive
+
+
 class AxisApproachCorridor(Contract):
     kind: Literal["axis_approach_corridor"]
     axis: Literal["T", "R"]
@@ -32,19 +39,32 @@ class AbortRetreat(Contract):
 class RelativeFlightTask(WaypointTask):
     schema_version: Literal["spacesim-autonomy-relative-flight/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    requirement_id: Literal["ssb.relative-motion.hold", "ssb.approach.vbar", "ssb.approach.rbar", "ssb.safety.proximity-abort"]
-    source_id: Literal["D12", "D29", "D30", "D40"]
+    requirement_id: Literal["ssb.relative-motion.hold", "ssb.approach.vbar", "ssb.approach.rbar", "ssb.safety.proximity-abort", "ssb.rendezvous.far"]
+    source_id: Literal["D12", "D29", "D30", "D40", "D05"]
     backend: Literal["native_team_relative_flight_v1"]
-    path_requirement: Annotated[FullDurationHold | AxisApproachCorridor | AbortRetreat, Field(discriminator="kind")]
+    path_requirement: Annotated[FullDurationHold | AxisApproachCorridor | AbortRetreat | FarRendezvous, Field(discriminator="kind")]
 
     @model_validator(mode="after")
     def distinct_flight_semantics(self):
         expected = {"D12": "ssb.relative-motion.hold", "D29": "ssb.approach.vbar", "D30": "ssb.approach.rbar",
-                    "D40": "ssb.safety.proximity-abort"}
+                    "D40": "ssb.safety.proximity-abort", "D05": "ssb.rendezvous.far"}
         if self.requirement_id != expected[self.source_id]:
             raise ValueError("relative-flight source and stable requirement must agree")
         initial, goal, path = self.initial, self.objective, self.path_requirement
-        if self.source_id == "D12":
+        if self.source_id == 'D05':
+            if not isinstance(path, FarRendezvous):
+                raise ValueError('far rendezvous requires a physical kilometre-to-proximity transfer')
+            minimum_start = math.dist(initial.relative_position_tnr_m,(0,0,0))-math.sqrt(3)*initial.position_half_width_m
+            maximum_finish = math.dist(goal.position_tnr_m,(0,0,0))+goal.position_tolerance_m
+            if minimum_start < path.minimum_initial_range_m or maximum_finish > path.maximum_terminal_range_m:
+                raise ValueError('all initial and arrival states must lie in their declared far/near ranges')
+            if not 1000 <= path.minimum_range_reduction_m <= minimum_start-maximum_finish:
+                raise ValueError('far rendezvous must require substantial actual range reduction')
+            if goal.dwell_s >= self.duration_s:
+                raise ValueError('rendezvous must leave time for physical transfer and final dwell')
+            if path.minimum_range_reduction_m > self.safety.maximum_relative_speed_m_s*(self.duration_s-goal.dwell_s):
+                raise ValueError('range reduction cannot fit the speed bound and final dwell')
+        elif self.source_id == "D12":
             if not isinstance(path, FullDurationHold) or goal.dwell_s != self.duration_s:
                 raise ValueError("stationkeeping requires uninterrupted hold over the full episode")
             initial_error = math.dist(initial.relative_position_tnr_m, goal.position_tnr_m)

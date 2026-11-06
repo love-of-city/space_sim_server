@@ -5,7 +5,7 @@ import numpy as np
 
 from .benchmark_contract import FlightTruthSample
 from .benchmark_navigation_score import initial_orbit_errors
-from .benchmark_relative_flight import AbortRetreat, AxisApproachCorridor
+from .benchmark_relative_flight import AbortRetreat, AxisApproachCorridor, FarRendezvous
 from .benchmark_scoring import WaypointScorer, relative_truth
 
 
@@ -21,6 +21,7 @@ class RelativeFlightScorer(WaypointScorer):
         self.initial_range = self.initial_closing_speed = None
         self.outward_since_ns = self.reversal_confirmed_ns = None
         self.reversal_started_ns = self.retreat_progress = self.range_rate = None
+        self.rendezvous_initial_range = self.rendezvous_range_reduction = self.rendezvous_final_range = None
 
     def add(self, raw):
         try:
@@ -39,7 +40,15 @@ class RelativeFlightScorer(WaypointScorer):
                 self.initialization_errors.add("initial_relative_state_outside_declared_distribution")
         error = float(np.linalg.norm(position-goal.position_tnr_m))
         self.maximum_hold_error = max(self.maximum_hold_error, error)
-        if isinstance(path, AxisApproachCorridor):
+        if isinstance(path, FarRendezvous):
+            distance = float(np.linalg.norm(position))
+            if self.rendezvous_initial_range is None:
+                self.rendezvous_initial_range = distance
+                if distance < path.minimum_initial_range_m:
+                    self.initialization_errors.add('rendezvous_did_not_start_at_declared_far_range')
+            self.rendezvous_final_range = distance
+            self.rendezvous_range_reduction = self.rendezvous_initial_range-distance
+        elif isinstance(path, AxisApproachCorridor):
             index = 0 if path.axis == "T" else 2
             cross = math.sqrt(sum(float(position[i])**2 for i in range(3) if i != index))
             self.maximum_cross_track = max(self.maximum_cross_track or 0., cross)
@@ -82,6 +91,11 @@ class RelativeFlightScorer(WaypointScorer):
         quality = []
         if self.first_hold_violation_ns is not None:
             quality.append('continuous_hold_envelope')
+        if isinstance(path, FarRendezvous) and outcome == 'success':
+            if self.rendezvous_range_reduction < path.minimum_range_reduction_m:
+                quality.append('rendezvous_range_reduction')
+            if self.rendezvous_final_range > path.maximum_terminal_range_m:
+                quality.append('rendezvous_terminal_range')
         if isinstance(path, AbortRetreat):
             deadline_ns = round(path.reversal_deadline_s*1e9)
             if self.last_time_ns is not None and self.last_time_ns >= deadline_ns:
@@ -113,6 +127,9 @@ class RelativeFlightScorer(WaypointScorer):
                 reversal_started_s=None if self.reversal_started_ns is None else self.reversal_started_ns*1e-9,
                 reversal_confirmed_s=None if self.reversal_confirmed_ns is None else self.reversal_confirmed_ns*1e-9,
                 reversal_deadline_s=path.reversal_deadline_s, retreat_progress_m=self.retreat_progress)
+        if isinstance(path, FarRendezvous):
+            score.update(initial_range_m=self.rendezvous_initial_range,
+                range_reduction_m=self.rendezvous_range_reduction, final_range_m=self.rendezvous_final_range)
         if outcome != 'success':
             score['completion_time_s'] = None
         return score

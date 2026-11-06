@@ -20,6 +20,7 @@ from .benchmark_batch import reconcile_batch, summarize
 from .benchmark_catalog import load_catalog
 from .benchmark_contract import Contract, Count, load_task
 from .benchmark_execution import rescore_episode, sha256, source_identity, verify_episode_evidence, write_json
+from .benchmark_paths import evidence_path
 from .benchmark_external import ExternalMethodDefinition
 from .benchmark_registry import capability_matrix, configuration_title, method_ids
 from .collection_processes import ManagerLease, kill_owned_tree, launch_collector
@@ -81,7 +82,7 @@ def dependency_check(root):
 class BenchmarkManager:
     def __init__(self, project_root, data_root):
         self.project = Path(project_root).resolve()
-        self.root = Path(data_root).resolve().parent / "benchmark_jobs"
+        self.root = evidence_path(Path(data_root).resolve().parent / "benchmark_jobs")
         self.root.mkdir(parents=True, exist_ok=True)
         self.lease = ManagerLease(self.root / "manager.lock")
         self.lock, self.jobs, self.thread = threading.RLock(), {}, None

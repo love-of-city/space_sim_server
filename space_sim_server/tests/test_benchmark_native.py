@@ -29,11 +29,15 @@ from space_arm_platform.benchmark_navigation import NavigationEstimateAction
 from simulation.benchmark_native_navigation import NativeNavigationEnvironment
 
 task = load_task(SPEC_DIRECTORY/(sys.argv[2]+".json"))
-env = NativeNavigationEnvironment(task, Path(sys.argv[1]))
+output = Path(sys.argv[1])
+while len(str(output)) < 275:
+    output /= 'deep result directory with spaces'
+env = NativeNavigationEnvironment(task, output)
 def physical():
     return env._physical_state(env._time_ns)[None,:] if task.source_id == "S14" else env._read_physical_states(env._time_ns)
 try:
     first = env.reset(201)
+    assert len(str(env.episode_directory/'model/team_flight.xml')) > 260
     initial = physical().copy()
     assert not hasattr(env, '_filter') and not hasattr(env, '_filters')
     assert not np.array_equal(first.chaser_measurement_j2000, initial[-1])

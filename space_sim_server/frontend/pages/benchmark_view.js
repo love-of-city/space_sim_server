@@ -45,7 +45,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
   card.append(element('p','panel-body muted',interval?`Wilson 95% 区间：${(interval[0]*100).toFixed(2)}%–${(interval[1]*100).toFixed(2)}%。失败与取消样本均保留。`:'批次尚未完成；未运行样本仍在计划分母中，暂不报告置信区间。'));
   if(job.error)card.append(element('p','panel-body error',job.error));
   const scroll=element('div','table-scroll'),table=element('table','platform-table'),thead=element('thead'),header=element('tr');
-  for(const name of ['种子','结果','仿真时长','终态误差',...(detail?['原始记录']:[])])header.append(element('th','',name));
+  for(const name of ['种子','结果','仿真时长','误差指标',...(detail?['原始记录']:[])])header.append(element('th','',name));
   thead.append(header);table.append(thead);const body=element('tbody');
   for(const trial of summary.trials){
     const row=element('tr'),outcome=element('td','',benchmarkLabels[trial.outcome]||trial.outcome);

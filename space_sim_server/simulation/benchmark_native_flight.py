@@ -30,6 +30,7 @@ from space_arm_platform.benchmark_contract import (
     FlightTruthSample, ForceAction, MethodContext, NavigationObservation, WaypointTask,
 )
 from space_arm_platform.benchmark_scoring import WaypointScorer
+from space_arm_platform.benchmark_paths import evidence_path
 from space_arm_platform.orbital_physics import OrbitalPhysics
 from space_arm_platform.rendezvous_config import FlightOptions
 
@@ -90,7 +91,7 @@ class NativeWaypointEnvironment:
 
     def __init__(self, task: WaypointTask, output_directory: Path):
         self.task = task
-        self.output_directory = output_directory.resolve()
+        self.output_directory = evidence_path(output_directory)
         self.repository = Path(__file__).resolve().parents[1]
         self._simulation = None
         self._stepper = None
@@ -124,7 +125,7 @@ class NativeWaypointEnvironment:
         orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC, physics=options.physics)
         ctx.install([orbit])
         self._stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin,
-                                         substeps=self.task.physics_substeps, publish_every=1)
+                                         substeps=self.task.physics_substeps, publish_every=1, model_from_memory=True)
         ctx.ports.set_stepper(self._stepper)
         ctx.add(self._stepper, Slot.PHYSICS, component="dynamics_core")
         ctx.install([OrbitalGravityComponent(force_every=1)])

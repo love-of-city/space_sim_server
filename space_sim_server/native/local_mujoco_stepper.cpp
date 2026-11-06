@@ -48,6 +48,9 @@ enum Status {
 struct Api {
     int (*version)();
     mjModel* (*loadXML)(const char*, const mjVFS*, char*, int);
+    void (*defaultVFS)(mjVFS*);
+    int (*addBufferVFS)(mjVFS*, const char*, const void*, int);
+    void (*deleteVFS)(mjVFS*);
     void (*deleteModel)(mjModel*);
     mjData* (*makeData)(const mjModel*);
     void (*deleteData)(mjData*);
@@ -154,7 +157,8 @@ using RuntimePathChar = wchar_t;
 #else
 using RuntimePathChar = char;
 #endif
-API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, char* error, int error_size) {
+static void* create_stepper(const RuntimePathChar* runtime_path, const char* xml_path,
+                            const char* xml_buffer, int xml_size, char* error, int error_size) {
     if (!runtime_path || !xml_path) {
         copy_error(error, error_size, "runtime and model paths are required");
         return nullptr;
@@ -177,6 +181,8 @@ API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, 
     }
     Api& a = s->api;
     bool ok = resolve(module, "mj_version", a.version) && resolve(module, "mj_loadXML", a.loadXML) &&
+              resolve(module, "mj_defaultVFS", a.defaultVFS) && resolve(module, "mj_addBufferVFS", a.addBufferVFS) &&
+              resolve(module, "mj_deleteVFS", a.deleteVFS) &&
               resolve(module, "mj_deleteModel", a.deleteModel) && resolve(module, "mj_makeData", a.makeData) &&
               resolve(module, "mj_deleteData", a.deleteData) && resolve(module, "mj_resetData", a.resetData) &&
               resolve(module, "mj_copyData", a.copyData) && resolve(module, "mju_quat2Mat", a.quat2Mat) &&
@@ -206,7 +212,23 @@ API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, 
         return nullptr;
     }
     char load_error[1024] = {0};
-    s->m = s->api.loadXML(xml_path, nullptr, load_error, sizeof(load_error));
+    if (xml_buffer) {
+        // The caller supplies a flattened MJCF with absolute asset paths. VFS
+        // avoids the runtime's narrow filesystem API for deep Windows paths;
+        // it changes neither the XML bytes nor the compiled physics model.
+        mjVFS vfs;
+        a.defaultVFS(&vfs);
+        if (xml_size <= 0 || a.addBufferVFS(&vfs, xml_path, xml_buffer, xml_size) != 0) {
+            a.deleteVFS(&vfs);
+            copy_error(error, error_size, "failed to register in-memory MJCF");
+            delete s;
+            return nullptr;
+        }
+        s->m = a.loadXML(xml_path, &vfs, load_error, sizeof(load_error));
+        a.deleteVFS(&vfs);
+    } else {
+        s->m = a.loadXML(xml_path, nullptr, load_error, sizeof(load_error));
+    }
     if (!s->m) {
         copy_error(error, error_size, load_error[0] ? load_error : "mj_loadXML failed");
         delete s;
@@ -235,6 +257,19 @@ API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, 
     s->api.resetData(s->m, s->d);
     s->api.forward(s->m, s->d);
     return s;
+}
+
+API void* lms_create(const RuntimePathChar* runtime_path, const char* xml_path, char* error, int error_size) {
+    return create_stepper(runtime_path, xml_path, nullptr, 0, error, error_size);
+}
+
+API void* lms_create_from_xml(const RuntimePathChar* runtime_path, const char* xml_buffer, int xml_size,
+                            char* error, int error_size) {
+    if (!xml_buffer || xml_size <= 0) {
+        copy_error(error, error_size, "nonempty in-memory MJCF is required");
+        return nullptr;
+    }
+    return create_stepper(runtime_path, "spacesim_memory_model.xml", xml_buffer, xml_size, error, error_size);
 }
 
 API void lms_destroy(void* handle) {

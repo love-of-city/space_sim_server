@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from space_arm_platform.benchmark_paths import evidence_path
 from types import SimpleNamespace
 import uuid
 
@@ -58,7 +59,7 @@ class _AttitudeEvidence(sysModel.SysModel):
 
 class NativeAttitudeEnvironment:
     def __init__(self, task: AttitudeTask, output_directory: Path):
-        self.task, self.output_directory = task, output_directory.resolve()
+        self.task, self.output_directory = task, evidence_path(output_directory)
         self.repository = Path(__file__).resolve().parents[1]
         self._simulation = self._stepper = self._truth_stream = self._observation = None
 
@@ -96,7 +97,7 @@ class NativeAttitudeEnvironment:
         orbit = OrbitComponent(epoch_utc=DEFAULT_EPHEMERIS_EPOCH_UTC, physics=options.physics)
         ctx.install([orbit])
         self._stepper = LocalMujocoStepper(scene, model, [], origin=orbit.origin,
-                                         substeps=self.task.physics_substeps, publish_every=1)
+                                         substeps=self.task.physics_substeps, publish_every=1, model_from_memory=True)
         ctx.ports.set_stepper(self._stepper)
         ctx.add(self._stepper, Slot.PHYSICS, component="dynamics_core")
         ctx.install([OrbitalGravityComponent(force_every=1)])

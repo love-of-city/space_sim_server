@@ -17,6 +17,7 @@ from .benchmark_contract import load_task
 from .atomic_json import write_json as atomic_write_json
 from .benchmark_external import ExternalMethod, ExternalMethodDefinition
 from .benchmark_registry import Task, make_scorer, method_classes, method_ids, native_environment, parse_action
+from .benchmark_paths import evidence_path
 
 
 class MethodFailure(RuntimeError):
@@ -61,7 +62,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
         method_id = method_id or method_ids(task)[0]
         if method_id not in methods:
             raise ValueError(f"unknown benchmark method: {method_id}")
-    output = output.resolve()
+    output = evidence_path(output)
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / "task.json", task.model_dump(mode="json"))
     root = Path(__file__).resolve().parents[2]
@@ -154,7 +155,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
 
 def verify_episode_evidence(output: Path) -> tuple[dict, dict]:
     """Check recorded file hashes, including incomplete infrastructure attempts."""
-    output = output.resolve()
+    output = evidence_path(output)
     result = json.loads((output / "result.json").read_text(encoding="utf-8"))
     if not {"task.json", "manifest.json"}.issubset(result["evidence_sha256"]):
         raise ValueError("run has no hashed task and manifest")
@@ -168,7 +169,7 @@ def verify_episode_evidence(output: Path) -> tuple[dict, dict]:
 
 def rescore_episode(output: Path) -> dict:
     """Verify artifact hashes, replay truth and preserve non-physical failures."""
-    output = output.resolve()
+    output = evidence_path(output)
     result, manifest = verify_episode_evidence(output)
     task = load_task(output / "task.json")
     if task.fingerprint() != manifest["task_fingerprint"]:

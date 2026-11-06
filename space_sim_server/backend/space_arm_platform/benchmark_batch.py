@@ -17,6 +17,7 @@ import psutil
 from .benchmark_execution import rescore_episode, sha256, source_identity, write_json
 from .benchmark_external import ExternalMethodDefinition
 from .benchmark_registry import Task, method_ids
+from .benchmark_paths import evidence_path
 from .collection_processes import launch_collector
 
 TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error",
@@ -122,7 +123,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
         if type(seed) is not int or seed not in seeds:
             raise ValueError("single trial seed must belong to the selected frozen split")
         seeds = (seed,)
-    output = output.resolve()
+    output = evidence_path(output)
     if not resume:
         output.mkdir(parents=True, exist_ok=False)
     elif not (output / "plan.json").is_file():
@@ -218,6 +219,7 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
 
 def reconcile_batch(task: Task, method: str, output: Path, *, interrupted_outcome="infrastructure_error") -> dict:
     """After owned processes have exited, recover durable attempts without running any."""
+    output = evidence_path(output)
     plan = json.loads((output / "plan.json").read_text(encoding="utf-8"))
     if plan["task_fingerprint"] != task.fingerprint() or plan["method"] != method:
         raise ValueError("batch identity does not match its frozen task")

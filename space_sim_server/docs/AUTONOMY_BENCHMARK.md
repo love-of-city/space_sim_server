@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及两个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持。两者都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测和离线复算。其他任务族、API、网页和采集集成仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及三个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持，`s03-large-angle-wheel-v1` 为大角度限时姿态机动。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测和离线复算。其他任务族、API、网页和采集集成仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -124,6 +124,23 @@ python tools/autonomy_benchmark.py rescore ../.tmp/attitude-201
 
 姿态测试批次的原始模型、9 个网格及原生/BSK 运行时指纹一致，初始化后状态写入均为零。汇总 SHA-256 为 `70440b0f6f317de81df387a904087472953baaa8ed5c9e6ba37b805cec2b6967`。该结果只验收此 S02 配置，未覆盖消旋、飞轮卸载、执行器故障或视觉姿态估计。
 
+### 大角度限时机动
+
+[`s03-large-angle-wheel-v1.json`](../config/benchmarks/tasks/s03-large-angle-wheel-v1.json) 对应 S03，初始姿态误差为 120°–170°，要求在 75 s 内完成转向和最后 10 s 连续稳定保持。其传感器、原生飞轮、积分精度、最终姿态/角速度容差及硬安全限制与 S02 相同。75 s 是本配置明确的工程评测预算，不声称是最短时间最优值。
+
+默认基线为 `attitude-rate-limited-pd-v1`：将姿态误差转换为目标角速度，限制该参考的模长，再用本体角速度反馈驱动实际飞轮；本配置的目标角速度上限为 0.075 rad/s。仍保留原 `attitude-wheel-pd-v1` 用于方法比较；S02 默认基线及其数值计算保持不变。加载器要求 S03 与大角度语义 ID 一致、所有初态至少转过 90°，且时间预算不超过 90 s，不能把原小角度配置更名为 S03。
+
+```text
+python tools/autonomy_benchmark.py spec s03-large-angle-wheel-v1
+python tools/autonomy_benchmark.py run s03-large-angle-wheel-v1 --seed 1 --output ../.tmp/large-angle-train-1
+python tools/autonomy_benchmark.py batch s03-large-angle-wheel-v1 --split test --output ../.tmp/large-angle-test
+python tools/autonomy_benchmark.py run s03-large-angle-wheel-v1 --method attitude-wheel-pd-v1 --seed 201 --output ../.tmp/large-angle-original-pd
+```
+
+2026-11-06 云端冻结测试种子 201–210：限角速度基线 10/10 成功，Wilson 95% 区间 72.25%–100%，完成时间 59.06–67.96 s。最终姿态误差为 0.000719–0.000939 rad，全部回合峰值本体角速度不超过 0.075051 rad/s、飞轮速度不超过 69.268 rad/s。原 PD 在种子 201 的 2.96 s 触发 0.15 rad/s 安全限制，零力矩方法在 75 s 超时；两项失败均保留原结论。
+
+所有正负结果独立重算一致；批次恢复后 100 个回合文件的哈希及修改时间未变，资产/原生运行时指纹一致，初始化后状态写入为零。S02 种子 201 的回归物理日志与原批次完全相同。任务指纹为 `56f10e02643e92c83b32ac8ae63a397682c3c1ea6968afe159e0c68a182ea65f`，测试汇总 SHA-256 为 `66291bba847cd8a88932bbd58647b9bd001ac3b3cfda49859e23e5bf198439db`。加入 S03 后，90 项相关自动检查及 Ruff 在云端通过。
+
 ## 接入自己的方法
 
 内置方法用于复现基线。要接入自己的控制器或 Agent，可使用 [`examples/autonomy_methods/conventional.py`](../examples/autonomy_methods/conventional.py) 中的 `serve_method` SDK，将方法类替换为自己的 `reset(context)`、`act(observation)`、`close()` 实现。方法进程不加载原生场景，只接收公开任务、硬件上下文和声明观测；动作还需经过环境契约校验。SDK 可以封装外部服务调用，但当前版本不提供 HTTP 方法服务端或非 Python 启动器。
@@ -164,7 +181,7 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --method-spec e
 | 层 | 责任 | 复用入口或新增内容 |
 | --- | --- | --- |
 | 来源目录 | 稳定 ID、来源 ID、优先级、任务族、视觉及合作标签 | `benchmark_catalog.py`，不导入动力学 |
-| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 合作 GNSS、S02 单星飞轮配置已实现，其余逐族落实 |
+| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 合作 GNSS、S02/S03 单星飞轮配置已实现，其余逐族落实 |
 | 执行适配 | reset/step/close、控制权、权威状态和方法观测分离 | 复用既有在轨组件、MissionRuntime、策略接口及原生执行器 |
 | 感知链 | 时间标记、标定、实际图像与有效测量 | 复用 GNSS、陀螺、Near23 桥和真实 UE 相机 |
 | 独立评分 | 从原始权威证据计算任务/安全/资源结果 | 复用并扩展已有交会、连续性和物理抓持审计 |

@@ -12,6 +12,8 @@ def quaternion_product(left, right):
 
 
 class AttitudeWheelPD:
+    rate_limited = False
+
     def reset(self, context: AttitudeContext):
         self.context = context
 
@@ -29,7 +31,14 @@ class AttitudeWheelPD:
                         + np.asarray(self.context.wheel_spin_inertia_kg_m2) * observation.wheel_speed_rad_s)
             # Existing team gains: 8 N m per MRP and 12 N m s/rad. Opposite
             # motor sign: positive wheel torque gives negative bus reaction.
-            body_torque = -8. * sigma - 12. * omega + np.cross(omega, momentum)
+            reference_rate = -(8. / 12.) * sigma
+            if self.rate_limited:
+                rate_limit = min(.08, self.context.task.safety.maximum_body_rate_rad_s / 2)
+                reference_rate *= min(1., rate_limit / max(np.linalg.norm(reference_rate), 1e-12))
+                body_torque = -12. * (omega - reference_rate) + np.cross(omega, momentum)
+            else:
+                # Preserve the established baseline arithmetic exactly.
+                body_torque = -8. * sigma - 12. * omega + np.cross(omega, momentum)
             limit = self.context.task.safety.maximum_motor_torque_nm
             torque = np.clip(-body_torque, -limit, limit)
         return WheelTorqueAction(episode_id=observation.episode_id, observation_sequence=observation.sequence,
@@ -52,5 +61,9 @@ class UnsafeSpin(AttitudeWheelPD):
                                  motor_torque_xyz_nm=(limit, limit, limit))
 
 
+class RateLimitedAttitudePD(AttitudeWheelPD):
+    rate_limited = True
+
+
 METHODS = {"attitude-wheel-pd-v1": AttitudeWheelPD, "no-wheel-torque-v1": NoWheelTorque,
-           "unsafe-spin-v1": UnsafeSpin}
+           "unsafe-spin-v1": UnsafeSpin, "attitude-rate-limited-pd-v1": RateLimitedAttitudePD}

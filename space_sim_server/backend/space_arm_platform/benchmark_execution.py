@@ -15,7 +15,7 @@ import time
 
 from .benchmark_contract import load_task
 from .benchmark_external import ExternalMethod, ExternalMethodDefinition
-from .benchmark_registry import Task, make_scorer, method_classes, native_environment, parse_action
+from .benchmark_registry import Task, make_scorer, method_classes, method_ids, native_environment, parse_action
 
 
 class MethodFailure(RuntimeError):
@@ -55,7 +55,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
             raise ValueError("method ID differs from external method specification")
         method_id = definition.spec.method_id
     else:
-        method_id = method_id or next(iter(methods))
+        method_id = method_id or method_ids(task)[0]
         if method_id not in methods:
             raise ValueError(f"unknown benchmark method: {method_id}")
     output = output.resolve()

@@ -47,6 +47,22 @@ def test_maneuver_is_required_and_initial_state_is_safe(task):
             AttitudeTask.model_validate(document)
 
 
+def test_large_angle_requirement_cannot_relabel_an_ordinary_slew(task):
+    document = task.model_dump(mode="json")
+    document["source_id"] = "S03"
+    with pytest.raises(ValueError, match="semantic"):
+        AttitudeTask.model_validate(document)
+    document["requirement_id"] = "ssb.attitude.large-angle-slew"
+    with pytest.raises(ValueError, match="large-angle"):
+        AttitudeTask.model_validate(document)
+    large = load_task(SPEC_DIRECTORY / "s03-large-angle-wheel-v1.json")
+    assert large.initial.rotation_min_rad >= math.pi/2
+    assert large.duration_s <= 90
+    assert method_ids(large)[0] == "attitude-rate-limited-pd-v1"
+    with pytest.raises(ValueError, match="deadline"):
+        AttitudeTask.model_validate({**large.model_dump(), "duration_s": 120.})
+
+
 def test_quaternion_double_cover_and_continuous_dwell(task):
     scorer = AttitudeScorer(task)
     for tick in range(5):

@@ -22,13 +22,17 @@ FAMILIES = {
     WaypointTask: FamilyImplementation("simulation.benchmark_methods", "simulation.benchmark_native_flight",
         "NativeWaypointEnvironment", ("gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1")),
     AttitudeTask: FamilyImplementation("simulation.benchmark_attitude_methods", "simulation.benchmark_native_attitude",
-        "NativeAttitudeEnvironment", ("attitude-wheel-pd-v1", "no-wheel-torque-v1", "unsafe-spin-v1")),
+        "NativeAttitudeEnvironment", ("attitude-wheel-pd-v1", "no-wheel-torque-v1", "unsafe-spin-v1", "attitude-rate-limited-pd-v1")),
 }
 
 
 def method_ids(task: Task | None = None):
     if task is not None:
-        return FAMILIES[type(task)].method_ids
+        methods = FAMILIES[type(task)].method_ids
+        if isinstance(task, AttitudeTask) and task.source_id == "S03":
+            preferred = "attitude-rate-limited-pd-v1"
+            return (preferred, *(method for method in methods if method != preferred))
+        return methods
     return tuple(name for family in FAMILIES.values() for name in family.method_ids)
 
 

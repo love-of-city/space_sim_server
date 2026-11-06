@@ -65,8 +65,8 @@ class AttitudeObservationModel(Contract):
 class AttitudeTask(Contract):
     schema_version: Literal["spacesim-autonomy-attitude/1"]
     configuration_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    requirement_id: Literal["ssb.attitude.slew-hold"]
-    source_id: Literal["S02"]
+    requirement_id: Literal["ssb.attitude.slew-hold", "ssb.attitude.large-angle-slew"]
+    source_id: Literal["S02", "S03"]
     backend: Literal["native_team_single_attitude_v1"]
     target_cooperation: Literal["none"]
     controlled_spacecraft: Literal[1]
@@ -109,6 +109,11 @@ class AttitudeTask(Contract):
     @model_validator(mode="after")
     def feasible_contract(self):
         initial, goal, safety = self.initial, self.objective, self.safety
+        requirements = {"S02": "ssb.attitude.slew-hold", "S03": "ssb.attitude.large-angle-slew"}
+        if self.requirement_id != requirements[self.source_id]:
+            raise ValueError("source and semantic requirement must agree")
+        if self.source_id == "S03" and (initial.rotation_min_rad < math.pi/2 or self.duration_s > 90):
+            raise ValueError("large-angle slew requires at least 90 degrees and a deadline no longer than 90 seconds")
         if not goal.angle_tolerance_rad < initial.rotation_min_rad <= initial.rotation_max_rad:
             raise ValueError("every initial attitude must require a maneuver")
         if math.sqrt(3) * initial.body_rate_half_width_rad_s >= safety.maximum_body_rate_rad_s:

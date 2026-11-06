@@ -112,7 +112,7 @@ print('every original SARM independently actuated and reset')
     assert 'every original SARM independently' in result.stdout
 
 
-@pytest.mark.parametrize('configuration', ['d12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1', 'd33-gnss-flyaround-v1'])
+@pytest.mark.parametrize('configuration', ['d12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1', 'd33-gnss-flyaround-v1', 'd40-gnss-proximity-abort-v1'])
 def test_relative_flight_contracts_use_actual_actuators_and_reset(tmp_path, configuration):
     code = r'''
 import sys
@@ -124,7 +124,8 @@ from space_arm_platform.benchmark_registry import native_environment
 task = load_task(SPEC_DIRECTORY/(sys.argv[2]+'.json'))
 env = native_environment(task, Path(sys.argv[1]))
 try:
-    first = env.reset(201)
+    seed = 3 if task.source_id == 'D40' else 201
+    first = env.reset(seed)
     initial = env._read_physical_states(0).copy()
     assert env.model_manifest['mesh_count'] == 113
     action = ForceAction(episode_id=first.episode_id, observation_sequence=0, force_j2000_n=(1., 0., 0.))
@@ -136,10 +137,13 @@ try:
     else:
         assert env.evaluation()['signed_revolutions'] > 0
     assert env.provenance()['native_dynamics']['external_state_writes'] == 0
-    again = env.reset(201)
+    again = env.reset(seed)
     assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
     assert np.array_equal(env._read_physical_states(0), initial)
     assert env.evaluation()['sample_count'] == 1
+    if task.source_id == 'D40':
+        assert env.evaluation()['initial_closing_speed_m_s'] >= task.path_requirement.minimum_initial_closing_speed_m_s
+        assert env.evaluation()['reversal_confirmed_s'] is None
     try: env.step(action)
     except ValueError as error: assert 'stale' in str(error)
     else: raise AssertionError('old relative-flight action accepted after reset')

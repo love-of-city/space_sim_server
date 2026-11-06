@@ -25,3 +25,5 @@ python tools/autonomy_benchmark.py rescore run/proximity-abort-train
 ```
 
 配置已在个人分支实现，原生训练、10 个冻结测试种子、负对照、复位及网页验收待完成。数学轨迹与时序用例用于核对评分规则，不能视为已经通过真实动力学运行。
+
+整合源码 `d605b00365c4491d7db97cf51ba24bd9076a936f` 在 SpaceSim 云端通过 431 项相关后端检查、261 项前端检查、Ruff 和生产构建，均无跳过的测试。这组检查包含初态风险分布约束、晚中止后到达正确终态仍失败、间断反向运动不能累计、证据和安全否决，以及 GNSS 风险触发、撤离锁存和方法复位。报告 `.tmp/benchmark-abort-integration-checks-v1/acceptance.json` SHA-256 为 `cd8eb140afa34f468c6b65a0e4b338758915e7b0dc6f3d4e4eef26feb08d5b52`。实际原生执行器及复位用例单独运行，不计入上述检查数。

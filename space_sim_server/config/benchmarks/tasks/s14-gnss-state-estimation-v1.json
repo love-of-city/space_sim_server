@@ -1,0 +1,81 @@
+{
+  "schema_version": "spacesim-autonomy-navigation-evaluation/1",
+  "configuration_id": "s14-gnss-state-estimation-v1",
+  "requirement_id": "ssb.navigation.absolute",
+  "source_id": "S14",
+  "backend": "native_team_gnss_estimation_v1",
+  "target_cooperation": "none",
+  "controlled_spacecraft": 0,
+  "spacecraft_count": 1,
+  "control_architecture": "single_estimator",
+  "vision_mode": "V0",
+  "action_type": "navigation_state_estimate_only",
+  "attitude_control": "none_passive_attitude",
+  "reference_frame": "Earth_centered_J2000",
+  "initial": {
+    "altitude_m": 500000.0,
+    "altitude_half_width_m": 20.0,
+    "inclination_deg": 51.6,
+    "true_anomaly_deg": 180.0,
+    "anomaly_half_width_deg": 2.0,
+    "orbit_shape": "circular_two_body_osculating"
+  },
+  "objective": {
+    "kind": "navigation_accuracy",
+    "position_rmse_limit_m": 0.8,
+    "velocity_rmse_limit_m_s": 0.02,
+    "maximum_position_error_m": 5.0,
+    "maximum_velocity_error_m_s": 0.15
+  },
+  "safety": {
+    "kind": "single_spacecraft_orbit",
+    "minimum_altitude_m": 450000.0,
+    "maximum_altitude_m": 550000.0,
+    "maximum_eccentricity": 0.01,
+    "maximum_force_n": 25.0,
+    "maximum_uncommanded_force_n": 1E-08
+  },
+  "observation": {
+    "kind": "independent_gnss_solutions_without_environment_filter",
+    "position_sigma_m": 1.0,
+    "velocity_sigma_m_s": 0.02,
+    "delay_s": 0.0,
+    "target_link": "none",
+    "reference_point": "assembled_center_of_mass",
+    "frame": "J2000"
+  },
+  "seeds": {
+    "train": [
+      1,
+      2,
+      3
+    ],
+    "validation": [
+      101,
+      102,
+      103
+    ],
+    "test": [
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210
+    ]
+  },
+  "duration_s": 120.0,
+  "physics_period_ns": 20000000,
+  "physics_substeps": 8,
+  "decision_period_ns": 500000000,
+  "earth_gravity": "point_mass",
+  "solar_gravity": true,
+  "drag_enabled": true,
+  "srp_enabled": true,
+  "disturbance_sigma_m_s2": 2E-06,
+  "mass_model": "constant_no_propellant_model"
+}

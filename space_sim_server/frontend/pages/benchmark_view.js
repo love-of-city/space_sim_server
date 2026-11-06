@@ -5,6 +5,7 @@ export const benchmarkLabels = {
   starting:'正在启动',running:'运行中',stopping:'正在停止',complete:'评测结束',stopped:'已停止',interrupted:'已中断',failed:'运行失败',
   success:'成功',pending:'待运行',cancelled:'已取消',safety_violation:'违反安全限制',time_limit:'达到时限',
   method_error:'方法失败',infrastructure_error:'基础设施失败',invalid_evidence:'证据无效',
+  invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
   'gnss-pd-v1':'GNSS PD','no-thrust-v1':'零推力（负对照）','unsafe-approach-v1':'持续接近（负对照）',
@@ -13,9 +14,12 @@ export const methodLabels = {
   'external-attitude-pd-v1':'姿态 PD · 独立进程示例','external-gnss-pd-v1':'GNSS PD · 独立进程示例',
   'gnss-orbit-maneuver-v1':'GNSS 轨道机动','no-orbit-thrust-v1':'零轨控推力（负对照）',
   'unsafe-orbit-burn-v1':'持续轨控推力（负对照）','external-orbit-maneuver-v1':'轨道机动 · 独立进程示例',
+  'gnss-orbit-estimator-v1':'GNSS 轨道状态估计','gnss-measurement-only-v1':'直接使用 GNSS 测量',
+  'zero-navigation-estimate-v1':'零状态估计（负对照）','external-gnss-estimator-v1':'GNSS 状态估计 · 独立进程示例',
 };
 export function benchmarkMetric(score){
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
+  if(Number.isFinite(score?.position_rmse_m))return `位置 RMSE ${score.position_rmse_m.toFixed(4)} m；速度 RMSE ${score.velocity_rmse_m_s.toFixed(4)} m/s`;
   if(Number.isFinite(score?.final_position_error_m))return `${score.final_position_error_m.toFixed(4)} m`;
   if(Number.isFinite(score?.final_orbit?.impulse_vector_error_m_s))return `Δv 误差 ${score.final_orbit.impulse_vector_error_m_s.toFixed(4)} m/s`;
   if(Number.isFinite(score?.final_orbit?.semimajor_axis_error_m))return `半长轴误差 ${score.final_orbit.semimajor_axis_error_m.toFixed(2)} m；e=${score.final_orbit.eccentricity.toExponential(2)}`;
@@ -47,6 +51,10 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     const row=element('tr'),outcome=element('td','',benchmarkLabels[trial.outcome]||trial.outcome);
     if(trial.detail)outcome.append(element('small','muted',trial.detail==='operator requested episode stop'?'用户停止了该回合':trial.detail));
     if(trial.physics_score?.safety_violations?.length)outcome.append(element('small','error',trial.physics_score.safety_violations.join('、')));
+    if(trial.physics_score?.quality_violations?.length){
+      const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差'};
+      outcome.append(element('small','error',trial.physics_score.quality_violations.map(name=>labels[name]||name).join('、')));
+    }
     row.append(element('td','',String(trial.seed)),outcome,
       element('td','',trial.physics_score?.final_time_s==null?'—':`${trial.physics_score.final_time_s.toFixed(2)} s`),
       element('td','',benchmarkMetric(trial.physics_score)));

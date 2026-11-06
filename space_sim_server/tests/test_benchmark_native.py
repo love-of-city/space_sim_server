@@ -18,6 +18,57 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.parametrize("configuration", ["s14-gnss-state-estimation-v1", "d01-cooperative-gnss-estimation-v1"])
+def test_native_navigation_uses_unfiltered_sensors_and_zero_actuation(tmp_path, configuration):
+    code = r'''
+import json, sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_navigation import NavigationEstimateAction
+from simulation.benchmark_native_navigation import NativeNavigationEnvironment
+
+task = load_task(SPEC_DIRECTORY/(sys.argv[2]+".json"))
+env = NativeNavigationEnvironment(task, Path(sys.argv[1]))
+def physical():
+    return env._physical_state(env._time_ns)[None,:] if task.source_id == "S14" else env._read_physical_states(env._time_ns)
+try:
+    first = env.reset(201)
+    initial = physical().copy()
+    assert not hasattr(env, '_filter') and not hasattr(env, '_filters')
+    assert not np.array_equal(first.chaser_measurement_j2000, initial[-1])
+    assert (first.target_measurement_j2000 is None) == (task.source_id == "S14")
+    assert len(env.model_manifest['bodies']) == task.spacecraft_count
+    state = np.array(first.chaser_measurement_j2000)
+    if task.source_id == "D01": state -= first.target_measurement_j2000
+    action = NavigationEstimateAction(episode_id=first.episode_id, observation_sequence=0, estimate_time_ns=0,
+        reference_frame=task.reference_frame, estimated_state=tuple(state))
+    env.step(action)
+    assert np.linalg.norm(physical()[0,:3]-initial[0,:3]) > 1000
+    assert env.evaluation()['estimate_count'] == 1
+    assert env.evaluation()['thrust_impulse_n_s'] == 0
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    env._truth_stream.flush()
+    records = [json.loads(line) for line in (env.episode_directory/'physics.jsonl').read_text().splitlines()]
+    assert len(records) == 27 and records[1]['record_type'] == 'navigation_estimate'
+    assert records[1]['estimate_time_ns'] == records[0]['time_ns'] == 0
+    again = env.reset(201)
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(physical(), initial)
+    assert env.evaluation()['estimate_count'] == 0 and env.evaluation()['sample_count'] == 1
+    try: env.step(action)
+    except ValueError as error: assert 'stale' in str(error)
+    else: raise AssertionError('old navigation action accepted after reset')
+finally:
+    env.close()
+print('native navigation propagation, raw sensors, estimate timing and reset verified')
+'''
+    result = subprocess.run([sys.executable, "-c", code, str(tmp_path / configuration), configuration],
+                            cwd=SERVER, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "native navigation propagation" in result.stdout
+
+
 def test_single_orbit_motor_response_and_reset_are_native(tmp_path):
     code = r'''
 import sys

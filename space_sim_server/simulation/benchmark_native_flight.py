@@ -85,6 +85,9 @@ class _PhysicsEvidence(sysModel.SysModel):
 
 
 class NativeWaypointEnvironment:
+    context_type = MethodContext
+    scorer_type = WaypointScorer
+
     def __init__(self, task: WaypointTask, output_directory: Path):
         self.task = task
         self.output_directory = output_directory.resolve()
@@ -102,7 +105,7 @@ class NativeWaypointEnvironment:
         self.episode_directory.mkdir(parents=True, exist_ok=False)
         model, meshes, self.model_manifest = prepare_model(
             self.repository, self.episode_directory / "model", force_limit_n=self.task.safety.maximum_force_n)
-        self.context = MethodContext(task=self.task, chaser_mass_kg=self.model_manifest["bodies"]["cubesat_bus"]["mass_kg"])
+        self.context = self.context_type(task=self.task, chaser_mass_kg=self.model_manifest["bodies"]["cubesat_bus"]["mass_kg"])
         sim = self._simulation = SimulationBaseClass.SimBaseClass()
         process = sim.CreateNewProcess("autonomyBenchmark")
         process.addTask(sim.CreateNewTask("benchmarkPhysics", self.task.physics_period_ns), 30)
@@ -135,11 +138,9 @@ class NativeWaypointEnvironment:
         self._state_readers = [ctx.ports.site_state(name).addSubscriber()
                                for name in ("target_flight_center", "orbital_thrust_center")]
         self._force_indices = [self._stepper.actuator_names.index(f"orbital_force_{i}") for i in range(3)]
-        gravity = BskNavigationGravity(ctx.ports.orbital_environment())
-        self._filters = [OrbitFilter(self.task.observation.position_sigma_m,
-                                     self.task.observation.velocity_sigma_m_s, gravity_model=gravity) for _ in range(2)]
+        self._setup_observation(ctx)
         self._sensor_rng = np.random.default_rng(np.random.SeedSequence([seed, 0]))
-        self._scorer = WaypointScorer(self.task, self.context.chaser_mass_kg)
+        self._scorer = self.scorer_type(self.task, self.context.chaser_mass_kg)
         self._truth_stream = (self.episode_directory / "physics.jsonl").open("w", encoding="utf-8", newline="\n")
         self._recorder = _PhysicsEvidence(self)
         ctx.add(self._recorder, Slot.RECORD, component="benchmark_evidence")
@@ -161,6 +162,11 @@ class NativeWaypointEnvironment:
         self.initial_states_j2000 = states.tolist()
         self.environment_options = options.to_dict()
         return self._observation
+
+    def _setup_observation(self, ctx):
+        gravity = BskNavigationGravity(ctx.ports.orbital_environment())
+        self._filters = [OrbitFilter(self.task.observation.position_sigma_m,
+                                     self.task.observation.velocity_sigma_m_s, gravity_model=gravity) for _ in range(2)]
 
     def _initial_states(self, seed):
         settings = self.task.initial

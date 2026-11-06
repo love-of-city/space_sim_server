@@ -8,8 +8,10 @@ from .benchmark_contract import ForceAction, WaypointTask
 from .benchmark_scoring import WaypointScorer
 from .benchmark_orbit import CircularOrbitObjective, OrbitTask
 from .benchmark_orbit_score import OrbitScorer
+from .benchmark_navigation import NavigationEstimateAction, NavigationTask
+from .benchmark_navigation_score import NavigationScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,8 @@ FAMILIES = {
         "NativeAttitudeEnvironment", ("attitude-wheel-pd-v1", "no-wheel-torque-v1", "unsafe-spin-v1", "attitude-rate-limited-pd-v1")),
     OrbitTask: FamilyImplementation("simulation.benchmark_orbit_methods", "simulation.benchmark_native_orbit",
         "NativeOrbitEnvironment", ("gnss-orbit-maneuver-v1", "no-orbit-thrust-v1", "unsafe-orbit-burn-v1")),
+    NavigationTask: FamilyImplementation("simulation.benchmark_navigation_methods", "simulation.benchmark_native_navigation",
+        "NativeNavigationEnvironment", ("gnss-orbit-estimator-v1", "gnss-measurement-only-v1", "zero-navigation-estimate-v1")),
 }
 
 
@@ -54,7 +58,10 @@ def native_environment(task: Task, output):
 
 
 def parse_action(task: Task, raw, observation):
-    if isinstance(task, (WaypointTask, OrbitTask)):
+    if isinstance(task, NavigationTask):
+        action = NavigationEstimateAction.model_validate(raw)
+        action.validate_for(observation, task)
+    elif isinstance(task, (WaypointTask, OrbitTask)):
         action = ForceAction.model_validate(raw)
         action.validate_for(observation, task.safety.maximum_force_n)
     else:
@@ -64,6 +71,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, NavigationTask):
+        return NavigationScorer(task, chaser_mass_kg)
     if isinstance(task, OrbitTask):
         return OrbitScorer(task, chaser_mass_kg)
     return WaypointScorer(task, chaser_mass_kg) if isinstance(task, WaypointTask) else AttitudeScorer(task)

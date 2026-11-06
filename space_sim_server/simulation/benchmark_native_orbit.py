@@ -45,6 +45,9 @@ class _OrbitEvidence(sysModel.SysModel):
 
 
 class NativeOrbitEnvironment:
+    context_type = OrbitContext
+    scorer_type = OrbitScorer
+
     def __init__(self, task, output_directory):
         self.task, self.output_directory = task, output_directory.resolve()
         self.repository = Path(__file__).resolve().parents[1]
@@ -58,7 +61,7 @@ class NativeOrbitEnvironment:
         self.episode_directory.mkdir(parents=True, exist_ok=False)
         model, meshes, self.model_manifest = prepare_orbit_model(self.repository, self.episode_directory / "model",
                                                                 force_limit_n=self.task.safety.maximum_force_n)
-        self.context = OrbitContext(task=self.task, chaser_mass_kg=self.model_manifest["bodies"]["cubesat_bus"]["mass_kg"])
+        self.context = self.context_type(task=self.task, chaser_mass_kg=self.model_manifest["bodies"]["cubesat_bus"]["mass_kg"])
         sim = self._simulation = SimulationBaseClass.SimBaseClass()
         process = sim.CreateNewProcess("autonomyOrbitBenchmark")
         process.addTask(sim.CreateNewTask("benchmarkPhysics", self.task.physics_period_ns), 30)
@@ -86,10 +89,9 @@ class NativeOrbitEnvironment:
         self._state_reader = ctx.ports.site_state("orbital_thrust_center").addSubscriber()
         self._body_reader = ctx.ports.body_state("cubesat_bus").addSubscriber()
         self._force_indices = [self._stepper.actuator_names.index(f"orbital_force_{i}") for i in range(3)]
-        self._filter = OrbitFilter(self.task.observation.position_sigma_m, self.task.observation.velocity_sigma_m_s,
-                                   gravity_model=BskNavigationGravity(ctx.ports.orbital_environment()))
+        self._setup_observation(ctx)
         self._sensor_rng = np.random.default_rng(np.random.SeedSequence([seed, 0]))
-        self._scorer = OrbitScorer(self.task, self.context.chaser_mass_kg)
+        self._scorer = self.scorer_type(self.task, self.context.chaser_mass_kg)
         self._truth_stream = (self.episode_directory / "physics.jsonl").open("w", encoding="utf-8", newline="\n")
         self._recorder = _OrbitEvidence(self)
         ctx.add(self._recorder, Slot.RECORD, component="benchmark_evidence")
@@ -117,6 +119,10 @@ class NativeOrbitEnvironment:
         self.initial_states_j2000 = [state.tolist()]
         self.environment_options = options.to_dict()
         return self._observation
+
+    def _setup_observation(self, ctx):
+        self._filter = OrbitFilter(self.task.observation.position_sigma_m, self.task.observation.velocity_sigma_m_s,
+                                   gravity_model=BskNavigationGravity(ctx.ports.orbital_environment()))
 
     def _physical_state(self, nanos):
         if int(self._state_reader.timeWritten()) != nanos:

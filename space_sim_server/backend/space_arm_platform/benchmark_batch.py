@@ -20,7 +20,7 @@ from .benchmark_registry import Task, method_ids
 from .collection_processes import launch_collector
 
 TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error",
-                     "infrastructure_error", "cancelled", "invalid_evidence"}
+                     "infrastructure_error", "cancelled", "invalid_evidence", "invalid_initialization", "task_failure"}
 
 
 def summarize(trials: list[dict]) -> dict:

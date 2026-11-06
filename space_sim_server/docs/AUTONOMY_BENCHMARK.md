@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及覆盖 6 条来源的 7 个可执行配置：S01 消旋、S02 姿态机动、S03 大角度机动、S09 有限时长轨道机动、S11 轨道抬升/降低（两个配置）及 D32 合作目标保持点驻留。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。各配置的实际验收范围与结果见下文；其他任务族、真实图像和接触任务、评测数据转训练集仍在实施。目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及覆盖 8 条来源的 9 个可执行配置：S01 消旋、S02 姿态机动、S03 大角度机动、S09 有限时长轨道机动、S11 轨道抬升/降低（两个配置）、S14 单星轨道状态估计、D01 合作目标相对导航及 D32 合作目标保持点驻留。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。各配置的实际验收范围与结果见下文；其他任务族、真实图像和接触任务、评测数据转训练集仍在实施。目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -29,7 +29,7 @@ python -m tools.autonomy_benchmark schema
 
 目录只描述需求，不能携带 `success`、成功率、已验收等运行结论。任务实例配置、执行后端注册和运行证据分别建模；后续界面也必须区分这三类事实。
 
-`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 6 条来源、7 个配置，余下 116 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
+`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 8 条来源、9 个配置，余下 114 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
 
 ## 原生保持点任务
 
@@ -203,6 +203,38 @@ python tools/autonomy_benchmark.py run s09-finite-burn-v1 --method-spec examples
 
 综合审计 SHA-256 为 `2c88f57191cc4166be2a300edc8f4fd851866677fe8e06ce03a726ce1258ac50`。轨道实现通过 4 项真实原生生命周期检查；后续导出/映射更新通过 129 项相关后端检查、261 项前端检查及生产构建。
 
+## 原生导航估计任务
+
+[`s14-gnss-state-estimation-v1`](../config/benchmarks/tasks/s14-gnss-state-estimation-v1.json) 和 [`d01-cooperative-gnss-estimation-v1`](../config/benchmarks/tasks/d01-cooperative-gnss-estimation-v1.json) 使用 `spacesim-autonomy-navigation-evaluation/1`。前者为单颗 SARM 的绝对轨道状态估计，后者为 SARM 与合作目标的相对位置/速度估计；它们复用上述真实单星、双星物理场景。
+
+这两项是导航技能评测：一个估计器、零颗由方法操纵的航天器，方法只提交估计值。原生平移和飞轮电机命令均保持为零；平移电机回读超过 10⁻⁸ N 即否决成功。航天器在 BSK 引力和既有环境扰动下自由传播，物理采样仍为 50 Hz、内部积分为 400 Hz。导航方法不会得到姿态真值、物理对象、实际初态或环境滤波器的后验。
+
+输入为每 0.5 s 一次、未经环境滤波的 GNSS 解：各轴位置白噪声标准差 1 m、速度标准差 0.02 m/s，零投递延迟。D01 还通过声明的合作链路接收目标的独立 GNSS 解。这是 V0 模拟 GNSS 解，不是伪距/载波信号处理、视觉感知或非合作导航。
+
+输出均以质心为参考点，使用 SI 单位：S14 为地心 J2000 的 `[r,v]`；D01 为 J2000 表达的 `[r_chaser-r_target, v_chaser-v_target]`，其中速度是惯性矢量差，不是旋转 TNR 坐标系的速度。动作必须匹配当前 episode、观测序号和采样时刻。数值传输保护边界为各位置分量 ±10¹² m、各速度分量 ±10⁷ m/s；这不是允许的轨道范围，超出边界作为方法契约错误处理。
+
+整个回合长 120 s，必须对 t=0、0.5、…、119.5 s 的 240 次观测全部给出估计，最后 t=120 s 的观测只作终端快照。不存在预热排除期，也不能提前用一帧准确估计获得成功。RMSE 是三维误差模长的均方根，包含首帧与全部有效估计：
+
+| 配置 | 位置 RMSE 上限 | 速度 RMSE 上限 | 最大位置误差 | 最大速度误差 |
+| --- | --- | --- | --- | --- |
+| S14 | 0.8 m | 0.02 m/s | 5 m | 0.15 m/s |
+| D01 | 1.2 m | 0.03 m/s | 8 m | 0.2 m/s |
+
+初始状态和物理安全检查独立于方法输出。首帧不符合声明分布记为 `invalid_initialization`；完整窗口的精度不达标记为 `task_failure`；重复、缺失、错序或与物理时刻不一致的证据不能通过。私有 `physics.jsonl` 同时保存原生物理帧与带 `record_type=navigation_estimate` 的方法输出，离线评分只用同一时刻的物理真值计算误差，不使用方法的成功标记。日志中的估计记录不写回仿真状态。
+
+默认 `gnss-orbit-estimator-v1` 在方法侧运行已有六状态轨道滤波器，从第一份带噪 GNSS 解初始化，使用点质量预测模型；D01 的两颗航天器分别滤波后作差。`gnss-measurement-only-v1` 是不滤波的测量对照，`zero-navigation-estimate-v1` 是全零估计负对照。物理环境使用点质量地球、太阳引力、阻力、光压和固定种子扰动。本组不声称覆盖 GNSS 失效、延迟、J2 长时导航或分布式协同估计。
+
+```powershell
+python tools/autonomy_benchmark.py run s14-gnss-state-estimation-v1 --seed 1 --output run/benchmark/s14-train-1
+python tools/autonomy_benchmark.py batch d01-cooperative-gnss-estimation-v1 --split test --output run/benchmark/d01-test
+python tools/autonomy_benchmark.py run s14-gnss-state-estimation-v1 --method-spec examples/autonomy_methods/navigation-estimator.json --seed 201 --output run/benchmark/s14-external-201
+python tools/autonomy_benchmark.py schema --kind navigation-task
+python tools/autonomy_benchmark.py schema --kind gnss-measurements
+python tools/autonomy_benchmark.py schema --kind navigation-estimate
+```
+
+训练种子 1 的原生执行已通过：S14 位置/速度 RMSE 为 0.3793 m / 0.00828 m/s，D01 为 0.3069 m / 0.01127 m/s；每项均记录 6001 个物理帧和 240 个估计，实际推力积分为零。相关检查共 155 项通过，其中包含六项真实原生生命周期检查；261 项前端检查及生产构建通过。冻结测试、负对照和网页结果继续记录在本节。
+
 ## 接入自己的方法
 
 内置方法用于复现基线。要接入自己的控制器或 Agent，可使用 [`examples/autonomy_methods/conventional.py`](../examples/autonomy_methods/conventional.py) 中的 `serve_method` SDK，将方法类替换为自己的 `reset(context)`、`act(observation)`、`close()` 实现。方法进程不加载原生场景，只接收公开任务、硬件上下文和声明观测；动作还需经过环境契约校验。SDK 可以封装外部服务调用，但当前版本不提供 HTTP 方法服务端或非 Python 启动器。
@@ -242,7 +274,7 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --method-spec e
 
 按项目原有方式启动平台后，登录并打开“自动采集 → 卫星驾驶评测”，或直接访问 `/collection?mode=benchmark`。选择配置、方法、训练/验证/测试划分，再运行整个冻结划分或其中一个种子。界面会明确显示可运行配置数量和 122 项来源需求数量；依赖检查只检查 Basilisk 包、模型文件和原生构建指纹，不能代替原生验收。
 
-批次通过同一 CLI 启动独立仿真进程。普通用户只能管理自己的批次；管理员可以查看和管理全部批次。同一平台数据目录最多同时运行一个驾驶评测批次；不同数据目录须使用各自进程和端口。网页只接受已注册配置和方法 ID，包括三个随项目交付的独立进程方法示例；自定义 Python 方法通过前述 CLI 在研究主机运行。
+批次通过同一 CLI 启动独立仿真进程。普通用户只能管理自己的批次；管理员可以查看和管理全部批次。同一平台数据目录最多同时运行一个驾驶评测批次；不同数据目录须使用各自进程和端口。网页只接受已注册配置和方法 ID，包括四个随项目交付的独立进程方法示例；自定义 Python 方法通过前述 CLI 在研究主机运行。
 
 “停止批次”先请求当前回合收尾，超时后清理该批次拥有的进程树。已启动回合保留取消或失败结果，尚未启动的回合保持待运行；“继续未启动样本”不会重试失败种子。平台重启会回收旧的本机进程并核对记录，不能接管其他主机上的活动批次。任务、源码或外部方法文件变化时须建立新批次。
 
@@ -284,11 +316,11 @@ CLI 也支持 `batch ... --seed 201`，但种子必须属于所选划分。`run`
 | 层 | 责任 | 复用入口或新增内容 |
 | --- | --- | --- |
 | 来源目录 | 稳定 ID、来源 ID、优先级、任务族、视觉及合作标签 | `benchmark_catalog.py`，不导入动力学 |
-| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 合作 GNSS、S01/S02/S03 单星飞轮、S09/S11 单星轨道配置已实现，其余逐族落实 |
+| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 保持点、S01/S02/S03 飞轮、S09/S11 轨道机动、S14/D01 导航估计配置已实现，其余逐族落实 |
 | 执行适配 | reset/step/close、控制权、权威状态和方法观测分离 | 复用既有在轨组件、MissionRuntime、策略接口及原生执行器 |
 | 感知链 | 时间标记、标定、实际图像与有效测量 | 复用 GNSS、陀螺、Near23 桥和真实 UE 相机 |
 | 独立评分 | 从原始权威证据计算任务/安全/资源结果 | 复用并扩展已有交会、连续性和物理抓持审计 |
-| 批评测 | 固定样本、失败分母、隔离、取消/恢复和结果汇总 | CLI/API/原平台入口可运行七个配置；转训练集待实现 |
+| 批评测 | 固定样本、失败分母、隔离、取消/恢复和结果汇总 | CLI/API/原平台入口可运行九个配置；转训练集待实现 |
 | 用户界面 | 选择任务/方法、运行与结果呈现 | 原工作台、自动采集、数据集页面 |
 
 定义一项可执行任务时必须明确：

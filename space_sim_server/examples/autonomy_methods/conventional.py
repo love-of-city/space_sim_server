@@ -20,4 +20,8 @@ if sys.argv[1:] == ["orbit"]:
     from simulation.benchmark_orbit_methods import GNSSOrbitManeuver
     from space_arm_platform.benchmark_orbit import OrbitContext, OrbitObservation
     raise SystemExit(serve_method(GNSSOrbitManeuver(), OrbitContext, OrbitObservation))
-raise SystemExit("expected one task-family argument: attitude, waypoint or orbit")
+if sys.argv[1:] == ["navigation"]:
+    from simulation.benchmark_navigation_methods import GNSSOrbitEstimator
+    from space_arm_platform.benchmark_navigation import NavigationContext, GNSSMeasurements
+    raise SystemExit(serve_method(GNSSOrbitEstimator(), NavigationContext, GNSSMeasurements))
+raise SystemExit("expected one task-family argument: attitude, waypoint, orbit or navigation")

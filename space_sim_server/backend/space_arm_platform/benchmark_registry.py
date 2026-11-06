@@ -178,6 +178,8 @@ def capability_matrix(catalogue, tasks):
 
 def configuration_title(catalogue, task):
     title = catalogue.task(task.requirement_id).title
+    if isinstance(task, RelativeFlightTask) and task.source_id == 'D40':
+        title += "（GNSS，150 m 接近中止）"
     if isinstance(task, VisionPoseTask):
         title += "（已知被动标志物，真实图像）"
     if isinstance(task, PointingTask):

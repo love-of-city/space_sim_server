@@ -25,7 +25,9 @@ export function createBenchmarkPanel(root,{api}){
       ?`全程位置 RMSE ≤ ${spec.objective.position_rmse_limit_m} m、速度 RMSE ≤ ${spec.objective.velocity_rmse_limit_m_s} m/s；方法只输出估计，不控制推进器`
       :spec.objective.kind==='complete_signed_revolution'
         ?`在 T-R 平面完成一整圈绕飞；半径 ${spec.objective.radius_m} ± ${spec.objective.radial_tolerance_m} m，平面偏差 ≤ ${spec.objective.plane_tolerance_m} m`
-        :`连续保持 ${spec.objective.dwell_s} s`;
+        :spec.path_requirement?.kind==='abort_and_retreat'
+          ?`接近中止：${spec.path_requirement.reversal_deadline_s} s 内确认持续 ${spec.path_requirement.reversal_confirmation_s} s 的向外运动；撤离至少 ${spec.path_requirement.minimum_retreat_distance_m} m，至目标保持点连续驻留 ${spec.objective.dwell_s} s`
+          :`连续保持 ${spec.objective.dwell_s} s`;
     const corridor=spec.path_requirement?.kind==='axis_approach_corridor'?`；全程横向偏差 ≤ ${spec.path_requirement.maximum_cross_track_m} m`:'';
     $('description').textContent=`${task.source_id} · ${spec.spacecraft_count} 颗航天器 · ${spec.vision_mode==='V0'?'无视觉观测':'视觉参与'} · 时限 ${spec.duration_s} s · ${objective}${corridor}。该配置的目标与安全限制固定，结果可与同配置的方法比较。`;
     const dependencies=task.dependencies||catalog.dependencies;

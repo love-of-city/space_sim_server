@@ -14,6 +14,7 @@ class AdaptiveWheelRecovery(RateLimitedAttitudePD):
         self.history = deque(maxlen=20)
         self.previous_command = None
         self.previous_time_ns = None
+        self.probe_stop_time_ns = None
 
     def act(self, observation):
         if self.previous_time_ns is not None and observation.sample_time_ns != self.previous_time_ns+self.context.task.decision_period_ns:
@@ -30,6 +31,15 @@ class AdaptiveWheelRecovery(RateLimitedAttitudePD):
                     self.gains[axis] = np.clip(commands@measured/(commands@commands), .1, 1.)
         desired = np.asarray(super().act(observation).motor_torque_xyz_nm)
         limit = self.context.task.safety.maximum_motor_torque_nm
+        # Quiet axes otherwise have no usable input/output excitation. Use a
+        # bounded zero-mean motor probe, independent of the hidden fault draw.
+        # Continue for one second after observed loss so its physical effect is
+        # measurable, then remove it for the final attitude/rate dwell.
+        if self.probe_stop_time_ns is None and np.min(self.gains) < .8:
+            self.probe_stop_time_ns = observation.sample_time_ns+1_000_000_000
+        if self.probe_stop_time_ns is None or observation.sample_time_ns < self.probe_stop_time_ns:
+            sign = 1. if (observation.sample_time_ns//100_000_000)%2 == 0 else -1.
+            desired = desired+min(.05, limit/4)*sign*np.array([1., -1., 1.])
         command = np.clip(desired/self.gains, -limit, limit)
         self.previous_command = command
         self.previous_time_ns = observation.sample_time_ns

@@ -155,6 +155,33 @@ def test_motor_diagnosis_uses_previous_command_and_current_telemetry_and_resets(
     assert not method.history
 
 
+def test_quiet_axis_is_actually_excited_for_telemetry_diagnosis_then_probe_stops(task):
+    from simulation.benchmark_wheel_recovery_methods import AdaptiveWheelRecovery
+    method = AdaptiveWheelRecovery()
+    method.reset(context(task))
+    command = np.zeros(3)
+    nominal_requests = []
+    for tick in range(100):
+        # A synthetic sensor-only method check, with no fault fields exposed.
+        # Native dynamics and diagnosis dwell are checked in separate runs.
+        gains = np.array([.4, 1., 1.]) if tick >= 25 else np.ones(3)
+        noise = np.array([.0001, -.0001, .0001])*(1. if tick%2 else -1.)
+        public = observation(tick, tuple(command*gains+noise)).model_copy(
+            update={'orientation_body_to_j2000_wxyz': (1., 0., 0., 0.)})
+        action = method.act(public)
+        command = np.asarray(action.motor_torque_xyz_nm)
+        assert np.max(abs(command)) <= task.safety.maximum_motor_torque_nm
+        if tick < 20:
+            nominal_requests.append(command.copy())
+    assert np.min(abs(np.asarray(nominal_requests))) >= .025
+    assert np.sum(nominal_requests, axis=0) == pytest.approx((0., 0., 0.), abs=.001)
+    assert action.estimated_effectiveness_xyz == pytest.approx((.4, 1., 1.), abs=.01)
+    assert command == pytest.approx((0., 0., 0.))
+    assert method.probe_stop_time_ns is not None
+    method.reset(context(task))
+    assert method.probe_stop_time_ns is None and not method.history
+
+
 def test_public_inputs_do_not_contain_realized_fault_and_actions_remain_bound(task):
     public = observation(0)
     for secret in ('fault', 'fault_axis', 'fault_onset_time_ns', 'fault_effectiveness'):

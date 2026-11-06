@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及首个可执行配置 `d32-cooperative-gnss-v1`：合作目标 GNSS 导航下的保持点到达与驻留。该配置已有原生执行、独立评分、冻结种子批评测和离线复算。其他任务族、外部方法进程、API、网页和采集集成仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及两个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持。两者都有原生执行、独立评分、冻结种子批评测和离线复算。其他任务族、外部方法进程、API、网页和采集集成仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -56,7 +56,7 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --split test --
 
 训练种子为 1–3，验证种子为 101–103，冻结测试种子为 201–210。运行目录必须新建，单次运行不能覆盖已有结果。批次把任务、方法、源码哈希及完整种子表写入计划，每个回合使用独立进程，墙钟上限 900 s。`--resume` 只启动未尝试的样本；已有失败、取消或进程中断样本保留原结论，不自动重试。任务或源码变化需要新批次，进程仍存活时拒绝恢复。
 
-基线 `gnss-pd-v1` 采用点质量前馈和 GNSS 估计上的 PD 控制；前馈近似与 J2 环境的差异保留在测试中。`--method no-thrust-v1` 是不推力负对照，`--method unsafe-approach-v1` 是持续朝目标推进的违规负对照。方法实现见 `simulation/benchmark_methods.py`，`reset/act/close` 输入输出协议位于 `benchmark_contract.py`。目前 CLI 仅注册这三个方法。
+基线 `gnss-pd-v1` 采用点质量前馈和 GNSS 估计上的 PD 控制；前馈近似与 J2 环境的差异保留在测试中。`--method no-thrust-v1` 是不推力负对照，`--method unsafe-approach-v1` 是持续朝目标推进的违规负对照。方法实现见 `simulation/benchmark_methods.py`，`reset/act/close` 输入输出协议位于 `benchmark_contract.py`。方法按任务类型注册，`tasks` 同时列出每个配置可用的方法；省略 `--method` 时使用该任务的传统基线，跨类型方法被拒绝。
 
 每个回合保存冻结任务、源码/运行身份、观测、请求动作、原生物理证据、模型和运行时指纹、评分及文件哈希。`rescore` 核对文件哈希后从原始物理状态重新计算；不需要启动 Basilisk，也不会把取消或基础设施失败改成成功。哈希用于检查归档完整性，不是可信签名。
 
@@ -65,11 +65,11 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --split test --
 基础测试与原生验收分别执行：
 
 ```text
-python -m pytest tests/test_benchmark_catalog.py tests/test_benchmark_execution.py -q
+python -m pytest tests/test_benchmark_catalog.py tests/test_benchmark_execution.py tests/test_benchmark_attitude.py -q
 python -m pytest tests/test_benchmark_native.py -q
 ```
 
-第二条在云端实际加载原生模型，检查推力确实改变运动、复位重建物理与随机流、旧回合动作被拒绝及关闭后不能步进。普通 CI 按专用验收清单排除此测试，不能将排除或跳过称为原生通过。
+第二条在云端实际加载原生模型，检查推力和飞轮确实改变运动、飞轮加速保护与制动、复位重建物理与随机流、旧回合动作被拒绝及关闭后不能步进。普通 CI 按专用验收清单排除此测试，不能将排除或跳过称为原生通过。
 
 ### 当前验证结果
 
@@ -88,12 +88,48 @@ python -m pytest tests/test_benchmark_native.py -q
 
 测试批次逐项核对了原始模型、113 个网格、原生构建与 Basilisk MuJoCo 运行时指纹，均相同，所有完整回合的初始化后状态写入计数均为零。测试批次汇总 SHA-256 为 `a58c5ec1a4b2978d31af98f6ea289f2abcc4fda0479ea4e98847363a57548aab`。原始运行数据留在本次云端临时验证目录，源码仓库只保留实现、配置及本摘要。
 
+## 原生单星姿态任务
+
+配置 [`s02-wheel-attitude-v1.json`](../config/benchmarks/tasks/s02-wheel-attitude-v1.json) 对应 S02。场景只含一颗团队 SARM，保留原模型的几何、质量、收拢构型和三轴实体飞轮；移除独立目标星、目标接触对和理想平移执行器。当前模型生成复用既有远距模型构建器，因此准备阶段仍需上述两套 LFS 资产；最终物理场景只有 SARM 的 9 个网格文件，没有目标星。
+
+初态相对给定姿态转过 25°–45°，转轴均匀取向，三轴初始角速度各在 ±0.001 rad/s 内。目标要求姿态误差不超过 0.5°、本体角速度模长不超过 0.001 rad/s，连续保持 10 s；最长 120 s。硬限制为本体角速度 0.15 rad/s、飞轮速度 628.319 rad/s、每轴电机力矩 0.2 N·m。
+
+- 动力学仍为 400 Hz 原生积分、50 Hz 物理证据，地球 J2、太阳引力、阻力、太阳光压和有种子的扰动均保留。初始轨道状态对应整星 COM，初始化本体原点速度时扣除角速度与 COM 杆臂项。
+- 方法以 50 Hz 接收带噪绝对姿态遥测、项目既有陀螺模型和理想飞轮编码器。四元数为本体到 J2000 的 `w,x,y,z`，角速度在本体系。绝对姿态噪声标准差为 0.0001 rad；陀螺包含白噪声、初始偏置、随机游走和量程判定。该配置是 V0 模拟传感器，不是星敏感器图像或视觉导航测试。
+- 动作直接驱动原生飞轮关节电机，沿用团队硬件限矩和 98% 转速保护，超过保护阈值仍允许制动。没有直接给本体施加控制力矩，也没有隐藏的真值姿态控制器。
+- `attitude-wheel-pd-v1` 复用团队姿态反馈增益，使用公开的装配体惯量和带噪观测计算飞轮力矩；`no-wheel-torque-v1` 与 `unsafe-spin-v1` 分别为零力矩和持续满力矩负对照。
+- 评分器独立计算四元数夹角（`q` 与 `-q` 等价）和连续稳定时长，从原生电机回读计算各轴绝对力矩积分。硬安全违规、缺帧和初始化后改写状态均不能获得成功；没有电气损耗模型，不输出虚构能耗。
+
+```text
+python tools/autonomy_benchmark.py spec s02-wheel-attitude-v1
+python tools/autonomy_benchmark.py schema --kind attitude
+python tools/autonomy_benchmark.py schema --kind attitude-observation
+python tools/autonomy_benchmark.py schema --kind wheel-action
+python tools/autonomy_benchmark.py run s02-wheel-attitude-v1 --seed 201 --output ../.tmp/attitude-201
+python tools/autonomy_benchmark.py batch s02-wheel-attitude-v1 --split test --output ../.tmp/attitude-test
+python tools/autonomy_benchmark.py rescore ../.tmp/attitude-201
+```
+
+训练、验证和测试种子划分与 D32 相同，任务指纹为 `abd19ea93eb5122b14c3fb81f3ad4812cb8c1e8f0e3d775ef0a17bffe3467fa2`。2026-11-06 云端实测：
+
+| 验证 | 结果 |
+| --- | --- |
+| 两类任务的目录、协议、评分、复算及模型派生检查 | 73 项通过；另有 2 项真实原生生命周期测试通过 |
+| 姿态 PD，测试种子 201–210 | 10/10 成功；Wilson 95% 区间 72.25%–100%；完成时间 35.38–38.70 s |
+| 姿态与安全指标 | 最终姿态误差 0.000711–0.000888 rad；全部回合峰值本体角速度不超过 0.09913 rad/s，飞轮速度不超过 64.982 rad/s |
+| 零力矩，种子 201 | 120 s 超时；最终姿态误差 0.82838 rad，电机力矩积分为零 |
+| 持续满力矩，种子 201 | 3.26 s 因本体角速度超出 0.15 rad/s 被否决 |
+| 离线重算及恢复 | 十个基线和两个负对照的评分重算一致；批次恢复后 100 个回合文件的哈希和修改时间均未变，退出码保留 |
+| 任务分派回归 | 重新运行 D32 测试种子 201，完整物理日志 SHA-256 与原批次该样本完全相同 |
+
+姿态测试批次的原始模型、9 个网格及原生/BSK 运行时指纹一致，初始化后状态写入均为零。汇总 SHA-256 为 `70440b0f6f317de81df387a904087472953baaa8ed5c9e6ba37b805cec2b6967`。该结果只验收此 S02 配置，未覆盖消旋、飞轮卸载、执行器故障或视觉姿态估计。
+
 ## 实现边界
 
 | 层 | 责任 | 复用入口或新增内容 |
 | --- | --- | --- |
 | 来源目录 | 稳定 ID、来源 ID、优先级、任务族、视觉及合作标签 | `benchmark_catalog.py`，不导入动力学 |
-| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 合作 GNSS 配置已实现，其余逐族落实 |
+| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 合作 GNSS、S02 单星飞轮配置已实现，其余逐族落实 |
 | 执行适配 | reset/step/close、控制权、权威状态和方法观测分离 | 复用既有在轨组件、MissionRuntime、策略接口及原生执行器 |
 | 感知链 | 时间标记、标定、实际图像与有效测量 | 复用 GNSS、陀螺、Near23 桥和真实 UE 相机 |
 | 独立评分 | 从原始权威证据计算任务/安全/资源结果 | 复用并扩展已有交会、连续性和物理抓持审计 |

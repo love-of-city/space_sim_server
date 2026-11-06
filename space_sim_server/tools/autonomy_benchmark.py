@@ -21,7 +21,9 @@ from space_arm_platform.benchmark_catalog import (  # noqa: E402
 from space_arm_platform.benchmark_contract import (  # noqa: E402
     SPEC_DIRECTORY, ForceAction, NavigationObservation, WaypointTask, load_task,
 )
-from space_arm_platform.benchmark_execution import rescore_waypoint, run_waypoint  # noqa: E402
+from space_arm_platform.benchmark_attitude import AttitudeObservation, AttitudeTask, WheelTorqueAction  # noqa: E402
+from space_arm_platform.benchmark_execution import rescore_episode, run_episode  # noqa: E402
+from space_arm_platform.benchmark_registry import method_ids  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -36,27 +38,28 @@ def main(argv=None) -> int:
     listing.add_argument("--format", choices=["json", "markdown"], default="json")
     commands.add_parser("validate", help="validate the complete final source mapping")
     schema = commands.add_parser("schema", help="print a versioned JSON Schema")
-    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action"], default="catalogue")
+    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action"], default="catalogue")
     commands.add_parser("tasks", help="list registered executable configurations, separately from requirements")
     spec = commands.add_parser("spec", help="print an executable task specification")
     spec.add_argument("configuration")
     run = commands.add_parser("run", help="run one native episode in a new output directory")
     run.add_argument("configuration")
-    run.add_argument("--method", choices=["gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1"], default="gnss-pd-v1")
+    run.add_argument("--method", choices=method_ids(), help="defaults to the task family's conventional baseline")
     run.add_argument("--seed", type=int, required=True)
     run.add_argument("--output", type=Path, required=True)
     rescore = commands.add_parser("rescore", help="verify artifact hashes and independently replay physical evidence")
     rescore.add_argument("output", type=Path)
     batch = commands.add_parser("batch", help="run a frozen split in isolated processes; resume does not retry failures")
     batch.add_argument("configuration")
-    batch.add_argument("--method", choices=["gnss-pd-v1", "no-thrust-v1", "unsafe-approach-v1"], default="gnss-pd-v1")
+    batch.add_argument("--method", choices=method_ids(), help="defaults to the task family's conventional baseline")
     batch.add_argument("--split", choices=["train", "validation", "test"], default="test")
     batch.add_argument("--output", type=Path, required=True)
     batch.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "schema":
         model = {"catalogue": AutonomyCatalog, "waypoint": WaypointTask,
-                 "observation": NavigationObservation, "action": ForceAction}[args.kind]
+                 "observation": NavigationObservation, "action": ForceAction, "attitude": AttitudeTask,
+                 "attitude-observation": AttitudeObservation, "wheel-action": WheelTorqueAction}[args.kind]
         print(json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2))
         return 0
     try:
@@ -70,14 +73,15 @@ def main(argv=None) -> int:
     if args.command in {"tasks", "spec", "run", "rescore", "batch"}:
         try:
             if args.command == "rescore":
-                print(json.dumps(rescore_waypoint(args.output), ensure_ascii=False, indent=2))
+                print(json.dumps(rescore_episode(args.output), ensure_ascii=False, indent=2))
                 return 0
             registered = [load_task(path, catalog) for path in sorted(SPEC_DIRECTORY.glob("*.json"))]
             if args.command == "tasks":
                 print(json.dumps({"scope": "registered_execution_configurations", "configurations": [
                     {"id": task.configuration_id, "requirement_id": task.requirement_id,
                      "source_id": task.source_id, "backend": task.backend, "vision_mode": task.vision_mode,
-                     "target_cooperation": task.target_cooperation, "fingerprint": task.fingerprint()}
+                     "target_cooperation": task.target_cooperation, "fingerprint": task.fingerprint(),
+                     "methods": method_ids(task)}
                     for task in registered]}, ensure_ascii=False, indent=2))
                 return 0
             matches = [task for task in registered if task.configuration_id == args.configuration]
@@ -89,10 +93,10 @@ def main(argv=None) -> int:
                 return 0
             if args.command == "batch":
                 from space_arm_platform.benchmark_batch import run_batch
-                result = run_batch(task, args.method, args.split, args.output, resume=args.resume)
+                result = run_batch(task, args.method or method_ids(task)[0], args.split, args.output, resume=args.resume)
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 return 0 if result["complete"] and result["successes"] == result["planned"] else 1
-            result = run_waypoint(task, args.method, args.seed, args.output)
+            result = run_episode(task, args.method or method_ids(task)[0], args.seed, args.output)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result["success"] else {"infrastructure_error": 3, "cancelled": 130}.get(result["outcome"], 1)
         except (OSError, ValueError, KeyError) as error:

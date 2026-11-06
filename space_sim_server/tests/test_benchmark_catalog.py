@@ -105,7 +105,7 @@ def test_cli_distinguishes_registered_configurations_from_requirement_ids(capsys
     assert main(["tasks"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["scope"] == "registered_execution_configurations"
-    assert [item["id"] for item in result["configurations"]] == ["d32-cooperative-gnss-v1"]
+    assert [item["id"] for item in result["configurations"]] == ["d32-cooperative-gnss-v1", "s02-wheel-attitude-v1"]
     output = tmp_path / "must-not-exist"
     assert main(["run", "D26", "--seed", "201", "--output", str(output)]) == 2
     assert "not registered" in capsys.readouterr().err

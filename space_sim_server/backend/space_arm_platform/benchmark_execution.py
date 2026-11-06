@@ -13,8 +13,8 @@ import subprocess
 import sys
 import time
 
-from .benchmark_contract import ForceAction, WaypointTask
-from .benchmark_scoring import WaypointScorer
+from .benchmark_contract import load_task
+from .benchmark_registry import Task, make_scorer, method_classes, native_environment, parse_action
 
 
 class MethodFailure(RuntimeError):
@@ -43,11 +43,12 @@ def source_identity(server_root: Path) -> dict:
             "python": sys.version, "platform": platform.platform(), "source_sha256": hashes}
 
 
-def run_waypoint(task: WaypointTask, method_id: str, seed: int, output: Path) -> dict:
+def run_episode(task: Task, method_id: str, seed: int, output: Path) -> dict:
     """Record failures too. Output must be new; a retry cannot overwrite a trial."""
+    task = type(task).model_validate(task)
     split = task.seeds.split_for(seed)
-    from simulation.benchmark_methods import METHODS
-    if method_id not in METHODS:
+    methods = method_classes(task)
+    if method_id not in methods:
         raise ValueError(f"unknown benchmark method: {method_id}")
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -65,15 +66,14 @@ def run_waypoint(task: WaypointTask, method_id: str, seed: int, output: Path) ->
     detail = None
     physics_score = None
     try:
-        from simulation.benchmark_native_flight import NativeWaypointEnvironment
-        environment = NativeWaypointEnvironment(task, output)
+        environment = native_environment(task, output)
         observation = environment.reset(seed)
         manifest.update({"episode_id": environment.episode_id,
                          "physics_path": (environment.episode_directory / "physics.jsonl").relative_to(output).as_posix(),
                          "chaser_mass_kg": environment.context.chaser_mass_kg})
         write_json(output / "manifest.json", manifest)
         try:
-            method = METHODS[method_id]()
+            method = methods[method_id]()
             method.reset(environment.context)
         except Exception as error:
             raise MethodFailure(f"{type(error).__name__}: {error}") from error
@@ -83,8 +83,7 @@ def run_waypoint(task: WaypointTask, method_id: str, seed: int, output: Path) ->
             while environment.evaluation()["outcome"] == "incomplete":
                 try:
                     raw_action = method.act(observation)
-                    action = ForceAction.model_validate(raw_action)
-                    action.validate_for(observation, task.safety.maximum_force_n)
+                    action = parse_action(task, raw_action, observation)
                 except Exception as error:
                     outcome, detail = "method_error", f"{type(error).__name__}: {error}"
                     break
@@ -134,7 +133,7 @@ def run_waypoint(task: WaypointTask, method_id: str, seed: int, output: Path) ->
     return result
 
 
-def rescore_waypoint(output: Path) -> dict:
+def rescore_episode(output: Path) -> dict:
     """Verify artifact hashes, replay truth and preserve non-physical failures."""
     output = output.resolve()
     result = json.loads((output / "result.json").read_text(encoding="utf-8"))
@@ -143,13 +142,13 @@ def rescore_waypoint(output: Path) -> dict:
         if not path.is_relative_to(output) or sha256(path) != expected:
             raise ValueError(f"changed or invalid evidence artifact: {relative}")
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    task = WaypointTask.model_validate_json((output / "task.json").read_text(encoding="utf-8"))
+    task = load_task(output / "task.json")
     if task.fingerprint() != manifest["task_fingerprint"]:
         raise ValueError("task does not match run fingerprint")
     physics_path = manifest.get("physics_path")
     if not physics_path or physics_path not in result["evidence_sha256"]:
         raise ValueError("run has no complete hashed physical evidence")
-    scorer = WaypointScorer(task, manifest["chaser_mass_kg"])
+    scorer = make_scorer(task, manifest["chaser_mass_kg"])
     with (output / physics_path).open(encoding="utf-8") as stream:
         for line in stream:
             scorer.add(json.loads(line))
@@ -159,3 +158,9 @@ def rescore_waypoint(output: Path) -> dict:
     return {"schema_version": "spacesim-autonomy-rescore/1", "outcome": outcome, "success": outcome == "success",
             "physics_score": score, "matches_recorded_physics_score": score == result.get("physics_score"),
             "original_outcome": result["outcome"]}
+
+
+# Compatibility for the original waypoint Python entrypoints and archived
+# notebooks. New code uses family-neutral names; wire schemas remain versioned.
+run_waypoint = run_episode
+rescore_waypoint = rescore_episode

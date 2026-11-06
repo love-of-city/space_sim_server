@@ -13,8 +13,8 @@ import sys
 
 import psutil
 
-from .benchmark_contract import WaypointTask
-from .benchmark_execution import rescore_waypoint, sha256, source_identity, write_json
+from .benchmark_execution import rescore_episode, sha256, source_identity, write_json
+from .benchmark_registry import Task, method_ids
 
 TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error",
                      "infrastructure_error", "cancelled", "invalid_evidence"}
@@ -66,7 +66,7 @@ def batch_lock(directory: Path):
             path.unlink()
 
 
-def _completed_trial(directory: Path, planned: dict, task: WaypointTask, method: str) -> dict:
+def _completed_trial(directory: Path, planned: dict, task: Task, method: str) -> dict:
     status = json.loads((directory / "status.json").read_text(encoding="utf-8"))
     result_path = directory / "run/result.json"
     if status.get("outcome") == "running" and "child_pid" in status:
@@ -86,7 +86,7 @@ def _completed_trial(directory: Path, planned: dict, task: WaypointTask, method:
         if result["outcome"] not in TERMINAL_OUTCOMES:
             raise ValueError("trial returned a nonterminal outcome")
         if result["outcome"] not in {"infrastructure_error", "cancelled"}:
-            replay = rescore_waypoint(directory / "run")
+            replay = rescore_episode(directory / "run")
             if not replay["matches_recorded_physics_score"] or replay["outcome"] != result["outcome"]:
                 raise ValueError("independent replay differs from recorded trial")
         return {**planned, "outcome": result["outcome"], "result_sha256": sha256(result_path),
@@ -98,7 +98,10 @@ def _completed_trial(directory: Path, planned: dict, task: WaypointTask, method:
             "detail": "previous attempt has no complete result; it was not retried"}
 
 
-def run_batch(task: WaypointTask, method: str, split: str, output: Path, *, resume=False) -> dict:
+def run_batch(task: Task, method: str, split: str, output: Path, *, resume=False) -> dict:
+    task = type(task).model_validate(task)
+    if method not in method_ids(task):
+        raise ValueError("method is not registered for this task family")
     if split not in {"train", "validation", "test"}:
         raise ValueError("unknown frozen split")
     seeds = getattr(task.seeds, split)
@@ -126,7 +129,8 @@ def run_batch(task: WaypointTask, method: str, split: str, output: Path, *, resu
             directory = output / trial["trial_id"]
             if (directory / "status.json").is_file():
                 result = _completed_trial(directory, trial, task, method)
-                write_json(directory / "status.json", result)
+                prior = json.loads((directory / "status.json").read_text(encoding="utf-8"))
+                write_json(directory / "status.json", {**prior, **result})
                 results.append(result)
                 continue
             if cancelled:

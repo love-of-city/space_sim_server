@@ -176,8 +176,13 @@ class WaypointTask(Contract):
             raise ValueError("executable configuration does not match its catalogue requirement")
 
 
-def load_task(path: Path, catalogue: AutonomyCatalog | None = None) -> WaypointTask:
-    task = WaypointTask.model_validate_json(path.read_text(encoding="utf-8"))
+def load_task(path: Path, catalogue: AutonomyCatalog | None = None):
+    from .benchmark_attitude import AttitudeTask
+    document = json.loads(path.read_text(encoding="utf-8"))
+    schemas = {"spacesim-autonomy-waypoint/1": WaypointTask, "spacesim-autonomy-attitude/1": AttitudeTask}
+    if not isinstance(document, dict) or document.get("schema_version") not in schemas:
+        raise ValueError("unknown executable benchmark task schema")
+    task = schemas[document["schema_version"]].model_validate(document)
     task.validate_catalogue(catalogue or load_catalog())
     return task
 

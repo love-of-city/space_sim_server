@@ -17,7 +17,7 @@ python tools/autonomy_benchmark.py batch s13-gnss-orbit-maintenance-v1 --split t
 python tools/autonomy_benchmark.py rescore run/orbit-maintenance-train
 ```
 
-当前在个人隔离分支开发，云端原生训练已完成，完整冻结测试及平台验收正在进行。数学评分用例验证固定时窗、中途超限、证据连续性和安全优先级，不作为物理运行结果。
+当前已在个人隔离工作树完成原生训练、完整冻结矩阵、对照、外部方法、复位、取消及原网页验收。数学评分用例验证固定时窗、中途超限、证据连续性和安全优先级，不作为物理运行结果。
 
 云端相关轨道、任务目录、外部方法、执行、数据集和平台检查共 138 项通过。首轮仅有 API 目录的固定来源清单漏加 S13，更新后复测通过；评分和实际参考控制检查没有放宽。261 项前端检查（零跳过）、生产构建及 Ruff 通过。新用例确认维持时窗内继续修正 GNSS 误差、一次中途越界不能被正确终态掩盖，以及连续证据与执行器硬约束的否决优先级。
 
@@ -30,3 +30,17 @@ python tools/autonomy_benchmark.py rescore run/orbit-maintenance-train
 第二轮训练、对照及旧轨控回归报告 `.tmp/benchmark-orbit-maintenance-training-v2/acceptance.json` SHA-256 为 `bfb112e425838306aec887b9c115f9a8463fce92c88ef135106fb82eca8f4340`。两个基线失败和零推力失败共导出 7,200 条可验证的训练转换，保留三回合的原始失败标签；整轮源码保持不变。
 
 源码 `103f176a359931a0c10af45c68c77e68e68ab1a7` 的第三轮训练中，种子 1、2 均实际运行完整 1,200 s、记录 60,001 条物理样本并成功。54,001 条维持时窗采样全部合格，半长轴最大偏差分别为 9.6547、9.2349 m，连续维持 1,080 s，等效 Δv 分别为 14.0926、14.3396 m/s。两回合的运行身份与独立复算通过，4,800 条训练转换校验通过。报告 `.tmp/benchmark-orbit-maintenance-training-v3/acceptance.json` SHA-256 为 `09f25b74a348b0b942764788ecc6a8df4ee329913f369cb7382734eb1b53a5a9`。此后方法与评分被冻结，再开始种子 201–210 测试；训练成功不计入测试分母。
+
+冻结种子 201–210 全部成功（10/10，Wilson 95% 区间约 72.25%–100%）。每回合完成 1,200 s，54,001 条维持时窗采样零超限，最大半长轴误差为 9.34–10.44 m。测试种子 201 的零推力对照全部 54,001 条维持采样不合格，最大偏差约 11.19 km；违规持续推力在 678 s、等效 Δv 20.012 m/s 时被硬安全条件否决。外部方法复现内置种子 201 的完整物理日志，SHA-256 为 `281cf53b379fb14c6b1c08d478434425096b082ac189954ea8f4a9e1bae6b31e`。全部 13 回合运行身份和独立复算一致；恢复批次不修改原结果，4,800 条含成功与失败的测试转换可复制迁移后校验。
+
+真实复位清除推力锁存、累计冲量与维持历史，重复初始 GNSS 和首段实际受力轨迹；CLI 取消保存 13 s、651 条物理样本、26 条已完成转换，子进程全部退出。Edge `156.0.4314.58` 完成外部成功、零推力失败和实际取消三个网页案例，均可复算和下载 JSON、CSV、物理日志及验证数据集，无浏览器异常。前两例物理哈希与冻结矩阵完全相同；取消保留 26 条训练转换。
+
+首轮浏览器辅助脚本在外部成功回合已完成后，读取超过 Windows 常规路径长度的物理文件失败。该物理结果与失败日志保留；第二轮只修正辅助脚本路径访问，复用原成功回合，核对结果哈希和修改时间不变，再执行其他案例。完整生命周期汇总重新核验全部 13 个冻结回合，没有重跑或替换原始物理数据。
+
+| 证据（隔离云端工作树下） | SHA-256 |
+|---|---|
+| `.tmp/benchmark-orbit-maintenance-frozen-v1/acceptance.json` | `d1ebc910f73a24f156c7ed3532645d404054ef418fc4672ace1f9250ac25284c` |
+| `.tmp/benchmark-orbit-maintenance-reset-v1/acceptance.json` | `99b97d5f2a24c4c8ad87155f5de2fd957f8aed5c129a162d72ca698a0895fcad` |
+| `.tmp/benchmark-orbit-maintenance-cancel-v1/acceptance.json` | `0dfb62b2db6e373027c022b4fcfdedcc412d0d4378a9adb1bf47d27711073fc3` |
+| `.tmp/benchmark-orbit-maintenance-platform-v2/acceptance.json` | `919584cd8c1d8ade64d5c1229ef51c6fc6204fa36b1547da5ff007dc27c17666` |
+| `.tmp/benchmark-orbit-maintenance-lifecycle-v2/acceptance.json` | `b5041be665f50f66ffe5c8b323d24728861aff124106b92ab3aed2f4795e1d1e` |

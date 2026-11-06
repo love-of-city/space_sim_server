@@ -16,6 +16,10 @@ if sys.argv[1:] == ["debris-avoidance"]:
     from simulation.benchmark_avoidance_methods import CatalogAvoidance
     from space_arm_platform.benchmark_avoidance import AvoidanceContext, AvoidanceObservation
     raise SystemExit(serve_method(CatalogAvoidance(), AvoidanceContext, AvoidanceObservation))
+if sys.argv[1:] == ["target-pointing"]:
+    from simulation.benchmark_target_pointing_methods import TargetPointingPD
+    from space_arm_platform.benchmark_target_pointing import TargetPointingContext, TargetPointingObservation
+    raise SystemExit(serve_method(TargetPointingPD(), TargetPointingContext, TargetPointingObservation))
 if sys.argv[1:] == ["pointing"]:
     from simulation.benchmark_pointing_methods import PointingWheelPD
     from space_arm_platform.benchmark_pointing import PointingContext, PointingObservation

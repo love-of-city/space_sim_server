@@ -8,6 +8,9 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'cooperative-target-pointing-v1':'合作目标星持续指向','external-target-pointing-v1':'目标星指向 · 独立进程示例',
+  'frozen-target-pointing-v1':'保持目标初始方向（负对照）','no-target-pointing-torque-v1':'零目标跟踪力矩（负对照）',
+  'unsafe-target-pointing-spin-v1':'持续满力矩指向（负对照）',
   'gnss-outage-recovery-v1':'GNSS 中断推算与恢复','external-gnss-recovery-v1':'导航恢复 · 独立进程示例',
   'freeze-during-outage-v1':'中断期间冻结状态（负对照）','zero-recovery-estimate-v1':'始终零导航估计（负对照）',
   'catalog-avoidance-v1':'外部目录与 GNSS 自主避碰','external-catalog-avoidance-v1':'目录避碰 · 独立进程示例',

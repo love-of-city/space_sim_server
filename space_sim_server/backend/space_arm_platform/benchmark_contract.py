@@ -189,6 +189,7 @@ def parse_task(document: dict, catalogue: AutonomyCatalog | None = None):
     from .benchmark_flyaround import FlyAroundTask
     from .benchmark_formation import FormationTask
     from .benchmark_pointing import PointingTask
+    from .benchmark_target_pointing import TargetPointingTask
     from .benchmark_vision import VisionPoseTask
     from .benchmark_vision_motion import VisionMotionTask
     from .benchmark_vision_approach import VisionApproachTask
@@ -201,6 +202,7 @@ def parse_task(document: dict, catalogue: AutonomyCatalog | None = None):
                "spacesim-autonomy-flyaround/1": FlyAroundTask,
                "spacesim-autonomy-formation/1": FormationTask,
                "spacesim-autonomy-pointing/1": PointingTask,
+               "spacesim-autonomy-target-pointing/1": TargetPointingTask,
                "spacesim-autonomy-rendered-pose/1": VisionPoseTask,
                "spacesim-autonomy-rendered-spin/1": VisionMotionTask,
                "spacesim-autonomy-visual-approach/1": VisionApproachTask,

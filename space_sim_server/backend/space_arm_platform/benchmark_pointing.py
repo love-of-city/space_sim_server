@@ -110,11 +110,15 @@ class PointingTask(Contract):
 
     @model_validator(mode="after")
     def feasible(self):
-        initial, goal, safety = self.initial, self.objective, self.safety
+        goal = self.objective
         ground = isinstance(goal, GroundPointingObjective)
         expected = "ssb.attitude.ground-track" if ground else "ssb.attitude.reference-pointing"
         if self.source_id != ("S05" if ground else "S06") or self.requirement_id != expected:
             raise ValueError("pointing target and source requirement must agree")
+        return self._validate_tracking_control()
+
+    def _validate_tracking_control(self):
+        initial, goal, safety = self.initial, self.objective, self.safety
         if not 5*goal.angle_tolerance_rad < initial.rotation_min_rad <= initial.rotation_max_rad < math.pi/2:
             raise ValueError("initial boresight tilt must require a distinct acquisition maneuver")
         if math.sqrt(3)*initial.body_rate_half_width_rad_s >= safety.maximum_body_rate_rad_s:

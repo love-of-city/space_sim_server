@@ -17,6 +17,7 @@ from space_arm_platform.benchmark_relative_flight import RelativeFlightContext
 from space_arm_platform.benchmark_flyaround import FlyAroundContext
 from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
 from space_arm_platform.benchmark_pointing import PointingContext, PointingObservation
+from space_arm_platform.benchmark_target_pointing import TargetPointingContext, TargetPointingObservation
 from space_arm_platform.benchmark_contract import MethodContext, NavigationObservation, SPEC_DIRECTORY, load_task
 from space_arm_platform.benchmark_external import (
     ExternalMethod, ExternalMethodDefinition, MAX_STDERR_BYTES, decode_message,
@@ -50,7 +51,7 @@ def context_and_observation(family):
         observation = AvoidanceObservation(episode_id='test',sequence=0,sample_time_ns=0,delivery_time_ns=0,
             chaser_estimate_j2000=(7e6,0.,0.,0.,7500.,0.), debris_catalog_j2000=(7e6+5.,0.,-1500.,0.,7500.,10.),
             catalog_sample_time_ns=0,catalog_delivery_time_ns=0)
-    elif family in {"attitude", "pointing", "wheel-recovery"}:
+    elif family in {"attitude", "pointing", "target-pointing", "wheel-recovery"}:
         task = load_task(SPEC_DIRECTORY / "s02-wheel-attitude-v1.json")
         context = AttitudeContext(task=task, chaser_mass_kg=170., inertia_com_body_kg_m2=((1., 0., 0.), (0., 2., 0.), (0., 0., 3.)),
             wheel_spin_inertia_kg_m2=(.01, .01, .01), hardware_torque_limits_nm=(.2, .2, .2),
@@ -63,7 +64,7 @@ def context_and_observation(family):
             context = WheelRecoveryContext(task=task, **context.model_dump(exclude={"task"}))
             observation = WheelRecoveryObservation(**observation.model_dump(exclude={"schema_version"}),
                 measured_motor_torque_xyz_nm=(0., 0., 0.))
-        if family == "pointing":
+        if family in {"pointing", "target-pointing"}:
             task = load_task(SPEC_DIRECTORY / "s06-earth-pointing-v1.json")
             context = PointingContext(task=task, **context.model_dump(exclude={"task"}))
             observation = PointingObservation(**observation.model_dump(exclude={"schema_version"}),
@@ -71,6 +72,11 @@ def context_and_observation(family):
                 ephemeris=dict(earth_j2000_to_fixed=((1.,0.,0.),(0.,1.,0.),(0.,0.,1.)),
                     earth_j2000_to_fixed_rate_s=((0.,0.,0.),(0.,0.,0.),(0.,0.,0.)),
                     sun_geocentric_j2000=(1.5e11,0.,0.,0.,30000.,0.)))
+        if family == "target-pointing":
+            task = load_task(SPEC_DIRECTORY/'d11-cooperative-target-pointing-v1.json')
+            context = TargetPointingContext(task=task, **context.model_dump(exclude={'task'}))
+            observation = TargetPointingObservation(**observation.model_dump(exclude={'schema_version'}),
+                target_gnss_j2000=(6878136.6,500.,100.,0.,7500.,.4))
     elif family in {"formation", "cooperative-rendezvous"}:
         task = load_task(SPEC_DIRECTORY / ("d19-gnss-cooperative-rendezvous-v1.json" if family == "cooperative-rendezvous" else "m02-gnss-formation-hold-v1.json"))
         context = FormationContext(task=task, spacecraft_masses_kg=(170.,)*task.spacecraft_count)
@@ -100,10 +106,10 @@ def context_and_observation(family):
     return context, observation
 
 
-@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "low-thrust", "orbit-plane", "navigation", "navigation-recovery", "relative-flight", "flyaround", "formation", "cooperative-rendezvous", "pointing", "wheel-recovery", "debris-avoidance"])
+@pytest.mark.parametrize("family", ["attitude", "waypoint", "orbit", "low-thrust", "orbit-plane", "navigation", "navigation-recovery", "relative-flight", "flyaround", "formation", "cooperative-rendezvous", "pointing", "target-pointing", "wheel-recovery", "debris-avoidance"])
 def test_sdk_process_matches_builtin_without_loading_simulator(tmp_path, family):
     context, observation = context_and_observation(family)
-    filename = {"orbit-plane": "orbit-pd.json", "low-thrust": "orbit-pd.json", "navigation": "navigation-estimator.json", "navigation-recovery": "navigation-recovery.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "cooperative-rendezvous": "formation.json", "pointing": "pointing.json", "wheel-recovery": "wheel-recovery.json", "debris-avoidance": "debris-avoidance.json"}.get(family, f"{family}-pd.json")
+    filename = {"target-pointing": "target-pointing.json", "orbit-plane": "orbit-pd.json", "low-thrust": "orbit-pd.json", "navigation": "navigation-estimator.json", "navigation-recovery": "navigation-recovery.json", "relative-flight": "relative-flight.json", "flyaround": "flyaround.json", "formation": "formation.json", "cooperative-rendezvous": "formation.json", "pointing": "pointing.json", "wheel-recovery": "wheel-recovery.json", "debris-avoidance": "debris-avoidance.json"}.get(family, f"{family}-pd.json")
     definition = ExternalMethodDefinition(SERVER / "examples/autonomy_methods" / filename, context.task)
     method = ExternalMethod(definition, tmp_path)
     baseline = method_classes(context.task)[method_ids(context.task)[0]]()

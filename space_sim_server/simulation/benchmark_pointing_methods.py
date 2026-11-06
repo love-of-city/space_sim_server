@@ -54,11 +54,14 @@ class PointingWheelPD:
         self.context = context
         self.initial_reference = None
 
+    def _reference(self, observation):
+        return line_of_sight(self.context.task.objective, observation.chaser_gnss_j2000, observation.ephemeris)
+
     def act(self, observation):
         if not observation.gyro_valid:
             torque = np.zeros(3)
         else:
-            direction, derivative = line_of_sight(self.context.task.objective, observation.chaser_gnss_j2000, observation.ephemeris)
+            direction, derivative = self._reference(observation)
             frame, reference_rate = reference_frame(direction, derivative)
             target = matrix_to_quaternion(frame)
             if self.frozen_reference:

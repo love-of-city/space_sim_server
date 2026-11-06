@@ -29,6 +29,7 @@ from space_arm_platform.benchmark_relative_flight import RelativeFlightTask  # n
 from space_arm_platform.benchmark_flyaround import FlyAroundTask  # noqa: E402
 from space_arm_platform.benchmark_formation import FormationAction, FormationObservation, FormationTask  # noqa: E402
 from space_arm_platform.benchmark_pointing import PointingTask, PointingObservation  # noqa: E402
+from space_arm_platform.benchmark_target_pointing import TargetPointingTask, TargetPointingObservation  # noqa: E402
 from space_arm_platform.benchmark_vision import VisionPoseTask, VisionPoseObservation, VisionPoseAction  # noqa: E402
 from space_arm_platform.benchmark_vision_motion import VisionMotionTask, VisionMotionObservation, VisionMotionAction  # noqa: E402
 from space_arm_platform.benchmark_vision_approach import VisionApproachTask, VisionApproachObservation, VisionApproachAction  # noqa: E402
@@ -51,7 +52,7 @@ def main(argv=None) -> int:
     listing.add_argument("--format", choices=["json", "markdown"], default="json")
     commands.add_parser("validate", help="validate the complete final source mapping")
     schema = commands.add_parser("schema", help="print a versioned JSON Schema")
-    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action", "pointing", "pointing-observation", "vision-pose", "vision-observation", "vision-estimate", "vision-spin", "vision-spin-observation", "vision-spin-estimate", "vision-approach", "vision-approach-observation", "vision-approach-action", "wheel-recovery", "wheel-recovery-observation", "wheel-recovery-action", "debris-avoidance", "debris-observation", "orbit", "orbit-observation", "navigation-task", "navigation-recovery", "navigation-recovery-observation", "gnss-measurements", "navigation-estimate", "relative-flight", "flyaround", "formation", "formation-observation", "formation-action", "method", "method-request", "method-response"], default="catalogue")
+    schema.add_argument("--kind", choices=["catalogue", "waypoint", "observation", "action", "attitude", "attitude-observation", "wheel-action", "pointing", "pointing-observation", "target-pointing", "target-pointing-observation", "vision-pose", "vision-observation", "vision-estimate", "vision-spin", "vision-spin-observation", "vision-spin-estimate", "vision-approach", "vision-approach-observation", "vision-approach-action", "wheel-recovery", "wheel-recovery-observation", "wheel-recovery-action", "debris-avoidance", "debris-observation", "orbit", "orbit-observation", "navigation-task", "navigation-recovery", "navigation-recovery-observation", "gnss-measurements", "navigation-estimate", "relative-flight", "flyaround", "formation", "formation-observation", "formation-action", "method", "method-request", "method-response"], default="catalogue")
     commands.add_parser("tasks", help="list registered executable configurations, separately from requirements")
     matrix = commands.add_parser("matrix", help="join all 122 requirements to registered configurations; not an acceptance report")
     matrix.add_argument("--format", choices=["json", "markdown"], default="json")
@@ -88,7 +89,7 @@ def main(argv=None) -> int:
         model = {"catalogue": AutonomyCatalog, "waypoint": WaypointTask,
                  "observation": NavigationObservation, "action": ForceAction, "attitude": AttitudeTask,
                  "attitude-observation": AttitudeObservation, "wheel-action": WheelTorqueAction,
-                 "pointing": PointingTask, "pointing-observation": PointingObservation,
+                 "pointing": PointingTask, "pointing-observation": PointingObservation, "target-pointing": TargetPointingTask, "target-pointing-observation": TargetPointingObservation,
                  "vision-pose": VisionPoseTask, "vision-observation": VisionPoseObservation, "vision-estimate": VisionPoseAction,
                  "vision-spin": VisionMotionTask, "vision-spin-observation": VisionMotionObservation, "vision-spin-estimate": VisionMotionAction,
                  "vision-approach": VisionApproachTask, "vision-approach-observation": VisionApproachObservation, "vision-approach-action": VisionApproachAction,

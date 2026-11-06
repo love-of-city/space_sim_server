@@ -20,6 +20,8 @@ from .benchmark_formation import FormationAction, FormationContext, FormationObs
 from .benchmark_formation_score import FormationScorer
 from .benchmark_pointing import PointingContext, PointingObservation, PointingTask
 from .benchmark_pointing_score import PointingScorer
+from .benchmark_target_pointing import TargetPointingContext, TargetPointingObservation, TargetPointingTask
+from .benchmark_target_pointing_score import TargetPointingScorer
 from .benchmark_vision import VisionPoseTask, VisionPoseContext, VisionPoseObservation, VisionPoseAction
 from .benchmark_vision_score import VisionPoseScorer
 from .benchmark_vision_motion import VisionMotionTask, VisionMotionContext, VisionMotionObservation, VisionMotionAction
@@ -31,7 +33,7 @@ from .benchmark_wheel_recovery_score import WheelRecoveryScorer
 from .benchmark_avoidance import AvoidanceTask, AvoidanceContext, AvoidanceObservation
 from .benchmark_avoidance_score import AvoidanceScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | NavigationRecoveryTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | NavigationRecoveryTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | TargetPointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    TargetPointingTask: FamilyImplementation('simulation.benchmark_target_pointing_methods', 'simulation.benchmark_native_target_pointing',
+        'NativeTargetPointingEnvironment', ('cooperative-target-pointing-v1', 'frozen-target-pointing-v1', 'no-target-pointing-torque-v1', 'unsafe-target-pointing-spin-v1')),
     NavigationRecoveryTask: FamilyImplementation("simulation.benchmark_navigation_recovery_methods", "simulation.benchmark_native_navigation_recovery",
         "NativeNavigationRecoveryEnvironment", ("gnss-outage-recovery-v1", "freeze-during-outage-v1", "zero-recovery-estimate-v1")),
     AvoidanceTask: FamilyImplementation("simulation.benchmark_avoidance_methods", "simulation.benchmark_native_avoidance",
@@ -117,6 +121,7 @@ def method_input_types(task: Task):
         FlyAroundTask: (FlyAroundContext, NavigationObservation),
         FormationTask: (FormationContext, FormationObservation),
         PointingTask: (PointingContext, PointingObservation),
+        TargetPointingTask: (TargetPointingContext, TargetPointingObservation),
         VisionPoseTask: (VisionPoseContext, VisionPoseObservation),
         VisionMotionTask: (VisionMotionContext, VisionMotionObservation),
         VisionApproachTask: (VisionApproachContext, VisionApproachObservation),
@@ -154,6 +159,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, TargetPointingTask):
+        return TargetPointingScorer(task)
     if isinstance(task, NavigationRecoveryTask):
         return NavigationRecoveryScorer(task, chaser_mass_kg)
     if isinstance(task, AvoidanceTask):
@@ -220,7 +227,7 @@ def configuration_title(catalogue, task):
     if isinstance(task, VisionPoseTask):
         title += "（已知被动标志物，真实图像）"
     if isinstance(task, PointingTask):
-        title += "（"+{"earth_center": "地心", "sun": "太阳", "inertial_direction": "惯性方向", "ground_site": "地面固定点"}[task.objective.kind]+"）"
+        title += "（"+{"earth_center": "地心", "sun": "太阳", "inertial_direction": "惯性方向", "ground_site": "地面固定点", "spacecraft_com": "合作目标星质心"}[task.objective.kind]+"）"
     if isinstance(task, OrbitTask) and isinstance(task.objective, OrbitPlaneObjective):
         title += f"（目标倾角 {task.objective.inclination_deg:g}°，升交点赤经 {task.objective.raan_deg:g}°）"
     elif isinstance(task, OrbitTask) and isinstance(task.objective, CircularOrbitObjective):

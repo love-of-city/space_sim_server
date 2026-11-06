@@ -54,6 +54,7 @@ class _AttitudeEvidence(sysModel.SysModel):
 class NativeAttitudeEnvironment:
     context_type = AttitudeContext
     scorer_type = AttitudeScorer
+    model_builder = staticmethod(prepare_attitude_model)
 
     def __init__(self, task: AttitudeTask, output_directory: Path):
         self.task, self.output_directory = task, evidence_path(output_directory)
@@ -66,7 +67,7 @@ class NativeAttitudeEnvironment:
         self.episode_id = uuid.uuid4().hex
         self.episode_directory = self.output_directory / "episodes" / self.episode_id
         self.episode_directory.mkdir(parents=True, exist_ok=False)
-        model, meshes, self.model_manifest = prepare_attitude_model(self.repository, self.episode_directory / "model")
+        model, meshes, self.model_manifest = self.model_builder(self.repository, self.episode_directory / "model")
         wheels, _ = load_hardware(model)
         if (self.task.safety.maximum_motor_torque_nm > min(w.max_torque for w in wheels)
                 or self.task.safety.maximum_wheel_speed_rad_s > min(w.max_speed for w in wheels)):
@@ -98,8 +99,7 @@ class NativeAttitudeEnvironment:
         ctx.ports.set_stepper(self._stepper)
         ctx.add(self._stepper, Slot.PHYSICS, component="dynamics_core")
         ctx.install([OrbitalGravityComponent(force_every=1)])
-        self._environment = FlightEnvironmentComponent(options, [
-            ("cubesat_bus", "orbital_thrust_center", self.context.chaser_mass_kg, options.chaser_area_m2)])
+        self._environment = FlightEnvironmentComponent(options, self._environment_bodies(options))
         ctx.install([self._environment])
         joints = [scene.getBody(wheel.body).getScalarJoint(wheel.joint) for wheel in wheels]
         self._wheel_owner = SimpleNamespace(wheels=wheels, joints=joints, enabled=True,
@@ -136,12 +136,13 @@ class NativeAttitudeEnvironment:
         body.setAttitudeRate(omega.tolist())
         for joint, speed in zip(joints, self.task.initial.wheel_speed_rad_s, strict=True):
             joint.setVelocity(speed)
+        additional_states = self._initialize_additional_bodies(seed, state)
         orbit.origin.set_state(state[:3], state[3:])
         self._time_ns = 0
         sim.ConfigureStopTime(0)
         sim.ExecuteSimulation()
         self._observation = self._measure(0)
-        self.initial_states_j2000 = [state.tolist()]
+        self.initial_states_j2000 = [state.tolist(), *additional_states]
         self.initial_attitude = {"orientation_body_to_j2000_wxyz": quaternion.tolist(),
                                  "angular_velocity_body_rad_s": omega.tolist()}
         self.environment_options = options.to_dict()
@@ -149,6 +150,12 @@ class NativeAttitudeEnvironment:
 
     def _setup_additional_observation(self, ctx, seed):
         pass
+
+    def _environment_bodies(self, options):
+        return [("cubesat_bus", "orbital_thrust_center", self.context.chaser_mass_kg, options.chaser_area_m2)]
+
+    def _initialize_additional_bodies(self, seed, chaser_state):
+        return []
 
     def _make_wheel_drive(self, index, message):
         return WheelDrive(self._wheel_owner, index, message)

@@ -314,6 +314,64 @@ print('actual wheel loss, torque telemetry and fault reset verified')
     assert 'actual wheel loss' in result.stdout
 
 
+def test_native_target_pointing_two_bodies_passive_target_and_reset(tmp_path):
+    code = r'''
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_attitude import WheelTorqueAction
+from space_arm_platform.benchmark_registry import native_environment
+
+task = load_task(SPEC_DIRECTORY/'d11-cooperative-target-pointing-v1.json')
+env = native_environment(task, Path(sys.argv[1]))
+try:
+    first = env.reset(3)
+    initial_target = env._target_sample(0).copy()
+    initial_rate = np.asarray(env._body_reader().omega_BN_B).copy()
+    assert env.model_manifest['spacecraft_count'] == 2 and env.model_manifest['controlled_spacecraft'] == 1
+    assert set(env._stepper.actuator_names) == {'rw_x_motor','rw_y_motor','rw_z_motor'}
+    assert .001 < np.linalg.norm(np.asarray(first.target_gnss_j2000[:3])-initial_target[:3]) < 2
+    assert not np.array_equal(first.target_gnss_j2000[3:], initial_target[3:])
+    assert 'target_com_j2000' not in first.model_dump() and 'chaser_com_j2000' not in first.model_dump()
+    assert env.evaluation()['outcome'] == 'incomplete'
+    action = WheelTorqueAction(episode_id=first.episode_id,observation_sequence=0,motor_torque_xyz_nm=(.1,0.,0.))
+    obs = first
+    for _ in range(20):
+        obs = env.step(action.model_copy(update={'observation_sequence':obs.sequence}))
+    rate = np.asarray(env._body_reader().omega_BN_B).copy()
+    target = env._target_sample(obs.sample_time_ns).copy()
+    assert np.linalg.norm(target[:3]-initial_target[:3]) > 2500
+    assert rate[0] < initial_rate[0] and np.linalg.norm(rate-initial_rate) > 1e-5
+    assert np.allclose(env.evaluation()['absolute_motor_impulse_xyz_nm_s'],[.04,0.,0.],atol=1e-12)
+    assert not env.evaluation()['evidence_errors'] and not env.evaluation()['safety_violations']
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    repeated = env.reset(3)
+    assert repeated.episode_id != first.episode_id
+    assert repeated.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(env._target_sample(0),initial_target)
+    assert env.evaluation()['sample_count'] == 1
+    try:
+        env.step(action)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('stale episode action accepted after reset')
+    obs = repeated
+    for _ in range(20):
+        obs = env.step(WheelTorqueAction(episode_id=obs.episode_id,observation_sequence=obs.sequence,motor_torque_xyz_nm=(0.,0.,0.)))
+    assert np.linalg.norm(np.asarray(env._body_reader().omega_BN_B)-rate) > 1e-5
+    assert np.allclose(env._target_sample(obs.sample_time_ns),target,rtol=0,atol=1e-5)
+finally:
+    env.close()
+print('native two-body pointing, passive target, independent GNSS and reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'target-pointing-native')],
+                            cwd=SERVER, capture_output=True, text=True, timeout=240)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native two-body pointing' in result.stdout
+
+
 def test_native_pointing_gnss_ephemeris_motor_action_and_reset(tmp_path):
     code = r'''
 import sys

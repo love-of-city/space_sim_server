@@ -8,6 +8,7 @@ from .benchmark_pointing import PointingTruthSample
 
 
 class PointingScorer:
+    sample_type = PointingTruthSample
     def __init__(self, task):
         self.task = task
         self.last_time_ns = None
@@ -21,7 +22,7 @@ class PointingScorer:
 
     def add(self, raw):
         try:
-            sample = PointingTruthSample.model_validate(raw)
+            sample = self.sample_type.model_validate(raw)
         except (ValueError, TypeError) as error:
             self.evidence_errors.add("invalid_physical_sample")
             raise ValueError("invalid pointing physical evidence") from error
@@ -46,6 +47,8 @@ class PointingScorer:
             elif goal.kind == "sun":
                 destination = np.asarray(ephemeris.sun_geocentric_j2000[:3])
                 destination_velocity = np.asarray(ephemeris.sun_geocentric_j2000[3:])
+            elif goal.kind == "spacecraft_com":
+                destination, destination_velocity = self._spacecraft_target(sample)
             else:
                 fixed = 6378136.6*np.asarray(goal.ground_direction_iau_earth_unit)
                 matrix, derivative = np.asarray(ephemeris.earth_j2000_to_fixed), np.asarray(ephemeris.earth_j2000_to_fixed_rate_s)
@@ -66,7 +69,7 @@ class PointingScorer:
                 self.minimum_elevation = elevation if self.minimum_elevation is None else min(self.minimum_elevation, elevation)
                 if self.count == 0 and elevation < goal.minimum_elevation_rad:
                     self.evidence_errors.add("ground_target_not_initially_visible")
-            if goal.kind == "sun":
+            if goal.kind in {"sun", "spacecraft_com"}:
                 along = float(-position@desired)
                 occulted = 0 < along < distance and np.linalg.norm(position+along*desired) <= 6378136.6
         w, x, y, z = sample.orientation_body_to_j2000_wxyz
@@ -105,7 +108,7 @@ class PointingScorer:
         if elevation is not None and elevation < goal.minimum_elevation_rad:
             errors.add("ground_target_below_elevation_limit")
         if occulted:
-            errors.add("sun_occulted_by_earth")
+            errors.add("target_occulted_by_earth" if goal.kind == "spacecraft_com" else "sun_occulted_by_earth")
         if not errors and self.first_good_s is None:
             self.first_good_s = sample.time_ns/1e9
         if sample.time_ns >= round(goal.acquisition_deadline_s*1e9):
@@ -117,6 +120,9 @@ class PointingScorer:
         self.last_time_ns = sample.time_ns
         self.final_angle, self.final_tracking_rate = angle, tracking_rate
         self.peak_rate, self.peak_wheel, self.peak_torque = max(self.peak_rate, rate), max(self.peak_wheel, wheel), max(self.peak_torque, torque)
+
+    def _spacecraft_target(self, sample):
+        raise ValueError("spacecraft pointing requires its dedicated physical-evidence scorer")
 
     def result(self):
         if not self.count or self.evidence_errors:

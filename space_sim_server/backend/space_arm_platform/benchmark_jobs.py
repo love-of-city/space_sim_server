@@ -33,6 +33,7 @@ BUNDLED_METHODS = {
     "external-image-gyro-spin-v1": ("spacesim-autonomy-rendered-spin/1", "examples/autonomy_methods/vision-spin.json"),
     "external-image-stereo-approach-v1": ("spacesim-autonomy-visual-approach/1", "examples/autonomy_methods/vision-approach.json"),
     "external-ephemeris-pointing-v1": ("spacesim-autonomy-pointing/1", "examples/autonomy_methods/pointing.json"),
+    "external-target-pointing-v1": ("spacesim-autonomy-target-pointing/1", "examples/autonomy_methods/target-pointing.json"),
     "external-attitude-pd-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-pd.json"),
     "external-attitude-sequence-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-sequence.json"),
     "external-wheel-recovery-v1": ("spacesim-autonomy-wheel-recovery/1", "examples/autonomy_methods/wheel-recovery.json"),

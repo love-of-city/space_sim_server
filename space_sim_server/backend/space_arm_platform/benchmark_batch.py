@@ -26,6 +26,16 @@ TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error"
                      "infrastructure_error", "cancelled", "invalid_evidence", "invalid_initialization", "task_failure"}
 
 
+def trial_wall_time_limit_s(task: Task) -> int:
+    """Finite execution budget, distinct from the task's physical time limit.
+
+    Long 400 Hz native missions can run slower than real time. Freeze four
+    wall seconds per declared simulation second, with the original 900 s
+    startup allowance as a floor. Never infer this from a test outcome.
+    """
+    return max(900, math.ceil(4*task.duration_s))
+
+
 def cancellation_grace_s(task: Task) -> float:
     # Image capture observes cancellation immediately. Closing UE and checking
     # the rendered runtime/evidence hashes happens afterwards and can exceed
@@ -117,7 +127,8 @@ def _completed_trial(directory: Path, planned: dict, task: Task, method: str, ex
     # a pending trial. Resume must not replace it with a luckier repeated seed.
     return {**planned, "outcome": status.get("outcome", "infrastructure_error")
             if status.get("outcome") in TERMINAL_OUTCOMES else "infrastructure_error",
-            "detail": "previous attempt has no complete result; it was not retried"}
+            "detail": status.get("detail", "previous attempt has no complete result; it was not retried"),
+            **{key: status[key] for key in ('wall_time_limit_s', 'wall_time_elapsed_s') if key in status}}
 
 
 def run_batch(task: Task, method: str | None, split: str, output: Path, *, resume=False,
@@ -150,7 +161,8 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
     runtime = runtime_identity(root, rendered=True) if isinstance(task, VisionPoseTask) else runtime_identity(root)
     plan = {"schema_version": "spacesim-autonomy-batch-plan/2", "configuration_id": task.configuration_id,
             "task_fingerprint": task.fingerprint(), "method": method, "split": split,
-            "source_sha256": source["source_sha256"], "runtime_identity": runtime, "wall_time_limit_s": 900, "trials": planned}
+            "source_sha256": source["source_sha256"], "runtime_identity": runtime,
+            "wall_time_limit_s": trial_wall_time_limit_s(task), "trials": planned}
     if definition is not None:
         plan["external_method"] = definition.identity
     if seed is not None:
@@ -208,8 +220,10 @@ def run_batch(task: Task, method: str | None, split: str, output: Path, *, resum
                             stop_started = stop_started or time.monotonic()
                             if time.monotonic() - stop_started > cancellation_grace_s(task):
                                 break
-                        if time.monotonic() - started > plan["wall_time_limit_s"]:
-                            write_json(directory / "status.json", {"outcome": "infrastructure_error", "detail": "trial wall-time limit"})
+                        elapsed = time.monotonic() - started
+                        if elapsed > plan["wall_time_limit_s"]:
+                            write_json(directory / "status.json", {"outcome": "infrastructure_error", "detail": "trial wall-time limit",
+                                "wall_time_limit_s": plan["wall_time_limit_s"], "wall_time_elapsed_s": elapsed})
                             break
                         try:
                             child.wait(timeout=.2)

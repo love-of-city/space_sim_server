@@ -19,6 +19,8 @@ test('displayed success rate uses all planned cases and separates angle and posi
   assert.equal(benchmarkMetric({final_orbit:{impulse_vector_error_m_s:.001}}),'Δv 误差 0.0010 m/s');
   assert.equal(benchmarkMetric({final_orbit:{semimajor_axis_error_m:2,eccentricity:1e-6}}),'半长轴误差 2.00 m；e=1.00e-6');
   assert.equal(benchmarkMetric({position_rmse_m:.2,velocity_rmse_m_s:.003,final_position_error_m:1}),'位置 RMSE 0.2000 m；速度 RMSE 0.0030 m/s');
+  assert.equal(benchmarkMetric({path_requirement:'full_duration_relative_hold',maximum_position_error_m:.25,longest_dwell_s:300,final_position_error_m:.01}),'最大位置误差 0.2500 m；连续保持 300.00 s');
+  assert.equal(benchmarkMetric({path_requirement:'axis_approach_corridor',maximum_cross_track_m:2.5,final_position_error_m:.125}),'位置误差 0.1250 m；最大横向偏差 2.5000 m');
   assert.equal(benchmarkMetric(null),'—');
 });
 

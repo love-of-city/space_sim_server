@@ -22,6 +22,8 @@ export const methodLabels = {
 export function benchmarkMetric(score){
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.position_rmse_m))return `位置 RMSE ${score.position_rmse_m.toFixed(4)} m；速度 RMSE ${score.velocity_rmse_m_s.toFixed(4)} m/s`;
+  if(score?.path_requirement==='full_duration_relative_hold'&&Number.isFinite(score.maximum_position_error_m))return `最大位置误差 ${score.maximum_position_error_m.toFixed(4)} m；连续保持 ${score.longest_dwell_s.toFixed(2)} s`;
+  if(score?.path_requirement==='axis_approach_corridor'&&Number.isFinite(score.maximum_cross_track_m))return `位置误差 ${score.final_position_error_m.toFixed(4)} m；最大横向偏差 ${score.maximum_cross_track_m.toFixed(4)} m`;
   if(Number.isFinite(score?.final_position_error_m))return `${score.final_position_error_m.toFixed(4)} m`;
   if(Number.isFinite(score?.final_orbit?.impulse_vector_error_m_s))return `Δv 误差 ${score.final_orbit.impulse_vector_error_m_s.toFixed(4)} m/s`;
   if(Number.isFinite(score?.final_orbit?.semimajor_axis_error_m))return `半长轴误差 ${score.final_orbit.semimajor_axis_error_m.toFixed(2)} m；e=${score.final_orbit.eccentricity.toExponential(2)}`;
@@ -52,7 +54,11 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
   for(const trial of summary.trials){
     const row=element('tr'),outcome=element('td','',benchmarkLabels[trial.outcome]||trial.outcome);
     if(trial.detail)outcome.append(element('small','muted',trial.detail==='operator requested episode stop'?'用户停止了该回合':trial.detail));
-    if(trial.physics_score?.safety_violations?.length)outcome.append(element('small','error',trial.physics_score.safety_violations.join('、')));
+    if(trial.physics_score?.safety_violations?.length){
+      const labels={approach_corridor:'超出接近走廊',wrong_approach_side:'接近方向错误',relative_speed:'相对速度超限',
+        minimum_range:'小于最小安全距离',maximum_range:'超出距离范围',applied_force:'实际推力超限'};
+      outcome.append(element('small','error',trial.physics_score.safety_violations.map(name=>labels[name]||name).join('、')));
+    }
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
         continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离'};

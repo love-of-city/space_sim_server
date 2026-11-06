@@ -127,6 +127,7 @@ private:
     friend class FBskAuthoritativeSmallRotationTest;
     friend class FBskManifestGeometryRefreshTest;
     friend class FBskCameraMountedLightTest;
+    friend class FBskDeclaredCameraWorkLightTest;
     friend class FBskOfflineCameraWarmupTest;
     friend class FBskLocalFrameExtrapolationTest;
     friend class FBskSceneResetTest;
@@ -199,6 +200,7 @@ private:
     void CapturePreview(const FString& CameraId, USceneCaptureComponent2D* Capture);
     TMap<FString, FVector2D> PreviewOrbitDegrees;
     TMap<FString, TWeakObjectPtr<ULightComponent>> CameraWorkLights;
+    TSet<FString> DeclaredCameraWorkLights; // Streamer IDs, also valid offline.
     ULightComponent* ResolveCameraWorkLight(const FString& StreamerId);
     TMap<FString, TWeakPtr<IPixelStreaming2InputHandler>> WorkLightInputHandlers;
     void UpdateLightTargets();

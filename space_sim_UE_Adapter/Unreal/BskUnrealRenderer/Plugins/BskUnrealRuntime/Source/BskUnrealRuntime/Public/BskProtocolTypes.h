@@ -114,6 +114,7 @@ struct BSKUNREALRUNTIME_API FBskCameraDefinition
     FString CaptureConsumer = TEXT("dataset");
     double ExposureTimeSeconds = 0.0;
     double ApertureFNumber = 0.0;
+    FString WorkLightProfile; // Empty: existing optional preview behavior.
 
     bool IsFisheye() const
     {

@@ -120,8 +120,12 @@ class CameraVisual:
     camera_mode: str = "rgb"
     # Zero retains the existing square-pixel projection.
     vertical_field_of_view_rad: float = 0.0
+    # Opt-in fixed simulation lamp; independent of browser/streaming clients.
+    work_light_profile: str = ""
 
     def to_payload(self) -> dict[str, Any]:
+        if self.work_light_profile not in ("", "inspection-1500cd-v1"):
+            raise ValueError("unsupported camera work_light_profile")
         vertical_fov = self.vertical_field_of_view_rad
         if (isinstance(vertical_fov, bool) or not isinstance(vertical_fov, (int, float))
                 or not math.isfinite(vertical_fov) or not 0 <= vertical_fov < math.pi):
@@ -167,6 +171,7 @@ class CameraVisual:
             "exposure_time_s": float(self.exposure_time_s),
             "aperture_fnumber": float(self.aperture_fnumber),
             "camera_mode": self.camera_mode,
+            **({"work_light_profile": self.work_light_profile} if self.work_light_profile else {}),
         }
 
 

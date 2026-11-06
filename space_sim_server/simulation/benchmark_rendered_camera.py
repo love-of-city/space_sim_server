@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import shutil
 import socket
 import time
 
@@ -51,6 +52,7 @@ class RenderedCameraSensor:
         self.output.mkdir(exist_ok=False)
         self.queue=queue.Queue(maxsize=8)
         self.bridge=self.receiver=self.renderer=None
+        self.runtime_log=None
         self.managed=ManagedProcesses(self.output)
         self.last_time_ns=None
         self._log_offset=0
@@ -67,6 +69,10 @@ class RenderedCameraSensor:
         env=self.environment
         project,editor=renderer_paths(env.repository)
         user_directory=new_renderer_user_directory(env.episode_directory)
+        # UE's log writer does not reliably accept extended/deep Windows paths.
+        # Use the same fresh short owner directory as its shader scratch, then
+        # archive the completed log under the long Python evidence path.
+        self.runtime_log=user_directory/'ue.log'
         graphics=graphics_identity()
         self.render_port,self.capture_port=unused_ports(2)
         ensure_ports_free([self.render_port,self.capture_port])
@@ -79,16 +85,16 @@ class RenderedCameraSensor:
             '-BskListen=127.0.0.1',f'-BskPort={self.render_port}','-BskCaptureHost=127.0.0.1',
             f'-BskCapturePort={self.capture_port}','-BskCaptureProducts=rgb','-BskOfflineCapture','-BskVisionFastPng',
             '-ExecCmds=t.MaxFPS 20,r.VSync 0',
-            '-DDC=InstalledDerivedDataBackendGraph',f'-abslog={self.output}/ue.log']
+            '-DDC=InstalledDerivedDataBackendGraph',f'-abslog={self.runtime_log}']
         cache=os.environ.get('SPACESIM_BENCHMARK_DDC',str(Path(os.environ['LOCALAPPDATA'])/'BskDDC/capture-regression'))
         if cache:
             arguments.append(f'-LocalDataCachePath={Path(cache).resolve()}')
-        write_json(self.output/'startup.json',dict(user_directory=str(user_directory),
+        write_json(self.output/'startup.json',dict(user_directory=str(user_directory),runtime_log=str(self.runtime_log),
             renderer_arguments=[str(value) for value in arguments],graphics_devices=graphics,
             render_port=self.render_port,capture_port=self.capture_port))
         self.renderer=self.managed.start('renderer',arguments,cwd=env.repository)
         wait_ready(self.renderer,self.render_port)
-        selected_graphics=selected_graphics_identity((self.output/'ue.log').read_text('utf-8',errors='replace'),graphics)
+        selected_graphics=selected_graphics_identity(self.runtime_log.read_text('utf-8',errors='replace'),graphics)
         bridge=self.bridge=BasiliskRenderBridge(host='127.0.0.1',port=self.render_port,origin_object='team/cubesat_bus',
             vision_capture_rate_hz=self.cameras[0].sample_rate_hz,
             vision_capture_camera_ids=[camera.camera_id for camera in self.cameras],
@@ -139,8 +145,8 @@ class RenderedCameraSensor:
             raise InterruptedError('benchmark camera capture cancelled')
 
     def _check_log(self):
-        path=self.output/'ue.log'
-        if not path.is_file():
+        path=self.runtime_log
+        if path is None or not path.is_file():
             return
         with path.open('rb') as stream:
             stream.seek(self._log_offset)
@@ -192,6 +198,10 @@ class RenderedCameraSensor:
                 if self.receiver is not None:
                     self.receiver.close()
             finally:
-                self.managed.close()
-                self._metadata.close()
+                try:
+                    self.managed.close()
+                finally:
+                    self._metadata.close()
+                    if self.runtime_log is not None and self.runtime_log.is_file():
+                        shutil.copyfile(self.runtime_log,self.output/'ue.log')
         self._check_log()

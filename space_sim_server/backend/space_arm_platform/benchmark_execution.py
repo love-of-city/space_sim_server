@@ -14,6 +14,7 @@ import sys
 import time
 
 from .benchmark_contract import load_task
+from .benchmark_external import ExternalMethod, ExternalMethodDefinition
 from .benchmark_registry import Task, make_scorer, method_classes, native_environment, parse_action
 
 
@@ -43,13 +44,20 @@ def source_identity(server_root: Path) -> dict:
             "python": sys.version, "platform": platform.platform(), "source_sha256": hashes}
 
 
-def run_episode(task: Task, method_id: str, seed: int, output: Path) -> dict:
+def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, method_spec: Path | None = None) -> dict:
     """Record failures too. Output must be new; a retry cannot overwrite a trial."""
     task = type(task).model_validate(task)
     split = task.seeds.split_for(seed)
-    methods = method_classes(task)
-    if method_id not in methods:
-        raise ValueError(f"unknown benchmark method: {method_id}")
+    definition = ExternalMethodDefinition(method_spec, task) if method_spec is not None else None
+    methods = method_classes(task) if definition is None else {}
+    if definition is not None:
+        if method_id is not None and method_id != definition.spec.method_id:
+            raise ValueError("method ID differs from external method specification")
+        method_id = definition.spec.method_id
+    else:
+        method_id = method_id or next(iter(methods))
+        if method_id not in methods:
+            raise ValueError(f"unknown benchmark method: {method_id}")
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / "task.json", task.model_dump(mode="json"))
@@ -57,6 +65,8 @@ def run_episode(task: Task, method_id: str, seed: int, output: Path) -> dict:
     manifest = {"schema_version": "spacesim-autonomy-run/1", "configuration_id": task.configuration_id,
                 "task_fingerprint": task.fingerprint(), "seed": seed, "split": split, "method": method_id,
                 "source": source_identity(root)}
+    if definition is not None:
+        manifest["external_method"] = definition.identity
     write_json(output / "manifest.json", manifest)
     started = time.monotonic()
     environment = None
@@ -73,7 +83,7 @@ def run_episode(task: Task, method_id: str, seed: int, output: Path) -> dict:
                          "chaser_mass_kg": environment.context.chaser_mass_kg})
         write_json(output / "manifest.json", manifest)
         try:
-            method = methods[method_id]()
+            method = ExternalMethod(definition, output) if definition is not None else methods[method_id]()
             method.reset(environment.context)
         except Exception as error:
             raise MethodFailure(f"{type(error).__name__}: {error}") from error
@@ -122,13 +132,16 @@ def run_episode(task: Task, method_id: str, seed: int, output: Path) -> dict:
     if provenance is not None:
         write_json(output / "provenance.json", provenance)
     evidence = {"task.json": sha256(output / "task.json"), "manifest.json": sha256(output / "manifest.json")}
-    for relative in (manifest.get("physics_path"), "observations.jsonl", "actions.jsonl", "provenance.json"):
+    for relative in (manifest.get("physics_path"), "observations.jsonl", "actions.jsonl", "provenance.json",
+                     "method_stderr.log", "method_calls.jsonl"):
         if relative and (output / relative).is_file():
             evidence[relative] = sha256(output / relative)
     result = {"schema_version": "spacesim-autonomy-result/1", "configuration_id": task.configuration_id,
               "seed": seed, "split": split, "method": method_id, "outcome": outcome,
               "success": outcome == "success", "detail": detail, "wall_time_s": time.monotonic() - started,
               "physics_score": physics_score, "evidence_sha256": evidence}
+    if isinstance(method, ExternalMethod):
+        result["method_telemetry"] = method.telemetry()
     write_json(output / "result.json", result)
     return result
 

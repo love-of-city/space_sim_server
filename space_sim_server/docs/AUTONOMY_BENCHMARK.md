@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及两个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持。两者都有原生执行、独立评分、冻结种子批评测和离线复算。其他任务族、外部方法进程、API、网页和采集集成仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及两个可执行配置：`d32-cooperative-gnss-v1` 为合作目标 GNSS 导航下的保持点到达与驻留，`s02-wheel-attitude-v1` 为单星飞轮姿态机动与稳定保持。两者都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测和离线复算。其他任务族、API、网页和采集集成仍在实施；目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -65,7 +65,7 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --split test --
 基础测试与原生验收分别执行：
 
 ```text
-python -m pytest tests/test_benchmark_catalog.py tests/test_benchmark_execution.py tests/test_benchmark_attitude.py -q
+python -m pytest tests/test_benchmark_catalog.py tests/test_benchmark_execution.py tests/test_benchmark_attitude.py tests/test_benchmark_external.py -q
 python -m pytest tests/test_benchmark_native.py -q
 ```
 
@@ -123,6 +123,41 @@ python tools/autonomy_benchmark.py rescore ../.tmp/attitude-201
 | 任务分派回归 | 重新运行 D32 测试种子 201，完整物理日志 SHA-256 与原批次该样本完全相同 |
 
 姿态测试批次的原始模型、9 个网格及原生/BSK 运行时指纹一致，初始化后状态写入均为零。汇总 SHA-256 为 `70440b0f6f317de81df387a904087472953baaa8ed5c9e6ba37b805cec2b6967`。该结果只验收此 S02 配置，未覆盖消旋、飞轮卸载、执行器故障或视觉姿态估计。
+
+## 接入自己的方法
+
+内置方法用于复现基线。要接入自己的控制器或 Agent，可使用 [`examples/autonomy_methods/conventional.py`](../examples/autonomy_methods/conventional.py) 中的 `serve_method` SDK，将方法类替换为自己的 `reset(context)`、`act(observation)`、`close()` 实现。方法进程不加载原生场景，只接收公开任务、硬件上下文和声明观测；动作还需经过环境契约校验。SDK 可以封装外部服务调用，但当前版本不提供 HTTP 方法服务端或非 Python 启动器。
+
+方法 JSON 与入口脚本放在同一目录。`entrypoint` 是 Python 文件，`arguments` 是按原样传入的字符串数组，不经过 shell；`files` 必须列出入口和方法使用的代码、权重、配置。所有文件必须位于该目录内。运行器使用当前 Python 环境；方法的依赖也需在该环境中安装。随机策略应在参数/实现中显式固定自己的随机种子，不能把环境私有种子当作观测。
+
+```text
+python tools/autonomy_benchmark.py schema --kind method
+python tools/autonomy_benchmark.py schema --kind method-request
+python tools/autonomy_benchmark.py schema --kind method-response
+python tools/autonomy_benchmark.py run s02-wheel-attitude-v1 --method-spec examples/autonomy_methods/attitude-pd.json --seed 201 --output ../.tmp/external-attitude-201
+python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --method-spec examples/autonomy_methods/waypoint-pd.json --split validation --output ../.tmp/external-waypoint-validation
+```
+
+`--method-spec` 与 `--method` 互斥。方法声明支持的任务 schema；错误类型会在启动物理环境前被拒绝。方法定义、声明文件 SHA-256 和 Python 解释器身份写入运行清单及批次计划，在启动、关闭和恢复时核验。相同方法名称不能替换冻结的实现；改动方法后必须建立新批次。
+
+线协议为 `spacesim-autonomy-method-jsonl/1`，UTF-8、每行一个 JSON 对象。请求依次为一次 `reset`、多次 `act`、一次 `close`，包含递增的 `request_id`。响应必须返回同一协议和请求编号、`status`（`ok` 或 `error`）；成功的 `act` 响应在 `payload` 中放动作，其他成功响应的 `payload` 为 `null`。错误响应填写 `error`，不得附带动作。`stdout` 专用于协议，诊断写 `stderr`。
+
+- 单条请求/响应上限 1 MiB；重复 JSON 字段、非有限数字、错误编号、缺少换行或错误动作均被拒绝。
+- 初始化和每步回复有独立墙钟超时；回合最长墙钟仍受批次上限约束。超时、进程异常和错误回包计为 `method_error`，保留物理证据和全部样本分母。
+- 复用项目现有 Windows Job/Linux 子进程监管机制，关闭只清理本回合方法进程及其后代；正常结束、异常和超时都执行清理。
+- `method_calls.jsonl` 记录调用耗时与状态；`method_stderr.log` 最多保存前 256 KiB，同时继续排空管道并记录实际字节数。两者均加入证据哈希。
+- 调用耗时包含 IPC，不等于纯模型推理耗时。当前仿真逐步等待回复，未把墙钟时延转换为仿真中的执行延迟；不能据此声称通过实时延迟任务。
+- 此接口用于受信研究代码，不是对恶意本机程序的权限沙箱。方法仍受运行账户的文件和网络权限约束，协议隔离不能防止主动绕过观测边界。
+
+2026-11-06 云端验证：89 项目录、物理契约、评分、协议和进程检查通过；已有 2 项原生生命周期验收继续作为物理环境证据。外部姿态、GNSS 基线分别在验证种子 101–103 获得 3/3 成功，并分别重跑测试种子 201，其完整原生物理日志与内置方法对应样本的 SHA-256 完全相同。故意在首次动作调用超时的方法在三个验证种子上均为 `method_error`，分母保持 3；物理评分为 `incomplete`，重算不会把方法失败改为物理成功。
+
+三个批次的重算全部一致，恢复后各 36 个回合文件的哈希及修改时间未变。汇总指纹如下，运行数据留在本次云端验证目录：
+
+| 外部方法批次 | 汇总 SHA-256 |
+| --- | --- |
+| 姿态 PD，验证集 | `6254f2ff54b5d7b5d1260ac8b38ef525606d5fc0f7317d2f1b0bfdbb979ca7be` |
+| GNSS PD，验证集 | `21cb89a89dde24da7c78917c792b7bf53a725df5a695462b43971b1e5472585f` |
+| 动作超时负对照，验证集 | `138aafa66ac474a19647cc38b9b73bf0442782485b297f6eacb4ab3c2f33a1e5` |
 
 ## 实现边界
 

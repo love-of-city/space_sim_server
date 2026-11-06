@@ -14,6 +14,7 @@ import sys
 import psutil
 
 from .benchmark_execution import rescore_episode, sha256, source_identity, write_json
+from .benchmark_external import ExternalMethodDefinition
 from .benchmark_registry import Task, method_ids
 
 TERMINAL_OUTCOMES = {"success", "safety_violation", "time_limit", "method_error",
@@ -66,7 +67,7 @@ def batch_lock(directory: Path):
             path.unlink()
 
 
-def _completed_trial(directory: Path, planned: dict, task: Task, method: str) -> dict:
+def _completed_trial(directory: Path, planned: dict, task: Task, method: str, external_identity=None) -> dict:
     status = json.loads((directory / "status.json").read_text(encoding="utf-8"))
     result_path = directory / "run/result.json"
     if status.get("outcome") == "running" and "child_pid" in status:
@@ -81,6 +82,8 @@ def _completed_trial(directory: Path, planned: dict, task: Task, method: str) ->
         if (result["seed"] != planned["seed"] or result["method"] != method
                 or manifest["task_fingerprint"] != task.fingerprint()):
             raise ValueError("trial identity differs from frozen plan")
+        if manifest.get("external_method") != external_identity:
+            raise ValueError("trial method implementation differs from frozen plan")
         if status.get("result_sha256") and sha256(result_path) != status["result_sha256"]:
             raise ValueError("completed trial result has changed")
         if result["outcome"] not in TERMINAL_OUTCOMES:
@@ -98,10 +101,17 @@ def _completed_trial(directory: Path, planned: dict, task: Task, method: str) ->
             "detail": "previous attempt has no complete result; it was not retried"}
 
 
-def run_batch(task: Task, method: str, split: str, output: Path, *, resume=False) -> dict:
+def run_batch(task: Task, method: str | None, split: str, output: Path, *, resume=False, method_spec: Path | None = None) -> dict:
     task = type(task).model_validate(task)
-    if method not in method_ids(task):
-        raise ValueError("method is not registered for this task family")
+    definition = ExternalMethodDefinition(method_spec, task) if method_spec is not None else None
+    if definition is not None:
+        if method is not None and method != definition.spec.method_id:
+            raise ValueError("method ID differs from external method specification")
+        method = definition.spec.method_id
+    else:
+        method = method or method_ids(task)[0]
+        if method not in method_ids(task):
+            raise ValueError("method is not registered for this task family")
     if split not in {"train", "validation", "test"}:
         raise ValueError("unknown frozen split")
     seeds = getattr(task.seeds, split)
@@ -116,6 +126,8 @@ def run_batch(task: Task, method: str, split: str, output: Path, *, resume=False
     plan = {"schema_version": "spacesim-autonomy-batch-plan/1", "configuration_id": task.configuration_id,
             "task_fingerprint": task.fingerprint(), "method": method, "split": split,
             "source_sha256": source["source_sha256"], "wall_time_limit_s": 900, "trials": planned}
+    if definition is not None:
+        plan["external_method"] = definition.identity
     with batch_lock(output):
         if resume:
             previous = json.loads((output / "plan.json").read_text(encoding="utf-8"))
@@ -128,7 +140,7 @@ def run_batch(task: Task, method: str, split: str, output: Path, *, resume=False
         for trial in planned:
             directory = output / trial["trial_id"]
             if (directory / "status.json").is_file():
-                result = _completed_trial(directory, trial, task, method)
+                result = _completed_trial(directory, trial, task, method, plan.get("external_method"))
                 prior = json.loads((directory / "status.json").read_text(encoding="utf-8"))
                 write_json(directory / "status.json", {**prior, **result})
                 results.append(result)
@@ -140,10 +152,13 @@ def run_batch(task: Task, method: str, split: str, output: Path, *, resume=False
             # different method/backend under the same frozen trial matrix.
             if source_identity(root)["source_sha256"] != plan["source_sha256"]:
                 raise ValueError("source changed during batch execution; start a new batch")
+            if definition is not None:
+                definition.verify_unchanged()
             directory.mkdir(exist_ok=False)
             write_json(directory / "status.json", {"outcome": "running"})
             command = [sys.executable, str(root / "tools/autonomy_benchmark.py"), "run", task.configuration_id,
-                       "--method", method, "--seed", str(trial["seed"]), "--output", str(directory / "run")]
+                       "--seed", str(trial["seed"]), "--output", str(directory / "run")]
+            command += ["--method-spec", str(definition.path)] if definition is not None else ["--method", method]
             with (directory / "stdout.log").open("w", encoding="utf-8") as stdout, \
                     (directory / "stderr.log").open("w", encoding="utf-8") as stderr:
                 child = subprocess.Popen(command, cwd=root, stdout=stdout, stderr=stderr)
@@ -164,7 +179,7 @@ def run_batch(task: Task, method: str, split: str, output: Path, *, resume=False
                     write_json(directory / "status.json", {"outcome": "infrastructure_error", "detail": "trial wall-time limit"})
             if cancelled and not (directory / "run/result.json").exists():
                 write_json(directory / "status.json", {"outcome": "cancelled", "returncode": returncode})
-            result = _completed_trial(directory, trial, task, method)
+            result = _completed_trial(directory, trial, task, method, plan.get("external_method"))
             write_json(directory / "status.json", {**result, "returncode": returncode})
             results.append(result)
             current = summarize(results + [{**pending, "outcome": "pending"} for pending in planned[len(results):]])

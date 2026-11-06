@@ -9,7 +9,7 @@
 
 团队开发请阅读[贡献指南](CONTRIBUTING.md)。环境要求、Python 管理器选择、部署和完整启动参数见[服务端安装指南](space_sim_server/README.md)。
 
-卫星自动驾驶 Benchmark 正在开发，提供完整来源目录、原生单星姿态机动与双星保持点任务、独立评分、批评测和离线复算入口；最终范围、实现状态和使用方法见[Benchmark 说明](space_sim_server/docs/AUTONOMY_BENCHMARK.md)。来源目录与可执行任务配置分别列举。
+卫星自动驾驶 Benchmark 正在开发，提供完整来源目录、原生单星姿态机动与双星保持点任务、外部方法接口、独立评分、批评测和离线复算入口；最终范围、实现状态和使用方法见[Benchmark 说明](space_sim_server/docs/AUTONOMY_BENCHMARK.md)。来源目录与可执行任务配置分别列举。
 
 原工作台提供机械臂操作、7 km交会、300 km入轨后三种起始条件。连续任务保留同一任务编号，远距通过后接续近距，再以实际关节终态进入标准操作场景；两阶段共享GNSS配置和导航不确定性。原 SARM 模型的近距采用参数化视觉与逻辑捕获，未验证真实图像闭环或物理锁定。详细流程见[连续任务说明](archive/2026_10_17_连续任务与共享导航.md)和[远距物理参数](space_sim_server/docs/TEAM_RENDEZVOUS.md)。
 

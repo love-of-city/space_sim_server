@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from collections import OrderedDict
 import time
 import uuid
@@ -11,7 +12,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 from .models import EpisodeStart, EpisodeStop
-from .policy_observation import POLICY_CAMERAS, PERIOD_NS, observation_identity
+from .policy_observation import policy_cameras, PERIOD_NS, observation_identity
 from .simulation_hub import PolicyCommandRejected
 
 
@@ -106,8 +107,9 @@ class PolicySessions:
         if instance:
             runtime = instance.get("runtime", {})
             if not runtime.get("dataset_capture", False) or runtime.get("capture_rate_hz") != 50:
-                raise HTTPException(409, "模型控制要求场景启用 50 Hz 权威双相机采集")
-        session = {"id": uuid.uuid4().hex, "owner": user["user_id"], "user": dict(user),
+                raise HTTPException(409, "模型控制要求场景启用 50 Hz 权威相机采集")
+        cameras = policy_cameras(instance)
+        session = {"cameras": cameras, "id": uuid.uuid4().hex, "owner": user["user_id"], "user": dict(user),
                    "config": payload, "steps": 0, "seen": set(), "last_activity": time.monotonic(),
                    "instance": instance, "failed": None, "identity": None, "ownership": "unclaimed"}
         self._session = session  # Reserve before the first await (blocks WS and recording races).
@@ -129,16 +131,16 @@ class PolicySessions:
         if payload.record:
             user = session["user"]
             request = EpisodeStart(instruction=payload.instruction, task=payload.task_name or "policy execution",
-                fps=50, camera_ids=list(POLICY_CAMERAS.values()), max_frames=min(108000, payload.max_steps + 1000),
+                fps=50, camera_ids=list(session["cameras"].values()), max_frames=min(108000, payload.max_steps + 1000),
                 operator=user["username"], operator_user_id=user["user_id"], operator_username=user["username"],
                 operator_role=user["role"], tags=["enactive", "joint-policy-v1"])
             request = self.recording_request(request, session["instance"])
-            metadata = await self.capture_lifecycle.start(request, before_enable=self.cache.begin)
+            metadata = await self.capture_lifecycle.start(request, before_enable=partial(self.cache.begin, cameras=session["cameras"]))
             session["episode_id"] = metadata["episode_id"]
             if self.episode_started is not None:
                 self.episode_started(metadata["episode_id"])
         else:
-            self.cache.begin("policy-" + session["id"])
+            self.cache.begin("policy-" + session["id"], cameras=session["cameras"])
             await self.hub.set_capture_episode("policy-" + session["id"])
         session["ownership"] = "uncertain"
         try:

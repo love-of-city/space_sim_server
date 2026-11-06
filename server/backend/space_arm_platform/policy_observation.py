@@ -9,10 +9,15 @@ from typing import Any
 
 from .models import SimulationObservation
 
-POLICY_CAMERAS = {
-    "base": "teleop/camera/spacecraft_overview",
-    "left_wrist": "teleop/camera/sarm_wrist_cam",
-}
+def policy_cameras(scene):
+    from .collection_cameras import camera_profile
+    profile = camera_profile(scene or {})
+    if not profile['id'].startswith('single-arm-'):
+        raise ValueError('7D policy sessions require a single-arm camera profile')
+    return dict(zip(('base', 'left_wrist', 'right_wrist'),
+                    (camera['id'] for camera in profile['cameras'])))
+
+
 PERIOD_NS = 20_000_000
 
 
@@ -25,7 +30,7 @@ def observation_identity(value: dict) -> tuple[str, str, str]:
 
 
 class PolicyObservationCache:
-    """The two cameras and the state must share all three identity fields.
+    """All configured cameras and the state must share all three identity fields.
 
     CaptureReceiver calls from its worker thread; SimulationHub calls from asyncio.
     Never wait on this condition on the event loop or from a physics callback.
@@ -36,14 +41,19 @@ class PolicyObservationCache:
         self.timeout = timeout
         self._condition = threading.Condition()
         self._capture_id = ""
+        self._cameras = {}
         self._generation = 0
         self._entries: OrderedDict[tuple, dict] = OrderedDict()
         self._error: str | None = None
 
-    def begin(self, capture_id: str) -> None:
+    def begin(self, capture_id: str, *, cameras=None) -> None:
         if not capture_id:
             raise ValueError("policy capture lease must have an identity")
+        cameras = dict(policy_cameras({}) if cameras is None else cameras)
+        if tuple(cameras) not in (('base', 'left_wrist'), ('base', 'left_wrist', 'right_wrist')) or len(set(cameras.values())) != len(cameras):
+            raise ValueError('Policy cameras require ordered, distinct single-arm views')
         with self._condition:
+            self._cameras = cameras
             self._generation += 1
             self._capture_id = capture_id
             self._entries.clear()
@@ -54,6 +64,7 @@ class PolicyObservationCache:
         with self._condition:
             self._generation += 1
             self._capture_id = ""
+            self._cameras = {}
             self._entries.clear()
             self._condition.notify_all()
 
@@ -90,7 +101,7 @@ class PolicyObservationCache:
                 self.fail(str(metadata.get("error", "authoritative RGB capture failed")))
                 return
             camera = str(metadata.get("camera_id", ""))
-            if camera not in POLICY_CAMERAS.values():
+            if camera not in self._cameras.values():
                 return
             if metadata.get("stream_kind") != "authoritative" or metadata.get("state_kind") != "authoritative":
                 self.fail("online policy requires authoritative camera frames")
@@ -130,7 +141,7 @@ class PolicyObservationCache:
                 entry = self._entries.get(key, {})
                 return (self._error or generation != self._generation or lease != self._capture_id or not lease
                         or (entry.get("state") is not None
-                            and set(POLICY_CAMERAS.values()).issubset(entry.get("images", {}))))
+                            and set(self._cameras.values()).issubset(entry.get("images", {}))))
             if not self._condition.wait_for(ready, timeout=self.timeout):
                 self.fail(f"timed out pairing policy RGB and state: frame={key[1]}, sim_time_ns={key[2]}")
             if self._error:
@@ -141,7 +152,7 @@ class PolicyObservationCache:
             state = entry["state"]
             if not encode_images:
                 return {}
-            images = {view: copy.deepcopy(entry["images"][camera]) for view, camera in POLICY_CAMERAS.items()}
+            images = {view: copy.deepcopy(entry["images"][camera]) for view, camera in self._cameras.items()}
         opening = state.gripper_opening_normalized
         if opening is None:
             raise RuntimeError("policy requires the calibrated SARM 6+1 gripper representation")

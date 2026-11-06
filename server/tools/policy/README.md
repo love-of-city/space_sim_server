@@ -37,3 +37,11 @@ LeRobot 的 `action` 仍保存实际应用的 7 维关节目标。
 相对关节、chunk 锚点末端增量或 Cartesian OSC 的恢复由策略客户端按 checkpoint 合同完成。
 
 `dataset_status=complete` 表示录制完成。当前浮动物体 policy 运行没有成功率判定，outcome 为 unknown；完整运行还应核对原生 client 的 action_steps 与请求步数相同。录制结果发布到共享浏览目录时使用同一文件系统的硬链接，避免外部目录符号链接被 dataset 文件访问检查拒绝。
+
+
+三相机单臂源episode沿用相同回放入口。策略会话按场景 `collection_camera_profile` 冻结相机集合：
+`single-arm-two-view-v1`为全局＋手眼，`single-arm-three-view-v1`再加入 `teleop/camera/workbench_side`。
+RGB/state缓存等待全部相机的session、frame、仿真时间一致；录制与不录制的策略会话均采用同一集合。
+返回 `images` 的顺序为 `base/left_wrist/right_wrist`，第三槽位实际是固定侧视，图像各自携带真实 `camera_id`。
+相机集合在会话内保持固定，reset清空旧帧；新会话根据当前场景重新选择。双臂14D场景不会进入单臂7D策略接口。
+Enactive配套三视角checkpoint按物理camera ID和完整视角集合校验输入。

@@ -348,3 +348,26 @@ def test_uncalibrated_gripper_cannot_be_returned_as_valid_7d_state(cache):
     complete(cache, observation)
     with pytest.raises(RuntimeError, match="gripper|6\\+1"):
         cache.get(identity(observation))
+
+
+def test_three_view_waits_for_same_frame_and_resets_camera_lease():
+    from space_arm_platform.policy_observation import policy_cameras
+    views = policy_cameras({'collection_camera_profile': 'single-arm-three-view-v1'})
+    cache = PolicyObservationCache(timeout=.05)
+    cache.begin(LEASE, cameras=views)
+    obs = state()
+    complete(cache, obs)
+    # A side image from another frame cannot release the paired observation.
+    cache.record_capture(camera_packet(obs.model_copy(update={'render_frame_id': '99'}), views['right_wrist']), {'rgb': RGB[0]})
+    with pytest.raises(RuntimeError, match='timed out pairing'):
+        cache.get(identity(obs))
+    cache.end()
+    cache.begin(LEASE, cameras=views)
+    complete(cache, obs)
+    cache.record_capture(camera_packet(obs, views['right_wrist']), {'rgb': RGB[0]})
+    assert list(cache.get(identity(obs))['images']) == ['base', 'left_wrist', 'right_wrist']
+    cache.end()
+    cache.begin('two-view')
+    obs = state(lease='two-view')
+    complete(cache, obs)
+    assert list(cache.get(identity(obs))['images']) == ['base', 'left_wrist']

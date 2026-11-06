@@ -81,7 +81,7 @@ def api(tmp_path, monkeypatch):
                     policy_task_state=deepcopy(fixture.task_state))
 
     cache.get.side_effect = observed
-    cache.begin.side_effect = lambda lease: fixture.events.append(("capture_begin", lease))
+    cache.begin.side_effect = lambda lease, **kwargs: fixture.events.append(("capture_begin", lease))
     cache.end.side_effect = lambda: fixture.events.append(("capture_end",))
     client = TestClient(app)  # Intentionally omit lifespan: all runtime IO is mocked.
     fixture.client = client
@@ -468,7 +468,7 @@ def test_recorded_acquire_failure_aborts_recording_with_matching_cache_lease(api
     api.hub.policy_command.side_effect = acquire_fails
     response = api.client.post("/api/policy/sessions", json={**START, "record": True})
     assert response.status_code == 409, response.text
-    api.cache.begin.assert_called_once_with("recorded-policy-episode")
+    api.cache.begin.assert_called_once_with("recorded-policy-episode", cameras={"base": "teleop/camera/spacecraft_overview", "left_wrist": "teleop/camera/sarm_wrist_cam"})
     lifecycle.stop.assert_awaited_once()
     assert lifecycle.stop.await_args.args[0].outcome == "aborted"
     assert not api.manager.active
@@ -785,3 +785,19 @@ def test_reset_does_not_hide_failed_recording_finalization(api, monkeypatch):
     lifecycle.start.assert_not_awaited()
     api.hub.finish_reset.assert_not_awaited()
     assert api.client.delete(prefix).status_code == 200
+
+
+@pytest.mark.parametrize('record', [False, True])
+def test_three_view_profile_freezes_cache_before_capture_enable(api, monkeypatch, record):
+    from space_arm_platform.policy_observation import policy_cameras
+    api.instance['collection_camera_profile'] = 'single-arm-three-view-v1'
+    expected = policy_cameras(api.instance)
+    if record:
+        async def begin_recording(request, *, before_enable):
+            assert request.camera_ids == list(expected.values())
+            before_enable('three-view-recording')
+            return {'episode_id': 'three-view-recording'}
+        monkeypatch.setattr(api.manager.capture_lifecycle, 'start', AsyncMock(side_effect=begin_recording))
+    result = start(api, record=record)
+    assert api.cache.begin.call_args.kwargs['cameras'] == expected
+    assert api.events.index(('capture_begin', 'three-view-recording' if record else 'policy-' + result['session_id'])) < api.events.index(('command', 'acquire'))

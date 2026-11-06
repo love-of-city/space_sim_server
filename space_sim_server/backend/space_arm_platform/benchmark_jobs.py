@@ -164,7 +164,7 @@ class BenchmarkManager:
                     row.update(physics_score=result.get("physics_score"), detail=result.get("detail"),
                                wall_time_s=result.get("wall_time_s"))
                     evidence = result.get("evidence_sha256", {})
-                    row["artifacts"] = ["result", *(name for name in ("task", "manifest", "provenance") if name + ".json" in evidence),
+                    row["artifacts"] = ["result", *(name for name in ("task", "manifest", "provenance", "context", "runtime_final") if name + ".json" in evidence),
                         *(name for name in ("observations", "actions") if name + ".jsonl" in evidence)]
                     if any(Path(name).name == "physics.jsonl" for name in evidence):
                         row["artifacts"].append("physics")
@@ -320,7 +320,7 @@ class BenchmarkManager:
             if not row or not row.get("result_sha256") or row["outcome"] == "invalid_evidence":
                 raise KeyError(trial_id)
             directory = self._path(job) / "batch" / trial_id / "run"
-            paths = {item: item + ".json" for item in ("task", "manifest", "provenance", "result")}
+            paths = {item: item + ".json" for item in ("task", "manifest", "provenance", "result", "context", "runtime_final")}
             paths.update(observations="observations.jsonl", actions="actions.jsonl")
             if name == "physics":
                 paths[name] = read_json(directory / "manifest.json")["physics_path"]

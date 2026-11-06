@@ -78,7 +78,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     if(detail){
       const links=element('td','actions');
       if(trial.result_sha256&&trial.outcome!=='invalid_evidence'){
-        for(const [name,label] of [['result','评分'],['physics','物理日志'],['observations','观测'],['actions','动作'],['manifest','版本清单']]){
+        for(const [name,label] of [['result','评分'],['physics','物理日志'],['observations','观测'],['actions','动作'],['context','初始输入'],['manifest','版本清单'],['runtime_final','环境变化记录']]){
           if(!trial.artifacts?.includes(name))continue;
           const link=element('a','',label);link.href=`/api/benchmarks/${job.id}/trials/${trial.trial_id}/artifacts/${name}`;links.append(link);
         }

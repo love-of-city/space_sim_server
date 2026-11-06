@@ -95,6 +95,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
         else:
             manifest["chaser_mass_kg"] = environment.context.chaser_mass_kg
         write_json(output / "manifest.json", manifest)
+        write_json(output / "context.json", environment.context.model_dump(mode="json"))
         try:
             method = ExternalMethod(definition, output) if definition is not None else methods[method_id]()
             method.reset(environment.context)
@@ -159,7 +160,7 @@ def run_episode(task: Task, method_id: str | None, seed: int, output: Path, *, m
     if provenance is not None:
         write_json(output / "provenance.json", provenance)
     evidence = {"task.json": sha256(output / "task.json"), "manifest.json": sha256(output / "manifest.json")}
-    for relative in (manifest.get("physics_path"), "observations.jsonl", "actions.jsonl", "provenance.json",
+    for relative in (manifest.get("physics_path"), "context.json", "observations.jsonl", "actions.jsonl", "provenance.json",
                      "method_stderr.log", "method_calls.jsonl", "runtime_final.json"):
         if relative and (output / relative).is_file():
             evidence[relative] = sha256(output / relative)

@@ -70,6 +70,12 @@ def main(argv=None) -> int:
     batch.add_argument("--resume", action="store_true")
     batch.add_argument("--stop-file", type=Path, help="stop the current attempt and leave unstarted seeds pending")
     batch.add_argument("--seed", type=int, help="one diagnostic trial from the selected frozen split")
+    dataset = commands.add_parser("export-dataset", help="export verified public observations/actions; never relabel frozen splits")
+    dataset.add_argument("episodes", type=Path, nargs="+", help="completed run directories with recorded public context")
+    dataset.add_argument("--output", type=Path, required=True, help="new portable dataset directory")
+    dataset.add_argument("--split", choices=["train", "validation", "test"], default="train")
+    verify_data = commands.add_parser("verify-dataset", help="verify exported dataset hashes, schemas and temporal alignment")
+    verify_data.add_argument("output", type=Path)
     args = parser.parse_args(argv)
     if args.command == "schema":
         model = {"catalogue": AutonomyCatalog, "waypoint": WaypointTask,
@@ -90,8 +96,14 @@ def main(argv=None) -> int:
     if args.command == "validate":
         print(json.dumps(catalog.coverage(), ensure_ascii=False, indent=2))
         return 0
-    if args.command in {"tasks", "matrix", "spec", "run", "rescore", "batch"}:
+    if args.command in {"tasks", "matrix", "spec", "run", "rescore", "batch", "export-dataset", "verify-dataset"}:
         try:
+            if args.command in {"export-dataset", "verify-dataset"}:
+                from space_arm_platform.benchmark_dataset import export_dataset, verify_dataset
+                result = (export_dataset(args.episodes, args.output, split=args.split)
+                          if args.command == "export-dataset" else verify_dataset(args.output))
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0
             if args.command == "rescore":
                 print(json.dumps(rescore_episode(args.output), ensure_ascii=False, indent=2))
                 return 0

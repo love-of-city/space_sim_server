@@ -299,3 +299,18 @@ def test_changed_result_or_raw_physics_cannot_be_downloaded_as_verified(manager)
     assert manager.get(key, OWNER)["summary"]["outcomes"] == {"invalid_evidence": 1}
     with pytest.raises(KeyError):
         manager.artifact(key, row["trial_id"], "result", OWNER)
+
+
+@pytest.mark.parametrize('name', ['context', 'runtime_final'])
+def test_public_context_and_runtime_diagnostics_keep_artifact_hash_checks(manager, name):
+    key, directory, row, result = incomplete_archive(manager)
+    write_json(directory/(name+'.json'), {'recorded': True})
+    result['evidence_sha256'][name+'.json'] = sha256(directory/(name+'.json'))
+    write_json(directory/'result.json', result)
+    row['result_sha256'] = sha256(directory/'result.json')
+    write_json(directory.parents[1]/'summary.json', summarize([row]))
+    assert name in manager.get(key, OWNER)['summary']['trials'][0]['artifacts']
+    assert manager.artifact(key, row['trial_id'], name, OWNER) == directory/(name+'.json')
+    write_json(directory/(name+'.json'), {'changed': True})
+    with pytest.raises(ValueError, match='已改变'):
+        manager.artifact(key, row['trial_id'], name, OWNER)

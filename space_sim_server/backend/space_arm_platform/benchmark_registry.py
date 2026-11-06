@@ -2,19 +2,19 @@
 from dataclasses import dataclass
 import importlib
 
-from .benchmark_attitude import AttitudeTask, WheelTorqueAction
+from .benchmark_attitude import AttitudeContext, AttitudeObservation, AttitudeTask, WheelTorqueAction
 from .benchmark_attitude_score import AttitudeScorer
-from .benchmark_contract import ForceAction, WaypointTask
+from .benchmark_contract import ForceAction, MethodContext, NavigationObservation, WaypointTask
 from .benchmark_scoring import WaypointScorer
-from .benchmark_orbit import CircularOrbitObjective, OrbitTask
+from .benchmark_orbit import CircularOrbitObjective, OrbitContext, OrbitObservation, OrbitTask
 from .benchmark_orbit_score import OrbitScorer
-from .benchmark_navigation import NavigationEstimateAction, NavigationTask
+from .benchmark_navigation import GNSSMeasurements, NavigationContext, NavigationEstimateAction, NavigationTask
 from .benchmark_navigation_score import NavigationScorer
-from .benchmark_relative_flight import RelativeFlightTask
+from .benchmark_relative_flight import RelativeFlightContext, RelativeFlightTask
 from .benchmark_relative_flight_score import RelativeFlightScorer
-from .benchmark_flyaround import FlyAroundTask
+from .benchmark_flyaround import FlyAroundContext, FlyAroundTask
 from .benchmark_flyaround_score import FlyAroundScorer
-from .benchmark_formation import FormationAction, FormationTask
+from .benchmark_formation import FormationAction, FormationContext, FormationObservation, FormationTask
 from .benchmark_formation_score import FormationScorer
 
 Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask
@@ -67,6 +67,19 @@ def method_classes(task: Task):
 def native_environment(task: Task, output):
     family = FAMILIES[type(task)]
     return getattr(importlib.import_module(family.native_module), family.environment_class)(task, output)
+
+
+def method_input_types(task: Task):
+    """Public method inputs, without importing a native simulation backend."""
+    return {
+        WaypointTask: (MethodContext, NavigationObservation),
+        AttitudeTask: (AttitudeContext, AttitudeObservation),
+        OrbitTask: (OrbitContext, OrbitObservation),
+        NavigationTask: (NavigationContext, GNSSMeasurements),
+        RelativeFlightTask: (RelativeFlightContext, NavigationObservation),
+        FlyAroundTask: (FlyAroundContext, NavigationObservation),
+        FormationTask: (FormationContext, FormationObservation),
+    }[type(task)]
 
 
 def parse_action(task: Task, raw, observation):

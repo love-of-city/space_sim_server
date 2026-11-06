@@ -18,7 +18,7 @@ from space_arm_platform.benchmark_vision import (
 from space_arm_platform.benchmark_vision_score import VisionPoseScorer
 
 
-def public_context(task,chaser_mass_kg):
+def public_context(task,chaser_mass_kg,*,context_type=VisionPoseContext):
     root=Path(__file__).resolve().parents[1]
     rig=json.loads((root/'config/visual_attachments/target_aruco_flush_5cm_v2/aruco_rig.json').read_text('utf-8'))
     markers=[]
@@ -27,7 +27,7 @@ def public_context(task,chaser_mass_kg):
         h=marker['size_m']/2
         corners=[tuple(c+h*(x*u+y*v)) for x,y in ((-1,-1),(1,-1),(1,1),(-1,1))]
         markers.append(FiducialMarker(marker_id=marker['id'],corners_target_m=tuple(corners)))
-    return VisionPoseContext(task=task,chaser_mass_kg=chaser_mass_kg,marker_dictionary=rig['dictionary'],markers=tuple(markers))
+    return context_type(task=task,chaser_mass_kg=chaser_mass_kg,marker_dictionary=rig['dictionary'],markers=tuple(markers))
 
 
 class NativeVisionPoseEnvironment(NativeWaypointEnvironment):
@@ -115,8 +115,7 @@ class NativeVisionPoseEnvironment(NativeWaypointEnvironment):
         if self.evaluation()['outcome']!='incomplete':
             raise RuntimeError('episode has terminated; reset before another estimate')
         action.validate_for(self._observation,self.task)
-        estimate=VisionPoseEstimateEvidence(sequence=action.observation_sequence,estimate_time_ns=action.estimate_time_ns,
-            reference_frame=action.reference_frame,image_sha256=tuple(image.png_sha256 for image in self._observation.images),pose=action.pose)
+        estimate=self._estimate_evidence(action)
         self._scorer.add(estimate)
         self._truth_stream.write(estimate.model_dump_json()+'\n')
         # All original physical motor commands remain at zero. Estimates do
@@ -126,6 +125,10 @@ class NativeVisionPoseEnvironment(NativeWaypointEnvironment):
         self._simulation.ExecuteSimulation()
         self._observation=self._measure(self._observation.sequence+1)
         return self._observation
+
+    def _estimate_evidence(self,action):
+        return VisionPoseEstimateEvidence(sequence=action.observation_sequence,estimate_time_ns=action.estimate_time_ns,
+            reference_frame=action.reference_frame,image_sha256=tuple(image.png_sha256 for image in self._observation.images),pose=action.pose)
 
     def provenance(self):
         value=super().provenance()

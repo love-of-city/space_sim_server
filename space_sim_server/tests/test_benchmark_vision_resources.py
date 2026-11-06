@@ -71,7 +71,7 @@ def test_image_method_registry_import_does_not_load_cv2_or_basilisk():
 import sys
 from space_arm_platform.benchmark_contract import load_task, SPEC_DIRECTORY
 from space_arm_platform.benchmark_registry import method_classes
-for name in ('d23-marked-mono-pose-v1','d24-marked-stereo-pose-v1'):
+for name in ('d23-marked-mono-pose-v1','d24-marked-stereo-pose-v1','d27-stereo-gyro-spin-v1'):
     task=load_task(SPEC_DIRECTORY/(name+'.json'))
     assert len(method_classes(task))==3
 assert 'cv2' not in sys.modules and 'Basilisk' not in sys.modules

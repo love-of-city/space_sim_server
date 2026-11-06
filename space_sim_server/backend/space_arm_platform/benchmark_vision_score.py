@@ -11,7 +11,7 @@ from .benchmark_navigation_score import initial_orbit_errors
 from .benchmark_vision import VisionCaptureEvidence, VisionPoseEstimateEvidence, VisionPoseTruthSample, VisionPoseObservation
 
 
-def verify_public_image_evidence(task, observations_path, physics_path):
+def verify_public_image_evidence(task, observations_path, physics_path, *, observation_type=VisionPoseObservation):
     """Bind exported image bytes to the private captures used by the grader."""
     captures={}
     with physics_path.open(encoding='utf-8') as stream:
@@ -26,7 +26,7 @@ def verify_public_image_evidence(task, observations_path, physics_path):
     with observations_path.open(encoding='utf-8') as stream:
         for sequence,line in enumerate(stream):
             observation_count+=1
-            observation=VisionPoseObservation.model_validate_json(line)
+            observation=observation_type.model_validate_json(line)
             capture=captures.get(sequence)
             if (capture is None or observation.sequence!=sequence
                     or observation.sample_time_ns!=sequence*task.decision_period_ns
@@ -129,8 +129,7 @@ class VisionPoseScorer:
                 if roll > initial.target_roll_half_width_rad+1e-8:
                     self.initialization_errors.add('initial_target_roll_outside_distribution')
             if (rotation_error(rotation(sample.chaser_orientation_body_to_j2000_wxyz),np.eye(3)) > 1e-8
-                    or np.linalg.norm(sample.chaser_angular_velocity_body_rad_s) > 1e-8
-                    or np.linalg.norm(sample.target_angular_velocity_body_rad_s) > 1e-8):
+                    or not self.initial_rates_valid(sample)):
                 self.initialization_errors.add('initial_spacecraft_attitude_or_rate_outside_distribution')
         self.latest = sample
         self.count += 1
@@ -139,6 +138,10 @@ class VisionPoseScorer:
         # estimate credit and cannot compensate a missing earlier sample.
         if sample.time_ns == round(task.duration_s*1e9) and self.estimate_count != task.expected_estimates:
             self.evidence_errors.add('incomplete_pose_estimate_coverage')
+
+    def initial_rates_valid(self,sample):
+        return (np.linalg.norm(sample.chaser_angular_velocity_body_rad_s)<=1e-8
+                and np.linalg.norm(sample.target_angular_velocity_body_rad_s)<=1e-8)
 
     def _capture(self,capture):
         expected_time = self.capture_count*self.task.decision_period_ns

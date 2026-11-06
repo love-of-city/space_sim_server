@@ -16,6 +16,7 @@ import time
 from .benchmark_contract import load_task
 from .benchmark_formation import FormationTask
 from .benchmark_vision import VisionPoseTask
+from .benchmark_vision_motion import VisionMotionTask
 from .atomic_json import write_json as atomic_write_json
 from .benchmark_external import ExternalMethod, ExternalMethodDefinition
 from .benchmark_registry import Task, make_scorer, method_classes, method_ids, native_environment, parse_action
@@ -217,7 +218,10 @@ def rescore_episode(output: Path) -> dict:
         for line in stream:
             scorer.add(json.loads(line))
     score = scorer.result()
-    if isinstance(task, VisionPoseTask) and 'observations.jsonl' in result['evidence_sha256']:
+    if isinstance(task, VisionMotionTask) and 'observations.jsonl' in result['evidence_sha256']:
+        from .benchmark_vision_motion_score import verify_motion_observations
+        verify_motion_observations(task, output/'observations.jsonl', output/physics_path)
+    elif isinstance(task, VisionPoseTask) and 'observations.jsonl' in result['evidence_sha256']:
         from .benchmark_vision_score import verify_public_image_evidence
         verify_public_image_evidence(task, output/'observations.jsonl', output/physics_path)
     preserved = result["outcome"] in {"infrastructure_error", "method_error", "cancelled"}

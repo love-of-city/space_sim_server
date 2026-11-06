@@ -8,6 +8,8 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'image-gyro-spin-v1':'图像与自身陀螺角速度估计','external-image-gyro-spin-v1':'图像角速度估计 · 独立进程示例',
+  'zero-image-spin-v1':'零目标角速度（负对照）','missing-image-spin-v1':'始终缺失运动估计（负对照）',
   'image-fiducial-pose-v1':'图像标志物位姿估计','external-image-fiducial-pose-v1':'图像位姿估计 · 独立进程示例',
   'missing-image-pose-v1':'始终失锁（负对照）','zero-image-pose-v1':'零位姿（负对照）',
   'ephemeris-pointing-pd-v1':'星历与遥测指向','frozen-pointing-pd-v1':'保持初始参考方向（对照）',
@@ -30,6 +32,11 @@ export const methodLabels = {
   'unsafe-formation-v1':'成员危险接近（负对照）','external-formation-v1':'编队协同控制 · 独立进程示例',
 };
 export function benchmarkMetric(score){
+  if(score?.schema_version==='spacesim-autonomy-rendered-spin-score/1'){
+    const available=`有效角速度估计 ${score.available_spin_count}/${score.expected_spin_estimates}`;
+    return Number.isFinite(score.angular_velocity_rmse_rad_s)
+      ?`${available}；角速度 RMSE ${score.angular_velocity_rmse_rad_s.toFixed(5)} rad/s`:available;
+  }
   if(score?.schema_version==='spacesim-autonomy-rendered-pose-score/1'){
     const available=`有效估计 ${score.available_pose_count}/${score.expected_estimates}`;
     return Number.isFinite(score.position_rmse_m)&&Number.isFinite(score.orientation_rmse_rad)
@@ -82,6 +89,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
         orientation_rmse:'姿态 RMSE',maximum_orientation_error:'最大姿态误差',pose_availability:'有效位姿估计不足',
+        angular_velocity_rmse:'角速度 RMSE',maximum_angular_velocity_error:'最大角速度误差',spin_availability:'有效角速度估计不足',
         continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
         flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程',continuous_formation_envelope:'成员未全程保持编队',
         boresight_error:'跟踪时窗指向超差',direction_rate_error:'跟踪方向变化率超差',

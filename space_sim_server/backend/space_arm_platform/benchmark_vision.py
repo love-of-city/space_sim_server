@@ -105,7 +105,7 @@ class VisionPoseTask(Contract):
 
     @model_validator(mode='after')
     def semantic_contract(self):
-        expected = ('ssb.vision.monocular-pose',1) if self.source_id == 'D23' else ('ssb.vision.stereo-pose',2)
+        expected = self.source_camera_requirement()
         if (self.requirement_id,len(self.cameras)) != expected:
             raise ValueError('source ID, pose task and actual camera count must agree')
         expected_ids = ('team/camera/benchmark_left','team/camera/benchmark_right')[:len(self.cameras)]
@@ -131,6 +131,9 @@ class VisionPoseTask(Contract):
         if not math.isclose(ticks,round(ticks),abs_tol=1e-8,rel_tol=0):
             raise ValueError('duration must lie on the camera decision grid')
         return self
+
+    def source_camera_requirement(self):
+        return ('ssb.vision.monocular-pose',1) if self.source_id == 'D23' else ('ssb.vision.stereo-pose',2)
 
     @property
     def expected_estimates(self):

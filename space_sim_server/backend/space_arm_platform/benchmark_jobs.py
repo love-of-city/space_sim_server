@@ -29,6 +29,7 @@ from typing import Literal
 TERMINAL = {"complete", "stopped", "interrupted", "failed"}
 BUNDLED_METHODS = {
     "external-image-fiducial-pose-v1": ("spacesim-autonomy-rendered-pose/1", "examples/autonomy_methods/vision-pose.json"),
+    "external-image-gyro-spin-v1": ("spacesim-autonomy-rendered-spin/1", "examples/autonomy_methods/vision-spin.json"),
     "external-ephemeris-pointing-v1": ("spacesim-autonomy-pointing/1", "examples/autonomy_methods/pointing.json"),
     "external-attitude-pd-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-pd.json"),
     "external-attitude-sequence-v1": ("spacesim-autonomy-attitude/1", "examples/autonomy_methods/attitude-sequence.json"),

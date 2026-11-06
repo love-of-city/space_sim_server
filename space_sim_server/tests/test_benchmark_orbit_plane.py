@@ -137,3 +137,5 @@ def test_public_guidance_requests_a_real_plane_maneuver_and_reset_restores_refer
     assert baseline.act(first) == initial_action
     assert 'unchanged-orbit-plane-v1' in method_ids(spec)
     assert 'unchanged-orbit-plane-v1' not in method_ids(load_task(SPEC_DIRECTORY/'s10-continuous-low-thrust-v1.json'))
+    assert tuple(method_classes(spec)) == method_ids(spec)
+    assert 'pulsed-orbit-burn-v1' not in method_classes(spec)

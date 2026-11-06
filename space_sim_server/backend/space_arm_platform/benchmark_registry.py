@@ -95,6 +95,8 @@ def method_classes(task: Task):
     methods = importlib.import_module(family.methods_module).METHODS
     if tuple(methods) != family.method_ids:
         raise ValueError("method registration differs from its family implementation")
+    if isinstance(task, OrbitTask):
+        return {name: methods[name] for name in method_ids(task)}
     return methods
 
 

@@ -1,5 +1,4 @@
 """A standalone metadata compiler must not share a process with Basilisk."""
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -9,8 +8,6 @@ import pytest
 
 
 def test_compiled_mesh_poses_match_without_importing_standalone_mujoco_in_parent(tmp_path):
-    if importlib.util.find_spec('mujoco') is None:
-        pytest.skip('actual metadata compilation requires the optional MuJoCo package')
     # A tetrahedron away from the origin exercises compiler recentering.
     model=tmp_path/'model.xml'
     model.write_text('''<mujoco><asset><mesh name="tetra" vertex="1 0 0  2 0 0  1 1 0  1 0 1"/></asset>

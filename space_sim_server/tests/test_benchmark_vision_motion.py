@@ -170,3 +170,12 @@ def test_public_context_roundtrip_retains_spin_and_gyro_contract_without_private
     assert restored.task.own_gyro.sample_period_ns==20_000_000
     with pytest.raises(ValueError):
         VisionMotionContext.model_validate(dict(context.model_dump(),gyro_bias=[0.,0.,0.]))
+
+
+@pytest.mark.parametrize('filename',['vision-spin-builtin.json','vision-spin-zero.json','vision-spin.json'])
+def test_real_method_specs_admit_the_registered_spin_contract(task,filename):
+    from space_arm_platform.benchmark_external import ExternalMethodDefinition
+    server=SPEC_DIRECTORY.parents[2]
+    definition=ExternalMethodDefinition(server/'examples/autonomy_methods'/filename,task)
+    assert definition.spec.task_schemas==(task.schema_version,)
+    definition.verify_unchanged()

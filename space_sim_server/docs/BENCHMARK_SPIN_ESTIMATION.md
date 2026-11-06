@@ -20,3 +20,5 @@ python tools/autonomy_benchmark.py rescore run/spin-training-1
 ```
 
 开发与验收分开记录。新配置的真实原生/UE 训练运行、冻结测试、负对照、复位和网页验收尚未完成；接口检查和合成数学用例不构成物理运行成功证据。当前在独立开发工作树推进，既有 D23/D24 冻结矩阵保持原源码及资产不变。
+
+2026-11-06 云端完成相关后端检查、261 项前端检查和前端生产构建。实际加载原生环境类生成公开上下文，两个 OpenCV 独立进程方法及缺失估计对照均完成 reset/close；父进程保持 Basilisk 与 OpenCV 隔离。第一次初始化暴露了通用外部方法 schema 白名单漏项，修复后补充三个实际方法定义检查并通过复测。该检查尚未运行物理场景或处理评测图像，报告 `.tmp/benchmark-motion-protocol-v2/acceptance.json` SHA-256 为 `c0679c5b95adee058c9362a26941a71c9b4df41b8975b8d1d1926df7c2fe7511`。

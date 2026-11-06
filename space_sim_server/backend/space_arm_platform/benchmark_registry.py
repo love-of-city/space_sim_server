@@ -12,8 +12,10 @@ from .benchmark_navigation import NavigationEstimateAction, NavigationTask
 from .benchmark_navigation_score import NavigationScorer
 from .benchmark_relative_flight import RelativeFlightTask
 from .benchmark_relative_flight_score import RelativeFlightScorer
+from .benchmark_flyaround import FlyAroundTask
+from .benchmark_flyaround_score import FlyAroundScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,8 @@ FAMILIES = {
         "NativeNavigationEnvironment", ("gnss-orbit-estimator-v1", "gnss-measurement-only-v1", "zero-navigation-estimate-v1")),
     RelativeFlightTask: FamilyImplementation("simulation.benchmark_relative_flight_methods", "simulation.benchmark_native_relative_flight",
         "NativeRelativeFlightEnvironment", ("gnss-relative-flight-v1", "no-relative-thrust-v1", "unsafe-relative-flight-v1")),
+    FlyAroundTask: FamilyImplementation("simulation.benchmark_flyaround_methods", "simulation.benchmark_native_flyaround",
+        "NativeFlyAroundEnvironment", ("gnss-flyaround-v1", "no-flyaround-thrust-v1", "unsafe-flyaround-v1")),
 }
 
 
@@ -65,7 +69,7 @@ def parse_action(task: Task, raw, observation):
     if isinstance(task, NavigationTask):
         action = NavigationEstimateAction.model_validate(raw)
         action.validate_for(observation, task)
-    elif isinstance(task, (WaypointTask, OrbitTask)):
+    elif isinstance(task, (WaypointTask, OrbitTask, FlyAroundTask)):
         action = ForceAction.model_validate(raw)
         action.validate_for(observation, task.safety.maximum_force_n)
     else:
@@ -75,6 +79,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, FlyAroundTask):
+        return FlyAroundScorer(task, chaser_mass_kg)
     if isinstance(task, RelativeFlightTask):
         return RelativeFlightScorer(task, chaser_mass_kg)
     if isinstance(task, NavigationTask):

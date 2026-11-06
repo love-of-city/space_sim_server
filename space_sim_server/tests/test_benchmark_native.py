@@ -18,17 +18,17 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize('configuration', ['d12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1'])
+@pytest.mark.parametrize('configuration', ['d12-continuous-gnss-hold-v1', 'd29-vbar-gnss-approach-v1', 'd30-rbar-gnss-approach-v1', 'd33-gnss-flyaround-v1'])
 def test_relative_flight_contracts_use_actual_actuators_and_reset(tmp_path, configuration):
     code = r'''
 import sys
 from pathlib import Path
 import numpy as np
 from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task, ForceAction
-from simulation.benchmark_native_relative_flight import NativeRelativeFlightEnvironment
+from space_arm_platform.benchmark_registry import native_environment
 
 task = load_task(SPEC_DIRECTORY/(sys.argv[2]+'.json'))
-env = NativeRelativeFlightEnvironment(task, Path(sys.argv[1]))
+env = native_environment(task, Path(sys.argv[1]))
 try:
     first = env.reset(201)
     initial = env._read_physical_states(0).copy()
@@ -37,7 +37,10 @@ try:
     env.step(action)
     propelled = env._read_physical_states(task.decision_period_ns).copy()
     assert abs(env.evaluation()['thrust_impulse_n_s']-.5) < 1e-12
-    assert env.evaluation()['path_requirement'] == task.path_requirement.kind
+    if hasattr(task, 'path_requirement'):
+        assert env.evaluation()['path_requirement'] == task.path_requirement.kind
+    else:
+        assert env.evaluation()['signed_revolutions'] > 0
     assert env.provenance()['native_dynamics']['external_state_writes'] == 0
     again = env.reset(201)
     assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})

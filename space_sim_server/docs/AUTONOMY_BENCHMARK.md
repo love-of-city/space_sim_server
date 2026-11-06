@@ -2,7 +2,7 @@
 
 最终交付范围和验收合同见 [最终目标](AUTONOMY_BENCHMARK_GOAL.md)。本页说明当前可用入口，以及后续实现必须遵循的数据边界。
 
-当前提供 122 条来源需求，以及覆盖 11 条来源的 12 个可执行配置：S01 消旋、S02 姿态机动、S03 大角度机动、S09 有限时长轨道机动、S11 轨道抬升/降低（两个配置）、S14 单星轨道状态估计、D01 合作目标相对导航、D12 持续伴飞、D29 V-bar 接近、D30 R-bar 接近及 D32 合作目标保持点驻留。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。各配置的实际验收范围与结果见下文；其他任务族、真实图像和接触任务、评测数据转训练集仍在实施。目录中的 122 条需求不代表 122 个可执行环境。
+当前提供 122 条来源需求，以及覆盖 12 条来源的 13 个可执行配置：S01 消旋、S02 姿态机动、S03 大角度机动、S09 有限时长轨道机动、S11 轨道抬升/降低（两个配置）、S14 单星轨道状态估计、D01 合作目标相对导航、D12 持续伴飞、D29 V-bar 接近、D30 R-bar 接近、D32 合作目标保持点驻留及 D33 安全绕飞。它们都有原生执行、内置及外部方法接口、独立评分、冻结种子批评测、离线复算，以及原平台内的登录、批次管理和结果入口。各配置的实际验收范围与结果见下文；其他任务族、真实图像和接触任务、评测数据转训练集仍在实施。目录中的 122 条需求不代表 122 个可执行环境。
 
 ## 任务目录
 
@@ -29,7 +29,7 @@ python -m tools.autonomy_benchmark schema
 
 目录只描述需求，不能携带 `success`、成功率、已验收等运行结论。任务实例配置、执行后端注册和运行证据分别建模；后续界面也必须区分这三类事实。
 
-`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 11 条来源、12 个配置，余下 111 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
+`python tools/autonomy_benchmark.py matrix` 自动生成全部 122 条需求与注册配置的映射；加 `--format markdown` 输出可审阅表格。矩阵保留尚未注册的需求，逐配置标明视觉、合作程度、主体数、后端和任务指纹。`registered` 仅代表已注册执行映射，不等于原生验收通过；当前为 12 条来源、13 个配置，余下 110 条仍保留在矩阵中。同一矩阵随 `/api/benchmarks/catalog` 返回，界面分别显示配置数和对应来源数。
 
 ## 原生保持点任务
 
@@ -301,6 +301,22 @@ python tools/autonomy_benchmark.py schema --kind relative-flight
 
 云端独立 UE 工作树已下载 565 个 Content LFS 文件（303046347 字节），UE 5.6 Development Editor 编译通过。`BskUnreal` 自动化报告含 42 项通过、3 项带警告通过、零失败/未运行；报告 `.tmp/benchmark-ue-automation-v2/index.json` 的 SHA-256 为 `014bed4a5a135a01d1f053f7e03bfdbf158471401b814cec392060970a1e959c`。这次采用 NullRHI，只验收适配器基础功能，不计为真实图像闭环。首次手工测试命令的缓存目录超过 UE 的 119 字符限制，原失败日志保留；后续命令使用本人短路径缓存及 `InstalledNoZenLocalFallback`，未改全局设置或共享 UE 进程。正式脚本已有按工作树生成短缓存路径的逻辑，应沿用其配置入口。
 
+## 安全绕飞：D33
+
+[`d33-gnss-flyaround-v1.json`](../config/benchmarks/tasks/d33-gnss-flyaround-v1.json) 对应 D33，采用 `spacesim-autonomy-flyaround/1` 契约及原团队两星原生场景。此配置为合作目标、V0、单方控制；GNSS 观测、25 N 理想质心推力、被动姿态、500 km 轨道与 J2/太阳/阻力/光压、400 Hz 积分及 50 Hz 物理证据均沿用上述相对飞行配置。
+
+目标是在目标星 T-R 平面完成一整圈有方向的绕飞：半径 150 m、全程径向偏差不超过 5 m、平面偏差不超过 3 m、累计反向行程不超过 0.05 rad，绕完后距实际初始相对位置不超过 3 m。安全距离仍为 100–1000 m，相对速度不超过 2 m/s。初始 TNR 位置为 (-150,0,0) m、各轴 ±0.25 m，速度为 (0,0,-π/2) m/s、各轴 ±0.005 m/s；时限 720 s。任务指纹为 `8ac6b7d5ac2f9c7beb02a07099314dcfd2d64a83a385fa0d0c7516878759589c`。
+
+评分从独立物理投影中连续展开 `atan2(R,T)`，累计有符号角度及反向行程。原地保持、往复摆动、反向绕行、跨采样瞬移、漏帧或初始化后状态改写均不能获得一圈进度；中途半径/平面越界永久保留，即使回到初始位置也不成功。方法只见 GNSS，默认 `gnss-flyaround-v1` 选择约 600 s 的圆形参考与反馈控制；任务不指定控制器参考轨迹。`no-flyaround-thrust-v1` 和 `unsafe-flyaround-v1` 分别提供零推力及持续法向推力对照。未使用图像、观察覆盖率或三维重建指标。
+
+```powershell
+python tools/autonomy_benchmark.py run d33-gnss-flyaround-v1 --seed 201 --output run/autonomy/d33-seed201
+python tools/autonomy_benchmark.py batch d33-gnss-flyaround-v1 --split test --output run/autonomy/d33-test
+python tools/autonomy_benchmark.py run d33-gnss-flyaround-v1 --method-spec examples/autonomy_methods/flyaround.json --seed 201 --output run/autonomy/d33-external201
+```
+
+训练种子 1 在 600.10 s 完成，结束时间 600.5 s、30026 个物理帧；累计 1.000689 圈、无反向行程，最大径向误差 0.09881 m、平面误差 0.06648 m、闭合误差 0.65226 m。全部相关后端检查共 193 项通过（新增配置后补齐目录断言并重跑该文件），新增 D33 实际原生动作/复位检查通过；261 项前端检查、生产构建及 Ruff 通过。冻结测试、对照及实际网页验收结果待继续记录。
+
 ## 接入自己的方法
 
 内置方法用于复现基线。要接入自己的控制器或 Agent，可使用 [`examples/autonomy_methods/conventional.py`](../examples/autonomy_methods/conventional.py) 中的 `serve_method` SDK，将方法类替换为自己的 `reset(context)`、`act(observation)`、`close()` 实现。方法进程不加载原生场景，只接收公开任务、硬件上下文和声明观测；动作还需经过环境契约校验。SDK 可以封装外部服务调用，但当前版本不提供 HTTP 方法服务端或非 Python 启动器。
@@ -382,7 +398,7 @@ CLI 也支持 `batch ... --seed 201`，但种子必须属于所选划分。`run`
 | 层 | 责任 | 复用入口或新增内容 |
 | --- | --- | --- |
 | 来源目录 | 稳定 ID、来源 ID、优先级、任务族、视觉及合作标签 | `benchmark_catalog.py`，不导入动力学 |
-| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 保持点、S01/S02/S03 飞轮、S09/S11 轨道机动、S14/D01 导航估计、D12/D29/D30 伴飞和轴向接近配置已实现，其余逐族落实 |
+| 任务实例 | 初态分布、具体观测/动作、时钟、阈值、故障和随机划分 | D32 保持点、S01/S02/S03 飞轮、S09/S11 轨道机动、S14/D01 导航估计、D12/D29/D30 伴飞和轴向接近、D33 安全绕飞配置已实现，其余逐族落实 |
 | 执行适配 | reset/step/close、控制权、权威状态和方法观测分离 | 复用既有在轨组件、MissionRuntime、策略接口及原生执行器 |
 | 感知链 | 时间标记、标定、实际图像与有效测量 | 复用 GNSS、陀螺、Near23 桥和真实 UE 相机 |
 | 独立评分 | 从原始权威证据计算任务/安全/资源结果 | 复用并扩展已有交会、连续性和物理抓持审计 |

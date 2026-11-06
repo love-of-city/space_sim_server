@@ -29,4 +29,9 @@ if sys.argv[1:] == ["relative-flight"]:
     from space_arm_platform.benchmark_relative_flight import RelativeFlightContext
     from space_arm_platform.benchmark_contract import NavigationObservation
     raise SystemExit(serve_method(GNSSRelativeFlight(), RelativeFlightContext, NavigationObservation))
-raise SystemExit("expected one task-family argument: attitude, waypoint, orbit, navigation or relative-flight")
+if sys.argv[1:] == ["flyaround"]:
+    from simulation.benchmark_flyaround_methods import GNSSFlyAround
+    from space_arm_platform.benchmark_flyaround import FlyAroundContext
+    from space_arm_platform.benchmark_contract import NavigationObservation
+    raise SystemExit(serve_method(GNSSFlyAround(), FlyAroundContext, NavigationObservation))
+raise SystemExit("expected one task-family argument: attitude, waypoint, orbit, navigation, relative-flight or flyaround")

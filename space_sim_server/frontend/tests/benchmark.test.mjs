@@ -21,6 +21,8 @@ test('displayed success rate uses all planned cases and separates angle and posi
   assert.equal(benchmarkMetric({position_rmse_m:.2,velocity_rmse_m_s:.003,final_position_error_m:1}),'位置 RMSE 0.2000 m；速度 RMSE 0.0030 m/s');
   assert.equal(benchmarkMetric({path_requirement:'full_duration_relative_hold',maximum_position_error_m:.25,longest_dwell_s:300,final_position_error_m:.01}),'最大位置误差 0.2500 m；连续保持 300.00 s');
   assert.equal(benchmarkMetric({path_requirement:'axis_approach_corridor',maximum_cross_track_m:2.5,final_position_error_m:.125}),'位置误差 0.1250 m；最大横向偏差 2.5000 m');
+  assert.equal(benchmarkMetric({signed_revolutions:1.0001,maximum_radial_error_m:.25,maximum_plane_error_m:.01}),'绕行 1.0001 圈；最大径向偏差 0.2500 m；平面偏差 0.0100 m');
+  assert.equal(benchmarkMetric({signed_revolutions:0,maximum_radial_error_m:null}),'—');
   assert.equal(benchmarkMetric(null),'—');
 });
 

@@ -238,7 +238,7 @@ def test_api_uses_existing_login_and_owner_checks(tmp_path, monkeypatch):
         assert client.post("/api/benchmarks", json=dict(configuration=CONFIGURATION,owner=user)).status_code == 422
         catalog = client.get("/api/benchmarks/catalog").json()
         assert catalog["requirements"]["requirements"] == 122
-        assert {item["source_id"] for item in catalog["configurations"]} == {"S01", "S02", "S03", "S09", "S11", "S14", "D01", "D12", "D29", "D30", "D32"}
+        assert {item["source_id"] for item in catalog["configurations"]} == {"S01", "S02", "S03", "S09", "S11", "S14", "D01", "D12", "D29", "D30", "D32", "D33"}
         client.post("/api/auth/logout")
         client.post("/api/auth/login", json=dict(username="admin",password="ChangeMe123!")).raise_for_status()
         assert len(client.get("/api/benchmarks").json()["jobs"]) == 1

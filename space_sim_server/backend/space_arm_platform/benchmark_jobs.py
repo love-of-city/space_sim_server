@@ -33,6 +33,7 @@ BUNDLED_METHODS = {
     "external-orbit-maneuver-v1": ("spacesim-autonomy-orbit/1", "examples/autonomy_methods/orbit-pd.json"),
     "external-gnss-estimator-v1": ("spacesim-autonomy-navigation-evaluation/1", "examples/autonomy_methods/navigation-estimator.json"),
     "external-relative-flight-v1": ("spacesim-autonomy-relative-flight/1", "examples/autonomy_methods/relative-flight.json"),
+    "external-flyaround-v1": ("spacesim-autonomy-flyaround/1", "examples/autonomy_methods/flyaround.json"),
 }
 
 

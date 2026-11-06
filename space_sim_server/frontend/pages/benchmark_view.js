@@ -18,10 +18,13 @@ export const methodLabels = {
   'zero-navigation-estimate-v1':'零状态估计（负对照）','external-gnss-estimator-v1':'GNSS 状态估计 · 独立进程示例',
   'gnss-relative-flight-v1':'GNSS 相对飞行','no-relative-thrust-v1':'零相对飞行推力（负对照）',
   'unsafe-relative-flight-v1':'横向偏离（负对照）','external-relative-flight-v1':'相对飞行 · 独立进程示例',
+  'gnss-flyaround-v1':'GNSS 安全绕飞','no-flyaround-thrust-v1':'零绕飞推力（负对照）',
+  'unsafe-flyaround-v1':'绕飞法向偏离（负对照）','external-flyaround-v1':'安全绕飞 · 独立进程示例',
 };
 export function benchmarkMetric(score){
   if(Number.isFinite(score?.final_attitude_error_rad))return `${(score.final_attitude_error_rad*180/Math.PI).toFixed(4)}°`;
   if(Number.isFinite(score?.position_rmse_m))return `位置 RMSE ${score.position_rmse_m.toFixed(4)} m；速度 RMSE ${score.velocity_rmse_m_s.toFixed(4)} m/s`;
+  if(Number.isFinite(score?.signed_revolutions)&&Number.isFinite(score.maximum_radial_error_m))return `绕行 ${score.signed_revolutions.toFixed(4)} 圈；最大径向偏差 ${score.maximum_radial_error_m.toFixed(4)} m；平面偏差 ${score.maximum_plane_error_m.toFixed(4)} m`;
   if(score?.path_requirement==='full_duration_relative_hold'&&Number.isFinite(score.maximum_position_error_m))return `最大位置误差 ${score.maximum_position_error_m.toFixed(4)} m；连续保持 ${score.longest_dwell_s.toFixed(2)} s`;
   if(score?.path_requirement==='axis_approach_corridor'&&Number.isFinite(score.maximum_cross_track_m))return `位置误差 ${score.final_position_error_m.toFixed(4)} m；最大横向偏差 ${score.maximum_cross_track_m.toFixed(4)} m`;
   if(Number.isFinite(score?.final_position_error_m))return `${score.final_position_error_m.toFixed(4)} m`;
@@ -61,7 +64,8 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     }
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
-        continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离'};
+        continuous_hold_envelope:'全程保持范围',approach_progress:'接近距离',flyaround_radius:'绕飞半径偏差',
+        flyaround_plane:'绕飞平面偏差',flyaround_reverse_travel:'绕飞反向行程'};
       outcome.append(element('small','error',trial.physics_score.quality_violations.map(name=>labels[name]||name).join('、')));
     }
     row.append(element('td','',String(trial.seed)),outcome,

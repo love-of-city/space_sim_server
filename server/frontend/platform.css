@@ -108,7 +108,7 @@
 .dataset-page .stats { display: flex; gap: 24px; flex-wrap: wrap; margin: 0 0 18px; font-size: 12px; }
 .dataset-page .stats div { display: flex; gap: 8px; }
 .dataset-page .stats span { color: var(--muted); }
-.dataset-page .videos { padding: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.dataset-page .videos { padding: 18px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 14px; }
 .dataset-page .video-box { background: #111922; border-radius: 9px; min-width: 0; overflow: hidden; position: relative; }
 .dataset-page .video-box video { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #111922; }
 .dataset-page .camera-name, .dataset-page .camera-state { position: absolute; top: 10px; left: 12px; color: #edf3f8; background: #111922cc; padding: 4px 7px; border-radius: 4px; font-size: 11px; }
@@ -199,7 +199,7 @@
   .table-controls { padding: 14px; }
   .table-controls .field.search-field { flex-basis: 100%; }
   .table-controls .field { flex: 1; }
-  .dataset-page .videos { grid-template-columns: 1fr; }
+  .dataset-page .videos { grid-auto-flow: row; grid-template-columns: 1fr; }
   .dataset-page .transport input[type=range] { flex-basis: 100%; }
   .collection-page .workers { grid-template-columns: 1fr; }
   .platform-layout .footer { height: auto; min-height: 34px; padding: 8px 14px; }

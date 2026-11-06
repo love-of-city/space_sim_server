@@ -25,6 +25,8 @@ test('displayed success rate uses all planned cases and separates angle and posi
   assert.equal(benchmarkMetric({final_orbit:{semimajor_axis_error_m:2,eccentricity:1e-6}}),'半长轴误差 2.00 m；e=1.00e-6');
   assert.equal(benchmarkMetric({path_requirement:'continuous_orbit_maintenance',maximum_maintenance_axis_error_m:28.5,failed_maintenance_samples:1,maintenance_samples:54001,final_orbit:{semimajor_axis_error_m:2,eccentricity:1e-6}}),'维持时窗最大半长轴误差 28.50 m；超限 1/54001 帧');
   assert.equal(benchmarkMetric({position_rmse_m:.2,velocity_rmse_m_s:.003,final_position_error_m:1}),'位置 RMSE 0.2000 m；速度 RMSE 0.0030 m/s');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-navigation-recovery-score/1',maximum_outage_position_error_m:1.25,recovery_confirmation_latency_s:5.5}),'中断期间最大位置误差 1.2500 m；恢复确认延迟 5.50 s');
+  assert.equal(benchmarkMetric({schema_version:'spacesim-autonomy-navigation-recovery-score/1',maximum_outage_position_error_m:null,recovery_confirmation_latency_s:null}),'中断期间最大位置误差 —；恢复确认延迟 未确认');
   assert.equal(benchmarkMetric({path_requirement:'full_duration_relative_hold',maximum_position_error_m:.25,longest_dwell_s:300,final_position_error_m:.01}),'最大位置误差 0.2500 m；连续保持 300.00 s');
   assert.equal(benchmarkMetric({path_requirement:'axis_approach_corridor',maximum_cross_track_m:2.5,final_position_error_m:.125}),'位置误差 0.1250 m；最大横向偏差 2.5000 m');
   assert.equal(benchmarkMetric({path_requirement:'abort_and_retreat',reversal_confirmed_s:25.12,retreat_progress_m:99.9}),'向外运动确认 25.12 s；撤离距离 99.90 m');

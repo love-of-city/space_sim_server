@@ -10,6 +10,8 @@ from .benchmark_orbit import CircularOrbitObjective, OrbitMaintenanceObjective, 
 from .benchmark_orbit_score import OrbitScorer
 from .benchmark_navigation import GNSSMeasurements, NavigationContext, NavigationEstimateAction, NavigationTask
 from .benchmark_navigation_score import NavigationScorer
+from .benchmark_navigation_recovery import NavigationRecoveryTask, NavigationRecoveryContext, NavigationRecoveryObservation
+from .benchmark_navigation_recovery_score import NavigationRecoveryScorer
 from .benchmark_relative_flight import RelativeFlightContext, RelativeFlightTask
 from .benchmark_relative_flight_score import RelativeFlightScorer
 from .benchmark_flyaround import FlyAroundContext, FlyAroundTask
@@ -29,7 +31,7 @@ from .benchmark_wheel_recovery_score import WheelRecoveryScorer
 from .benchmark_avoidance import AvoidanceTask, AvoidanceContext, AvoidanceObservation
 from .benchmark_avoidance_score import AvoidanceScorer
 
-Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
+Task = WaypointTask | AttitudeTask | OrbitTask | NavigationTask | NavigationRecoveryTask | RelativeFlightTask | FlyAroundTask | FormationTask | PointingTask | VisionPoseTask | VisionMotionTask | VisionApproachTask | WheelRecoveryTask | AvoidanceTask
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,8 @@ class FamilyImplementation:
 
 
 FAMILIES = {
+    NavigationRecoveryTask: FamilyImplementation("simulation.benchmark_navigation_recovery_methods", "simulation.benchmark_native_navigation_recovery",
+        "NativeNavigationRecoveryEnvironment", ("gnss-outage-recovery-v1", "freeze-during-outage-v1", "zero-recovery-estimate-v1")),
     AvoidanceTask: FamilyImplementation("simulation.benchmark_avoidance_methods", "simulation.benchmark_native_avoidance",
         "NativeAvoidanceEnvironment", ("catalog-avoidance-v1", "no-avoidance-thrust-v1", "unsafe-avoidance-burn-v1")),
     WheelRecoveryTask: FamilyImplementation("simulation.benchmark_wheel_recovery_methods", "simulation.benchmark_native_wheel_recovery",
@@ -103,6 +107,7 @@ def method_input_types(task: Task):
         AttitudeTask: (AttitudeContext, AttitudeObservation),
         OrbitTask: (OrbitContext, OrbitObservation),
         NavigationTask: (NavigationContext, GNSSMeasurements),
+        NavigationRecoveryTask: (NavigationRecoveryContext, NavigationRecoveryObservation),
         RelativeFlightTask: (RelativeFlightContext, NavigationObservation),
         FlyAroundTask: (FlyAroundContext, NavigationObservation),
         FormationTask: (FormationContext, FormationObservation),
@@ -144,6 +149,8 @@ def parse_action(task: Task, raw, observation):
 
 
 def make_scorer(task: Task, chaser_mass_kg):
+    if isinstance(task, NavigationRecoveryTask):
+        return NavigationRecoveryScorer(task, chaser_mass_kg)
     if isinstance(task, AvoidanceTask):
         return AvoidanceScorer(task, chaser_mass_kg)
     if isinstance(task, WheelRecoveryTask):

@@ -28,6 +28,7 @@ from typing import Literal
 
 TERMINAL = {"complete", "stopped", "interrupted", "failed"}
 BUNDLED_METHODS = {
+    "external-gnss-recovery-v1": ("spacesim-autonomy-navigation-recovery/1", "examples/autonomy_methods/navigation-recovery.json"),
     "external-image-fiducial-pose-v1": ("spacesim-autonomy-rendered-pose/1", "examples/autonomy_methods/vision-pose.json"),
     "external-image-gyro-spin-v1": ("spacesim-autonomy-rendered-spin/1", "examples/autonomy_methods/vision-spin.json"),
     "external-image-stereo-approach-v1": ("spacesim-autonomy-visual-approach/1", "examples/autonomy_methods/vision-approach.json"),

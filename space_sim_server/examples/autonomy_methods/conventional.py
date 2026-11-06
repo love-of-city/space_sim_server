@@ -8,6 +8,10 @@ sys.path.insert(0, str(SERVER))
 
 from space_arm_platform.benchmark_external import serve_method  # noqa: E402
 
+if sys.argv[1:] == ["navigation-recovery"]:
+    from simulation.benchmark_navigation_recovery_methods import GNSSOutageRecovery
+    from space_arm_platform.benchmark_navigation_recovery import NavigationRecoveryContext, NavigationRecoveryObservation
+    raise SystemExit(serve_method(GNSSOutageRecovery(), NavigationRecoveryContext, NavigationRecoveryObservation))
 if sys.argv[1:] == ["debris-avoidance"]:
     from simulation.benchmark_avoidance_methods import CatalogAvoidance
     from space_arm_platform.benchmark_avoidance import AvoidanceContext, AvoidanceObservation
@@ -54,4 +58,4 @@ if sys.argv[1:] == ["formation"]:
     from simulation.benchmark_formation_methods import GNSSFormation
     from space_arm_platform.benchmark_formation import FormationContext, FormationObservation
     raise SystemExit(serve_method(GNSSFormation(), FormationContext, FormationObservation))
-raise SystemExit("expected one task-family argument: attitude, attitude-sequence, wheel-recovery, debris-avoidance, pointing, waypoint, orbit, navigation, relative-flight, flyaround or formation")
+raise SystemExit("expected one task-family argument: attitude, attitude-sequence, wheel-recovery, debris-avoidance, pointing, waypoint, orbit, navigation, navigation-recovery, relative-flight, flyaround or formation")

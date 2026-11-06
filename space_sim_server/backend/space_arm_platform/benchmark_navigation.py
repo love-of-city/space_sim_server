@@ -120,26 +120,7 @@ class NavigationTask(Contract):
                   self.reference_frame, self.observation.target_link)
         if actual != expected:
             raise ValueError("navigation source, actors, cooperation, estimate frame and link must agree")
-        initial, limits = self.initial, self.safety
-        if single:
-            if not isinstance(initial, OrbitInitialState) or not isinstance(limits, AbsoluteNavigationSafety):
-                raise ValueError("single navigation requires an absolute initial orbit and safety envelope")
-            if not limits.minimum_altitude_m < initial.altitude_m-initial.altitude_half_width_m <= initial.altitude_m+initial.altitude_half_width_m < limits.maximum_altitude_m:
-                raise ValueError("initial orbits must lie inside the altitude safety shell")
-        else:
-            if not isinstance(initial, WaypointInitialState) or not isinstance(limits, RelativeNavigationSafety):
-                raise ValueError("relative navigation requires two spacecraft initial states and relative safety")
-            radius = math.dist(initial.relative_position_tnr_m, (0, 0, 0))
-            spread = math.sqrt(3)*initial.position_half_width_m
-            if not limits.minimum_range_m < radius-spread <= radius+spread < limits.maximum_range_m:
-                raise ValueError("initial relative states must lie inside the safety shell")
-            if math.dist(initial.relative_velocity_tnr_m_s, (0, 0, 0))+math.sqrt(3)*initial.velocity_half_width_m_s >= limits.maximum_relative_speed_m_s:
-                raise ValueError("initial relative speed must satisfy its hard bound")
-        if limits.maximum_uncommanded_force_n >= limits.maximum_force_n:
-            raise ValueError("navigation cannot grant motor authority")
-        ticks = self.duration_s*1e9/self.decision_period_ns
-        if not math.isclose(ticks, round(ticks), rel_tol=0, abs_tol=1e-8):
-            raise ValueError("navigation duration must lie on the decision grid")
+        validate_navigation_physics(self)
         return self
 
     @property
@@ -198,3 +179,27 @@ class NavigationEstimateEvidence(Contract):
 class NavigationContext(Contract):
     task: NavigationTask
     chaser_mass_kg: Positive
+
+
+def validate_navigation_physics(task):
+    """Shared physical envelope, without assigning another task's semantics."""
+    initial, limits = task.initial, task.safety
+    if task.spacecraft_count == 1:
+        if not isinstance(initial, OrbitInitialState) or not isinstance(limits, AbsoluteNavigationSafety):
+            raise ValueError("single navigation requires an absolute initial orbit and safety envelope")
+        if not limits.minimum_altitude_m < initial.altitude_m-initial.altitude_half_width_m <= initial.altitude_m+initial.altitude_half_width_m < limits.maximum_altitude_m:
+            raise ValueError("initial orbits must lie inside the altitude safety shell")
+    else:
+        if not isinstance(initial, WaypointInitialState) or not isinstance(limits, RelativeNavigationSafety):
+            raise ValueError("relative navigation requires two spacecraft initial states and relative safety")
+        radius = math.dist(initial.relative_position_tnr_m, (0, 0, 0))
+        spread = math.sqrt(3)*initial.position_half_width_m
+        if not limits.minimum_range_m < radius-spread <= radius+spread < limits.maximum_range_m:
+            raise ValueError("initial relative states must lie inside the safety shell")
+        if math.dist(initial.relative_velocity_tnr_m_s, (0, 0, 0))+math.sqrt(3)*initial.velocity_half_width_m_s >= limits.maximum_relative_speed_m_s:
+            raise ValueError("initial relative speed must satisfy its hard bound")
+    if limits.maximum_uncommanded_force_n >= limits.maximum_force_n:
+        raise ValueError("navigation cannot grant motor authority")
+    ticks = task.duration_s*1e9/task.decision_period_ns
+    if not math.isclose(ticks, round(ticks), rel_tol=0, abs_tol=1e-8):
+        raise ValueError("navigation duration must lie on the decision grid")

@@ -30,7 +30,7 @@ MAX_STDERR_BYTES = 256 * 1024
 class PythonMethodSpec(Contract):
     schema_version: Literal["spacesim-autonomy-python-method/1"]
     method_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    task_schemas: tuple[Literal["spacesim-autonomy-waypoint/1", "spacesim-autonomy-attitude/1", "spacesim-autonomy-pointing/1", "spacesim-autonomy-rendered-pose/1", "spacesim-autonomy-rendered-spin/1", "spacesim-autonomy-visual-approach/1", "spacesim-autonomy-wheel-recovery/1", "spacesim-autonomy-debris-avoidance/1", "spacesim-autonomy-orbit/1", "spacesim-autonomy-navigation-evaluation/1", "spacesim-autonomy-relative-flight/1", "spacesim-autonomy-flyaround/1", "spacesim-autonomy-formation/1"], ...] = Field(min_length=1)
+    task_schemas: tuple[Literal["spacesim-autonomy-waypoint/1", "spacesim-autonomy-attitude/1", "spacesim-autonomy-pointing/1", "spacesim-autonomy-rendered-pose/1", "spacesim-autonomy-rendered-spin/1", "spacesim-autonomy-visual-approach/1", "spacesim-autonomy-wheel-recovery/1", "spacesim-autonomy-debris-avoidance/1", "spacesim-autonomy-orbit/1", "spacesim-autonomy-navigation-evaluation/1", "spacesim-autonomy-navigation-recovery/1", "spacesim-autonomy-relative-flight/1", "spacesim-autonomy-flyaround/1", "spacesim-autonomy-formation/1"], ...] = Field(min_length=1)
     entrypoint: str = Field(min_length=1)
     arguments: tuple[str, ...] = ()
     files: tuple[str, ...] = Field(min_length=1)

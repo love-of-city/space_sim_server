@@ -42,7 +42,7 @@ class NavigationScorer:
             self._estimate(document)
             return
         try:
-            sample = (OrbitTruthSample if self.task.source_id == "S14" else FlightTruthSample).model_validate(document)
+            sample = (OrbitTruthSample if self.task.spacecraft_count == 1 else FlightTruthSample).model_validate(document)
             self._physical(sample)
         except (ValueError, TypeError) as error:
             self.evidence_errors.add("invalid_physical_sample")
@@ -62,7 +62,7 @@ class NavigationScorer:
             self.safety_violations.add("navigation_actuation_not_allowed")
         if sample.time_ns and sample.time_ns == expected:
             self.total_impulse += force*self.task.physics_period_ns*1e-9
-        if self.task.source_id == "S14":
+        if self.task.spacecraft_count == 1:
             state = sample.chaser_com_j2000
             orbit = orbital_elements(state)
             if not limits.minimum_altitude_m <= orbit["altitude_m"] <= limits.maximum_altitude_m:

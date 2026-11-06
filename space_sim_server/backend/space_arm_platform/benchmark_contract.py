@@ -184,6 +184,7 @@ def parse_task(document: dict, catalogue: AutonomyCatalog | None = None):
     from .benchmark_attitude import AttitudeTask
     from .benchmark_orbit import OrbitTask
     from .benchmark_navigation import NavigationTask
+    from .benchmark_navigation_recovery import NavigationRecoveryTask
     from .benchmark_relative_flight import RelativeFlightTask
     from .benchmark_flyaround import FlyAroundTask
     from .benchmark_formation import FormationTask
@@ -194,6 +195,7 @@ def parse_task(document: dict, catalogue: AutonomyCatalog | None = None):
     from .benchmark_wheel_recovery import WheelRecoveryTask
     from .benchmark_avoidance import AvoidanceTask
     schemas = {"spacesim-autonomy-waypoint/1": WaypointTask, "spacesim-autonomy-attitude/1": AttitudeTask,
+               "spacesim-autonomy-navigation-recovery/1": NavigationRecoveryTask,
                "spacesim-autonomy-orbit/1": OrbitTask, "spacesim-autonomy-navigation-evaluation/1": NavigationTask,
                "spacesim-autonomy-relative-flight/1": RelativeFlightTask,
                "spacesim-autonomy-flyaround/1": FlyAroundTask,

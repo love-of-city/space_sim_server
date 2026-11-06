@@ -8,6 +8,8 @@ export const benchmarkLabels = {
   invalid_initialization:'初态无效',task_failure:'任务未达标',
 };
 export const methodLabels = {
+  'gnss-outage-recovery-v1':'GNSS 中断推算与恢复','external-gnss-recovery-v1':'导航恢复 · 独立进程示例',
+  'freeze-during-outage-v1':'中断期间冻结状态（负对照）','zero-recovery-estimate-v1':'始终零导航估计（负对照）',
   'catalog-avoidance-v1':'外部目录与 GNSS 自主避碰','external-catalog-avoidance-v1':'目录避碰 · 独立进程示例',
   'no-avoidance-thrust-v1':'零避碰推力（负对照）','unsafe-avoidance-burn-v1':'持续避碰推力（负对照）',
   'adaptive-wheel-recovery-v1':'飞轮异常诊断与自适应控制','external-wheel-recovery-v1':'飞轮异常恢复 · 独立进程示例',
@@ -41,6 +43,11 @@ export const methodLabels = {
   'one-sided-formation-v1':'仅一星施力（协同交会负对照）',
 };
 export function benchmarkMetric(score){
+  if(score?.schema_version==='spacesim-autonomy-navigation-recovery-score/1'){
+    const peak=Number.isFinite(score.maximum_outage_position_error_m)?`${score.maximum_outage_position_error_m.toFixed(4)} m`:'—';
+    const recovery=Number.isFinite(score.recovery_confirmation_latency_s)?`${score.recovery_confirmation_latency_s.toFixed(2)} s`:'未确认';
+    return `中断期间最大位置误差 ${peak}；恢复确认延迟 ${recovery}`;
+  }
   if(score?.schema_version==='spacesim-autonomy-debris-avoidance-score/1'){
     const range=Number.isFinite(score.minimum_range_m)?`${score.minimum_range_m.toFixed(2)} m`:'—';
     const coast=Number.isFinite(score.final_coast_s)?`${score.final_coast_s.toFixed(2)} s`:'—';
@@ -123,6 +130,7 @@ export function renderBenchmarkJob(job,{api,notice,refresh,title=job.title||job.
     }
     if(trial.physics_score?.quality_violations?.length){
       const labels={position_rmse:'位置 RMSE',velocity_rmse:'速度 RMSE',maximum_position_error:'最大位置误差',maximum_velocity_error:'最大速度误差',
+        outage_position_error:'中断期间位置误差',outage_velocity_error:'中断期间速度误差',navigation_recovery_deadline:'导航恢复确认超时',
         closest_approach_outside_encounter_window:'最近接近不在规定会遇时窗内',outward_pass_not_confirmed:'尚未确认安全远离碎片',
         final_unpowered_coast_not_confirmed:'末段无推力滑行不足',no_actual_avoidance_maneuver:'未验证实际避碰机动',
         rendezvous_range_reduction:'远距交会的距离缩减不足',rendezvous_terminal_range:'尚未进入规定近距范围',

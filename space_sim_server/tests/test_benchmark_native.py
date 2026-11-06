@@ -18,6 +18,70 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_receiver_outage_withholds_solutions_propagates_and_resets(tmp_path):
+    code = r'''
+import json
+import sys
+from pathlib import Path
+import numpy as np
+from space_arm_platform.benchmark_contract import SPEC_DIRECTORY, load_task
+from space_arm_platform.benchmark_registry import native_environment, method_classes, method_ids
+
+task = load_task(SPEC_DIRECTORY/'s23-gnss-outage-recovery-v1.json')
+env = native_environment(task, Path(sys.argv[1]))
+method = method_classes(task)[method_ids(task)[0]]()
+try:
+    first = env.reset(3)
+    initial = env._physical_state(0).copy()
+    realization = env._outage
+    assert first.receiver_available and first.target_measurement_j2000 is None
+    assert not np.array_equal(first.chaser_measurement_j2000, initial)
+    assert not hasattr(env, '_filter') and not hasattr(env, '_filters')
+    method.reset(env.context)
+    old = method.act(first)
+    method.reset(env.context)
+    obs, missing, returned = first, 0, False
+    while obs.sample_time_ns < realization.return_time_ns+500_000_000:
+        assert 'outage' not in obs.model_dump() and 'chaser_truth_j2000' not in obs.model_dump()
+        if not obs.receiver_available:
+            missing += 1
+            assert obs.chaser_measurement_j2000 is None
+        elif missing:
+            returned = True
+            assert obs.chaser_measurement_j2000 is not None
+        obs = env.step(method.act(obs))
+    assert returned and missing == (realization.return_time_ns-realization.onset_time_ns)//task.decision_period_ns
+    score = env.evaluation()
+    assert score['outcome'] == 'incomplete' and score['thrust_impulse_n_s'] == 0
+    assert score['missing_measurement_count'] == score['outage_estimate_count'] == missing
+    assert env.provenance()['native_dynamics']['external_state_writes'] == 0
+    env._truth_stream.flush()
+    rows = [json.loads(line) for line in (env.episode_directory/'physics.jsonl').read_text().splitlines()]
+    delivered = [row for row in rows if row.get('record_type') == 'gnss_receiver_delivery']
+    assert len(delivered) == obs.sequence+1 and sum(not row['receiver_available'] for row in delivered) == missing
+    assert all(row['measurement_j2000'] is None for row in delivered if not row['receiver_available'])
+    assert len([row for row in rows if 'time_ns' in row]) == env._time_ns//task.physics_period_ns+1
+    again = env.reset(3)
+    assert again.model_dump(exclude={'episode_id'}) == first.model_dump(exclude={'episode_id'})
+    assert np.array_equal(env._physical_state(0), initial) and env._outage == realization
+    assert env.evaluation()['missing_measurement_count'] == env.evaluation()['estimate_count'] == 0
+    try: env.step(old)
+    except ValueError as error: assert 'stale' in str(error)
+    else: raise AssertionError('old recovery estimate accepted after reset')
+    method.reset(env.context)
+    new = method.act(again)
+    assert new.estimated_state == old.estimated_state
+finally:
+    env.close()
+    method.close()
+print('native receiver outage, actual withheld solutions, propagation, return and reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path)], cwd=SERVER,
+                            capture_output=True, text=True, timeout=480)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native receiver outage' in result.stdout
+
+
 def test_native_debris_is_independent_force_moves_spacecraft_and_reset_restores_sensors(tmp_path):
     code = r'''
 import json

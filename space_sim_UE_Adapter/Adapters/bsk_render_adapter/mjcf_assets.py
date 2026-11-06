@@ -10,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import json
 import math
+import os
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any, Mapping, Sequence
 import xml.etree.ElementTree as ET
 
@@ -128,6 +131,25 @@ def _rotate(q: Sequence[float], vector: Sequence[float]) -> tuple[float, float, 
 def _compiled_source_mesh_poses(mjcf_path: Path) -> list[tuple[tuple[float, float, float], tuple[float, float, float, float]]]:
     """Remove MuJoCo's automatic mesh recentering from compiled geom poses."""
 
+    if "Basilisk" in sys.modules:
+        # Metadata compilation must not introduce standalone MuJoCo's DLL into
+        # a Basilisk process. Load this pure module directly in the child;
+        # importing the package would import bridge.py and Basilisk again.
+        code = """
+import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('isolated_mjcf_metadata', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+poses = module._compiled_source_mesh_poses(Path(sys.argv[2]))
+assert 'Basilisk' not in sys.modules
+print(json.dumps(poses, allow_nan=False))
+"""
+        result = subprocess.run([sys.executable, '-c', code, str(Path(__file__).resolve()), str(mjcf_path)],
+            capture_output=True, text=True, encoding='utf-8', timeout=120, check=True,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0)
+        return [(tuple(position), tuple(quaternion)) for position, quaternion in json.loads(result.stdout)]
     try:
         import mujoco  # type: ignore
         model_type = mujoco.MjModel

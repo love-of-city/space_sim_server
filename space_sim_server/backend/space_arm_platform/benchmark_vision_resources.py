@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 
 
 def renderer_paths(server):
@@ -83,6 +84,23 @@ def new_renderer_user_directory(episode_directory):
         schema_version='spacesim-benchmark-renderer-scratch/1',episode_directory=str(episode_directory)),
         ensure_ascii=False,indent=2),encoding='utf-8')
     return directory
+
+
+def mirror_renderer_model(episode_directory, user_directory):
+    """Byte-identical short-path copy of the generated self-contained flight XML.
+
+    Relative resources or includes could change meaning after relocation, so
+    reject them rather than silently rebasing the renderer's geometry.
+    """
+    source=Path(episode_directory)/'model/team_flight.xml'
+    content=source.read_bytes()
+    root=ET.fromstring(content)
+    if root.findall('.//include') or any(node.get('file') and not Path(node.get('file')).is_absolute() for node in root.iter()):
+        raise ValueError('renderer model mirror requires expanded XML and absolute resource paths')
+    target=Path(user_directory)/'team_flight.xml'
+    with target.open('xb') as stream:
+        stream.write(content)
+    return target,hashlib.sha256(content).hexdigest()
 
 
 def receipt_dependencies(receipt,project,engine):

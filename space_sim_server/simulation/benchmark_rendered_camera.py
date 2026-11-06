@@ -21,7 +21,7 @@ from bsk_render_adapter import BasiliskRenderBridge, CameraVisual
 from space_arm_platform.benchmark_camera import public_camera_image
 from space_arm_platform.benchmark_execution import write_json
 from space_arm_platform.benchmark_vision_resources import (
-    graphics_identity, new_renderer_user_directory, renderer_paths, selected_graphics_identity,
+    graphics_identity, mirror_renderer_model, new_renderer_user_directory, renderer_paths, selected_graphics_identity,
 )
 from space_arm_platform.capture_receiver import CaptureReceiver
 from space_arm_platform.capture_regression_runtime import ManagedProcesses, ensure_ports_free, wait_ready
@@ -73,6 +73,7 @@ class RenderedCameraSensor:
         # Use the same fresh short owner directory as its shader scratch, then
         # archive the completed log under the long Python evidence path.
         self.runtime_log=user_directory/'ue.log'
+        render_model,model_sha256=mirror_renderer_model(env.episode_directory,user_directory)
         graphics=graphics_identity()
         self.render_port,self.capture_port=unused_ports(2)
         ensure_ports_free([self.render_port,self.capture_port])
@@ -90,6 +91,7 @@ class RenderedCameraSensor:
         if cache:
             arguments.append(f'-LocalDataCachePath={Path(cache).resolve()}')
         write_json(self.output/'startup.json',dict(user_directory=str(user_directory),runtime_log=str(self.runtime_log),
+            renderer_model=str(render_model),renderer_model_sha256=model_sha256,
             renderer_arguments=[str(value) for value in arguments],graphics_devices=graphics,
             render_port=self.render_port,capture_port=self.capture_port))
         self.renderer=self.managed.start('renderer',arguments,cwd=env.repository)
@@ -101,7 +103,7 @@ class RenderedCameraSensor:
             capture_state_provider=lambda:dict(capture_episode_id='',capture_request_id=''),
             reliable_frames=True,reliable_vision_frames=True)
         catalog=project/'Saved/AssetImport/sarm_platform.catalog.json'
-        bridge.add_mj_scene(env._scene,namespace='team',source_path=env.episode_directory/'model/team_flight.xml',
+        bridge.add_mj_scene(env._scene,namespace='team',source_path=render_model,
             mesh_asset_catalog=catalog,camera_picture_in_picture=False,camera_capture_products=())
         attachment='config/visual_attachments/target_aruco_flush_5cm_v2/geometry_metres.json'
         attach_visual_geometries(bridge._objects,[dict(parent_id='team/capture_target',geometry_file=attachment,

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from space_arm_platform.benchmark_vision_resources import (
-    new_renderer_user_directory, physical_graphics_identity, receipt_dependencies,
+    mirror_renderer_model, new_renderer_user_directory, physical_graphics_identity, receipt_dependencies,
     selected_graphics_identity, validate_catalog,
 )
 
@@ -127,3 +127,24 @@ def test_deep_evidence_paths_get_distinct_short_user_dirs_without_inherited_sett
     monkeypatch.setenv('SPACESIM_BENCHMARK_RUNTIME_ROOT',str(root/('too-deep-'*12)))
     with pytest.raises(ValueError,match='short SPACESIM_BENCHMARK_RUNTIME_ROOT'):
         new_renderer_user_directory(episode)
+
+
+def test_short_renderer_model_is_identical_and_cannot_rebase_relative_resources(tmp_path):
+    episode=tmp_path/'episode'
+    (episode/'model').mkdir(parents=True)
+    source=episode/'model/team_flight.xml'
+    scratch=tmp_path/'scratch'
+    scratch.mkdir()
+    mesh=(tmp_path/'mesh.obj').as_posix()
+    content=f'<mujoco><asset><mesh name="m" file="{mesh}"/></asset></mujoco>'.encode()
+    source.write_bytes(content)
+    mirror,digest=mirror_renderer_model(episode,scratch)
+    assert mirror.parent==scratch and mirror.read_bytes()==source.read_bytes()
+    assert digest==hashlib.sha256(content).hexdigest()
+    with pytest.raises(FileExistsError):
+        mirror_renderer_model(episode,scratch)
+    for xml in ('<mujoco><include file="other.xml"/></mujoco>',
+                '<mujoco><asset><mesh name="m" file="mesh.obj"/></asset></mujoco>'):
+        source.write_text(xml,encoding='utf-8')
+        with pytest.raises(ValueError,match='absolute resource'):
+            mirror_renderer_model(episode,scratch)

@@ -176,6 +176,8 @@ def _prepare_color_randomization(scene, cfg):
 
 def prepare_episode(scene):
     """Called once per attempted episode, before the recorder snapshots metadata."""
+    from space_arm_platform.collection_cameras import freeze_camera_profile
+    freeze_camera_profile(scene)
     options = options_for_scene(scene)
     seed = int(scene.get("seed", 0))
     realized = {}
@@ -301,6 +303,10 @@ def write_model_variant(source, output, scene):
             )
     tree = probe_tree if probe_tree is not None else ET.parse(source)
     root = tree.getroot()
+    from space_arm_platform.collection_cameras import apply_camera_profile, camera_profile
+    extra_cameras = bool(camera_profile(scene)["mounts"])
+    if extra_cameras:
+        apply_camera_profile(root, scene)
     # Physical storage retention belongs to the platform, even when another
     # object is the task target. Use this same preparation for preflight and
     # recording; a source layout predating the liner is never run unchanged.
@@ -312,7 +318,7 @@ def write_model_variant(source, output, scene):
             schema='collection-model-physics/1', source_model=str(source),
             source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
             bolt_storage_thread=storage_thread)
-    if not dynamics_enabled and not threaded_task and not visual_color and not physics_upgraded and not floating_task:
+    if not dynamics_enabled and not threaded_task and not visual_color and not physics_upgraded and not floating_task and not extra_cameras:
         return source
     realized = scene.get("collection_config", {}).get("realized_randomization", {})
     mass, friction = (realized["mass_scale"], realized["friction_scale"]) if dynamics_enabled else (1., 1.)

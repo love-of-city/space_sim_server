@@ -62,7 +62,7 @@ from simulation.scripted_tasks.threaded_tasks import (
 
 from simulation.scripted_tasks.floating_assets import FLOATING_TASKS
 
-CAMERAS = ["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"]
+from space_arm_platform.collection_cameras import camera_ids, freeze_camera_profile
 
 class ScriptedObservationRecorder:
     """Confirm task completion only after the terminal sample reaches the writer."""
@@ -149,13 +149,13 @@ def submit_dynamics(command, mailbox, stop_file, launch, env):
     return EpisodeProcess(mailbox, command[2:], stop_file)
 
 
-def recording_settings(path=None):
+def recording_settings(path=None, scene=None):
     settings = load_recording_config(path or ROOT / "config/recording.json")
     # This task's transport and acceptance contract require paired 50 Hz RGB.
     if (settings.capture_rate_hz != DEFAULT_CAPTURE_HZ
-            or set(settings.camera_ids) != set(CAMERAS)
+            or set(settings.camera_ids) != set(camera_ids(scene or {}))
             or settings.capture_products != ["rgb"]):
-        raise ValueError("Scripted collection requires 50 Hz and both RGB cameras in config/recording.json")
+        raise ValueError("Scripted collection requires 50 Hz RGB and the selected scene camera set")
     return settings
 
 
@@ -345,10 +345,13 @@ def validate_episode(result):
         raise RuntimeError(
             f"Dataset finalization failed: {result.get('dataset_error')}"
         )
+    cameras = camera_ids(result.get("scene_instance") or {})
+    if set(result["dataset_camera_ids"]) != set(cameras):
+        raise RuntimeError("Recorded camera set differs from the scene camera profile")
     frames = result["dataset_frame_count"]
     if (
         frames <= 0
-        or result["capture_count"] != len(CAMERAS) * frames
+        or result["capture_count"] != len(cameras) * frames
         or result["step_count"] != frames
     ):
         raise RuntimeError("Camera/state frame counts do not match")
@@ -363,7 +366,8 @@ async def run(args):
     if (scene.get("collection_layout_randomization") or scene.get("task_box_layout")
             or saved_layout.get("enabled")) and getattr(args, "model", None) is None:
         raise ValueError("--model is required for a saved layout; pass its matching --catalog")
-    settings = recording_settings(getattr(args, "recording_config", None))
+    freeze_camera_profile(scene)
+    settings = recording_settings(getattr(args, "recording_config", None), scene)
     settings, frame_limit_override = task_recording_settings(
         settings, args.task, getattr(args, "max_sim_seconds", task_default_duration_s(args.task)))
     if getattr(args, "gpu_index", None) is not None:
@@ -585,7 +589,7 @@ async def run(args):
         info = await lifecycle.start(
             EpisodeStart(
                 fps=DEFAULT_CAPTURE_HZ,
-                camera_ids=CAMERAS,
+                camera_ids=camera_ids(scene),
                 capture_products=["rgb"],
                 max_frames=settings.max_frames,
                 task="scripted " + args.task,

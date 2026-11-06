@@ -166,7 +166,10 @@ def validate_threaded_recording(steps, stages, task_name):
 def validate_capture_manifest(episode, meta, steps):
     """Audit frame pairing with or without the optional raw image copies."""
     from PIL import Image
-    from collection.record_scripted_task import CAMERAS
+    from space_arm_platform.collection_cameras import camera_ids, validate_profile_capture
+    scene = meta.get("scene_instance") or {}
+    cameras = camera_ids(scene)
+    assert set(meta["dataset_camera_ids"]) == set(cameras), "Recorded camera set differs from scene"
     from space_arm_platform.overview_camera import validate_overview_camera, validate_overview_capture
 
     overview = validate_overview_camera(meta.get("scene_instance") or {})
@@ -179,8 +182,8 @@ def validate_capture_manifest(episode, meta, steps):
     else:
         captures = [json.loads(line) for line in
                     (episode / "captures.jsonl").read_text(encoding="utf-8").splitlines()]
-    expected = {(camera, frame) for camera in CAMERAS for frame in by_frame}
-    assert len(captures) == len(expected) == len(CAMERAS) * len(steps)
+    expected = {(camera, frame) for camera in cameras for frame in by_frame}
+    assert len(captures) == len(expected) == len(cameras) * len(steps)
     pairs = set()
     raw_images = meta.get("raw_camera_images_saved", True)  # Historical episodes saved copies.
     for capture in captures:
@@ -192,6 +195,7 @@ def validate_capture_manifest(episode, meta, steps):
         assert capture["sim_time_ns"] == obs["sim_time_ns"]
         if overview is not None:
             validate_overview_capture(cm, obs, overview)
+        validate_profile_capture(cm, obs, scene)
         pair = (cm["camera_id"], frame)
         assert pair in expected and pair not in pairs
         pairs.add(pair)
@@ -456,8 +460,13 @@ def validate_recording(episode, task_name="drawer_cycle"):
             for actual, original in zip(force_rows, expected):
                 assert all(actual[key] == value for key, value in original.items())
     capture_count = validate_capture_manifest(episode, meta, steps)
+    from space_arm_platform.collection_cameras import camera_ids
+    from space_arm_platform.lerobot_capture import camera_key
+    expected_video_keys = {f"observation.images.{camera_key(c)}" for c in camera_ids(meta.get("scene_instance") or {})}
+    assert {key for key, feature in info["features"].items() if feature["dtype"] == "video"} == expected_video_keys
     videos = list((episode / "lerobot/videos").rglob("*.mp4"))
-    assert len(videos) == 2
+    assert len(videos) == len(expected_video_keys)
+    assert {path.relative_to(episode / "lerobot/videos").parts[0] for path in videos} == expected_video_keys
     for path in videos:
         with av.open(str(path)) as video:
             stream = video.streams.video[0]
@@ -608,7 +617,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
             continue
         check_port_available(port)
     from collection.record_scripted_task import recording_settings
-    recording_settings(args.recording_config)
+    recording_settings(args.recording_config, source)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     if args.cancel_file is None:

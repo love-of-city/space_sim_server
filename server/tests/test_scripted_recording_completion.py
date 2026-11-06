@@ -9,7 +9,8 @@ from space_arm_platform.capture_lifecycle import CaptureLifecycle
 from space_arm_platform.models import EpisodeStart, EpisodeStop, SimulationObservation
 from space_arm_platform.recorder import EpisodeRecorder
 from space_arm_platform.simulation_hub import SimulationHub
-from collection.record_scripted_task import CAMERAS, ScriptedObservationRecorder, validate_episode
+from collection.record_scripted_task import ScriptedObservationRecorder, validate_episode
+from space_arm_platform.collection_cameras import SINGLE_ARM_CAMERA_IDS as CAMERAS
 
 
 class Writer:
@@ -21,7 +22,7 @@ class Writer:
         self.allow_append = threading.Event()
 
     def append(self, observation, captures):
-        assert set(captures) == set(CAMERAS)
+        assert set(captures) == set(self.cameras)
         self.appending.set()
         assert self.allow_append.wait(5), "writer release timed out"
         self.observations.append(observation)
@@ -56,9 +57,13 @@ async def wait_event(event):
 
 
 @pytest.mark.parametrize("result", ["success", "failed"])
-def test_terminal_task_waits_for_observation_both_cameras_and_writer(tmp_path, monkeypatch, result):
+@pytest.mark.parametrize("profile", ["single-arm-two-view-v1", "single-arm-three-view-v1"])
+def test_terminal_task_waits_for_observation_both_cameras_and_writer(tmp_path, monkeypatch, result, profile):
+    from space_arm_platform.collection_cameras import camera_ids
+    scene = {"collection_camera_profile": profile}
+    cameras = camera_ids(scene)
     recorder = EpisodeRecorder(tmp_path, writer_factory=Writer, drain_timeout_s=5)
-    episode = recorder.start(EpisodeStart(camera_ids=CAMERAS), capture_on_demand=True)["episode_id"]
+    episode = recorder.start(EpisodeStart(camera_ids=cameras, scene_instance=scene), capture_on_demand=True)["episode_id"]
     writer = recorder._dataset
     record_entered, allow_record, pair_entered = (threading.Event() for _ in range(3))
     original_record = recorder.record_observation
@@ -93,11 +98,11 @@ def test_terminal_task_waits_for_observation_both_cameras_and_writer(tmp_path, m
             allow_record.set()
             await wait_event(pair_entered)
             assert observations.terminal_task is None
-            await asyncio.to_thread(recorder.record_authoritative_capture,
-                                    image(CAMERAS[0], episode), {"rgb": b"first RGB"})
-            assert observations.terminal_task is None
-            await asyncio.to_thread(recorder.record_authoritative_capture,
-                                    image(CAMERAS[1], episode), {"rgb": b"second RGB"})
+            for camera in cameras:
+                assert observations.terminal_task is None
+                assert writer.frames == 0
+                await asyncio.to_thread(recorder.record_authoritative_capture,
+                                        image(camera, episode), {"rgb": b"RGB"})
             await wait_event(writer.appending)
             assert observations.terminal_task is None
             writer.allow_append.set()
@@ -115,7 +120,7 @@ def test_terminal_task_waits_for_observation_both_cameras_and_writer(tmp_path, m
                 EpisodeStop(outcome="success" if result == "success" else "failure"))
             validate_episode(closed)
             assert closed["dataset_frame_count"] == closed["step_count"] == 1
-            assert closed["capture_count"] == 2
+            assert closed["capture_count"] == len(cameras)
             assert writer.observations[-1].model_extra["scripted_task"]["result"] == result
             saved = [json.loads(row) for row in (tmp_path / episode / "steps.jsonl").read_text().splitlines()]
             assert saved[-1]["observation"]["scripted_task"]["result"] == result

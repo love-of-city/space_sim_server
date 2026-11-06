@@ -33,6 +33,8 @@ class ScriptedCaptureTransport:
         from space_arm_platform.overview_camera import validate_overview_camera
 
         overview_camera = validate_overview_camera(scene_instance)
+        from space_arm_platform.collection_cameras import camera_profile
+        cameras = camera_profile(scene_instance)
 
         self.ctx, self.task, self.profile = ctx, task, profile
         self.command = command
@@ -66,10 +68,8 @@ class ScriptedCaptureTransport:
                 sunlight_intensity_scale=scene_instance.get("environment", {})
                 .get("lighting", {})
                 .get("sunlight_intensity_scale", 1.0),
-                camera_display_names={
-                    "spacecraft_overview": "Spacecraft Overview",
-                    "sarm_wrist_cam": "SARM Wrist Camera",
-                },
+                camera_display_names={item["id"].rsplit("/", 1)[-1]: item["label"]
+                                      for item in cameras["cameras"]},
             )
             ctx.install([self.render])
             from simulation.wrench_sampling import install_wrench_sampler

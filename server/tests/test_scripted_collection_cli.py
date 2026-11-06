@@ -42,6 +42,7 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         "randomization": {"arm_joint_position_rad": [0.] * 8},
         "collection_config": {"layout_randomization": {"enabled": False}},
         "overview_camera_sampling": "continuous",
+        "collection_camera_profile": "single-arm-three-view-v1",
     }), encoding="utf-8")
     expected = {
         "--adapter": Path.home() / "adapter",
@@ -96,8 +97,9 @@ def test_caller_paths_and_camera_defaults_reach_recording_child(tmp_path, monkey
         seen.append("recording")
         return SimpleNamespace(poll=lambda: 0, returncode=0)
 
-    def settings(path):
+    def settings(path, scene=None):
         assert path == expected["--recording-config"]
+        assert scene["collection_camera_profile"] == "single-arm-three-view-v1"
 
     monkeypatch.setattr(collector, "NativePoseProbe", Probe)
     monkeypatch.setattr(collector, "PersistentRenderer", Renderer)

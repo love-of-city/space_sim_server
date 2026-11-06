@@ -30,7 +30,7 @@ def test_saved_layout_requires_model_before_any_runtime_or_output(tmp_path, monk
         scene=scene_file(tmp_path, saved_layout), task="drawer_cycle", model=None,
         output=output,
     )
-    monkeypatch.setattr(recorder, "recording_settings", lambda _: SimpleNamespace())
+    monkeypatch.setattr(recorder, "recording_settings", lambda *args: SimpleNamespace())
 
     def unexpected_runtime(*_):
         pytest.fail("Saved layout must be rejected before resolving or starting UE")
@@ -56,7 +56,7 @@ def test_explicit_model_keeps_capture_layout_validation(tmp_path, monkeypatch):
         adapter=adapter, unreal=tmp_path / "engine", output=tmp_path / "recording",
         control_port=21000, capture_port=21001, render_port=21002, signalling_port=21003,
     )
-    monkeypatch.setattr(recorder, "recording_settings", lambda _: SimpleNamespace())
+    monkeypatch.setattr(recorder, "recording_settings", lambda *args: SimpleNamespace())
     monkeypatch.setattr(recorder, "unreal_editor", lambda _: editor)
     monkeypatch.setattr(recorder, "check_port_available", lambda _: None)
 

@@ -365,7 +365,12 @@ def validate_episode_overview_camera(episode, expected):
 
 def validate_overview_capture(metadata, observation, expected):
     """Check UE's actual view and extrinsics against the same-frame body pose."""
-    if metadata["camera_id"] != CAMERA_ID:
+    return validate_body_fixed_capture(metadata, observation, expected, CAMERA_ID)
+
+
+def validate_body_fixed_capture(metadata, observation, expected, camera_id):
+    """Validate a camera rigidly attached to the observed spacecraft bus."""
+    if metadata["camera_id"] != camera_id:
         return
     import numpy as np
     from simulation.serial_chain_kinematics import quaternion_wxyz_to_matrix
@@ -377,11 +382,11 @@ def validate_overview_capture(metadata, observation, expected):
     np.testing.assert_allclose(
         [metadata["intrinsics"][key] for key in ("fov_x_rad", "fov_y_rad")],
         expected["field_of_view_rad"], atol=2e-6, rtol=0,
-        err_msg="UE overview field of view differs from selected camera")
+        err_msg=f"UE {camera_id} field of view differs from selected camera")
     inertial_to_local = np.asarray(metadata["floating_origin"]["c_LN"]).reshape(3, 3)
     np.testing.assert_allclose(
         np.asarray(actual["c_NC"]).reshape(3, 3), body_to_inertial @ camera_to_body,
-        atol=2e-5, rtol=0, err_msg="UE overview orientation differs from selected camera")
+        atol=2e-5, rtol=0, err_msg=f"UE {camera_id} orientation differs from selected camera")
     np.testing.assert_allclose(
         actual["position_L_m"], inertial_to_local @ body_to_inertial @ expected["position_body_m"],
-        atol=2e-4, rtol=0, err_msg="UE overview position differs from selected camera")
+        atol=2e-4, rtol=0, err_msg=f"UE {camera_id} position differs from selected camera")

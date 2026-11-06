@@ -15,13 +15,18 @@ from collection.record_scripted_task import scene_copy, validate_episode
 
 
 @pytest.mark.parametrize("raw", [False, True, None])
-def test_capture_manifest_accepts_optional_raw_images_and_rejects_bad_pairing(tmp_path, raw):
+@pytest.mark.parametrize("profile", ["single-arm-two-view-v1", "single-arm-three-view-v1"])
+def test_capture_manifest_accepts_optional_raw_images_and_rejects_bad_pairing(tmp_path, raw, profile):
     from PIL import Image
     from collection.collect_scripted_tasks import validate_capture_manifest
-    from collection.record_scripted_task import CAMERAS
+    from space_arm_platform.collection_cameras import camera_ids
+    scene = {"collection_camera_profile": profile}
+    CAMERAS = camera_ids(scene)
 
-    steps = [{"render_frame_id": "42", "render_session_id": "session", "sim_time_ns": "840000000"}]
+    steps = [{"render_frame_id": "42", "render_session_id": "session", "sim_time_ns": "840000000",
+              "attitude_control": {"orientation_inertial_wxyz": [1., 0., 0., 0.]}}]
     meta = {} if raw is None else {"raw_camera_images_saved": raw}
+    meta.update(scene_instance=scene, dataset_camera_ids=CAMERAS)
     captures = []
     for index, camera in enumerate(CAMERAS):
         files = {}
@@ -33,11 +38,20 @@ def test_capture_manifest_accepts_optional_raw_images_and_rejects_bad_pairing(tm
             source_frame_id="42", sim_time_ns="840000000", files=files,
             metadata=dict(camera_id=camera, session_id="session", resolution=[1024, 1024])))
 
+    if len(CAMERAS) == 3:
+        from space_arm_platform.collection_cameras import camera_profile, mount_rotation
+        mount = camera_profile(scene)["mounts"][0]
+        captures[-1]["metadata"].update(
+            intrinsics=dict(fov_x_rad=np.deg2rad(mount["fovy_deg"]), fov_y_rad=np.deg2rad(mount["fovy_deg"])),
+            floating_origin=dict(c_LN=np.eye(3).reshape(-1).tolist()),
+            extrinsics=dict(position_L_m=mount["position_m"],
+                c_NC=(mount_rotation(mount) @ np.array([[0., -1., 0.], [0., 0., 1.], [-1., 0., 0.]])).reshape(-1).tolist()))
+
     def save(rows):
         (tmp_path / "captures.jsonl").write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
 
     save(captures)
-    assert validate_capture_manifest(tmp_path, meta, steps) == 2
+    assert validate_capture_manifest(tmp_path, meta, steps) == len(CAMERAS)
     save([captures[0], captures[0]])
     with pytest.raises(AssertionError):
         validate_capture_manifest(tmp_path, meta, steps)
@@ -54,7 +68,8 @@ def test_capture_manifest_accepts_optional_raw_images_and_rejects_bad_pairing(tm
     with pytest.raises(AssertionError):
         validate_capture_manifest(tmp_path, meta, steps)
     if raw is not False:
-        save([captures[0], {**captures[1], "metadata": {**captures[1]["metadata"], "camera_id": CAMERAS[1]}}])
+        captures[1]["metadata"]["camera_id"] = CAMERAS[1]
+        save(captures)
         (tmp_path / captures[0]["files"]["rgb"]).unlink()
         with pytest.raises(FileNotFoundError):
             validate_capture_manifest(tmp_path, meta, steps)
@@ -109,6 +124,7 @@ def test_scene_copy_preserves_configuration_without_mutating_original(tmp_path):
 
 def test_incomplete_recording_is_not_accepted_as_success():
     good = dict(
+        dataset_camera_ids=["teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam"],
         dataset_status="complete",
         dataset_frame_count=300,
         capture_count=600,

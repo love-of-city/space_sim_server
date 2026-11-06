@@ -210,6 +210,12 @@ function renderVideos() {
     video.playbackRate = Number($("speed").value);
     const camera = entry.camera.includes("overview")
       ? "全景相机"
+      : entry.camera.includes("workbench_side")
+        ? "固定侧视相机"
+      : entry.camera.includes("left_sarm_wrist")
+        ? "左手眼相机"
+      : entry.camera.includes("right_sarm_wrist")
+        ? "右手眼相机"
       : entry.camera.includes("wrist")
         ? "腕部相机"
         : entry.camera.replace("observation.images.", "");

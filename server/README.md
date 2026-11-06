@@ -369,3 +369,16 @@ python collection/collect_scripted_tasks.py \
 速度／转速也可用`--object-speed-range MIN MAX`、`--object-spin-range MIN MAX`逐条采样，固定值与区间互斥。释放条件保存在`floating_capture`，追踪速度在`floating_controller`，回收位置与速度在`floating_retraction`。CLI在profile之后覆盖对应字段；保存过的prepared scene不能再加覆盖参数。目的地需可达且携物路径无碰撞，当前在线检查覆盖回收段，接近路径的静态预检不代表已检查回收路径。
 
 录制验收要求完整`open/intercept/grip/hold/retract/settle`序列、回收前2秒和到位后1秒稳定窗口、全回收段夹持有效，以及实际末端移动至少5cm、物体随手移动和实际到位。历史只有3秒保持的轨迹仍保留原版本和结果。
+
+### 单臂三相机漂浮采集
+
+场景设置`collection_camera_profile: single-arm-three-view-v1`，录制配置的`camera_ids`同时指定：
+
+```yaml
+camera_ids:
+  - teleop/camera/spacecraft_overview
+  - teleop/camera/sarm_wrist_cam
+  - teleop/camera/workbench_side
+```
+
+第三路为固定在卫星本体上的独立视角，原两机位保持不变。三路均为1024×1024、50Hz，录制会等待全部相机，验收逐帧检查图像、状态、安装标定及视频完整性。省略场景profile使用原双相机设置。实际验收见[三相机与双臂采集](../archive/2026_11_06_三相机与双臂漂浮采集.md)。

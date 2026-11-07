@@ -482,9 +482,9 @@ python tools/autonomy_benchmark.py batch d32-cooperative-gnss-v1 --method-spec e
 
 `--method-spec` 与 `--method` 互斥。方法声明支持的任务 schema；错误类型会在启动物理环境前被拒绝。方法定义、声明文件 SHA-256 和 Python 解释器身份写入运行清单及批次计划，在启动、关闭和恢复时核验。相同方法名称不能替换冻结的实现；改动方法后必须建立新批次。
 
-线协议为 `spacesim-autonomy-method-jsonl/1`，UTF-8、每行一个 JSON 对象。请求依次为一次 `reset`、多次 `act`、一次 `close`，包含递增的 `request_id`。响应必须返回同一协议和请求编号、`status`（`ok` 或 `error`）；成功的 `act` 响应在 `payload` 中放动作，其他成功响应的 `payload` 为 `null`。错误响应填写 `error`，不得附带动作。`stdout` 专用于协议，诊断写 `stderr`。
+默认线协议为 `spacesim-autonomy-method-jsonl/1`，UTF-8、每行一个 JSON 对象。请求依次为一次 `reset`、多次 `act`、一次 `close`，包含递增的 `request_id`。响应必须返回同一协议和请求编号、`status`（`ok` 或 `error`）；成功的 `act` 响应在 `payload` 中放动作，其他成功响应的 `payload` 为 `null`。错误响应填写 `error`，不得附带动作。`stdout` 专用于协议，诊断写 `stderr`。需要原尺寸双目图像时，方法配置和 SDK 可显式选用 [JSONL v2 大图像传输](BENCHMARK_IMAGE_TRANSPORT.md)；版本变化纳入方法身份，不自动改变任务观测。
 
-- 单条请求/响应上限 4 MiB，可容纳两个有界 640×480 无损图像；重复 JSON 字段、非有限数字、错误编号、缺少换行或错误动作均被拒绝。任务必须分别声明实际提供的观测，不因通信容量增加而自动获得图像输入。
+- v1 单条请求/响应上限 4 MiB，可容纳两个有界 640×480 无损图像；显式 v2 仅将 `act` 请求上限设为 48 MiB，其余请求和全部响应仍为 4 MiB。重复 JSON 字段、非有限数字、错误编号/协议、缺少换行或错误动作均被拒绝。任务必须分别声明实际提供的观测，不因通信容量增加而自动获得图像输入。
 - 初始化和每步回复有独立墙钟超时；回合最长墙钟仍受批次上限约束。超时、进程异常和错误回包计为 `method_error`，保留物理证据和全部样本分母。
 - 复用项目现有 Windows Job/Linux 子进程监管机制，关闭只清理本回合方法进程及其后代；正常结束、异常和超时都执行清理。
 - `method_calls.jsonl` 记录调用耗时与状态；`method_stderr.log` 最多保存前 256 KiB，同时继续排空管道并记录实际字节数。两者均加入证据哈希。

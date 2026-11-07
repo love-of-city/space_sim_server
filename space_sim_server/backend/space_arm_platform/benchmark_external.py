@@ -21,14 +21,19 @@ from .benchmark_contract import Contract, Count, Number
 from .collection_processes import launch_collector
 
 PROTOCOL = "spacesim-autonomy-method-jsonl/1"
+IMAGE_PROTOCOL = "spacesim-autonomy-method-jsonl/2"
+WireProtocol = Literal['spacesim-autonomy-method-jsonl/1', 'spacesim-autonomy-method-jsonl/2']
 # Two bounded, lossless 640x480 RGBA images fit even when PNG compression
 # provides little benefit. Replies and non-image requests retain this bound.
 MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+# Opt-in v2 act requests fit two <=16 MB PNGs after base64 plus observation
+# metadata. Reset/close and every response still have the original 4 MiB cap.
+MAX_IMAGE_REQUEST_BYTES = 48 * 1024 * 1024
 MAX_STDERR_BYTES = 256 * 1024
 
 
 class PythonMethodSpec(Contract):
-    schema_version: Literal["spacesim-autonomy-python-method/1"]
+    schema_version: Literal["spacesim-autonomy-python-method/1", "spacesim-autonomy-python-method/2"]
     method_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     task_schemas: tuple[Literal["spacesim-autonomy-momentum-unload/1", "spacesim-autonomy-waypoint/1", "spacesim-autonomy-attitude/1", "spacesim-autonomy-pointing/1", "spacesim-autonomy-target-pointing/1", "spacesim-autonomy-rendered-pose/1", "spacesim-autonomy-rendered-spin/1", "spacesim-autonomy-visual-approach/1", "spacesim-autonomy-wheel-recovery/1", "spacesim-autonomy-debris-avoidance/1", "spacesim-autonomy-orbit/1", "spacesim-autonomy-navigation-evaluation/1", "spacesim-autonomy-navigation-recovery/1", "spacesim-autonomy-radar-navigation/1", "spacesim-autonomy-relative-flight/1", "spacesim-autonomy-flyaround/1", "spacesim-autonomy-formation/1"], ...] = Field(min_length=1)
     entrypoint: str = Field(min_length=1)
@@ -45,16 +50,22 @@ class PythonMethodSpec(Contract):
             raise ValueError("implementation files and supported task schemas must be unique")
         return self
 
+    @property
+    def protocol(self):
+        # No new serialized default field: v1 specifications keep their exact
+        # original fingerprints; a version change explicitly changes identity.
+        return IMAGE_PROTOCOL if self.schema_version == 'spacesim-autonomy-python-method/2' else PROTOCOL
+
 
 class MethodRequest(Contract):
-    protocol: Literal["spacesim-autonomy-method-jsonl/1"] = PROTOCOL
+    protocol: WireProtocol = PROTOCOL
     request_id: Count
     operation: Literal["reset", "act", "close"]
     payload: dict
 
 
 class MethodResponse(Contract):
-    protocol: Literal["spacesim-autonomy-method-jsonl/1"] = PROTOCOL
+    protocol: WireProtocol = PROTOCOL
     request_id: Count
     status: Literal["ok", "error"]
     payload: dict | None = None
@@ -69,8 +80,16 @@ class MethodResponse(Contract):
         return self
 
 
-def decode_message(raw: bytes) -> dict:
-    if len(raw) > MAX_MESSAGE_BYTES or not raw.endswith(b"\n"):
+def request_limit(protocol, operation):
+    if protocol not in (PROTOCOL, IMAGE_PROTOCOL) or operation not in ('reset', 'act', 'close'):
+        raise ValueError('unknown method protocol or operation')
+    return MAX_IMAGE_REQUEST_BYTES if protocol == IMAGE_PROTOCOL and operation == 'act' else MAX_MESSAGE_BYTES
+
+
+def decode_message(raw: bytes, *, maximum_bytes=MAX_MESSAGE_BYTES) -> dict:
+    if maximum_bytes not in (MAX_MESSAGE_BYTES, MAX_IMAGE_REQUEST_BYTES):
+        raise ValueError('unknown method message bound')
+    if len(raw) > maximum_bytes or not raw.endswith(b"\n"):
         raise ValueError("method message exceeds size limit or lacks newline")
 
     def pairs(items):
@@ -88,6 +107,15 @@ def decode_message(raw: bytes) -> dict:
     if not isinstance(value, dict):
         raise ValueError("method message must be a JSON object")
     return value
+
+
+def decode_request(raw: bytes, protocol=PROTOCOL):
+    request = MethodRequest.model_validate(decode_message(raw, maximum_bytes=request_limit(protocol, 'act')))
+    if request.protocol != protocol:
+        raise ValueError('method request protocol differs from the configured SDK protocol')
+    if len(raw) > request_limit(protocol, request.operation):
+        raise ValueError('method lifecycle request exceeds its operation size limit')
+    return request
 
 
 class ExternalMethodDefinition:
@@ -127,6 +155,7 @@ class ExternalMethodDefinition:
 class ExternalMethod:
     def __init__(self, definition: ExternalMethodDefinition, output: Path):
         self.definition, self.output = definition, output
+        self.protocol = definition.spec.protocol
         self.process = self.owner = self._stderr = self._calls = None
         self._io_thread = self._stderr_thread = None
         self._requests, self._responses = queue.Queue(maxsize=1), queue.Queue(maxsize=1)
@@ -173,6 +202,8 @@ class ExternalMethod:
                 if not reply:
                     raise RuntimeError("method process closed its output")
                 response = MethodResponse.model_validate(decode_message(reply))
+                if response.protocol != self.protocol:
+                    raise ValueError('method response protocol differs from its frozen specification')
             except Exception as error:
                 self._responses.put(error)
                 return
@@ -188,9 +219,9 @@ class ExternalMethod:
     def _exchange(self, operation, payload, timeout):
         if self._failed:
             raise RuntimeError("method process has already failed")
-        request = MethodRequest(request_id=self._request_id, operation=operation, payload=payload)
+        request = MethodRequest(protocol=self.protocol, request_id=self._request_id, operation=operation, payload=payload)
         encoded = (request.model_dump_json() + "\n").encode("utf-8")
-        if len(encoded) > MAX_MESSAGE_BYTES:
+        if len(encoded) > request_limit(self.protocol, operation):
             raise ValueError("method request exceeds message size limit")
         started = time.perf_counter_ns()
         status = "ok"
@@ -230,9 +261,11 @@ class ExternalMethod:
         return response.payload
 
     def telemetry(self):
-        return {"protocol": PROTOCOL, "call_count": self.call_count, "total_wall_time_s": self.total_wall_s,
+        return {"protocol": self.protocol, "call_count": self.call_count, "total_wall_time_s": self.total_wall_s,
                 "maximum_call_wall_time_s": self.maximum_wall_s, "stderr_bytes": self.stderr_bytes,
                 "stderr_stored_bytes": self.stderr_stored,
+                "maximum_act_request_bytes": request_limit(self.protocol, 'act'),
+                "maximum_response_bytes": MAX_MESSAGE_BYTES,
                 "timing_scope": "host roundtrip including serialization/IPC and method work; simulation waits for each reply"}
 
     def close(self):
@@ -268,11 +301,12 @@ class ExternalMethod:
             self._ready = False
 
 
-def serve_method(method, context_type, observation_type):
+def serve_method(method, context_type, observation_type, *, protocol=PROTOCOL):
     """Small Python SDK: one reset, ordered observations, one close per process."""
     ready, expected_id = False, 0
-    for raw in iter(lambda: sys.stdin.buffer.readline(MAX_MESSAGE_BYTES + 1), b""):
-        request = MethodRequest.model_validate(decode_message(raw))
+    maximum_request = request_limit(protocol, 'act')
+    for raw in iter(lambda: sys.stdin.buffer.readline(maximum_request + 1), b""):
+        request = decode_request(raw, protocol)
         try:
             if request.request_id != expected_id:
                 raise ValueError("method request sequence is not continuous")
@@ -291,10 +325,16 @@ def serve_method(method, context_type, observation_type):
                 payload = None
             else:
                 raise ValueError("invalid method lifecycle request")
-            response = MethodResponse(request_id=request.request_id, status="ok", payload=payload)
+            response = MethodResponse(protocol=protocol, request_id=request.request_id, status="ok", payload=payload)
         except Exception as error:
-            response = MethodResponse(request_id=request.request_id, status="error", error=f"{type(error).__name__}: {error}")
-        sys.stdout.write(response.model_dump_json() + "\n")
+            response = MethodResponse(protocol=protocol, request_id=request.request_id,
+                status="error", error=f"{type(error).__name__}: {error}")
+        encoded = response.model_dump_json() + "\n"
+        if len(encoded.encode('utf-8')) > MAX_MESSAGE_BYTES:
+            response = MethodResponse(protocol=protocol, request_id=request.request_id,
+                status='error', error='method response exceeds 4 MiB size limit')
+            encoded = response.model_dump_json() + "\n"
+        sys.stdout.write(encoded)
         sys.stdout.flush()
         if response.status == "error" or request.operation == "close":
             return 1 if response.status == "error" else 0

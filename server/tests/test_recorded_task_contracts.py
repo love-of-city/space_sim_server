@@ -94,7 +94,8 @@ def test_recording_reader_import_does_not_load_controllers_or_native_runtime(tmp
     code = """import sys
 from collection.recording_validation import validate_recording
 from space_arm_platform.task_catalog import TASK_CHOICES
-assert len(TASK_CHOICES) == 10
+assert len(TASK_CHOICES) == 11
+assert 'capture_target_grasp' in TASK_CHOICES
 for name in ('simulation.scripted_tasks.plug_insert', 'simulation.scripted_tasks.drawer_cycle',
              'simulation.local_mujoco_stepper', 'Basilisk', 'torch'):
     assert name not in sys.modules, name

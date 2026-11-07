@@ -1,5 +1,6 @@
 {
   "files": {
+    "tests/test_capture_visibility_native.py": "Basilisk MuJoCo ray ABI and compiled native contact layout; executed explicitly by --ci-native on the simulation host",
     "tests/test_linux_deployment.py": "Linux UID/start-time ownership and native deployment lifecycle; run on the Linux deployment host",
     "tests/test_linux_mujoco_runtime.py": "Linux-only ELF/runtime isolation checks require Basilisk and MuJoCo; run separately on the Linux simulation host",
     "tests/test_sarm_asset_plugins.py": "Requires the locally compiled SARM native plugin; run on each simulation host after building it",

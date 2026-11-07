@@ -502,7 +502,10 @@ def main(argv=None):
                 raise ValueError('Frozen input changed: '+name)
     else:
         from collection.record_scripted_task import recording_settings
-        recording_settings(Path(config.recording_config), 'capture_target_grasp' if config.capture_initial_pool else None)
+        if config.capture_initial_pool:
+            recording_settings(Path(config.recording_config), 'capture_target_grasp')
+        else:
+            recording_settings(Path(config.recording_config))
         source = source_scene(config)
         output.mkdir(parents=True, exist_ok=False)
         atomic_json(output/'config.snapshot.json', config.model_dump(by_alias=True))

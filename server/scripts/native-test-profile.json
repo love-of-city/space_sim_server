@@ -2,6 +2,7 @@
   "schema": "native-test-profile/1",
   "description": "Core native state, reset, contact, sampling and physics integration acceptance; requires Basilisk and validated native libraries. Missing dependencies/skips fail this profile.",
   "files": [
+    "tests/test_capture_visibility_native.py",
     "tests/test_native_episode_reset.py",
     "tests/test_native_planning_clearance.py",
     "tests/test_native_contact_snapshot.py",

@@ -182,7 +182,10 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
             continue
         check_port_available(port)
     from collection.record_scripted_task import recording_settings
-    recording_settings(args.recording_config, args.task)
+    if args.task == 'capture_target_grasp':
+        recording_settings(args.recording_config, args.task)
+    else:
+        recording_settings(args.recording_config)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     if args.cancel_file is None:

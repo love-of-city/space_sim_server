@@ -2,6 +2,7 @@
 import hashlib
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -142,12 +143,25 @@ def test_capture_collection_rejects_workbench_on_wrong_spacecraft(tmp_path):
     validate_capture_payload_model(model)
 
 
-def test_original_live_writer_capture12_official_v3_roundtrip(tmp_path):
+def test_original_live_writer_capture12_official_v3_roundtrip(tmp_path, monkeypatch):
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     from space_arm_platform.recorder import EpisodeRecorder
     from space_arm_platform.recording_config import VideoEncodingConfig
     from space_arm_platform.compact_storage import read_observations
     from test_lerobot_recording import packet
+    # Emulate the Windows ANSI locale for our metadata on every test host.
+    # The Chinese instruction must survive an explicit UTF-8 round trip.
+    original_read, original_write = Path.read_text, Path.write_text
+    def read_text(path, *args, **kwargs):
+        if path.name == 'platform.json' and not args and kwargs.get('encoding') is None:
+            kwargs['encoding'] = 'cp1252'
+        return original_read(path, *args, **kwargs)
+    def write_text(path, data, *args, **kwargs):
+        if path.name == 'platform.json' and not args and kwargs.get('encoding') is None:
+            kwargs['encoding'] = 'cp1252'
+        return original_write(path, data, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', read_text)
+    monkeypatch.setattr(Path, 'write_text', write_text)
     cameras = ['teleop/camera/spacecraft_overview', 'teleop/camera/capture_stereo_left']
     recorder = EpisodeRecorder(tmp_path, storage_profile='compact',
         video_encoding=VideoEncodingConfig(streaming_encoding=True, encoder_threads=1))
@@ -165,13 +179,14 @@ def test_original_live_writer_capture12_official_v3_roundtrip(tmp_path):
             recorder.record_observation(SimulationObservation.model_validate(data), None)
             recorder.record_authoritative_capture(*packet(i, cameras[0]))
         result = recorder.stop(EpisodeStop(outcome='success'))
-        assert result['dataset_status'] == 'complete', result
+        assert result['dataset_status'] == 'complete', json.dumps(result, indent=2)
         dataset = LeRobotDataset(f'local/{root.name}', root=root/'lerobot', video_backend='pyav')
         assert len(dataset) == 3
         np.testing.assert_allclose(dataset[0]['observation.state'], capture_observation().joint_position_si)
         np.testing.assert_allclose(dataset[0]['action'], capture_observation().target_joint_position_si)
         assert dataset[0]['observation.images.teleop_camera_capture_stereo_left'].shape == (3, 32, 32)
-        platform = json.loads((root/'lerobot/meta/platform.json').read_text())
+        platform = json.loads((root/'lerobot/meta/platform.json').read_text(encoding='utf-8'))
+        assert platform['request']['instruction'] == EpisodeStart().instruction
         assert platform['joint_units'] == ['rad']*6 + ['m', 'rad'] + ['m']*4
         assert not platform['privileged_target_truth_in_policy_features']
         rows = list(read_observations(root))

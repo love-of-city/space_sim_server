@@ -198,13 +198,13 @@ class LiveLeRobotWriter:
             }, ensure_ascii=False, indent=2), encoding="utf-8")
             if capture12:
                 metadata_path = self.root/'meta/platform.json'
-                metadata = json.loads(metadata_path.read_text())
+                metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
                 metadata.update(action_semantics='12 held capture servo targets in the named SI units',
                     state_semantics='12 measured capture joint coordinates in the named SI units',
                     joint_velocity_semantics='12 measured joint velocities; rad/s for hinges, m/s for slides',
                     joint_names=names, joint_units=['rad']*6+['m','rad']+['m']*4,
                     privileged_target_truth_in_policy_features=False)
-                metadata_path.write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
+                metadata_path.write_text(json.dumps(metadata,ensure_ascii=False,indent=2), encoding='utf-8')
         self.wrench_stream.append(observation)
         self.dataset.add_frame(frame)
         if self.sidecars:

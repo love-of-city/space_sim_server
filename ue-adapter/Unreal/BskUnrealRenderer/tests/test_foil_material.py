@@ -25,19 +25,24 @@ def test_source_maps_are_exact_2k_downloads():
         assert hashlib.sha256(data).hexdigest() == expected
 
 
-def test_override_targets_only_one_fixed_panel_by_exact_asset_path():
+def test_overrides_target_fixed_panels_by_exact_asset_paths():
     config = configparser.ConfigParser(strict=False)
     config.optionxform = str
     config.read(ROOT / "Config/DefaultGame.ini", encoding="utf-8")
     entries = dict(config["Bsk.MaterialOverrides"])
     assert entries.pop("Enabled") == "True"
-    assert entries.pop("/Game/BSK/Generated/SARM/part_001_color_00.part_001_color_00") == (
-        "/Game/BSK/Materials/Foil002/MI_BskFoil002.MI_BskFoil002")
-    assert entries == {
-        f"/Game/BSK/Generated/SARM/part_{part}_color_00.part_{part}_color_00":
-        "/Game/BSK/Materials/SolarPanel/MI_BskSolarPanel.MI_BskSolarPanel"
-        for part in ("055", "056", "066", "067")
+    expected = {
+        f"/Game/BSK/Generated/{assembly}/part_001_color_00.part_001_color_00":
+        "/Game/BSK/Materials/Foil002/MI_BskFoil002.MI_BskFoil002"
+        for assembly in ("SARM", "Sarm20261012")
     }
+    expected.update({
+        f"/Game/BSK/Generated/{assembly}/part_{part}_color_00.part_{part}_color_00":
+        "/Game/BSK/Materials/SolarPanel/MI_BskSolarPanel.MI_BskSolarPanel"
+        for assembly in ("SARM", "Sarm20261012")
+        for part in ("055", "056", "066", "067")
+    })
+    assert entries == expected
 
 
 def test_material_override_precedes_generic_and_native_material_paths():

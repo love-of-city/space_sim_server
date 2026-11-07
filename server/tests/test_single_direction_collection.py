@@ -163,7 +163,8 @@ class BlockSimulation(importlib.abc.MetaPathFinder):
             raise ModuleNotFoundError('simulation is deliberately not installed')
 sys.meta_path.insert(0, BlockSimulation())
 from space_arm_platform.collection_jobs import CollectionCreate, TASKS
-assert len(TASKS) == 10
+assert len(TASKS) == 11
+assert 'capture_target_grasp' in TASKS
 assert CollectionCreate(task='drawer_close').linear_speed_m_s == .1
 assert CollectionCreate(task='locking_rod_restore').threaded_speed_profile == 'fast_collection'
 """

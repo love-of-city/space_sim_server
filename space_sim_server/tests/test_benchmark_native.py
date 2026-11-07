@@ -18,6 +18,121 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_complete_capture_model_matches_source_dynamics_and_reset(tmp_path):
+    # Component equivalence in the original zero-gravity authored layout, not
+    # an orbital episode or a successful capture. No part/constraint is removed.
+    code = r'''
+import hashlib
+import json
+import sys
+from pathlib import Path
+import numpy as np
+from Basilisk.architecture import messaging, sysModel
+from Basilisk.simulation import mujoco
+from Basilisk.utilities import SimulationBaseClass
+from simulation.benchmark_capture_model import MODEL_PATH, prepare_capture_model, verify_capture_model
+from simulation.benchmark_camera_mount import NativeCameraMountReader
+from simulation.joint_reference_publisher import HeldJointReferencePublisher
+from simulation.local_mujoco_stepper import LocalMujocoStepper
+from simulation.mujoco_plugins import ensure_model_plugins
+from simulation.physics_ports import PhysicsPorts
+from space_arm_platform.benchmark_articulated_camera import capture26_mounted_cameras
+
+folder = Path(sys.argv[1])
+folder.mkdir()
+prepared,files,manifest = prepare_capture_model(Path.cwd(),folder/'model')
+assert verify_capture_model(Path.cwd(),prepared.parent) == manifest
+source = Path.cwd()/MODEL_PATH
+initial = np.array([row['initial_reference'] for row in manifest['capture_joints']])
+cameras = capture26_mounted_cameras(Path.cwd())
+
+def run(model, memory, observe):
+    plugin = ensure_model_plugins(model)
+    assert plugin and plugin['plugin_sha256']
+    sim = SimulationBaseClass.SimBaseClass()
+    process = sim.CreateNewProcess('completeCaptureModelEquivalence')
+    process.addTask(sim.CreateNewTask('physics',2_500_000))
+    process.addTask(sim.CreateNewTask('sceneInit',10**18))
+    scene = mujoco.MJScene.fromFile(str(model),files=files)
+    sim.AddModelToTask('sceneInit',scene)
+    core = LocalMujocoStepper(scene,model,[],substeps=1,publish_every=1,model_from_memory=memory)
+    ports = PhysicsPorts(scene,stepper=core)
+    def reference(seconds):
+        position,rate = initial.copy(),np.zeros(12)
+        position[0] += .04*seconds
+        rate[0] = .04
+        return position,rate
+    publisher = HeldJointReferencePublisher(reference,12)
+    capture_actuators = set()
+    for index,row in enumerate(manifest['capture_joints']):
+        capture_actuators.add(row['actuator'])
+        ports.drive_servo(row['actuator'],publisher.positionOutMsgs[index],publisher.velocityOutMsgs[index],
+            owner='capture_model_equivalence',joint=row['joint'],kp=row['kp'],kd=row['kd'],limit=row['effort_limit'])
+    neutral = messaging.SingleActuatorMsg().write(messaging.SingleActuatorMsgPayload(input=0.),0)
+    for name in core.actuator_names:
+        if name not in capture_actuators:
+            ports.drive_actuator(name,neutral,owner='explicit_passive_equivalence_actuators')
+    mounts = NativeCameraMountReader(ports,cameras,episode_id='model-equivalence')
+    sim.AddModelToTask('physics',publisher,11999)
+    sim.AddModelToTask('physics',core,1000)
+    class Observer(sysModel.SysModel):
+        def __init__(self):
+            super().__init__()
+            self.ModelTag = 'modelEquivalenceEvidence'
+            self.digest = hashlib.sha256()
+            self.samples = 0
+            self.mounts = []
+        def UpdateState(self,now):
+            values = np.r_[core.qpos,core.qvel,core.actuator_force]
+            assert np.isfinite(values).all()
+            self.digest.update(values.tobytes())
+            self.samples += 1
+            if observe and now%100_000_000 == 0:
+                sample = mounts.sample(int(now))[0]
+                assert sample.external_state_writes == 0
+                self.mounts.append(sample.model_dump(mode='json'))
+                assert np.array_equal(values,np.r_[core.qpos,core.qvel,core.actuator_force])
+    observer = Observer()
+    sim.AddModelToTask('physics',observer,0)
+    try:
+        sim.InitializeSimulation()
+        for row in manifest['capture_joints']:
+            joint = scene.getBody(row['body']).getScalarJoint(row['joint'])
+            joint.setPosition(row['initial_reference'])
+            joint.setVelocity(0.)
+        sim.ConfigureStopTime(500_000_000)
+        sim.ExecuteSimulation()
+        assert core.step_count == 200 and observer.samples == 201 and core.external_writes == 0
+        assert core.model_xml_sha256 == hashlib.sha256(model.read_bytes()).hexdigest()
+        scalar_joint = scene.getBody('bottom_link1').getScalarJoint('bottom_joint1')
+        assert abs(float(scalar_joint.stateOutMsg.read().state)) > .002
+        result = dict(trajectory_sha256=observer.digest.hexdigest(),nq=core.nq,nv=core.nv,
+            actuator_names=list(core.actuator_names),model_xml_sha256=core.model_xml_sha256,
+            plugin_sha256=plugin['plugin_sha256'],samples=observer.samples,mounts=observer.mounts)
+    finally:
+        core.close()
+    return result
+
+original = run(source,False,False)
+derived = run(prepared,True,True)
+reset = run(prepared,True,True)
+for key in ('trajectory_sha256','nq','nv','actuator_names','plugin_sha256','samples'):
+    assert original[key] == derived[key] == reset[key], key
+assert derived == reset and len(derived['mounts']) == 6
+assert np.linalg.norm(np.array(derived['mounts'][-1]['origin_j2000_m'])
+    -derived['mounts'][0]['origin_j2000_m']) > 1e-5
+assert verify_capture_model(Path.cwd(),prepared.parent) == manifest
+(folder/'receipt.json').write_text(json.dumps(dict(
+    scope='complete authored model path conversion, 12 real servos and moving-mount readback; no orbital/grasp acceptance',
+    source=original,prepared=derived,reset_identical=True),indent=2)+'\n',encoding='utf-8')
+print('complete capture model, native actuators, mount readback and reset match original physical bytes')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'complete-capture-model')],
+        cwd=SERVER, capture_output=True, text=True, timeout=600)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'complete capture model, native actuators' in result.stdout
+
+
 def test_native_articulated_camera_mount_reads_fresh_origins_without_changing_motion(tmp_path):
     # A revolute metrology fixture with an offset COM, not a grasp task or a
     # rendered image. Rendering acceptance remains a separate GPU check.

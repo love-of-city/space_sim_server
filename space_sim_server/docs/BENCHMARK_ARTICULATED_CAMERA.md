@@ -41,7 +41,7 @@ R_N,optical = R_NB · R_B,optical
 
 后续 `bf4dddd` 将运动相机元数据写入纳入已有启动资源保护范围：即使写入失败，也关闭本回合已取得的渲染资源和日志流。云端 84 项相机/标定/渲染资源定向检查及 Ruff 通过，零跳过；报告 `.tmp/benchmark-articulated-camera-cleanup-checks-v1/acceptance.json` SHA-256 为 `5b0015476903e2e6ee8766995c1b068bdfb24300ce44d484458233ff7b908d0b`。其中故障注入使用模拟渲染启动，只验证资源管理，不冒充真实 GPU 运行。
 
-同一源码已固定到 `benchmark-camera-v1-20261107` 个人隔离工作树，精确源码字节核对通过。独立原生 DLL 的 SHA-256 为 `77736a1336ba5f3f358f339358a01ba29bd530e65b4cfca7e03df9f5608f2624`，构建清单 SHA-256 为 `3aceabfae5dd0b7fe2e11f437f752e62e71a335479c9c06f033f270aba77834d`。
+运动挂载组件源码 `596ae42` 已固定到 `benchmark-camera-v1-20261107` 个人隔离工作树，精确源码字节核对通过。该工作树不含后续 `bf4dddd` 的渲染启动清理修复。独立原生 DLL 的 SHA-256 为 `77736a1336ba5f3f358f339358a01ba29bd530e65b4cfca7e03df9f5608f2624`，构建清单 SHA-256 为 `3aceabfae5dd0b7fe2e11f437f752e62e71a335479c9c06f033f270aba77834d`。
 
 原生检查已排队等待 D05 完整流程退出后使用同一资源名额，最多保持两路本人原生任务。检查使用具有偏置 COM 和偏置铰轴的转动夹具，比较开启/关闭读取及重建回合后的每步物理字节，验证读取实际原点而非 COM；尚未执行，也不生成 UE 图像或代表卫星抓取成功。
 

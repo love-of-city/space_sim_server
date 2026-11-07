@@ -8,7 +8,7 @@ import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'backend'),str(ROOT)]
 from space_arm_platform.capture_regression import physical_fingerprint
-from space_arm_platform.capture_regression_score import records,phase_evidence,score_hold,target_motion,angle,gyro_evidence
+from space_arm_platform.capture_regression_score import records,phase_evidence,score_hold,target_motion,angle,gyro_evidence,contact_audit_path
 
 
 def qualify(output):
@@ -18,10 +18,11 @@ def qualify(output):
     controls=[r for r in records(output/'capture/visual_control.jsonl') if r['t']<=end_t]
     if not controls:raise ValueError('no visual controller evidence')
     phases=phase_evidence(controls)
-    hold=score_hold(r for r in records(output/'capture/contact_audit.jsonl') if r.get('t',0)<=end_t)
+    audit=contact_audit_path(output)
+    hold=score_hold(r for r in records(audit) if r.get('t',0)<=end_t)
     contact=hold['first_target_contact']
     if contact is None:raise ValueError('no actual inter-spacecraft contact')
-    motion=target_motion(output/'capture/contact_audit.jsonl',output/'free_reference.jsonl',contact['t'],end_t=end_t)
+    motion=target_motion(audit,output/'free_reference.jsonl',contact['t'],end_t=end_t)
     frozen=json.loads((output/'physical-before.json').read_text('utf-8'))
     physics_unchanged=frozen==physical_fingerprint(ROOT)==json.loads((output/'physical-after.json').read_text('utf-8'))
     initial=next(records(output/'capture/truth.jsonl'))

@@ -1,0 +1,137 @@
+{
+  "schema_version": "spacesim-autonomy-rendered-pose/1",
+  "configuration_id": "d24-marked-stereo-pose-v1",
+  "requirement_id": "ssb.vision.stereo-pose",
+  "source_id": "D24",
+  "backend": "native_team_rendered_pose_v1",
+  "target_cooperation": "P",
+  "controlled_spacecraft": 0,
+  "spacecraft_count": 2,
+  "control_architecture": "single_estimator",
+  "vision_mode": "V2",
+  "action_type": "target_relative_pose_estimate_only",
+  "attitude_control": "none_passive_attitude",
+  "reference_frame": "target_body_origin_and_axes_in_left_optical_camera",
+  "target_link": "none",
+  "target_geometry_prior": "known_passive_fiducial_layout_no_active_cooperation",
+  "fiducial_layout": "target_aruco_flush_5cm_v2",
+  "cameras": [
+    {
+      "camera_id": "team/camera/benchmark_left",
+      "width": 640,
+      "height": 480,
+      "horizontal_fov_rad": 0.6981317007977318,
+      "position_body_m": [
+        0.1966392038047182,
+        -0.928691178504148,
+        -0.2659646518769169
+      ],
+      "orientation_body_from_optical_wxyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "optical_axes": "x_right_y_down_z_forward",
+      "distortion_model": "none",
+      "exposure_model": "instantaneous_render_pinhole",
+      "sample_rate_hz": 2
+    },
+    {
+      "camera_id": "team/camera/benchmark_right",
+      "width": 640,
+      "height": 480,
+      "horizontal_fov_rad": 0.6981317007977318,
+      "position_body_m": [
+        0.3166392038047182,
+        -0.928691178504148,
+        -0.2659646518769169
+      ],
+      "orientation_body_from_optical_wxyz": [
+        0.7071067811865476,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "optical_axes": "x_right_y_down_z_forward",
+      "distortion_model": "none",
+      "exposure_model": "instantaneous_render_pinhole",
+      "sample_rate_hz": 2
+    }
+  ],
+  "initial": {
+    "target_altitude_m": 500000.0,
+    "inclination_deg": 51.6,
+    "true_anomaly_deg": 180.0,
+    "chaser_minus_target_com_j2000_m": [
+      0.0,
+      3.0,
+      0.0
+    ],
+    "position_half_width_m": 0.1,
+    "chaser_minus_target_velocity_j2000_m_s": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "velocity_half_width_m_s": 0.001,
+    "target_tilt_min_rad": 0.15,
+    "target_tilt_max_rad": 0.3,
+    "target_roll_half_width_rad": 0.3,
+    "attitude_distribution": "tilt_about_uniform_xz_axis_then_body_y_roll",
+    "initial_body_rates": "zero_both_spacecraft",
+    "chaser_initial_attitude": "identity_body_to_j2000"
+  },
+  "objective": {
+    "kind": "full_duration_relative_pose",
+    "minimum_available_fraction": 1.0,
+    "position_rmse_limit_m": 0.015,
+    "orientation_rmse_limit_rad": 0.03,
+    "maximum_position_error_m": 0.04,
+    "maximum_orientation_error_rad": 0.06
+  },
+  "safety": {
+    "minimum_range_m": 2.0,
+    "maximum_range_m": 10.0,
+    "maximum_relative_speed_m_s": 0.1,
+    "maximum_body_rate_rad_s": 0.1,
+    "maximum_force_n": 25.0,
+    "maximum_uncommanded_force_n": 1e-09,
+    "maximum_uncommanded_wheel_torque_nm": 1e-09,
+    "contact_policy": "no_physical_contacts"
+  },
+  "seeds": {
+    "train": [
+      1,
+      2,
+      3
+    ],
+    "validation": [
+      101,
+      102,
+      103
+    ],
+    "test": [
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210
+    ]
+  },
+  "duration_s": 20.0,
+  "physics_period_ns": 20000000,
+  "physics_substeps": 8,
+  "decision_period_ns": 500000000,
+  "earth_gravity": "j2",
+  "solar_gravity": true,
+  "drag_enabled": true,
+  "srp_enabled": true,
+  "disturbance_sigma_m_s2": 2e-05,
+  "mass_model": "constant_no_propellant_model"
+}

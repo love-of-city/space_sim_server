@@ -1,0 +1,114 @@
+{
+  "schema_version": "spacesim-autonomy-formation/1",
+  "configuration_id": "d15-gnss-formation-hold-v1",
+  "requirement_id": "ssb.formation.pair-maintain",
+  "source_id": "D15",
+  "backend": "native_original_sarm_formation_v1",
+  "target_cooperation": "C",
+  "spacecraft_count": 2,
+  "controlled_spacecraft": 2,
+  "control_architecture": "centralized",
+  "vision_mode": "V0",
+  "action_type": "per_spacecraft_ideal_force_j2000_at_assembly_com",
+  "attitude_control": "none_passive_attitude",
+  "reference_frame": "spacecraft0_TNR_tangent_normal_radial",
+  "initial": {
+    "reference_altitude_m": 500000.0,
+    "inclination_deg": 51.6,
+    "true_anomaly_deg": 180.0,
+    "positions_tnr_m": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        -150.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "velocities_tnr_m_s": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.015,
+        0.0,
+        0.01
+      ]
+    ],
+    "position_half_width_m": 0.1,
+    "velocity_half_width_m_s": 0.002
+  },
+  "objective": {
+    "kind": "hold_formation",
+    "positions_tnr_m": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        -150.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "position_tolerance_m": 0.75,
+    "speed_tolerance_m_s": 0.05,
+    "dwell_s": 300.0,
+    "minimum_displacement_m": 0.0
+  },
+  "safety": {
+    "minimum_pair_distance_m": 100.0,
+    "maximum_pair_distance_m": 1000.0,
+    "maximum_pair_speed_m_s": 2.0,
+    "maximum_force_n": 25.0
+  },
+  "observation": {
+    "kind": "independent_gnss_solutions_and_orbit_filters",
+    "position_sigma_m": 0.2,
+    "velocity_sigma_m_s": 0.002,
+    "delay_s": 0.0,
+    "inter_spacecraft_link": "cooperative_shared_filtered_states",
+    "reference_point": "assembled_center_of_mass",
+    "frame": "J2000"
+  },
+  "seeds": {
+    "train": [
+      1,
+      2,
+      3
+    ],
+    "validation": [
+      101,
+      102,
+      103
+    ],
+    "test": [
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210
+    ]
+  },
+  "duration_s": 300.0,
+  "physics_period_ns": 20000000,
+  "physics_substeps": 8,
+  "decision_period_ns": 500000000,
+  "earth_gravity": "j2",
+  "solar_gravity": true,
+  "drag_enabled": true,
+  "srp_enabled": true,
+  "disturbance_sigma_m_s2": 2E-05,
+  "mass_model": "constant_no_propellant_model"
+}

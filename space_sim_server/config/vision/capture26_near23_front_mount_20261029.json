@@ -54,6 +54,7 @@
     },
     {
       "camera_id": "teleop/camera/capture_stereo_right",
+      "work_light_profile": "inspection-1500cd-v1",
       "parent_id": "teleop/gripper",
       "position_body_m": [
         0.075,

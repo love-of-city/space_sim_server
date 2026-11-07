@@ -1,0 +1,12 @@
+<div class="page-heading"><div><h1>卫星驾驶评测</h1><p>选择冻结场景与方法，逐个运行固定种子，保留成功、失败和取消结果。</p></div></div>
+<p id="notice" class="notice error" role="status" hidden></p>
+<section class="panel"><form id="form" class="panel-body">
+  <div class="form-grid"><div class="field"><label for="configuration">评测配置</label><select id="configuration" required></select></div><div class="field"><label for="method">评测方法</label><select id="method" required></select></div></div>
+  <p id="description" class="muted"></p>
+  <div class="form-grid"><div class="field"><label for="split">数据划分</label><select id="split"><option value="test">冻结测试集</option><option value="validation">验证集</option><option value="train">训练集</option></select></div><div class="field"><label for="selection">运行范围</label><select id="selection"><option value="split">整个冻结划分</option><option value="single">单个种子</option></select></div></div>
+  <div id="seed-field" class="field" hidden><label for="seed">种子</label><select id="seed"></select></div>
+  <p id="plan" class="form-note"></p><p id="availability" class="error" role="status"></p>
+  <div class="form-actions"><span id="coverage" class="muted"></span><button id="submit" class="button primary" type="submit" disabled>开始评测</button></div>
+</form></section>
+<div class="section-heading-row"><h2>评测批次</h2><span id="refresh-state">正在读取…</span></div>
+<div id="jobs"></div>

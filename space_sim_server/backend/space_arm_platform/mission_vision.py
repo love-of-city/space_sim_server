@@ -93,7 +93,8 @@ class MissionVisionRouter:
             if identity[1] != self._session:
                 self._clear()
                 sender = VisionResultSender(port)
-                self.vision.bind_task(identity[0], identity[1], config_path=config_path, on_result=sender)
+                self.vision.bind_task(identity[0], identity[1], config_path=config_path, on_result=sender,
+                    evidence_directory=folder/'vision-evidence')
                 try:
                     self.vision.warmup()
                 except Exception:

@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
 from .collection_api import install_collection_routes
+from .benchmark_api import install_benchmark_routes
 from .capture_lifecycle import CaptureLifecycle
 from .auth import SESSION_COOKIE, AuthError, AuthStore
 from .policy_api import PolicySessions, install_policy_routes
@@ -383,6 +384,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
                 if closed["dataset_status"] == "complete":
                     jobs.submit_archive(closed["episode_id"])
             await missions.close()
+            await asyncio.to_thread(benchmarks.close)
             await asyncio.to_thread(collections.close)
             await asyncio.to_thread(scenes.close)
             policy.scene_stopped()
@@ -444,6 +446,7 @@ def create_app(config: PlatformConfig | None = None) -> FastAPI:
         return user["role"] == "admin" or owner.get("user_id") == user["user_id"]
 
     collections = install_collection_routes(app, config, scenes, current_user)
+    benchmarks = install_benchmark_routes(app, config, current_user)
 
     @app.middleware("http")
     async def authenticated_api(request: Request, call_next):

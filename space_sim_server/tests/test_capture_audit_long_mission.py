@@ -12,6 +12,10 @@ def test_separate_trials_keep_force_epochs_across_the_300_second_boundary(tmp_pa
                      '</body><body name="capture_target"/></worldbody></mujoco>', encoding='utf-8')
 
     class Stepper:
+        external_writes = 0
+        substeps = 1
+        step_count = 0
+        _last_nanos = 0
         def body_detail(self, name):
             return np.array([0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.])
 
@@ -29,6 +33,10 @@ def test_separate_trials_keep_force_epochs_across_the_300_second_boundary(tmp_pa
     force = [json.loads(line) for line in (tmp_path/'late/contacts_force.jsonl').read_text().splitlines()]
     assert [row['time_s'] for row in force] == [299.9975, 300., 300.0025, 1000.]
     assert all(row['feedback']['jaw_support_count'] == 0 for row in force)
+    assert all(row['schema_version'] == 'space-sim-capture-contact-evidence/1' and row['raw_contacts'] == [] for row in force)
+    assert [row['sequence'] for row in force] == list(range(4))
+    manifest = json.loads((tmp_path/'late/contacts_manifest.json').read_text())
+    assert manifest['force_file'] == 'contacts_force.jsonl'
     bodies = [json.loads(line) for line in (tmp_path/'late/contacts.jsonl').read_text().splitlines()]
     assert [row['t'] for row in bodies if row['type'] == 'step'] == [299.9975, 300.]
     other = [json.loads(line) for line in (tmp_path/'other/contacts_force.jsonl').read_text().splitlines()]

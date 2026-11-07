@@ -93,7 +93,7 @@ def model_path(tmp_path: Path) -> Path:
 
 
 def build(model_path, backend, *, substeps=1, wheel_torque=0.0, origin=None, rebase_distance_m=50.0,
-          publish_every=1):
+          publish_every=1, model_from_memory=False):
     simulation = SimulationBaseClass.SimBaseClass()
     process = simulation.CreateNewProcess("p")
     process.addTask(simulation.CreateNewTask("t", macros.sec2nano(DT)))
@@ -111,7 +111,7 @@ def build(model_path, backend, *, substeps=1, wheel_torque=0.0, origin=None, reb
         simulation.AddModelToTask("t", wheel, 8000)
         stepper = LocalMujocoStepper(scene, model_path, servo_specs(["arm_motor"], ["arm"], [KP], [KD], [LIMIT], reference),
                                      origin=origin, substeps=substeps, publish_every=publish_every,
-                                     rebase_distance_m=rebase_distance_m)
+                                     rebase_distance_m=rebase_distance_m, model_from_memory=model_from_memory)
         simulation.AddModelToTask("t", stepper, 1000)
         keep.append(stepper)
     else:
@@ -144,6 +144,24 @@ def build(model_path, backend, *, substeps=1, wheel_torque=0.0, origin=None, reb
 def run_to(simulation, seconds):
     simulation.ConfigureStopTime(int(round(seconds * 1e9)))
     simulation.ExecuteSimulation()
+
+
+def test_memory_and_file_model_loading_produce_identical_native_motion(model_path):
+    traces = []
+    for in_memory in (False, True):
+        simulation, scene, stepper, keep = build(model_path, 'local', substeps=8,
+            wheel_torque=.1, model_from_memory=in_memory)
+        try:
+            scene.getBody('bus').setVelocity([.1, .02, -.01])
+            trace = []
+            for time_s in np.linspace(0., 1., 11):
+                run_to(simulation, time_s)
+                trace.append(np.r_[stepper.qpos.copy(), stepper.qvel.copy(), stepper.actuator_force.copy()])
+            traces.append(np.asarray(trace))
+        finally:
+            stepper.close()
+    np.testing.assert_array_equal(traces[0], traces[1])
+    assert not np.array_equal(traces[0][0], traces[0][-1])
 
 
 def test_full_physical_checkpoint_keeps_tools_joints_wheels_and_origin(model_path):

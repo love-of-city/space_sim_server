@@ -1,4 +1,5 @@
 """Read-only 400 Hz capture diagnostics, including every target descendant."""
+import hashlib
 import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -25,17 +26,26 @@ class CaptureAudit:
         # dump ends at 300 s. Retain compact feedback at every physical step.
         self.force_file=(self.path.with_name(self.path.stem+'_force.jsonl').open('w',encoding='utf-8',buffering=1)
                          if output_path is not None else None)
+        if self.force_file is not None:
+            manifest = dict(schema_version='space-sim-capture-contact-manifest/1',
+                model_sha256=hashlib.sha256(Path(model).read_bytes()).hexdigest(),
+                force_file=Path(self.force_file.name).name, physics_period_ns=2_500_000,
+                physics_substeps=self.stepper.substeps,
+                contact_force_frame='MuJoCo contact frame; normal first',
+                geometry={name: dict(body=body, root=self.body_root[body]) for name,body in self.geom_body.items()})
+            self.path.with_name(self.path.stem+'_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
         self.file.write(json.dumps(dict(type='schema', rate_hz=400, body_fields='position_local_m[3],quaternion_wxyz[4],omega_world[3],velocity_world[3],native_time_s',contact_force_frame='contact frame; normal first',native_pose_note='post-step kinematic cache; sampled before next step, no extra forward'))+'\n')
     def record(self,t,phase,q):
         bodies={name:self.stepper.body_detail(name).tolist() for name in ('cubesat_bus','capture_target','gripper')}
-        contacts=[];self_hits=[]
+        contacts=[];self_hits=[];raw_contacts=[]
         for row in self.stepper.contact_detail():
             names=[self.stepper._name(5,int(i)) for i in row[:2]]
             bn=[self.geom_body.get(n,'') for n in names]
             roots=[self.body_root.get(n,'') for n in bn]
             arm=[n.startswith(('bottom_','jaw_','gripper','axial_','cam')) for n in bn]
+            c=dict(geoms=names,bodies=bn,roots=roots,distance_m=row[2],position_local_m=row[3:6].tolist(),force_contact=row[6:12].tolist(),frame=row[12:21].tolist(),efc_address=int(row[21]),native_time_ns=int(round(row[22]*1e9)))
+            raw_contacts.append(c)
             if not ('capture_target' in roots or any(arm)):continue
-            c=dict(geoms=names,bodies=bn,roots=roots,distance_m=row[2],position_local_m=row[3:6].tolist(),force_contact=row[6:12].tolist(),frame=row[12:21].tolist(),efc_address=int(row[21]))
             contacts.append(c)
             if any(arm) and not all(arm) and roots==['cubesat_bus','cubesat_bus'] and row[2]<-.0001:self_hits.append(c)
         quat=np.asarray(bodies['gripper'][3:7]);w,x,y,z=quat
@@ -58,7 +68,12 @@ class CaptureAudit:
         self.feedback=dict(pad_force_n=float(self.filtered_pad_force),pad_force_raw_n=float(force),pad_compression_m=float(compression),jaw_force_n=float(sum(jaws.values())),jaw_support_count=int(sum(v>.1 for v in jaws.values())),peak_target_contact_force_n=float(peak_target_force))
         if self.force_file is not None:
             self.force_file.write(json.dumps(dict(time_s=t,phase=phase,feedback=self.feedback,
-                                                 self_contact_count=len(self_hits)))+'\n')
+                self_contact_count=len(self_hits),schema_version='space-sim-capture-contact-evidence/1',
+                sequence=self.count,time_ns=int(round(t*1e9)),native_time_ns=int(round(bodies['gripper'][-1]*1e9)),
+                physics_time_ns=self.stepper._last_nanos,physics_step_count=self.stepper.step_count,
+                physics_substeps=self.stepper.substeps,gripper_quaternion_wxyz=quat.tolist(),
+                native_contact_count=len(raw_contacts),gripper_axis_world=axis.tolist(),
+                external_state_writes=self.stepper.external_writes,raw_contacts=raw_contacts))+'\n')
         if t<=300:
             self.file.write(json.dumps(dict(type='step',t=t,phase=phase,q=q.tolist(),bodies=bodies,contacts=contacts,clamp=self.feedback))+'\n')
         self.count+=1

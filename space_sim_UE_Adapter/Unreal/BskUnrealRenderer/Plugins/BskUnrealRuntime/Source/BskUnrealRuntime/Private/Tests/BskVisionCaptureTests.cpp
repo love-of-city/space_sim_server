@@ -10,6 +10,44 @@
 #include "Engine/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskAuthoritativeSmallRotationTest,
+    "BskUnreal.Capture.AuthoritativeSmallRotation", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBskAuthoritativeSmallRotationTest::RunTest(const FString& Parameters)
+{
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    ABskSceneController* Controller = World->SpawnActor<ABskSceneController>();
+    FBskObjectDefinition Definition;
+    Definition.ObjectId = TEXT("bus");
+    AActor* Body = Controller->SpawnManifestObject(Definition);
+    Controller->BoundActors.Add(Definition.ObjectId, Body);
+    AActor* Camera = World->SpawnActor<AActor>();
+    USceneComponent* CameraRoot = NewObject<USceneComponent>(Camera);
+    Camera->SetRootComponent(CameraRoot);
+    CameraRoot->RegisterComponent();
+    Camera->AttachToActor(Body, FAttachmentTransformRules::KeepRelativeTransform);
+    const FVector Mount(30.0, 20.0, 10.0);
+    Camera->SetActorRelativeLocation(Mount);
+    FBskRenderFrame Frame;
+    FBskRenderObjectState State;
+    State.ObjectId = Definition.ObjectId;
+    State.PositionMeters = FVector3d::ZeroVector;
+    State.OrientationWxyz = FQuat4d::Identity;
+    Frame.Objects.Add(State);
+    Controller->ApplyFrame(Frame, false);
+    for (const double Angle : {1e-6, 0.0, -1e-6, 0.0})
+    {
+        Frame.Objects[0].OrientationWxyz = FQuat4d(FVector3d(1.0, 2.0, 3.0).GetSafeNormal(), Angle);
+        const FQuat Expected(Controller->Converter.ActiveLocalWxyzToUnreal(Frame.Objects[0].OrientationWxyz));
+        Controller->ApplyFrame(Frame, false);
+        TestTrue(TEXT("authoritative body preserves tiny rotation at fixed origin"), Body->GetActorQuat().Equals(Expected, 1e-12));
+        TestTrue(TEXT("attached optical actor receives tiny parent rotation"), Camera->GetActorQuat().Equals(Expected, 1e-12));
+        TestTrue(TEXT("camera lever arm follows authoritative attitude"), Camera->GetActorLocation().Equals(Expected.RotateVector(Mount), 1e-10));
+    }
+    World->DestroyWorld(false);
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskVisionCaptureRoutingTest,
     "BskUnreal.Capture.VisionRouting", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

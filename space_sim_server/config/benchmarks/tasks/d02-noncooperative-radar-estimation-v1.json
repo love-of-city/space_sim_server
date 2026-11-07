@@ -1,0 +1,101 @@
+{
+  "schema_version": "spacesim-autonomy-radar-navigation/1",
+  "configuration_id": "d02-noncooperative-radar-estimation-v1",
+  "requirement_id": "ssb.relative-navigation.noncooperative",
+  "source_id": "D02",
+  "backend": "native_team_radar_estimation_v1",
+  "target_cooperation": "N",
+  "controlled_spacecraft": 0,
+  "spacecraft_count": 2,
+  "control_architecture": "single_estimator",
+  "vision_mode": "V0",
+  "action_type": "navigation_state_estimate_only",
+  "attitude_control": "none_passive_attitude",
+  "reference_frame": "target_Earth_centered_J2000",
+  "initial": {
+    "target_altitude_m": 500000.0,
+    "inclination_deg": 51.6,
+    "true_anomaly_deg": 180.0,
+    "relative_position_tnr_m": [
+      -500.0,
+      50.0,
+      20.0
+    ],
+    "relative_velocity_tnr_m_s": [
+      0.0,
+      0.05,
+      0.0
+    ],
+    "position_half_width_m": 5.0,
+    "velocity_half_width_m_s": 0.02,
+    "target_altitude_half_width_m": 1000.0,
+    "target_inclination_half_width_deg": 0.2,
+    "target_anomaly_half_width_deg": 2.0
+  },
+  "objective": {
+    "kind": "navigation_accuracy",
+    "position_rmse_limit_m": 1.0,
+    "velocity_rmse_limit_m_s": 0.08,
+    "maximum_position_error_m": 3.0,
+    "maximum_velocity_error_m_s": 1.5
+  },
+  "safety": {
+    "kind": "two_spacecraft_relative_motion",
+    "minimum_range_m": 100.0,
+    "maximum_range_m": 1000.0,
+    "maximum_relative_speed_m_s": 2.0,
+    "maximum_force_n": 25.0,
+    "maximum_uncommanded_force_n": 1E-08
+  },
+  "observation": {
+    "kind": "idealized_monostatic_range_bearing_doppler",
+    "position_sigma_m": 0.2,
+    "velocity_sigma_m_s": 0.002,
+    "attitude_sigma_rad": 2E-05,
+    "range_sigma_m": 0.05,
+    "bearing_sigma_rad": 0.0001,
+    "range_rate_sigma_m_s": 0.002,
+    "minimum_range_m": 50.0,
+    "maximum_range_m": 2000.0,
+    "delay_s": 0.0,
+    "target_link": "none",
+    "target_reference_point": "idealized_target_assembly_com_scatterer",
+    "observer_reference_point": "assembled_center_of_mass",
+    "bearing_frame": "observer_body_axes",
+    "coverage": "idealized_omnidirectional"
+  },
+  "seeds": {
+    "train": [
+      1,
+      2,
+      3
+    ],
+    "validation": [
+      101,
+      102,
+      103
+    ],
+    "test": [
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210
+    ]
+  },
+  "duration_s": 180.0,
+  "physics_period_ns": 20000000,
+  "physics_substeps": 8,
+  "decision_period_ns": 500000000,
+  "earth_gravity": "point_mass",
+  "solar_gravity": true,
+  "drag_enabled": true,
+  "srp_enabled": true,
+  "disturbance_sigma_m_s2": 2E-06,
+  "mass_model": "constant_no_propellant_model"
+}

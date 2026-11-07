@@ -412,6 +412,14 @@ bool ParseManifest(const TSharedPtr<FJsonObject>& Root, FBskSceneManifest& Out, 
                 Definition.Resolution = FIntPoint((*Resolution)[0]->AsNumber(), (*Resolution)[1]->AsNumber());
             }
             Object->TryGetStringField(TEXT("semantic_label"), Definition.SemanticLabel);
+            if (Object->HasField(TEXT("work_light_profile"))
+                && (!Object->TryGetStringField(TEXT("work_light_profile"), Definition.WorkLightProfile)
+                    || (!Definition.WorkLightProfile.IsEmpty()
+                        && Definition.WorkLightProfile != TEXT("inspection-1500cd-v1"))))
+            {
+                Error = TEXT("unsupported camera work_light_profile");
+                return false;
+            }
             Object->TryGetBoolField(TEXT("picture_in_picture"), Definition.bPictureInPicture);
             Object->TryGetNumberField(TEXT("capture_rate_hz"), Definition.CaptureRateHertz);
             if (Object->HasField(TEXT("capture_consumer"))

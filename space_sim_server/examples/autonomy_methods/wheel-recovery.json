@@ -1,0 +1,10 @@
+{
+  "schema_version": "spacesim-autonomy-python-method/1",
+  "method_id": "external-wheel-recovery-v1",
+  "task_schemas": ["spacesim-autonomy-wheel-recovery/1"],
+  "entrypoint": "conventional.py",
+  "arguments": ["wheel-recovery"],
+  "files": ["conventional.py"],
+  "initialization_timeout_s": 60.0,
+  "response_timeout_s": 5.0
+}

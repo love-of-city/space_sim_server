@@ -166,7 +166,12 @@ class PhysicsPorts:
         names = list(self.stepper.actuator_names)
         if actuator not in names:
             raise PortError(f"unknown actuator {actuator!r}")
-        index = names.index(actuator)
+        # Effort messages follow servo registration order, not the full MJCF
+        # actuator list (which can interleave motors and other arm actuators).
+        try:
+            index = list(self.stepper.servo_index).index(names.index(actuator))
+        except ValueError:
+            raise PortError(f"actuator {actuator!r} is not served by the local dynamics core") from None
         try:
             return self.stepper.requestedOutMsgs[index], self.stepper.appliedOutMsgs[index]
         except IndexError:

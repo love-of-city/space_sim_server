@@ -108,6 +108,15 @@ def test_hold_does_not_call_a_gap_in_contact_records_continuous_support():
     assert score_hold(rows)['continuous_hold_s']==0
 
 
+def test_a_single_missing_400hz_sample_resets_the_continuous_hold():
+    rows=[dict(type='step',t=k/400,phase='hold_force',clamp={'jaw_support_count':4,'pad_force_n':5},contacts=[])
+          for k in range(8001) if k!=4000]
+    assert score_hold(rows)['continuous_hold_s']==pytest.approx(9.9975)
+    rows[-1]['clamp']['pad_force_n']=float('nan')
+    with pytest.raises(ValueError,match='non-finite'):
+        score_hold(rows)
+
+
 def test_writer_shutdown_precedes_configuration_restoration(tmp_path):
     run=tmp_path/'run';run.mkdir()
     old=run/'wrist_alignment_observation.json';old.write_text('previous')
@@ -193,6 +202,25 @@ def test_occupied_port_is_rejected_without_touching_listener():
         port=listener.getsockname()[1]
         with pytest.raises(RuntimeError,match='occupied'):ensure_ports_free([port])
         assert listener.fileno()>=0
+
+
+def test_contact_evidence_uses_the_current_trial_and_reads_legacy_archives(tmp_path):
+    from space_arm_platform.capture_regression_score import contact_audit_path
+    folder=tmp_path/'capture';folder.mkdir()
+    unrelated=tmp_path/'run';unrelated.mkdir()
+    (unrelated/'capture_contact_audit.jsonl').write_text('another trial')
+    with pytest.raises(FileNotFoundError,match='this trial'):
+        contact_audit_path(tmp_path)
+    current=folder/'contacts_400hz.jsonl';current.write_text('actual physical evidence')
+    assert contact_audit_path(tmp_path)==current
+    legacy=folder/'contact_audit.jsonl';legacy.write_text('stale evidence')
+    with pytest.raises(ValueError,match='conflicting'):
+        contact_audit_path(tmp_path)
+    legacy.write_text(current.read_text())
+    assert contact_audit_path(tmp_path)==current
+    other=tmp_path/'old'/'capture';other.mkdir(parents=True)
+    (other/'contact_audit.jsonl').write_text('legacy physical evidence')
+    assert contact_audit_path(other.parent)==other/'contact_audit.jsonl'
 
 
 def test_native_preparation_invokes_existing_current_checkout_build_tools(tmp_path,monkeypatch):

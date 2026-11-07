@@ -20,6 +20,7 @@
 #include "Engine/World.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/SceneCaptureComponent2D.h"
 
 namespace
 {
@@ -1166,6 +1167,86 @@ bool FBskCameraMountedLightTest::RunTest(const FString& Parameters)
     Controller->ApplyManifest(Manifest);
     TestFalse(TEXT("removed lamp is unregistered"), Controller->VisualActors.Contains(Lamp.VisualId));
     TestTrue(TEXT("removed lamp actor is destroyed"), LightActor->IsActorBeingDestroyed());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBskDeclaredCameraWorkLightTest,
+    "BskUnreal.Capture.DeclaredCameraWorkLight",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FBskDeclaredCameraWorkLightTest::RunTest(const FString& Parameters)
+{
+    for (const FString& Profile : {FString(TEXT("\"inspection-1500cd-v1\"")),
+        FString(TEXT("\"unknown\"")), FString(TEXT("true")), FString(TEXT("1500"))})
+    {
+        FBskRenderMessage Message;
+        FString Error;
+        const FString Json = FString::Printf(TEXT("{\"protocol\":\"bsk-render/2\",\"type\":\"scene_manifest\","
+            "\"session_id\":\"lamp\",\"revision\":\"1\",\"objects\":[],\"cameras\":[{\"camera_id\":\"right\","
+            "\"work_light_profile\":%s}]}"), *Profile);
+        const bool bValid = Profile == TEXT("\"inspection-1500cd-v1\"");
+        TestEqual(TEXT("only the versioned fixed light profile is accepted"),
+            FBskFrameParser::ParseMessageJson(Json, Message, Error), bValid);
+        if (bValid) TestEqual(TEXT("profile reaches the renderer"), Message.Manifest.Cameras[0].WorkLightProfile,
+            FString(TEXT("inspection-1500cd-v1")));
+    }
+    if (!TestNotNull(TEXT("engine exists for test world context"), GEngine)) return false;
+    UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+    if (!TestNotNull(TEXT("test world created"), World)) return false;
+    GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+    ON_SCOPE_EXIT { World->DestroyWorld(false); GEngine->DestroyWorldContext(World); };
+    auto* Controller = World->SpawnActor<ABskSceneController>();
+    FBskObjectDefinition Body;
+    Body.ObjectId = TEXT("gripper");
+    FBskCameraDefinition Camera;
+    Camera.CameraId = TEXT("right");
+    Camera.ParentId = Body.ObjectId;
+    Camera.PositionBodyMeters = FVector3d(.075, -.06, .031);
+    Camera.Resolution = FIntPoint(16, 16);
+    Camera.CaptureProducts = {TEXT("rgb")};
+    FBskSceneManifest Manifest;
+    Manifest.SessionId = TEXT("lamp-A");
+    Manifest.Revision = 1;
+    Manifest.Objects = {Body};
+    Manifest.Cameras = {Camera};
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("legacy camera creates no lamp"), Controller->CameraWorkLights.Num(), 0);
+    Manifest.Cameras[0].WorkLightProfile = TEXT("inspection-1500cd-v1");
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    const FString Id = Controller->PixelStreamingIdForCamera(Camera.CameraId);
+    auto* Lamp = Cast<USpotLightComponent>(Controller->CameraWorkLights.FindRef(Id).Get());
+    if (!TestNotNull(TEXT("declared lamp exists without a streaming client"), Lamp)) return false;
+    TestTrue(TEXT("lamp attached to canonical capture"),
+        Lamp->GetAttachParent() == Controller->CameraCaptureComponents.FindRef(Camera.CameraId).Get());
+    TestTrue(TEXT("actual lamp enabled"), Lamp->IsVisible());
+    TestTrue(TEXT("actual lamp uses candelas"), Lamp->IntensityUnits == ELightUnits::Candelas);
+    TestEqual(TEXT("original inspection intensity"), Lamp->Intensity, 1500.0f);
+    TestEqual(TEXT("original ten-metre range"), Lamp->AttenuationRadius, 1000.0f);
+    TestEqual(TEXT("inner cone"), Lamp->InnerConeAngle, 35.0f);
+    TestEqual(TEXT("outer cone"), Lamp->OuterConeAngle, 65.0f);
+    TestFalse(TEXT("original shadowless approximation"), Lamp->CastShadows);
+    TestTrue(TEXT("later streaming lookup reuses this lamp"), Controller->ResolveCameraWorkLight(Id) == Lamp);
+    TestEqual(TEXT("no duplicate light"), Controller->CameraWorkLights.Num(), 1);
+    AActor* BodyActor = Controller->BoundActors.FindRef(Body.ObjectId);
+    BodyActor->SetActorTransform(FTransform(FRotator(10., 25., -4.), FVector(300., -50., 100.)));
+    AActor* CameraActor = Controller->CameraActors.FindRef(Camera.CameraId);
+    TestTrue(TEXT("lamp moves with camera"), Lamp->GetComponentLocation().Equals(CameraActor->GetActorLocation(), 1e-5));
+    TestTrue(TEXT("lamp follows optical axis"), Lamp->GetForwardVector().Equals(CameraActor->GetActorForwardVector(), 1e-6));
+    Manifest.Cameras[0].WorkLightProfile.Reset();
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("removing declaration retires its lamp"), Controller->CameraWorkLights.Num(), 0);
+    TestEqual(TEXT("removed profile cannot remain locked"), Controller->DeclaredCameraWorkLights.Num(), 0);
+    Manifest.Cameras[0].WorkLightProfile = TEXT("inspection-1500cd-v1");
+    Manifest.SessionId = TEXT("lamp-B");
+    Manifest.Revision = 1;
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("next scene recreates exactly one light"), Controller->CameraWorkLights.Num(), 1);
+    Manifest.Cameras.Reset();
+    ++Manifest.Revision;
+    Controller->ApplyManifest(Manifest);
+    TestEqual(TEXT("removed camera retires its light"), Controller->CameraWorkLights.Num(), 0);
+    TestEqual(TEXT("removed camera clears declaration"), Controller->DeclaredCameraWorkLights.Num(), 0);
     return true;
 }
 

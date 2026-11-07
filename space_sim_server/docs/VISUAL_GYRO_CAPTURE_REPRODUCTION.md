@@ -63,6 +63,13 @@ commands, uniquely consumed gyro packets,400Hz contacts, physical fingerprints,
 free-reference trajectory and `result.json`. Failure/timeout returns nonzero and
 keeps the failed directory. A new attempt requires a new output directory.
 
+Current contact evidence is written directly to the trial's
+`capture/contacts_400hz.jsonl`. The runner checks this path once control records
+appear and the scorer reads it in place; it does not copy an older checkout-wide
+`run/capture_contact_audit.jsonl`. Existing completed archives with
+`capture/contact_audit.jsonl` remain readable. Conflicting files in one archive
+are rejected. A missing or repeated 400 Hz timestamp resets the continuous hold.
+
 After actual capture, a separate no-contact run uses the same initial target,
 orbit, mass model and real backend, with the arms held and grasp/vision disabled.
 Only render transport is discarded to speed up that scorer. It records free
@@ -111,3 +118,27 @@ about absent ephemeris lighting in their deliberately minimal manifests; none
 failed, remained in progress or was unrun. Final native acceptance and publication
 are recorded in [PR38](https://github.com/love-of-city/space_sim_server/pull/38),
 which stays draft until the integrated run's `result.json.success` is true.
+
+## 2026-11-06 SpaceSim cloud rerun
+
+The dedicated benchmark checkout at `d650756` completed a fresh nominal trial
+and its independent 300 s free-flight reference. All 11 gates passed. The scored
+endpoint is 236.0925 s; continuous four-support hold is 22.1175 s at
+4.898842–4.999992 N with no service self-contact. Precontact reference differences
+are 0.003185 mm and 0.000183°, while peak contact-induced target motion is
+4.110285 mm and 1.017296°. The unchanged 10 kg target has no inter-spacecraft
+fixed constraints. There are 11,806 contiguous original gyro samples and a
+fresh, independently decoded 1920 × 1200 four-marker image with matching
+calibration. The maximum observed blind prediction path is 124.033 mm.
+
+Evidence remains in the owned cloud checkout under
+`.tmp/benchmark-visual-gyro-native-v2`; `result.json` SHA-256 is
+`da632b927cd502ff67147488571e78a4cdffa91a1ee621d28f399cf2368b6164`.
+The first attempt is retained separately as a failure: its old launcher looked
+for the obsolete shared contact path. A read-only diagnostic of that attempt
+found 22.1225 s contact hold, but did not supply its missing full qualification
+or relabel the failed result. This second attempt reran the complete entry after
+the trial-local contact-path correction and stricter 400 Hz continuity checks.
+It qualifies this nominal terminal-grasp regression; it does not establish
+noncooperative visual navigation, multi-seed reliability or the separate 7 km
+HTTP mission.

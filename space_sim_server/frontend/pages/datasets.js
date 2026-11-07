@@ -1,8 +1,10 @@
 import template from './datasets.html?raw';
 import {mountView} from '../ui.js';
 import {filterRecords,chartCategory} from './dataset_filters.js';
+import {createBenchmarkResults} from './benchmark.js';
 export function createDatasetPage(root,{api,navigate}) {
 const $=mountView(root,template);
+const benchmark=createBenchmarkResults($('benchmark-results'),{api});
 let viewGeneration=0,listingRequest=0,batchId='',batchIds=null;
 const state = {
   active: false,
@@ -836,6 +838,10 @@ function clearData(){
 }
 return {
  async activate(params){
+  const benchmarkId=params.get('benchmark');
+  $('benchmark-results').hidden=!benchmarkId;$('recording-results').hidden=Boolean(benchmarkId);
+  if(benchmarkId){state.active=false;viewGeneration++;state.request++;pause();return benchmark.activate(benchmarkId);}
+  benchmark.deactivate();
   state.active=true;const version=++viewGeneration;notice();
   const requestedBatch=params.get('batch')||'';batchId=requestedBatch;batchIds=null;
   $('batch-scope').hidden=!requestedBatch;$('batch-label').textContent=requestedBatch?'批次：'+requestedBatch:'';
@@ -845,7 +851,7 @@ return {
   const desired=params.get('episode');
   if(desired){if(state.data?.id===desired){$('list-page').hidden=true;$('workspace').hidden=false;filterCharts();}else await loadEpisode(desired);}
  },
- deactivate(){state.active=false;viewGeneration++;state.request++;pause();},
- reset(){this.deactivate();clearData();state.list=[];batchId='';batchIds=null;state.group='joints';$('search').value='';$('source').value='all';$('outcome-filter').value='all';$('task-filter').replaceChildren(new Option('全部任务','all'));$('date-from').value='';$('date-to').value='';notice();showList();renderList();},
+ deactivate(){state.active=false;viewGeneration++;state.request++;pause();benchmark.deactivate();},
+ reset(){this.deactivate();benchmark.reset();clearData();state.list=[];batchId='';batchIds=null;state.group='joints';$('search').value='';$('source').value='all';$('outcome-filter').value='all';$('task-filter').replaceChildren(new Option('全部任务','all'));$('date-from').value='';$('date-to').value='';notice();showList();renderList();},
 };
 }

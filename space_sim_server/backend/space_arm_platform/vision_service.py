@@ -160,11 +160,13 @@ class StereoVisionService:
         self.evidence_dir = Path(settings['evidence_directory']) if settings.get('evidence_directory') else None
         self.evidence_all = False
         self._saved_evidence = set()
+        self._task_evidence_dir = None
 
-    def bind_task(self, mission_id, session_id, *, config_path=None, on_result=None):
+    def bind_task(self, mission_id, session_id, *, config_path=None, on_result=None, evidence_directory=None):
         """Explicit task routing prevents late frames switching the active task."""
         with self._lock:
             self._mission_id, self._bound_session = str(mission_id), str(session_id)
+            self._task_evidence_dir = Path(evidence_directory) if evidence_directory is not None else None
             self._ordered_delivery = True
             task_path = self.root/'config/missions/capture26-v2.json'
             self._task_timeout_s = (float(json.loads(task_path.read_text('utf-8-sig'))['mission']['vision_task_timeout_wall_s'])
@@ -185,6 +187,7 @@ class StereoVisionService:
             if self._bound_session:
                 self._retired_sessions.add(self._bound_session)
             self._bound_session, self._mission_id, self._on_result = None, '', None
+            self._task_evidence_dir = None
             self._ordered_delivery = False
             default = self.root/'config/vision/capture26_stereo.json'
             if self.config_path != default:
@@ -367,6 +370,9 @@ class StereoVisionService:
                         self._result_metadata = diagnostic_metadata
                         self._last_error = result.get('reason') if result.get('status') == 'error' else None
                         self._counts['processed_pairs'] += 1
+                        # Persist private render evidence before publishing a
+                        # result that the flight controller may consume.
+                        self._save_evidence(result, left, right, diagnostic_metadata)
                         if self._on_result is not None:
                             self._on_result(dict(result))
                         if config.get('capture_export'):
@@ -376,7 +382,6 @@ class StereoVisionService:
                                 raise ValueError('stereo mailbox must stay inside server run')
                             publish_packet(path, capture_packet(result, config, session_id=session,
                                 source_frame_id=frame, sim_time_ns=timestamp))
-                self._save_evidence(result, left, right, diagnostic_metadata)
             except Exception as error:
                 with self._lock:
                     if session == self._session and mission == self._mission_id:
@@ -385,18 +390,25 @@ class StereoVisionService:
                 self._queue.task_done()
 
     def _save_evidence(self, result, left, right, metadata):
-        if self.evidence_dir is None:
+        evidence_dir = self._task_evidence_dir or self.evidence_dir
+        if evidence_dir is None:
             return
+        from .render_lighting_evidence import append_lighting_receipt, session_directory
+        append_lighting_receipt(evidence_dir, result, {'left': left, 'right': right}, metadata)
         labels = ['first_pair']
         if result.get('status') == 'ok':
             labels.append('first_tracking')
+        elif (result['session_id'], 'first_tracking') in self._saved_evidence:
+            labels.append('first_failure_after_tracking')
+        # Bounded inspection samples throughout long flights, including eclipse.
+        labels.append(f"interval-{int(result['sim_time_ns'])//30_000_000_000:06d}")
         if self.evidence_all:
             labels.append(f"exposure-{int(result['sim_time_ns']):020d}")
         for label in labels:
             key = (result['session_id'], label)
             if key in self._saved_evidence:
                 continue
-            directory = self.evidence_dir / result['session_id'] / label
+            directory = session_directory(evidence_dir, result['session_id']) / label
             directory.mkdir(parents=True, exist_ok=True)
             (directory/'left.png').write_bytes(left)
             (directory/'right.png').write_bytes(right)

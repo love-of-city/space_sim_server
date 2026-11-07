@@ -13,6 +13,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'backend'),str(ROOT)]
 from space_arm_platform.capture_regression import prepare_trial,temporary_vision_runtime,physical_fingerprint
 from space_arm_platform.capture_regression_runtime import ManagedProcesses,ensure_ports_free,wait_ready,prepare_native_assets,trial_environment
+from space_arm_platform.capture_regression_score import contact_audit_path
 
 
 def last_row(path):
@@ -41,6 +42,7 @@ def monitor(process,prepared,managed):
         check_processes()
         row=last_row(path)
         if row:
+            contact_audit_path(prepared.output)
             t=row['t'];status=row['status']
             if 'abort' in status:raise RuntimeError(f'capture aborted: {status} at {t}s')
             if status=='predictive_hold_force':
@@ -121,8 +123,7 @@ def main():
             monitor(simulation,prepared,managed)
             # Flush log writers and detach from the actual grasp before the counterfactual.
             managed.close();managed=ManagedProcesses(output)
-            audit=ROOT/'run/capture_contact_audit.jsonl'
-            shutil.copyfile(audit,output/'capture/contact_audit.jsonl')
+            contact_audit_path(output)
             shutil.copyfile(ROOT/'run/wrist_vision_config.json',output/'calibration.json')
             write(output/'progress.json',dict(stage='independent_free_reference'))
             backend=managed.start('reference-backend',[python,'-m','space_arm_platform.main','--port',ports[0],

@@ -977,7 +977,9 @@ ULightComponent* ABskSceneController::ResolveCameraWorkLight(const FString& Stre
     }
     else
     {
-        for (const auto& Pair : PixelStreamingCameraCaptures)
+        // Canonical captures exist in offline mode too. A later browser query
+        // reuses this component and cannot create a second lamp at the camera.
+        for (const auto& Pair : CameraCaptureComponents)
         {
             if (PixelStreamingIdForCamera(Pair.Key) == StreamerId)
             {
@@ -1029,7 +1031,8 @@ void ABskSceneController::RegisterWorkLightInput(const TSharedPtr<IPixelStreamin
                 if (Request->HasField(TEXT("enabled")) && !Request->HasTypedField<EJson::Boolean>(TEXT("enabled"))) return;
                 ULightComponent* Light = Self->ResolveCameraWorkLight(Target->GetId());
                 bool bEnabled = false;
-                if (Light && Request->TryGetBoolField(TEXT("enabled"), bEnabled))
+                const bool bDeclared = Self->DeclaredCameraWorkLights.Contains(Target->GetId());
+                if (Light && !bDeclared && Request->TryGetBoolField(TEXT("enabled"), bEnabled))
                 {
                     Light->SetVisibility(bEnabled);
                     UE_LOG(LogBskUnreal, Display, TEXT("Camera work light streamer=%s enabled=%d intensity_cd=%.1f (render only)"), *Target->GetId(), bEnabled, Light->Intensity);
@@ -1038,6 +1041,7 @@ void ABskSceneController::RegisterWorkLightInput(const TSharedPtr<IPixelStreamin
                 Reply->SetStringField(TEXT("type"), TEXT("bsk_work_light"));
                 Reply->SetBoolField(TEXT("supported"), Light != nullptr);
                 Reply->SetBoolField(TEXT("enabled"), Light && Light->IsVisible());
+                Reply->SetBoolField(TEXT("locked_by_manifest"), bDeclared);
                 FString Json;
                 FJsonSerializer::Serialize(Reply, TJsonWriterFactory<>::Create(&Json));
                 Target->SendPlayerMessage(SourceId, TEXT("Response"), Json);
@@ -1127,7 +1131,16 @@ void ABskSceneController::Tick(float DeltaSeconds)
                     FVector::Distance(Light->GetComponentLocation(), View.SecondaryCentimeters)));
                 const double Scale = FMath::Min(RangeCm / 300.0, 10000.0);
                 Light->SetIntensity(static_cast<float>(150000.0 * Scale * Scale));
-                Light->SetAttenuationRadius(static_cast<float>(FMath::Max(1000.0, RangeCm * 3.0)));
+                const float Radius = static_cast<float>(FMath::Max(1000.0, RangeCm * 3.0));
+                if (Light->AttenuationRadius != Radius)
+                {
+                    // UE 5.6's non-shadowed radius-only fast path changes the
+                    // proxy without queuing a GPU Scene light upload. Recreate
+                    // the render state with the complete current properties;
+                    // do not enqueue that incomplete incremental radius update.
+                    Light->AttenuationRadius = Radius;
+                    Light->MarkRenderStateDirty();
+                }
             }
         }
     }
@@ -2185,6 +2198,10 @@ void ABskSceneController::ApplyManifest(const FBskSceneManifest& Manifest)
         PixelStreamingCameraCaptures.Remove(CameraId);
         PixelStreamingCameraTargets.Remove(CameraId);
         PixelStreamingCameraNextCaptureSeconds.Remove(CameraId);
+        const FString WorkLightId = PixelStreamingIdForCamera(CameraId);
+        if (auto* Light = CameraWorkLights.FindRef(WorkLightId).Get()) Light->DestroyComponent();
+        CameraWorkLights.Remove(WorkLightId);
+        DeclaredCameraWorkLights.Remove(WorkLightId);
         CameraCaptureComponents.Remove(CameraId);
         CameraRenderTargets.Remove(CameraId);
         CameraNextCaptureSeconds.Remove(CameraId);
@@ -3054,7 +3071,14 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
     USceneCaptureComponent2D* Capture = CameraCaptureComponents.FindRef(Definition.CameraId);
     const bool bHasDataProducts = !CaptureProductOverride.IsEmpty() || !Definition.CaptureProducts.IsEmpty();
     const bool bPixelStreamingRequested = IsPixelStreamingCameraRequested(Definition.CameraId);
-    if (!Definition.bPictureInPicture && !bHasDataProducts && !bPixelStreamingRequested)
+    const FString WorkLightId = PixelStreamingIdForCamera(Definition.CameraId);
+    const bool bDeclaredLight = Definition.WorkLightProfile == TEXT("inspection-1500cd-v1");
+    if (!bDeclaredLight && DeclaredCameraWorkLights.Remove(WorkLightId))
+    {
+        if (auto* Light = CameraWorkLights.FindRef(WorkLightId).Get()) Light->DestroyComponent();
+        CameraWorkLights.Remove(WorkLightId);
+    }
+    if (!Definition.bPictureInPicture && !bHasDataProducts && !bPixelStreamingRequested && !bDeclaredLight)
     {
         if (Capture) Capture->Deactivate();
         CameraRenderTargets.Remove(Definition.CameraId);
@@ -3082,6 +3106,14 @@ void ABskSceneController::ConfigureCamera(AActor* Actor, const FBskCameraDefinit
     ConfigureFixedRgbExposure(Capture, &Definition);
     Capture->bAlwaysPersistRenderingState = true;
     Capture->Activate();
+    if (bDeclaredLight)
+    {
+        if (auto* Light = ResolveCameraWorkLight(WorkLightId))
+        {
+            Light->SetVisibility(true);
+            DeclaredCameraWorkLights.Add(WorkLightId);
+        }
+    }
     Capture->FOVAngle = FieldOfViewDegrees;
     Capture->bUseCustomProjectionMatrix = Definition.VerticalFieldOfViewRadians > 0;
     if (Capture->bUseCustomProjectionMatrix)
@@ -3548,6 +3580,37 @@ bool ABskSceneController::CaptureCameraDataProducts(const FBskCaptureRequest& Re
     Intrinsics->SetNumberField(TEXT("fov_y_rad"), FovY);
     Metadata->SetObjectField(TEXT("intrinsics"), Intrinsics);
 
+    // Private render evidence. The RGB solver and navigation channel receive
+    // neither these lamp receipts nor the extrinsics below.
+    TArray<TSharedPtr<FJsonValue>> WorkLights;
+    TArray<FString> WorkLightIds;
+    CameraWorkLights.GetKeys(WorkLightIds);
+    WorkLightIds.Sort();
+    for (const FString& WorkLightId : WorkLightIds)
+    {
+        const auto* Light = Cast<USpotLightComponent>(CameraWorkLights.FindRef(WorkLightId).Get());
+        if (!Light) continue;
+        FString MountedCamera;
+        for (const auto& Pair : CameraCaptureComponents)
+            if (PixelStreamingIdForCamera(Pair.Key) == WorkLightId) { MountedCamera = Pair.Key; break; }
+        auto Receipt = MakeShared<FJsonObject>();
+        Receipt->SetStringField(TEXT("camera_id"), MountedCamera);
+        Receipt->SetStringField(TEXT("profile"), DeclaredCameraWorkLights.Contains(WorkLightId)
+            ? TEXT("inspection-1500cd-v1") : TEXT("interactive-preview"));
+        Receipt->SetBoolField(TEXT("enabled"), Light->IsVisible());
+        Receipt->SetBoolField(TEXT("attached_to_camera"), !MountedCamera.IsEmpty()
+            && Light->GetAttachParent() == CameraCaptureComponents.FindRef(MountedCamera));
+        Receipt->SetStringField(TEXT("intensity_units"), Light->IntensityUnits == ELightUnits::Candelas ? TEXT("cd") : TEXT("other"));
+        Receipt->SetNumberField(TEXT("intensity_cd"), Light->Intensity);
+        Receipt->SetNumberField(TEXT("range_m"), Light->AttenuationRadius / Converter.GetCentimetersPerMeter());
+        Receipt->SetNumberField(TEXT("inner_cone_deg"), Light->InnerConeAngle);
+        Receipt->SetNumberField(TEXT("outer_cone_deg"), Light->OuterConeAngle);
+        Receipt->SetBoolField(TEXT("cast_shadows"), Light->CastShadows);
+        Receipt->SetBoolField(TEXT("identity_camera_mount"), Light->GetRelativeTransform().Equals(FTransform::Identity, 1e-6));
+        WorkLights.Add(MakeShared<FJsonValueObject>(Receipt));
+    }
+    Metadata->SetArrayField(TEXT("camera_work_lights"), WorkLights);
+
     const FVector3d UnrealPositionCentimeters(CameraActor->GetActorLocation());
     const double MirrorY = Converter.MirrorsLocalY() ? -1.0 : 1.0;
     const FVector3d PositionLocalMeters(
@@ -3921,7 +3984,18 @@ void ABskSceneController::ApplyFrame(const FBskRenderFrame& Frame, bool bPresent
         }
         const FVector Location(Converter.LocalMetersToUnrealCentimeters(State.PositionMeters));
         const FQuat Rotation(Converter.ActiveLocalWxyzToUnreal(State.OrientationWxyz));
-        Actor->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+        if (!bPresentationFrame && Actor->GetRootComponent())
+        {
+            // Floating-origin bodies can have zero translation and microradian
+            // attitude changes. MoveComponent's quaternion tolerance drops
+            // those changes, including attached camera poses. Authoritative
+            // capture must apply the received pose; dynamics lives in Basilisk.
+            Actor->GetRootComponent()->SetWorldLocationAndRotationNoPhysics(Location, Rotation.Rotator());
+        }
+        else
+        {
+            Actor->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+        }
     }
     UpdateCelestialBodies(Frame);
     UpdateVisualStates(Frame);

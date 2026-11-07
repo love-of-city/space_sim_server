@@ -156,6 +156,8 @@ def _library():
     lib.lms_create.restype = ctypes.c_void_p
     runtime_path_type = ctypes.c_wchar_p if os.name == "nt" else ctypes.c_char_p
     lib.lms_create.argtypes = [runtime_path_type, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    lib.lms_create_from_xml.restype = ctypes.c_void_p
+    lib.lms_create_from_xml.argtypes = [runtime_path_type, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
     lib.lms_destroy.argtypes = [ctypes.c_void_p]
     lib.lms_dims.argtypes = [ctypes.c_void_p, _INT64_P]
     lib.lms_name2id.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
@@ -323,6 +325,7 @@ class LocalMujocoStepper(sysModel.SysModel):
     def __init__(self, scene: Any, model_path: Path, servos: list[ServoSpec], *,
                  origin: OrbitOrigin | None = None, substeps: int | None = None,
                  publish_every: int | None = None,
+                 model_from_memory: bool = False,
                  rebase_distance_m: float = DEFAULT_REBASE_DISTANCE_M) -> None:
         super().__init__()
         self.ModelTag = "localMujocoStepper"
@@ -338,8 +341,22 @@ class LocalMujocoStepper(sysModel.SysModel):
         self._lib = _library()
         error = ctypes.create_string_buffer(1024)
         runtime = str(_basilisk_mujoco_runtime())
-        handle = self._lib.lms_create(runtime if os.name == "nt" else os.fsencode(runtime), str(Path(model_path).resolve()).encode(),
-                                      error, len(error))
+        runtime_arg = runtime if os.name == "nt" else os.fsencode(runtime)
+        if model_from_memory:
+            import xml.etree.ElementTree as ET
+            xml = Path(model_path).read_bytes()
+            # An in-memory model has no filesystem directory for resolving
+            # includes or relative assets. Benchmark generators flatten the
+            # model and retain absolute references to the original meshes.
+            root = ET.fromstring(xml)
+            if any(item.tag == "include" or ("file" in item.attrib and not Path(item.get("file")).is_absolute())
+                   for item in root.iter()):
+                raise ValueError("in-memory MJCF requires no includes and absolute asset paths")
+            if len(xml) > 2**31-1:
+                raise ValueError("in-memory MJCF exceeds the native buffer size")
+            handle = self._lib.lms_create_from_xml(runtime_arg, xml, len(xml), error, len(error))
+        else:
+            handle = self._lib.lms_create(runtime_arg, str(Path(model_path).resolve()).encode(), error, len(error))
         if not handle:
             raise RuntimeError(f"local MuJoCo stepper failed to load {model_path}: {error.value.decode(errors='replace')}")
         self._handle = ctypes.c_void_p(handle)

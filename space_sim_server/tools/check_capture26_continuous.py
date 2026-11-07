@@ -16,6 +16,7 @@ from simulation.capture26_near23_score import score_near
 from simulation.near_field.orbital_guidance import rotating_relative_state
 from simulation.orbital_rendezvous.reference import FlightProfile
 from tools.check_capture26_continuity import check
+from space_arm_platform.render_lighting_evidence import score_work_lights
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -194,6 +195,7 @@ def audit(far_folder, near_folder):
     parking = score_near(near_folder, recorded_route(near, read(ROOT/NEAR23_VISION_PATH)))
     activation = score_activation(near_folder,near)
     recovery = score_alignment_recovery(near_folder,near)
+    lighting = score_work_lights(near_folder, near, read(ROOT/NEAR23_VISION_PATH))
     checks = dict(same_continuous_task=all(identities.values()),
         both_stage_reports_passed=all(r.get('basic_nominal_passed') is True for r in (far_report, near_report)),
         native_first_epoch_continuity=continuity['continuity_passed'],
@@ -201,11 +203,12 @@ def audit(far_folder, near_folder):
         all_near_dwells=parking['passed'], physical_four_jaw_hold_20s=parking['force_hold']['passed'],
         original_sampling_after_phase_activation=activation['passed'],
         real_stationary_alignment_recovery=recovery['passed'],
-        original_work_lights_recorded=(near_folder/'native_work_lights_ready.json').is_file())
+        declared_work_lights_verified=lighting['passed'])
     return dict(schema='space-sim-capture26-continuous-audit/1', accepted=all(checks.values()),
         scope='recorded 7 km physical flight through near23 grasp; HTTP launch and shared deployment are separate',
         mission_id=far['mission_id'], checks=checks, identity_checks=identities,
         far=far_score, near=parking, continuity=continuity,stereo_activation=activation,alignment_recovery=recovery,
+        render_lighting=lighting,
         source=dict(far=str(far_folder.resolve()), near=str(near_folder.resolve())))
 
 

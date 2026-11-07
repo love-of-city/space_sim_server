@@ -37,4 +37,6 @@ python -m pytest tests/test_benchmark_capture_arm.py -q -ra
 
 接线时修复了旧 `PhysicsPorts.servo_effort` 的通道映射：消息按伺服连接顺序存储，不能按包含飞轮等电机的完整 MJCF 执行器序号索引。混合/重排通道的检查不依赖 Basilisk。新原生夹具使用完整团队模型，对比原 `CaptureArmTarget` 直接驱动、接口驱动、读回开/关与重建后的每拍物理字节，另设无动作对照；该夹具仍为原始零重力装配布局，不属于轨道飞行、渲染或成功抓取验收。
 
-新增端口与原生夹具检查结果尚待云端执行；不得将上述已通过的 54 项纯控制检查改称本次原生接线验收。
+端口/模型/原控制/调度范围在 `9c85f31` 通过 **120 项云端检查及 Ruff，零跳过**，报告 `.tmp/benchmark-capture-arm-runtime-checks-v1/acceptance.json` SHA-256 为 `abfaa0e63cc4d9476d2ea013080a1eb47cb8a6a2df99bc9b58cc555de3ec8518`。`af9c8e5` 补充拒绝零时刻复位残留旧动作或关闭的核心，**68 项受影响检查及 Ruff 通过，零跳过**，报告 `.tmp/benchmark-capture-arm-runtime-checks-v2/acceptance.json` SHA-256 为 `a8639ba1f0e3665c848f6e1b6920e5007a9e4f7d4593c2c2fb21b33665085600`。两套范围有重叠，不相加为独立用例数。
+
+真实原生夹具在独立 `benchmark-capture-arm-v1-20261107` 工作树冻结为 `af9c8e595d0cc4a8b455d790a25191eb75532a32`，完整 1588 项原资产绑定已经核验。新建 native DLL SHA-256 为 `23186827e739d56707ab4c19a0c3af7e280149bed5b961867765a186e8fcfe17`，构建清单为 `386fa0a9bf1354a89c705db67b670aa644c94aefba88602b3482a3d821da82a6`；SDF 插件为 `bd09d255090eaded3b1f01dfeca3f7a29374e37e0e32542a4ce3ae76b989b93d`。夹具等待原接触组件释放所在通道，尚未运行；最多两路本人原生任务的限制保持。基础端口检查和构建成功不替代这项实际动力学验收。

@@ -1,5 +1,6 @@
 {
   "files": {
+    "tests/test_benchmark_articulated_camera_runtime.py": "Imports the real Basilisk/render-adapter modules before injecting startup failures; run both ownership-cleanup cases explicitly on SpaceSim, with zero skips. This fixture starts no physics/GPU and is not native image acceptance. Pure moving-camera contracts and full-model preparation remain in basic CI.",
     "tests/test_benchmark_native.py": "Real SARM/target assets, Basilisk and source-matched native helper; run explicitly on the simulation host for action readback and deterministic reset. Catalogue, contracts, grading, replay and batch accounting stay in basic CI.",
     "tests/linux/test_collection_processes.py": "Linux subreaper, SIGKILL and detached-process regressions run in the server-linux-processes CI job on Ubuntu/Python 3.11 and 3.13; Windows basic CI retains its real Job Object tests.",
     "tests/test_capture26_gyro_native.py": "Capture component imports real Basilisk modules; run configuration and legacy-servo contact safety regressions in the native simulation environment.",

@@ -42,3 +42,15 @@ python -m simulation.capture_contact_evidence <目录>/contacts_400hz_force.json
 输出为 `space-sim-capture-contact-score/1` JSON。退出码 0 表示该接触子审计通过；1 表示有效记录未满足保持/安全条件；2 表示记录或身份无效。命令只读取输入并输出结果，不更新原始日志、manifest 或历史评分。旧版只有汇总反馈的文件不符合新格式，不能补写字段后冒充本次原生证据。
 
 基础测试覆盖四爪身份、垫环/错误部位、无效约束、单帧失效、过载/自碰撞否决、缺帧/重复/时钟、原始数值、晚期记录及复算文件不变性。实际原生读回、控制兼容和完整任务路线须分别通过云端物理验收；合成证据测试不构成真实抓取成功记录。
+
+## 当前验收证据
+
+云端 `43d0d0e` 完成 962 项相关后端回归及 Ruff，无跳过；报告 `.tmp/benchmark-capture-contact-checks-v2/acceptance.json` 的 SHA-256 为 `0e8e8c67fa8ec43e7cd22e98ef746d2af21a04119af43f7fcc902aba9c617966`。前一次扩展检查有 16 项旧几何证书校验失败，原因是 CI 工作树的 1483 个模型文件尚为 LFS 指针；按原证书哈希补齐约 16 MB 后完整重跑通过，没有修改证书或判据，失败记录保留。
+
+相同源码的 `benchmark-contact-v1-20261107` 工作树保留全部 1588 个 capture26 模型/网格绑定并独立构建原生库。新增原生检查使用明确标注的固定零重力测力夹具，比较记录开关前后每步 qpos/qvel/执行器读回的字节一致性，验证实际四接触力及零力负对照、8000 s 绝对纪元、文件不变复算。这一检查已排在 S08 完整验收之后，当前尚未开始；它也不代替团队 SARM 真实卫星抓持验收。
+
+云端复现该原生组件检查：
+
+```text
+python -m pytest tests/test_benchmark_native.py::test_native_capture_contact_audit_is_readonly_and_replays_solver_samples -q -ra
+```

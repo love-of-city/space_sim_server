@@ -32,7 +32,18 @@ def inspect_rgb_png(encoded: bytes) -> tuple[int, int]:
     Ancillary text/EXIF chunks are rejected so image containers cannot smuggle
     renderer metadata into otherwise typed policy inputs.
     """
-    if not isinstance(encoded, bytes) or not 45 <= len(encoded) <= MAX_PNG_BYTES or not encoded.startswith(PNG_SIGNATURE):
+    return inspect_bounded_rgb_png(encoded, maximum_width=640, maximum_height=480, maximum_bytes=MAX_PNG_BYTES)
+
+
+def inspect_bounded_rgb_png(encoded: bytes, *, maximum_width: int, maximum_height: int,
+                            maximum_bytes: int) -> tuple[int, int]:
+    """Use explicit frozen bounds; never accept limits from packet metadata.
+
+    Existing camera contracts retain their 640x480/1.35 MB limits.
+    """
+    if any(type(value) is not int or value <= 0 for value in (maximum_width, maximum_height, maximum_bytes)):
+        raise ValueError('PNG limits must be positive integers')
+    if not isinstance(encoded, bytes) or not 45 <= len(encoded) <= maximum_bytes or not encoded.startswith(PNG_SIGNATURE):
         raise ValueError('expected a bounded PNG image')
     offset, size, image_data, ended, data_ended = 8, None, bytearray(), False, False
     color_channels = None
@@ -51,8 +62,9 @@ def inspect_rgb_png(encoded: bytes) -> tuple[int, int]:
             if kind != b'IHDR' or length != 13:
                 raise ValueError('PNG must start with one IHDR')
             width, height, depth, color, compression, filtering, interlace = struct.unpack('!IIBBBBB', data)
-            if not (1 <= width <= 640 and 1 <= height <= 480) or (depth, compression, filtering, interlace) != (8,0,0,0) or color not in (2,6):
-                raise ValueError('camera PNG must be at most 640x480, 8-bit RGB/RGBA and noninterlaced')
+            if (not (1 <= width <= maximum_width and 1 <= height <= maximum_height)
+                    or (depth, compression, filtering, interlace) != (8,0,0,0) or color not in (2,6)):
+                raise ValueError('camera PNG exceeds its dimensions or is not 8-bit noninterlaced RGB/RGBA')
             size, color_channels = (width, height), 3 if color == 2 else 4
         elif kind == b'IDAT' and not data_ended:
             image_data.extend(data)
@@ -131,18 +143,24 @@ class CameraImage(Contract):
 
     @model_validator(mode='after')
     def intact_pixels(self):
-        try:
-            pixels = base64.b64decode(self.png_base64, validate=True)
-        except (ValueError, binascii.Error) as error:
-            raise ValueError('invalid base64 image') from error
-        if base64.b64encode(pixels).decode('ascii') != self.png_base64:
-            raise ValueError('noncanonical base64 image')
-        if inspect_rgb_png(pixels) != (self.width,self.height) or hashlib.sha256(pixels).hexdigest() != self.png_sha256:
-            raise ValueError('PNG dimensions or hash differ from the public image')
+        validate_image_pixels(self, maximum_width=640, maximum_height=480, maximum_bytes=MAX_PNG_BYTES)
         return self
 
     def png_bytes(self):
         return base64.b64decode(self.png_base64, validate=True)
+
+
+def validate_image_pixels(image, *, maximum_width, maximum_height, maximum_bytes):
+    try:
+        pixels = base64.b64decode(image.png_base64, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise ValueError('invalid base64 image') from error
+    if base64.b64encode(pixels).decode('ascii') != image.png_base64:
+        raise ValueError('noncanonical base64 image')
+    if (inspect_bounded_rgb_png(pixels, maximum_width=maximum_width, maximum_height=maximum_height,
+                               maximum_bytes=maximum_bytes) != (image.width, image.height)
+            or hashlib.sha256(pixels).hexdigest() != image.png_sha256):
+        raise ValueError('PNG dimensions or hash differ from the public image')
 
 
 def _wire_count(value):
@@ -158,6 +176,18 @@ def _wire_count(value):
 def public_camera_image(metadata: dict, products: dict, camera: PinholeCamera, *, session_id: str,
                         source_frame_id: int, sample_time_ns: int) -> CameraImage:
     """Admit only the exact requested authoritative frame and frozen optics."""
+    png = admit_pinhole_pixels(metadata, products, camera, session_id=session_id,
+        source_frame_id=source_frame_id, sample_time_ns=sample_time_ns)
+    return CameraImage(camera_id=camera.camera_id, renderer_session_id=session_id,
+        source_frame_id=source_frame_id, sample_time_ns=sample_time_ns,
+        width=camera.width, height=camera.height, png_sha256=hashlib.sha256(png).hexdigest(),
+        png_base64=base64.b64encode(png).decode('ascii'))
+
+
+def admit_pinhole_pixels(metadata, products, camera, *, session_id, source_frame_id, sample_time_ns,
+                         photometric_exposure_time_s=0., aperture_fnumber=None,
+                         maximum_width=640, maximum_height=480, maximum_bytes=MAX_PNG_BYTES):
+    """Validate transport and optics; return pixels without any private pose."""
     identity = dict(protocol='bsk-capture/1', type='camera_frame', stream_kind='vision',
                     state_kind='authoritative', sensor_model='render_pinhole', color_model='rgb',
                     camera_mode='rgb', session_id=session_id, camera_id=camera.camera_id)
@@ -170,13 +200,16 @@ def public_camera_image(metadata: dict, products: dict, camera: PinholeCamera, *
             or metadata.get('temporal_exposure_integration') is not False
             or metadata.get('exposure_semantics') != 'render_photometric_only'
             or type(metadata.get('exposure_time_s')) not in (int,float)
-            or metadata.get('exposure_time_s') != 0
+            or metadata.get('exposure_time_s') != photometric_exposure_time_s
             or type(metadata.get('sampling_fps')) not in (int,float)
             or metadata.get('sampling_fps') != camera.sample_rate_hz
             or metadata.get('sampling_clock') != 'simulation'
             or metadata.get('intrinsics', {}).get('model') != 'pinhole'
             or metadata.get('intrinsics', {}).get('distortion_model') != 'none'):
         raise ValueError('camera packet sensor model differs from the declared pinhole')
+    if (aperture_fnumber is not None and (type(metadata.get('aperture_fnumber')) not in (int,float)
+                                        or metadata['aperture_fnumber'] != aperture_fnumber)):
+        raise ValueError('camera packet aperture differs from the declared photometric setting')
     k = camera.intrinsics
     expected = dict(fx_px=k[0][0], fy_px=k[1][1], cx_px=k[0][2], cy_px=k[1][2],
                     fov_x_rad=camera.horizontal_fov_rad,
@@ -188,9 +221,7 @@ def public_camera_image(metadata: dict, products: dict, camera: PinholeCamera, *
     if set(products) != {'rgb'}:
         raise ValueError('camera packet must contain exactly one RGB PNG')
     png = products['rgb']
-    if inspect_rgb_png(png) != (camera.width,camera.height):
+    if inspect_bounded_rgb_png(png, maximum_width=maximum_width, maximum_height=maximum_height,
+                              maximum_bytes=maximum_bytes) != (camera.width,camera.height):
         raise ValueError('camera pixels differ from the configured resolution')
-    return CameraImage(camera_id=camera.camera_id, renderer_session_id=session_id,
-        source_frame_id=source_frame_id, sample_time_ns=sample_time_ns,
-        width=camera.width, height=camera.height, png_sha256=hashlib.sha256(png).hexdigest(),
-        png_base64=base64.b64encode(png).decode('ascii'))
+    return png

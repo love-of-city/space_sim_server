@@ -18,6 +18,121 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_articulated_camera_mount_reads_fresh_origins_without_changing_motion(tmp_path):
+    # A revolute metrology fixture with an offset COM, not a grasp task or a
+    # rendered image. Rendering acceptance remains a separate GPU check.
+    code = r'''
+import hashlib
+import json
+import sys
+from pathlib import Path
+import numpy as np
+from scipy.spatial.transform import Rotation
+from Basilisk.architecture import messaging, sysModel
+from Basilisk.simulation import mujoco
+from Basilisk.utilities import SimulationBaseClass
+from simulation.local_mujoco_stepper import LocalMujocoStepper
+from simulation.physics_ports import PhysicsPorts
+from simulation.benchmark_camera_mount import NativeCameraMountReader
+from simulation.benchmark_rendered_articulated_camera import ArticulatedRenderedCameraSensor
+from space_arm_platform.benchmark_articulated_camera import capture26_mounted_cameras, physical_mounted_camera
+
+folder = Path(sys.argv[1])
+folder.mkdir()
+model = folder/'moving-mount.xml'
+model.write_text('<mujoco model="moving_mount_metrology"><compiler angle="radian"/>'
+    '<option timestep=".0025" gravity="0 0 0" integrator="implicitfast"/>'
+    '<worldbody><body name="cubesat_bus" pos="4 -3 2"><geom name="bus" type="box" '
+    'size=".05 .05 .05" mass="10" contype="0" conaffinity="0"/>'
+    '<body name="gripper" pos=".1 .2 .3"><joint name="hinge" type="hinge" axis="0 1 0" pos=".1 0 0"/>'
+    '<geom name="offset_gripper" type="box" pos=".3 0 0" size=".05 .02 .03" mass="1" '
+    'contype="0" conaffinity="0"/></body></body></worldbody>'
+    '<actuator><motor name="hinge_motor" joint="hinge" ctrllimited="true" ctrlrange="-.1 .1"/></actuator>'
+    '</mujoco>', encoding='utf-8')
+cameras = capture26_mounted_cameras(Path.cwd())
+descriptor = ArticulatedRenderedCameraSensor.__new__(ArticulatedRenderedCameraSensor)._camera_visual(cameras[1])
+assert descriptor.parent_id == 'team/gripper' and descriptor.resolution == (1920,1920)
+assert descriptor.capture_rate_hz == 10 and descriptor.exposure_time_s == .002
+assert descriptor.work_light_profile == 'inspection-1500cd-v1'
+
+def run(read, identity):
+    sim = SimulationBaseClass.SimBaseClass()
+    process = sim.CreateNewProcess('cameraMountMetrology')
+    process.addTask(sim.CreateNewTask('physics',2_500_000))
+    process.addTask(sim.CreateNewTask('sceneInit',10**18))
+    scene = mujoco.MJScene.fromFile(str(model))
+    sim.AddModelToTask('sceneInit',scene)
+    message = messaging.SingleActuatorMsg().write(messaging.SingleActuatorMsgPayload(input=.005),0)
+    scene.getSingleActuator('hinge_motor').actuatorInMsg.subscribeTo(message)
+    core = LocalMujocoStepper(scene,model,[],substeps=1,publish_every=1)
+    ports = PhysicsPorts(scene,stepper=core)
+    reader = NativeCameraMountReader(ports,cameras,episode_id=identity,epoch_ns=8_000_000_000_000)
+    joint = ports.joint_state('hinge').addSubscriber()
+    com = ports.body_com_state('gripper').addSubscriber()
+    sim.AddModelToTask('physics',core,1000)
+    class Observer(sysModel.SysModel):
+        def __init__(self):
+            super().__init__()
+            self.ModelTag = 'privateMovingMountEvidence'
+            self.digest = hashlib.sha256()
+            self.samples = []
+        def UpdateState(self,now):
+            before = np.r_[core.qpos,core.qvel,core.actuator_force].copy()
+            if read and now%100_000_000 == 0:
+                samples = reader.sample(8_000_000_000_000+int(now))
+                assert samples[0] == samples[1]
+                sample = samples[0]
+                angle = float(joint().state)
+                rotation = Rotation.from_rotvec([0.,angle,0.])
+                # Independent authored-chain geometry, with nonzero hinge pivot.
+                origin = np.array([4.2,-2.8,2.3])-rotation.apply([.1,0.,0.])
+                assert np.allclose(sample.origin_j2000_m,origin,atol=1e-12,rtol=0)
+                actual = Rotation.from_quat(np.array(sample.orientation_j2000_from_body_wxyz)[[1,2,3,0]])
+                assert np.allclose(actual.as_matrix(),rotation.as_matrix(),atol=1e-12,rtol=0)
+                assert np.linalg.norm(np.array(com().r_BN_N)-sample.origin_j2000_m) > .29
+                assert sample.physics_time_ns == now and sample.native_step_count == now//2_500_000
+                camera_origin,_ = physical_mounted_camera(cameras[0],sample)
+                assert np.allclose(camera_origin,origin+rotation.apply(cameras[0].position_body_m),atol=1e-12,rtol=0)
+                for stale in (sample.sample_time_ns-1,sample.sample_time_ns+1):
+                    try: reader.sample(stale)
+                    except ValueError: pass
+                    else: raise AssertionError('stale mount publication accepted')
+                assert np.array_equal(before,np.r_[core.qpos,core.qvel,core.actuator_force])
+                self.samples.append(sample.model_dump(mode='json'))
+            self.digest.update(before.tobytes())
+    observer = Observer()
+    sim.AddModelToTask('physics',observer,0)
+    try:
+        sim.InitializeSimulation()
+        sim.ConfigureStopTime(2_000_000_000)
+        sim.ExecuteSimulation()
+        assert core.step_count == 800 and core.external_writes == 0
+        assert abs(float(joint().state)) > .1
+        digest = observer.digest.hexdigest()
+    finally:
+        core.close()
+    try: reader.sample(8_002_000_000_000)
+    except ValueError as error: assert 'closed' in str(error)
+    else: raise AssertionError('closed native reader accepted')
+    return digest,observer.samples
+
+plain,_ = run(False,'plain')
+recorded,samples = run(True,'recorded')
+reset,again = run(True,'reset')
+assert plain == recorded == reset and len(samples) == len(again) == 21
+assert [{k:v for k,v in row.items() if k!='episode_id'} for row in samples] == [
+    {k:v for k,v in row.items() if k!='episode_id'} for row in again]
+(folder/'receipt.json').write_text(json.dumps(dict(scope='native moving camera mount metrology, not rendered grasp',
+    model_sha256=hashlib.sha256(model.read_bytes()).hexdigest(),trajectory_sha256=plain,
+    samples=samples,readonly_trajectory_parity=True,reset_parity=True),indent=2)+'\n',encoding='utf-8')
+print('native moving mount origin, COM distinction, physical time, read-only motion and reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'moving-camera-mount')],
+        cwd=SERVER, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native moving mount origin' in result.stdout
+
+
 def test_native_capture_contact_audit_is_readonly_and_replays_solver_samples(tmp_path):
     # A fixed zero-gravity force metrology fixture, not spacecraft capture.
     # The four independent sliders physically press a fixed target via native

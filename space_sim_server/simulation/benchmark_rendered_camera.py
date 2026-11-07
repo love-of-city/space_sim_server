@@ -105,18 +105,11 @@ class RenderedCameraSensor:
         catalog=project/'Saved/AssetImport/sarm_platform.catalog.json'
         bridge.add_mj_scene(env._scene,namespace='team',source_path=render_model,
             mesh_asset_catalog=catalog,camera_picture_in_picture=False,camera_capture_products=())
-        attachment='config/visual_attachments/target_aruco_flush_5cm_v2/geometry_metres.json'
+        attachment=self._attachment_file()
         attach_visual_geometries(bridge._objects,[dict(parent_id='team/capture_target',geometry_file=attachment,
-            sha256='ea51a2318029449f02d246e03f0ce6ee5e673c9f766541cc3e136344305e9fc0')],env.repository)
+            sha256=self._attachment_sha256())],env.repository)
         for camera in self.cameras:
-            q=np.asarray(camera.orientation_body_from_optical_wxyz)
-            optical=Rotation.from_quat(q[[1,2,3,0]]).as_matrix()
-            flu_q=Rotation.from_matrix(optical@FLU_TO_OPTICAL).as_quat()[[3,0,1,2]]
-            bridge.add_camera(CameraVisual(camera_id=camera.camera_id,parent_id='team/cubesat_bus',
-                position_body_m=camera.position_body_m,orientation_body_from_camera_wxyz=tuple(flu_q),
-                field_of_view_rad=camera.horizontal_fov_rad,resolution=(camera.width,camera.height),
-                capture_rate_hz=camera.sample_rate_hz,capture_products=('rgb',),capture_consumer='vision',
-                display_name='Benchmark calibrated camera'))
+            bridge.add_camera(self._camera_visual(camera))
         _register_celestial_bodies(bridge,*env._assembly.extra['celestial'])
         bridge.set_scene_settings(flight_scene_settings(bodies=env.model_manifest['bodies']))
         bridge.Reset(0)
@@ -135,6 +128,29 @@ class RenderedCameraSensor:
             renderer_arguments=[str(value) for value in arguments],render_port=self.render_port,capture_port=self.capture_port,
             catalog_sha256=hashlib.sha256(catalog.read_bytes()).hexdigest(),
             geometry_sha256=hashlib.sha256((env.repository/attachment).read_bytes()).hexdigest()))
+
+    def _attachment_file(self):
+        return 'config/visual_attachments/target_aruco_flush_5cm_v2/geometry_metres.json'
+
+    def _attachment_sha256(self):
+        return 'ea51a2318029449f02d246e03f0ce6ee5e673c9f766541cc3e136344305e9fc0'
+
+    def _camera_visual(self,camera):
+        q=np.asarray(camera.orientation_body_from_optical_wxyz)
+        optical=Rotation.from_quat(q[[1,2,3,0]]).as_matrix()
+        flu_q=Rotation.from_matrix(optical@FLU_TO_OPTICAL).as_quat()[[3,0,1,2]]
+        return CameraVisual(camera_id=camera.camera_id,parent_id='team/cubesat_bus',
+            position_body_m=camera.position_body_m,orientation_body_from_camera_wxyz=tuple(flu_q),
+            field_of_view_rad=camera.horizontal_fov_rad,resolution=(camera.width,camera.height),
+            capture_rate_hz=camera.sample_rate_hz,capture_products=('rgb',),capture_consumer='vision',
+            display_name='Benchmark calibrated camera')
+
+    def _sample_period_ns(self):
+        return self.environment.task.decision_period_ns
+
+    def _public_image(self,raw,products,camera,source_frame,time_ns):
+        return public_camera_image(raw,products,camera,session_id=self.bridge.session_id,
+            source_frame_id=source_frame,sample_time_ns=time_ns)
 
     def _check_alive(self):
         self._check_log()
@@ -159,7 +175,7 @@ class RenderedCameraSensor:
         self._log_tail=data[-64:]
 
     def capture(self,time_ns):
-        if self.last_time_ns is not None and time_ns!=self.last_time_ns+self.environment.task.decision_period_ns:
+        if self.last_time_ns is not None and time_ns!=self.last_time_ns+self._sample_period_ns():
             raise ValueError('camera samples must advance on the declared physical decision grid')
         self._check_alive()
         self.bridge.UpdateState(time_ns)
@@ -178,8 +194,7 @@ class RenderedCameraSensor:
             camera=remaining.pop(raw.get('camera_id'),None)
             if camera is None:
                 raise ValueError('duplicate or unexpected camera packet')
-            public=public_camera_image(raw,products,camera,session_id=self.bridge.session_id,
-                source_frame_id=source_frame,sample_time_ns=time_ns)
+            public=self._public_image(raw,products,camera,source_frame,time_ns)
             received[camera.camera_id],metadata[camera.camera_id]=public,raw
             # Human-readable raw evidence is private; the policy receives only
             # the typed public image returned below, never this file path.

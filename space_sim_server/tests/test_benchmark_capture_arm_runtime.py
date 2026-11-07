@@ -198,3 +198,16 @@ def test_missed_control_tick_latches_failure_and_requires_rebuild(monkeypatch):
                    lambda: arm.submit(CaptureArmCommand(), EPOCH), lambda: arm.evidence(EPOCH)):
         with pytest.raises(ValueError, match='publisher failed'):
             action()
+
+
+@pytest.mark.parametrize('condition', ['command_at_zero', 'closed_before_first_step'])
+def test_zero_time_reset_cannot_keep_an_old_action_or_closed_handle(monkeypatch, condition):
+    ports = Ports()
+    arm = bind(monkeypatch, ports)
+    ports.publish(0)
+    if condition == 'command_at_zero':
+        arm.submit(CaptureArmCommand(enabled=True, joint6_velocity_rad_s=.1), EPOCH)
+    else:
+        ports.stepper._handle = None
+    with pytest.raises(ValueError, match='fresh native core'):
+        arm.check_initial_reset(0)

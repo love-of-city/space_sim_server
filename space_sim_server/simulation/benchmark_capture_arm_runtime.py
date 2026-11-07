@@ -120,8 +120,9 @@ class NativeCaptureArm:
                                    for name in names)
 
     def check_initial_reset(self, nanos):
-        if (type(nanos) is not int or nanos != 0 or self.core.step_count
-                or self.controller.last_reference_time_ns != self.epoch_ns or self.failure is not None):
+        if (type(nanos) is not int or nanos != 0 or not self.core._handle or self.core.step_count
+                or self.controller.last_reference_time_ns != self.epoch_ns
+                or self.controller.last_command_time_ns is not None or self.failure is not None):
             raise ValueError('capture reset requires a fresh native core and arm binding')
 
     def submit(self, command, sample_time_ns):

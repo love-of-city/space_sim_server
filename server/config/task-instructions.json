@@ -220,6 +220,28 @@
       "Approach and grasp the locking rod in its clip, raise it to its original upright position, tighten the fastener, then open and withdraw the gripper.",
       "Remove the folded locking rod from its clip, guide it upright, and regrasp its fastener to tighten it. Leave the rod secured and move away.",
       "With the locking rod folded into its retaining clip, grasp and raise it upright, align the fastener, tighten it securely, then release and withdraw the gripper."
+    ],
+    "capture_target_grasp": [
+      "Reach and capture the target interface with all four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Use the capture arm to grasp the interface with four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Align the capture gripper and securely close all four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Grasp the target capture interface using all four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Bring the capture gripper to the interface and engage four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Approach the visible capture interface, align the tool, and close all four jaws to secure the target. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "With the spacecraft initially stationary relative to each other, use the capture arm to hold the target interface with four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Align the capture tool with the target interface, advance carefully, and secure it with all four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Use the capture arm to reach the visible interface, close all four jaws, and maintain a stable grip. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Place the capture gripper around the target interface and establish a secure four jaw hold. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Move the capture arm toward the interface, correct its orientation, and engage all four jaws for a stable hold. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Keep the capture tool aligned while approaching the target interface, then close four jaws and maintain the grip. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Capture the visible target interface with four jaws and hold it securely with a stable grip. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Reach the target capture interface with the arm, seat the gripper, and engage all four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Align and seat the capture gripper at the interface before securing the target with four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Use all four jaws of the capture gripper to establish and maintain a stable hold on the target interface. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Carefully align the capture arm with the visible interface and secure the target using four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Approach and grasp the capture interface, engage all four jaws, and maintain a stable hold. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "From the prepared stationary spacecraft configuration, reach the target capture interface, align the gripper, and secure all four jaws. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady.",
+      "Use the capture arm to align with the target interface, approach without unintended collisions, close four jaws, and maintain a stable hold. Then bring the captured target spacecraft and its workbench to the operating arm's prepared working position and hold it steady."
     ]
   }
 }

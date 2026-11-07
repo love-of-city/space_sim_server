@@ -14,6 +14,7 @@ TaskName = Literal[
     "drawer_cycle", "aviation_plug_insert", "guide_plug_insert",
     "cylindrical_plug_insert", "locking_rod_cycle", "aviation_bolt_insert",
     "drawer_open", "drawer_close", "locking_rod_fold", "locking_rod_restore",
+    "capture_target_grasp",
 ]
 TASK_CHOICES = tuple(TaskName.__args__)
 TASK_ALIASES = {"plug_insert": "cylindrical_plug_insert"}
@@ -21,7 +22,7 @@ DRAWER_TASKS = ("drawer_cycle", "drawer_open", "drawer_close")
 PLUG_TASKS = ("aviation_plug_insert", "guide_plug_insert", "cylindrical_plug_insert")
 LOCKING_ROD_TASKS = ("locking_rod_cycle", "locking_rod_fold", "locking_rod_restore")
 THREADED_TASKS = ("aviation_bolt_insert", *LOCKING_ROD_TASKS)
-SCRIPTED_TASK_CHOICES = (*DRAWER_TASKS, *PLUG_TASKS, *THREADED_TASKS, *TASK_ALIASES)
+SCRIPTED_TASK_CHOICES = (*DRAWER_TASKS, *PLUG_TASKS, *THREADED_TASKS, *TASK_ALIASES, "capture_target_grasp")
 RUNNER_TASK_CHOICES = ("drawer_lift", *SCRIPTED_TASK_CHOICES)
 # Product support is independent of the repository's full supported set and of
 # the tasks enabled in an individual batch. This declared product subset is
@@ -49,6 +50,10 @@ class TaskMetadata:
 
 
 _TASKS = (
+    TaskMetadata("capture_target_grasp", "近距四爪抓捕目标星", "四爪抓捕", "capture",
+                 "Capture the visible target interface securely with all four jaws, then bring the target spacecraft to the operating-arm working pose and hold it steady.",
+                 "双星初始相对静止；对准、接近、闭爪、稳定夹持，再以真实接触搬至操作位置。",
+                 default_duration_s=1200.0, template="sarm-dual-capture26"),
     TaskMetadata("drawer_cycle", "抽屉取出、放回与撤离", "抽屉往返", "drawer",
                  "Open the drawer approximately 8 cm, then close it fully and release it.",
                  "接近 → 抓取 → 抽出 → 放回 → 松爪 → 撤离。"),

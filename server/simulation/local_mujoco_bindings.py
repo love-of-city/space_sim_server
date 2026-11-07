@@ -59,6 +59,8 @@ def load_stepper_library():
     lib.lms_contact_detail.restype = ctypes.c_int
     lib.lms_body_detail.argtypes = [ctypes.c_void_p, ctypes.c_int, DOUBLE_P]
     lib.lms_body_detail.restype = ctypes.c_int
+    lib.lms_visual_ray.argtypes = [ctypes.c_void_p, DOUBLE_P, DOUBLE_P, DOUBLE_P]
+    lib.lms_visual_ray.restype = ctypes.c_int
     lib.lms_read_wrench.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, DOUBLE_P]
     lib.lms_momentum.argtypes = [ctypes.c_void_p, DOUBLE_P]
     lib.lms_set_body_wrench.argtypes = [ctypes.c_void_p, ctypes.c_int, DOUBLE_P, DOUBLE_P]

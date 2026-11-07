@@ -134,19 +134,23 @@ def submit_dynamics(command, mailbox, stop_file, launch, env):
     return EpisodeProcess(mailbox, command[2:], stop_file)
 
 
-def recording_settings(path=None):
+def recording_settings(path=None, task_name=None):
     settings = load_recording_config(path or ROOT / "config/recording.json")
     # This task's transport and acceptance contract require paired 50 Hz RGB.
+    cameras = CAMERAS
+    if task_name == 'capture_target_grasp':
+        from simulation.scripted_tasks.capture_cameras import CAMERAS as capture_cameras
+        cameras = capture_cameras
     if (settings.capture_rate_hz != DEFAULT_CAPTURE_HZ
-            or set(settings.camera_ids) != set(CAMERAS)
+            or set(settings.camera_ids) != set(cameras)
             or settings.capture_products != ["rgb"]):
-        raise ValueError("Scripted collection requires 50 Hz and both RGB cameras in config/recording.json")
+        raise ValueError("Scripted collection requires 50 Hz RGB and the task's selected cameras")
     return settings
 
 
 def task_recording_settings(settings, task_name, max_sim_seconds):
     """Size this isolated threaded recording without editing global settings."""
-    if task_name not in THREADED_TASKS:
+    if task_name not in THREADED_TASKS and task_name != 'capture_target_grasp':
         return settings, None
     required = math.ceil(max_sim_seconds * DEFAULT_CAPTURE_HZ) + 1
     if settings.max_frames >= required:
@@ -154,7 +158,7 @@ def task_recording_settings(settings, task_name, max_sim_seconds):
     original = settings.max_frames
     settings = type(settings).model_validate({**settings.model_dump(), "max_frames": required})
     return settings, dict(
-        reason="threaded_task_duration", original_max_frames=original,
+        reason=("capture_task_duration" if task_name == 'capture_target_grasp' else "threaded_task_duration"), original_max_frames=original,
         effective_max_frames=required, max_sim_seconds=max_sim_seconds,
         capture_rate_hz=DEFAULT_CAPTURE_HZ,
     )
@@ -162,7 +166,8 @@ def task_recording_settings(settings, task_name, max_sim_seconds):
 
 def scene_copy(source, task="drawer_lift"):
     scene = json.loads(source.read_text(encoding="utf-8-sig"))
-    if scene.get("template_id") != "sarm-task-box-20261012":
+    expected_template = 'sarm-dual-capture26' if task == 'capture_target_grasp' else 'sarm-task-box-20261012'
+    if scene.get("template_id") != expected_template:
         raise ValueError("Scripted task requires the SARM 2026-10-12 scene")
     runtime = scene.get("runtime", {})
     if scene.get("arm_preparation_required"):
@@ -311,7 +316,7 @@ def validate_episode(result):
     frames = result["dataset_frame_count"]
     if (
         frames <= 0
-        or result["capture_count"] != len(CAMERAS) * frames
+        or result["capture_count"] != len(result.get('dataset_camera_ids', CAMERAS)) * frames
         or result["step_count"] != frames
     ):
         raise RuntimeError("Camera/state frame counts do not match")
@@ -333,7 +338,7 @@ def freeze_plug_configuration(scene, task_name, target_site):
 def dynamics_command(args, out, scene_path, stop_file, catalog, source_model, settings):
     """Build the exact child command without starting or owning its process."""
     command = [
-        sys.executable,
+        os.environ.get('SPACE_SIM_DYNAMICS_PYTHON', sys.executable),
         str(ROOT / "collection/run_scripted_task.py"),
         "--task",
         args.task,
@@ -379,7 +384,9 @@ async def run(args):
     if (scene.get("collection_layout_randomization") or scene.get("task_box_layout")
             or saved_layout.get("enabled")) and getattr(args, "model", None) is None:
         raise ValueError("--model is required for a saved layout; pass its matching --catalog")
-    settings = recording_settings(getattr(args, "recording_config", None))
+    settings = (recording_settings(getattr(args, "recording_config", None), args.task)
+                if args.task == 'capture_target_grasp'
+                else recording_settings(getattr(args, "recording_config", None)))
     settings, frame_limit_override = task_recording_settings(
         settings, args.task, getattr(args, "max_sim_seconds", task_default_duration_s(args.task)))
     if getattr(args, "gpu_index", None) is not None:
@@ -402,6 +409,9 @@ async def run(args):
     project = args.adapter / "Unreal/BskUnrealRenderer"
     editor = unreal_editor(args.unreal)
     catalog = (getattr(args, "catalog", None) or project / "Saved/AssetImport/sarm_20261012.catalog.json").resolve()
+    if args.task == 'capture_target_grasp':
+        from simulation.scripted_tasks.capture_platform import verify_capture_render_assets
+        verify_capture_render_assets(args.adapter, catalog)
     for path in (editor, project / "BskUnrealRenderer.uproject", catalog):
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -440,8 +450,9 @@ async def run(args):
     renderer_report = renderer_report or out / "runtime-identity.json"
     from simulation.scripted_tasks.randomization import prepare_episode, write_model_variant
     prepare_episode(scene)
-    source_model = (getattr(args, "model", None) or ROOT / "model/SARM/platform/sarm_20261012.xml").resolve()
-    if getattr(args, "model", None) is not None:
+    default_model = 'sarm_dual_capture26.xml' if args.task == 'capture_target_grasp' else 'sarm_20261012.xml'
+    source_model = (getattr(args, "model", None) or ROOT / 'model/SARM/platform' / default_model).resolve()
+    if getattr(args, "model", None) is not None and args.task != 'capture_target_grasp':
         from simulation.capture_layout import validated_capture_layout
         placement = validated_capture_layout(source_model, catalog)
         scene["task_box_layout"] = placement
@@ -456,6 +467,9 @@ async def run(args):
     instruction = task_instruction(scene, args.task, args.target_site)
     scripted_metadata = task_metadata(scene, args.task, args.target_site, instruction)
     scene_path = out / "scene.json"
+    scene['render_environment'] = args.render_environment
+    if args.task == 'capture_target_grasp':
+        collection_config['physical_evidence_directory']=str(out/'dynamics')
     scene_path.write_text(
         json.dumps(scene, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -481,6 +495,7 @@ async def run(args):
     processes, logs = [], []
     simulation = None
     report = {
+        "render_environment": args.render_environment,
         "recording_settings": settings.model_dump(mode="json"),
         "source_scene": str(args.scene.resolve()),
         "scene_instance": scene,
@@ -593,7 +608,7 @@ async def run(args):
         info = await lifecycle.start(
             EpisodeStart(
                 fps=DEFAULT_CAPTURE_HZ,
-                camera_ids=CAMERAS,
+                camera_ids=settings.camera_ids,
                 capture_products=["rgb"],
                 max_frames=settings.max_frames,
                 task="scripted " + args.task,
@@ -770,6 +785,7 @@ def main(default_task="drawer_cycle"):
     parser.add_argument("--episodes-root", type=Path, default=ROOT / "data/episodes")
     parser.add_argument("--recording-config", type=Path, help="Override config/recording.json for an isolated run")
     parser.add_argument("--offline", action="store_true", help="Disable WebRTC and the unused offscreen viewport")
+    parser.add_argument('--render-environment', choices=('orbital', 'capture_workspace', 'platform_main'), default='orbital')
     parser.add_argument("--gpu-index", type=int)
     parser.add_argument("--external-renderer", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--renderer-runtime-report", type=Path, help=argparse.SUPPRESS)
@@ -814,7 +830,7 @@ def main(default_task="drawer_cycle"):
         not 0 <= args.warmup_seconds <= 60
         or not 0 <= args.warmup_sim_seconds <= 60
         or not 0 < args.timeout_seconds <= 7200
-        or not 0 < args.max_sim_seconds <= (1800 if args.task in THREADED_TASKS else 540)
+        or not 0 < args.max_sim_seconds <= (1800 if args.task in THREADED_TASKS or args.task == 'capture_target_grasp' else 540)
     ):
         parser.error("Invalid warmup, recording timeout or simulation duration")
     return asyncio.run(run(args))

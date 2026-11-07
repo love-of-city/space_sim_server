@@ -281,17 +281,17 @@
               "items": {
                 "type": "number"
               },
-              "maxItems": 8,
+              "maxItems": 12,
               "minItems": 6,
               "title": "Joint Position Rad",
               "type": "array",
-              "description": "Deprecated mixed-unit alias: legacy 6, or SARM 6 radians + 2 metres. Use explicit arm/gripper SI fields."
+              "description": "Deprecated mixed-unit alias: legacy 6, SARM 8, or capture12 (six arm hinges rad, axial m, cam rad, four jaw slides m). Capture12 requires matching canonical SI vectors."
             },
             "joint_velocity_rad_s": {
               "items": {
                 "type": "number"
               },
-              "maxItems": 8,
+              "maxItems": 12,
               "minItems": 6,
               "title": "Joint Velocity Rad S",
               "type": "array"
@@ -391,7 +391,7 @@
               "items": {
                 "type": "number"
               },
-              "maxItems": 8,
+              "maxItems": 12,
               "minItems": 6,
               "title": "Target Joint Position Rad",
               "type": "array"
@@ -792,6 +792,51 @@
                 }
               ],
               "default": null
+            },
+            "joint_position_si": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Joint Position Si"
+            },
+            "joint_velocity_si_s": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Joint Velocity Si S"
+            },
+            "target_joint_position_si": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Joint Position Si"
             }
           }
         },
@@ -826,6 +871,76 @@
                 "target_joint_position_rad": {
                   "minItems": 8,
                   "maxItems": 8
+                }
+              }
+            },
+            {
+              "required": [
+                "joint_position_si",
+                "joint_velocity_si_s",
+                "target_joint_position_si",
+                "arm_joint_position_rad",
+                "arm_joint_velocity_rad_s",
+                "target_arm_joint_position_rad",
+                "gripper_type"
+              ],
+              "properties": {
+                "joint_position_rad": {
+                  "type": "array",
+                  "minItems": 12,
+                  "maxItems": 12
+                },
+                "joint_velocity_rad_s": {
+                  "type": "array",
+                  "minItems": 12,
+                  "maxItems": 12
+                },
+                "target_joint_position_rad": {
+                  "type": "array",
+                  "minItems": 12,
+                  "maxItems": 12
+                },
+                "joint_position_si": {
+                  "type": "array",
+                  "minItems": 12,
+                  "maxItems": 12
+                },
+                "joint_velocity_si_s": {
+                  "type": "array",
+                  "minItems": 12,
+                  "maxItems": 12
+                },
+                "target_joint_position_si": {
+                  "type": "array",
+                  "minItems": 12,
+                  "maxItems": 12
+                },
+                "gripper_type": {
+                  "const": "capture26_four_jaw"
+                },
+                "arm_joint_position_rad": {
+                  "type": "array",
+                  "minItems": 6,
+                  "maxItems": 6
+                },
+                "arm_joint_velocity_rad_s": {
+                  "type": "array",
+                  "minItems": 6,
+                  "maxItems": 6
+                },
+                "target_arm_joint_position_rad": {
+                  "type": "array",
+                  "minItems": 6,
+                  "maxItems": 6
+                },
+                "gripper_position_m": {
+                  "type": "null"
+                },
+                "gripper_velocity_m_s": {
+                  "type": "null"
+                },
+                "target_gripper_position_m": {
+                  "type": "null"
                 }
               }
             }

@@ -23,14 +23,25 @@ def check_port_available(port):
 
 def renderer_command(args, output: Path):
     project = args.adapter / "Unreal/BskUnrealRenderer"
-    ensure_environment_level(args.adapter, args.unreal)
+    environment = getattr(args, 'render_environment', 'orbital')
+    if environment == 'capture_workspace':
+        environment_map = '/Engine/Maps/Entry'
+    elif environment == 'platform_main':
+        from simulation.scripted_tasks.capture_platform import verify_main_assets
+        verify_main_assets(args.adapter)
+        environment_map = '/Engine/Maps/Entry'
+    elif environment == 'orbital':
+        ensure_environment_level(args.adapter, args.unreal)
+        environment_map = ENVIRONMENT_MAP
+    else:
+        raise ValueError('unsupported recording render environment')
     # Linux capture hosts use the same persistent filesystem cache directly;
     # a broken Zen autolaunch otherwise adds ~21 s before falling back to it.
     ddc_graph = ("InstalledNoZenLocalFallback" if os.name != "nt"
                  else "InstalledDerivedDataBackendGraph")
     command = [
         str(unreal_editor(args.unreal)), str(project / "BskUnrealRenderer.uproject"),
-        ENVIRONMENT_MAP, "-game", "-RenderOffscreen", "-ForceRes", "-unattended", "-nosplash",
+        environment_map, "-game", "-RenderOffscreen", "-ForceRes", "-unattended", "-nosplash",
         f"-ResX={CAPTURE_CAMERA_WIDTH}", f"-ResY={CAPTURE_CAMERA_HEIGHT}",
         "-BskListen=127.0.0.1", f"-BskPort={args.render_port}",
         "-BskCaptureHost=127.0.0.1", f"-BskCapturePort={args.capture_port}",
@@ -40,6 +51,9 @@ def renderer_command(args, output: Path):
         f"-BskRuntimeReport={getattr(args, 'renderer_runtime_report', None) or output / 'runtime-identity.json'}",
     ]
     gpu = getattr(args, "gpu_index", None)
+    if environment == 'platform_main':
+        from simulation.scripted_tasks.capture_platform import RENDER_CONFIG
+        command.append(f'-BskConfig={RENDER_CONFIG}')
     if gpu is not None:
         command.append(f"-graphicsadapter={gpu}")
     if getattr(args, "offline", False):

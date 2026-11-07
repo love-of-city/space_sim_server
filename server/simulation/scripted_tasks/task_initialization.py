@@ -22,6 +22,14 @@ NOISE_DISABLED = {
 
 
 def randomized_scene(source, seed, half_range_deg=30.0, task_name="drawer_cycle", *, color_assignment=None):
+    if task_name == 'capture_target_grasp':
+        from .capture_grasp import VERSION
+        scene=deepcopy(source)
+        scene.update(seed=int(seed),scripted_task_name=task_name,arm_preparation_required=False)
+        scene['collection_config']=dict(task=task_name,task_version=VERSION,seed=int(seed),
+            initialization=deepcopy(scene['capture_initial_state']))
+        from .randomization import prepare_episode
+        return prepare_episode(scene)
     if not math.isfinite(half_range_deg) or not 0 <= half_range_deg <= 50:
         raise ValueError("initialization range must be finite and in [0,50] degrees")
     if not source.get("initialization_enabled", True):

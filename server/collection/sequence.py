@@ -40,7 +40,8 @@ class TaskConfig(BaseModel):
 class SequenceConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     schema_version: Literal['layout-sequence/1'] = Field(default='layout-sequence/1', alias='schema')
-    layout_pool: str
+    layout_pool: str | None = None
+    capture_initial_pool: str | None = None
     scene: str | None = None
     tasks: list[TaskConfig] = Field(default_factory=lambda: [
         TaskConfig(name=name, enabled=name != 'aviation_bolt_insert') for name in TASK_NAMES[:6]])
@@ -54,6 +55,7 @@ class SequenceConfig(BaseModel):
     recording_config: str = 'recording-veryfast.json'
     adapter: str | None = None
     unreal: str | None = None
+    render_environment: Literal['orbital', 'capture_workspace', 'platform_main'] = 'orbital'
     port_base: int = Field(default=24000, ge=1024, le=65532)
     gpu_index: int = Field(default=0, ge=0, le=255)
     warmup_seconds: float = Field(default=5., ge=0, le=60, allow_inf_nan=False)
@@ -75,6 +77,12 @@ class SequenceConfig(BaseModel):
             raise ValueError('Duplicate tasks are not allowed')
         if not all(math.isfinite(v) for v in self.baseline_joint_deg):
             raise ValueError('Baseline joints must be finite')
+        enabled=[t.name for t in self.tasks if t.enabled]
+        if 'capture_target_grasp' in enabled:
+            if enabled!=['capture_target_grasp'] or self.capture_initial_pool is None or self.layout_pool is not None:
+                raise ValueError('capture task uses its tested initial pool in a separate batch')
+        elif self.layout_pool is None or self.capture_initial_pool is not None:
+            raise ValueError('workbench tasks require a layout pool')
         return self
 
 
@@ -96,7 +104,7 @@ def load_config(path, *, frozen=False):
         # Truncating time_ns directly would repeat its low bits every ~2 seconds.
         stamp = str(time.time_ns()).encode('ascii')
         config.seed = int.from_bytes(hashlib.sha256(stamp).digest()[:4], 'big') & (2**31-1)
-    for name in ('layout_pool', 'scene', 'recording_config', 'adapter', 'unreal'):
+    for name in ('layout_pool', 'capture_initial_pool', 'scene', 'recording_config', 'adapter', 'unreal'):
         value = getattr(config, name)
         if value is not None:
             candidate = Path(value).expanduser()
@@ -141,6 +149,9 @@ def make_plan(config, pool):
 
 
 def source_scene(config):
+    if config.capture_initial_pool is not None:
+        from collection.capture_initial_pool import source_scene as capture_source
+        return capture_source(config.seed)
     if config.scene is not None:
         scene = json.loads(Path(config.scene).read_text(encoding='utf-8-sig'))
     else:
@@ -168,6 +179,8 @@ def source_scene(config):
 def prepare_layout(source, group, pool):
     model, catalog, placement, selection = pool.select_index(
         group['pool_index'], group['layout_seed'], stream=ORDER_STREAM)
+    if selection.get('schema')=='capture-initial-selection/1':
+        return dict(model=str(model),catalog=str(catalog),selection=selection)
     common = randomized_scene(source, group['layout_seed'], 0., 'drawer_cycle')
     return dict(model=str(model), catalog=str(catalog), placement=placement,
                 selection=selection, color_assignment=common['collection_config']['episode_color_assignment'],
@@ -175,6 +188,12 @@ def prepare_layout(source, group, pool):
 
 
 def prepare_task_scene(source, config, group, job, layout):
+    if job['task']=='capture_target_grasp':
+        baseline=deepcopy(source)
+        baseline['capture_initial_state']=deepcopy(layout['selection']['initial_state'])
+        scene=randomized_scene(baseline,job['seed'],0.,job['task'])
+        scene['collection_config']['capture_initial_selection']=deepcopy(layout['selection'])
+        return scene
     baseline = deepcopy(source)
     baseline['overview_camera_seed'] = layout['overview_camera_seed']
     scene = randomized_scene(baseline, job['seed'], config.range_deg, job['task'],
@@ -250,6 +269,7 @@ def run_attempt(config, source_path, output, group, job, layout, scene, session)
             '--count', '1', '--max-attempts', '1', '--seed', str(job['seed']),
             '--range-deg', str(config.range_deg), '--reuse-renderer', '--reuse-dynamics', '--offline',
             '--recording-config', config.recording_config, '--gpu-index', str(config.gpu_index),
+            '--render-environment', config.render_environment,
             '--dynamics-max-episodes', str(config.dynamics_max_episodes),
             '--dynamics-max-rss-mb', str(config.dynamics_max_rss_mb),
             '--warmup-seconds', str(config.warmup_seconds),
@@ -464,7 +484,11 @@ def main(argv=None):
         if args.layouts is not None:
             config = SequenceConfig.model_validate({**config.model_dump(by_alias=True),
                                                    'layouts_per_pass': args.layouts, 'layout_cycles': None})
-    pool = LayoutPool(config.layout_pool)  # Geometry/hash checks only; no task certification.
+    if config.capture_initial_pool is not None:
+        from collection.capture_initial_pool import CaptureInitialPool
+        pool=CaptureInitialPool(config.capture_initial_pool)
+    else:
+        pool = LayoutPool(config.layout_pool)  # Geometry/hash checks only; no task certification.
     plan = make_plan(config, pool)
     if args.resume:
         if json.loads((output/'plan.json').read_text()) != plan:
@@ -478,7 +502,7 @@ def main(argv=None):
                 raise ValueError('Frozen input changed: '+name)
     else:
         from collection.record_scripted_task import recording_settings
-        recording_settings(Path(config.recording_config))
+        recording_settings(Path(config.recording_config), 'capture_target_grasp' if config.capture_initial_pool else None)
         source = source_scene(config)
         output.mkdir(parents=True, exist_ok=False)
         atomic_json(output/'config.snapshot.json', config.model_dump(by_alias=True))

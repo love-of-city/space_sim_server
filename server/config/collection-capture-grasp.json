@@ -1,0 +1,22 @@
+{
+  "schema": "layout-sequence/1",
+  "capture_initial_pool": "/path/to/validated-capture-pool.json",
+  "tasks": [{"name": "capture_target_grasp", "enabled": true}],
+  "passes": 1,
+  "seed": 2026110795,
+  "recording_config": "recording-capture-grasp.json",
+  "adapter": "../../ue-adapter",
+  "unreal": "/path/to/UE_5.6",
+  "render_environment": "platform_main",
+  "port_base": 22460,
+  "gpu_index": 0,
+  "warmup_seconds": 5.0,
+  "reuse_warmup_seconds": 5.0,
+  "simulation_startup_timeout_seconds": 1800.0,
+  "task_wall_timeout_seconds": 2400.0,
+  "max_consecutive_runtime_failures": 3,
+  "minimum_free_disk_gib": 20.0,
+  "dynamics_max_episodes": 50,
+  "dynamics_max_rss_mb": 8192,
+  "threaded_speed_profile": "fast_collection"
+}

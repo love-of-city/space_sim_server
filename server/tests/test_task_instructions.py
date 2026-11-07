@@ -44,6 +44,8 @@ def test_all_twenty_variants_reach_recording_with_actual_colours(task):
             assert cfg["color_randomization"]["prompt_instruction"] == prompt
         elif task.startswith("drawer_"):
             assert "8 cm" in prompt and "drawer" in prompt
+        elif task == 'capture_target_grasp':
+            assert 'capture' in prompt.lower() and 'four' in prompt.lower()
         else:
             assert "fastener" in prompt and "clip" in prompt and "rod" in prompt
         # Serialized replay preserves the exact chosen wording and ID.

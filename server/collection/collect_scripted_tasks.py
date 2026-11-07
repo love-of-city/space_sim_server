@@ -119,6 +119,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
     parser.add_argument("--dynamics-max-episodes", type=int, default=4)
     parser.add_argument("--dynamics-max-rss-mb", type=int, default=8192)
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument('--render-environment', choices=('orbital', 'capture_workspace', 'platform_main'), default='orbital')
     parser.add_argument("--gpu-index", type=int)
     parser.add_argument("--warmup-seconds", type=float, default=5.0)
     parser.add_argument("--reuse-warmup-seconds", type=float, default=0.0)
@@ -181,7 +182,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
             continue
         check_port_available(port)
     from collection.record_scripted_task import recording_settings
-    recording_settings(args.recording_config)
+    recording_settings(args.recording_config, args.task)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     if args.cancel_file is None:
@@ -194,9 +195,9 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
     pool = LayoutPool(args.layout_pool) if args.layout_pool else None
     if source.get("collection_layout_randomization") and pool is None and not args.model:
         raise ValueError("Layout randomization requires --layout-pool; refusing fixed-layout fallback")
-    model = args.model or ROOT / "model/SARM/platform/sarm_20261012.xml"
+    model = args.model or ROOT / 'model/SARM/platform' / ('sarm_dual_capture26.xml' if args.task == 'capture_target_grasp' else 'sarm_20261012.xml')
     fixed_placement = None
-    if args.model and prepared_scene is None:
+    if args.model and prepared_scene is None and args.task != 'capture_target_grasp':
         from simulation.capture_layout import validated_capture_layout
         fixed_placement = validated_capture_layout(model, args.catalog)
     started = time.monotonic()
@@ -364,6 +365,7 @@ def main(default_task="drawer_cycle", argv=None, *, session=None, prepared_scene
                 entry["dynamics_worker_pid"] = dynamics.pid
                 entry["dynamics_worker_directory"] = str(dynamics.directory)
             command += ["--adapter", str(args.adapter), "--unreal", str(args.unreal)]
+            command += ['--render-environment', args.render_environment]
             if args.recording_config:
                 command += ["--recording-config", str(args.recording_config.resolve())]
             if args.cancel_file:

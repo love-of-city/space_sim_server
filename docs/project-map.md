@@ -1,5 +1,10 @@
 # SpaceSim 项目结构地图
 
+抓捕前半段的保存场景输入位于 `server/model/scene_library/original-root-v2/`，
+使用 `server/model/layout-package.json` 标记的可重定位模型根；批采示例为
+`server/config/collection-capture-grasp.json`。三路调试相机和最终训练相机的交接要求见
+[抓捕采集说明](../server/docs/capture-grasp-collection.md)。
+
 结构核查日期：2026-11-03。当前已完成任务配置/记录契约、采集验收、后端/网页、遥操作、Python原生绑定、渲染适配器与资产工具的职责整理；下文模块表反映当前实现。源码继续在 `src/space-sim/` 的稳定文件中迭代，退役实现由 Git 和整理前工作区快照保留。此次修改及验证范围见[代码整理实施报告](/home/spacesim-zmh/reports/code-reorganization-20261103-153614/REPORT.md)。
 
 2026-10-31 的 UE 工程改进已从 `chore/ue-engineering-20261031` 集成主目录，并在主目录重建 UE/native。其历史验收见[工程改进实施报告](/home/spacesim-zmh/reports/ue-engineering-implementation-20261031/REPORT.md)。后续批次及实时运行状态以仓库外 `WORKSPACE.md` 和各批次 `progress.json` 为准；目录整合不等于所有平台已完成交付认证。
@@ -80,6 +85,14 @@ src/space_sim_server/space_sim_UE_Adapter  -> ../space-sim/ue-adapter
 | `tools/release/` | 两类交付包的构建、启动器及测试源码 |
 
 ## server：平台和权威动力学
+
+双星相对静止的机械臂抓捕扩展沿用 `tools/collect.py`、`collection/sequence.py` 和原 LeRobot
+实时写入框架。初态准备工具为 `tools/prepare_capture_initial_pool.py`；任务模块位于
+`simulation/scripted_tasks/capture_{grasp,initialization,preflight,contact_audit,grasp_transport}.py`，
+运行与验收分别为 `collection/run_capture_grasp.py`、`validate_capture_grasp.py`，初态池为
+`collection/capture_initial_pool.py`。职责、单位与验收边界见[机械臂抓捕数采](../server/docs/capture-grasp-collection.md)。
+`server/tools/scan_capture_workspace.py` 按离散关节网格或 `--sampling-config` 连续随机候选
+检查视野与名义路径，输出位置覆盖证据；不录制数据，也不代替完整动力学抓捕。
 
 ```text
 server/
@@ -456,6 +469,12 @@ NullRHI Automation、packaged 资源加载、GPU 图像、五任务完整录制�
 命名与后续新增文件要求见 [命名规范](naming-conventions.md)。当前已有重复通用文件名、日期模型目录、大小写不一致和历史原型；按职责可区分，不等于已完成所有命名迁移。进一步移动或退役应在冻结当前采集依赖后单独实施。
 
 ### 独立操作任务
+
+静止双星抓捕与抓后搬运沿用同一批次/录制框架；任务控制位于
+`server/simulation/scripted_tasks/capture_grasp.py`，携带整星的私有几何规划
+位于 `capture_carry.py`，相机与初始化分别由 `capture_cameras.py`、
+`capture_initialization.py` 管理。输入输出、环境和验收边界见
+[抓捕与搬运采集](../server/docs/capture-grasp-collection.md)。
 
 `server/simulation/scripted_tasks/drawer_tasks.py` 注册抽屉完整循环及拉起/放回；`threaded_tasks.py` 注册航空螺栓、锁杆完整循环及放倒/复位。
 `server/simulation/model_preparation/drawer_task_initialization.py` 与 `threaded_task_initialization.py` 在录制前建立对应机构初态。

@@ -177,6 +177,13 @@ def _prepare_color_randomization(scene, cfg):
 
 def prepare_episode(scene):
     """Called once per attempted episode, before the recorder snapshots metadata."""
+    if scene.get('scripted_task_name',scene.get('collection_config',{}).get('task')) == 'capture_target_grasp':
+        from .instructions import prepare_instruction, STREAM
+        cfg = scene.setdefault('collection_config', {})
+        seed = int(scene.get('seed', 0))
+        selected = prepare_instruction(cfg, 'capture_target_grasp', seed, generator(seed, STREAM))
+        cfg['task_instruction'] = scene['scripted_task_instruction'] = selected['instruction']
+        return scene
     options = options_for_scene(scene)
     seed = int(scene.get("seed", 0))
     realized = {}
@@ -264,6 +271,9 @@ def write_model_variant(source, output, scene):
     Uniform mass scaling also scales inertia, preserving centers of mass. Original
     assets are referenced by absolute path; source files are never modified.
     """
+    if scene.get('scripted_task_name',scene.get('collection_config',{}).get('task')) == 'capture_target_grasp':
+        from simulation.model_preparation.capture_grasp_model import prepare_capture_model
+        return prepare_capture_model(source,output)
     source = Path(source).resolve()
     dynamics_enabled = options_for_scene(scene).dynamics.enabled
     task = scene.get('scripted_task_name', scene.get('collection_config', {}).get('task'))

@@ -1,0 +1,4 @@
+{
+  "schema": "layout-package/1",
+  "description": "Portable root for the saved capture handoff source model and its shared model dependencies."
+}

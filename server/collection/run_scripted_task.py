@@ -94,6 +94,9 @@ def default_target_state(model):
 
 
 def run(args, *, graph_cache=None, task_adapter=None):
+    if args.task == 'capture_target_grasp':
+        from collection.run_capture_grasp import run as run_capture
+        return run_capture(args, graph_cache=graph_cache)
     initialization_started = time.perf_counter()
     initialization_seconds = {}
     # Establish the production DLL load order. Never import Python mujoco here.
@@ -729,7 +732,7 @@ def main(default_task="drawer_lift", argv=None, *, graph_cache=None):
         and args.capture_stop_file
     ):
         parser.error("capture mode requires render port, catalog, scene, and stop file")
-    if args.model is not None and args.capture_control_port:
+    if args.model is not None and args.capture_control_port and args.task != 'capture_target_grasp':
         from simulation.capture_layout import validated_capture_layout
         try:
             layout = validated_capture_layout(args.model, args.catalog)

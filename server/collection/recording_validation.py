@@ -22,6 +22,17 @@ from collection.recorded_task_contracts import (
 CAMERAS = ("teleop/camera/spacecraft_overview", "teleop/camera/sarm_wrist_cam")
 
 
+def selected_camera_videos(episode, meta):
+    """Require exactly one stream for every selected camera in this episode."""
+    from space_arm_platform.lerobot_capture import camera_key
+    cameras = meta.get('dataset_camera_ids') or CAMERAS
+    expected = {'observation.images.'+camera_key(camera) for camera in cameras}
+    videos = list((Path(episode)/'lerobot/videos').rglob('*.mp4'))
+    assert len(videos) == len(cameras)
+    assert {path.relative_to(Path(episode)/'lerobot/videos').parts[0] for path in videos} == expected
+    return videos
+
+
 def validate_threaded_recording(steps, stages, task_name):
     """Reject missing physical operations even when an episode claims success."""
     import numpy as np
@@ -248,8 +259,9 @@ def validate_capture_manifest(episode, meta, steps):
     else:
         captures = [json.loads(line) for line in
                     (episode / "captures.jsonl").read_text(encoding="utf-8").splitlines()]
-    expected = {(camera, frame) for camera in CAMERAS for frame in by_frame}
-    assert len(captures) == len(expected) == len(CAMERAS) * len(steps)
+    cameras=meta.get('dataset_camera_ids') or CAMERAS
+    expected = {(camera, frame) for camera in cameras for frame in by_frame}
+    assert len(captures) == len(expected) == len(cameras) * len(steps)
     pairs = set()
     raw_images = meta.get("raw_camera_images_saved", True)  # Historical episodes saved copies.
     for capture in captures:
@@ -329,7 +341,10 @@ def validate_plug_recording(steps, stages, task_name):
 
 def validate_task_recording(steps, stages, task_name):
     """Apply one task contract regardless of the storage audit level."""
-    if task_name in THREADED_TASKS:
+    if task_name == 'capture_target_grasp':
+        from collection.validate_capture_grasp import validate_task_rows
+        validate_task_rows(steps,stages)
+    elif task_name in THREADED_TASKS:
         validate_threaded_recording(steps, stages, task_name)
     elif is_plug_task(task_name):
         validate_plug_recording(steps, stages, task_name)
@@ -363,8 +378,7 @@ def validate_recording_fast(episode, task_name):
     final = steps[-1]['scripted_task']
     assert final['result'] == 'success'
     validate_task_recording(steps, stages, task_name)
-    videos = list((episode/'lerobot/videos').rglob('*.mp4'))
-    assert len(videos) == 2
+    videos = selected_camera_videos(episode, meta)
     for path in videos:
         with av.open(str(path)) as video:
             stream = video.streams.video[0]
@@ -386,10 +400,11 @@ def validate_recording(episode, task_name="drawer_cycle"):
         (episode / "lerobot/meta/platform.json").read_text(encoding="utf-8")
     )
     assert meta["outcome"] == "success" and meta["dataset_status"] == "complete"
-    assert platform["schema"] == "space-arm-lerobot/2"
+    capture12=task_name=='capture_target_grasp'
+    assert platform['schema'] == ('space-arm-lerobot/capture12-1' if capture12 else 'space-arm-lerobot/2')
     for key in ("observation.state", "action"):
-        assert info["features"][key]["shape"] == [7]
-        assert info["features"][key]["names"][-1] == "gripper_opening_normalized"
+        assert info["features"][key]["shape"] == ([12] if capture12 else [7])
+        assert info["features"][key]["names"][-1] == ('jaw_slide_3_m' if capture12 else 'gripper_opening_normalized')
     compact = is_compact(episode)
     steps = list(read_observations(episode))
     validate_recorded_layout_model(meta, steps)
@@ -417,23 +432,18 @@ def validate_recording(episode, task_name="drawer_cycle"):
             stages.append(stage)
         np.testing.assert_allclose(
             row["observation.state"],
-            obs["joint_position_rad"][:6] + [obs["gripper_opening_normalized"]],
+            obs['joint_position_si'] if capture12 else obs["joint_position_rad"][:6] + [obs["gripper_opening_normalized"]],
             atol=1e-7,
         )
         np.testing.assert_allclose(
             row["action"],
-            obs["target_joint_position_rad"][:6]
+            obs['target_joint_position_si'] if capture12 else obs["target_joint_position_rad"][:6]
             + [obs["target_gripper_opening_normalized"]],
             atol=1e-7,
         )
-        np.testing.assert_allclose(
-            row["observation.raw_joint_position"], obs["joint_position_rad"], atol=1e-7
-        )
-        np.testing.assert_allclose(
-            row["observation.raw_target_joint_position"],
-            obs["target_joint_position_rad"],
-            atol=1e-7,
-        )
+        if not capture12:
+            np.testing.assert_allclose(row["observation.raw_joint_position"], obs["joint_position_rad"], atol=1e-7)
+            np.testing.assert_allclose(row["observation.raw_target_joint_position"], obs["target_joint_position_rad"], atol=1e-7)
         np.testing.assert_allclose(
             row["observation.wrist_wrench"],
             obs["wrist_wrench"]["force_n"] + obs["wrist_wrench"]["torque_nm"],
@@ -445,6 +455,9 @@ def validate_recording(episode, task_name="drawer_cycle"):
             assert json.loads(row["observation.platform_json"]) == obs
     final = steps[-1]["scripted_task"]
     validate_task_recording(steps, stages, task_name)
+    if capture12:
+        from collection.validate_capture_grasp import validate_physical_evidence
+        validate_physical_evidence(meta)
     high = platform.get("high_frequency_wrist_wrench")
     if meta["dataset_fps"] == 50:
         assert high and high["rate_hz"] == 200
@@ -476,8 +489,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
             for actual, original in zip(force_rows, expected):
                 assert all(actual[key] == value for key, value in original.items())
     capture_count = validate_capture_manifest(episode, meta, steps)
-    videos = list((episode / "lerobot/videos").rglob("*.mp4"))
-    assert len(videos) == 2
+    videos = selected_camera_videos(episode, meta)
     for path in videos:
         with av.open(str(path)) as video:
             stream = video.streams.video[0]
@@ -496,7 +508,7 @@ def validate_recording(episode, task_name="drawer_cycle"):
         raw_camera_images_saved=meta.get("raw_camera_images_saved", True),
         image_resolution=[1024, 1024],
         fps=meta["dataset_fps"],
-        state_action_dimensions=7,
+        state_action_dimensions=12 if capture12 else 7,
         stages=stages,
         final_task_state=final,
         all_source_rows_matched=True,

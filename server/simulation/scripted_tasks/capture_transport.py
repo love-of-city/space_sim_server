@@ -27,6 +27,9 @@ class ScriptedCaptureTransport:
         state_reader=None,
         disturbances=None,
         render_model_path=None,
+        wrench_sensor=WRIST_SENSOR,
+        visual_attachments=None,
+        vision_capture=None,
     ):
         from simulation.components.render import RenderComponent
         from simulation.components.observation import ObservationComponent
@@ -70,10 +73,12 @@ class ScriptedCaptureTransport:
                     "spacecraft_overview": "Spacecraft Overview",
                     "sarm_wrist_cam": "SARM Wrist Camera",
                 },
+                visual_attachments=visual_attachments,
+                vision_capture=vision_capture,
             )
             ctx.install([self.render])
             from simulation.wrench_sampling import install_wrench_sampler
-            self.wrench_sampler = install_wrench_sampler(ctx, self._sensor_sample if disturbances else None)
+            self.wrench_sampler = install_wrench_sampler(ctx, self._sensor_sample if disturbances else None, wrench_sensor)
             self.observation = ObservationComponent(self.render.bridge, self.snapshot)
             ctx.install([self.observation])
         except BaseException:

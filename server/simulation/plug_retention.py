@@ -126,6 +126,47 @@ def model_retention_sockets(model_path: Path, *, owned=False) -> dict[str, tuple
             sockets.append(RetentionSocket(name, seat, orientation,
                                             orientation @ np.diag([1., -1., -1.]), keyed=profile.keyed, owner_body=owner))
         result[profile.body] = tuple(sockets)
+
+    # The capture fixture carries one additional free body: the bolt already
+    # seated in the target spacecraft's storage hole.  It is deliberately not
+    # part of ``PLUG_PROFILES`` because the ordinary aviation-bolt task must
+    # still be able to unscrew and remove that bolt.  When the storage seat is
+    # owned by ``capture_target``, retain the bolt relative to that moving body
+    # using its authored initial pose.  This preserves the real model geometry
+    # and allows the bolt to follow the target during the carry stage.
+    if owned:
+        storage_site = "bolt_storage_hole"
+        bolt = root.find('./worldbody/body[@name="bolt"]')
+        if bolt is not None and bolt.find("freejoint") is not None:
+            try:
+                owner, _, seat_rotation = site_attachment(root, storage_site)
+            except ValueError:
+                owner = None
+            if owner == "capture_target":
+                owner_body = root.find(f'./worldbody/body[@name="{owner}"]')
+                if owner_body is None:
+                    raise ValueError(f"Missing owner body {owner} for {storage_site}")
+                position = np.fromstring(bolt.get("pos", "0 0 0"), sep=" ")
+                rotation = quaternion_wxyz_to_matrix(
+                    np.fromstring(bolt.get("quat", "1 0 0 0"), sep=" ")
+                )
+                owner_position = np.fromstring(owner_body.get("pos", "0 0 0"), sep=" ")
+                owner_rotation = quaternion_wxyz_to_matrix(
+                    np.fromstring(owner_body.get("quat", "1 0 0 0"), sep=" ")
+                )
+                if position.shape != (3,) or owner_position.shape != (3,):
+                    raise ValueError("Invalid bolt or target position")
+                result["bolt"] = (RetentionSocket(
+                    "bolt_initial",
+                    owner_rotation.T @ (position - owner_position),
+                    seat_rotation,
+                    owner_rotation.T @ rotation,
+                    initial=True,
+                    # A round threaded bolt may rotate around its own axis;
+                    # only its axis alignment is retained here.
+                    keyed=False,
+                    owner_body=owner,
+                ),)
     return result
 
 

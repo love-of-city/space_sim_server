@@ -1,8 +1,13 @@
 """Bounded differential IK and independent capture tool reference (no physics overrides)."""
 import math
+import os
 import xml.etree.ElementTree as ET
 import numpy as np
 from simulation.serial_chain_kinematics import SerialChainKinematics
+
+
+def unbounded_diagnostic_enabled():
+    return os.environ.get('SPACE_SIM_UNBOUNDED_DIAGNOSTIC', '').strip().lower() in {'1', 'true', 'yes'}
 
 INITIAL_JOINTS = [(f'bottom_link{i}', f'bottom_joint{i}', 0.) for i in range(1, 7)] + [
     ('axial_carriage', 'axial', .02), ('cam', 'cam_angle', math.pi/3),
@@ -42,23 +47,37 @@ class CaptureArmTarget:
         _, rotation = self.kinematics.forward(measured[:6])
         linear = np.asarray(action.get('end_effector_linear_velocity_body_m_s', [0.]*3))
         angular = np.asarray(action.get('end_effector_angular_velocity_body_rad_s', [0.]*3)) + rotation @ np.asarray(action.get('end_effector_angular_velocity_tool_rad_s', [0.]*3))
+        unbounded = unbounded_diagnostic_enabled()
         result = self.kinematics.inverse_velocity_ik_pose(measured[:6], np.r_[linear, angular],
-            joint_velocity_limits=np.full(6,.25), joint_position_min=self.lower[:6],
-            joint_position_max=self.upper[:6], dt=dt)
+            # The diagnostic path removes controller software caps. The MJCF
+            # joint ranges and native contact solver remain authoritative.
+            joint_velocity_limits=np.full(6, 1.e6 if unbounded else .25),
+            joint_position_min=None if unbounded else self.lower[:6],
+            joint_position_max=None if unbounded else self.upper[:6], dt=None if unbounded else dt)
         dq = result.joint_velocity_rad_s.copy()
         dq[5] += float(action.get('joint6_velocity_rad_s', 0))
-        dq = np.clip(dq, -.25, .25)
+        if not unbounded:
+            dq = np.clip(dq, -.25, .25)
         self.status = 'tracking' if np.linalg.norm(result.residual_twist) < .01 else 'limited_or_singular'
         # Bound reference lead to 3 degrees; do not integrate through a blocked arm.
         old = self.position.copy()
-        self.position[:6] = np.clip(self.position[:6] + dq*dt, measured[:6]-.05, measured[:6]+.05)
-        self.position[6] += np.clip(action.get('capture_axial_velocity_m_s',0),-.003,.003)*dt
-        radial_rate = np.clip(action.get('capture_radial_velocity_m_s',0),-.003,.003)
+        if unbounded:
+            self.position[:6] += dq*dt
+        else:
+            self.position[:6] = np.clip(self.position[:6] + dq*dt, measured[:6]-.05, measured[:6]+.05)
+        axial_rate = float(action.get('capture_axial_velocity_m_s', 0))
+        self.position[6] += (axial_rate if unbounded else np.clip(axial_rate, -.003, .003))*dt
+        radial_rate = float(action.get('capture_radial_velocity_m_s', 0))
+        if not unbounded:
+            radial_rate = np.clip(radial_rate, -.003, .003)
         if radial_rate != 0:
-            radial = np.clip(float(np.mean(self.position[8:])) + radial_rate*dt,-.012,0)
+            radial = float(np.mean(self.position[8:])) + radial_rate*dt
+            if not unbounded:
+                radial = np.clip(radial, -.012, 0)
             self.position[8:] = radial
             self.position[7] = -radial/.012*(math.pi/3)
-        self.position = np.clip(self.position, self.lower, self.upper)
+        if not unbounded:
+            self.position = np.clip(self.position, self.lower, self.upper)
         self.velocity = (self.position-old)/dt
         return self.position.copy(), self.velocity.copy()
 

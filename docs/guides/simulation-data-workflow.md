@@ -9,6 +9,7 @@
 | 全流程阶段、交接、异常处理、变更影响 | 本文 |
 | 模型加载、轨道/局部动力学、物理参数、单位与坐标 | [物理模型与配置](../reference/physics-model-configuration.md) |
 | 各入口配置优先级、种子、采样、录制、复用与资源预算 | [采集配置参考](../reference/collection-configuration.md) |
+| 相对静止双星抓捕、可行初态、capture12 单位与物理验收 | [机械臂抓捕数采](../../server/docs/capture-grasp-collection.md) |
 | 六类任务版本、完成阈值、录制验证、状态语义 | [任务与数据验收](../reference/task-and-data-acceptance.md) |
 | 尚缺哪些标准、怎样补齐和判定完成 | [验证缺口与补齐条件](../reference/simulation-validation-gaps.md) |
 | 每个新批次如何写清任务目标和验收约定 | [任务对齐记录模板](../templates/collection-task-contract.md) |

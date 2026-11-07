@@ -71,6 +71,9 @@ class LiveLeRobotWriter:
         profile = opening_profile(observation.gripper_type)
         state = list(observation.joint_position_rad)
         action = list(observation.target_joint_position_rad)
+        capture12 = observation.gripper_type == 'capture26_four_jaw'
+        if capture12:
+            state, action = list(observation.joint_position_si), list(observation.target_joint_position_si)
         if profile is not None:
             state = state[:6] + [observation.gripper_opening_normalized]
             action = action[:6] + [observation.target_gripper_opening_normalized]
@@ -138,6 +141,9 @@ class LiveLeRobotWriter:
                     features[name] = {"dtype": dtype, "shape": value.shape, "names": None}
             n = len(observation.joint_position_rad)
             names = [f"joint_{i + 1}_rad" for i in range(6)] + (["finger_1_m", "finger_2_m"] if n == 8 else [])
+            if capture12:
+                names = [f'bottom_joint{i}_rad' for i in range(1,7)] + ['axial_m','cam_angle_rad'] + [f'jaw_slide_{i}_m' for i in range(4)]
+                features['observation.joint_velocity']['names'] = [name+'_s' for name in names]
             if profile is not None:
                 raw_names = [f"joint_{i+1}_rad" for i in range(6)] + ["ee_link11_joint_rad", "ee_link12_joint_rad"]
                 names = [f"joint_{i+1}_rad" for i in range(6)] + ["gripper_opening_normalized"]
@@ -172,7 +178,7 @@ class LiveLeRobotWriter:
                 self.dataset._streaming_encoder.gpu_index = self.video_encoding.gpu_index
             # Explicit semantics alongside (not masquerading as) official metadata.
             (self.root / "meta" / "platform.json").write_text(json.dumps({
-                "schema": "space-arm-lerobot/2" if profile is not None else "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "sarm_ee",
+                "schema": "space-arm-lerobot/capture12-1" if capture12 else "space-arm-lerobot/2" if profile is not None else "space-arm-lerobot/1", "body_frame": "cubesat_bus", "tool_site": "grip_frame" if capture12 else "sarm_ee",
                 "action_semantics": ('six held arm servo targets in radians plus target normalized gripper opening; not newest API command'
                                      if profile is not None else 'joint servo target held at the observation time; six radians plus two finger metres'),
                 "state_semantics": ("six measured arm angles in radians plus measured normalized gripper opening"
@@ -190,6 +196,15 @@ class LiveLeRobotWriter:
                 "sidecars": {"context": "auxiliary/context", "cameras": "auxiliary/cameras"} if self.sidecars else {},
                 "request": self.request.model_dump(mode="json"),
             }, ensure_ascii=False, indent=2), encoding="utf-8")
+            if capture12:
+                metadata_path = self.root/'meta/platform.json'
+                metadata = json.loads(metadata_path.read_text())
+                metadata.update(action_semantics='12 held capture servo targets in the named SI units',
+                    state_semantics='12 measured capture joint coordinates in the named SI units',
+                    joint_velocity_semantics='12 measured joint velocities; rad/s for hinges, m/s for slides',
+                    joint_names=names, joint_units=['rad']*6+['m','rad']+['m']*4,
+                    privileged_target_truth_in_policy_features=False)
+                metadata_path.write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
         self.wrench_stream.append(observation)
         self.dataset.add_frame(frame)
         if self.sidecars:

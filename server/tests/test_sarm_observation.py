@@ -86,7 +86,8 @@ def test_schema_and_backend_agree_on_sarm_shapes_and_fields():
             assert properties[key].get(constraint) == source['properties'][key].get(constraint)
     assert schema['$defs']['ReactionWheelObservation'] == source['$defs']['ReactionWheelObservation']
     assert schema['$defs']['WrenchObservation'] == source['$defs']['WrenchObservation']
-    assert len(schema['$defs']['observation']['allOf'][2]['oneOf']) == 2
+    layouts = schema['$defs']['observation']['allOf'][2]['oneOf']
+    assert {layout['properties']['joint_position_rad']['minItems'] for layout in layouts} == {6, 8, 12}
 
 
 def test_real_hub_accepts_repeated_sarm_frames_and_records_wheels(tmp_path):

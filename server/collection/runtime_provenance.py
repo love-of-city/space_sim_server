@@ -24,6 +24,7 @@ SOURCE_DIRECTORIES = ("backend", "collection", "simulation", "native", "config",
                       "third_party/mujoco/include")
 SOURCE_SUFFIXES = {".py", ".cpp", ".h", ".hpp", ".c", ".json", ".toml", ".yaml", ".yml"}
 RUNTIME_ENVIRONMENT = (
+    "SPACE_SIM_DYNAMICS_PYTHON",
     "SPACE_SIM_DYNAMICS_BACKEND", "SPACE_SIM_EXTRA_EOM_CALL", "SPACE_SIM_IK_MODE",
     "SPACE_SIM_LOCAL_PUBLISH_STRIDE", "SPACE_SIM_LOCAL_SUBSTEPS", "SPACE_SIM_ONLINE_ELBOW_MODE",
     "SPACE_SIM_ONLINE_JOINT3_MODE", "SPACE_SIM_ONLINE_WRIST_MODE", "SPACE_SIM_ORBITAL_FORCE_STRIDE",
@@ -118,8 +119,14 @@ def native_identity(server=ROOT):
 
 
 def environment_identity():
-    distributions = sorted((d.metadata.get("Name", "").lower(), d.version)
-                           for d in importlib.metadata.distributions())
+    # ``importlib.metadata`` walks every entry on ``sys.path``.  The
+    # collector and its recording child intentionally prepend the same
+    # source directories, so an editable distribution can otherwise appear
+    # multiple times and make the runtime fingerprint differ between the two
+    # processes.  Package identity is the normalized name/version pair; keep
+    # one record per pair.
+    distributions = sorted({(d.metadata.get("Name", "").lower(), d.version)
+                            for d in importlib.metadata.distributions()})
     native_packages = {}
     for name in ("bsk", "mujoco", "numpy"):
         try:

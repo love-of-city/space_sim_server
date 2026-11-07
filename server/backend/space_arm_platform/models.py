@@ -249,9 +249,13 @@ class SimulationObservation(BaseModel):
     sim_time_ns: str
     wall_time_ns: str
     applied_action_sequence: str
-    joint_position_rad: list[FiniteFloat] = Field(min_length=6, max_length=8)
-    joint_velocity_rad_s: list[FiniteFloat] = Field(min_length=6, max_length=8)
-    target_joint_position_rad: list[FiniteFloat] = Field(min_length=6, max_length=8)
+    joint_position_rad: list[FiniteFloat] = Field(min_length=6, max_length=12)
+    joint_velocity_rad_s: list[FiniteFloat] = Field(min_length=6, max_length=12)
+    target_joint_position_rad: list[FiniteFloat] = Field(min_length=6, max_length=12)
+    # Capture12 canonical SI vectors; legacy *_rad aliases retain wire compatibility.
+    joint_position_si: list[FiniteFloat] | None = None
+    joint_velocity_si_s: list[FiniteFloat] | None = None
+    target_joint_position_si: list[FiniteFloat] | None = None
     end_effector_position_body_m: list[float] = Field(default_factory=lambda: [0.0] * 3, min_length=3, max_length=3)
     end_effector_orientation_body_wxyz: list[float] = Field(default_factory=lambda: [1.0, 0.0, 0.0, 0.0], min_length=4, max_length=4)
     end_effector_twist_body: list[float] = Field(default_factory=lambda: [0.0] * 6, min_length=6, max_length=6)
@@ -343,22 +347,30 @@ class SimulationObservation(BaseModel):
 
     @model_validator(mode="after")
     def validate_joint_layout(self):
-        """Accept legacy six or SARM eight, but never seven/mismatched arrays."""
+        """Accept legacy six, SARM eight or capture twelve with matching SI fields."""
         if self.service_gyro and int(self.service_gyro.sample_time_ns) > int(self.sim_time_ns):
             raise ValueError("gyro sample cannot be newer than its observation")
         if self.wrist_wrench and int(self.wrist_wrench.interval_end_time_ns) != int(self.sim_time_ns):
             raise ValueError("wrench interval must end at the authoritative observation time")
         count = len(self.joint_position_rad)
-        if count not in (6, 8) or any(len(v) != count for v in (
+        if count not in (6, 8, 12) or any(len(v) != count for v in (
             self.joint_velocity_rad_s, self.target_joint_position_rad
         )):
-            raise ValueError("joint arrays must have the same length: legacy 6 or SARM 8")
+            raise ValueError("joint arrays must have the same length: legacy 6, SARM 8 or capture12")
         pairs = (
             (self.arm_joint_position_rad, self.gripper_position_m, self.joint_position_rad),
             (self.arm_joint_velocity_rad_s, self.gripper_velocity_m_s, self.joint_velocity_rad_s),
             (self.target_arm_joint_position_rad, self.target_gripper_position_m, self.target_joint_position_rad),
         )
-        if self.gripper_type == 'four_bar_tendon':
+        if self.gripper_type == 'capture26_four_jaw':
+            canonical = (self.joint_position_si,self.joint_velocity_si_s,self.target_joint_position_si)
+            if count != 12 or any(si != legacy for si, (_, _, legacy) in zip(canonical,pairs)):
+                raise ValueError('capture12 requires complete canonical SI vectors matching wire aliases')
+            if any(arm != legacy[:6] or fingers is not None for arm,fingers,legacy in pairs):
+                raise ValueError('capture12 has six arm hinges, axial slide, cam and four jaw slides')
+        elif count == 12:
+            raise ValueError('twelve coordinates require capture26_four_jaw schema')
+        elif self.gripper_type == 'four_bar_tendon':
             drives = (self.gripper_drive_position_rad, self.gripper_drive_velocity_rad_s, self.target_gripper_drive_position_rad)
             if count != 8 or any(fingers is not None for _, fingers, _ in pairs):
                 raise ValueError('linkage observations use radians, never slider metre fields')

@@ -20,6 +20,7 @@ CONTEXT_FIELDS = (
     "dynamics_rate_hz", "scripted_task_rate_hz", "wrist_wrench_rate_hz",
     "observation_source", "ground_truth", "joint_measurement_time_ns",
     "joint_measurement_age_ns",
+    "gripper_type", "joint_position_si", "joint_velocity_si_s", "target_joint_position_si",
 )
 
 

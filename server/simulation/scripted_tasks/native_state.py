@@ -9,6 +9,39 @@ from simulation.scripted_tasks.plug_profiles import PLUG_PROFILES
 from simulation.scripted_tasks.threaded_tasks import THREADED_TASKS, LOCKING_ROD_TASKS
 
 
+class CaptureState:
+    """Capture-interface pose and twist in the moving service-body frame.
+
+    Like PlugState, free-joint linear rates are world expressed and angular
+    rates are body expressed. Include both rotation of the service frame and
+    the target-origin-to-interface lever arm; common orbital speed cancels.
+    """
+
+    def __init__(self, scene, stepper):
+        self.stepper = stepper
+        self.base = scene.getBody('cubesat_bus').getFreeJoint()
+        self.target = scene.getBody('capture_target').getFreeJoint()
+
+    def interface(self):
+        from .capture_grasp import INTERFACE_CENTER, TARGET_FROM_INTERFACE
+        base = self.stepper.body_detail('cubesat_bus')
+        target = self.stepper.body_detail('capture_target')
+        rb = quaternion_wxyz_to_matrix(base[3:7])
+        rt = quaternion_wxyz_to_matrix(target[3:7])
+        rotation = rb.T @ rt
+        offset = rotation @ INTERFACE_CENTER
+        position = rb.T @ (target[:3] - base[:3]) + offset
+        bv, tv = self.base.getQvelAdr(), self.target.getQvelAdr()
+        rates = self.stepper.qvel
+        base_omega = rates[bv + 3:bv + 6]
+        target_omega = rotation @ rates[tv + 3:tv + 6]
+        omega = target_omega - base_omega
+        velocity = (rb.T @ (rates[tv:tv + 3] - rates[bv:bv + 3])
+                    - _cross3(base_omega, position)
+                    + _cross3(target_omega, offset))
+        return position, rotation @ TARGET_FROM_INTERFACE, velocity, omega
+
+
 class DrawerState:
     def __init__(self, task, scene, stepper):
         self.task, self.stepper = task, stepper

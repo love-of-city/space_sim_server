@@ -80,6 +80,8 @@ struct Api {
     const char* (*id2name)(const mjModel*, int, int);
     void (*contactForce)(const mjModel*, const mjData*, int, mjtNum*);
     void (*objectVelocity)(const mjModel*, const mjData*, int, int, mjtNum*, int);
+    mjtNum (*ray)(const mjModel*, const mjData*, const mjtNum*, const mjtNum*,
+                 const mjtByte*, mjtByte, int, int*, mjtNum*);
 };
 
 struct AxialFriction {
@@ -595,7 +597,8 @@ API void* lms_create_cached(const RuntimePathChar* runtime_path, const char* xml
               resolve(module, "mj_name2id", a.name2id) &&
               resolve(module, "mj_id2name", a.id2name) &&
               resolve(module, "mj_contactForce", a.contactForce) &&
-              resolve(module, "mj_objectVelocity", a.objectVelocity);
+              resolve(module, "mj_objectVelocity", a.objectVelocity) &&
+              resolve(module, "mj_ray", a.ray);
 #ifndef _WIN32
     dlclose(module);  // Balance NOLOAD's reference; Basilisk retains its own.
 #endif
@@ -845,6 +848,21 @@ API int lms_get_state(void* handle, double* qpos, double* qvel) {
     if (!s || !qpos || !qvel) return ERR_ARGUMENT;
     std::memcpy(qpos, s->d->qpos, sizeof(mjtNum) * s->m->nq);
     std::memcpy(qvel, s->d->qvel, sizeof(mjtNum) * s->m->nv);
+    return OK;
+}
+
+// Read-only visibility against rendered geom groups, including own-arm occlusion.
+// out = first-hit distance [m], geom id; -1 distance means no hit.
+API int lms_visual_ray(void* handle, const double* start, const double* direction, double* out) {
+    auto* s = static_cast<Stepper*>(handle);
+    if (!s || !start || !direction || !out || !finite(start,3) || !finite(direction,3)) return ERR_ARGUMENT;
+    double length = std::sqrt(direction[0]*direction[0]+direction[1]*direction[1]+direction[2]*direction[2]);
+    if (length < 1e-12) return ERR_ARGUMENT;
+    mjtNum unit[3] = {direction[0]/length,direction[1]/length,direction[2]/length};
+    mjtByte groups[6] = {1,1,1,0,0,0};
+    int geom = -1;
+    out[0] = s->api.ray(s->m,s->d,start,unit,groups,1,-1,&geom,nullptr);
+    out[1] = geom;
     return OK;
 }
 

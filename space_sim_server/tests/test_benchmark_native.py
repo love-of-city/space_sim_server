@@ -133,6 +133,153 @@ print('complete capture model, native actuators, mount readback and reset match 
     assert 'complete capture model, native actuators' in result.stdout
 
 
+def test_native_capture_arm_commands_match_original_servos_with_readback_and_reset(tmp_path):
+    # Full original model in its authored zero-gravity layout. This proves
+    # native arm/encoder/effort wiring, not orbital flight or a successful grasp.
+    code = r'''
+import hashlib
+import json
+import sys
+from pathlib import Path
+import numpy as np
+from Basilisk.architecture import messaging, sysModel
+from Basilisk.simulation import mujoco
+from Basilisk.utilities import SimulationBaseClass
+from simulation.benchmark_capture_model import prepare_capture_model, verify_capture_model
+from simulation.benchmark_capture_arm_runtime import NativeCaptureArm
+from simulation.capture_arm_target import CaptureArmTarget, INITIAL_JOINTS
+from simulation.joint_reference_publisher import HeldJointReferencePublisher
+from simulation.local_mujoco_stepper import LocalMujocoStepper
+from simulation.mujoco_plugins import ensure_model_plugins
+from simulation.physics_ports import PhysicsPorts
+from space_arm_platform.benchmark_capture_arm import CaptureArmCommand
+
+folder = Path(sys.argv[1])
+folder.mkdir()
+model,files,manifest = prepare_capture_model(Path.cwd(),folder/'model')
+plugin = ensure_model_plugins(model)
+assert plugin and plugin['plugin_sha256']
+epoch = 8_000_000_000_000
+
+def run(mode):
+    sim = SimulationBaseClass.SimBaseClass()
+    process = sim.CreateNewProcess('captureArmNativePorts')
+    process.addTask(sim.CreateNewTask('physics',2_500_000))
+    process.addTask(sim.CreateNewTask('sceneInit',10**18))
+    scene = mujoco.MJScene.fromFile(str(model),files=files)
+    sim.AddModelToTask('sceneInit',scene)
+    core = LocalMujocoStepper(scene,model,[],substeps=1,publish_every=1,model_from_memory=True)
+    ports = PhysicsPorts(scene,stepper=core)
+    if mode == 'original':
+        target = CaptureArmTarget(model)
+        positions = [ports.joint_state(joint).addSubscriber() for _,joint,_ in INITIAL_JOINTS]
+        original_command = dict(deadman=True,active_arm='capture',arm_preparation=False,
+            joint6_velocity_rad_s=.1,capture_axial_velocity_m_s=-.003,capture_radial_velocity_m_s=.003)
+        def reference(seconds):
+            if seconds == 0:
+                return target.position.copy(),np.zeros(12)
+            return target.step(.0025,original_command,round(seconds*1e9)>=200_000_000,
+                               np.array([reader().state for reader in positions]))
+        publisher = HeldJointReferencePublisher(reference,12)
+        for index,row in enumerate(manifest['capture_joints']):
+            ports.drive_servo(row['actuator'],publisher.positionOutMsgs[index],publisher.velocityOutMsgs[index],
+                owner='original_capture_servos',joint=row['joint'],kp=row['kp'],kd=row['kd'],limit=row['effort_limit'])
+        arm = None
+    else:
+        arm = NativeCaptureArm(ports,model,repository=Path.cwd(),episode_id=mode,epoch_ns=epoch)
+        publisher = arm.publisher
+    neutral = messaging.SingleActuatorMsg().write(messaging.SingleActuatorMsgPayload(input=0.),0)
+    capture_names = {row['actuator'] for row in manifest['capture_joints']}
+    for name in core.actuator_names:
+        if name not in capture_names:
+            ports.drive_actuator(name,neutral,owner='explicit_passive_other_actuators')
+    sim.AddModelToTask('physics',publisher,11999)
+    sim.AddModelToTask('physics',core,1000)
+    class Observer(sysModel.SysModel):
+        def __init__(self):
+            super().__init__()
+            self.ModelTag = 'captureArmPrivateEvidence'
+            self.digest = hashlib.sha256()
+            self.samples = 0
+            self.receipts = []
+        def UpdateState(self,now):
+            values = np.r_[core.qpos,core.qvel,core.actuator_force]
+            assert np.isfinite(values).all()
+            self.digest.update(values.tobytes())
+            self.samples += 1
+            if mode in {'observed','reset'}:
+                receipt = arm.evidence(epoch+int(now))
+                assert receipt['native_step_count'] == now//2_500_000
+                assert receipt['external_state_writes'] == 0
+                if now:
+                    assert receipt['reference']['encoder_sample_time_ns'] == epoch+now-2_500_000
+                    for row,channel in zip(receipt['effort'],manifest['capture_joints'],strict=True):
+                        assert abs(row['applied_native']) <= channel['effort_limit']+1e-9
+                    if now >= 200_000_000:
+                        assert not receipt['reference']['command_fresh']
+                        assert receipt['reference']['velocity_si_s'] == (0.,)*12
+                else:
+                    assert receipt['effort'] is None
+                self.receipts.append(receipt)
+                assert np.array_equal(values,np.r_[core.qpos,core.qvel,core.actuator_force])
+    observer = Observer()
+    sim.AddModelToTask('physics',observer,0)
+    try:
+        sim.InitializeSimulation()
+        sim.disableTask('sceneInit')
+        for row in manifest['capture_joints']:
+            joint = scene.getBody(row['body']).getScalarJoint(row['joint'])
+            joint.setPosition(row['initial_reference'])
+            joint.setVelocity(0.)
+        sim.ConfigureStopTime(0)
+        sim.ExecuteSimulation()
+        if arm is not None and mode != 'no_command':
+            arm.submit(CaptureArmCommand(enabled=True,joint6_velocity_rad_s=.1,
+                axial_velocity_m_s=-.003,radial_velocity_m_s=.003),epoch)
+        sim.ConfigureStopTime(600_000_000)
+        sim.ExecuteSimulation()
+        assert core.step_count == 240 and observer.samples == 241 and core.external_writes == 0
+        if mode != 'no_command':
+            joint6 = float(ports.joint_state('bottom_joint6').read().state)
+            assert abs(joint6) > 1e-5
+        result = dict(trajectory_sha256=observer.digest.hexdigest(),samples=observer.samples,
+            model_xml_sha256=core.model_xml_sha256,receipts=observer.receipts)
+    finally:
+        core.close()
+    if arm is not None:
+        try: arm.encoders.sample(epoch+600_000_000)
+        except ValueError as error: assert 'closed' in str(error)
+        else: raise AssertionError('closed capture runtime accepted')
+    return result
+
+original = run('original')
+plain = run('plain')
+observed = run('observed')
+reset = run('reset')
+no_command = run('no_command')
+assert original['trajectory_sha256'] == plain['trajectory_sha256'] == observed['trajectory_sha256'] == reset['trajectory_sha256']
+assert no_command['trajectory_sha256'] != original['trajectory_sha256']
+for first,again in zip(observed['receipts'],reset['receipts'],strict=True):
+    first['episode_id'] = again['episode_id'] = 'comparison'
+    first['encoders']['episode_id'] = again['encoders']['episode_id'] = 'comparison'
+    assert first == again
+held = [row['reference']['position_si'] for row in observed['receipts'] if row['physics_time_ns'] >= 200_000_000]
+assert held and all(row == held[0] for row in held)
+assert verify_capture_model(Path.cwd(),model.parent) == manifest
+(folder/'receipt.json').write_text(json.dumps(dict(
+    scope='full model capture-arm actuation/encoder/effort component; no orbital/GPU/grasp acceptance',
+    model_xml_sha256=manifest['generated_sha256'],plugin_sha256=plugin['plugin_sha256'],
+    original_trajectory_sha256=original['trajectory_sha256'],no_command_trajectory_sha256=no_command['trajectory_sha256'],
+    original_physical_parity=True,readonly_parity=True,reset_parity=True,native_samples=241,
+    receipts=observed['receipts']),indent=2)+'\n',encoding='utf-8')
+print('native capture commands, fresh encoders, original servo parity, expiry, readback and reset verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'capture-arm-runtime')],
+        cwd=SERVER, capture_output=True, text=True, timeout=900)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native capture commands, fresh encoders' in result.stdout
+
+
 def test_native_articulated_camera_mount_reads_fresh_origins_without_changing_motion(tmp_path):
     # A revolute metrology fixture with an offset COM, not a grasp task or a
     # rendered image. Rendering acceptance remains a separate GPU check.

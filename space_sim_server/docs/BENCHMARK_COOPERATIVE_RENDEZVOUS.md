@@ -17,4 +17,24 @@ python tools/autonomy_benchmark.py run d19-gnss-cooperative-rendezvous-v1 --seed
 python tools/autonomy_benchmark.py batch d19-gnss-cooperative-rendezvous-v1 --split test --output run/d19-test
 ```
 
-训练/验证种子分别为 1–3 / 101–103，测试划分为 201–210；本次 P2 验收预先固定使用 201–203，另外七个不计入本次验收分母。当前已实现任务、评分、对照及原工作台入口；原生训练、冻结矩阵、复位、取消和网页验收待完成。配置注册不表示验收通过。
+训练/验证种子分别为 1–3 / 101–103，测试划分为 201–210；本次 P2 验收预先固定使用 201–203，另外七个不计入本次验收分母。
+
+源码 `67c9558a2cb773d91e34d4db970bfcfe6bff48e8` 在独立云端工作树完成完整生命周期验收。三个冻结种子全部成功，Wilson 95% 区间为 43.85%–100%；训练和对照不计入这三个样本。任务指纹为 `8ccbefd95d2dd5411dc38137f1051ae186c703882693ac21408fc8d81201ed1a`。
+
+| 种子 | 初始/最终距离 m | 实际缩短 m | 连续共同机动 s | 各星实际推力积分 N·s | 连续到达保持 s |
+|---|---|---|---|---|---|
+| 201 | 595.1601 / 150.0329 | 445.1272 | 451.0 | 268.1938 / 268.1938 | 20.48 |
+| 202 | 597.4441 / 150.0081 | 447.4360 | 451.0 | 270.0029 / 270.0029 | 20.46 |
+| 203 | 601.3742 / 150.0358 | 451.3383 | 450.5 | 270.5802 / 270.5802 | 20.10 |
+
+三回合于 462.0–462.5 s 结束。单边施力对照虽然连续保持 57.98 s、最终构型误差仅 0.02347 m，仍因第 0 星实际推力为零且没有共同机动判为 `task_failure`。零推力在 500 s 失败，危险推力在 68 s 因相对速度超限安全否决。外部方法的完整物理轨迹与内置方法一致，冻结批次恢复及公开数据集回读通过。
+
+原生复位、M02 轨迹回归、CLI 取消、原工作台实际浏览器操作、离线复算和下载全部完成。最终审计重新评分七个冻结测试/对照/外部回合，58 个冻结文件的字节和修改时间保持不变，源码始终冻结。证据在本人云端工作树 `benchmark-fault-v1-20261107/.tmp/`：
+
+- 训练/原生复位：`benchmark-cooperative-training-v1/acceptance.json`，SHA-256 `b53bb35cb4fb9646f32ab0bbcf09da7dcc6c6a5b1366a7115331836d0218607d`。
+- 冻结矩阵及对照：`benchmark-cooperative-frozen-v1/acceptance.json`，SHA-256 `ad675a1352c0bdcdf15d42daffe22b15d98c32ae2826def517ca284a54bb61c2`。
+- 取消：`benchmark-cooperative-cancel-v1/acceptance.json`，SHA-256 `2a11b0bb8bd133e66da109d5d5261761d1d46e8cbdac9b5cecc9ee405a6ae957`。
+- 原工作台：`benchmark-cooperative-platform-v1/acceptance.json`，SHA-256 `2ab7fad1bee0135a03081f8c03eb58f6b902ebbc17fc17d101f95c11e73fa6b8`。
+- 完整生命周期：`benchmark-cooperative-lifecycle-v1/acceptance.json`，SHA-256 `a4baaa49c396a782a2302737137687a11aa2c654769cf8088986441e6c93e212`。
+
+该有限 P2 配置已验收；合作双星、集中决策、GNSS 和理想推力执行边界保持不变。它不证明分布式协同、视觉对接或完整 122 项产品已完成。

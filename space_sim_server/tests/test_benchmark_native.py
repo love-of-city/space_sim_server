@@ -18,6 +18,116 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_native_capture_contact_audit_is_readonly_and_replays_solver_samples(tmp_path):
+    # A fixed zero-gravity force metrology fixture, not spacecraft capture.
+    # The four independent sliders physically press a fixed target via native
+    # contacts. This checks the audit/readback path; full SARM grasp is separate.
+    code = r'''
+import hashlib
+import json
+import sys
+from pathlib import Path
+import numpy as np
+from Basilisk.architecture import messaging, sysModel
+from Basilisk.simulation import mujoco
+from Basilisk.utilities import SimulationBaseClass
+from simulation.local_mujoco_stepper import LocalMujocoStepper
+from simulation.capture_audit import CaptureAudit
+from simulation.capture_contact_evidence import score_capture_contacts
+
+folder = Path(sys.argv[1])
+folder.mkdir()
+model = folder/'force-metrology.xml'
+jaws = ''.join(f'<body name="jaw_{i}" pos="{x} {y} .0399">'
+    f'<joint name="jaw_slide_{i}" type="slide" axis="0 0 1"/>'
+    f'<geom name="jaw_geom_{i}" type="sphere" size=".01" mass=".1"/></body>'
+    for i,(x,y) in enumerate(((-.03,-.03),(-.03,.03),(.03,-.03),(.03,.03))))
+motors = ''.join(f'<motor name="jaw_motor_{i}" joint="jaw_slide_{i}" ctrllimited="true" ctrlrange="-2 2"/>' for i in range(4))
+model.write_text('<mujoco model="contact_metrology_only"><compiler angle="radian"/>'
+    '<option timestep=".0025" gravity="0 0 0" integrator="implicitfast"/>'
+    '<worldbody><body name="cubesat_bus"><geom name="bus" type="box" size=".1 .1 .01" '
+    'mass="10" contype="0" conaffinity="0"/><body name="gripper">'+jaws+'</body></body>'
+    '<body name="capture_target" pos="0 0 .06"><geom name="capture_x_piece_0" type="box" '
+    'size=".1 .1 .01" mass="1"/></body></worldbody><actuator>'+motors+'</actuator></mujoco>',encoding='utf-8')
+
+def run(name, effort, record):
+    out = folder/name
+    out.mkdir()
+    sim = SimulationBaseClass.SimBaseClass()
+    process = sim.CreateNewProcess('contactProcess')
+    process.addTask(sim.CreateNewTask('contactTask',2_500_000))
+    process.addTask(sim.CreateNewTask('sceneInit',10**18))
+    scene = mujoco.MJScene.fromFile(str(model))
+    sim.AddModelToTask('sceneInit',scene)
+    messages = []
+    for index in range(4):
+        message = messaging.SingleActuatorMsg()
+        message.write(messaging.SingleActuatorMsgPayload(input=effort),0)
+        scene.getSingleActuator(f'jaw_motor_{index}').actuatorInMsg.subscribeTo(message)
+        messages.append(message)
+    core = LocalMujocoStepper(scene,model,[],substeps=1,publish_every=1)
+    sim.AddModelToTask('contactTask',core,1000)
+    audit = CaptureAudit(model,core,output_path=out/'contacts.jsonl') if record else None
+    class Observer(sysModel.SysModel):
+        def __init__(self):
+            super().__init__()
+            self.ModelTag = 'readOnlyContactMetrology'
+            self.hash = hashlib.sha256()
+            self.samples = 0
+        def UpdateState(self,now):
+            # Exercise the same COMMAND-before-PHYSICS ordering as capture26.
+            if core._last_nanos is None:
+                return
+            before = np.r_[core.qpos,core.qvel,core.actuator_force].copy()
+            if audit:
+                audit.record(8000.+int(now)*1e-9,'deliberately_not_success',np.zeros(12))
+                assert np.array_equal(before,np.r_[core.qpos,core.qvel,core.actuator_force])
+            self.hash.update(before.tobytes())
+            self.samples += 1
+    observer = Observer()
+    sim.AddModelToTask('contactTask',observer,9000)
+    try:
+        sim.InitializeSimulation()
+        sim.ConfigureStopTime(22_000_000_000)
+        sim.ExecuteSimulation()
+        assert core.external_writes == 0 and core.step_count == 8800
+        assert observer.samples == 8800
+        assert np.isfinite(core.qpos).all() and np.isfinite(core.qvel).all()
+        fingerprint = observer.hash.hexdigest()
+    finally:
+        if audit:
+            audit.file.close()
+            audit.force_file.close()
+        core.close()
+    if not audit:
+        return fingerprint,None
+    raw,manifest = out/'contacts_force.jsonl',out/'contacts_manifest.json'
+    retained = {p:(hashlib.sha256(p.read_bytes()).hexdigest(),p.stat().st_mtime_ns) for p in (raw,manifest,model)}
+    score = score_capture_contacts(raw,model,manifest)
+    assert score['sample_count'] == 8800
+    assert score['absolute_to_physics_offset_ns'] == 8_000_002_500_000
+    assert not score['evidence_errors'] and not score['safety_violations']
+    assert retained == {p:(hashlib.sha256(p.read_bytes()).hexdigest(),p.stat().st_mtime_ns) for p in retained}
+    assert len((out/'contacts.jsonl').read_text().splitlines()) == 1
+    (out/'score.json').write_text(json.dumps(score,indent=2)+'\n',encoding='utf-8')
+    return fingerprint,score
+
+plain,_ = run('without-audit',1.25,False)
+recorded,positive = run('with-audit',1.25,True)
+assert plain == recorded  # Every original qpos/qvel/actuator sample is bit-identical.
+assert positive['physical_hold_passed'] and positive['longest_hold_s'] >= 20.
+assert positive['final_contact_metrics']['jaw_support_count'] == 4
+assert abs(positive['final_contact_metrics']['jaw_force_n']-5.) < .01
+_,negative = run('zero-effort',0.,True)
+assert not negative['physical_hold_passed'] and negative['longest_hold_s'] == 0.
+print('native contact metrology, read-only trajectory parity, late epoch and negative control verified')
+'''
+    result = subprocess.run([sys.executable, '-c', code, str(tmp_path/'contact-metrology')],
+        cwd=SERVER, capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert 'native contact metrology' in result.stdout
+
+
 def test_native_momentum_unload_external_torque_changes_bus_and_reset_restores_all_actuators(tmp_path):
     code = r'''
 import sys

@@ -34,10 +34,17 @@ def append_lighting_receipt(root, result, images, metadata):
 def score_work_lights(folder, handoff, config):
     """Check actual per-image lamps and cover every visual result consumed by control."""
     folder = Path(folder)
-    identity = handoff.get('navigation', {}).get('vision_identity')
+    navigation = handoff.get('navigation')
+    if (not isinstance(navigation, dict) or navigation.get('schema') != 'space-sim-pose-navigation/1'
+            or not isinstance(navigation.get('configuration'), dict) or 'vision_identity' in navigation):
+        return dict(passed=False, errors=['missing_or_invalid_navigation_snapshot'], pairs=0)
+    # PoseNavigation.snapshot stores the bound identity in its configuration.
+    # Reading a fabricated top-level field rejects every real mission snapshot
+    # before checking even one actual renderer receipt.
+    identity = navigation['configuration'].get('vision_identity')
     if (not isinstance(identity, (list, tuple)) or len(identity) != 3
             or not all(isinstance(value, str) and value for value in identity)
-            or (identity[0], identity[2]) != (handoff['mission_id'], handoff['calibration_id'])):
+            or (identity[0], identity[2]) != (handoff.get('mission_id'), handoff.get('calibration_id'))):
         return dict(passed=False, errors=['missing_or_mismatched_navigation_vision_identity'], pairs=0)
     identity = tuple(identity)
     session = identity[1]

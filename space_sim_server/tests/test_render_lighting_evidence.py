@@ -1,9 +1,12 @@
 """A ready-file or requested lamp cannot stand in for actual sampled renderer evidence."""
 from copy import deepcopy
+import hashlib
 import json
 
+import numpy as np
 import pytest
 
+from simulation.pose_navigation import PoseNavigation
 from space_arm_platform.render_lighting_evidence import (
     append_lighting_receipt, score_work_lights, session_directory,
 )
@@ -21,13 +24,18 @@ def fixture():
     metadata = {eye: dict(session_id='s', camera_id=camera, source_frame_id='10',
         sim_time_ns='100000000', state_kind='authoritative', camera_work_lights=[deepcopy(lamp)])
         for eye, camera in config['camera_ids'].items()}
-    handoff = dict(mission_id='m', calibration_id='c', navigation=dict(vision_identity=['m', 's', 'c']))
+    # Use the production snapshot, not a hand-built shape that can agree with
+    # an incorrect reader while failing every real mission handoff.
+    navigation = PoseNavigation(np.zeros((2, 3)), np.zeros((2, 3)), [np.eye(3)]*2,
+        np.eye(24), vision_identity=('m', 's', 'c')).snapshot()
+    handoff = dict(mission_id='m', calibration_id='c', navigation=navigation)
     return config, result, metadata, handoff
 
 
 @pytest.mark.parametrize('damage', [None, 'off', 'wrong_unit', 'wrong_power', 'wrong_mount',
     'additional_lamp', 'missing_native_field', 'wrong_session', 'wrong_frame', 'changed_rgb',
-    'missing_consumed_frame', 'duplicate_receipt', 'unbound_navigation'])
+    'missing_consumed_frame', 'duplicate_receipt', 'unbound_navigation', 'wrong_snapshot_schema',
+    'flat_only_identity', 'shadow_identity', 'wrong_mission', 'wrong_calibration'])
 def test_lighting_audit_checks_actual_lamp_and_every_consumed_image(tmp_path, damage):
     config, result, metadata, handoff = fixture()
     camera = metadata['right']
@@ -49,7 +57,17 @@ def test_lighting_audit_checks_actual_lamp_and_every_consumed_image(tmp_path, da
     elif damage == 'wrong_frame':
         camera['source_frame_id'] = '9'
     elif damage == 'unbound_navigation':
-        handoff['navigation']['vision_identity'] = ['m', 'other', 'c']
+        handoff['navigation']['configuration']['vision_identity'] = ['m', 'other', 'c']
+    elif damage == 'wrong_snapshot_schema':
+        handoff['navigation']['schema'] = 'unrecognized'
+    elif damage == 'flat_only_identity':
+        handoff['navigation']['vision_identity'] = handoff['navigation']['configuration'].pop('vision_identity')
+    elif damage == 'shadow_identity':
+        handoff['navigation']['vision_identity'] = ['m', 's', 'c']
+    elif damage == 'wrong_mission':
+        handoff['mission_id'] = 'another-mission'
+    elif damage == 'wrong_calibration':
+        handoff['calibration_id'] = 'another-calibration'
     service = StereoVisionService(tmp_path, config=config, estimator=lambda *_: None)
     service.evidence_dir = tmp_path/'vision-evidence'
     service._save_evidence(result, b'left', b'right', metadata)
@@ -61,7 +79,10 @@ def test_lighting_audit_checks_actual_lamp_and_every_consumed_image(tmp_path, da
         append_lighting_receipt(service.evidence_dir, result, dict(left=b'left', right=b'right'), metadata)
     if damage == 'changed_rgb':
         (service.evidence_dir/'s/first_pair/right.png').write_bytes(b'substituted')
+    files = [path for path in tmp_path.rglob('*') if path.is_file()]
+    preserved = {path: (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns) for path in files}
     audit = score_work_lights(tmp_path, handoff, config)
+    assert preserved == {path: (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns) for path in files}
     assert audit['passed'] == (damage is None), audit
     if damage is None:
         assert audit['pairs'] == audit['consumed_frames'] == 1 and audit['saved_pairs'] == 3

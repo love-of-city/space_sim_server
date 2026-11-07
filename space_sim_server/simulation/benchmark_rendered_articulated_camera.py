@@ -29,10 +29,16 @@ class ArticulatedRenderedCameraSensor(RenderedCameraSensor):
             raise ValueError('articulated renderer XML must match the actually loaded native model')
         self._mounts = self._receipts = None
         super().__init__(environment, cameras, warmup_wall_s=warmup_wall_s)
+
+    def _start(self, warmup_wall_s):
+        # The base constructor guards this entire startup with close(). Keep
+        # metadata I/O inside that guard so disk errors also release owned UE.
+        super()._start(warmup_wall_s)
+        environment = self.environment
         write_json(self.output/'moving_mount.json', dict(
             schema_version='spacesim-autonomy-mounted-renderer/1',
             model_xml_sha256=environment._stepper.model_xml_sha256,
-            episode_id=environment.episode_id, epoch_ns=epoch_ns,
+            episode_id=environment.episode_id, epoch_ns=self.sequence.epoch_ns,
             sampling_period_ns=self.sequence.period_ns,
             reference='actual native named-body origin at exposure; not assembly COM or fixed bus',
             public_inputs='image bytes and fixed nominal camera calibration; no runtime transforms',
